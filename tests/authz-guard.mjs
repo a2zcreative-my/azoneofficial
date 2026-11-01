@@ -58,7 +58,13 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
        CEO accounts stay the super admin's; COO, CCO and Admin accounts are
        the super admin's and the VERIFIED company owner's (exec_accounts),
        never the Admin account's. Checked below as well. */
-    [/if \(!canManageAccount\(user, target\.role\)\)[\s\S]{0,200}Only the company owner or the super admin can modify/, "PATCH /users/:id does not protect executive targets"],
+    /* v1.249.2 (the owner, 01-11-2026) - the one exception is a ROLE-ONLY
+       change the owner may grant (Super Admin, CEO); a password, suspension
+       or anything folded in still needs canManageAccount. Proven at runtime
+       in tests/owner-access.mjs ("a super admin's password stays the super
+       admin's", "...even folded into a role change"). */
+    [/if \(!canManageAccount\(user, target\.role\) && !\(roleOnly && mayGrant\(user, target\.role\)\)\)[\s\S]{0,200}Only the company owner or the super admin can modify/, "PATCH /users/:id does not protect executive targets"],
+    [/const roleOnly = roleAsked && Object\.keys\(body\)\.every\(\(k\) => \["role", "reason", "totp"\]\.includes\(k\)\);/, "PATCH /users/:id lets more than a role change past the executive-target check"],
     [/PROTECTED_ROLES\.includes\(String\(body\.role \?\? ""\)\)/, "PATCH /users/:id does not protect executive role GRANTS"],
     [/if \(!canManageAccount\(user, target\.role\)\)[\s\S]{0,200}offboarded by the company owner or the super admin/, "the offboard route does not protect executive targets"],
   ];

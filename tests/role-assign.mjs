@@ -75,7 +75,8 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
   ok("every other role sits behind its own door", /if \(r === "super_admin" \|\| r === "ceo"\) return "super_only";/.test(perms)
     && /if \(r === "admin"\) return "tech_admin_grant";/.test(perms) && /if \(r === "coo" \|\| r === "cco" \|\| r === "customer" \|\| r === "agent"\) return "role_any";/.test(perms));
   ok("an executive ROLE may assign only the working roles - the other doors are the super admin's (and the verified owner's by grant)",
-    /role_any: \["super_admin"\],/.test(perms) && /tech_admin_grant: \["super_admin"\],/.test(perms) && /if \(d === "super_only"\) return actor\.role === "super_admin";/.test(perms));
+    /role_any: \["super_admin"\],/.test(perms) && /tech_admin_grant: \["super_admin"\],/.test(perms) && /if \(d === "super_only"\) return allows\(actor, "role_top"\);/.test(perms) && /role_top: \["super_admin"\],/.test(perms)
+    && /\{ cap: "role_top", rule: "super_admin_only"/.test(perms)); // v1.249.2 - Super Admin and CEO: the super admin, and the owner by grant only (a locked cell)
   ok("an executive may not touch an executive, customer or admin account - both the old and the new role are checked", /for \(const r of \[target\.role, to\]\) \{\s*if \(mayGrant\(actor, r\)\) continue;/.test(perms));
   ok("a super admin account is never touched on this route", /if \(target\.role === "super_admin"\) \{\s*return err\("forbidden", "Super admin accounts are managed by the super admin in \/admin only"/.test(route));
   ok("nobody else gets in", /if \(!rule\.ok\) return err\(rule\.code, rule\.message, rule\.status\);/.test(route));

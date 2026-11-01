@@ -5877,7 +5877,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/users" && method === "POST") {
     if (!atLeast(user, "admin")) return errorResponse("forbidden", "Admin role required", 403);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"]; // v1.249.2 - agent (0164) was offered in /admin but refused here
     const isPartTimeAliasC = body?.role === "live_host_part_time"; // v1.4.180
     const roleWantedC = isPartTimeAliasC ? "live_host" : (typeof body?.role === "string" ? body.role : "");
     if (
@@ -5900,8 +5900,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     /* v1.236.0 - the company owner may create COO, CCO and Admin accounts
        (authenticator code and a reason); super admin and CEO accounts are
        the super admin's alone (permissions.ts mayGrant). */
-    if (PROTECTED_ROLES.includes(roleWantedC) && !mayGrant(user, roleWantedC)) {
-      return errorResponse("forbidden", `Only the super admin can create a ${roleWantedC} account`, 403);
+    if ((PROTECTED_ROLES.includes(roleWantedC) || roleWantedC === "agent") && !mayGrant(user, roleWantedC)) { // v1.249.2 - an Agent account is the owner's to create (roleDoor role_any)
+      return errorResponse("forbidden", `Only the company owner or the super admin can create a ${roleWantedC} account`, 403);
     }
     if (PROTECTED_ROLES.includes(roleWantedC)) {
       const su = await ownerStepUp(env, user, body, `create a ${roleWantedC} account`, true);
@@ -5974,11 +5974,23 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     /* v1.236.0 - canManageAccount / roleChangeRule (permissions.ts) are the
        one rule: the company owner manages COO, CCO and Admin accounts; super
        admin and CEO accounts stay the super admin's. */
-    if (!canManageAccount(user, target.role)) {
+    /* v1.249.2 (the owner, 01-11-2026; his answers: the owner gives and takes
+       Super Admin and CEO too; in /admin only he and the super admin change
+       roles). A ROLE change on this door is the super admin's or the verified
+       owner's - nobody else's, whatever the matrix says (the COO keeps the
+       working roles in the portal). A role-only change may reach a Super
+       Admin or CEO account when mayGrant allows the owner; their password,
+       sign-in and suspension stay the super admin's (canManageAccount). */
+    const roleAsked = typeof body.role === "string" && body.role !== "";
+    if (roleAsked && user.role !== "super_admin" && !(user.role === "ceo" && user.is_owner === true)) {
+      return errorResponse("forbidden", "In /admin only the company owner or the super admin changes roles", 403);
+    }
+    const roleOnly = roleAsked && Object.keys(body).every((k) => ["role", "reason", "totp"].includes(k));
+    if (!canManageAccount(user, target.role) && !(roleOnly && mayGrant(user, target.role))) {
       return errorResponse("forbidden", "Only the company owner or the super admin can modify an executive or admin-tier account", 403);
     }
     if (PROTECTED_ROLES.includes(String(body.role ?? "")) && !mayGrant(user, String(body.role))) {
-      return errorResponse("forbidden", "Only the super admin can grant this role", 403);
+      return errorResponse("forbidden", "Only the company owner or the super admin can grant this role", 403);
     }
     if (String(user.id) === id && typeof body.role === "string" && body.role !== user.role) {
       return errorResponse("invalid_input", "You cannot change your own role", 400);
@@ -5992,7 +6004,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (target.role === "super_admin" && losesAccess && await lastRecoveryAdmin(env, Number(id))) {
       return errorResponse("last_recovery_admin", "This is the last active super admin with 2FA - add another before removing it", 409);
     }
-    const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "customer"];
+    const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"]; // v1.249.2 - agent (0164) was offered in /admin but refused here
     const changed: string[] = [];
 
     /* v1.4.180 (CEO: "I cant manually assigned staff roles based on Google

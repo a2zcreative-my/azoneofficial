@@ -89,7 +89,7 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
      owner's authenticator code. */
   const superAdmin = role === "super_admin";
   const canEdit = superAdmin || owner;
-  const ROLE_OPTIONS = ["customer", "agent", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "admin", ...(superAdmin ? ["ceo"] : [])]; // v1.249.0 - agent (the owner gives it)
+  const ROLE_OPTIONS = ["customer", "agent", "live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "admin", "ceo"]; // v1.249.0 - agent (the owner gives it); v1.249.2 - the owner gives the CEO role too (Super Admin: /admin > Users)
   const PRIVILEGED = ["customer", "cco", "coo", "admin", "ceo"];
   const { prompt, node: promptNode } = usePrompt();
   const EMP_OPTIONS = ["permanent", "contract", "part_time", "probation"];
@@ -396,8 +396,8 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
                   </p>
                   <p className={css.sub}>
                     {owner && !superAdmin
-                      ? L("As the company owner you change any staff role here - executive, customer and Admin changes ask for a reason and your authenticator code. The CEO role and super admin accounts stay with the super admin.",
-                          "Sebagai pemilik syarikat anda menukar sebarang peranan kakitangan di sini - perubahan eksekutif, pelanggan dan Admin memerlukan sebab dan kod pengesah anda. Peranan CEO dan akaun super admin kekal dengan super admin.")
+                      ? <>{L("As the company owner you change any staff role here, CEO included - executive, customer and Admin changes ask for a reason and your authenticator code. Super Admin is given and taken in ",
+                          "Sebagai pemilik syarikat anda menukar sebarang peranan kakitangan di sini, termasuk CEO - perubahan eksekutif, pelanggan dan Admin memerlukan sebab dan kod pengesah anda. Super Admin diberi dan ditarik di ")}<Link href="/admin" className={css.link}>/admin › {L("Users", "Pengguna")}</Link>.</>
                       : canEdit
                       ? L("Change role sets the account's role and employment status — part-time staff are not OT-eligible. Passwords and deactivation stay in /admin.",
                           "Tukar peranan menetapkan peranan dan status pekerjaan akaun — kakitangan separuh masa tidak layak OT. Kata laluan dan penyahaktifan kekal di /admin.")

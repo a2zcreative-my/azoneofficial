@@ -254,6 +254,13 @@ export const PERMS: Record<string, readonly Role[]> = {
   backup_download: ["super_admin"],
   /** name, change or clear the company owner - the recovery procedure */
   owner_designate: ["super_admin"],
+  /** v1.249.2 (the owner, 01-11-2026: "for CEO I want in the user I can update
+      roles like super_admin in /admin ... Only me as CEO can do this with
+      Super_Admin"; asked, he chose Super Admin AND CEO) - give or take the
+      Super Admin and CEO roles. The super admin by role, the verified company
+      owner by OWNER_GRANTS; a locked cell, so no matrix edit hands it to
+      anyone else. Code + reason, never on your own account. */
+  role_top: ["super_admin"],
   /** read the full system audit log (was atLeast(user, "admin") - the same three roles) */
   audit_read: ["super_admin", "admin", "ceo"],
 
@@ -322,6 +329,7 @@ export function cleanOverrides(raw: unknown): Record<string, Role[]> {
    a record written before this release cannot grant them either. */
 export const LOCKED_CELLS: readonly { cap: keyof typeof PERMS; rule: "super_admin_only" | "super_admin_keeps"; why: string }[] = [
   { cap: "owner_designate", rule: "super_admin_only", why: "Naming the owner is the recovery procedure: super admin only, always." },
+  { cap: "role_top", rule: "super_admin_only", why: "The Super Admin and CEO roles: the super admin, and the company owner by grant - never anyone else through the matrix." },
   { cap: "backup_download", rule: "super_admin_only", why: "The backup holds password hashes and 2FA secrets: super admin only, always." },
   { cap: "exec_view", rule: "super_admin_keeps", why: "The super admin always keeps the executive view - the one account that reviews everything cannot be blinded." },
 ];
@@ -352,7 +360,7 @@ export function rolesFor(perm: keyof typeof PERMS): readonly Role[] { return OVE
    is_owner - nothing a person can type into a profile). The owner's answers:
    "One designated owner"; "Admin role only" (super admin accounts and the
    ceo role stay with the super admin); roles stay code-defined. */
-export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery"];
+export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery", "role_top"];
 
 /* v1.236.0 - every capability the super admin holds and the CEO does not
    must be in OWNER_GRANTS or here, with the reason, or the build fails
@@ -388,7 +396,7 @@ export function roleDoor(r: string): keyof typeof PERMS | "super_only" {
 /** May this actor give someone `role` (or take it from them)? */
 export function mayGrant(actor: Actor, role: string): boolean {
   const d = roleDoor(role);
-  if (d === "super_only") return actor.role === "super_admin";
+  if (d === "super_only") return allows(actor, "role_top"); // v1.249.2 - the super admin, or the verified owner
   if (d === "role_assign") return actor.role === "super_admin" || allows(actor, "role_assign");
   return allows(actor, d);
 }
@@ -413,7 +421,7 @@ export function roleChangeRule(actor: Actor & { id: number }, target: { id: numb
     if (mayGrant(actor, r)) continue;
     const d = roleDoor(r);
     return { ok: false, status: 403, code: "forbidden", message:
-      d === "super_only" ? (r === "ceo" ? "The CEO role is given or taken only by the super admin (the company owner recovery procedure)" : "Super admin accounts are managed by the super admin only")
+      d === "super_only" ? (r === "ceo" ? "The CEO role is given or taken only by the company owner or the super admin" : "The Super Admin role is given or taken only by the company owner or the super admin")
       : d === "tech_admin_grant" ? "Only the company owner or the super admin grants or revokes technical admin access"
       : d === "role_any" ? "Executive and customer accounts can only be re-assigned by the company owner or the system super admin"
       : "Only the CEO, the COO or the system super admin can change a staff role - this keeps sign-ups from ever escalating themselves" };
@@ -512,13 +520,14 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "ELFIA Store", key: "elfia_publish", en: "Publish, price, discount, bulk changes, Update the shop now", ms: "Terbit, harga, diskaun, perubahan pukal, Kemas kini kedai", cap: "elfia_publish" },
   { module: "ELFIA Store", key: "elfia_content", en: "Descriptions, collections and photos", ms: "Penerangan, koleksi dan foto", cap: "inventory" },
   { module: "Users", key: "role_any", en: "Assign and revoke COO, CCO, Agent and customer roles", ms: "Tetapkan dan tarik balik peranan COO, CCO, Ejen dan pelanggan", cap: "role_any", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
+  { module: "Users", key: "role_top", en: "Give and take the Super Admin and CEO roles (/admin > Users)", ms: "Beri dan tarik peranan Super Admin dan CEO (/admin > Pengguna)", cap: "role_top", note_en: "Authenticator code and a reason; never your own; the last super admin with 2FA stays", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri; super admin terakhir dengan 2FA kekal" },
   { module: "Users", key: "exec_accounts", en: "Create, edit, reset, offboard or sign out COO, CCO and Admin accounts", ms: "Cipta, sunting, set semula, tamatkan atau log keluar akaun COO, CCO dan Admin", cap: "exec_accounts", note_en: "Authenticator code for every change", note_ms: "Kod pengesah untuk setiap perubahan" },
   { module: "Users", key: "tech_admin", en: "Grant or revoke technical Admin access", ms: "Beri atau tarik balik akses Admin teknikal", cap: "tech_admin_grant", note_en: "Company email; authenticator code and a reason", note_ms: "E-mel syarikat; kod pengesah dan sebab" },
   { module: "Users", key: "account_email", en: "Change a staff login email", ms: "Tukar e-mel log masuk kakitangan", cap: "account_email", note_en: "Pending until the new address is verified; same account, history kept", note_ms: "Menunggu sehingga alamat baharu disahkan; akaun sama, sejarah kekal" },
   { module: "Users", key: "account_recovery", en: "Account recovery: reset 2FA, set-password link, suspend, sign out devices", ms: "Pemulihan akaun: set semula 2FA, pautan kata laluan, gantung, log keluar peranti", cap: "account_recovery", note_en: "Authenticator code and a reason; never your own", note_ms: "Kod pengesah dan sebab; tidak pada diri sendiri" },
   { module: "Users", key: "tab_access", en: "Edit tab visibility and exceptions", ms: "Sunting keterlihatan tab dan pengecualian", list: "TAB_ACCESS_EDIT" },
   { module: "System", key: "audit_read", en: "Read the full system audit log", ms: "Baca log audit sistem penuh", cap: "audit_read" },
-  { module: "System", key: "owner_designate", en: "Name the company owner; give or take the CEO role; manage Super Admin accounts", ms: "Namakan pemilik syarikat; beri atau tarik peranan CEO; urus akaun Super Admin", cap: "owner_designate", note_en: "Recovery procedure", note_ms: "Prosedur pemulihan" },
+  { module: "System", key: "owner_designate", en: "Name the company owner; manage Super Admin and CEO accounts (password, sign-in, suspend)", ms: "Namakan pemilik syarikat; urus akaun Super Admin dan CEO (kata laluan, log masuk, gantung)", cap: "owner_designate", note_en: "Recovery procedure", note_ms: "Prosedur pemulihan" },
   { module: "System", key: "backup", en: "Download the database backup", ms: "Muat turun sandaran pangkalan data", cap: "backup_download", note_en: "Holds password hashes and 2FA secrets", note_ms: "Mengandungi cincang kata laluan dan rahsia 2FA" },
 ];
 /** The roles the policy view shows, in company order. Customers are never

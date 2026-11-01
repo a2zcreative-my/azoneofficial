@@ -1403,6 +1403,22 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     : { mode: "legacy", signer_role: ["ceo", "coo", "cco"].includes(ROLE) ? ROLE : q.get("doc_type") === "INV" ? "ceo" : null, signer_name: "Fixture Person", signer_position: "Chief Executive Officer" };
   if (/^\/staff\/docs\/\d+\/sign-plan$/.test(p0)) data = SIGN ? { can_approve: ROLE === "ceo", sign: { mode: "personal", issuer: "a2z", prepared: { user_id: 9002, name: "Nur Aisyah binti Rahman", position: "Sales Executive", asset_id: 21 }, approved: null, stamp_asset_id: null, needs_approval: true, blocked: "Waiting for management approval - this quotation is a draft until a signatory approves it", notice: null, issued: null } }
     : { can_approve: false, sign: { mode: "legacy", issuer: "a2z", prepared: null, approved: null, stamp_asset_id: null, needs_approval: false, blocked: null, notice: null, issued: null } };
+  /* v1.249.2 - the /admin signature vault (the officer chops), as /admin and
+     Users > Signatures & Stamps read it: A2Z has the CEO at v2 and the COO at
+     v1, plus the early Sales & Marketing file; AZ ONE has the CEO at v1. */
+  if (p0 === "/staff/signatures") data = ["ceo", "super_admin", "admin"].includes(ROLE) ? { ready: true, legacy: ["ceo", "sales_marketing"], rows: [
+    { issuer_code: "a2z", role: "ceo", version: 2, uploaded_at: "2026-09-06 03:00:00", uploaded_by_name: "System Root", sha256: null, retired_at: null },
+    { issuer_code: "a2z", role: "ceo", version: 1, uploaded_at: "2026-08-20 03:00:00", uploaded_by_name: "System Root", sha256: null, retired_at: null },
+    { issuer_code: "a2z", role: "coo", version: 1, uploaded_at: "2026-09-06 03:10:00", uploaded_by_name: "System Root", sha256: null, retired_at: null },
+    { issuer_code: "azoo", role: "ceo", version: 1, uploaded_at: "2026-09-06 03:20:00", uploaded_by_name: "System Root", sha256: null, retired_at: null }] }
+    : { error: { code: "forbidden", message: "Only an admin or the CEO can read the signature vault" } };
+  /* v1.249.2 - /admin > Users: the account list (GET /api/v1/users) */
+  if (p === "/users") data = ["ceo", "super_admin", "admin"].includes(ROLE) ? { users: [
+    { id: 9001, email: "fixture@example.test", name: "Fixture Person", role: "ceo", employment_status: "permanent", is_active: 1, created_at: "2025-01-01 00:00:00" },
+    { id: 9002, email: "aisyah@example.test", name: "Nur Aisyah", role: "sales_marketing", employment_status: "permanent", is_active: 1, created_at: "2025-03-03 00:00:00" },
+    { id: 9101, email: "root@azoneofficial.com", name: "System Root", role: "super_admin", employment_status: null, is_active: 1, created_at: "2025-01-01 00:00:00" },
+    { id: 9104, email: "tech@azoneofficial.com", name: "Tech Support", role: "admin", employment_status: null, is_active: 1, created_at: "2025-02-01 00:00:00" }] }
+    : { error: { code: "forbidden", message: "Admin role required" } };
   /* v1.249.0 - the agent desk. ROLE=agent is Zul (9005), an agent: one task,
      the active packages, his own two requests. Sales and management see three. */
   const AGREQ = [

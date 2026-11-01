@@ -182,6 +182,7 @@
 
 /* ---- tables ---- */
 .tWrap {
+  position: relative; /* v1.249.1 - what is absolute inside stays inside the scroller */
   margin-top: 0.875rem;
   overflow-x: auto;
 }
@@ -502,8 +503,13 @@
 
 /* ===== v1.206.0 - the second Leave reference: overview columns, balance
    cards, the small calendar, the register, the details drawer ===== */
+/* v1.249.1 - pinned to its own cell's corner: at its natural place (the far
+   right of a wide table) an absolute label widened the PAGE on a phone, so the
+   whole Leave tab slid sideways (overflow sweep, 01-11-2026) */
 .srOnly {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;

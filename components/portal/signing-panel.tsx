@@ -76,6 +76,86 @@ function pickPng(onFile: (f: File) => void) {
   inp.click();
 }
 
+/* v1.249.2 (the owner, 01-11-2026: "Signatures & Stamps collect the data from
+   /admin and the picture I will replace it with the current flow") - the
+   officer chops already in the /admin vault (signature + company stamp in one
+   scan, per company and officer role) are shown here, read from the SAME
+   vault index and image routes /admin uses (CEO, super admin, admin only -
+   for anyone else this block stays away). Nothing is copied or changed: the
+   chops keep printing while personal signing is Off and stay on documents
+   already issued; each row offers the new flow for the person who holds that
+   role today. */
+const OFFICERS: { role: string; file: string; label: string }[] = [
+  { role: "ceo", file: "ceo-sign.png", label: "CEO" },
+  { role: "coo", file: "coo-sign.png", label: "COO" },
+  { role: "cco", file: "cco-sign.png", label: "CCO" },
+  { role: "hr_admin", file: "hr-admin-sign.png", label: "HR Admin" },
+  { role: "sales_marketing", file: "sales-marketing-sign.png", label: "Sales & Marketing" },
+];
+interface VaultRow { issuer_code: string; role: string; version: number; uploaded_at: string; uploaded_by_name: string | null; retired_at: string | null }
+
+function OfficerChops({ co, staff, sigOf, manage, onRegister }: {
+  co: Issuer; staff: Person[]; sigOf: (uid: number) => Sig | null; manage: boolean; onRegister: (uid: number) => void;
+}) {
+  const [vault, setVault] = useState<{ rows: VaultRow[]; legacy: string[] } | null | "none">(null);
+  useEffect(() => {
+    const c = new AbortController();
+    void api<{ rows?: VaultRow[]; legacy?: string[] }>("/staff/signatures", { signal: c.signal }).then((r) => {
+      if (c.signal.aborted) return;
+      setVault(r.ok && r.data ? { rows: r.data.rows ?? [], legacy: r.data.legacy ?? [] } : "none");
+    });
+    return () => c.abort();
+  }, []);
+  if (vault === "none") return null; // not a vault reader - nothing to show
+  return (
+    <section className={css.card} aria-label={L("Officer chops from /admin", "Cop pegawai dari /admin")} data-testid="officer-chops">
+      <h3 className={css.cardTitle}>{L(`Officer chops on file for ${ISSUER_NAME[co]} (from /admin)`, `Cop pegawai dalam fail untuk ${ISSUER_NAME[co]} (dari /admin)`)}</h3>
+      <p className={css.muted}>{L("These are the scans documents print today while personal signing is Off (signature and company stamp in one picture). To replace one, use the new flow on its row: register the person's own signature, they confirm it in Profile, you approve it - then upload the company stamp above and turn personal signing on. The old chops are kept for documents already issued; nothing is deleted.",
+        "Ini imbasan yang dicetak pada dokumen hari ini semasa tandatangan peribadi Mati (tandatangan dan cop syarikat dalam satu gambar). Untuk menggantinya, guna aliran baharu pada barisnya: daftar tandatangan orang itu, mereka sahkan di Profil, anda luluskan - kemudian muat naik cop syarikat di atas dan hidupkan tandatangan peribadi. Cop lama disimpan untuk dokumen yang telah dikeluarkan; tiada yang dipadam.")}</p>
+      {vault === null ? <SkelCard lines={3} /> : (
+        <ul className={css.people}>
+          {OFFICERS.map((o) => {
+            const cur = vault.rows.filter((v) => v.issuer_code === co && v.role === o.role && !v.retired_at).sort((a, b) => b.version - a.version)[0] ?? null;
+            const legacy = co === "a2z" && vault.legacy.includes(o.role);
+            const holders = staff.filter((p) => p.role === o.role && p.is_active !== 0);
+            return (
+              <li key={o.role} className={css.person} data-testid={`chop-${o.role}`}>
+                <div className={css.whoText}>
+                  <span className={css.name}>{o.label}</span>
+                  <span className={css.muted}>{holders.length ? holders.map((h) => h.name).join(", ") : L("Nobody holds this role now", "Tiada sesiapa memegang peranan ini sekarang")}</span>
+                </div>
+                <div className={css.sigCell}>
+                  {cur || legacy ? (<>
+                    <div className={css.plateSm}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img className={css.mark} src={`/api/v1/staff/signature/${co}/${o.file}?v=${cur ? cur.version : "legacy"}`} alt={L(`Chop on file for ${o.label}`, `Cop dalam fail untuk ${o.label}`)} loading="lazy" />
+                    </div>
+                    <span className={css.muted}>{cur ? L(`Version ${cur.version} · ${day(cur.uploaded_at)}`, `Versi ${cur.version} · ${day(cur.uploaded_at)}`) + (cur.uploaded_by_name ? ` · ${cur.uploaded_by_name}` : "") : L("Early file (before versions)", "Fail awal (sebelum versi)")}</span>
+                  </>) : <span className={`${css.chip} ${css.wait}`}>{L("Missing - prints a blank space", "Tiada - mencetak ruang kosong")}</span>}
+                </div>
+                <div className={css.auths}>
+                  {holders.map((h) => { const sg = sigOf(h.id); return (
+                    <span key={h.id}>{L("New signature", "Tandatangan baharu")} ({h.name}): {sg ? <span className={`${css.chip} ${chip(sg.status)}`}>{statusWord(sg)}</span> : L("not registered", "belum didaftar")}</span>
+                  ); })}
+                </div>
+                {manage && holders.length > 0 && (
+                  <div className={css.row}>
+                    {holders.map((h) => (
+                      <button key={h.id} type="button" className={btnSm} onClick={() => onRegister(h.id)}>
+                        {sigOf(h.id) ? L(`Replace ${h.name}'s signature`, `Ganti tandatangan ${h.name}`) : L(`Register ${h.name}'s signature`, `Daftar tandatangan ${h.name}`)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /* ======================================================= Users > Signatures & Stamps */
 export function SigningPanel() {
   const [data, setData] = useState<Overview | null>(null);
@@ -178,7 +258,7 @@ export function SigningPanel() {
           {stamp ? (<>
             <div className={css.plate}><Mark id={stamp.id} alt={L("Company stamp", "Cop syarikat")} /></div>
             <p className={css.muted}>{L(`Version ${stamp.version} · uploaded ${day(stamp.uploaded_at)}`, `Versi ${stamp.version} · dimuat naik ${day(stamp.uploaded_at)}`)}{stamp.uploaded_by_name ? ` · ${stamp.uploaded_by_name}` : ""}</p>
-          </>) : <p className={css.muted}>{L("No stamp uploaded for this company. It never borrows the other company's.", "Tiada cop dimuat naik untuk syarikat ini. Ia tidak meminjam cop syarikat lain.")}</p>}
+          </>) : <p className={css.muted}>{L("No stamp uploaded for this company yet - today its stamp prints inside the officer chops below. It never borrows the other company's.", "Belum ada cop dimuat naik untuk syarikat ini - hari ini copnya dicetak dalam cop pegawai di bawah. Ia tidak meminjam cop syarikat lain.")}</p>}
           {manage && <div className={css.row}>
             <button type="button" className={btnSm} onClick={uploadStamp}>{stamp ? L("Replace stamp", "Ganti cop") : L("Upload stamp (PNG)", "Muat naik cop (PNG)")}</button>
             {stamp && <button type="button" className={btnSmQuiet} onClick={() => void retire(stamp.id, L("stamp", "cop"))}>{L("Retire", "Hentikan")}</button>}
@@ -234,6 +314,8 @@ export function SigningPanel() {
           </div>
         )}
       </section>
+
+      <OfficerChops co={co} staff={staff} sigOf={sigOf} manage={manage} onRegister={register} />
     </div>
   );
 }

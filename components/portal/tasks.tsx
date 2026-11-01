@@ -631,14 +631,18 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                     )}
                     {opts.who && <td data-label={L("Position", "Jawatan")} className={tk.cap}>{positionOf(t.assigned_to) || <span className={tk.muted}>—</span>}</td>}
                     <td data-label={L("Priority", "Keutamaan")}><span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span></td>
-                    <td data-label={L("Dates", "Tarikh")} className={tk.dates}>
-                      {/* v1.248.0 - start to due; the due date says when it is overdue */}
-                      {t.start_date && <span className={tk.muted}>{L(`Start ${dmy(t.start_date)}`, `Mula ${dmy(t.start_date)}`)}</span>}
-                      {t.deadline
-                        ? overdue
-                          ? <span className={tk.danger}>{L(`Overdue — was due ${dmy(t.deadline)}`, `Tertunggak — sepatutnya ${dmy(t.deadline)}`)}</span>
-                          : <span>{L(`Due ${dmy(t.deadline)}`, `Siap ${dmy(t.deadline)}`)}</span>
-                        : !t.start_date && <span className={tk.muted}>—</span>}
+                    <td data-label={L("Dates", "Tarikh")}>
+                      {/* v1.248.0 - start to due; the due date says when it is overdue.
+                         v1.249.2 - the stack lives in a div: a td set to display grid stops
+                         being a table cell and left a white box in the overdue row */}
+                      <div className={tk.dates}>
+                        {t.start_date && <span className={tk.muted}>{L(`Start ${dmy(t.start_date)}`, `Mula ${dmy(t.start_date)}`)}</span>}
+                        {t.deadline
+                          ? overdue
+                            ? <span className={tk.danger}>{L(`Overdue — was due ${dmy(t.deadline)}`, `Tertunggak — sepatutnya ${dmy(t.deadline)}`)}</span>
+                            : <span>{L(`Due ${dmy(t.deadline)}`, `Siap ${dmy(t.deadline)}`)}</span>
+                          : !t.start_date && <span className={tk.muted}>—</span>}
+                      </div>
                     </td>
                     <td data-label={L("Status", "Status")}>{statusSelect(t)}</td>
                     <td data-label={L("Progress", "Kemajuan")}>{progressBar(t)}</td>

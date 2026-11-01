@@ -156,8 +156,10 @@
   font-size: var(--type-caption-size, 0.75rem);
   color: var(--muted-foreground);
 }
-.srOnly {
+.srOnly { /* v1.249.1 - pinned to its cell's corner, so a label at the end of a wide table never widens the page */
   position: absolute;
+  left: 0;
+  top: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;

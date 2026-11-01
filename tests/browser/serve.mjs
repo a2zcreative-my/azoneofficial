@@ -107,6 +107,12 @@ const server = http.createServer((req, res) => {
       res.end(readFileSync(join(dir, "icon-192.png")));
       return;
     }
+    /* v1.249.2 - an officer chop from the /admin vault is an image too */
+    if (req.method === "GET" && /^\/staff\/signature\/(a2z|azoo)\/[a-z-]+-sign\.png$/.test(p)) {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(readFileSync(join(dir, "icon-192.png")));
+      return;
+    }
     if (req.method === "GET" && p.startsWith("/media/file/")) {
       res.writeHead(200, { "content-type": "image/png" });
       res.end(readFileSync(join(dir, "icon-192.png")));
@@ -185,6 +191,11 @@ const server = http.createServer((req, res) => {
         return;
       }
       if (req.method === "POST" && p === "/staff/access/policy") {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+      }
+      /* v1.249.2 - /admin > Users: the owner's role change asks for his code */
+      if (process.env.OWNER && req.method === "PATCH" && /^\/users\/\d+$/.test(p)) {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
         if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
       }

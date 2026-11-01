@@ -19,6 +19,8 @@ import { StaffPanel } from "@/components/admin/staff-panel";
 import { SignaturesPanel } from "@/components/admin/signatures-panel"; // v1.38.0 (S-1)
 import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.249.2 - the owner's reason
+import { withStepUp } from "@/components/portal/page-shared"; // v1.249.2 - the owner's authenticator code
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
@@ -46,6 +48,7 @@ interface User {
   name: string;
   role: string;
   requires_2fa?: boolean;
+  is_owner?: boolean; // v1.249.2 - the verified company owner (server-set)
 }
 
 interface Enquiry {
@@ -696,6 +699,13 @@ const ROLES =["super_admin", "admin", "editor", "marketing", "live_host", "live_
 function UsersPanel({ me }: { me: User }) {
   const { show: showToast, node: toastNode } = useSaveToast();
   const { confirm: userConfirm, node: userConfirmNode } = useConfirm(); // v1.4.240
+  const { prompt: ask, node: askNode } = usePrompt(); // v1.249.2
+  /* v1.249.2 (the owner, 01-11-2026) - in /admin only the company owner and
+     the super admin change roles; the owner also gives and takes Super Admin
+     and CEO (with a reason and his authenticator code, never his own). The
+     server decides (index.ts /api/v1/users/:id); this only mirrors it. */
+  const ownerCeo = me.role === "ceo" && me.is_owner === true;
+  const canRoles = me.role === "super_admin" || ownerCeo;
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
   const [error, setError] = useState("");
@@ -712,10 +722,16 @@ function UsersPanel({ me }: { me: User }) {
 
   const create = async () => {
     setError("");
-    const res = await api<{ error?: { code?: string; message?: string } }>("/users", {
+    let reason = "";
+    if (ownerCeo && ["super_admin", "admin", "ceo", "coo", "cco", "agent"].includes(draft.role)) {
+      const r = await ask({ title: L(`Create a ${draft.role.replace(/_/g, " ")} account`, `Buat akaun ${draft.role.replace(/_/g, " ")}`), label: L("Why (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)"), required: true });
+      if (!r) return;
+      reason = r.value.trim();
+    }
+    const res = await withStepUp<{ error?: { code?: string; message?: string } }>((totp) => api("/users", {
       method: "POST",
-      body: JSON.stringify(draft),
-    });
+      body: JSON.stringify({ ...draft, ...(reason ? { reason } : {}), ...(totp ? { totp } : {}) }),
+    }), ask, { title: L("Confirm with your authenticator", "Sahkan dengan pengesah anda"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
     if (!res.ok) {
       setError(
         res.status === 409
@@ -735,9 +751,27 @@ function UsersPanel({ me }: { me: User }) {
      four different actions that all used to complete in silence. The caller
      passes what happened so the toast can say it. */
   const patch = async (id: number, body: Record<string, unknown>, said = L("Updated", "Dikemas kini")) => {
-    const r = await api(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+    const r = await api<{ error?: { message?: string } }>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
     showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-      r.ok ? said : L("Could not update that account — try again", "Akaun itu tidak dapat dikemas kini — cuba lagi"), r.ok ? undefined : "notice");
+      r.ok ? said : (r.data?.error?.message ?? L("Could not update that account — try again", "Akaun itu tidak dapat dikemas kini — cuba lagi")), r.ok ? undefined : "notice");
+    void load();
+  };
+
+  /* v1.249.2 - a role change. The owner gives a reason and, when the server
+     asks, his authenticator code; the super admin changes as before. */
+  const changeRole = async (u: AdminUser, newRole: string) => {
+    let reason = "";
+    if (ownerCeo) {
+      const r = await ask({ title: L(`Change ${u.name}'s role to ${newRole.replace(/_/g, " ")}`, `Tukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}`), label: L("Why (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)"), required: true });
+      if (!r) { void load(); return; }
+      reason = r.value.trim();
+    }
+    const r = await withStepUp<{ error?: { message?: string } }>((totp) => api(`/users/${u.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: newRole, ...(reason ? { reason } : {}), ...(totp ? { totp } : {}) }),
+    }), ask, { title: L("Confirm with your authenticator", "Sahkan dengan pengesah anda"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
+    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
+      r.ok ? L(`Role changed to ${newRole.replace(/_/g, " ")}`, `Peranan ditukar kepada ${newRole.replace(/_/g, " ")}`) : (r.data?.error?.message ?? L("The role was not changed", "Peranan tidak ditukar")), r.ok ? undefined : "notice");
     void load();
   };
 
@@ -780,6 +814,7 @@ function UsersPanel({ me }: { me: User }) {
   return (
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
       {userConfirmNode}
+      {askNode}
       {toastNode}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold tracking-tight">{L("Add user", "Tambah pengguna")}</h3>
@@ -789,7 +824,7 @@ function UsersPanel({ me }: { me: User }) {
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
         <select className={inputClass} value={draft.role}
           onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
-          {ROLES.filter((r) => r !== "super_admin" || me.role === "super_admin").map(
+          {ROLES.filter((r) => r !== "super_admin" || canRoles).map(
             (r) => <option key={r} value={r}>{r}</option>,
           )}
         </select>
@@ -812,6 +847,15 @@ function UsersPanel({ me }: { me: User }) {
       </div>
       <div className="space-y-2">
         <h3 className="text-sm font-semibold tracking-tight">{L("Team", "Pasukan")}</h3>
+        {/* v1.249.2 - who may change a role here, said where it is decided */}
+        <p className="text-muted-foreground text-xs">
+          {ownerCeo
+            ? L("As the company owner you give and take every role here, Super Admin and CEO included. Each change asks for a reason and your authenticator code; never your own account; the last super admin with 2FA cannot be removed.",
+                "Sebagai pemilik syarikat anda memberi dan menarik setiap peranan di sini, termasuk Super Admin dan CEO. Setiap perubahan meminta sebab dan kod pengesah anda; tidak pada akaun sendiri; super admin terakhir dengan 2FA tidak boleh dibuang.")
+            : canRoles
+              ? L("Role changes are yours and the company owner's only.", "Perubahan peranan hanya untuk anda dan pemilik syarikat.")
+              : L("Read only for roles - the company owner or the super admin changes them.", "Baca sahaja untuk peranan - pemilik syarikat atau super admin menukarnya.")}
+        </p>
         {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
             rows as the real team list (name · email left, role select and
             row actions right). */}
@@ -828,8 +872,10 @@ function UsersPanel({ me }: { me: User }) {
           </div>
         ))}
         {users.map((u) => {
-          // An admin can see a super admin but cannot act on them
-          const locked = u.role === "super_admin" && me.role !== "super_admin";
+          // An admin can see a super admin but cannot act on them.
+          // v1.249.2 - the owner changes a Super Admin's or CEO's ROLE, but
+          // their password, sign-in and suspension stay the super admin's.
+          const locked = ["super_admin", "ceo"].includes(u.role) && me.role !== "super_admin";
           return (
             <div key={u.id} className="rounded-lg border border-border px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -845,7 +891,8 @@ function UsersPanel({ me }: { me: User }) {
                   <select
                     className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
                     value={u.role === "live_host" && u.employment_status === "part_time" ? "live_host_part_time" : u.role}
-                    disabled={u.id === me.id || locked}
+                    disabled={u.id === me.id || !canRoles}
+                    title={!canRoles ? L("Roles are changed by the company owner or the super admin", "Peranan ditukar oleh pemilik syarikat atau super admin") : u.id === me.id ? L("You cannot change your own role", "Anda tidak boleh menukar peranan sendiri") : undefined}
                     onChange={(e) => {
                       const newRole = e.target.value;
                       const wasPartTime = u.employment_status === "part_time";
@@ -860,11 +907,11 @@ function UsersPanel({ me }: { me: User }) {
                         message: L(`Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?${statusNote}`, `Adakah anda pasti mahu menukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}?${statusNote}`),
                         confirmLabel: L("Change Role", "Tukar Peranan"),
                       }).then((ok) => {
-                        if (ok) void patch(u.id, { role: newRole }, L(`Role changed to ${newRole.replace(/_/g, " ")}`, `Peranan ditukar kepada ${newRole.replace(/_/g, " ")}`));
+                        if (ok) void changeRole(u, newRole);
                       });
                     }}
                   >
-                    {ROLES.filter((r) => r !== "super_admin" || me.role === "super_admin" || u.role === "super_admin").map(
+                    {ROLES.filter((r) => r !== "super_admin" || canRoles || u.role === "super_admin").map(
                       (r) => <option key={r} value={r}>{r}</option>,
                     )}
                   </select>
@@ -1092,7 +1139,11 @@ export default function AdminPage() {
   // Data-integrity boundary: /admin is the content-management interface for
   // admin/editor/marketing only. Staff roles work in /portal — even though
   // the API also enforces this, they should never see this surface at all.
-  if (PORTAL_ROLES.includes(user.role)) {
+  /* v1.249.2 (the owner, 01-11-2026) - the verified company owner opens
+     /admin for one thing: Users, to give and take every role. Any other CEO
+     account, and every other portal role, still goes to /portal. */
+  const ownerCeo = user.role === "ceo" && user.is_owner === true;
+  if (PORTAL_ROLES.includes(user.role) && !ownerCeo) {
     window.location.replace("/portal");
     return <AdminPageSkeleton />;
   }
@@ -1148,7 +1199,8 @@ export default function AdminPage() {
      /portal?"): the navy ICON RAIL too — same SidebarNav component, fed the
      admin tabs. The desktop pill row is gone (the rail replaces it, exactly
      like /portal); phones keep the bottom navigation. */
-  const visibleTabs = TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
+  const visibleTabs: Tab[] = ownerCeo ? ["Users"] : TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
+  const tabNow: Tab = visibleTabs.includes(tab) ? tab : visibleTabs[0]!; // v1.249.2 - the owner lands on Users
   /* v1.228.0 (the owner, 30-10-2026: "/admin and /account should follow the
      interface of /portal"): the console now wears the portal's chrome -
      the light grouped rail, the .erp-topbar header, the tinted phone bar and
@@ -1159,23 +1211,23 @@ export default function AdminPage() {
       eyebrow={L("A2Z Admin Console", "Konsol Admin A2Z")}
       items={visibleTabs.map((t) => ({ name: t, label: tabLabel(t) }))}
       sections={ADMIN_SECTIONS}
-      active={tab}
+      active={tabNow}
       onSelect={(t) => setTab(t as Tab)}
-      title={tabLabel(tab)}
-      phoneTitle={tabLabel(tab)}
+      title={tabLabel(tabNow)}
+      phoneTitle={tabLabel(tabNow)}
       user={user}
       lang={lang}
       onLang={setLangState}
       onSignOut={() => void logout()}
     >
-      <main key={tab} className="screen-enter mt-4 md:mt-8">
-        <p className="text-muted-foreground -mt-2 mb-4 text-xs">{L(TAB_HELP[tab], TAB_HELP_MS[tab])}</p>
+      <main key={tabNow} className="screen-enter mt-4 md:mt-8">
+        <p className="text-muted-foreground -mt-2 mb-4 text-xs">{L(TAB_HELP[tabNow], TAB_HELP_MS[tabNow])}</p>
         {/* v1.22.8: bare sections now render inside the house card, exactly
             like every /portal module. Staff/Audit/Account tabs already use
             card components of their own. */}
-        {tab === "Dashboard" && <div className={card}><Dashboard /></div>}
-        {tab === "Enquiries" && <div className={card}><Enquiries /></div>}
-        {tab === "Posts" && (
+        {tabNow === "Dashboard" && <div className={card}><Dashboard /></div>}
+        {tabNow === "Enquiries" && <div className={card}><Enquiries /></div>}
+        {tabNow === "Posts" && (
           <div className={card}>
           <CrudPanel
             resource="posts"
@@ -1191,7 +1243,7 @@ export default function AdminPage() {
           />
           </div>
         )}
-        {tab === "Portfolio" && (
+        {tabNow === "Portfolio" && (
           <div className={card}>
           <CrudPanel
             resource="portfolio"
@@ -1205,12 +1257,12 @@ export default function AdminPage() {
           />
           </div>
         )}
-        {tab === "Media" && <div className={card}><MediaPanel /></div>}
-        {tab === "Website" && <div className={card}><SiteEditor /></div>}
-        {tab === "Advanced" && <div className={card}><ContentPanel /></div>}
-        {tab === "Users" && ["super_admin", "admin"].includes(user.role) && <div className={card}><UsersPanel me={user} /></div>}
+        {tabNow === "Media" && <div className={card}><MediaPanel /></div>}
+        {tabNow === "Website" && <div className={card}><SiteEditor /></div>}
+        {tabNow === "Advanced" && <div className={card}><ContentPanel /></div>}
+        {tabNow === "Users" && (["super_admin", "admin"].includes(user.role) || ownerCeo) && <div className={card}><UsersPanel me={user} /></div>}
         {/* v1.4.192: standard multi-card spacing wrapper (was ad-hoc mt-6 divs) */}
-        {tab === "Staff" && ["super_admin", "admin"].includes(user.role) && (
+        {tabNow === "Staff" && ["super_admin", "admin"].includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
             <StaffDirectory canAmend />
             <HrAdminPanel />
@@ -1218,19 +1270,19 @@ export default function AdminPage() {
             <SignaturesPanel />
           </div>
         )}
-        {tab === "Audit" && ["super_admin", "admin"].includes(user.role) && (
+        {tabNow === "Audit" && ["super_admin", "admin"].includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
             <SystemHealthCard />
             <AuditPanel />
           </div>
         )}
-        {tab === "Account" && (
+        {tabNow === "Account" && (
           <div className="space-y-4 md:space-y-6">
             <div className={card}><AccountPanel /></div>
             <TwoFactorPanel />
           </div>
         )}
-        {tab === "Testimonials" && (
+        {tabNow === "Testimonials" && (
           <div className={card}>
           <CrudPanel
             resource="testimonials"

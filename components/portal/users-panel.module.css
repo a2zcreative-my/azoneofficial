@@ -835,3 +835,7 @@
   flex: 0 0 auto;
   border-radius: 8px;
 }
+
+/* v1.249.2 - the owner's way to /admin > Users */
+.link { color: var(--primary); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 2px; }

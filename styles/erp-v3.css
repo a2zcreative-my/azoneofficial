@@ -1322,7 +1322,7 @@
   @keyframes erp-pulse { 50% { opacity: 0.5; } }
   @media (prefers-reduced-motion: reduce) { .erp-pulse { animation: none; } }
   /* visually hidden, read by assistive technology */
-  .erp-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border-width: 0; }
+  .erp-sr-only { position: absolute; left: 0; top: 0; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border-width: 0; }
   /* show/hide at the one breakpoint the shell uses */
   @media (max-width: 767px) { .erp-desktop-only { display: none !important; } }
   @media (min-width: 768px) { .erp-phone-only { display: none !important; } }

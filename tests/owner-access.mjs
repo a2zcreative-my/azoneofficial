@@ -5,8 +5,10 @@
  * FULL AUTHORIZED COMPANY ADMINISTRATIVE ACCESS. SUPER ADMIN = TECHNICAL /
  * RECOVERY ADMINISTRATION. ONE CENTRAL AUTHORIZATION SYSTEM. NO
  * UNAUTHORIZED PRIVILEGE ESCALATION." Answers: one designated owner; the
- * owner manages the Admin role only (super admin accounts and the CEO role
- * stay the super admin's); roles stay code-defined.
+ * owner manages the Admin role; since v1.249.2 (his decision of 01-11-2026)
+ * he also gives and takes the Super Admin and CEO roles (code + reason, never
+ * his own; their passwords and sign-in stay the super admin's); roles stay
+ * code-defined.
  *
  * The brief's sixteen cases, numbered as in the brief:
  *   before a super admin names the owner nothing changes; naming needs a
@@ -132,7 +134,12 @@ async function runtime(workerBundle, staffBundle) {
     const ex = await call("/staff/users/4/role", U.ceo, "POST", { role: "cco", reason: R, totp: code() });
     ok(ex.status === 200 && role(4) === "cco" && lastAudit("staff.role_change")?.d?.by_owner === true && lastAudit("staff.role_change").d.privileged && lastAudit("staff.role_change").d.reason === R, "3 the owner assigns an executive role - audited by_owner with the reason", JSON.stringify(lastAudit("staff.role_change")?.d));
     ok((await call("/staff/users/4/role", U.ceo, "POST", { role: "hr_admin", reason: R, totp: code() })).status === 200 && role(4) === "hr_admin", "3 ...and takes it back the same way");
-    ok((await call("/staff/users/4/role", U.ceo, "POST", { role: "ceo", reason: R, totp: code() })).status === 403 && role(4) === "hr_admin", "3 the owner cannot give anyone the CEO role");
+    /* v1.249.2 (the owner, 01-11-2026, asked: "Super Admin and CEO") - the owner gives and takes the CEO role, with a code and a reason */
+    const gc0 = await call("/staff/users/4/role", U.ceo, "POST", { role: "ceo", reason: R });
+    ok(gc0.status === 401 && role(4) === "hr_admin", "3 giving the CEO role asks for the owner's authenticator code", `${gc0.status}`);
+    const gc = await call("/staff/users/4/role", U.ceo, "POST", { role: "ceo", reason: R, totp: code() });
+    ok(gc.status === 200 && role(4) === "ceo" && lastAudit("staff.role_change")?.d?.by_owner === true && lastAudit("staff.role_change").d.reason === R, "3 the owner gives the CEO role - audited by_owner with the reason", JSON.stringify(gc.j));
+    ok((await call("/staff/users/4/role", U.ceo, "POST", { role: "hr_admin", reason: R, totp: code() })).status === 200 && role(4) === "hr_admin", "3 ...and takes it back the same way");
     ok((await call("/staff/users/5/role", U.ceo, "POST", { role: "customer", reason: "Left the company", totp: code() })).status === 200 && role(5) === "customer", "3 the owner manages customer accounts (role_any)");
     ok((await call("/staff/users/5/role", U.ceo, "POST", { role: "sales_marketing", reason: "Rejoined the sales team", totp: code() })).status === 200 && role(5) === "sales_marketing", "3 ...and promotes a customer back to staff");
     /* 4 */
@@ -141,9 +148,21 @@ async function runtime(workerBundle, staffBundle) {
     ok(g.status === 200 && role(13) === "admin", "4 the owner grants technical Admin access", JSON.stringify(g.j));
     ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE kind = 'security' AND message LIKE '%Admin access given%' AND user_id IN (8, 14, 2)`).get().n === 3, "4 every super admin and the COO are told");
     ok((await call("/staff/users/13/role", U.ceo, "POST", { role: "editor", reason: "Website handed back to marketing", totp: code() })).status === 200 && role(13) === "editor", "4 ...and revokes it");
-    ok((await call("/staff/users/8/role", U.ceo, "POST", { role: "admin", reason: R, totp: code() })).status === 403 && role(8) === "super_admin", "4 the owner cannot touch a super admin account");
-    ok((await call("/users/8", U.ceo, "PATCH", { is_active: false, totp: code() })).status === 403, "4 ...on the /admin door either");
-    ok((await call("/users/13", U.ceo, "PATCH", { role: "super_admin", reason: R, totp: code() })).status === 403, "4 ...and cannot mint a super admin");
+    ok((await call("/staff/users/8/role", U.ceo, "POST", { role: "admin", reason: R, totp: code() })).status === 403 && role(8) === "super_admin", "4 a super admin account is not changed on the portal route (that is /admin)");
+    ok((await call("/users/8", U.ceo, "PATCH", { is_active: false, totp: code() })).status === 403, "4 the owner cannot suspend a super admin");
+    /* v1.249.2 - /admin > Users: the owner gives and takes Super Admin */
+    const ms0 = await call("/users/13", U.ceo, "PATCH", { role: "super_admin" });
+    ok(ms0.status === 400 && ms0.j?.error?.code === "reason_required" && role(13) === "editor", "4 giving Super Admin in /admin needs a reason", `${ms0.status} ${JSON.stringify(ms0.j)}`);
+    const ms1 = await call("/users/13", U.ceo, "PATCH", { role: "super_admin", reason: R });
+    ok(ms1.status === 401 && role(13) === "editor", "4 ...and the owner's authenticator code", `${ms1.status}`);
+    const ms = await call("/users/13", U.ceo, "PATCH", { role: "super_admin", reason: R, totp: code() });
+    ok(ms.status === 200 && role(13) === "super_admin" && lastAudit("user.update")?.d?.by_owner === true && lastAudit("user.update").d.reason === R && lastAudit("user.update").d.to === "super_admin", "4 the owner gives Super Admin in /admin - audited by_owner with the reason", `${ms.status} ${JSON.stringify(ms.j)}`);
+    ok((await call("/users/13", U.ceo, "PATCH", { password: "another-long-pass-9", totp: code() })).status === 403, "4 ...but a super admin's password stays the super admin's");
+    ok((await call("/users/13", U.ceo, "PATCH", { role: "editor", password: "another-long-pass-9", reason: R, totp: code() })).status === 403 && role(13) === "super_admin", "4 ...even folded into a role change");
+    const mb = await call("/users/13", U.ceo, "PATCH", { role: "editor", reason: "Website handed back to marketing", totp: code() });
+    ok(mb.status === 200 && role(13) === "editor", "4 ...and the owner takes Super Admin back", `${mb.status} ${JSON.stringify(mb.j)}`);
+    const md = await call("/users/6", U.ceo, "PATCH", { role: "super_admin", reason: R, totp: code() });
+    ok(md.j?.error?.code === "domain_policy" && role(6) === "marketing", "4 Super Admin still needs a company email", `${md.status} ${JSON.stringify(md.j)}`);
     /* 5 */
     const rs0 = await call("/users/7/revoke-sessions", U.ceo, "POST", {});
     ok(rs0.status === 401 && rs0.j?.error?.code === "totp_required", "5 a newly named action (sign out the Admin account) asks for the code", `${rs0.status} ${JSON.stringify(rs0.j)}`);
@@ -151,7 +170,9 @@ async function runtime(workerBundle, staffBundle) {
     db.prepare(`INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, 7, datetime('now', '+12 hours'), datetime('now'))`).run(createHash("sha256").update(tok[7]).digest("hex"));
     const mk = await call("/users", U.ceo, "POST", { email: "newcoo@a2z.test", name: "New COO", role: "coo", password: "a-long-password-1", reason: "Second operations officer", totp: code() });
     ok(mk.status === 201 || mk.status === 200, "5 the owner creates a COO account", `${mk.status} ${JSON.stringify(mk.j)}`);
-    ok((await call("/users", U.ceo, "POST", { email: "x@a2z.test", name: "X", role: "super_admin", password: "a-long-password-1", reason: R, totp: code() })).status === 403, "5 ...but never a super admin account");
+    const msa = await call("/users", U.ceo, "POST", { email: "x@a2z.test", name: "X", role: "super_admin", password: "a-long-password-1", reason: R, totp: code() });
+    ok(msa.status === 201, "5 the owner creates a super admin account (v1.249.2)", `${msa.status} ${JSON.stringify(msa.j)}`);
+    db.exec(`UPDATE users SET is_active = 0 WHERE email = 'x@a2z.test'`);
     ok((await call("/audit?limit=5", U.ceo)).status === 200, "5 the owner reads the full audit log");
 
     /* 6 7 8 9 */
@@ -203,6 +224,11 @@ async function runtime(workerBundle, staffBundle) {
     /* 16 */
     ok(!(await call("/auth/me", U.ceo2)).j?.user?.is_owner, "16 a second CEO-role account with 2FA is not the owner");
     ok((await call("/staff/users/4/role", U.ceo2, "POST", { role: "cco", reason: R, totp: code() })).status === 403, "16 ...and gains no owner power");
+    ok((await call("/staff/users/4/role", U.ceo2, "POST", { role: "ceo", reason: R, totp: code() })).status === 403 && role(4) === "hr_admin", "16 ...cannot give the CEO role");
+    const c2 = await call("/users/6", U.ceo2, "PATCH", { role: "editor", reason: R, totp: code() });
+    ok(c2.status === 403 && role(6) === "marketing", "16 ...and changes no role in /admin, not even a working one (only the owner and the super admin there)", `${c2.status} ${JSON.stringify(c2.j)}`);
+    ok((await call("/users/13", U.ceo2, "PATCH", { role: "super_admin", reason: R, totp: code() })).status === 403 && role(13) === "editor", "16 ...nor gives Super Admin");
+    ok((await call("/users/6", U.admin, "PATCH", { role: "editor" })).status === 403 && role(6) === "marketing", "16 the Admin account changes no role in /admin");
     ok(db.prepare(`SELECT COUNT(*) AS n FROM company_memberships`).get().n === 0 && role(9) === "customer", "16 no company membership was created and the customer stayed a customer");
 
     /* 15 - the history */
@@ -234,8 +260,11 @@ const checks = n;
 const MUT = [
   ["worker/src/index.ts", "any CEO-role account counts as the owner", "is_owner = Number((JSON.parse(row.owner_meta) as { user_id?: unknown }).user_id) === row.id;", "is_owner = true;"],
   ["worker/src/staff.ts", "the owner's authenticator code is skipped", 'if (user.role === "super_admin" || !user.is_owner) return null;', "return null;"],
-  ["worker/src/permissions.ts", "the owner may name the owner", 'export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery"];', 'export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery", "owner_designate"];'],
-  ["worker/src/permissions.ts", "the owner may give the CEO role", 'if (d === "super_only") return actor.role === "super_admin";', 'if (d === "super_only") return actor.role === "super_admin" || allows(actor, "role_any");'],
+  ["worker/src/permissions.ts", "the owner may name the owner", 'export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery", "role_top"];', 'export const OWNER_GRANTS: readonly (keyof typeof PERMS)[] = ["exec_accounts", "role_any", "tech_admin_grant", "account_email", "account_recovery", "role_top", "owner_designate"];'],
+  ["worker/src/permissions.ts", "the owner loses Super Admin and CEO (v1.249.2)", '"account_recovery", "role_top"];', '"account_recovery"];'],
+  ["worker/src/permissions.ts", "any CEO-role account gives Super Admin and CEO", 'if (d === "super_only") return allows(actor, "role_top");', 'if (d === "super_only") return actor.role === "super_admin" || actor.role === "ceo";'],
+  ["worker/src/index.ts", "any CEO (or Admin) changes roles in /admin", 'if (roleAsked && user.role !== "super_admin" && !(user.role === "ceo" && user.is_owner === true)) {', "if (false) {"],
+  ["worker/src/index.ts", "the owner may reset a super admin's password", 'const roleOnly = roleAsked && Object.keys(body).every((k) => ["role", "reason", "totp"].includes(k));', "const roleOnly = true;"],
   ["worker/src/permissions.ts", "no change counts as privileged", 'return { ok: true, privileged: roleDoor(target.role) !== "role_assign" || roleDoor(to) !== "role_assign" };', "return { ok: true, privileged: false };"],
   ["worker/src/permissions.ts", "executive accounts back to super admin only", 'if (role === "admin" || role === "coo" || role === "cco") return allows(actor, "exec_accounts");', 'if (role === "admin" || role === "coo" || role === "cco") return actor.role === "super_admin";'],
   ["worker/src/staff.ts", "an exception can hide a tab from the owner", 'if (mode === "deny" && target.role === "ceo" && (await readOwner(env))?.user_id === targetId) {', "if (false) {"],

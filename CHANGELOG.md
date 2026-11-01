@@ -10,6 +10,24 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.249.2] - 2026-11-01 - The owner gives and takes every role in /admin; officer chops in Signatures & Stamps; the Tasks white box
+
+The owner's requests of 01-11-2026 (two screenshots) and his answers: the owner-CEO gives and takes Super Admin AND CEO; in /admin only he and the super admin change roles.
+
+- **/admin > Users for the owner.** The verified company owner (role CEO, named by a super admin) now opens /admin, on Users only. He gives and takes every role, Super Admin and CEO included: a reason (10+ characters) and his authenticator code each time, never on his own account, Super Admin and Admin still need a company email, the last super admin with 2FA still cannot be removed. A Super Admin's or CEO's password, sign-in and suspension stay the super admin's. New capability `role_top` (Give and take the Super Admin and CEO roles): the super admin by role, the owner by OWNER_GRANTS, a locked cell so no matrix edit hands it to anyone else. On the /admin door only the owner and the super admin change roles: any other CEO is sent to /portal, the Admin account sees roles read only (the COO keeps the working roles in the portal). The portal Staff Accounts also offers the CEO role to the owner and links to /admin for Super Admin. The Agent role, offered in /admin since 1.249.0 but refused by the server there, is accepted (creating one stays the owner's).
+- **Signatures & Stamps shows the /admin chops.** A new block lists, per company, the five officer chops already in the /admin vault (picture, version, date, who uploaded it), who holds each role today, and that person's new signature status with Register / Replace (the new flow). Same vault index and image routes as /admin (CEO, super admin, admin); nothing copied, changed or deleted. The stamp card says the stamp prints inside the chops until one is uploaded.
+- **Tasks: the white box in the Dates column.** The Dates cell was `display: grid` on the `td` itself, so it stopped being a table cell and the overdue row's tint did not reach it. The stack now sits in a div inside a normal cell.
+- Tests: tests/browser/owner-roles.py (28); owner-access.mjs now proves the owner gives and takes CEO and Super Admin with reason + code, cannot reset a super admin's password even folded into a role change, and that a second CEO and the Admin account change no role in /admin (97 checks, 11 mutations); role-assign, owner-coverage and authz-guard updated to the approved rule. Overflow sweep still 208 of 208 clean.
+
+## [1.249.1] - 2026-11-01 - No sideways scroll on any screen (overflow sweep)
+
+The owner asked whether the UI is standardised and free of overflow. A new browser sweep (tests/browser/overflow-sweep.py) opens every tab each role can reach - CEO at 1440, 1024, 820 and 390 px; Sales & Marketing, Live Host, HR and Agent at 390 px - and checks that the page never scrolls sideways, nothing sits off screen outside a scroller, and nothing hides under the phone bottom bar.
+
+- First run: 208 screens, 4 problems, all the Leave tab on a phone (every role): the hidden "Action" column label (screen-reader only) was positioned against the page instead of its table, so it pushed the page 160 px wider than the phone.
+- Fix: every screen-reader-only class (`.erp-sr-only` and the copies in the Leave, Staff, Packages, Payroll, Tasks, Hotels and ELFIA store modules) is pinned at `left: 0; top: 0`, and the Leave table scroller is `position: relative`, so a hidden label stays inside its own scroller. CSS only - no worker, data or business rule change.
+- After the fix: 208 of 208 screens clean.
+- Not in this release: the global UI standardisation itself (UIUX-4.0-AUDIT.md). Phase 1 (shared components + Edit Package pilot) is approved and is the next build.
+
 ## [1.249.0] - 2026-11-01 - The Agent role; task-update emails from the CEO
 
 The owner's request (01-11-2026), the audit claude/TASK-UPDATES-AGENT-AUDIT.md, his answers (agents in the staff portal with a small menu; a real agent role; commission for agents is a separate brief) and his "approved".
