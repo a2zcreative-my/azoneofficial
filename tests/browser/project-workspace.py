@@ -274,6 +274,27 @@ with sync_playwright() as p:
     pg.screenshot(path=f"{S}/pw-owner-add.png")
     check("no page errors (owner)", not errs, str(errs)[:300])
     ctx.close()
+
+    # v1.250.1 - the Deadlines calendar carries each project's own due date
+    ctx, pg, errs, reqs = page(b, 4208)
+    tab(pg, "Tasks")
+    pg.get_by_role("tab", name="Calendar", exact=True).first.click(); pg.wait_for_timeout(1800)
+    nov = pg.get_by_role("button", name="Next month")
+    for _ in range(12):
+        if "November 2026" in pg.locator("main").inner_text(): break
+        nov.first.click(); pg.wait_for_timeout(400)
+    chips = pg.locator("[data-testid^='cal-project-']")
+    cell = pg.locator("[role=gridcell][aria-label^='25-11-2026']")
+    check("the calendar shows a project on its due date (25-11), marked as a project", chips.count() >= 1 and cell.locator("[data-testid^='cal-project-']").count() >= 1, pg.locator("main").inner_text()[:300])
+    check("...counted in the month summary and listed with 'Project'", "project" in pg.locator("main").inner_text().lower() and pg.get_by_text("Project due").count() + pg.get_by_text("Overdue").count() >= 1)
+    chips.first.click(); pg.wait_for_timeout(1800)
+    check("...and pressing it opens the project in Tasks > Projects", pg.get_by_role("tab", name="Projects", selected=True).count() == 1)
+    pc = b.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True).new_page()
+    pc.goto("http://127.0.0.1:4208/portal?tab=Tasks"); pc.wait_for_timeout(2500)
+    pc.get_by_role("tab", name="Calendar", exact=True).first.click(); pc.wait_for_timeout(1500)
+    check("the calendar with projects fits a phone", pc.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
+    check("no page errors (calendar)", not errs, str(errs)[:300])
+    ctx.close()
     b.close()
 
 fails = [r for r in res if r.startswith("FAIL")]

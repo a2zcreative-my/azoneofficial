@@ -29,16 +29,54 @@ const bundle = (srcRoot, out) => {
 };
 const sha = (s) => createHash("sha256").update(s).digest("hex");
 const MIGS = readdirSync(join(root, "worker/migrations")).filter((x) => x.endsWith(".sql")).sort();
-const applyFile = (db, f) => {
+const applyFile = (db, f, strict = false) => {
   const src = readFileSync(join(root, "worker/migrations", f), "utf8");
   let buf = "";
   for (const st of src.split(/;\s*\n/)) {
     buf = buf ? `${buf};\n${st}` : st;
     if (/CREATE TRIGGER/i.test(buf) && !/\bEND\s*$/i.test(buf.trim())) continue;
-    try { db.exec(buf); } catch { /* a statement SQLite reads differently */ }
+    try { db.exec(buf); } catch (e) { if (strict) throw e; }
     buf = "";
   }
 };
+
+/* v1.250.1 - THE LIVE PATH. The live database ran 0164 as release 1.249.0 wrote
+   it; 1.250.0 changed 0164 afterwards, which the live database never re-runs.
+   0164 must stay exactly what was applied, and 0165 must upgrade those tables
+   with every row kept. */
+function migrationChecks() {
+  const out = [];
+  const ok = (c, m, why = "") => out.push([!!c, why && !c ? `${m} - ${why}` : m]);
+  const m164 = readFileSync(join(root, "worker/migrations/0164_agent_role.sql"), "utf8").replace(/\r\n/g, "\n");
+  ok(sha(m164) === "c164833f1b80f5ec95eed8f55a0529638e29aa73bbc9dbd77adb35efb991880b", "M0 0164 is byte-for-byte what the live database applied with 1.249.0", sha(m164));
+  const mig = MIGS.find((f) => f.startsWith("0165"));
+  ok(!!mig, "M1 migration 0165 (the agent workflow upgrade) exists");
+  if (!mig) return out;
+  const db = new DatabaseSync(":memory:");
+  for (const f of MIGS.filter((f) => f < "0165")) applyFile(db, f);
+  db.exec(`INSERT INTO agent_requests (id, agent_id, client_name, client_phone, company, package_id, package_version, note, status, assigned_to, quotation_id, manager_note, created_at, updated_at, updated_by) VALUES
+    (1, 20, 'Puan Rina', '012', 'Rina Bakery', 1, 1, 'CNY', 'new', NULL, NULL, NULL, '2026-11-01 11:00:00', NULL, NULL),
+    (2, 20, 'Encik Kamal', NULL, NULL, 1, 1, NULL, 'contacted', 5, NULL, 'call back', '2026-11-01 11:10:00', '2026-11-01 12:00:00', 1),
+    (3, 21, 'Cik Lina', '011', 'Lina Spa', 1, 1, NULL, 'quoted', 5, 50, NULL, '2026-11-01 11:20:00', '2026-11-01 12:10:00', 2),
+    (4, 21, 'Won Co', '010', NULL, 1, 1, NULL, 'won', 5, 51, NULL, '2026-11-01 11:30:00', '2026-11-01 12:20:00', 2),
+    (5, 20, 'Lost Co', '019', NULL, 1, 1, NULL, 'lost', NULL, NULL, NULL, '2026-11-01 11:40:00', '2026-11-01 12:30:00', 1)`);
+  db.exec(`INSERT INTO agent_request_events (id, request_id, actor_id, kind, detail, created_at) VALUES (1, 1, 20, 'submitted', NULL, '2026-11-01 11:00:00'), (2, 2, 1, 'updated', '{"status":["new","contacted"]}', '2026-11-01 12:00:00')`);
+  const ev0 = JSON.stringify(db.prepare(`SELECT id, request_id, actor_id, kind, detail, created_at FROM agent_request_events ORDER BY id`).all());
+  let threw = null;
+  try { db.exec("BEGIN"); applyFile(db, mig, true); db.exec("COMMIT"); } catch (e) { threw = String(e); try { db.exec("ROLLBACK"); } catch { /* none */ } }
+  ok(!threw, "M2 0165 applies cleanly on the 1.249.0 tables (strict - every statement)", threw ?? "");
+  const st = Object.fromEntries(db.prepare(`SELECT id, status FROM agent_requests ORDER BY id`).all().map((r) => [r.id, r.status]));
+  ok(JSON.stringify(st) === JSON.stringify({ 1: "submitted", 2: "under_review", 3: "preparing", 4: "won", 5: "not_proceeding" }), "M3 every request is kept and its status mapped (new, contacted, quoted, won, lost)", JSON.stringify(st));
+  const r2 = db.prepare(`SELECT agent_id, client_name, assigned_to, quotation_id, manager_note, created_at, updated_at, published_doc_id FROM agent_requests WHERE id = 3`).get();
+  ok(r2.agent_id === 21 && r2.client_name === "Cik Lina" && r2.assigned_to === 5 && r2.quotation_id === 50 && r2.published_doc_id === null && db.prepare(`SELECT manager_note FROM agent_requests WHERE id = 2`).get().manager_note === "call back", "M4 the agent, client, salesperson, quotation link and private note are kept; nothing counts as published", JSON.stringify(r2));
+  ok(JSON.stringify(db.prepare(`SELECT id, request_id, actor_id, kind, detail, created_at FROM agent_request_events ORDER BY id`).all()) === ev0 && db.prepare(`SELECT COUNT(*) AS n FROM agent_request_events WHERE visibility = 'internal'`).get().n === 2, "M5 the history rows are kept as they were and read internal");
+  let frozen = false; try { db.exec(`UPDATE agent_request_events SET kind = 'x'`); } catch { frozen = true; }
+  ok(frozen, "M6 the history is still append-only after the upgrade");
+  let ins = true; try { db.exec(`INSERT INTO agent_requests (agent_id, client_name, status, client_key) VALUES (20, 'New', 'acceptance_pending', 'k')`); db.exec(`INSERT INTO agent_request_files (request_id, media_id, uploader_id, file_name, visibility) VALUES (1, 1, 20, 'a.png', 'agent')`); } catch { ins = false; }
+  let bad = false; try { db.exec(`INSERT INTO agent_requests (agent_id, client_name, status) VALUES (20, 'Bad', 'quoted')`); } catch { bad = true; }
+  ok(ins && bad && db.prepare(`SELECT MAX(id) AS n FROM agent_requests`).get().n === 6, "M7 the new statuses and files are accepted, an old status is refused, and new ids continue after the kept ones");
+  return out;
+}
 const SECRET = "JBSWY3DPEHPK3PXP";
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const b32 = (s) => { let bits = 0, v = 0; const o = []; for (const ch of s) { v = (v << 5) | B32.indexOf(ch); bits += 5; if (bits >= 8) { o.push((v >>> (bits - 8)) & 255); bits -= 8; } } return Buffer.from(o); };
@@ -266,6 +304,7 @@ const given = process.env.WORKER_BUNDLE;
 const dir = mkdtempSync(join(tmpdir(), "golive-h-"));
 const main = given ?? join(dir, "worker.mjs");
 if (!given) bundle(root, main);
+report(migrationChecks());
 const base = await runtime(main);
 report(base);
 const checks = n;

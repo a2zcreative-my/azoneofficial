@@ -478,6 +478,13 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [archPage, setArchPage] = useState(1);
   /* the Calendar's month, Malaysia time */
   const [calMonth, setCalMonth] = useState(() => todayISO.slice(0, 7));
+  /* v1.250.1 (the owner, 01-11-2026: "the project task was not included into the
+     calendar deadline") - a PROJECT's own due date belongs on the Deadlines
+     calendar beside its tasks. Read from the same list Tasks > Projects shows
+     (the CEO, COO, CCO: every project; anyone else: the projects they own or
+     have a task on). Nothing is written. */
+  type CalProject = { id: number; title: string; company: string | null; due_date: string | null; status: string; doc_number?: string | null };
+  const [calProjects, setCalProjects] = useState<CalProject[] | null>(null);
   /* a person's position, from the picker list the form already reads */
   const positionOf = (id?: number) => {
     const u = id == null ? undefined : team.find((x) => x.id === id);
@@ -1047,6 +1054,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       </TabZone>
       )}
 
+      {view === "calendar" && canProjects && calProjects === null && <CalProjectsLoader manage={canManage} onLoad={setCalProjects} />}
       {/* ============================== CALENDAR ============================== */}
       {/* v1.209.0 - the deadlines of the tasks already loaded, by month. No
           calendar of its own and no event is written: a task appears on the
@@ -1060,13 +1068,19 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           const lead = (first.getUTCDay() + 6) % 7; // Monday first
           const byDay = new Map<string, Task[]>();
           for (const t of scope) if (t.deadline && t.deadline.startsWith(calMonth)) byDay.set(t.deadline.slice(0, 10), [...(byDay.get(t.deadline.slice(0, 10)) ?? []), t]);
+          /* v1.250.1 - the projects due this month, on their due date */
+          const projIn = (calProjects ?? []).filter((p) => p.due_date?.startsWith(calMonth) && p.status !== "cancelled");
+          const projByDay = new Map<string, CalProject[]>();
+          for (const p of projIn) projByDay.set(p.due_date!.slice(0, 10), [...(projByDay.get(p.due_date!.slice(0, 10)) ?? []), p]);
+          const projLate = (p: CalProject) => !!p.due_date && p.due_date.slice(0, 10) < todayISO && p.status !== "completed";
+          const openProject = (id: number) => { setProjOpen(id); setView("projects"); };
           const shift = (n: number) => { const d = new Date(Date.UTC(y, m - 1 + n, 1)); setCalMonth(d.toISOString().slice(0, 7)); };
           const monthName = first.toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" });
           const inMonth = scope.filter((t) => t.deadline?.startsWith(calMonth));
           const noDate = scope.filter((t) => !t.deadline && t.status !== "completed").length;
           return (
             <section className={card} aria-label={L("Task deadlines calendar", "Kalendar tarikh akhir tugasan")}>
-              {head("date", tk.blueWell, L("Deadlines", "Tarikh akhir"), canManage ? L("Every task on the board, on the day it is due.", "Setiap tugasan pada papan, pada hari ia perlu siap.") : L("Your tasks, on the day each is due.", "Tugasan anda, pada hari setiap satu perlu siap."),
+              {head("date", tk.blueWell, L("Deadlines", "Tarikh akhir"), canManage ? L("Every task and project, on the day it is due.", "Setiap tugasan dan projek, pada hari ia perlu siap.") : L("Your tasks and projects, on the day each is due.", "Tugasan dan projek anda, pada hari setiap satu perlu siap."),
                 <span className={tk.calNav}>
                   <button type="button" className={btnSm} aria-label={L("Previous month", "Bulan sebelum")} onClick={() => shift(-1)}><AppIcon name="previous" /></button>
                   <strong className={tk.calMonth}>{monthName}</strong>
@@ -1075,24 +1089,33 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 </span>)}
               {!loaded ? <SkelRows rows={5} /> : (
                 <>
-                  <p className={tk.sub}>{L(`${inMonth.length} due this month · ${inMonth.filter((t) => t.status !== "completed" && isOverdue(t)).length} overdue · ${noDate} open with no deadline`, `${inMonth.length} perlu siap bulan ini · ${inMonth.filter((t) => t.status !== "completed" && isOverdue(t)).length} lewat · ${noDate} terbuka tanpa tarikh akhir`)}</p>
+                  <p className={tk.sub}>{L(`${inMonth.length} due this month · ${inMonth.filter((t) => t.status !== "completed" && isOverdue(t)).length} overdue · ${noDate} open with no deadline`, `${inMonth.length} perlu siap bulan ini · ${inMonth.filter((t) => t.status !== "completed" && isOverdue(t)).length} lewat · ${noDate} terbuka tanpa tarikh akhir`)}{canProjects ? L(` · ${projIn.length} project${projIn.length === 1 ? "" : "s"} due`, ` · ${projIn.length} projek perlu siap`) : ""}</p>
                   <div className={tk.cal} role="grid" aria-label={monthName}>
                     {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) => <span key={d} className={tk.calHead} role="columnheader">{L(d, ["Isn", "Sel", "Rab", "Kha", "Jum", "Sab", "Ahd"][i]!)}</span>)}
                     {Array.from({ length: lead }, (_, i) => <span key={`b${i}`} className={tk.calBlank} aria-hidden />)}
                     {Array.from({ length: days }, (_, i) => {
                       const iso = `${calMonth}-${String(i + 1).padStart(2, "0")}`;
                       const list = byDay.get(iso) ?? [];
+                      const plist = projByDay.get(iso) ?? [];
+                      const room = Math.max(0, 3 - plist.length);
                       return (
-                        <div key={iso} className={tk.calDay} role="gridcell" data-today={iso === todayISO ? "" : undefined} aria-label={`${dmy(iso)}${list.length ? `, ${list.length} ${L("due", "perlu siap")}` : ""}`}>
+                        <div key={iso} className={tk.calDay} role="gridcell" data-today={iso === todayISO ? "" : undefined} aria-label={`${dmy(iso)}${list.length + plist.length ? `, ${list.length + plist.length} ${L("due", "perlu siap")}` : ""}`}>
                           <span className={tk.calNum}>{i + 1}</span>
-                          {list.slice(0, 3).map((t) => (
+                          {plist.slice(0, 3).map((p) => (
+                            <button key={`p${p.id}`} type="button" onClick={() => openProject(p.id)} data-testid={`cal-project-${p.id}`}
+                              className={`${tk.calTask} ${tk.calProject} ${p.status === "completed" ? tk.calDone : projLate(p) ? tk.calLate : ""}`}
+                              title={L(`Project due: ${p.title}${p.company ? ` · ${p.company}` : ""}`, `Projek perlu siap: ${p.title}${p.company ? ` · ${p.company}` : ""}`)}>
+                              <AppIcon name="folder" />{p.title}
+                            </button>
+                          ))}
+                          {list.slice(0, room).map((t) => (
                             <button key={t.id} type="button" onClick={() => void openChecklist(t.id)}
                               className={`${tk.calTask} ${t.status === "completed" ? tk.calDone : isOverdue(t) ? tk.calLate : ""}`}
                               title={`${t.title}${t.assignee ? ` · ${t.assignee}` : ""}`}>
                               {t.title}
                             </button>
                           ))}
-                          {list.length > 3 && <span className={tk.calMore}>{L(`+${list.length - 3} more`, `+${list.length - 3} lagi`)}</span>}
+                          {list.length + plist.length > 3 && <span className={tk.calMore}>{L(`+${list.length + plist.length - 3} more`, `+${list.length + plist.length - 3} lagi`)}</span>}
                         </div>
                       );
                     })}
@@ -1100,8 +1123,17 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                   </div>
                   {/* the same month as a list: big targets on a phone, and the
                       whole title where the grid can only show its start */}
-                  {inMonth.length > 0 && (
+                  {(inMonth.length > 0 || projIn.length > 0) && (
                     <ul className={tk.agenda} aria-label={L("Due this month", "Perlu siap bulan ini")}>
+                      {[...projIn].sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? "")).map((p) => (
+                        <li key={`p${p.id}`}>
+                          <button type="button" onClick={() => openProject(p.id)}>
+                            <span className={tk.agendaDate}>{dmy(p.due_date!).slice(0, 5)}</span>
+                            <span className={tk.attnText}><strong className={projLate(p) ? tk.danger : ""}>{p.title}</strong><span className={tk.muted}>{L("Project", "Projek")}{p.company ? ` · ${p.company}` : ""}{p.doc_number ? ` · ${p.doc_number}` : ""}</span></span>
+                            <span className={p.status === "completed" ? chipSuccess : projLate(p) ? chipDanger : chipInfo}>{p.status === "completed" ? L("Completed", "Selesai") : projLate(p) ? L("Overdue", "Lewat") : L("Project due", "Projek perlu siap")}</span>
+                          </button>
+                        </li>
+                      ))}
                       {[...inMonth].sort((a, b) => (a.deadline ?? "").localeCompare(b.deadline ?? "")).map((t) => (
                         <li key={t.id}>
                           <button type="button" onClick={() => void openChecklist(t.id)}>
@@ -1113,7 +1145,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       ))}
                     </ul>
                   )}
-                  <p className={tk.hint}>{L("A task without a deadline is not on the calendar. The days a task is booked for work are on the Roster (Attendance).", "Tugasan tanpa tarikh akhir tiada dalam kalendar. Hari tugasan ditempah untuk kerja ada dalam Roster (Kehadiran).")}</p>
+                  <p className={tk.hint}>{L("Projects show on their due date (the folder mark); tasks on their deadline. A task without a deadline is not on the calendar. The days a task is booked for work are on the Roster (Attendance).", "Projek dipaparkan pada tarikh siapnya (tanda folder); tugasan pada tarikh akhirnya. Tugasan tanpa tarikh akhir tiada dalam kalendar. Hari tugasan ditempah untuk kerja ada dalam Roster (Kehadiran).")}</p>
                 </>
               )}
             </section>
@@ -1431,4 +1463,23 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       })()}
     </TabPage>
   );
+}
+
+/** v1.250.1 - loads the projects the Deadlines calendar shows: every project for
+    management, otherwise the ones this person owns or has a task on. */
+function CalProjectsLoader({ manage, onLoad }: { manage: boolean; onLoad: (rows: { id: number; title: string; company: string | null; due_date: string | null; status: string; doc_number?: string | null }[]) => void }) {
+  /* skeleton: none — this draws nothing; the calendar already shows its own skeleton while the tasks load, and project chips join the grid when they land */
+  useEffect(() => {
+    const c = new AbortController();
+    type R = { projects?: { id: number; title: string; company: string | null; due_date: string | null; status: string; doc_number?: string | null }[] };
+    const scopes = manage ? ["all"] : ["assigned", "mine"];
+    void Promise.all(scopes.map((sc) => api<R>(`/staff/projects?scope=${sc}`, { signal: c.signal }))).then((res) => {
+      if (c.signal.aborted) return;
+      const seen = new Map<number, NonNullable<R["projects"]>[number]>();
+      for (const r of res) for (const p of r.data?.projects ?? []) seen.set(p.id, p);
+      onLoad([...seen.values()]);
+    });
+    return () => c.abort();
+  }, [manage, onLoad]);
+  return null;
 }

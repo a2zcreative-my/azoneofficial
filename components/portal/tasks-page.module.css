@@ -1014,6 +1014,19 @@ td .who > span:first-child { flex-shrink: 0; }
   font-size: 0.6875rem;
   color: var(--muted-foreground);
 }
+/* v1.250.1 - a project's due date on the Deadlines calendar: a project mark, its own colour */
+.calProject {
+  border-left-color: color-mix(in srgb, var(--plan) 45%, var(--primary));
+  background: var(--plan-soft);
+  font-weight: 700;
+}
+.calProject svg {
+  display: inline;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.25rem;
+  vertical-align: -0.125rem;
+}
 @media (max-width: 640px) {
   .calBlank,
   .calDay {

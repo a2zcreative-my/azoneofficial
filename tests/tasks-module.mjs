@@ -52,7 +52,7 @@ const staff = read("worker/src/staff.ts");
     /* v1.246.0 (audit A9) - the archive pages the closed tasks past the board's newest 300 */
     /^\/staff\/tasks\?archive=1\$\{canManage \? "&all=1" : ""\}\$\{qs\}$/,
     /* v1.246.2 - the quotations a task is set under; the checklist edited (add, rename, remove) */
-    /^\/staff\/projects\/quotations$/, /^\/staff\/tasks\/\$\{t\.id\}\/items$/, /^\/staff\/tasks\/\$\{t\.id\}\/items\/\$\{renaming\.id\}$/, /^\/staff\/tasks\/\$\{t\.id\}\/items\/\$\{it\.id\}$/];
+    /^\/staff\/projects\/quotations$/, /^\/staff\/projects\?scope=\$\{sc\}$/, /* v1.250.1 - the Deadlines calendar reads the project list (projects.ts GET /projects) */ /^\/staff\/tasks\/\$\{t\.id\}\/items$/, /^\/staff\/tasks\/\$\{t\.id\}\/items\/\$\{renaming\.id\}$/, /^\/staff\/tasks\/\$\{t\.id\}\/items\/\$\{it\.id\}$/];
   const odd = calls.filter((c) => !allowed.some((re) => re.test(c)));
   ok("the Tasks page calls only the task routes that exist", calls.length >= 7 && odd.length === 0, odd.join(", "));
   ok("…and reads the board through the one cached read the Dashboard shares", /useCachedApi<\{ tasks: Task\[\] \}>\(`\/staff\/tasks\$\{canManage \? "\?all=1" : ""\}`, true, \["tasks"\]\)/.test(code));

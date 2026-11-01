@@ -88,7 +88,11 @@ export function AgentsPanel({ role }: { role: string }) {
       if (c.signal.aborted) return;
       if (r.ok) setPkgs(r.data?.packages ?? []); else setFailed(r.data?.error?.message ?? L("The agent desk could not be loaded.", "Meja ejen tidak dapat dimuatkan."));
     });
-    void api<ListRes>("/staff/agent/requests", { signal: c.signal }).then((r) => { if (!c.signal.aborted && r.ok && r.data) setList(r.data); });
+    /* v1.250.1 - a refused or failed list says why; it used to leave the skeleton up for good */
+    void api<ListRes & { error?: { message?: string } }>("/staff/agent/requests", { signal: c.signal }).then((r) => {
+      if (c.signal.aborted) return;
+      if (r.ok && r.data) setList(r.data); else setFailed(r.data?.error?.message ?? L("The requests could not be loaded - try again.", "Permintaan tidak dapat dimuatkan - cuba lagi."));
+    });
     return () => c.abort();
   }, [tick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);

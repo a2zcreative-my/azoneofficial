@@ -93,95 +93,40 @@ ALTER TABLE users_new6 RENAME TO users;
 CREATE INDEX IF NOT EXISTS idx_users_reports_to ON users(reports_to);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL;
 PRAGMA defer_foreign_keys = false;
--- agent_requests: a client an agent brings in, a lead until Sales makes the
--- quotation in Sales. Release 1.250.0 (the agent portal brief, approved
--- 01-11-2026, claude/AGENT-PORTAL-AUDIT.md) widened it here because 0164 had
--- never run on any database. status is the request status only. The
--- quotation keeps its own revision, approval, issue and acceptance in Sales
--- and is never copied here. published_doc_id and published_revision say which
--- issued revision the agent was given. assigned_to is the salesperson who
--- handles it. client_key makes a retried submit return the same row.
+-- agent_requests: a client an agent brings in, with the package they want.
+-- status new, contacted, quoted, won or lost. assigned_to is the salesperson
+-- following it up. quotation_id links the quotation Sales made from it.
 CREATE TABLE IF NOT EXISTS agent_requests (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  agent_id           INTEGER NOT NULL,
-  client_name        TEXT    NOT NULL,
-  contact_person     TEXT,
-  client_phone       TEXT,
-  client_email       TEXT,
-  company            TEXT,
-  package_id         INTEGER,
-  package_version    INTEGER,
-  custom             INTEGER NOT NULL DEFAULT 0,
-  requirement        TEXT,
-  issuer_code        TEXT,
-  timeline           TEXT,
-  budget_text        TEXT,
-  note               TEXT,
-  status             TEXT    NOT NULL DEFAULT 'submitted' CHECK (status IN ('draft', 'submitted', 'under_review', 'more_info', 'preparing', 'quotation_ready', 'with_client', 'revision_requested', 'acceptance_pending', 'won', 'not_proceeding')),
-  assigned_to        INTEGER,
-  quotation_id       INTEGER,
-  published_doc_id   INTEGER,
-  published_revision INTEGER,
-  published_at       TEXT,
-  published_by       INTEGER,
-  next_follow_up_on  TEXT,
-  manager_note       TEXT,
-  client_key         TEXT,
-  last_event_at      TEXT,
-  last_event_by      INTEGER,
-  last_event_text    TEXT,
-  created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
-  submitted_at       TEXT,
-  updated_at         TEXT,
-  updated_by         INTEGER
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id        INTEGER NOT NULL,
+  client_name     TEXT    NOT NULL,
+  client_phone    TEXT,
+  client_email    TEXT,
+  company         TEXT,
+  package_id      INTEGER,
+  package_version INTEGER,
+  note            TEXT,
+  status          TEXT    NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'contacted', 'quoted', 'won', 'lost')),
+  assigned_to     INTEGER,
+  quotation_id    INTEGER,
+  manager_note    TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT,
+  updated_by      INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_agent_requests_agent ON agent_requests (agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_agent_requests_status ON agent_requests (status, created_at);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_agent_requests_key ON agent_requests (agent_id, client_key) WHERE client_key IS NOT NULL;
--- agent_request_events: the request timeline, append-only. kind names what
--- happened (submitted, update, comment, status, assign, published, shared,
--- sent, feedback, file, quotation). visibility agent is shown to the agent
--- who owns the request, internal never is. A correction is a new row that
--- points at the old one with corrects_id.
+-- agent_request_events: every change to a request, append-only.
 CREATE TABLE IF NOT EXISTS agent_request_events (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  request_id      INTEGER NOT NULL,
-  actor_id        INTEGER,
-  kind            TEXT    NOT NULL,
-  visibility      TEXT    NOT NULL DEFAULT 'internal' CHECK (visibility IN ('agent', 'internal')),
-  body            TEXT,
-  client_feedback TEXT,
-  blockers        TEXT,
-  next_action     TEXT,
-  follow_up_on    TEXT,
-  status_from     TEXT,
-  status_to       TEXT,
-  channel         TEXT,
-  corrects_id     INTEGER,
-  client_key      TEXT,
-  detail          TEXT,
-  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id  INTEGER NOT NULL,
+  actor_id    INTEGER,
+  kind        TEXT    NOT NULL,
+  detail      TEXT,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_agent_request_events_req ON agent_request_events (request_id, id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_agent_request_events_key ON agent_request_events (actor_id, client_key) WHERE client_key IS NOT NULL;
 CREATE TRIGGER IF NOT EXISTS agent_request_events_no_update BEFORE UPDATE ON agent_request_events
 BEGIN SELECT RAISE(ABORT, 'request history is kept as it was'); END;
 CREATE TRIGGER IF NOT EXISTS agent_request_events_no_delete BEFORE DELETE ON agent_request_events
 BEGIN SELECT RAISE(ABORT, 'request history is kept as it was'); END;
--- agent_request_files: files on a request, stored the same way as task files
--- (private R2 plus a media row). visibility as for events.
-CREATE TABLE IF NOT EXISTS agent_request_files (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  request_id   INTEGER NOT NULL,
-  event_id     INTEGER,
-  media_id     INTEGER NOT NULL,
-  uploader_id  INTEGER NOT NULL,
-  file_name    TEXT    NOT NULL,
-  content_type TEXT,
-  size_bytes   INTEGER,
-  visibility   TEXT    NOT NULL DEFAULT 'internal' CHECK (visibility IN ('agent', 'internal')),
-  client_key   TEXT,
-  created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_agent_request_files_req ON agent_request_files (request_id, id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_agent_request_files_key ON agent_request_files (uploader_id, client_key) WHERE client_key IS NOT NULL;
