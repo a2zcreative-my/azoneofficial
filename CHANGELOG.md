@@ -10,6 +10,19 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.247.1] - 2026-11-01 - Corrections: Tasks, project page, Companies
+
+The owner's screenshots ("seem incorrectly, do a correction for this portion" on Tasks and a project page, "do a correction on Companies too").
+
+- **All Tasks:** a project task's chip names the project (title and company) instead of "Project #n". An assignee's name wraps inside its column instead of running into the next one. A task being worked on reads **In progress** (Sedang dibuat), the same word the project page uses, instead of "Pending" - in the status menu, the filter, the figures, the charts, the dashboard Task Overview and search. The stored status (`in_progress`) is unchanged.
+- **Start project** now makes the project already started: scope frozen and status In progress in one step (it used to stay "Not started" until a second click). Audited as before (`project.status`, activated).
+- **Project activity** names the change in words: "Due date 15 Dec 2026 -> 20 Dec 2026" instead of a raw field list.
+- **Project facts:** Set / Change and Assign / Change sit at the left edge under their value. A task due date before the project starts, or after it is due, shows a warning under the field.
+- **Companies:** the notice no longer touches the figures under it; the four figure tiles' labels line up; A2Z Creative Marketing (the operating company) is listed first; the access tile shows a figure - "Company access readiness" n / total - with the state in words ("Not active - roles still decide what each person opens") instead of a bare word.
+- No migration. No change to quotations, invoices, payroll, commission, permissions or any stored record.
+- Evidence: go-live-p (start activates, activity words), tasks-module, new browser test tests/browser/ui-corrections.py (12 checks), all guards, browser regressions.
+- Not deployed.
+
 ## [1.247.0] - 2026-11-01 - Task emails from hello@a2zcreative.my; project start and due dates
 
 The owner's brief "A2Z OS - Automated Task Email Notifications & Staff Reminder System" (01-11-2026), the audit claude/TASK-EMAIL-AUDIT.md and his answers (emails first, the digest off until he turns it on, overdue on day 1, 3 and 7 then stop, the sender A2Z Creative Marketing <hello@a2zcreative.my>).

@@ -18,7 +18,7 @@
  *      Dashboard's quick action still opens it).
  *   4. THE CALENDAR IS THE DEADLINES ALREADY LOADED - no request, no event.
  *   5. THE THREE STATUSES ARE THE THREE THERE ARE (open, in_progress shown
- *      as Pending, completed shown as Closed).
+ *      as In progress since v1.247.1 (it was "Pending" - the project table and the task drawer said In Progress), completed shown as Closed).
  *   6. A COUNT AND ITS LIST AGREE. The Reports card's "Not acknowledged"
  *      list uses the server's rule (set by someone else, not closed, no ack),
  *      not a field the API never sent.
@@ -93,7 +93,7 @@ const staff = read("worker/src/staff.ts");
 /* ---- 5. the three statuses ---- */
 {
   const sel = code.slice(code.indexOf("const statusSelect"), code.indexOf("const ackControl"));
-  ok("the status control offers open, in_progress, completed and nothing else", /\["open", "Open"\],\s*\["in_progress", "Pending"\],\s*\["completed", "Closed"\],/.test(sel) && (sel.match(/\["[a-z_]+", "[A-Za-z ]+"\]/g) ?? []).length === 3);
+  ok("the status control offers open, in_progress, completed and nothing else", /\["open", "Open"\],\s*\["in_progress", "In progress"\],[^\n]*\n\s*\["completed", "Closed"\],/.test(sel) && (sel.match(/\["[a-z_]+", "[A-Za-z ]+"\]/g) ?? []).length === 3);
   ok("the worker's list is the same three", /\["open", "in_progress", "completed"\]\.includes\(body\.status\)/.test(staff));
   ok("the boards draw those three columns", /\(\["open", "in_progress", "completed"\] as const\)\.map/.test(code));
 }

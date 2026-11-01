@@ -20,7 +20,11 @@
   display: flex;
   align-items: flex-start;
   gap: 0.625rem;
-  margin: 0;
+  /* v1.247.1 - only the top and sides: the page stack owns the space below
+     (a "margin: 0" here beat the stack's zero-specificity rule and glued the
+     banner to the figures under it - the owner's Companies screenshot) */
+  margin-top: 0;
+  margin-inline: 0;
   padding: 0.75rem 0.875rem;
   border-radius: 12px;
   background: var(--warning-soft);

@@ -210,7 +210,7 @@ with sync_playwright() as p:
     pj = get(4209, "/__projects")
     created = [x for x in pj["posts"] if x["p"] == "/staff/projects"]
     sentc = json.loads(created[0]["body"]) if created else {}
-    check("one POST /staff/projects with the quotation id and the picked dates, with an Idempotency-Key", len(created) == 1 and sentc.get("quotation_id") == 1 and sentc.get("due_date") == "2026-12-31" and bool(sentc.get("start_date")) and bool(created[0]["key"]), str(created))
+    check("one POST /staff/projects with the quotation id and the picked dates, with an Idempotency-Key", len(created) == 1 and sentc.get("quotation_id") == 1 and sentc.get("due_date") == "2026-12-31" and bool(sentc.get("start_date")) and sentc.get("start") is True and bool(created[0]["key"]), str(created))
     check("the workspace opens after the press", pg.get_by_test_id("project-workspace").count() == 1)
     check("no page errors (create)", not errs, str(errs)[:300])
     ctx.close()

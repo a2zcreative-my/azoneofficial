@@ -1,6 +1,6 @@
 import { AZ_ONE, A2Z_CREATIVE } from "./issuers";
 
-export const COMPANY_CODES = ["azoo", "a2z"] as const;
+export const COMPANY_CODES = ["a2z", "azoo"] as const; // v1.247.1 - the operating company first (it issues everything today), AZ ONE OFFICIAL second
 export type CompanyCode = (typeof COMPANY_CODES)[number];
 export const COMPANY_NAMES: Record<CompanyCode, string> = {
   azoo: AZ_ONE.name,

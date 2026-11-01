@@ -280,6 +280,14 @@
   gap: 0.5rem;
   white-space: nowrap;
 }
+/* v1.247.1 - the owner's screenshot: "Alif Farhan" ran into the Position
+   column. In a table cell the name wraps beside its photo instead */
+td .who {
+  white-space: normal;
+  min-width: 0;
+  max-width: 11rem;
+}
+td .who > span:first-child { flex-shrink: 0; }
 .nameBtn {
   padding: 0;
   border: 0;

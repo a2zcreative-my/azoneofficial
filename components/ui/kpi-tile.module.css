@@ -16,6 +16,10 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
+  /* v1.247.1 - in a row the tiles stretch to the tallest; the spare height
+     stays at the bottom, so every label and figure lines up across the row
+     (a two-line sub used to push one tile's words above its neighbours') */
+  align-content: start;
   gap: 0.875rem;
   min-width: 0;
   color: inherit;

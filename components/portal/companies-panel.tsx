@@ -548,7 +548,8 @@ export function CompaniesPanel() {
       <KpiTile icon="store" tone="navy" label={L("Companies", "Syarikat")} value={COMPANY_CODES.length} sub={COMPANY_CODES.map(c => COMPANY_NAMES[c]).join(" · ")} />
       <KpiTile icon="pending" tone="gold" busy={!summary} label={L("Not yet reviewed", "Belum disemak")} value={summary?.totals.unassigned ?? 0} sub={L(`across ${summary?.registers.length ?? 9} registers`, `merentasi ${summary?.registers.length ?? 9} daftar`)} onClick={() => { open("review"); setState("unassigned"); resetList(); }} />
       <KpiTile icon="verify" tone="blue" busy={!summary} label={L("Reviewed, not settled", "Disemak, belum muktamad")} value={summary?.totals.pending ?? 0} sub={summary ? L(`${summary.totals.proposed} proposed · ${summary.totals.deferred} deferred · ${summary.totals.stale} changed`, `${summary.totals.proposed} dicadang · ${summary.totals.deferred} ditangguh · ${summary.totals.stale} berubah`) : undefined} />
-      <KpiTile icon="lock" tone="red" busy={!summary} label={L("Company access", "Akses syarikat")} value={L("Not active", "Belum aktif")} sub={L(`${doneSteps} of ${summary?.checklist.length ?? 9} readiness steps`, `${doneSteps} daripada ${summary?.checklist.length ?? 9} langkah kesediaan`)} onClick={() => open("staff")} />
+      {/* v1.247.1 - a figure tile shows a figure: the readiness count, with the state in words under it */}
+      <KpiTile icon="lock" tone="red" busy={!summary} label={L("Company access readiness", "Kesediaan akses syarikat")} value={`${doneSteps} / ${summary?.checklist.length ?? 9}`} sub={L("Not active - roles still decide what each person opens", "Belum aktif - peranan masih menentukan apa yang dibuka")} onClick={() => open("staff")} />
     </KpiRow>
 
     {/* ================= Ownership Review ================= */}

@@ -79,7 +79,7 @@ export function statusOf(h: SearchHit, todayISO: string): [string, string] | nul
     case "task": {
       /* the Tasks page's own words and its overdue rule (lib/task-figures.ts) */
       if (s !== "completed" && taskFigures([{ status: s, deadline: h.date ?? null }], todayISO).overdueCount > 0) return [L("Overdue", "Tertunggak"), chipDanger];
-      return s === "completed" ? [L("Closed", "Selesai"), chipSuccess] : s === "in_progress" ? [L("Pending", "Menunggu"), chipWarn] : [L("Open", "Terbuka"), chipInfo];
+      return s === "completed" ? [L("Closed", "Selesai"), chipSuccess] : s === "in_progress" ? [L("In progress", "Sedang dibuat"), chipWarn] : [L("Open", "Terbuka"), chipInfo]; // v1.247.1 - the Tasks page word
     }
     case "leave":
       return s === "approved" ? [L("Approved", "Diluluskan"), chipSuccess] : s === "rejected" ? [L("Rejected", "Ditolak"), chipDanger]

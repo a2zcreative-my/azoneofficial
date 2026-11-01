@@ -280,10 +280,15 @@ async function runtime(workerBundle) {
     ok((await call("/staff/projects", U.lia, "POST", { quotation_id: 102 })).status === 409, "a valid, unaccepted quotation has no project yet either");
     const rec = await call(`/staff/docs/102/acceptance`, U.lia, "POST", { accepted_name: "Puan Siti", accepted_position: "Owner", channel: "whatsapp", note: "Agreed 31-10" });
     ok((await call("/staff/projects", U.lia, "POST", { quotation_id: 102, start_date: "2026-11-10", due_date: "2026-11-01" })).status === 400 && n(`SELECT COUNT(*) AS n FROM projects WHERE quotation_id = 102`) === 0, "v1.246.4 a due date before the start date is refused, and no project is made");
-    const c4 = await call("/staff/projects", U.lia, "POST", { quotation_id: 102, start_date: "2026-11-02", due_date: "2026-12-15" });
+    const c4 = await call("/staff/projects", U.lia, "POST", { quotation_id: 102, start_date: "2026-11-02", due_date: "2026-12-15", start: true });
+    const c4row = db.prepare(`SELECT status, activated_at, scope_snapshot FROM projects WHERE quotation_id = 102`).get();
+    ok(c4row?.status === "in_progress" && c4row?.activated_at && JSON.parse(c4row?.scope_snapshot ?? "{}").lines?.length === 2, "v1.247.1 Start project STARTS it: in progress, the agreed scope frozen - not a draft brief (the owner's screenshot)", JSON.stringify(c4row));
     ok(JSON.stringify(db.prepare(`SELECT start_date, due_date FROM projects WHERE quotation_id = 102`).get()) === JSON.stringify({ start_date: "2026-11-02", due_date: "2026-12-15" }), "v1.246.4 Start project keeps the start and due dates picked on the sheet");
     await call(`/staff/projects/${c4.j?.id}/owner`, U.ceo, "POST", { owner_id: U.lia });
-    ok(rec.status === 201 && c4.status === 201 && (await call(`/staff/projects/${c4.j?.id}/status`, U.ceo, "POST", { to: "in_progress" })).status === 200, "the salesperson records the customer's acceptance (who, how, when), the project starts, no reason needed", `${rec.text.slice(0, 100)} ${c4.text.slice(0, 100)}`);
+    ok(rec.status === 201 && c4.status === 201, "the salesperson records the customer's acceptance (who, how, when), then starts the project", `${rec.text.slice(0, 100)} ${c4.text.slice(0, 100)}`);
+    const ed = await call(`/staff/projects/${c4.j?.id}`, U.ceo, "PATCH", { due_date: "2026-12-20", version: db.prepare(`SELECT version FROM projects WHERE id = ?`).get(c4.j?.id)?.version });
+    const acts = ((await call(`/staff/projects/${c4.j?.id}/activity`, U.ceo)).j?.activity ?? []).map((x) => x.text);
+    ok(ed.status === 200 && acts.includes("Due date 15 Dec 2026 → 20 Dec 2026") && !acts.some((x) => /start_date|due_date/.test(x)), "v1.247.1 the activity says what moved, in words - not the database column names", JSON.stringify(acts));
     const list = (await call(`/staff/projects?scope=mine`, U.lia)).j?.projects ?? [];
     ok(list.length >= 1 && list.some((p) => p.id === c4.j?.id) && list.every((p) => p.owner_id === U.lia), "the Tasks > Projects list: mine", JSON.stringify(list.map((p) => p.id)));
 

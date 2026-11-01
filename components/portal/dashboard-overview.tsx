@@ -327,7 +327,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   const taskSlices = [
     { key: "closed", label: L("Closed", "Selesai"), value: tf.doneCount, color: "var(--success)" },
     { key: "open", label: L("Open", "Terbuka"), value: openOnly, color: "var(--info)" },
-    { key: "pending", label: L("Pending", "Menunggu"), value: tf.pendingCount, color: "var(--warning)" },
+    { key: "pending", label: L("In progress", "Sedang dibuat"), value: tf.pendingCount, color: "var(--warning)" },
   ];
   const pctOf = (n: number) => (tasks.length ? Math.round((n * 100) / tasks.length) : 0);
   const taskCard = (
@@ -470,7 +470,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     })),
     ...tf.openTasks.filter((t) => t.deadline && t.deadline >= today).sort((a, b) => (a.deadline ?? "").localeCompare(b.deadline ?? "")).slice(0, 3).map((t): Up => ({
       key: `t-${t.id}`, title: t.title, sub: L("Task", "Tugasan") + (t.assignee ? ` · ${t.assignee}` : ""), date: t.deadline ?? null, icon: "orders", well: ov.blueWell,
-      chip: <span className={t.status === "in_progress" ? chipWarn : chipInfo}>{t.status === "in_progress" ? L("Pending", "Menunggu") : L("Open", "Terbuka")}</span>,
+      chip: <span className={t.status === "in_progress" ? chipWarn : chipInfo}>{t.status === "in_progress" ? L("In progress", "Sedang dibuat") : L("Open", "Terbuka")}</span>,
       open: () => go("Tasks"),
     })),
     ...(events ?? []).filter((e) => e.event_date >= today).sort((a, b) => a.event_date.localeCompare(b.event_date)).slice(0, 2).map((e): Up => ({

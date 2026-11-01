@@ -151,6 +151,23 @@ export async function ensureProject(env: Env, user: StaffUser, qid: number): Pro
   await audit(env, user.id, "project.create", "projects", String(ins.id), { quotation_id: qid, doc_number: qt.doc_number });
   return { id: ins.id, existing: false };
 }
+/* v1.247.1 - "Edited the project (start_date, due_date)" read like a database
+   log (the owner's screenshot, 01-11-2026): the activity says it in words,
+   with the dates from and to when the edit recorded them. */
+const FIELD_WORDS: Record<string, string> = { title: "the title", description: "the description", notes: "the notes", deliverables: "the deliverables", start_date: "the start date", due_date: "the due date" };
+const dayWords = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) ? new Date(`${v.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "not set");
+function editText(d: Record<string, unknown>): string {
+  const dates = (d.dates ?? {}) as Record<string, [unknown, unknown]>;
+  const parts: string[] = [];
+  for (const f of (d.fields as string[] | undefined) ?? []) {
+    if (dates[f]) parts.push(`${f === "start_date" ? "Start date" : "Due date"} ${dayWords(dates[f]![0])} → ${dayWords(dates[f]![1])}`);
+    else parts.push(`changed ${FIELD_WORDS[f] ?? f.replace(/_/g, " ")}`);
+  }
+  if (!parts.length) return "Edited the project";
+  const text = parts.join("; ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export async function projectTaskGate(env: Env, user: StaffUser, projectId: number): Promise<Response | null> {
   let p: ProjectRow | null = null;
   try { p = await loadProject(env, projectId); } catch (e) { if (missing(e)) return MIGRATION(); throw e; }
@@ -174,6 +191,11 @@ export async function taskProject(env: Env, taskId: number | string): Promise<nu
   const t = await env.DB.prepare(`SELECT link_kind, link_id FROM tasks WHERE id = ?1`).bind(taskId)
     .first<{ link_kind: string | null; link_id: number | null }>().catch(() => null);
   return t?.link_kind === "project" && t.link_id ? Number(t.link_id) : null;
+}
+
+/** The agreed scope, frozen when a project becomes active (one definition for every door that activates). */
+function scopeSnapshot(qt: QtRow): string {
+  return JSON.stringify({ revision: Number(qt.revision ?? 0), lines: parseLines(qt.items), package_id: qt.package_id, package_version: qt.package_version, package_customized: qt.package_customized, total_cents: qt.total_cents, discount_cents: Number(qt.discount_cents ?? 0), tax_percent: Number(qt.tax_percent ?? 0), delivery_cents: Number(qt.delivery_cents ?? 0) });
 }
 
 type Line = { name?: string; qty?: number; uom?: string; unit_price_cents?: number; disc_cents?: number; sub?: string[] };
@@ -284,6 +306,20 @@ async function route(env: Env, path: string, method: string, body: Record<string
     if (made instanceof Response) return made;
     if (!made.existing && (dates.start_date || dates.due_date)) {
       await env.DB.prepare(`UPDATE projects SET start_date = COALESCE(?1, start_date), due_date = COALESCE(?2, due_date) WHERE id = ?3`).bind(dates.start_date ?? null, dates.due_date ?? null, made.id).run();
+    }
+    /* v1.247.1 - the owner's screenshot: "Start project" left the project a
+       "Draft brief" while its work was under way. The button says start, the
+       quotation is accepted (ensureProject refuses otherwise), so the project
+       starts: in progress, the agreed scope frozen, exactly as the status
+       route activates it. */
+    if (!made.existing && body?.start === true) {
+      const qt = await loadQt(env, qid);
+      if (qt) {
+        await env.DB.prepare(
+          `UPDATE projects SET status = 'in_progress', scope_revision = ?1, scope_snapshot = ?2, activated_at = datetime('now'), activated_by = ?3, updated_by = ?3, updated_at = datetime('now'), version = version + 1 WHERE id = ?4 AND status = 'draft'`,
+        ).bind(Number(qt.revision ?? 0), scopeSnapshot(qt), user.id, made.id).run();
+        await audit(env, user.id, "project.status", "projects", String(made.id), { from: "draft", to: "in_progress", activated: true, quotation: (await quotationState(env, qt)).label });
+      }
     }
     return json(made, made.existing ? 200 : 201);
   }
@@ -421,7 +457,10 @@ async function route(env: Env, path: string, method: string, body: Record<string
     vals.push(p.id, body!.version);
     const r = await env.DB.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ?${vals.length - 1} AND version = ?${vals.length}`).bind(...vals).run();
     if (!(r.meta?.changes ?? 0)) return err("stale", "Somebody else saved this project a moment ago - reload it and make your change again", 409);
-    await audit(env, user.id, "project.edit", "projects", String(p.id), { fields: changed });
+    /* v1.247.1 - the dates are kept from and to, so the activity can say what moved */
+    const dates: Record<string, [string | null, string | null]> = {};
+    for (const f of ["start_date", "due_date"] as const) if (changed.includes(f)) dates[f] = [p[f] ?? null, (vals[changed.indexOf(f)] as string | null) ?? null];
+    await audit(env, user.id, "project.edit", "projects", String(p.id), { fields: changed, ...(Object.keys(dates).length ? { dates } : {}) });
     return json({ ok: true, version: p.version + 1 });
   }
 
@@ -472,7 +511,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
          package at this revision. A later package edit or a later revision
          does not change it. */
       vals.push(Number(qt.revision ?? 0)); sets.push(`scope_revision = ?${vals.length}`);
-      vals.push(JSON.stringify({ revision: Number(qt.revision ?? 0), lines: parseLines(qt.items), package_id: qt.package_id, package_version: qt.package_version, package_customized: qt.package_customized, total_cents: qt.total_cents, discount_cents: Number(qt.discount_cents ?? 0), tax_percent: Number(qt.tax_percent ?? 0), delivery_cents: Number(qt.delivery_cents ?? 0) }));
+      vals.push(scopeSnapshot(qt));
       sets.push(`scope_snapshot = ?${vals.length}`);
       sets.push(`activated_at = datetime('now')`);
       vals.push(user.id); sets.push(`activated_by = ?${vals.length}`);
@@ -645,7 +684,7 @@ async function activityFor(env: Env, p: ProjectRow, a: Access) {
     let d: Record<string, unknown> = {};
     try { d = JSON.parse(r.detail ?? "{}"); } catch { /* keep {} */ }
     const text = r.action === "project.create" ? `Created the project brief from ${String(d.doc_number ?? "the quotation")}`
-      : r.action === "project.edit" ? `Edited the project (${(d.fields as string[] | undefined)?.join(", ") ?? "details"})`
+      : r.action === "project.edit" ? editText(d)
       : r.action === "project.owner_set" ? (d.to ? `Set the Project Owner to ${await nameOf(env, Number(d.to))}` : "Cleared the Project Owner")
       : r.action === "project.status" ? `Status ${String(d.from ?? "").replace("_", " ")} → ${String(d.to ?? "").replace("_", " ")}${d.activated ? ` (quotation ${String(d.quotation)})` : ""}`
       : r.action;

@@ -49,7 +49,7 @@ const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, l
 const PRIORITY_CHIP: Record<string, string> = { urgent: chipDanger, high: chipWarn, normal: chipInfo, low: chipNeutral };
 /** rows on one page of the All Tasks and archive tables */
 const PER = 15;
-const statusL = (v: string) => v === "completed" ? L("Closed", "Selesai") : v === "in_progress" ? L("Pending", "Menunggu") : L("Open", "Terbuka");
+const statusL = (v: string) => v === "completed" ? L("Closed", "Selesai") : v === "in_progress" ? L("In progress", "Sedang dibuat") : L("Open", "Terbuka");
 
 /* ================= Tasks ================= */
 
@@ -292,7 +292,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     >
       {[
         ["open", "Open"],
-        ["in_progress", "Pending"],
+        ["in_progress", "In progress"], // v1.247.1 - one word for in_progress everywhere (the project table and the task drawer say In Progress)
         ["completed", "Closed"],
       ].filter(([v]) => v !== "completed" || !isAssigned(t) || t.status === "completed").map(([v, lbl]) => ( /* v1.246.0 (T-2) - a task somebody else set is closed by its reviewer, in the drawer */
         <option key={v} value={v}>
@@ -301,7 +301,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             v === "open"
               ? "Terbuka"
               : v === "in_progress"
-                ? "Menunggu"
+                ? "Sedang dibuat"
                 : "Selesai"
           )}
         </option>
@@ -326,7 +326,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      task in Tasks and in Sales, never a copy */
   const linkChip = (t: Task) => t.link_kind === "project" && t.link_id ? (
     <button type="button" className={chipInfo} title={L("Open the project", "Buka projek")}
-      onClick={(e) => { e.stopPropagation(); setProjOpen(t.link_id ?? null); go("projects"); }}>{L("Project", "Projek")} #{t.link_id}</button>
+      onClick={(e) => { e.stopPropagation(); setProjOpen(t.link_id ?? null); go("projects"); }}>{/* v1.247.1 - the project's name, not its number */}{t.link_label ?? `${L("Project", "Projek")} #${t.link_id}`}</button>
   ) : t.link_kind && t.link_id ? (
     <span className={chipInfo}>{({ customer: L("Customer", "Pelanggan"), enquiry: L("Enquiry", "Pertanyaan"), quotation: L("Quotation", "Sebut harga"), recovery: L("Recovery plan", "Pelan pemulihan") } as Record<string, string>)[t.link_kind] ?? t.link_kind} #{t.link_id}</span>
   ) : null;
@@ -519,9 +519,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       </label>
       {withStatus && (
         <select className={inputClassSm} aria-label={L("Status", "Status")} value={statusF} onChange={(e) => { setStatusF(e.target.value as StatusF); setAllPage(1); }}>
-          <option value="active">{L("Active (open + pending)", "Aktif (terbuka + menunggu)")}</option>
+          <option value="active">{L("Active (open + in progress)", "Aktif (terbuka + sedang dibuat)")}</option>
           <option value="open">{L("Open", "Terbuka")}</option>
-          <option value="in_progress">{L("Pending", "Menunggu")}</option>
+          <option value="in_progress">{L("In progress", "Sedang dibuat")}</option>
           <option value="completed">{L("Closed", "Selesai")}</option>
           <option value="review">{L("Waiting for review", "Menunggu semakan")}</option>
           <option value="blocked">{L("Blocked", "Terhalang")}</option>
@@ -797,12 +797,12 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             sub={canManage ? L("on the board", "pada papan") : L("assigned to you", "diberikan kepada anda")}
             onClick={() => { clearFilters(); setStatusF("any"); go(canManage ? "all" : "mine"); }} />
           <KpiTile icon="orders" tone="blue" label={L("Open", "Terbuka")} value={openTasks.length} busy={!loaded}
-            sub={L(`${pctOf(openTasks.length)}% of total · open + pending`, `${pctOf(openTasks.length)}% daripada jumlah · terbuka + menunggu`)}
+            sub={L(`${pctOf(openTasks.length)}% of total · open + in progress`, `${pctOf(openTasks.length)}% daripada jumlah · terbuka + sedang dibuat`)}
             onClick={() => { setStatusF("active"); go(canManage ? "all" : "mine"); }} />
           <KpiTile icon="time" tone="red" label={L("Overdue", "Lewat")} value={overdueCount} busy={!loaded}
             sub={L(`${pctOf(overdueCount)}% of total`, `${pctOf(overdueCount)}% daripada jumlah`)}
             onClick={() => { setStatusF("active"); setSortK("deadline"); go(canManage ? "all" : "mine"); }} />
-          <KpiTile icon="pending" tone="gold" label={L("Pending", "Menunggu")} value={pendingCount} busy={!loaded}
+          <KpiTile icon="pending" tone="gold" label={L("In progress", "Sedang dibuat")} value={pendingCount} busy={!loaded}
             sub={L(`${pctOf(pendingCount)}% of total`, `${pctOf(pendingCount)}% daripada jumlah`)}
             onClick={() => { setStatusF("in_progress"); go(canManage ? "all" : "mine"); }} />
           <KpiTile icon="success" tone="green" label={L("Closed", "Selesai")} value={doneCount} busy={!loaded}
@@ -903,13 +903,13 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
               <div className={tk.donutRow}>
                 <Donut size={140} hideLegend centerLabel={String(tasks.length)} centerSub={L("total tasks", "jumlah tugasan")} slices={[
                   { label: L("Open", "Terbuka"), value: openTasks.length - pendingCount, color: "var(--info)" },
-                  { label: L("Pending", "Menunggu"), value: pendingCount, color: "var(--warning)" },
+                  { label: L("In progress", "Sedang dibuat"), value: pendingCount, color: "var(--warning)" },
                   { label: L("Closed", "Selesai"), value: doneCount, color: "var(--success)" },
                 ]} />
                 <ul className={tk.legend}>
                   {([
                     [L("Open", "Terbuka"), openTasks.length - pendingCount, "var(--info)"],
-                    [L("Pending", "Menunggu"), pendingCount, "var(--warning)"],
+                    [L("In progress", "Sedang dibuat"), pendingCount, "var(--warning)"],
                     [L("Closed", "Selesai"), doneCount, "var(--success)"],
                     [L("Overdue", "Lewat"), overdueCount, "var(--danger)"],
                     [L("Not acknowledged", "Belum diakui"), unackedCount, "var(--muted-foreground)"],
@@ -945,7 +945,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             {!loaded ? <SkelRows rows={4} /> : assignees.length === 0 ? <p className={tk.empty}>{L("No tasks yet.", "Belum ada tugasan.")}</p> : (
               <div className={`erp-table-scroll erp-mt-2 ${tk.tableWrap}`}>
                 <table className={tk.plain} aria-label={L("Team task summary", "Ringkasan tugasan pasukan")}>
-                  <thead><tr><th>{L("Staff", "Kakitangan")}</th><th>{L("Role", "Peranan")}</th><th className={tk.num}>{L("Open", "Terbuka")}</th><th className={tk.num}>{L("Pending", "Menunggu")}</th><th className={tk.num}>{L("Overdue", "Lewat")}</th><th className={tk.num}>{L("Closed", "Selesai")}</th><th className={tk.num}>{L("Total", "Jumlah")}</th></tr></thead>
+                  <thead><tr><th>{L("Staff", "Kakitangan")}</th><th>{L("Role", "Peranan")}</th><th className={tk.num}>{L("Open", "Terbuka")}</th><th className={tk.num}>{L("In progress", "Sedang dibuat")}</th><th className={tk.num}>{L("Overdue", "Lewat")}</th><th className={tk.num}>{L("Closed", "Selesai")}</th><th className={tk.num}>{L("Total", "Jumlah")}</th></tr></thead>
                   <tbody>
                     {assignees.map((a) => (
                       <tr key={a.id}>
@@ -1156,7 +1156,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           /* v1.209.0 - the board read is the newest 200 (100 for your own);
              the archive says so rather than looking complete. The owner chose
              "not now" for a server page past them. */
-          sub: <>{L("Closed tasks stay here with their scope checklist — who ticked each item and when. Set a status back to Open or Pending to re-open one.", "Tugasan yang ditutup kekal di sini dengan senarai skopnya — siapa menanda setiap item dan bila. Tetapkan status kembali kepada Terbuka atau Menunggu untuk membukanya semula.")} {L(`Every open task is on the board; the newest ${closed.length + older.length} closed ones are searched here.`, `Semua tugasan terbuka ada pada papan; ${closed.length + older.length} tugasan ditutup terbaharu dicari di sini.`)}</>,
+          sub: <>{L("Closed tasks stay here with their scope checklist — who ticked each item and when. Set a status back to Open or In progress to re-open one.", "Tugasan yang ditutup kekal di sini dengan senarai skopnya — siapa menanda setiap item dan bila. Tetapkan status kembali kepada Terbuka atau Sedang dibuat untuk membukanya semula.")} {L(`Every open task is on the board; the newest ${closed.length + older.length} closed ones are searched here.`, `Semua tugasan terbuka ada pada papan; ${closed.length + older.length} tugasan ditutup terbaharu dicari di sini.`)}</>,
           tools: (
             <div className={tk.toolbar} role="search">
               <label className={tk.search}>

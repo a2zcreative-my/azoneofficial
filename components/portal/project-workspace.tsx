@@ -255,7 +255,7 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
                       <span className={pw.person} role="cell"><Avatar name={t.assignee} photoKey={t.photo_key} size="sm" /><span>{t.assignee}</span></span>
                       <span role="cell"><TaskChip label={t.label} /></span>
                       <span className={pw.bar} role="cell"><span className={pw.track} data-progress={pctOf(t)}><span className={pctOf(t) >= 100 ? pw.fillDone : pw.fill} style={{ width: `${pctOf(t)}%` }} /></span><span className={pw.pct}>{pctOf(t)}%</span></span>
-                      <span role="cell">{fmtDay(t.deadline)}</span>
+                      <span role="cell">{fmtDay(t.deadline)}{t.deadline && p.start_date && t.deadline < p.start_date ? <span className={pw.warnNote}>{L("before the project starts", "sebelum projek bermula")}</span> : t.deadline && p.due_date && t.deadline > p.due_date ? <span className={pw.warnNote}>{L("after the project is due", "selepas projek perlu siap")}</span> : null}</span>
                       <span className={pw.when} role="cell">{t.last_update_at ? <><span className={pw.latestText}>{t.last_update}</span><span className={pw.whenBy}>{fmtStamp(t.last_update_at)}{t.last_update_by ? ` · ${t.last_update_by.split(" ")[0]}` : ""}</span></> : <span className={pw.whenBy}>{L("No progress report yet", "Belum ada laporan kemajuan")}</span>}</span>
                       <span className={pw.anchor} role="cell">
                         <button type="button" className={pw.more} aria-label={L(`Actions for ${t.title}`, `Tindakan untuk ${t.title}`)} aria-expanded={menu === t.id} onClick={() => setMenu(menu === t.id ? null : t.id)}>⋯</button>
@@ -432,7 +432,7 @@ export function StartSheet({ quotationId, docNumber, company, onClose, onStarted
     setProblem("");
     if (!f.due_date) { setProblem(L("Pick the due date.", "Pilih tarikh akhir.")); return; }
     if (f.start_date && f.due_date < f.start_date) { setProblem(L("The due date is before the start date.", "Tarikh akhir sebelum tarikh mula.")); return; }
-    const r = await api<{ id?: number; error?: { message?: string } }>("/staff/projects", { method: "POST", body: JSON.stringify({ quotation_id: quotationId, start_date: f.start_date || undefined, due_date: f.due_date }) });
+    const r = await api<{ id?: number; error?: { message?: string } }>("/staff/projects", { method: "POST", body: JSON.stringify({ quotation_id: quotationId, start_date: f.start_date || undefined, due_date: f.due_date, start: true }) }); // v1.247.1 - Start project starts it
     if (!r.ok || !r.data?.id) { setProblem(r.data?.error?.message ?? L("Not started", "Tidak dimulakan")); return; }
     onStarted(r.data.id);
   });
