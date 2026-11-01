@@ -16,6 +16,7 @@ import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the 
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
 import { bumpVersion, topicOf, putGuarded } from "./shared";
 import { handlePublicAcceptance } from "./business"; // v1.181.16 - quotation acceptance on the shared link
+import { signPlan, loadDocForSigning, assetForDoc } from "./signing"; // v1.248.0 - personal signatures on the shared link
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
 // v1.35.0: the ELFIA feed's serialiser lives in its own pure module so the
 // bridge-feed guard imports the shipped code, never a copy.
@@ -295,7 +296,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0161_task_mail";
+const LATEST_MIGRATION = "0163_task_dates";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -3621,8 +3622,22 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ).bind(d.salesperson_name).first<{ signer_name: string; position: string | null }>();
     }
     delete d.created_by_role;
+    /* v1.248.0 - a company that signs personally: the customer sees the names and
+       which blocks carry a mark, never the asset ids or anybody's raw file */
+    let pubSign: Record<string, unknown> | null = null;
+    try {
+      const sd = await env.DB.prepare(`SELECT id FROM sales_documents WHERE share_token = ?1`).bind(token).first<{ id: number }>();
+      const full = sd ? await loadDocForSigning(env, sd.id) : null;
+      const pl = full ? await signPlan(env, full) : null;
+      if (pl && pl.mode === "personal") pubSign = {
+        mode: "personal",
+        prepared: pl.prepared ? { name: pl.prepared.name, position: pl.prepared.position, has: !!pl.prepared.asset_id } : null,
+        approved: pl.approved ? { name: pl.approved.name, position: pl.approved.position, at: pl.approved.at, has: !!pl.approved.asset_id } : null,
+        stamp: !!pl.stamp_asset_id,
+      };
+    } catch { pubSign = null; } // pre-0162
     return new Response(JSON.stringify({
-      doc: { ...d, signer_role: signRole, signer_name: signer?.signer_name ?? null, signer_position: signer?.position ?? null },
+      doc: { ...d, sign: pubSign, signer_role: signRole, signer_name: signer?.signer_name ?? null, signer_position: signer?.position ?? null },
     }), {
       headers: {
         "Content-Type": "application/json",
@@ -3660,6 +3675,21 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       } catch { sigDoc = null; }
     }
     if (!sigDoc) return errorResponse("not_found", "Unknown document", 404);
+    /* v1.248.0 - a company that signs personally: the block asked for (prepared,
+       approved or stamp) from the document's own plan - its issuance when shared */
+    const whichSig = new URL(request.url).searchParams.get("which") ?? "prepared";
+    try {
+      const sd = await env.DB.prepare(`SELECT id FROM sales_documents WHERE share_token = ?1`).bind(token).first<{ id: number }>();
+      const full = sd ? await loadDocForSigning(env, sd.id) : null;
+      const pl = full ? await signPlan(env, full) : null;
+      if (full && pl?.mode === "personal") {
+        const a = await assetForDoc(env, full, whichSig);
+        const o = a ? await env.MEDIA.get(a.r2_key) : null;
+        if (!o) return errorResponse("not_found", "No signature in this block", 404);
+        return new Response(o.body, { headers: { "Content-Type": "image/png", "Cache-Control": "no-store, private", "X-Robots-Tag": "noindex" } });
+      }
+    } catch { /* pre-0162: the role rule below */ }
+    if (whichSig !== "prepared") return errorResponse("not_found", "No signature in this block", 404);
     // Same signer rule as everywhere (v1.4.233): officer's doc → their chop;
     // anyone else's INV → CEO; anything else is signed in ink (no image).
     const MGMT = ["ceo", "coo", "cco"];
@@ -5099,6 +5129,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0159 (project workspace and task progress: one brief per quotation, append-only task updates)", `SELECT p.quotation_id, p.owner_id, p.scope_snapshot, u.kind, u.client_key, f.level, a.removed_at, t.stage, t.progress_source, c.client_key FROM projects p LEFT JOIN task_updates u ON 1 = 0 LEFT JOIN task_files f ON 1 = 0 LEFT JOIN task_assistants a ON 1 = 0 LEFT JOIN tasks t ON 1 = 0 LEFT JOIN task_comments c ON 1 = 0 LIMIT 1`], // v1.246.3 - probed the re-cut 0159 (task_updates, not project_updates)
       ["0160 (a quotation acceptance recorded by staff)", `SELECT channel, recorded_by, note FROM quotation_acceptances LIMIT 1`],
       ["0161 (task email outbox: one row per email, its delivery state)", `SELECT ref, status, attempts, last_error, not_before FROM mail_outbox INDEXED BY ux_mail_outbox_ref WHERE ref = '' LIMIT 1`],
+      ["0162 (signatures and stamps per person and company, authority, approvals, issuances)", `SELECT s.user_id, s.kind, s.status, s.consented_at, s.approved_by, g.capacity, p.personal, a.signature_asset_id, i.content_sha256 FROM signature_assets s, signing_authorities g, signing_policies p, quotation_approvals a, document_issuances i LIMIT 0`],
+      ["0163 (a task has a start date as well as its due date)", `SELECT start_date, deadline FROM tasks LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5281,6 +5313,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0159_project_workspace",
       "0160_acceptance_recorded",
       "0161_task_mail",
+      "0162_signing",
+      "0163_task_dates",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

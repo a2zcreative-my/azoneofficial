@@ -7,7 +7,7 @@ import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-
    at the top are new and the declarations are exported. */
 import { RevenueData } from "@/components/portal/dashboard";
 import { Sub } from "@/components/portal/leave";
-import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL } from "@/components/portal/page-shared";
+import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL, withStepUp } from "@/components/portal/page-shared";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
 import { ClosedSales, FollowUps, SalesOverviewCards, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
@@ -23,6 +23,7 @@ import { RowCell } from "@/components/ui/sub-label";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
 import { buildDocPdf } from "@/lib/doc-pdf";
+import { issueBeforeSend } from "@/components/portal/signing-panel"; // v1.248.0
 import { docSubtotal } from "@/lib/doc-totals"; // v1.231.0
 import { PackagePicker, PackagesPanel } from "@/components/portal/packages-panel"; // v1.231.0 - sales packages
 import type { PackageRef, PackageRow } from "@/lib/packages";
@@ -214,6 +215,14 @@ export async function printDoc(id: number) {
     doc?: DocFull;
   };
   if (!doc) throw new Error(L("The document response was incomplete. Try again.", "Maklum balas dokumen tidak lengkap. Cuba lagi."));
+  /* v1.248.0 - printing issues the revision once its company signs personally: its
+     signatures are fixed then. A quotation still waiting for a required approval
+     prints as a draft (the paper says so) and is not issued. */
+  const sg = doc.sign as { mode?: string; issued?: unknown; blocked?: string | null } | null | undefined;
+  if (sg?.mode === "personal" && !sg.issued && !sg.blocked) {
+    const iss = await api<{ sign?: DocFull["sign"] }>(`/staff/docs/${id}/issue`, { method: "POST", body: JSON.stringify({}) });
+    if (iss.ok && iss.data?.sign) doc.sign = iss.data.sign;
+  }
   const blob = await buildDocPdf(doc);
   return { html: buildDocHtml(doc, false), blob, filename: docFileName(doc) };
   });
@@ -1083,6 +1092,19 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
+  /* skeleton: none — the preview is the document itself, drawn in full from the form at once; the my-plan answer only fills in the signer's name and mark */
+  /* v1.248.0 - who the document will be signed by, for this company and type (and,
+     for an approval rule above an amount, this total) - the server's answer */
+  const planTotal = Math.round((Math.max(0, Math.round((docSubtotal(doc.items) - doc.discount_cents) * (1 + doc.tax_percent / 100))) + (doc.doc_type === "DO" || doc.kind === "service" ? 0 : doc.delivery_cents)) / 100);
+  const [plan, setPlan] = useState<(NonNullable<DocFull["sign"]> & { signer_name?: string | null; signer_position?: string | null }) | null>(null);
+  useEffect(() => {
+    const c = new AbortController();
+    const t = window.setTimeout(() => {
+      void api<NonNullable<DocFull["sign"]> & { signer_name?: string | null; signer_position?: string | null }>(`/staff/signing/my-plan?issuer=${doc.issuer === "a2z" ? "a2z" : "azoo"}&doc_type=${doc.doc_type}&total=${planTotal * 100}`, { signal: c.signal })
+        .then((r) => { if (!c.signal.aborted) setPlan(r.ok && r.data ? r.data : null); });
+    }, 400);
+    return () => { c.abort(); window.clearTimeout(t); };
+  }, [doc.issuer, doc.doc_type, planTotal]);
   useEffect(() => {
     const el = boxRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -1122,9 +1144,12 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
     delivery_status: "pending",
     reference: doc.reference || null,
     delivery_address: doc.delivery_address || null,
-    signer_role: user.role === "coo" ? "coo" : "ceo",
-    signer_name: user.name,
-    signer_position: user.role.replace(/_/g, " ").toUpperCase(),
+    /* v1.248.0 (audit D3): the preview names and signs exactly as the saved document
+       will - asked of the server (/signing/my-plan), never the CEO's chop for everyone */
+    signer_role: plan?.mode === "legacy" ? (plan.signer_role ?? null) : null,
+    signer_name: plan?.mode === "legacy" ? (plan.signer_name ?? user.name) : user.name,
+    signer_position: plan?.mode === "legacy" ? (plan.signer_position ?? "") : "",
+    sign: plan?.mode === "personal" ? plan : null,
     issuer_code: doc.issuer,
     ...(dueDate ? { due_date: dueDate } : {}),
   };
@@ -1947,6 +1972,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         DO: L("Delivery Order", "Pesanan Penghantaran"),
       }[d.doc_type] ?? L("Document", "Dokumen");
     const filename = docFileName(d);
+    /* v1.248.0 - a document leaves only once its signatures can be fixed; a quotation
+       waiting for a required approval stays a draft (the server refuses the link too) */
+    const notYet = await issueBeforeSend(d.id);
+    if (notYet) { showToast(L("Not sent yet", "Belum dihantar"), notYet, "notice"); return; }
     let blob: Blob | null = null;
     try {
       const r = await fetch(`/api/v1/staff/docs/${d.id}`, {
@@ -3511,7 +3540,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                         type="button"
                         className={rowBtn}
                         onClick={() => {
-                          void api<{ error?: { message?: string } }>(`/staff/docs/${d.id}/approve`, { method: "POST", body: "{}" }).then((r) => {
+                          /* v1.248.0 - a personal-signing company: approving signs, so it asks for the code */
+                          void withStepUp<{ error?: { message?: string } }>((totp) => api(`/staff/docs/${d.id}/approve`, { method: "POST", body: JSON.stringify(totp ? { totp } : {}) }), askText,
+                            { title: L("Approve and sign", "Luluskan dan tandatangan"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") }).then((r) => {
                             if (r.ok) { showToast(L("Saved", "Disimpan"), L(`${d.doc_number} approved — it can be sent`, `${d.doc_number} diluluskan — boleh dihantar`)); void load(); }
                             else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Not approved", "Tidak diluluskan"), "notice");
                           });

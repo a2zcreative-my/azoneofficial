@@ -21,6 +21,7 @@ import { CustomerFile } from "@/components/portal/customer-file";
 import { CreateBrief, ProjectActivity, ProjectStatusChip, ProjectWorkspace, QuotationStateChip, fmtDay, type TItem } from "@/components/portal/project-workspace";
 import { btnClass, btnSm, btnSmPrimary } from "@/lib/ui-styles";
 import pw from "./project-workspace.module.css";
+import { DocSigningCard } from "@/components/portal/signing-panel";
 
 type Tab = "overview" | "client" | "items" | "financial" | "project" | "activity";
 type Line = { name: string; qty: number; uom?: string | null; unit_price_cents: number; disc_cents?: number; description?: string | null };
@@ -123,6 +124,7 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
           <div className={pw.fact}><span className={pw.factLabel}>{L("Project", "Projek")}</span><span className={pw.factValue}>{project ? <ProjectStatusChip status={project.status} /> : L("No brief yet", "Belum ada ringkasan")}</span></div>
         </div>
         {st?.accepted_at && <p className={pw.note}>{L(`Accepted by ${st.accepted_name ?? "the client"} on ${fmtDay(st.accepted_at)}.`, `Diterima oleh ${st.accepted_name ?? "pelanggan"} pada ${fmtDay(st.accepted_at)}.`)}</p>}
+        <DocSigningCard docId={docId} />{/* v1.248.0 - who signs it, and Approve and sign */}
         {st?.invoice && <p className={pw.note}>{L(`Invoiced as ${st.invoice} - this quotation is a sale now.`, `Diinvois sebagai ${st.invoice} - sebut harga ini kini jualan.`)}</p>}
       </div>
 

@@ -48,6 +48,7 @@ import { usePrompt } from "@/components/ui/prompt-dialog";
 import ap from "./access-policy.module.css";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
+import { SigningPanel } from "@/components/portal/signing-panel"; // v1.248.0
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -340,12 +341,15 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
     return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
   }, [editing, canEdit]);
 
+  const signingView = ["ceo", "super_admin", "coo", "cco"].includes(role);
   const tabs: readonly (readonly [UsersView, string])[] = [
     ["overview", L("Overview", "Gambaran")],
     ["staff", L("Staff Accounts", "Akaun kakitangan")],
     ["customers", L("Customer Accounts", "Akaun pelanggan")],
     ["roles", L("Roles & Permissions", "Peranan & kebenaran")],
     ["security", L("Security & Settings", "Keselamatan & tetapan")],
+    /* v1.248.0 - Signatures & Stamps: the CEO manages, COO and CCO read (signing.ts decides) */
+    ...(signingView ? [["signing", L("Signatures & Stamps", "Tandatangan & Cop")] as const] : []),
   ];
   const holds = ["ceo", "super_admin"].includes(role); // the exceptions and the matrix's editor (= TAB_ACCESS_EDITORS)
   const [reviewTick, setReviewTick] = useState(0);
@@ -641,6 +645,7 @@ export function UsersPanel({ role, owner = false, go }: { role: string; owner?: 
           bottom sheet (app/portal/page.tsx) they sit over the page, full
           width, with the row still visible behind them. md: and up use the
           inline panel above, so only one of the two is ever displayed. */}
+      {signingView && view === "signing" && <div className={css.body}><SigningPanel /></div>}
       {editing && canEdit && (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true"
           aria-label={L("Change role", "Tukar peranan")}>

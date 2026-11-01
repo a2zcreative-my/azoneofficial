@@ -376,7 +376,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
       ? { total_cents: snap.total_cents, discount_cents: snap.discount_cents, tax_percent: snap.tax_percent, delivery_cents: snap.delivery_cents }
       : { total_cents: qt.total_cents, discount_cents: Number(qt.discount_cents ?? 0), tax_percent: Number(qt.tax_percent ?? 0), delivery_cents: Number(qt.delivery_cents ?? 0) }) : null;
     const rawTasks = (await env.DB.prepare(
-      `SELECT t.id, t.title, t.description, t.assigned_to, ${PERSON("u")} AS assignee, u.photo_key, t.status, t.stage, t.progress, t.progress_source, t.priority, t.deadline, t.created_at, t.created_by
+      `SELECT t.id, t.title, t.description, t.assigned_to, ${PERSON("u")} AS assignee, u.photo_key, t.status, t.stage, t.progress, t.progress_source, t.priority, t.deadline, t.start_date, t.created_at, t.created_by
          FROM tasks t JOIN users u ON u.id = t.assigned_to WHERE t.link_kind = 'project' AND t.link_id = ?1 ORDER BY t.deadline IS NULL, t.deadline, t.id`,
     ).bind(p.id).all<{ id: number; title: string; assigned_to: number; assignee: string; photo_key: string | null; status: string; stage: string | null; progress: number; deadline: string | null }>()).results;
     const latest = await latestUpdates(env, rawTasks.map((t) => t.id));

@@ -17,7 +17,7 @@
    Units: PDF points. The HTML layout is designed against 688px of A4, and
    688px = 516pt, so px * 0.75 = pt throughout. */
 
-import { docDateOf, docRevisionLabel, quoteValidUntil, type DocFull, type DocItem } from "@/lib/doc-template";
+import { docDateOf, docRevisionLabel, quoteValidUntil, readSign, signSrc, type DocFull, type DocItem } from "@/lib/doc-template";
 import { resolveIssuer } from "@/lib/issuers";
 
 /* ---------------------------------------------------------------- metrics */
@@ -358,7 +358,7 @@ const dmy = (iso: string | null | undefined) => {
 };
 
 /** Draws the whole document and returns the content stream. */
-export function drawDoc(doc: DocFull, hasSig: boolean): string {
+export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean; approved?: boolean } = {}): string {
   /* v1.28.0: the letterhead follows the entity that ISSUED this document
      (issuer_code; NULL = legacy = AZ ONE OFFICIAL). */
   const issuer = resolveIssuer(doc.issuer_code);
@@ -527,22 +527,30 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
     : isDO
       ? "The goods listed above were delivered in the quantities stated. Please sign and return one copy as proof of receipt."
       : "We hereby accept the quoted items and agree that this signed document shall be deemed our official Purchase Order, subject to the terms above.";
-  c.wrap(clause, M, closeTop + 72, 225, 7.5, 9.5, { colour: SLATE });
+  c.wrap(clause, M, closeTop + 72, readSign(doc)?.approved ? 190 : 225, 7.5, 9.5, { colour: SLATE }); // v1.248.0 - narrower beside three columns
   if (isINV && doc.payment_status === "paid") {
     c.text(`OK PAID${doc.paid_at ? ` - ${dmy(doc.paid_at)}` : ""}`, M, closeTop + 112, 8.25, { bold: true, colour: GREEN });
   }
 
   // signature zones — identical height whether signed or blank, which is what
   // holds the two columns level (v1.4.243).
-  const sigW = 126, gap = 9;
-  const sig2X = R - sigW, sig1X = sig2X - gap - sigW;
+  /* v1.248.0 - a company that signs personally: the preparer's own name, and an
+     Approved by column when a management approval exists (three narrower columns) */
+  const ps = readSign(doc);
+  const three = !!ps?.approved;
+  const sigW = three ? 100 : 126, gap = three ? 7 : 9;
+  const sig2X = R - sigW, sig1X = sig2X - gap - sigW, sig0X = sig1X - gap - sigW;
   const zoneTop = closeTop + 22, zoneH = 55;
-  for (const [x, label, l1, l2, l3, muted] of [
-    [sig1X, isINV ? "AUTHORISED SIGNATURE" : isDO ? "DELIVERED BY" : "PREPARED BY",
-      (doc.signer_name ?? "").toUpperCase(), doc.signer_position ?? "", issuer.name, false],
-    [sig2X, isINV ? "RECEIVED & ACKNOWLEDGED BY" : isDO ? "RECEIVED IN GOOD ORDER" : "ACCEPTED & CONFIRMED BY",
-      "Name & designation", "Company chop", "Date", true],
-  ] as [number, string, string, string, string, boolean][]) {
+  const prepName = ps ? ps.prepared.name : (doc.signer_name ?? "");
+  const prepPos = ps ? ps.prepared.position : (doc.signer_position ?? "");
+  const sigCols: [number, string, string, string, string, boolean][] = [
+    [three ? sig0X : sig1X, isINV ? "AUTHORISED SIGNATURE" : isDO ? "DELIVERED BY" : "PREPARED BY",
+      prepName.toUpperCase(), prepPos, ps?.awaiting ? "Draft - awaiting approval" : issuer.name, false],
+  ];
+  if (three && ps?.approved) sigCols.push([sig1X, "APPROVED BY", ps.approved.name.toUpperCase(), ps.approved.position, ps.approved.at ? `Approved ${dmy(ps.approved.at)}` : issuer.name, false]);
+  sigCols.push([sig2X, isINV ? "RECEIVED & ACKNOWLEDGED BY" : isDO ? "RECEIVED IN GOOD ORDER" : "ACCEPTED & CONFIRMED BY",
+      "Name & designation", "Company chop", "Date", true]);
+  for (const [x, label, l1, l2, l3, muted] of sigCols) {
     c.line(x, zoneTop + zoneH, x + sigW, NAVY, 0.6);
     c.text(label, x + sigW / 2, zoneTop + zoneH + 10, 5.6, { colour: GREY, align: "c", spacing: 0.8 });
     const col = muted ? GREY : NAVY;
@@ -550,10 +558,17 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
     c.text(l2, x + sigW / 2, zoneTop + zoneH + 31, 7.5, { align: "c", colour: col });
     c.text(l3, x + sigW / 2, zoneTop + zoneH + 41, 6.4, { align: "c", colour: GREY });
   }
+  const iw = three ? 88 : 105, ih = 48;
+  const prepX = three ? sig0X : sig1X;
   if (hasSig) {
     // The image is placed INSIDE the reserved zone, so it can never push the rule.
-    const iw = 105, ih = 48;
-    c.ops.push(`q ${iw} 0 0 ${ih} ${(sig1X + (sigW - iw) / 2).toFixed(2)} ${(PAGE_H - zoneTop - zoneH).toFixed(2)} cm /Im0 Do Q`);
+    c.ops.push(`q ${iw} 0 0 ${ih} ${(prepX + (sigW - iw) / 2).toFixed(2)} ${(PAGE_H - zoneTop - zoneH).toFixed(2)} cm /Im0 Do Q`);
+  }
+  if (marks.approved) c.ops.push(`q ${iw} 0 0 ${ih} ${(sig1X + (sigW - iw) / 2).toFixed(2)} ${(PAGE_H - zoneTop - zoneH).toFixed(2)} cm /Im2 Do Q`);
+  if (marks.stamp) {
+    // the company stamp: on the approval when there is one, else beside the preparer
+    const sx = (marks.approved ? sig1X : prepX) + sigW - 50;
+    c.ops.push(`q 46 0 0 46 ${sx.toFixed(2)} ${(PAGE_H - zoneTop - zoneH + 2).toFixed(2)} cm /Im1 Do Q`);
   }
 
   c.line(M, footY, R, HAIR, 0.6);
@@ -568,13 +583,19 @@ export function drawDoc(doc: DocFull, hasSig: boolean): string {
 /** Build the shareable PDF. Never throws: a missing signature just prints a
     blank zone, exactly as the HTML template does. */
 export async function buildDocPdf(doc: DocFull): Promise<Blob> {
-  const role = doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo");
-  // v1.38.0 (S-1): the vault route, with the session cookie — the public
-  // /signatures/ files are gone.
-  // v1.127.0: and the route takes the ISSUING entity, so the saved PDF carries
-  // the same company's chop as the letterhead it prints under.
-  const sigEntity = doc.issuer_code === "a2z" ? "a2z" : "azoo";
-  const img = doc.signer_role === null ? null : await loadImage(`/api/v1/staff/signature/${sigEntity}/${role}-sign.png`, "Im0", true);
-  const content = drawDoc(doc, !!img);
-  return new Blob([assemblePdf(content, img ? [img] : [], docRevisionLabel(doc)) as BlobPart], { type: "application/pdf" });
+  // v1.38.0 (S-1) / v1.127.0 / v1.248.0: every mark comes from the document's OWN
+  // door (/docs/:id/sign-image, the server decides the signer and the company,
+  // doc.issuer_code === "a2z" there as on the letterhead) or, unsaved, from the
+  // preparer's own preview - never a raw officer file.
+  const ps = readSign(doc);
+  const src = (w: "prepared" | "approved" | "stamp") => signSrc(doc, w);
+  const want = ps ? ps.prepared.has : doc.signer_role !== null;
+  const [img, stamp, appr] = await Promise.all([
+    want ? loadImage(src("prepared"), "Im0", true) : Promise.resolve(null),
+    ps?.stamp ? loadImage(src("stamp"), "Im1", true) : Promise.resolve(null),
+    ps?.approved?.has ? loadImage(src("approved"), "Im2", true) : Promise.resolve(null),
+  ]);
+  const content = drawDoc(doc, !!img, { stamp: !!stamp, approved: !!appr });
+  const imgs = [img, stamp, appr].filter((x): x is NonNullable<typeof x> => !!x);
+  return new Blob([assemblePdf(content, imgs, docRevisionLabel(doc)) as BlobPart], { type: "application/pdf" });
 }

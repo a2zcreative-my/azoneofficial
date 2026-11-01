@@ -34,6 +34,7 @@ import { ShiftReminderPrefs } from "@/components/portal/shift-reminder-prefs"; /
 import { AppIcon } from "@/components/ui/app-icon";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { LineTabs } from "@/components/ui/line-tabs";
+import { MySignature } from "@/components/portal/signing-panel"; // v1.248.0
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SideDrawer } from "@/components/ui/side-drawer";
@@ -210,6 +211,12 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
           </section>
           <TwoFactorPanel />
         </TabZone>
+        {/* v1.248.0 - the signature that prints on documents you prepare (signing-panel.tsx) */}
+        {view === "security" && (
+          <TabZone label={L("Document signature", "Tandatangan dokumen")} hint={L("Used only after you confirm it and the CEO approves it.", "Digunakan hanya selepas anda mengesahkannya dan CEO meluluskannya.")}>
+            <MySignature />
+          </TabZone>
+        )}
         <TabZone label={L("Devices and privacy", "Peranti dan privasi")}>
           <section className={`${card} ${css.devices}`} aria-label={L("Devices", "Peranti")}>
             <div>

@@ -243,7 +243,7 @@ const staff = [
 ];
 const tasks = [
   { id: 1, title: "Check inventory delivery", description: "ELFIA restock arrives Tuesday.", priority: "high", deadline: D + "12", status: "open", progress: 20, assignee: "Nur Aisyah", assigned_to: 9002, created_by: 9001, created_at: D + "08 01:00:00", item_count: 3, item_done: 1, acknowledged: 1 },
-  { id: 2, title: "Prepare Raya live rundown", priority: "normal", deadline: D + "25", status: "in_progress", progress: 60, assignee: "Farid Zul", assigned_to: 9003, created_by: 9001, created_at: D + "10 02:00:00", acknowledged: 0 },
+  { id: 2, title: "Prepare Raya live rundown", priority: "normal", start_date: D + "20", deadline: D + "25", status: "in_progress", progress: 60, assignee: "Farid Zul", assigned_to: 9003, created_by: 9001, created_at: D + "10 02:00:00", acknowledged: 0 },
   { id: 3, title: "Send September payslips", priority: "normal", deadline: D + "30", status: "open", progress: 0, assignee: "Mei Ling", assigned_to: 9004, created_by: 9004, created_at: D + "11 03:00:00", acknowledged: 1 },
   { id: 4, title: "Renew studio insurance", priority: "low", deadline: D + "02", status: "completed", progress: 100, assignee: "Fixture Person", assigned_to: 9001, created_by: 9001, created_at: D + "01 01:00:00", acknowledged: 1 },
   /* v1.200.0 - the signed-in person's own work, every state the Tasks tabs draw */
@@ -1380,6 +1380,29 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   else if (p0.startsWith("/staff/projects")) { const pj = projectFor(p0, made); if (pj !== undefined) data = pj; }
   if (/^\/staff\/tasks\/\d+/.test(p0)) { const tv = taskViewFor(p0); if (tv !== undefined) data = tv; }
   if (p0 === "/staff/tasks" && data?.tasks && process.env.TASKP) data = { ...data, tasks: [...taskListExtra(q.get("all") === "1"), ...data.tasks] };
+  /* v1.248.0 - Signatures & Stamps. Plain: nothing switched on (day one). SIGN=1:
+     A2Z signs personally, its stamp is on file, Nur Aisyah prepares, the CEO
+     (the fixture person) approves, and quotation 1 is waiting for his approval. */
+  const SIGN = !!process.env.SIGN;
+  const pol = (c) => ({ issuer_code: c, personal: SIGN && c === "a2z", stamp_on: SIGN && c === "a2z" ? ["QT"] : [], updated_at: SIGN ? "2026-11-01 02:00:00" : null, updated_by_name: SIGN ? "Fixture Person" : null });
+  if (p0 === "/staff/signing/overview") data = ["ceo", "super_admin", "coo", "cco"].includes(ROLE) ? {
+    can_manage: ["ceo", "super_admin"].includes(ROLE), approval_limit: SIGN ? { limit_cents: 500000, since: "2026-10-01 00:00:00" } : null,
+    issuers: [{ code: "a2z", name: "A2Z CREATIVE MARKETING" }, { code: "azoo", name: "AZ ONE OFFICIAL" }], policies: [pol("a2z"), pol("azoo")],
+    stamps: SIGN ? [{ id: 31, issuer_code: "a2z", version: 1, status: "active", uploaded_at: "2026-11-01 02:00:00", uploaded_by_name: "Fixture Person", retired_at: null }] : [],
+    signatures: SIGN ? [
+      { id: 21, user_id: 9002, version: 1, status: "active", uploaded_at: "2026-11-01 02:00:00", consented_at: "2026-11-01 02:05:00", approved_at: "2026-11-01 02:00:00", retired_at: null, note: null, uploaded_by_name: "Fixture Person", approved_by_name: "Fixture Person" },
+      { id: 22, user_id: 9001, version: 1, status: "active", uploaded_at: "2026-11-01 02:00:00", consented_at: "2026-11-01 02:00:00", approved_at: "2026-11-01 02:00:00", retired_at: null, note: null, uploaded_by_name: "Fixture Person", approved_by_name: "Fixture Person" },
+      { id: 23, user_id: 9003, version: 1, status: "pending", uploaded_at: "2026-11-01 03:00:00", consented_at: "2026-11-01 03:00:00", approved_at: null, retired_at: null, note: null, uploaded_by_name: "Farid Zul", approved_by_name: null }] : [],
+    authorities: SIGN ? [
+      { id: 41, user_id: 9002, issuer_code: "a2z", capacity: "prepare", doc_types: "QT,DO", granted_at: "2026-11-01 02:00:00", reason: "Sales lead", granted_by_name: "Fixture Person" },
+      { id: 42, user_id: 9001, issuer_code: "a2z", capacity: "approve", doc_types: "QT", granted_at: "2026-11-01 02:00:00", reason: "Approves A2Z quotations", granted_by_name: "Fixture Person" }] : [],
+    people: staff.map((u) => ({ id: u.id, name: u.full_name ?? u.name, role: u.role, position: null })),
+  } : { error: { code: "forbidden", message: "Signatures and stamps are managed by the CEO" } };
+  if (p0 === "/staff/signing/me") data = { signatures: SIGN ? [{ id: 24, version: 1, status: "pending", uploaded_at: "2026-11-01 03:00:00", consented_at: null, approved_at: "2026-11-01 03:00:00", retired_at: null, uploaded_by: 9001 }] : [], authorities: SIGN ? [{ issuer_code: "a2z", capacity: "approve", doc_types: "QT" }] : [] };
+  if (p0 === "/staff/signing/my-plan") data = SIGN && q.get("issuer") === "a2z" ? { mode: "personal", prepared: { name: "Fixture Person", position: "Chief Executive Officer", has_signature: true }, stamp: true, needs_approval: false, notice: null }
+    : { mode: "legacy", signer_role: ["ceo", "coo", "cco"].includes(ROLE) ? ROLE : q.get("doc_type") === "INV" ? "ceo" : null, signer_name: "Fixture Person", signer_position: "Chief Executive Officer" };
+  if (/^\/staff\/docs\/\d+\/sign-plan$/.test(p0)) data = SIGN ? { can_approve: ROLE === "ceo", sign: { mode: "personal", issuer: "a2z", prepared: { user_id: 9002, name: "Nur Aisyah binti Rahman", position: "Sales Executive", asset_id: 21 }, approved: null, stamp_asset_id: null, needs_approval: true, blocked: "Waiting for management approval - this quotation is a draft until a signatory approves it", notice: null, issued: null } }
+    : { can_approve: false, sign: { mode: "legacy", issuer: "a2z", prepared: null, approved: null, stamp_asset_id: null, needs_approval: false, blocked: null, notice: null, issued: null } };
   if (data === undefined) { onMissing(p0); return {}; }
   return data;
 }

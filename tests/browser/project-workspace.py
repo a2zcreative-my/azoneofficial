@@ -100,7 +100,7 @@ with sync_playwright() as p:
     check("Save dates sends both dates with the project's version", bool(pats) and '"start_date":"2026-11-02"' in (pats[-1][2] or "") and '"due_date":"2026-12-15"' in (pats[-1][2] or "") and '"version"' in (pats[-1][2] or ""), (pats[-1][2] if pats else "no patch")[:200])
     pg.keyboard.press("Escape"); pg.wait_for_timeout(300)
     check("the task table has three rows", ws.locator("[role='table'] [data-task]").count() == 3)
-    check("the task table's columns are the picture's", [c.inner_text().strip().lower() for c in ws.get_by_role("columnheader").all()][:6] == ["task", "assigned to", "status", "progress", "due date", "latest update"])
+    check("the task table's columns are the picture's", [c.inner_text().strip().lower() for c in ws.get_by_role("columnheader").all()][:6] == ["task", "assigned to", "status", "progress", "dates", "latest update"]) # v1.248.0 - start and due (the owner, 01-11-2026)
     lu = ws.locator("[role='table'] [data-task]").first.inner_text()
     check("the Latest update column shows the report's text and time", ("PM" in lu or "AM" in lu) or "No progress report yet" in lu, lu[:200])
     fills = ws.locator("[role='table'] [data-progress]").evaluate_all("ts => ts.map(t => [t.firstElementChild.getBoundingClientRect().width / t.getBoundingClientRect().width, +t.dataset.progress])")

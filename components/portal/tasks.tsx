@@ -63,6 +63,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     scope: "", // v1.42.0 — one deliverable per line → tickable task_items
     assigned_to: 0,
     priority: "normal",
+    start_date: "", // v1.248.0 - the span of work: start to due (0163)
     deadline: "",
     quotation_id: 0, // v1.246.2 - set under a quotation: the task joins its project
   });
@@ -105,7 +106,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   /* v1.209.0 - THE TASK DRAWER: one task, its facts, its checklist and the
      commands the row always had. `openTask` (which checklist is loaded) is
      the drawer's task. */
-  const [editing, setEditing] = useState<null | { title: string; description: string; priority: string; deadline: string; assigned_to: number }>(null);
+  const [editing, setEditing] = useState<null | { title: string; description: string; priority: string; start_date: string; deadline: string; assigned_to: number }>(null);
   const go = (v: TaskView, anchor?: string) => {
     setView(v);
     if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
@@ -125,6 +126,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       ...draft,
       assigned_to: draft.assigned_to || undefined,
       quotation_id: draft.quotation_id || undefined,
+      start_date: draft.start_date || undefined,
       // v1.42.0: the scope, one line per deliverable
       items: draft.scope.split("\n").map((l) => l.trim()).filter(Boolean),
     };
@@ -148,6 +150,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       scope: "",
       assigned_to: 0,
       priority: "normal",
+      start_date: "",
       deadline: "",
       quotation_id: 0,
     });
@@ -595,7 +598,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 {opts.who && <th>{L("Assigned to", "Diberikan kepada")}</th>}
                 {opts.who && <th>{L("Position", "Jawatan")}</th>}
                 <th>{L("Priority", "Keutamaan")}</th>
-                <th>{L("Deadline", "Tarikh akhir")}</th>
+                <th>{L("Dates", "Tarikh")}</th>
                 <th>{L("Status", "Status")}</th>
                 <th>{L("Progress", "Kemajuan")}</th>
                 <th>{L("Latest update", "Kemas kini terkini")}</th>
@@ -628,12 +631,14 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                     )}
                     {opts.who && <td data-label={L("Position", "Jawatan")} className={tk.cap}>{positionOf(t.assigned_to) || <span className={tk.muted}>—</span>}</td>}
                     <td data-label={L("Priority", "Keutamaan")}><span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span></td>
-                    <td data-label={L("Deadline", "Tarikh akhir")} className={tk.nowrap}>
+                    <td data-label={L("Dates", "Tarikh")} className={tk.dates}>
+                      {/* v1.248.0 - start to due; the due date says when it is overdue */}
+                      {t.start_date && <span className={tk.muted}>{L(`Start ${dmy(t.start_date)}`, `Mula ${dmy(t.start_date)}`)}</span>}
                       {t.deadline
                         ? overdue
                           ? <span className={tk.danger}>{L(`Overdue — was due ${dmy(t.deadline)}`, `Tertunggak — sepatutnya ${dmy(t.deadline)}`)}</span>
-                          : dmy(t.deadline)
-                        : <span className={tk.muted}>—</span>}
+                          : <span>{L(`Due ${dmy(t.deadline)}`, `Siap ${dmy(t.deadline)}`)}</span>
+                        : !t.start_date && <span className={tk.muted}>—</span>}
                     </td>
                     <td data-label={L("Status", "Status")}>{statusSelect(t)}</td>
                     <td data-label={L("Progress", "Kemajuan")}>{progressBar(t)}</td>
@@ -677,7 +682,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 {t.assignee && canManage && <span className={tk.muted}>{t.assignee}</span>}
                 <span className={tk.badges}>
                   <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
-                  {t.deadline && <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`was due ${dmy(t.deadline)}`, `sepatutnya ${dmy(t.deadline)}`) : dmy(t.deadline)}</span>}
+                  {t.deadline && <span className={isOverdue(t) ? chipDanger : chipNeutral}>{t.start_date ? `${dmy(t.start_date)} → ` : ""}{isOverdue(t) ? L(`was due ${dmy(t.deadline)}`, `sepatutnya ${dmy(t.deadline)}`) : dmy(t.deadline)}</span>}
                   {linkChip(t)}{scopeChip(t)}{ackControl(t)}
                 </span>
                 {progressBar(t)}
@@ -1293,10 +1298,20 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 ))}
               </select>
             </Sub>
-            <Sub t={L("Deadline (optional)", "Tarikh akhir (pilihan)")}>
+            <Sub t={L("Start date (optional)", "Tarikh mula (pilihan)")}>
               <input
                 type="date"
                 className={inputClass}
+                value={draft.start_date}
+                max={draft.deadline || undefined}
+                onChange={(e) => setDraft((d) => ({ ...d, start_date: e.target.value }))}
+              />
+            </Sub>
+            <Sub t={L("Due date (optional)", "Tarikh siap (pilihan)")}>
+              <input
+                type="date"
+                className={inputClass}
+                min={draft.start_date || undefined}
                 value={draft.deadline}
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, deadline: e.target.value }))
@@ -1324,7 +1339,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         const mine = isMine(t);
         const canEdit = mine || canManage;
         const creator = t.created_by == null ? null : t.created_by === user.id ? L("You", "Anda") : team.find((u) => u.id === t.created_by)?.name ?? null;
-        const startEdit = () => setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 });
+        const startEdit = () => setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, start_date: t.start_date ?? "", deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 });
         const saveEdit = async () => {
           if (!editing || !editing.title.trim()) return;
           const patch: Record<string, unknown> = {};
@@ -1332,6 +1347,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           if (editing.description !== (t.description ?? "")) patch.description = editing.description;
           if (editing.priority !== t.priority) patch.priority = editing.priority;
           if (editing.deadline !== (t.deadline ?? "")) patch.deadline = editing.deadline;
+          if (editing.start_date !== (t.start_date ?? "")) patch.start_date = editing.start_date;
           if (canManage && editing.assigned_to && editing.assigned_to !== t.assigned_to) patch.assigned_to = editing.assigned_to;
           if (Object.keys(patch).length === 0) { setEditing(null); return; }
           if (await update(t.id, patch)) setEditing(null);
@@ -1365,7 +1381,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                           {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{priorityL(p)}</option>)}
                         </select>
                       </Sub>
-                      <Sub t={L("Deadline", "Tarikh akhir")}><input type="date" className={inputClass} value={editing.deadline} onChange={(e) => setEditing({ ...editing, deadline: e.target.value })} /></Sub>
+                      <Sub t={L("Start date", "Tarikh mula")}><input type="date" className={inputClass} value={editing.start_date} max={editing.deadline || undefined} onChange={(e) => setEditing({ ...editing, start_date: e.target.value })} /></Sub>
+                      <Sub t={L("Due date", "Tarikh siap")}><input type="date" className={inputClass} value={editing.deadline} min={editing.start_date || undefined} onChange={(e) => setEditing({ ...editing, deadline: e.target.value })} /></Sub>
                     </div>
                     {canManage && (
                       <Sub t={L("Assigned to", "Diberikan kepada")}>
@@ -1389,7 +1406,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       <div><dt>{L("Assigned to", "Diberikan kepada")}</dt><dd>{t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}{positionOf(t.assigned_to) ? <span className={tk.muted}> · {positionOf(t.assigned_to)}</span> : null}</span></span> : mine ? L("You", "Anda") : "—"}</dd></div>
                       {creator && <div><dt>{L("Created by", "Dibuat oleh")}</dt><dd>{creator}</dd></div>}
                       <div><dt>{L("Priority", "Keutamaan")}</dt><dd className={tk.cap}>{priorityL(t.priority)}</dd></div>
-                      <div><dt>{L("Deadline", "Tarikh akhir")}</dt><dd>{t.deadline ? dmy(t.deadline) : L("No deadline", "Tiada tarikh akhir")}</dd></div>
+                      <div><dt>{L("Start date", "Tarikh mula")}</dt><dd>{t.start_date ? dmy(t.start_date) : L("Not set", "Belum ditetapkan")}</dd></div>
+                      <div><dt>{L("Due date", "Tarikh siap")}</dt><dd>{t.deadline ? dmy(t.deadline) : L("No due date", "Tiada tarikh siap")}</dd></div>
                       <div><dt>{L("Acknowledged", "Diakui")}</dt><dd>{!isAssigned(t) ? L("Not needed — self-set", "Tidak perlu — ditetapkan sendiri") : t.acknowledged ? L("Yes", "Ya") : L("Not yet", "Belum")}</dd></div>
                     </dl>
                   </>

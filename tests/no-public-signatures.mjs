@@ -64,7 +64,12 @@ if (!worker.includes("private/signatures/") || !worker.includes("sigServe")) {
 
 // the role-file serve block must check a permission before touching R2
 const sigBlock = staffSrc.slice(staffSrc.indexOf("const sigServe"), staffSrc.indexOf("const sigServe") + 600);
-if (!/can\(user\.role, "sales"\)/.test(sigBlock) || !/can\(user\.role, "hr_manage"\)/.test(sigBlock)) {
+/* v1.248.0 (audit D9, approved 01-11-2026): narrowed from every sales and HR login to
+   the vault's managers - documents now ask their own door. The gate must name
+   SIG_VAULT_ROLES, and that list must stay the CEO, super admin and admin. */
+const vaultRoles = (staffSrc.match(/const SIG_VAULT_ROLES = \[([^\]]*)\]/) ?? [])[1] ?? "";
+const vaultBlock = staffSrc.slice(staffSrc.indexOf("const SIG_VAULT_ROLES"), staffSrc.indexOf("const SIG_VAULT_ROLES") + 900);
+if (!/if \(!SIG_VAULT_ROLES\.includes\(user\.role\)\)/.test(vaultBlock) || vaultRoles.replace(/\s/g, "") !== '"ceo","super_admin","admin"') {
   fail("the role-file signature route lost its permission gate — any staff login could fetch any officer's chop (AUDIT B3)");
 } else ok("role-file route is permission-gated");
 

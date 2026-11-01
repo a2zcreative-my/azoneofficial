@@ -28,6 +28,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, str, num } from "./shared";
 import { can } from "./permissions";
+import { personalApprove } from "./signing"; // v1.248.0 - a personal-signing company approves by signing
 import { glMonthFigures } from "./ledger"; // v1.222.0 - the ledger in the month-close snapshot (reads only)
 
 /* ── time ──────────────────────────────────────────────────────────────── */
@@ -1513,6 +1514,11 @@ export async function handleBusiness(
   }
   const mApprove = path.match(/^\/docs\/(\d+)\/approve$/);
   if (mApprove && method === "POST") {
+    /* v1.248.0 - once the quotation's company signs personally, approving SIGNS:
+       signing.ts checks the approval authority, the approver's own signature and
+       a live code, and keeps the signature on this same row. Otherwise as before. */
+    const signedApproval = await personalApprove(env, Number(mApprove[1]), body, user);
+    if (signedApproval) return signedApproval;
     if (!OWNER_ROLES.includes(user.role)) return err("forbidden", "Only the CEO approves quotations", 403);
     try {
       const d = await env.DB.prepare(`SELECT id, doc_type, COALESCE(revision, 0) AS revision FROM sales_documents WHERE id = ?1`).bind(Number(mApprove[1])).first<{ id: number; doc_type: string; revision: number }>();

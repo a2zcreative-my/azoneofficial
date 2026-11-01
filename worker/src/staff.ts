@@ -15,6 +15,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS } from "./task-mail";
 import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
@@ -2704,8 +2705,10 @@ async function handleStaffRoutes(
   const isCatalogUpload = path === "/elfia/catalog" || path === "/elfia/catalog/cover" || path === "/elfia/backdrop";
   /* v1.155.0: the Sales Performance evidence screenshot is a raw image body. */
   const isSpEvidence = path === "/sales-performance/evidence";
+  /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
+  const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -8219,6 +8222,11 @@ async function handleStaffRoutes(
        quotation's project is created if it does not exist yet, and the task
        is that project's. Who may: the quotation's salesperson, its creator,
        or the CEO, COO, CCO (ensureProject); then the project's own task gate. */
+    /* v1.248.0 - a start date is a real day, never after the due date */
+    if (typeof body.start_date === "string" && body.start_date !== "") {
+      if (!validDay(body.start_date)) return err("invalid_input", "The start date must be a real date", 400);
+      if (typeof body.deadline === "string" && validDay(body.deadline) && body.start_date > body.deadline) return err("invalid_input", "The start date is after the due date", 400);
+    }
     if (body.link_kind === undefined && typeof body.quotation_id === "number" && Number.isInteger(body.quotation_id)) {
       const made = await ensureProject(env, user, body.quotation_id);
       if (made instanceof Response) return made;
@@ -8253,6 +8261,10 @@ async function handleStaffRoutes(
       typeof body.priority === "string" && prio.includes(body.priority) ? body.priority : "normal",
       str(body.deadline, 10) ? body.deadline : null,
     ).first<{ id: number }>();
+    /* v1.248.0 - the start date (0163): the span of work, start to due */
+    if (res?.id && typeof body.start_date === "string" && validDay(body.start_date)) {
+      await env.DB.prepare(`UPDATE tasks SET start_date = ?1 WHERE id = ?2`).bind(body.start_date, res.id).run().catch(() => { /* pre-0163 */ });
+    }
     if (linkKind && linkId && !res?.id) {
       const open = await env.DB.prepare(`SELECT id FROM tasks WHERE link_kind = ?1 AND link_id = ?2 AND assigned_to = ?3 AND status != 'completed' LIMIT 1`).bind(linkKind, linkId, assignedTo).first<{ id: number }>();
       return json({ id: open?.id ?? null, existing: true });
@@ -8622,6 +8634,20 @@ async function handleStaffRoutes(
         if (body.deadline !== row.deadline) { sets.push(`deadline = ?${sets.length + 1}`); vals.push(body.deadline); changed.deadline = [row.deadline, body.deadline]; }
       } else return err("invalid_input", "The due date must be a real date", 400);
     }
+    /* v1.248.0 - the start date (0163), same rules; never after the due date */
+    if (typeof body?.start_date === "string") {
+      const curStart = await env.DB.prepare(`SELECT start_date FROM tasks WHERE id = ?1`).bind(id).first<{ start_date: string | null }>().catch(() => null);
+      const was = curStart?.start_date ?? null;
+      const want = body.start_date === "" ? null : body.start_date;
+      if (want !== null && !validDay(want)) return err("invalid_input", "The start date must be a real date", 400);
+      const due = changed.deadline ? (changed.deadline as [string | null, string | null])[1] : row.deadline;
+      if (want && due && want > due) return err("invalid_input", "The start date is after the due date", 400);
+      if (want !== was) { sets.push(`start_date = ?${sets.length + 1}`); vals.push(want); changed.start_date = [was, want]; }
+    } else if (changed.deadline) {
+      const curStart = await env.DB.prepare(`SELECT start_date FROM tasks WHERE id = ?1`).bind(id).first<{ start_date: string | null }>().catch(() => null);
+      const due = (changed.deadline as [string | null, string | null])[1];
+      if (curStart?.start_date && due && curStart.start_date > due) return err("invalid_input", "The due date is before the start date", 400);
+    }
     /* Reassignment is a management act — it puts work on another person's
        plate, the same rule the roster applies to moving a block. */
     let reassignedTo: number | null = null;
@@ -8643,7 +8669,7 @@ async function handleStaffRoutes(
     const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
     if (reassignedTo !== null && projOfTask && reason.length < 5) return err("invalid_input", "Say why the task moves to somebody else (at least 5 characters)", 400);
     if (sets.length === 0) {
-      if (typeof body?.status === "string" || body?.title !== undefined || body?.priority !== undefined || body?.deadline !== undefined || body?.description !== undefined) return json({ ok: true, unchanged: true });
+      if (typeof body?.status === "string" || body?.title !== undefined || body?.priority !== undefined || body?.deadline !== undefined || body?.start_date !== undefined || body?.description !== undefined) return json({ ok: true, unchanged: true });
       return err("invalid_input", "Nothing to update", 400);
     }
     await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
@@ -9903,8 +9929,12 @@ async function handleStaffRoutes(
        names are inlined): NULL/legacy = AZ ONE OFFICIAL, 'a2z' = A2Z. */
     const fallbackSigner = (d as { issuer_code?: string | null }).issuer_code === "a2z"
       ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL";
+    /* v1.248.0 - what signs it once its company signs personally (mode legacy = the rule above) */
+    const signFull = await loadDocForSigning(env, docGet[1]!);
+    const sign = signFull ? await signPlan(env, signFull).catch(() => null) : null;
     return json({ doc: {
       ...d,
+      sign,
       signer_role: signRole,
       signer_name: signer?.signer_name ?? fallbackSigner,
       signer_position: signer?.position ?? (signRole === "coo" ? "Chief Operating Officer" : signRole === "cco" ? "Chief Commercial Officer" : signRole === "ceo" ? "Chief Executive Officer" : ""),
@@ -10213,6 +10243,13 @@ async function handleStaffRoutes(
         await env.DB.prepare(`UPDATE sales_documents SET share_token = NULL WHERE id = ?1`).bind(idS).run();
         await audit(env, user.id, "doc.share_revoke", "sales_documents", idS);
         return json({ ok: true, token: null, url: null });
+      }
+      /* v1.248.0 - sharing ISSUES the revision: its signatures and stamp are fixed
+         here, and a quotation still waiting for a required approval is not shared */
+      const forIssue = await loadDocForSigning(env, idS);
+      if (forIssue) {
+        const iss = await issueDoc(env, forIssue, user.id).catch((e) => { if (/no such table|no such column/i.test(String(e))) return { ok: true as const }; throw e; });
+        if (!iss.ok) return iss.res;
       }
       const existing = await env.DB.prepare(`SELECT share_token FROM sales_documents WHERE id = ?1`)
         .bind(idS).first<{ share_token: string | null }>();
@@ -16883,10 +16920,27 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
   const SIG_FILE_ROLE: Record<string, string> = Object.fromEntries(
     Object.entries(SIG_ROLE_FILE).map(([r, f]) => [f, r]),
   );
+  /* v1.248.0 - Signatures & Stamps (signing.ts): personal signatures, company
+     stamps, signing authority, approvals and issuances. The document door
+     /docs/:id/sign-image serves the legacy role chop too, so a printed
+     document never needs the raw role-file door below. */
+  if (path === "/signing" || path.startsWith("/signing/")) {
+    const sg = await handleSigning(env, request, path, method, body, user, resolveSignatureKey);
+    if (sg) return sg;
+  }
+  if (/^\/docs\/\d+\/(issue|sign-image|sign-plan)$/.test(path)) {
+    const ds = await handleDocSigning(env, request, path, method, body, user, resolveSignatureKey);
+    if (ds) return ds;
+  }
   const sigServe = path.match(/^\/signature\/(a2z|azoo)\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
+  /* v1.248.0 (audit D9): the raw role-file door is for the people who manage
+     the vault (the /admin Signatures panel: CEO, super admin, admin). Every
+     printed document now asks the document door /docs/:id/sign-image, which
+     decides the signer itself, so nobody downloads an officer's chop at will. */
+  const SIG_VAULT_ROLES = ["ceo", "super_admin", "admin"];
   if (sigServe && method === "GET") {
-    if (!can(user.role, "sales") && !can(user.role, "hr_manage")) {
-      return err("forbidden", "Signature access is limited to document and HR roles", 403);
+    if (!SIG_VAULT_ROLES.includes(user.role)) {
+      return err("forbidden", "Signatures print on the documents themselves - the raw file is for the CEO and the admin panel", 403);
     }
     const role = SIG_FILE_ROLE[sigServe[2]!]!;
     const key = await resolveSignatureKey(sigServe[1]!, role, null);
@@ -16898,8 +16952,8 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
      code calls it, and tests/signature-entities.mjs fails if anything does. */
   const sigServeLegacy = path.match(/^\/signature\/((?:ceo|coo|cco|hr-admin|sales-marketing)-sign\.png)$/);
   if (sigServeLegacy && method === "GET") {
-    if (!can(user.role, "sales") && !can(user.role, "hr_manage")) {
-      return err("forbidden", "Signature access is limited to document and HR roles", 403);
+    if (!SIG_VAULT_ROLES.includes(user.role)) {
+      return err("forbidden", "Signatures print on the documents themselves - the raw file is for the CEO and the admin panel", 403);
     }
     const role = SIG_FILE_ROLE[sigServeLegacy[1]!]!;
     const key = await resolveSignatureKey("a2z", role, null);

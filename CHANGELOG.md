@@ -10,6 +10,23 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.248.0] - 2026-11-01 - Signatures & Stamps per person and company; task start dates
+
+The owner's brief "A2Z OS - CEO signature management, company stamps & quotation signing" (01-11-2026), the audit claude/SIGNATURES-AUDIT.md and his answers (the person AND the owner confirm a signature; no approval rule until the owner sets one; the stamp prints with an authorised preparer's verified signature; sales documents only), his "approved", and his Tasks screenshot (a task reads start to end, not only a deadline).
+
+- **Nothing changes on the day it deploys.** Each company keeps printing with the 0118 officer chops (the v1.4.233 rule) until the CEO turns **personal signing** on for it in **Users > Signatures & Stamps**.
+- **A signature belongs to a person** (migration **0162**): the CEO registers it (or the person uploads their own from Profile > Security > Document signature), and it is used only after BOTH the person confirms it and the CEO approves it - each with a live authenticator code. A person without two-factor sign-in cannot register one. Replace and retire keep every version.
+- **A stamp belongs to one company:** uploaded by the CEO per company, versioned, never shown on the other company's documents.
+- **Signing authority** per person, company and document type (prepare / approve), granted and revoked by the CEO with a reason and a code; a person who leaves signs nothing new.
+- **Prepared by** prints the preparer's own signature when they hold authority for that company and type; otherwise their name over an ink line, as today. **Approved by** is a second block. **Stamp** prints beside a verified signature, only on the types the company allows, and - when an approval is needed - only once approved.
+- **One approval system:** the CEO's quotation approval limit (Sales, since 1.181.17) stays the rule. Once a company signs personally, approving there SIGNS: it needs approval authority, the approver's own active signature and a code, never one's own quotation; the signature is kept on the same approval row (quotation_approvals.signature_asset_id). No second approval table.
+- **Issued means fixed:** the first share (and print) of a revision records the preparer, approver and stamp assets and a content hash in document_issuances (the database refuses edits or deletes). A signature replaced later never changes an issued document; an earlier revision prints with its own. A quotation waiting for a required approval cannot be shared or issued (the server refuses).
+- **Audit fixes:** the live preview no longer shows the CEO's chop to everyone (it asks the server who will sign); a printed document asks its own door (/docs/:id/sign-image) and the raw officer chop file is now for the CEO and the admin panel only; the customer's link shows names and marks, never asset ids.
+- **Tasks: start and due date** (migration **0163**, tasks.start_date): Create Task, the task editor and Add Task in a project ask for both (a project task starts with the project's dates); the list column is Dates; the board and the project table show the span; the Gantt starts each bar at the task's own start. A start after the due date is refused. Reminders and overdue still read the due date.
+- Leave and claim forms are untouched (role chops, as before). No amount, payment, commission or payroll is changed.
+- Evidence: new runtime guard tests/go-live-s.mjs (78 checks, 11 mutations), signature-entities updated to the approved door rule, browser tests/browser/signing.py, all guards.
+- Not deployed.
+
 ## [1.247.2] - 2026-11-01 - Phone fixes: task card, header, Clock In colour
 
 The owner's PWA screenshots (Tasks, On Shift).

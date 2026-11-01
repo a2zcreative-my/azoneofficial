@@ -83,10 +83,22 @@ ok("the leave door resolves from the form's OWN issuer",
    /resolveSignatureKey\(lv\.issuer_code,/.test(staff));
 ok("the public share-token door resolves from the document's issuer",
    /sigDoc\.issuer_code === "a2z"/.test(index));
-ok("the printed document asks for its own entity's chop",
-   /doc\.issuer_code === "a2z"/.test(tmpl) && /signature\/\$\{sigEntity\}\//.test(tmpl));
-ok("the saved PDF asks for the same entity as the letterhead it draws",
-   /doc\.issuer_code === "a2z"/.test(pdf) && /signature\/\$\{sigEntity\}\//.test(pdf));
+/* v1.248.0 (audit D9, approved 01-11-2026): a printed document no longer asks the
+   raw role-file door for an officer's chop by name. It asks ITS OWN door,
+   /docs/:id/sign-image, and the server resolves the chop from the document's
+   own issuer_code and date - so the entity rule now lives on the server. */
+const signing = read("worker/src/signing.ts");
+ok("the printed document asks its own document door",
+   /\/api\/v1\/staff\/docs\/\$\{doc\.id\}\/sign-image\?which=/.test(tmpl) && /signSrc\(doc, "prepared"/.test(tmpl),
+   "a raw /signature/<entity>/<role> URL lets the page choose whose chop prints");
+ok("the saved PDF asks the same door as the page",
+   /signSrc\(doc, w\)/.test(pdf));
+ok("neither the page nor the PDF names a raw officer file",
+   !/\/staff\/signature\//.test(tmpl) && !/\/staff\/signature\//.test(pdf));
+ok("the document door resolves from the document's OWN issuer and date",
+   /legacyKey\(d\.issuer_code, role, d\.created_at\)/.test(signing));
+ok("the raw role-file door is for the vault's managers only",
+   /SIG_VAULT_ROLES = \["ceo", "super_admin", "admin"\]/.test(staff) && /if \(!SIG_VAULT_ROLES\.includes\(user\.role\)\)/.test(staff));
 
 /* ---- 2. resolution is temporal --------------------------------------- */
 /* The PROPERTY: the query is bounded by the document's date and ordered
@@ -111,6 +123,15 @@ ok("the object key carries the entity and the version",
 ok("the worker never updates or deletes a vault row",
    !/UPDATE signature_assets/.test(staff) && !/DELETE FROM signature_assets/.test(staff),
    "a document signed under v1 has to resolve v1 for as long as it exists");
+/* v1.248.0: a PERSONAL signature or a company stamp changes state (pending,
+   active, retired) - but only those rows. Every UPDATE in signing.ts names the
+   kind, nothing deletes, and the database refuses an update to a role chop. */
+const sigUpdates = signing.match(/UPDATE signature_assets[^`]*/g) ?? [];
+ok("signing.ts changes only personal signatures and stamps",
+   sigUpdates.length > 0 && sigUpdates.every((u) => /kind (=|IS NOT NULL)/.test(u)) && !/DELETE FROM signature_assets/.test(signing),
+   sigUpdates.filter((u) => !/kind (=|IS NOT NULL)/.test(u)).join(" | "));
+ok("the database keeps every role chop as uploaded",
+   /BEFORE UPDATE ON signature_assets\s*\nWHEN OLD\.kind IS NULL/.test(read("worker/migrations/0162_signing.sql")));
 ok("the vault records who uploaded it and the bytes' hash",
    /sha256/.test(staff) && /uploaded_by/.test(staff) && /crypto\.subtle\.digest\("SHA-256"/.test(staff));
 ok("one row per entity+role+version, enforced by the database",

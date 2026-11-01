@@ -1069,3 +1069,6 @@ td .who > span:first-child { flex-shrink: 0; }
 .countBtn strong { font-size: var(--type-section-size); color: var(--foreground); font-variant-numeric: tabular-nums; }
 .countBtn:hover { border-color: var(--muted-foreground); }
 .countBtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* v1.248.0 - the Dates cell: start over due, each on its own line */
+.dates { display: grid; gap: 0.125rem; white-space: nowrap; }

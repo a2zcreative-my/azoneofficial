@@ -60,6 +60,12 @@ function printVersion(docId: number, v: Rev) {
     const { doc } = ((await res.json().catch(() => ({}))) ?? {}) as { doc?: DocFull };
     if (!doc) throw new Error(L("The document response was incomplete. Try again.", "Maklum balas dokumen tidak lengkap. Cuba lagi."));
     const then: DocFull = { ...doc, ...v.doc, revision: v.doc.revision ?? 0, revised_at: v.doc.revised_at ?? null } as DocFull;
+    /* v1.248.0 - an earlier version carries the signatures IT was issued with */
+    if (doc.sign?.mode === "personal") {
+      const sp = await fetch(`/api/v1/staff/docs/${docId}/sign-plan?revision=${then.revision ?? 0}`, { credentials: "include", signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null) as { sign?: DocFull["sign"] } | null;
+      then.sign = sp?.sign ?? null;
+    }
+    then.id = docId;
     const blob = await buildDocPdf(then);
     return { html: buildDocHtml(then, false), blob, filename: docFileName(then) };
   });

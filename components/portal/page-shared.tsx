@@ -250,6 +250,7 @@ export interface Task {
   description?: string | null;
   priority: string;
   deadline: string | null;
+  start_date?: string | null; // v1.248.0 - the span of work (0163)
   status: string;
   progress: number;
   assignee?: string;

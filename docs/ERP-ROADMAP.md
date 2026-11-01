@@ -328,3 +328,14 @@ quotation is accepted (on the link or recorded) or invoiced. No row is changed.
 delivery state (queued, sending, accepted by Cloudflare, failed and retried,
 dead), keyed by the same ref as the in-app notification so an event is
 emailed once. Settings live in system_meta. No existing table is changed.
+1.248.0 adds `0162_signing`: nullable columns on signature_assets (user_id,
+kind, status, consented_at, approved_by, approved_at, note) so a signature
+belongs to a person and a stamp to a company; signing_authorities (who may
+prepare or approve, per company and document type, append-only);
+signing_policies (one row per company, set by the CEO, personal signing off
+until he turns it on); document_issuances (append-only, triggers refuse
+edits); and quotation_approvals.signature_asset_id, so the existing CEO
+approval (0144) carries the approver signature - no second approval table.
+No existing row is changed. It also adds `0163_task_dates`: tasks.start_date
+(nullable), so a task reads start to due like its project; deadline stays
+the due date every reminder and report reads. No row is changed.

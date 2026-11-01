@@ -39,7 +39,7 @@ function useStaff(): Staff[] | null {
 /* ---------------- shapes the server sends ---------------- */
 export interface PTask {
   id: number; title: string; description: string | null; assigned_to: number; assignee: string; photo_key: string | null;
-  status: "open" | "in_progress" | "completed"; stage: string | null; progress: number; priority: string; deadline: string | null; created_at: string;
+  status: "open" | "in_progress" | "completed"; stage: string | null; progress: number; priority: string; deadline: string | null; start_date?: string | null; created_at: string;
   last_update_at: string | null; last_update_by: string | null; last_update: string | null; label: "not_started" | "in_progress" | "pending" | "review" | "completed" | "cancelled"; mine: boolean;
 }
 export interface PUpdate {
@@ -244,7 +244,7 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
                     <span role="columnheader">{L("Assigned to", "Diberikan kepada")}</span>
                     <span role="columnheader">{L("Status", "Status")}</span>
                     <span role="columnheader">{L("Progress", "Kemajuan")}</span>
-                    <span role="columnheader">{L("Due date", "Tarikh akhir")}</span>
+                    <span role="columnheader">{L("Dates", "Tarikh")}</span>
                     <span role="columnheader">{L("Latest update", "Kemas kini terkini")}</span>
                     <span role="columnheader"><span className="erp-sr-only">{L("Actions", "Tindakan")}</span></span>
                   </div>
@@ -255,7 +255,7 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
                       <span className={pw.person} role="cell"><Avatar name={t.assignee} photoKey={t.photo_key} size="sm" /><span>{t.assignee}</span></span>
                       <span role="cell"><TaskChip label={t.label} /></span>
                       <span className={pw.bar} role="cell"><span className={pw.track} data-progress={pctOf(t)}><span className={pctOf(t) >= 100 ? pw.fillDone : pw.fill} style={{ width: `${pctOf(t)}%` }} /></span><span className={pw.pct}>{pctOf(t)}%</span></span>
-                      <span role="cell">{fmtDay(t.deadline)}{t.deadline && p.start_date && t.deadline < p.start_date ? <span className={pw.warnNote}>{L("before the project starts", "sebelum projek bermula")}</span> : t.deadline && p.due_date && t.deadline > p.due_date ? <span className={pw.warnNote}>{L("after the project is due", "selepas projek perlu siap")}</span> : null}</span>
+                      <span role="cell">{t.start_date && <span className={pw.factMuted}>{L(`Start ${fmtDay(t.start_date)}`, `Mula ${fmtDay(t.start_date)}`)}<br /></span>}{t.start_date ? L(`Due ${fmtDay(t.deadline)}`, `Siap ${fmtDay(t.deadline)}`) : fmtDay(t.deadline)}{t.deadline && p.start_date && t.deadline < p.start_date ? <span className={pw.warnNote}>{L("before the project starts", "sebelum projek bermula")}</span> : t.deadline && p.due_date && t.deadline > p.due_date ? <span className={pw.warnNote}>{L("after the project is due", "selepas projek perlu siap")}</span> : null}</span>
                       <span className={pw.when} role="cell">{t.last_update_at ? <><span className={pw.latestText}>{t.last_update}</span><span className={pw.whenBy}>{fmtStamp(t.last_update_at)}{t.last_update_by ? ` · ${t.last_update_by.split(" ")[0]}` : ""}</span></> : <span className={pw.whenBy}>{L("No progress report yet", "Belum ada laporan kemajuan")}</span>}</span>
                       <span className={pw.anchor} role="cell">
                         <button type="button" className={pw.more} aria-label={L(`Actions for ${t.title}`, `Tindakan untuk ${t.title}`)} aria-expanded={menu === t.id} onClick={() => setMenu(menu === t.id ? null : t.id)}>⋯</button>
@@ -374,7 +374,7 @@ function Gantt({ tasks, start, due }: { tasks: PTask[]; start: string | null; du
   const [nowMs] = useState(() => Date.now());
   const day = (v: string) => Date.parse(`${v.slice(0, 10)}T00:00:00Z`);
   const rows = tasks.map((t) => {
-    const s = day(start && start > t.created_at.slice(0, 10) ? start : t.created_at.slice(0, 10));
+    const s = day(t.start_date ? t.start_date : start && start > t.created_at.slice(0, 10) ? start : t.created_at.slice(0, 10)); // v1.248.0 - the task's own start first
     const e = t.deadline ? day(t.deadline) : due ? day(due) : s + 86400000;
     return { t, s, e: Math.max(e, s + 86400000) };
   });
@@ -533,7 +533,8 @@ function NoteSheet({ w, assist, onClose, onDone }: { w: Workspace; assist: boole
 function TaskSheet({ w, task, onClose, onDone }: { w: Workspace; task?: PTask; onClose: () => void; onDone: Done }) {
   const staff = useStaff();
   const suggestions = useMemo(() => [...new Set([...w.project.deliverables, ...w.scope.lines.map((l) => l.name)])].filter((s) => !w.tasks.some((t) => t.title === s)), [w]);
-  const [f, setF] = useState({ title: task?.title ?? "", description: "", assigned_to: task?.assigned_to ?? 0, deadline: "", priority: "normal", reason: "" });
+  /* v1.248.0 - a new task inside a project starts with the project's own span */
+  const [f, setF] = useState({ title: task?.title ?? "", description: "", assigned_to: task?.assigned_to ?? 0, start_date: w.project.start_date ?? "", deadline: w.project.due_date ?? "", priority: "normal", reason: "" });
   const [problem, setProblem] = useState("");
   const { busy, run } = useBusy();
   const submit = () => run(async () => {
@@ -547,7 +548,7 @@ function TaskSheet({ w, task, onClose, onDone }: { w: Workspace; task?: PTask; o
     }
     if (!f.title.trim() || !f.assigned_to) { setProblem(L("A title and a person are needed.", "Tajuk dan orang diperlukan.")); return; }
     const r = await api<{ id?: number; error?: { message?: string } }>("/staff/tasks", { method: "POST", body: JSON.stringify({
-      title: f.title.trim(), description: f.description.trim() || undefined, assigned_to: f.assigned_to, deadline: f.deadline || undefined, priority: f.priority,
+      title: f.title.trim(), description: f.description.trim() || undefined, assigned_to: f.assigned_to, start_date: f.start_date || undefined, deadline: f.deadline || undefined, priority: f.priority,
       link_kind: "project", link_id: w.project.id,
     }) });
     if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not added", "Tidak ditambah")); return; }
@@ -571,7 +572,8 @@ function TaskSheet({ w, task, onClose, onDone }: { w: Workspace; task?: PTask; o
         </label>}
         {task && <label className={fieldLabel}>{L("Reason (required)", "Sebab (wajib)")}<textarea className={textareaClass} rows={2} maxLength={300} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>}
         {!task && <>
-          <label className={fieldLabel}>{L("Due date", "Tarikh akhir")}<input className={inputClass} type="date" value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} /></label>
+          <label className={fieldLabel}>{L("Start date", "Tarikh mula")}<input className={inputClass} type="date" max={f.deadline || undefined} value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></label>
+          <label className={fieldLabel}>{L("Due date", "Tarikh siap")}<input className={inputClass} type="date" min={f.start_date || undefined} value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} /></label>
           <label className={fieldLabel}>{L("Priority", "Keutamaan")}
             <select className={selectClass} value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
               <option value="low">{L("Low", "Rendah")}</option><option value="normal">{L("Normal", "Biasa")}</option><option value="high">{L("High", "Tinggi")}</option><option value="urgent">{L("Urgent", "Segera")}</option>

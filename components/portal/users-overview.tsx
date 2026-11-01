@@ -42,7 +42,7 @@ import { eventLabel, isSignIn, mytStamp2, roleLabel, type Account, type AuthEven
 import type { AttendanceMonitor } from "@/components/portal/attendance";
 import css from "./users-panel.module.css";
 
-export type UsersView = "overview" | "staff" | "customers" | "roles" | "security";
+export type UsersView = "overview" | "staff" | "customers" | "roles" | "security" | "signing"; // v1.248.0 - Signatures & Stamps
 
 /** one named person from an event row (the audit join can leave the name empty) */
 const who = (e: AuthEvent) => properName(e.name ?? "") || e.email || "-";

@@ -50,6 +50,36 @@ export interface DocFull {
      absent = the original. revised_at is Malaysia time. */
   revision?: number | null;
   revised_at?: string | null;
+  /* v1.248.0 - the saved document's id (its signatures come from its own door) and,
+     once its company signs personally, what signs it (worker signing.ts signPlan,
+     the shared link's trimmed copy, or the Create form's /signing/my-plan) */
+  id?: number;
+  sign?: RawSign | null;
+}
+
+/* v1.248.0 - SIGNATURES & STAMPS. Three shapes arrive (the staff document,
+   the customer's link, the live preview); one reading of them. */
+type RawPerson = { name?: string | null; position?: string | null; asset_id?: number | null; has?: boolean; has_signature?: boolean; at?: string | null } | null | undefined;
+export interface RawSign { mode?: string; prepared?: RawPerson; approved?: RawPerson; stamp_asset_id?: number | null; stamp?: boolean; blocked?: string | null; needs_approval?: boolean; signer_role?: string | null }
+export interface DocSign { personal: boolean; prepared: { name: string; position: string; has: boolean }; approved: { name: string; position: string; at: string | null; has: boolean } | null; stamp: boolean; awaiting: boolean }
+export function readSign(doc: Pick<DocFull, "sign" | "signer_name" | "signer_position">): DocSign | null {
+  const s = doc.sign;
+  if (!s || s.mode !== "personal") return null;
+  const has = (p: RawPerson) => !!(p && (p.has ?? p.has_signature ?? !!p.asset_id));
+  return {
+    personal: true,
+    prepared: { name: s.prepared?.name ?? doc.signer_name ?? "", position: s.prepared?.position ?? "", has: has(s.prepared) },
+    approved: s.approved ? { name: s.approved.name ?? "", position: s.approved.position ?? "", at: s.approved.at ?? null, has: has(s.approved) } : null,
+    stamp: !!(s.stamp ?? s.stamp_asset_id),
+    awaiting: !!s.blocked || (!!s.needs_approval && !s.approved),
+  };
+}
+/** Where a block's mark comes from: the shared link's token door, the saved
+    document's own door, or (unsaved) the preparer's own preview. */
+export function signSrc(doc: Pick<DocFull, "id" | "issuer_code" | "doc_type" | "total_cents" | "revision">, which: "prepared" | "approved" | "stamp", override?: string, origin = ""): string {
+  if (override) return `${override}${override.includes("?") ? "&" : "?"}which=${which}`;
+  if (doc.id) return `${origin}/api/v1/staff/docs/${doc.id}/sign-image?which=${which}${doc.revision ? `&revision=${doc.revision}` : ""}`;
+  return `${origin}/api/v1/staff/signing/my-preview?issuer=${doc.issuer_code === "a2z" ? "a2z" : "azoo"}&doc_type=${doc.doc_type}&total=${doc.total_cents}&which=${which}`;
 }
 
 /**
@@ -272,21 +302,37 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
      signatures because both stamp their own company name; asking the vault
      without an entity used to return whichever single file was in it, so an
      AZ ONE invoice printed AZ ONE letterhead over the A2Z stamp. */
-  const sigEntity = doc.issuer_code === "a2z" ? "a2z" : "azoo";
-  const sigSrc = sigSrcOverride
-    ?? `${location.origin}/api/v1/staff/signature/${sigEntity}/${doc.signer_role ?? (doc.created_by_role === "coo" ? "coo" : "ceo")}-sign.png`;
+  /* v1.248.0 - the mark comes from the document's own door (the server decides the
+     signer and the company, audit D9), the token door on the customer's link, or the
+     preparer's own preview on the Create form. The entity still follows
+     doc.issuer_code === "a2z" on the server, exactly as the letterhead does. */
+  const ps = readSign(doc);
+  const sigSrc = signSrc(doc, "prepared", sigSrcOverride, typeof location === "undefined" ? "" : location.origin);
   /* The zone is the same height signed or not — that is what holds the two
      columns level once the auto signature drops in. */
-  const zone = (img: boolean) =>
-    `<div class="sigzone">${img ? `<img src="${sigSrc}" alt="" onerror="this.style.display='none'"/>` : ""}</div>`;
-  const signerLines = `<div class="who"><span class="nm">${esc((doc.signer_name ?? "").toUpperCase())}</span><br/>
+  const zone = (img: boolean, which: "prepared" | "approved" = "prepared", stamp = false) =>
+    `<div class="sigzone">${img ? `<img src="${which === "prepared" ? sigSrc : signSrc(doc, which, sigSrcOverride, typeof location === "undefined" ? "" : location.origin)}" alt="" onerror="this.style.display='none'"/>` : ""}${stamp ? `<img class="stamp" src="${signSrc(doc, "stamp", sigSrcOverride, typeof location === "undefined" ? "" : location.origin)}" alt="" onerror="this.style.display='none'"/>` : ""}</div>`;
+  const signerLines = ps
+    ? `<div class="who"><span class="nm">${esc(ps.prepared.name.toUpperCase())}</span><br/>
+    ${esc(ps.prepared.position)}<br/><span class="tiny">${esc(issuer.name)}${!ps.prepared.has ? " &middot; sign &amp; date above" : ""}</span></div>`
+    : `<div class="who"><span class="nm">${esc((doc.signer_name ?? "").toUpperCase())}</span><br/>
     ${esc(doc.signer_position ?? "")}<br/><span class="tiny">${esc(issuer.name)}${manualSig ? " &middot; sign &amp; date above" : ""}</span></div>`;
   const partnerBlock = (label: string, l1: string, l2: string) =>
     `<div class="sig blank">${zone(false)}<span class="lbl">${label}</span>
      <div class="who"><span class="nm">${l1}</span><br/>${l2}<br/><span class="tiny">Date</span></div></div>`;
+  /* Approved by: only when a management approval exists for this revision. The
+     stamp sits on the approval when there is one, else beside the preparer. */
+  const approvedBlock = ps?.approved
+    ? `<div class="sig">${zone(ps.approved.has, "approved", ps.stamp)}<span class="lbl">Approved by</span>
+       <div class="who"><span class="nm">${esc(ps.approved.name.toUpperCase())}</span><br/>${esc(ps.approved.position)}<br/>
+       <span class="tiny">${ps.approved.at ? `Approved ${esc(dOnly(ps.approved.at))}` : esc(issuer.name)}</span></div></div>`
+    : "";
+  const awaitingNote = ps?.awaiting ? `<p class="tiny awaiting">Draft &middot; waiting for management approval before it is issued</p>` : "";
 
   const preparedBy = (label: string) =>
-    `<div class="sig">${zone(!manualSig)}<span class="lbl">${label}</span>${signerLines}</div>`;
+    (ps
+      ? `<div class="sig">${zone(ps.prepared.has, "prepared", ps.stamp && !ps.approved)}<span class="lbl">${label}</span>${signerLines}${awaitingNote}</div>${approvedBlock}`
+      : `<div class="sig">${zone(!manualSig)}<span class="lbl">${label}</span>${signerLines}</div>`);
 
   /* One closing shape for all three types — heading, a short clause on the
      left, signer + counterparty on the right — so the three documents read as
@@ -424,6 +470,10 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     .sigzone { height: 74px; display: flex; align-items: flex-end; justify-content: center;
                border-bottom: 1px solid ${DOC.navy}; margin-bottom: 4px; overflow: hidden; }
     .sigzone img { max-height: 72px; max-width: 100%; object-fit: contain; display: block; }
+    .sigzone { position: relative; }
+    .sigzone img.stamp { position: absolute; right: 4px; bottom: 2px; max-height: 64px; max-width: 64px; opacity: .92; }
+    .sig .awaiting { color: #b45309; margin-top: 2px; }
+    .split2:has(> .sig:nth-child(3)) .sig { min-width: 118px; }
     .sig .lbl { display: block; font-size: 8px; letter-spacing: .13em; text-transform: uppercase; color: ${DOC.muted}; margin-bottom: 3px; }
     .sig .who { margin-top: 1px; line-height: 1.5; }
     .sig .nm { font-weight: 800; font-size: 10px; letter-spacing: -.01em; }
