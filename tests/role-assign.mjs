@@ -79,7 +79,7 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
     && /\{ cap: "role_top", rule: "super_admin_only"/.test(perms)); // v1.249.2 - Super Admin and CEO: the super admin, and the owner by grant only (a locked cell)
   ok("an executive may not touch an executive, customer or admin account - both the old and the new role are checked", /for \(const r of \[target\.role, to\]\) \{\s*if \(mayGrant\(actor, r\)\) continue;/.test(perms));
   ok("a super admin account is never touched on this route", /if \(target\.role === "super_admin"\) \{\s*return err\("forbidden", "Super admin accounts are managed by the super admin in \/admin only"/.test(route));
-  ok("nobody else gets in", /if \(!rule\.ok\) return err\(rule\.code, rule\.message, rule\.status\);/.test(route));
+  ok("nobody else gets in", /if \(!rule\.ok\) return err\(rule\.code, rule\.message \+ \(rule\.status === 403 \? ownerOffHint\(user\) : ""\), rule\.status\);/.test(route)); // v1.251.0 - the refusal says why (never weaker: the same return)
 }
 
 /* ---- 3 + 4. never yourself, and audited ---- */

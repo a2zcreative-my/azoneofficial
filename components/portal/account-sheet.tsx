@@ -10,8 +10,15 @@
 
    What it never shows: a password, a 2FA secret, a backup code. A
    set-password link is shown ONCE, only when email sending is not set up,
-   to hand over in person. Role and module access are NOT here - they live in
-   Roles & Permissions and the role editor. */
+   to hand over in person.
+
+   v1.251.0 - THE ACCOUNT MANAGEMENT DRAWER (the owner, 02-11-2026; claude/
+   CEO-ADMIN-USERS-AUDIT.md section 6). It also holds the account's role:
+   the type, the business role and the company access on top, a Change role
+   form offering only the roles the server says THIS editor may give THIS
+   person (roles_allowed, from the same roleChangeRule the route applies),
+   and a way to the person's tab exceptions and their audit trail. No
+   signature or stamp action is here - those live in Companies. */
 
 import { useEffect, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
@@ -35,6 +42,7 @@ interface Sheet {
   sessions: { ref: string; created_at: string; expires_at: string; last_seen_at: string | null; user_agent: string | null }[];
   history: { id: number; action: string; created_at: string; detail: string | null; who: string | null }[];
   can: { email: boolean; recovery: boolean };
+  roles_allowed?: string[];
   mail_ready: boolean; privileged: boolean; me: number;
 }
 type Route = "email" | "google" | "in_person";
@@ -62,7 +70,11 @@ const ACTION_LABEL: Record<string, [string, string]> = {
   "staff.role_change": ["Role changed", "Peranan ditukar"], "user.update": ["Account changed", "Akaun ditukar"], "staff.offboard": ["Offboarded", "Ditamatkan khidmat"],
 };
 
-export function AccountSheet({ userId, open, onClose, onChanged }: { userId: number | null; open: boolean; onClose: () => void; onChanged?: () => void }) {
+export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, onAudit }: {
+  userId: number | null; open: boolean; onClose: () => void; onChanged?: () => void;
+  /** v1.251.0 - open Roles & Permissions on this person's exceptions / the audit history on this person */
+  onPermissions?: (id: number) => void; onAudit?: (id: number) => void;
+}) {
   const { prompt, node: promptNode } = usePrompt();
   const { show: toast, node: toastNode } = useSaveToast();
   const [data, setData] = useState<{ d: Sheet | null; e: string } | null>(null);
@@ -72,6 +84,7 @@ export function AccountSheet({ userId, open, onClose, onChanged }: { userId: num
   const [form, setForm] = useState<{ new_email: string; route: Route; reason: string; identity_checked: string; target_totp: string } | null>(null);
   const [act, setAct] = useState<{ kind: Act; reason: string; identity_checked: string } | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [roleForm, setRoleForm] = useState<{ role: string; reason: string } | null>(null);
 
   useEffect(() => {
     if (!open || !userId) return;
@@ -120,6 +133,20 @@ export function AccountSheet({ userId, open, onClose, onChanged }: { userId: num
     const out = await send(path, body, L(word[k][0], word[k][1]), L(word[k][0].split(" - ")[0]!, word[k][1].split(" - ")[0]!));
     if (out) { setAct(null); if (k === "password-link" && out.link) setLink(out.link); }
   };
+  /* v1.251.0 - the role change, on the existing route (/staff/users/:id/role):
+     the server's roleChangeRule decides, the owner's step-up applies */
+  const saveRole = async () => {
+    if (!roleForm || !a) return;
+    setBusy(true); setError("");
+    const r = await withStepUp<{ error?: { message?: string } }>(
+      (totp) => api(`/staff/users/${a.id}/role`, { method: "POST", body: JSON.stringify({ role: roleForm.role, reason: roleForm.reason.trim(), ...(a.employment_status ? { employment_status: a.employment_status } : {}), ...(totp ? { totp } : {}) }) }),
+      prompt, { title: L(`Confirm: ${a.name} → ${roleLabel(roleForm.role)}`, `Sahkan: ${a.name} → ${roleLabel(roleForm.role)}`), label: L("Your 6-digit authenticator code - a role is changing", "Kod pengesah 6 digit anda - peranan sedang berubah") },
+    );
+    setBusy(false);
+    if (!r.ok) { setError(r.data?.error?.message ?? L("The server refused the change.", "Pelayan menolak perubahan.")); return; }
+    toast(L("Role changed", "Peranan ditukar"), `${a.name} → ${roleLabel(roleForm.role)}`);
+    setRoleForm(null); reload();
+  };
   const signOutOne = async (ref: string) => { if (a) await send(`/staff/accounts/${a.id}/sessions/revoke`, { ref }, L("Signed out on that device", "Dilog keluar pada peranti itu"), L("Sign out this device", "Log keluar peranti ini")); };
   const approve = async (cid: number) => { await send(`/staff/accounts/email-changes/${cid}/approve`, {}, L("Approved", "Diluluskan"), L("Approve the login email change", "Luluskan pertukaran e-mel")); };
   const cancel = async (cid: number) => {
@@ -136,8 +163,8 @@ export function AccountSheet({ userId, open, onClose, onChanged }: { userId: num
   };
 
   return (
-    <SideDrawer open={open} onClose={() => { setForm(null); setAct(null); setLink(null); setError(""); onClose(); }} wide full
-      title={a ? a.name : L("Staff account", "Akaun kakitangan")}
+    <SideDrawer open={open} onClose={() => { setForm(null); setAct(null); setLink(null); setRoleForm(null); setError(""); onClose(); }} wide full
+      title={a ? a.name : L("Account management", "Pengurusan akaun")}
       subtitle={a ? `${roleLabel(a.role)} · ${a.employee_id ? `${a.employee_id} · ` : ""}${L("User", "Pengguna")} #${a.id}` : undefined}>
       {toastNode}{promptNode}
       {data?.e ? <p role="alert" className={css.error}>{data.e}</p> : !d || !a ? <SkelRows rows={8} /> : (
@@ -161,6 +188,39 @@ export function AccountSheet({ userId, open, onClose, onChanged }: { userId: num
               <dt>{L("Two-factor", "Dua faktor")}</dt><dd>{a.totp_enabled ? L(`On · ${a.backup_codes_left} backup code(s) left`, `Hidup · ${a.backup_codes_left} kod sandaran berbaki`) : L("Off - set up at the next sign-in", "Mati - ditetapkan pada log masuk seterusnya")}</dd>
               <dt>{L("Last sign-in", "Log masuk terakhir")}</dt><dd>{stamp(a.last_login)}</dd>
             </dl>
+          </section>
+
+          {/* v1.251.0 - role and access, on the same account */}
+          <section className={css.block} aria-label={L("Role & access", "Peranan & akses")} data-testid="sheet-role">
+            <div className={css.headRow}>
+              <p className={css.label}>{L("Role & access", "Peranan & akses")}</p>
+              {!roleForm && (d.roles_allowed?.length ?? 0) > 0 && <button type="button" className={btnSm} onClick={() => { setError(""); setRoleForm({ role: d.roles_allowed![0]!, reason: "" }); }}><AppIcon name="edit" />{L("Change role", "Tukar peranan")}</button>}
+            </div>
+            <dl className={css.dl}>
+              <dt>{L("Account type", "Jenis akaun")}</dt><dd>{a.role === "agent" ? L("Agent (outside sales partner)", "Ejen (rakan jualan luar)") : L("Staff", "Kakitangan")}</dd>
+              <dt>{L("Business role", "Peranan perniagaan")}</dt><dd><strong>{roleLabel(a.role)}</strong>{a.employment_status ? <span className={css.muted}> · {a.employment_status.replace(/_/g, " ")}</span> : null}</dd>
+              <dt>{L("Company access", "Akses syarikat")}</dt><dd>{L("Both companies - A2Z Creative Marketing and AZ One Official. Access is decided by the role; there is no per-person company limit.", "Kedua-dua syarikat - A2Z Creative Marketing dan AZ One Official. Akses ditentukan oleh peranan; tiada had syarikat bagi setiap orang.")}</dd>
+            </dl>
+            {roleForm && (
+              <fieldset className={css.form} disabled={busy}>
+                <label>{L("New role", "Peranan baharu")}<select className={inputClassSm} value={roleForm.role} onChange={(e) => setRoleForm({ ...roleForm, role: e.target.value })}>
+                  {d.roles_allowed!.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+                </select></label>
+                <p className={css.muted}>{L("The role decides what they may see and do from their next request. Their sales, commission, project and payroll history stays exactly as it was.", "Peranan menentukan apa yang boleh dilihat dan dilakukan mulai permintaan seterusnya. Sejarah jualan, komisen, projek dan gaji kekal seperti asal.")}</p>
+                <label>{L("Reason (kept in the audit history)", "Sebab (disimpan dalam sejarah audit)")}<input className={inputClassSm} maxLength={300} value={roleForm.reason} onChange={(e) => setRoleForm({ ...roleForm, reason: e.target.value })} /></label>
+                {error && <p role="alert" className={css.error}>{error}</p>}
+                <div className={css.row}>
+                  <button type="button" className={btnClass} disabled={roleForm.reason.trim().length < 10} onClick={() => void saveRole()}><AppIcon name="verify" />{L("Change role", "Tukar peranan")}</button>
+                  <button type="button" className={btnSm} onClick={() => { setRoleForm(null); setError(""); }}>{L("Cancel", "Batal")}</button>
+                </div>
+              </fieldset>
+            )}
+            {(onPermissions || onAudit) && (
+              <div className={css.actions}>
+                {onPermissions && <button type="button" className={btnSm} onClick={() => onPermissions(a.id)}><AppIcon name="access" />{L("Permissions for this person", "Kebenaran untuk orang ini")}</button>}
+                {onAudit && <button type="button" className={btnSm} onClick={() => onAudit(a.id)}><AppIcon name="time" />{L("Audit history", "Sejarah audit")}</button>}
+              </div>
+            )}
           </section>
 
           {d.pending.length > 0 && (

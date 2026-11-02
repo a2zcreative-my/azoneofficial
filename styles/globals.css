@@ -1076,3 +1076,20 @@ html.ms-pending body { visibility: hidden; }
 @media (min-width: 900px) {
   .app-viewer { inset: 16px; margin: auto; width: min(880px, calc(100% - 32px)); height: calc(100dvh - 32px); border: 1px solid var(--border); border-radius: 8px; }
 }
+
+/* v1.251.0 - NO FIELD UNDER 16px ON A PHONE (the owner, 02-11-2026: "Input
+   fields extending beyond viewport width" on the iPhone PWA). Safari zooms
+   the page into any text field, select or textarea under 16px when it is
+   tapped and stays zoomed, so the page then pans sideways and the fields
+   look wider than the screen. The design-system classes already say 16px on
+   a phone (.erp-input, .erp-input-sm since 1.251.0); this unlayered rule is
+   the floor for the few fields still sized by a text-xs/text-sm utility. It
+   lives outside @layer on purpose so no utility can undo it. Checkboxes,
+   radios, ranges and colour pickers have no text and are left alone. */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: max(1rem, 16px);
+  }
+}

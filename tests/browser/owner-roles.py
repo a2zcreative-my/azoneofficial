@@ -5,7 +5,7 @@
 2. /admin > Users: the verified owner-CEO gives and takes every role, Super
    Admin and CEO included - reason, then authenticator code, then the PATCH;
    the Admin account sees roles read only; any other CEO goes to /portal.
-3. Users > Signatures & Stamps shows the officer chops already in the /admin
+3. Companies > Document & Signing (Users > Signatures & Stamps until 1.251.0) shows the officer chops already in the /admin
    vault, per company, with the person holding each role today and the new
    flow's Register button; COO (no vault access) does not get the block.
 
@@ -101,9 +101,9 @@ with sync_playwright() as p:
     check("the super admin still changes roles in /admin", sel.count() == 1 and sel.is_enabled())
     ctx.close()
 
-    # ---- 3. Signatures & Stamps: the /admin chops ----
-    ctx, pg, errs, _ = open_page(b, 4219, "/portal?tab=Users")
-    st = pg.get_by_role("tab", name="Signatures & Stamps")
+    # ---- 3. Signatures & Stamps: the /admin chops (v1.251.0 - in Companies > Document & Signing) ----
+    ctx, pg, errs, _ = open_page(b, 4219, "/portal?tab=Companies")
+    st = pg.get_by_role("tab", name="Document & Signing")
     if st.count(): st.first.click(); pg.wait_for_timeout(2000)
     oc = pg.get_by_test_id("officer-chops")
     check("Signatures & Stamps shows the officer chops from /admin", oc.count() == 1)
@@ -119,8 +119,8 @@ with sync_playwright() as p:
     check("no page errors (signing)", not errs, errs)
     ctx.close()
 
-    ctx, pg, errs, _ = open_page(b, 4220, "/portal?tab=Users")
-    st = pg.get_by_role("tab", name="Signatures & Stamps")
+    ctx, pg, errs, _ = open_page(b, 4220, "/portal?tab=Companies")
+    st = pg.get_by_role("tab", name="Document & Signing")
     if st.count(): st.first.click(); pg.wait_for_timeout(2000)
     check("the COO (no vault access) sees the panel without the chops block", pg.get_by_test_id("signing-panel").count() == 1 and pg.get_by_test_id("officer-chops").count() == 0)
     ctx.close()

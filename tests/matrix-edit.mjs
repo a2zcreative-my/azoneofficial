@@ -166,7 +166,7 @@ report(await runtime(join(dir, "worker.mjs")));
 const checks = n;
 const MUT = [
   ["worker/src/permissions.ts", "can() ignores the saved matrix", "  return rolesFor(perm).includes(role as Role);", "  return PERMS[perm]!.includes(role as Role);"],
-  ["worker/src/staff.ts", "anyone may edit the matrix", 'if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "Only the company owner or the super admin edits what roles may do", 403);', ""],
+  ["worker/src/staff.ts", "anyone may edit the matrix", 'if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "Only the company owner or the super admin edits what roles may do." + ownerOffHint(user), 403);', ""], // v1.251.0 - the refusal says why
   ["worker/src/staff.ts", "the editor's code is skipped", 'const su = await requireFreshTotp(env, user, body?.totp, err, "change what roles may do");', "const su = null;"],
   ["worker/src/permissions.ts", "a customer can be named in a cell", "out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r)))] as Role[];", "out[k] = [...new Set(v.map(String))] as Role[];"],
   ["worker/src/index.ts", "the saved matrix is not loaded for a request", "try { setPermissionOverrides(row.perm_meta ? (JSON.parse(row.perm_meta) as { perms?: unknown }).perms : null); } catch { setPermissionOverrides(null); }", "setPermissionOverrides(null);"],

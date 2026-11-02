@@ -65,7 +65,7 @@ import css from "./users-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-export function TabAccessCard({ canEdit = false, headcount = {} }: { canEdit?: boolean; headcount?: Record<string, number> }) {
+export function TabAccessCard({ canEdit = false, headcount = {}, onSaved }: { canEdit?: boolean; headcount?: Record<string, number>; onSaved?: () => void /* v1.251.0 - the matrix above redraws its tab rows */ }) {
   const [overrides, setOverrides] = useState<Record<string, string[]>>({});
   const [openTab, setOpenTab] = useState<string | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
@@ -101,6 +101,7 @@ export function TabAccessCard({ canEdit = false, headcount = {} }: { canEdit?: b
       const d = (await res.json()) as { overrides: Record<string, string[]> };
       setOverrides(d.overrides ?? {});
       setOpenTab(null);
+      onSaved?.();
       showToast(
         roles === null ? L("Back to default", "Kembali kepada lalai") : L("Access saved", "Akses disimpan"),
         roles === null ? L(`${tab} uses the built-in default again`, `${tab} menggunakan tetapan lalai terbina semula`) : L(`${tab} — takes effect on each person's next refresh`, `${tab} — berkuat kuasa pada muat semula seterusnya setiap orang`),

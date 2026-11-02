@@ -279,7 +279,8 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("the Users block hands the tab to its panel", /\{activeTab === "Users" && <UsersPanel role=\{user\.role\} owner=\{user\.is_owner === true\} go=\{setTab\} initialView=\{startOf\("Users"\)\} \/>\}/.test(users)); // v1.250.2 - Manage Agent Access opens Customer Accounts; v1.236.0 - and whether the session is the verified company owner (the worker decides)
   ok("Users: overview, staff, customers, the matrix, then the log and the access cards - in that order",
     /* v1.234.0 - Roles & Permissions: what roles do, what they see, the exceptions; Security & Settings: the log, then the geofence (the owner kept it here) */
-    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customer accounts", "Akaun pelanggan")}>', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', 'L("Sign-in log"', '<GeofenceCard']));
+    /* v1.251.0 - Customers & Agents; the tab rows fold under the one matrix; Audit History follows Security & Sessions */
+    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customers & agents", "Pelanggan & ejen")}>', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', 'L("Sign-in log"', '<GeofenceCard', '<AuditPanel person=']));
   /* the owner's reference draws these five as underline tabs (a gold rule
      under the open one) - this page's own, everything else keeps the pill */
   ok("the five Users tabs are the reference's underline tabs, and every body stays mounted (hidden, never unmounted)",

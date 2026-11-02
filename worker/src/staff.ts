@@ -1930,6 +1930,36 @@ export async function ownerStepUp(
    active super admin and no OTHER active super admin with 2FA would remain -
    then removing, demoting, deactivating or offboarding it is refused, for
    every actor, the super admin included. */
+/* v1.251.0 - ONE set-password link (was inline in the recovery route), now
+   also the invitation of a new account (the owner, 02-11-2026: "Create and
+   invite users"; claude/CEO-ADMIN-USERS-AUDIT.md). Any older unused link of
+   the person is withdrawn first; only the hash is stored. Emailed when
+   sending is set up, otherwise returned to be shown once and handed over in
+   person - never stored, never logged. */
+export async function issueSetPasswordLink(
+  env: Env, actor: { id: number; name: string }, target: { id: number; email: string }, invite: boolean,
+): Promise<{ emailed: boolean; link: string }> {
+  const tok = newToken();
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM account_tokens WHERE user_id = ?1 AND kind = 'set_password' AND used_at IS NULL`).bind(target.id),
+    env.DB.prepare(`INSERT INTO account_tokens (user_id, kind, token_hash, expires_at, created_by) VALUES (?1, 'set_password', ?2, datetime('now', '+${SET_PASSWORD_TTL_HOURS} hours'), ?3)`).bind(target.id, await sha256Acct(tok), actor.id),
+  ]);
+  const link = `${primaryOrigin(env)}/set-password#token=${tok}`;
+  const emailed = await sendMail(env, invite
+    ? { to: target.email, subject: "Your A2Z OS account", text: `${actor.name} created an A2Z OS account for you. Choose your password with this link - it works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nYou will set up two-factor sign-in the first time you sign in.` }
+    : { to: target.email, subject: "Set your A2Z OS password", text: `${actor.name} sent you a link to set the password of your A2Z OS account. It works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nYour two-factor sign-in still applies.` });
+  return { emailed, link };
+}
+
+/* v1.251.0 - why a CEO is refused an owner door. The owner authority is
+   built but needs the one-time designation; saying "only the super admin"
+   hid that (the owner, 02-11-2026: "I do not want another generic answer"). */
+export function ownerOffHint(user: { role: string; is_owner?: boolean }): string {
+  return user.role === "ceo" && user.is_owner !== true
+    ? " Your owner authority is off: the Super Admin names you company owner once (Users > Security & Sessions > Company owner), then this works for you."
+    : "";
+}
+
 export async function lastRecoveryAdmin(env: Env, targetId: number): Promise<boolean> {
   const t = await env.DB.prepare(`SELECT role, is_active FROM users WHERE id = ?1`).bind(targetId).first<{ role: string; is_active: number }>();
   if (!t || t.role !== "super_admin" || !t.is_active) return false;
@@ -3024,7 +3054,7 @@ async function handleStaffRoutes(
       return err("forbidden", "Super admin accounts are managed by the super admin in /admin only", 403);
     }
     const rule = roleChangeRule(user, target, newRole);
-    if (!rule.ok) return err(rule.code, rule.message, rule.status);
+    if (!rule.ok) return err(rule.code, rule.message + (rule.status === 403 ? ownerOffHint(user) : ""), rule.status); // v1.251.0 - say why
     /* v1.250.0 (the agent portal brief: "Verify the agent's email address") -
        Agent access goes only to a PROVEN email: a Google sign-in, or an
        address confirmed through a verify link. A customer is never made an
@@ -12453,7 +12483,7 @@ async function handleStaffRoutes(
   };
   /* the one gate for every account action below */
   const acctGate = async (id: number, cap: "account_email" | "account_recovery", write: boolean): Promise<{ t: AcctRow } | { r: Response }> => {
-    if (!allows(user, cap)) return { r: err("forbidden", "Only the company owner or the super admin manages staff sign-in", 403) };
+    if (!allows(user, cap)) return { r: err("forbidden", "Only the company owner or the super admin manages staff sign-in." + ownerOffHint(user), 403) };
     const t = await loadAcct(id);
     if (!t || t.role === "customer") return { r: err("not_found", "No such staff account", 404) };
     if (!canManageAccount(user, t.role)) return { r: err("forbidden", "CEO and super admin accounts are managed by the super admin only", 403) };
@@ -12500,6 +12530,11 @@ async function handleStaffRoutes(
       pending, history,
       sessions: sessions.map((x) => ({ ref: x.id.slice(0, 12), created_at: x.created_at, expires_at: x.expires_at, last_seen_at: x.last_seen_at ?? null, user_agent: x.user_agent ?? null })),
       can: { email: !self && allows(user, "account_email"), recovery: !self && allows(user, "account_recovery") },
+      /* v1.251.0 - the Account Management drawer's role picker: exactly the
+         roles roleChangeRule would let THIS editor give THIS person now (the
+         route still decides on save); empty = no role change from here */
+      roles_allowed: self || t.role === "super_admin" ? [] : ["live_host", "editor", "marketing", "sales_marketing", "hr_admin", "cco", "coo", "admin", "ceo", "agent", "customer"]
+        .filter((r) => r !== t.role && roleChangeRule(user, t, r).ok),
       mail_ready: mailReady(env), privileged: privilegedTarget(t.role), me: user.id,
     });
   }
@@ -12607,13 +12642,7 @@ async function handleStaffRoutes(
       return json({ ok: true });
     }
     if (action === "/password-link") {
-      const tok = newToken();
-      await env.DB.batch([
-        env.DB.prepare(`DELETE FROM account_tokens WHERE user_id = ?1 AND kind = 'set_password' AND used_at IS NULL`).bind(t.id),
-        env.DB.prepare(`INSERT INTO account_tokens (user_id, kind, token_hash, expires_at, created_by) VALUES (?1, 'set_password', ?2, datetime('now', '+${SET_PASSWORD_TTL_HOURS} hours'), ?3)`).bind(t.id, await sha256Acct(tok), user.id),
-      ]);
-      const link = `${primaryOrigin(env)}/set-password#token=${tok}`;
-      const emailed = await sendMail(env, { to: t.email, subject: "Set your A2Z OS password", text: `${user.name} sent you a link to set the password of your A2Z OS account. It works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nYour two-factor sign-in still applies.` });
+      const { emailed, link } = await issueSetPasswordLink(env, user, t, false);
       await auditAcct(env, user.id, "auth.password_link_issued", String(t.id), { reason, emailed, by_owner: byOwner });
       try { await notify(env, t.id, "security", `${user.name} issued you a one-time link to set your password${emailed ? " - it was emailed to you" : ""}.`, `pwlink:${Date.now()}`); } catch { /* never blocks */ }
       /* emailed: the link went only to the person. Not emailed (sending is
@@ -12733,7 +12762,7 @@ async function handleStaffRoutes(
      inside can() - the one permission check. Only staff roles can be named:
      a customer never receives a staff permission. ---- */
   if (path === "/access/policy" && method === "POST") {
-    if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "Only the company owner or the super admin edits what roles may do", 403);
+    if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "Only the company owner or the super admin edits what roles may do." + ownerOffHint(user), 403);
     const reasonP = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
     if (reasonP.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
     const resetAll = body?.reset_all === true;

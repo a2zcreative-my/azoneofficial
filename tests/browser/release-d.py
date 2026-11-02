@@ -1,6 +1,6 @@
 """RELEASE D OF THE GO-LIVE PLAN (v1.244.0) - the client side, in a browser.
 
-System health (Users -> Security & Settings) says where the media copy
+System health (Users -> Security & Sessions, v1.251.0) says where the media copy
 stands: off while the backups bucket is not bound, "still to copy" while the
 first passes run, "every object matches" after the weekly check, and the
 damaged copies in warning colour; the Off-site copy link still downloads the
@@ -34,7 +34,7 @@ def open_health(b, w=1440, h=1000):
         if m.count(): m.first.click(); pg.wait_for_timeout(500)
         btn = pg.get_by_role("button", name="Users", exact=True).filter(visible=True)
     btn.first.click(); pg.wait_for_timeout(1800)
-    pg.get_by_role("tab", name="Security & Settings", exact=True).first.click(); pg.wait_for_timeout(1800)
+    pg.get_by_role("tab", name="Security & Sessions", exact=True).first.click(); pg.wait_for_timeout(1800)
     return ctx, pg, errs
 
 with sync_playwright() as p:

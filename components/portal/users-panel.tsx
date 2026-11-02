@@ -48,7 +48,7 @@ import { usePrompt } from "@/components/ui/prompt-dialog";
 import ap from "./access-policy.module.css";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
-import { SigningPanel } from "@/components/portal/signing-panel"; // v1.248.0
+import { InviteSheet } from "@/components/portal/invite-sheet"; // v1.251.0 - Add User (invite)
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -70,14 +70,21 @@ import css from "./users-panel.module.css";
 
 export { mytStamp2 };
 
+/* v1.251.0 - the Users tabs (the owner, 02-11-2026; claude/CEO-ADMIN-USERS-AUDIT.md):
+   Signatures & Stamps moved to Companies > Document & Signing; the full
+   audit log is its own tab */
+const USERS_VIEWS: readonly string[] = ["overview", "staff", "customers", "roles", "security", "audit"];
 const EVENT_CHIP = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
 type StaffFilter = "all" | "active" | "disabled" | "no2fa";
 
 export function UsersPanel({ role, owner = false, go, initialView }: { role: string; owner?: boolean; go?: (tab: TabName) => void; initialView?: string }) {
   /* v1.250.2 - Agents > Manage Agent Access opens Customer Accounts directly */
-  const [view, setView] = useState<UsersView>(() => (["overview", "staff", "customers", "roles", "security", "signing"].includes(initialView ?? "") ? initialView as UsersView : "overview"));
+  const [view, setView] = useState<UsersView>(() => (USERS_VIEWS.includes(initialView ?? "") ? initialView as UsersView : "overview"));
   const [seenStart, setSeenStart] = useState(initialView);
-  if (initialView !== seenStart) { setSeenStart(initialView); if (initialView && ["overview", "staff", "customers", "roles", "security", "signing"].includes(initialView)) setView(initialView as UsersView); }
+  if (initialView !== seenStart) { setSeenStart(initialView); if (initialView && USERS_VIEWS.includes(initialView)) setView(initialView as UsersView); }
+  /* v1.251.0 - Add User (invite) and the one person the Audit History shows */
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [auditPerson, setAuditPerson] = useState<{ id: number; name: string } | null>(null);
   const [rows, setRows] = useState<Account[]>([]);
   const [msg, setMsg] = useState("");
   // v1.4.153: user log (recent sign-ins + account events) for monitoring
@@ -222,8 +229,10 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
      disabled, or the active ones still missing 2FA */
   const statusOk = (u: Account) =>
     sf === "all" || (sf === "active" ? Boolean(u.is_active) : sf === "disabled" ? !u.is_active : Boolean(u.is_active && !u.totp_enabled));
-  const allStaff = rows.filter((u) => u.role !== "customer");
-  const allCustomers = rows.filter((u) => u.role === "customer");
+  /* v1.251.0 - an agent is not staff (v1.249.0): agents sit with the
+     customers they were made from, in Customers & Agents */
+  const allStaff = rows.filter((u) => u.role !== "customer" && u.role !== "agent");
+  const allCustomers = rows.filter((u) => u.role === "customer" || u.role === "agent");
   const staffRows = allStaff.filter(match).filter(statusOk);
   const customerRows = allCustomers.filter(match);
   /* "3 of 12" while a search is on, plain "12" otherwise: a heading that only
@@ -280,7 +289,9 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           </div>
         ) : (
           <div className={css.cell}>
-            <span className={chipSmNeutral}>{L("No staff access", "Tiada akses kakitangan")}</span>
+            {u.role === "agent"
+              ? <span className={chipSmInfo}>{L("Agent", "Ejen")}</span>
+              : <span className={chipSmNeutral}>{L("No staff access", "Tiada akses kakitangan")}</span>}
           </div>
         )}
       </div>
@@ -289,15 +300,15 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           {/* v1.238.0 - Sign-in & recovery: login email, password link, 2FA
               reset, Google link, devices (owner + super admin; the worker's
               canManageAccount decides each account) */}
-          {kind === "staff" && recovery && (
+          {(kind === "staff" || u.role === "agent") && recovery && (
             <button type="button" className={iconBtn}
-              aria-label={L(`Sign-in & recovery for ${properName(u.full_name || u.name)}`, `Log masuk & pemulihan untuk ${properName(u.full_name || u.name)}`)}
-              title={L("Sign-in & recovery", "Log masuk & pemulihan")}
+              aria-label={L(`Manage account: ${properName(u.full_name || u.name)}`, `Urus akaun: ${properName(u.full_name || u.name)}`)}
+              title={L("Manage account", "Urus akaun")} data-testid={`manage-${u.id}`}
               onClick={() => setSheetId(u.id)}>
               <AppIcon name="access" />
             </button>
           )}
-          {kind === "customer" && (owner || superAdmin) && (
+          {kind === "customer" && u.role === "customer" && (owner || superAdmin) && (
             <button type="button" className={btnSm} disabled={saving} data-testid={`grant-agent-${u.id}`} onClick={() => void grantAgent(u)}>
               <AppIcon name="users" />{L("Grant Agent Access", "Beri Akses Ejen")}
             </button>
@@ -368,16 +379,22 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
     return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
   }, [editing, canEdit]);
 
-  const signingView = ["ceo", "super_admin", "coo", "cco"].includes(role);
+  const auditTab = ["ceo", "admin", "super_admin"].includes(role); // = PERMS.audit_read
   const tabs: readonly (readonly [UsersView, string])[] = [
     ["overview", L("Overview", "Gambaran")],
     ["staff", L("Staff Accounts", "Akaun kakitangan")],
-    ["customers", L("Customer Accounts", "Akaun pelanggan")],
+    ["customers", L("Customers & Agents", "Pelanggan & Ejen")],
     ["roles", L("Roles & Permissions", "Peranan & kebenaran")],
-    ["security", L("Security & Settings", "Keselamatan & tetapan")],
-    /* v1.248.0 - Signatures & Stamps: the CEO manages, COO and CCO read (signing.ts decides) */
-    ...(signingView ? [["signing", L("Signatures & Stamps", "Tandatangan & Cop")] as const] : []),
+    ["security", L("Security & Sessions", "Keselamatan & sesi")],
+    /* v1.251.0 - the full audit trail, its own tab; Signatures & Stamps
+       moved to Companies > Document & Signing (the owner, 02-11-2026) */
+    ...(auditTab ? [["audit", L("Audit History", "Sejarah audit")] as const] : []),
   ];
+  const canInvite = ["super_admin", "admin", "ceo"].includes(role); // POST /api/v1/users (atLeast admin); executive roles: the server's mayGrant
+  /* v1.251.0 - THE OWNER SWITCH, said where the CEO works (the owner,
+     02-11-2026: the restriction was real but explained only at the bottom
+     of Security). The worker decides is_owner; this only tells him why. */
+  const ownerOff = role === "ceo" && !owner;
   const holds = ["ceo", "super_admin"].includes(role); // the exceptions and the matrix's editor (= TAB_ACCESS_EDITORS)
   const [reviewTick, setReviewTick] = useState(0);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -400,14 +417,32 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   return (
     <TabPage className={css.page}>
       {toastNode}{promptNode}
-      <AccountSheet userId={sheetId} open={sheetId !== null} onClose={() => setSheetId(null)} onChanged={load} />
+      <AccountSheet userId={sheetId} open={sheetId !== null} onClose={() => setSheetId(null)} onChanged={load}
+        onPermissions={holds ? () => { setSheetId(null); openView("roles"); } : undefined}
+        onAudit={auditTab ? (id) => { const u = rows.find((x) => x.id === id); setSheetId(null); setAuditPerson({ id, name: properName(u?.full_name || u?.name || `#${id}`) }); openView("audit"); } : undefined} />
+      {canInvite && <InviteSheet open={inviteOpen} executive={owner || superAdmin} onClose={() => setInviteOpen(false)} onDone={load} />}
       {/* v1.189.0 - the reference's underline tabs (gold rule under the open
           one); the shared LineTabs from v1.190.0, which Desk draws too */}
       <LineTabs value={view} onChange={openView} tabs={tabs} label={L("Users", "Pengguna")} />
+      {ownerOff && (
+        <section className={`${css.ownerOff}`} role="note" data-testid="owner-off">
+          <AppIcon name="lock" className={css.noteIcon} />
+          <div className={css.ownerOffText}>
+            <p className={css.title}>{ownerState?.d?.owner && !ownerState.d.owner.verified
+              ? L("Your owner authority is paused", "Kuasa pemilik anda digantung")
+              : L("Your owner authority is not switched on yet", "Kuasa pemilik anda belum dihidupkan")}</p>
+            <p className={css.sub}>{ownerState?.d?.owner && !ownerState.d.owner.verified && ownerState.d.owner.why_not
+              ? L(`You are named company owner, but ${ownerState.d.owner.why_not === "no_2fa" ? "two-factor sign-in is off" : ownerState.d.owner.why_not === "inactive" ? "the account is not active" : "the account no longer holds the CEO role"}. Fix that and it returns at once.`, `Anda dinamakan pemilik syarikat, tetapi ${ownerState.d.owner.why_not === "no_2fa" ? "log masuk dua faktor dimatikan" : ownerState.d.owner.why_not === "inactive" ? "akaun tidak aktif" : "akaun tidak lagi memegang peranan CEO"}. Betulkan dan ia kembali serta-merta.`)
+              : L("Giving and taking Agent, COO, CCO, Admin and CEO roles, creating executive accounts, changing login emails, 2FA recovery, suspending, signing out devices and editing what each role may do are built for you and checked by the server. They switch on once: the Super Admin names your account company owner in Security & Sessions → Company owner (a reason and the Super Admin's authenticator code, kept in the audit history). Until then the server refuses them.",
+                  "Memberi dan menarik peranan Ejen, COO, CCO, Admin dan CEO, mencipta akaun eksekutif, menukar e-mel log masuk, pemulihan 2FA, menggantung, melog keluar peranti dan menyunting apa yang setiap peranan boleh lakukan telah dibina untuk anda dan disemak pelayan. Ia dihidupkan sekali: Super Admin menamakan akaun anda pemilik syarikat di Keselamatan & Sesi → Pemilik syarikat (sebab dan kod pengesah Super Admin, disimpan dalam sejarah audit). Sehingga itu pelayan menolaknya.")}</p>
+          </div>
+          <button type="button" className={btnSm} onClick={() => openView("security")}>{L("Company owner", "Pemilik syarikat")}</button>
+        </section>
+      )}
       {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
 
       <div hidden={view !== "overview"} className={css.body}>
-        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={openView} role={role} go={go} />
+        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={openView} role={role} go={go} onAddUser={canInvite ? () => setInviteOpen(true) : undefined} />
       </div>
 
       <div hidden={view !== "staff"} className={css.body}>
@@ -434,6 +469,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
                 </div>
               </div>
               <div className={css.quick}>
+                {canInvite && <button type="button" className={btnClass} data-testid="add-user" onClick={() => setInviteOpen(true)}><AppIcon name="add" />{L("Add User", "Tambah Pengguna")}</button>}
                 <button type="button" className={btnSm} onClick={() => openView("roles")}><AppIcon name="lock" />{L("Roles & permissions", "Peranan & kebenaran")}</button>
                 {adminDoor && <Link className={btnSm} href="/admin"><AppIcon name="external" />{L("Passwords & deactivation", "Kata laluan & penyahaktifan")}</Link>}
               </div>
@@ -474,14 +510,14 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
       <div hidden={view !== "customers"} className={css.body}>
         {/* v1.4.156: Google sign-ups land here as customers - the CEO promotes
             them into part-time roles (e.g. part-time live host) from this list. */}
-        <TabZone label={L("Customer accounts", "Akaun pelanggan")}>
+        <TabZone label={L("Customers & agents", "Pelanggan & ejen")}>
           <section className={card}>
             <div className={css.head}>
               <div className={css.headLead}>
                 <span className={css.well}><AppIcon name="cart" /></span>
                 <div className={css.headText}>
                   <p className={css.title}>
-                    {L("Customer accounts — Google & self sign-ups", "Akaun pelanggan — Google & daftar sendiri")}{" "}
+                    {L("Customers & agents — Google & self sign-ups", "Pelanggan & ejen — Google & daftar sendiri")}{" "}
                     <span className={css.sub}>{countOf(customerRows.length, allCustomers.length)}</span>
                   </p>
                   <p className={css.sub}>
@@ -529,11 +565,16 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Role assignments", "Penetapan peranan")}</p><p className={ap.sumTitle}>{L(`${allStaff.filter((u) => u.is_active).length} active staff accounts`, `${allStaff.filter((u) => u.is_active).length} akaun kakitangan aktif`)}</p><p className={ap.sub}>{Object.entries(headcount).map(([r, n]) => `${roleLabel(r)} ${n}`).join(" · ") || "—"}</p></section>
           <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("User exceptions", "Pengecualian pengguna")}</p><p className={ap.sumTitle}>{holds ? (review?.d ? L(`${review.d.exceptions.length} exception(s)`, `${review.d.exceptions.length} pengecualian`) : "…") : L("Kept by the CEO", "Disimpan oleh CEO")}</p><p className={ap.sub}>{holds && review?.d ? L(`${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} to review`, `${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} untuk disemak`) : L("Each with its reason and approver", "Setiap satu dengan sebab dan pelulusnya")}</p></section>
         </div>
-        <TabZone label={L("What each role may do", "Apa yang setiap peranan boleh lakukan")}>
+        {/* v1.251.0 - ONE editor: the matrix shows, per module, whether each
+            role sees the tab and what it may do; the tab rows are edited in
+            "Who sees each tab" right under it (the same /staff/tabs/access
+            route). One zone, not two matrices. */}
+        <TabZone label={L("What each role may see and do", "Apa yang setiap peranan boleh lihat dan lakukan")}>
           <AccessPolicyCard policy={policy} onChanged={() => { setPolicyTick((n) => n + 1); setReviewTick((n) => n + 1); }} />
-        </TabZone>
-        <TabZone label={L("What each role sees", "Apa yang setiap peranan lihat")}>
-          <TabAccessCard canEdit={holds} headcount={headcount} />
+          <details className={css.seesEditor} data-testid="sees-editor">
+            <summary>{L("Who sees each tab", "Siapa melihat setiap tab")}<span className={css.sub}>{holds ? L(" - open to change which roles see a tab", " - buka untuk menukar peranan yang melihat tab") : L(" - the CEO changes it", " - CEO menukarnya")}</span></summary>
+            <TabAccessCard canEdit={holds} headcount={headcount} onSaved={() => setPolicyTick((n) => n + 1)} />
+          </details>
         </TabZone>
         <TabZone label={L("Exceptions and accounts", "Pengecualian dan akaun")} cols={2}>
           {holds ? (
@@ -626,8 +667,8 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
             <ul className={ap.controls}>
               <li><span className={ap.main}><strong>{L("Two-factor authentication", "Pengesahan dua faktor")}</strong><span>{L("Required for every staff role; enrolment is the only thing open until it is on", "Diwajibkan untuk setiap peranan kakitangan; hanya pendaftaran dibuka sehingga ia dihidupkan")}</span></span>
                 {(() => { const n = allStaff.filter((u) => u.is_active && !u.totp_enabled).length; return <span className={n ? chipSmWarn : chipSmSuccess}>{n ? L(`${n} without 2FA`, `${n} tanpa 2FA`) : L("All on", "Semua aktif")}</span>; })()}</li>
-              <li><span className={ap.main}><strong>{L("Active sessions", "Sesi aktif")}</strong><span>{L("Sign out everywhere (Profile → Security); revoke a leaver's sessions in /admin. No per-device list is kept.", "Log keluar di semua tempat (Profil → Keselamatan); batalkan sesi bekas staf di /admin. Tiada senarai setiap peranti disimpan.")}</span></span>
-                {adminDoor ? <Link className={btnSm} href="/admin">{L("Open /admin", "Buka /admin")}</Link> : <span className={chipSmNeutral}>{L("Per person", "Setiap orang")}</span>}</li>
+              <li><span className={ap.main}><strong>{L("Active sessions", "Sesi aktif")}</strong><span>{L("Each person's signed-in devices are listed in their account (Manage account → Devices signed in): sign out one device or all of them, suspend or restore access. Your own: Profile → Security.", "Peranti setiap orang yang log masuk disenaraikan dalam akaun mereka (Urus akaun → Peranti yang log masuk): log keluar satu peranti atau semua, gantung atau pulihkan akses. Anda sendiri: Profil → Keselamatan.")}</span></span>
+                <button type="button" className={btnSm} onClick={() => openView("staff")}>{L("Staff accounts", "Akaun kakitangan")}</button></li>
               <li><span className={ap.main}><strong>{L("Security alerts", "Amaran keselamatan")}</strong><span>{L("2FA changes and backup-code use in the last 60 events", "Perubahan 2FA dan penggunaan kod sandaran dalam 60 peristiwa terakhir")}</span></span>
                 {(() => { const n = events.filter((e) => eventTone(e.action) === "warn").length; return <span className={n ? chipSmWarn : chipSmNeutral}>{n ? L(`${n} to review`, `${n} untuk disemak`) : L("None", "Tiada")}</span>; })()}</li>
             </ul>
@@ -660,19 +701,31 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
             <SystemHealthCard />
           </TabZone>
         )}
-        {auditRead && view === "security" && (
-          <TabZone label={L("Audit log", "Log audit")}>
-            <section className={card} aria-label={L("Full audit log", "Log audit penuh")}><AuditPanel /></section>
-          </TabZone>
-        )}
       </div>
+
+      {/* v1.251.0 - AUDIT HISTORY: the existing audit log (GET /api/v1/audit,
+          audit_read), whole or for one person from their account */}
+      {auditTab && (
+        <div hidden={view !== "audit"} className={css.body}>
+          <TabZone label={L("Audit history", "Sejarah audit")}>
+            <section className={card} aria-label={L("Full audit log", "Log audit penuh")}>
+              {auditPerson && (
+                <div className={css.toolbar}>
+                  <span className={chipSmInfo}>{L(`Showing ${auditPerson.name} only`, `Hanya ${auditPerson.name}`)}</span>
+                  <button type="button" className={btnSm} onClick={() => setAuditPerson(null)}>{L("Show everyone", "Papar semua")}</button>
+                </div>
+              )}
+              {view === "audit" && <AuditPanel person={auditPerson?.id ?? null} />}
+            </section>
+          </TabZone>
+        </div>
+      )}
 
       {/* v1.137.0 — THE PHONE'S EDITOR. Two selects and a Save inside a
           flex-wrap list row reflowed the row they belonged to; as the house
           bottom sheet (app/portal/page.tsx) they sit over the page, full
           width, with the row still visible behind them. md: and up use the
           inline panel above, so only one of the two is ever displayed. */}
-      {signingView && view === "signing" && <div className={css.body}><SigningPanel /></div>}
       {editing && canEdit && (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true"
           aria-label={L("Change role", "Tukar peranan")}>

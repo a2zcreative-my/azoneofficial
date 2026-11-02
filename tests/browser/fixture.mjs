@@ -161,7 +161,8 @@ function baseFixture(p) {
       counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
       owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, set_at: "2026-10-30 02:00:00" } : null,
       me_owner: OWNER && ROLE === "ceo",
-      tabs: [] };
+      /* v1.251.0 - the tab rule per module, as the worker sends it (the one matrix shows SEES then DO) */
+      tabs: [{ tab: "Users", always: false, overridden: false, sees: ["ceo", "coo", "admin"], reads: null }, { tab: "Payroll", always: false, overridden: false, sees: ["ceo", "coo", "hr_admin", "admin"], reads: null }] };
   }
   if (p === "/staff/owner") {
     data = !["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE) ? { error: { code: "forbidden", message: "Management access required" } } : {
@@ -596,6 +597,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       { id: 9101, name: "Narida", full_name: "Narida Binti Aziz", role: "customer", email: "narida@example.test", is_active: 1 },
       { id: 9102, name: "Kamal", full_name: null, role: "customer", email: "kamal.hashim@example.test", is_active: 1 },
       { id: 9103, name: "Siti", full_name: "Siti Nurhaliza", role: "customer", email: "siti@example.test", is_active: 0 },
+      /* v1.251.0 - an agent sits with the customers (Customers & Agents), never in the staff list */
+      { id: 9105, name: "Rashid", full_name: "Rashid Danial", role: "agent", email: "rashid.danial@example.test", is_active: 1, totp_enabled: 1 },
       ...(OWNER ? [{ id: 9104, name: "Tech", full_name: "Tech Support A2Z", role: "admin", email: "tech@azoneofficial.com", is_active: 1, totp_enabled: 1 }] : []),
     ];
     data = { users: us, staff: us };
@@ -619,6 +622,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
         { id: 40, action: "staff.role_change", created_at: "2026-09-02 03:00:00", detail: JSON.stringify({ from: "marketing", to: "sales_marketing" }), who: "Fixture Person" },
       ],
       can: { email: true, recovery: true }, mail_ready: !!process.env.MAIL, privileged: false, me: 9001,
+      /* v1.251.0 - what the drawer's role picker offers (the worker: roleChangeRule per role) */
+      roles_allowed: ["live_host", "editor", "marketing", "hr_admin", "cco", "coo", "admin", "ceo", "agent", "customer"],
     };
   }
   if (p === "/staff/support/settings") data = {
@@ -671,7 +676,12 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/staff/assets") data = { assets, can_remove: ["super_admin", "admin", "hr_admin", "ceo"].includes(ROLE) };
   /* v1.199.0 - the audit trail the Assets Reports & Audit tab reads (admin tier on the worker) */
   /* v1.203.0 - the whole trail (no ?action), as the admin tier reads it on the overview */
-  if (p === "/audit" && !q.get("action")) data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
+  /* v1.251.0 - one person's trail (Users > Audit History from the account drawer) */
+  if (p === "/audit" && q.get("target")) data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
+    { id: 995, action: "user.suspend", entity: "users", entity_id: q.get("target"), detail: "{\"reason\":\"Away on long leave\"}", created_at: "2026-10-30 02:00:00", user_name: "Fixture Person" },
+    { id: 994, action: "staff.role_change", entity: "users", entity_id: q.get("target"), detail: "{\"from\":\"marketing\",\"to\":\"sales_marketing\"}", created_at: "2026-09-02 03:00:00", user_name: "Fixture Person" },
+  ] };
+  else if (p === "/audit" && !q.get("action")) data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
     { id: 990, action: "auth.login", entity: "users", entity_id: "9001", detail: null, created_at: "2026-09-18 01:58:00", user_name: "Fixture Person" },
     { id: 989, action: "hotel.update", entity: "hotels", entity_id: "1", detail: "{\"hotel_name\":\"Casa del Rio\",\"state\":\"MELAKA\"}", created_at: "2026-09-18 01:50:00", user_name: "Nur Aisyah" },
     { id: 988, action: "leave.approve", entity: "leave_requests", entity_id: "7", detail: "{\"name\":\"Tan Mei Ling\"}", created_at: "2026-09-18 00:55:00", user_name: "Fixture Person" },

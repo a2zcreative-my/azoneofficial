@@ -207,6 +207,12 @@ export function AccessPolicyCard({ policy, onChanged }: { policy: { d: Policy | 
   const keyActions = (m: string) => rows.filter((a) => a.module === m).map((a) => L(a.en, a.ms)).join(" · ");
   const isOpen = (m: string) => open[m] ?? (editing || !!needle || !!mod);
   const owner = d?.owner ?? null;
+  /* v1.251.0 - ONE PLACE FOR SEE AND DO (the owner, 02-11-2026: "Use only ONE
+     authoritative permission management interface"). Each module opens on
+     whether the role SEES its tab (the tab rule the strip is drawn with,
+     /staff/access/policy tabs[]), then what it may DO. The tab row is edited
+     with "Who sees each tab" under this matrix - the same route as before. */
+  const tabOf = (m: string) => d?.tabs.find((x) => x.tab === m) ?? null;
   const roleHead = (r: string) => (
     <th key={r} scope="col" className={`${css.c} ${r === "ceo" ? css.ceoHead : ""}`}>
       {r === "ceo" && <AppIcon name="star" className={css.crown} />}
@@ -290,7 +296,7 @@ export function AccessPolicyCard({ policy, onChanged }: { policy: { d: Policy | 
             ? L(`Company owner: ${owner.name} - holds the CEO role's rights plus the owner rows marked Conditional, each with an authenticator code. Named by a super admin.`, `Pemilik syarikat: ${owner.name} - memegang hak peranan CEO serta baris pemilik bertanda Bersyarat, setiap satu dengan kod pengesah. Dinamakan oleh super admin.`)
             : owner
               ? L(`${owner.name} is named the company owner but is not verified (needs the CEO role, an active account and 2FA) - the owner rows are closed.`, `${owner.name} dinamakan pemilik syarikat tetapi belum disahkan (perlu peranan CEO, akaun aktif dan 2FA) - baris pemilik ditutup.`)
-              : L("No company owner is named yet - the CEO holds the CEO role's rights only. A super admin names the owner in Security & Settings.", "Belum ada pemilik syarikat dinamakan - CEO memegang hak peranan CEO sahaja. Super admin menamakan pemilik di Keselamatan & Tetapan.")}
+              : L("No company owner is named yet - the CEO holds the CEO role's rights only. A super admin names the owner in Security & Sessions.", "Belum ada pemilik syarikat dinamakan - CEO memegang hak peranan CEO sahaja. Super admin menamakan pemilik di Keselamatan & Sesi.")}
         </p>
       )}
       <ul className={css.legend} aria-label={L("What the marks mean", "Maksud tanda")}>
@@ -318,7 +324,7 @@ export function AccessPolicyCard({ policy, onChanged }: { policy: { d: Policy | 
                 {modules.map((m) => {
                   const acts = rows.filter((a) => a.module === m);
                   return (
-                    <ModuleRows key={m} module={m} acts={acts} roles={d.roles} open={isOpen(m)} summary={keyActions(m)}
+                    <ModuleRows key={m} module={m} acts={acts} roles={d.roles} open={isOpen(m)} summary={keyActions(m)} tab={tabOf(m)}
                       onToggle={() => setOpen((o) => ({ ...o, [m]: !isOpen(m) }))}
                       edit={editing && !reviewing ? { toggle, resetRow, draft } : null} />
                   );
@@ -337,6 +343,7 @@ export function AccessPolicyCard({ policy, onChanged }: { policy: { d: Policy | 
                   </button>
                   {isOpen(m) && (
                     <ul className={css.phoneActs}>
+                      {tabOf(m) && <li data-testid={`sees-${m}`}><span className={css.main}><strong>{L(`Sees the ${t(m, getLang())} tab`, `Melihat tab ${t(m, getLang())}`)}</strong><span>{L("Edited in Who sees each tab, below", "Disunting dalam Siapa melihat setiap tab, di bawah")}</span></span><Cell st={tabOf(m)!.always ? "allow" : tabOf(m)!.sees.includes(role) ? "allow" : "deny"} /></li>}
                       {acts.map((a) => { const s = actionStatus(a, role); return (
                         <li key={a.key}><span className={css.main}><strong>{L(a.en, a.ms)}</strong>{(s.note || a.note_en) && <span>{s.note || L(a.note_en ?? "", a.note_ms ?? a.note_en ?? "")}</span>}{a.edited && <span className={css.editedTag}>{L("Edited", "Disunting")}</span>}</span>
                           {editing && !reviewing && a.editable && !cellLocked(a, role) ? <EditCell on={a.roles.includes(role)} label={`${roleLabel(role)} - ${L(a.en, a.ms)}`} onPress={() => toggle(a, role)} /> : <Cell st={s.st} note={cellLocked(a, role) ? a.locked!.why : s.note} />}</li>
@@ -368,7 +375,7 @@ function cellLocked(a: Act, role: string): boolean {
   if (!a.locked) return false;
   return a.locked.rule === "super_admin_only" || role === "super_admin";
 }
-function ModuleRows({ module, acts, roles, open, summary, onToggle, edit }: { module: string; acts: Act[]; roles: string[]; open: boolean; summary: string; onToggle: () => void; edit: EditProps }) {
+function ModuleRows({ module, acts, roles, open, summary, onToggle, edit, tab = null }: { module: string; acts: Act[]; roles: string[]; open: boolean; summary: string; onToggle: () => void; edit: EditProps; tab?: Policy["tabs"][number] | null }) {
   return (
     <>
       <tr className={css.modRow}>
@@ -380,6 +387,12 @@ function ModuleRows({ module, acts, roles, open, summary, onToggle, edit }: { mo
         <td className={css.keyActs}>{summary}</td>
         {roles.map((r) => <td key={r} className={`${css.c} ${r === "ceo" ? css.ceoCell : ""}`}><Cell st={moduleStatus(acts, r)} /></td>)}
       </tr>
+      {open && tab && (
+        <tr className={css.actRow} data-testid={`sees-${module}`}>
+          <th scope="row" colSpan={2} className={css.actHead}><span className={css.rowHead}><span>{L(`Sees the ${t(module, getLang())} tab`, `Melihat tab ${t(module, getLang())}`)}</span><small>{L("Edited in Who sees each tab, below this matrix", "Disunting dalam Siapa melihat setiap tab, di bawah matriks ini")}</small></span></th>
+          {roles.map((r) => <td key={r} className={`${css.c} ${r === "ceo" ? css.ceoCell : ""}`}><Cell st={tab.always || tab.sees.includes(r) ? "allow" : "deny"} /></td>)}
+        </tr>
+      )}
       {open && acts.map((a) => (
         <tr key={a.key} className={css.actRow}>
           <th scope="row" colSpan={2} className={css.actHead}><span className={css.rowHead}><span>{L(a.en, a.ms)}</span>{a.note_en && <small>{L(a.note_en, a.note_ms ?? a.note_en)}</small>}

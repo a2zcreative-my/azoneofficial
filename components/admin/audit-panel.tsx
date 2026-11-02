@@ -52,7 +52,8 @@ function myt(iso: string): string {
   return `${i.slice(8, 10)}-${i.slice(5, 7)}-${i.slice(0, 4)} ${i.slice(11, 16)}`;
 }
 
-export function AuditPanel() {
+/** v1.251.0 - `person`: one account's trail (Users > Audit History) */
+export function AuditPanel({ person = null }: { person?: number | null } = {}) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
   const [filter, setFilter] = useState("");
@@ -61,11 +62,14 @@ export function AuditPanel() {
   const cycleAudit = (col: AuditCol) => setAuditSort(s => s.col === col ? { col, asc: !s.asc } : { col, asc: col !== "date" });
 
   const load = useCallback(async () => {
-    const q = filter ? `?action=${filter}` : "";
+    const qs = new URLSearchParams();
+    if (filter) qs.set("action", filter);
+    if (person) qs.set("target", String(person));
+    const q = qs.toString() ? `?${qs.toString()}` : "";
     const res = await api<{ entries: Entry[] }>(`/audit${q}`);
     if (res.ok && res.data) setEntries(res.data.entries);
     setLoaded(true);
-  }, [filter]);
+  }, [filter, person]);
   useEffect(() => {
     void load();
   }, [load]);

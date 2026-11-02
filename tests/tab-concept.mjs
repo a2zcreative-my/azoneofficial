@@ -121,7 +121,7 @@ const BODY = {
   "Finance": ["components/portal/finance-panels.tsx", "components/portal/role-panels.tsx#ExpensesPanel"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
   "Commission": ["components/portal/commission-panel.tsx#CommissionPanel"], // v1.224.0 - back, over the new engine (the owner, 29-10-2026)
-  "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel"],
+  "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel", "components/portal/companies-panel.tsx#CompaniesReview"], // v1.251.0 - the review, or Document & Signing alone
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
   "Profile": ["components/portal/profile.tsx"], // v1.220.0 - Profile 2.0: the page is its own tabbed panel
   "Users": ["components/portal/users-panel.tsx"], // v1.189.0 - the page is its own tabbed panel
@@ -197,7 +197,8 @@ ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/compo
 /* v1.191.0 - the owner's photo's seven tabs */
 ok("Attendance: OVERVIEW, ATTENDANCE, ON SHIFT, ROSTER, TEAM, REPORTS, SETTINGS", ['L("Overview", "Gambaran")', 'L("Attendance", "Kehadiran")', 'L("On Shift", "Syif Saya")', 'L("Roster", "Roster")', 'L("Team", "Pasukan")', 'L("Reports", "Laporan")', 'L("Settings", "Tetapan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
 /* v1.189.0 - the Users zones became five tabs (users-panel.tsx) */
-ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMER ACCOUNTS, ROLES & PERMISSIONS, SECURITY & SETTINGS", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customer Accounts", "Akaun pelanggan")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Settings", "Keselamatan & tetapan")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Office location", "Lokasi pejabat"\)\}/.test(read("components/portal/users-panel.tsx")));
+/* v1.251.0 - Customers & Agents, Security & Sessions, Audit History (the owner, 02-11-2026) */
+ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMERS & AGENTS, ROLES & PERMISSIONS, SECURITY & SESSIONS, AUDIT HISTORY", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customers & Agents", "Pelanggan & Ejen")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Sessions", "Keselamatan & sesi")', 'L("Audit History", "Sejarah audit")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Office location", "Lokasi pejabat"\)\}/.test(read("components/portal/users-panel.tsx")));
 /* v1.220.0 - Profile 2.0 (the owner's answers, 28-10-2026): three tabs, Payroll's payslip view handed in */
 ok("Profile: MY PROFILE, SECURITY & ACCOUNT, MY PAYSLIPS - the payslips handed in from Payroll", ['L("My Profile", "Profil Saya")', 'L("Security & Account", "Keselamatan & Akaun")', 'L("My Payslips", "Slip Gaji Saya")'].every((t) => read("components/portal/profile.tsx").includes(t)) && /<Profile payslips=\{<MyPayslip \/>\} \/>/.test(blockOf("Profile")));
 /* v1.219.0 - Finance 2.0 (the owner's answers, 28-10-2026): five tabs, the

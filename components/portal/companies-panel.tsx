@@ -28,6 +28,8 @@ import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import css from "./companies.module.css";
+import { SigningPanel } from "@/components/portal/signing-panel"; // v1.251.0 - Document & Signing
+import { holds as holdsCap } from "@/lib/caps";
 
 const api = makeApi("/staff/companies");
 const L = (en: string, ms: string) => getLang() === "ms" ? ms : en;
@@ -46,7 +48,7 @@ function requestId(ref: { current: Attempt }, payload: object) {
   return ref.current.id;
 }
 
-type View = "review" | "staff" | "history";
+type View = "review" | "staff" | "history" | "signing"; // v1.251.0 - Document & Signing (moved from Users)
 type StateFilter = "all" | ReviewState;
 interface Summary {
   registers: { kind: ReviewKind; total: number; unassigned: number; proposed: number; deferred: number; stale: number; by_company: Record<string, number> }[];
@@ -418,9 +420,29 @@ const STAMPED: Record<string, [string, string]> = {
   receipts: ["Receipts", "Resit"], credit_notes: ["Credit notes", "Nota kredit"], claims: ["Claims", "Tuntutan"], payslip_months: ["Payslip months", "Bulan slip gaji"],
 };
 
-export function CompaniesPanel() {
+/* v1.251.0 - DOCUMENT & SIGNING LIVES HERE (the owner, 02-11-2026: "REMOVE
+   SIGNATURE/STAMP ADMINISTRATION FROM USERS MAIN INTERFACE"; "Move or
+   consolidate the relevant UI under the EXISTING Companies -> Document &
+   Signing Settings"; claude/CEO-ADMIN-USERS-AUDIT.md). The same SigningPanel,
+   the same signing.ts routes, R2 assets and rows - only where it is drawn
+   changed. The CEO and the super admin manage it; anyone else who opens
+   Companies (the COO; the CCO once the CEO shows them the tab) reads it -
+   signing.ts decides. A role without the ownership review (company_review)
+   sees only this view: the review's routes would refuse them anyway. */
+export function CompaniesPanel({ role = "" }: { role?: string }) {
+  const canReview = holdsCap("company_review", ["super_admin", "ceo"].includes(role));
+  if (!canReview) {
+    return <TabPage className={css.page}>
+      <LineTabs value="signing" onChange={() => {}} tabs={[["signing", L("Document & Signing", "Dokumen & Tandatangan")]]} label={L("Companies", "Syarikat")} />
+      <div className={css.body} data-testid="companies-signing"><TabZone label={L("Document & signing", "Dokumen & tandatangan")}><SigningPanel /></TabZone></div>
+    </TabPage>;
+  }
+  return <CompaniesReview />;
+}
+
+export function CompaniesReview() {
   const [view, setView] = useState<View>("review");
-  const [seen, setSeen] = useState<Record<View, boolean>>({ review: true, staff: false, history: false });
+  const [seen, setSeen] = useState<Record<View, boolean>>({ review: true, staff: false, history: false, signing: false });
   const [revision, setRevision] = useState(0);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [summaryError, setSummaryError] = useState("");
@@ -534,6 +556,7 @@ export function CompaniesPanel() {
     ["review", L("Ownership Review", "Semakan Pemilikan")],
     ["staff", L("Staff Access", "Akses Staf")],
     ["history", L("Audit & History", "Audit & Sejarah")],
+    ["signing", L("Document & Signing", "Dokumen & Tandatangan")],
   ];
   const doneSteps = summary?.checklist.filter(c => c.done).length ?? 0;
   const pickedList = [...picked.values()];
@@ -542,6 +565,7 @@ export function CompaniesPanel() {
     {toastNode}
     <LineTabs value={view} onChange={open} tabs={tabs} label={L("Companies", "Syarikat")}
       aside={<TabAside><button type="button" className={btnSm} title={L("Refresh", "Muat semula")} aria-label={L("Refresh companies", "Muat semula syarikat")} onClick={reload}><AppIcon name="refresh" /></button></TabAside>} />
+    {view !== "signing" && <>
     <p role="status" className={css.notice}><AppIcon name="warning" /><span><strong>{L("Reconciliation only.", "Penyesuaian sahaja.")}</strong> {L("Company access restrictions are not active - roles still decide what each person can open. Proposals never change a record, an invoice's Paid status or commission.", "Sekatan akses syarikat belum aktif - peranan masih menentukan apa yang boleh dibuka. Cadangan tidak mengubah rekod, status Dibayar invois atau komisen.")}</span></p>
     {summaryError && <p role="alert" className={css.error}>{summaryError}</p>}
     <KpiRow label={L("Companies at a glance", "Ringkasan syarikat")}>
@@ -551,6 +575,7 @@ export function CompaniesPanel() {
       {/* v1.247.1 - a figure tile shows a figure: the readiness count, with the state in words under it */}
       <KpiTile icon="lock" tone="red" busy={!summary} label={L("Company access readiness", "Kesediaan akses syarikat")} value={`${doneSteps} / ${summary?.checklist.length ?? 9}`} sub={L("Not active - roles still decide what each person opens", "Belum aktif - peranan masih menentukan apa yang dibuka")} onClick={() => open("staff")} />
     </KpiRow>
+    </>}
 
     {/* ================= Ownership Review ================= */}
     <div className={css.body} hidden={view !== "review"}>
@@ -763,6 +788,9 @@ export function CompaniesPanel() {
         </div>
       </TabZone>
     </div>
+
+    {/* v1.251.0 - Document & Signing: mounted once opened */}
+    {seen.signing && <div className={css.body} hidden={view !== "signing"} data-testid="companies-signing"><SigningPanel /></div>}
 
     <RecordDrawer target={target} onClose={() => setTarget(null)} onSaved={reviewSaved} onRelated={(k, id) => setTarget({ kind: k, id })} />
     {bulk !== null && pickedList.length > 0 && <BulkDrawer kind={kind} items={pickedList} preset={bulk} onClose={() => setBulk(null)} onSaved={bulkSaved} />}

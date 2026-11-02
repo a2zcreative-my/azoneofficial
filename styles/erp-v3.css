@@ -452,8 +452,12 @@
     min-height: var(--erp-control-h-sm, 36px);
     --erp-input-pad-x: 0.625rem;
     padding: 0.25rem var(--erp-input-pad-x);
-    font-size: 0.8125rem;
+    /* v1.251.0 - 16px on a phone like the full field: Safari zooms into any
+       field under 16px when it is tapped and stays zoomed, and the page then
+       pans sideways (the owner's PWA, 02-11-2026). 13px from md: up. */
+    font-size: 1rem;
   }
+  @media (min-width: 768px) { .erp-input-sm { font-size: 0.8125rem; } }
   /* A select needs a fixed height where an input takes padding, and its own
      chevron so every browser draws the same control. */
   .erp-select, select.erp-input {
@@ -533,7 +537,8 @@
   .erp-input-sm[type="date"] { min-width: 8rem; }
   .erp-input-sm[type="month"] { min-width: 9.5rem; }
   .erp-input-sm[type="datetime-local"] { min-width: 12rem; }
-  .erp-input[type="file"] { padding: 0.5rem 0.625rem; font-size: 0.8125rem; }
+  .erp-input[type="file"] { padding: 0.5rem 0.625rem; font-size: 1rem; } /* v1.251.0 - 16px on a phone (iOS zoom), 13px from md: */
+  @media (min-width: 768px) { .erp-input[type="file"] { font-size: 0.8125rem; } }
   .erp-input[type="file"]::file-selector-button {
     margin-right: 0.75rem;
     min-height: 28px;

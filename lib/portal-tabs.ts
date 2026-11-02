@@ -379,7 +379,12 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
   /* v1.224.0 - management sees everyone's (the CCO read-only, enforced in
      commission.ts); a sales consultant sees their own entries only */
   Commission: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],
-  Companies: ["super_admin", "ceo"],
+  /* v1.251.0 - Companies also holds Document & Signing (moved from Users,
+     the owner, 02-11-2026; D3: the CCO keeps a read-only view). The COO and
+     CCO open it to READ the signing set-up - the ownership review stays the
+     CEO's (company_review), signing.ts keeps managing to the CEO. A saved
+     tab setting still wins over this default. */
+  Companies: ["super_admin", "ceo", "coo", "cco"],
   // v1.7.0: Content is open to the team that makes it.
   Content: [
     "super_admin", "admin", "ceo", "coo", "cco", "hr_admin",
@@ -394,7 +399,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
 /** One line saying what a tab is for, shown under its name in the 🔐 card.
     Tabs whose name says it all are absent rather than padded. */
 export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
-  Companies: { en: "ownership review - CEO", ms: "semakan pemilikan - CEO" },
+  Companies: { en: "ownership review - CEO; document & signing", ms: "semakan pemilikan - CEO; dokumen & tandatangan" },
   Attendance: { en: "punches + roster", ms: "rekod kehadiran + roster" },
   Ecommerce: { en: "TikTok + map", ms: "TikTok + peta" },
   "ELFIA Store": { en: "store catalogue", ms: "katalog kedai" },

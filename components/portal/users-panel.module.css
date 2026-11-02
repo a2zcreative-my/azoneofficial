@@ -839,3 +839,35 @@
 /* v1.249.2 - the owner's way to /admin > Users */
 .link { color: var(--primary); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 2px; }
+
+/* v1.251.0 - the owner switch, said where the CEO works: a gold-edged note
+   under the tabs while his owner authority is off (tokens only, both themes) */
+.ownerOff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--gold-solid) 45%, var(--border));
+  border-radius: 0.875rem;
+  background: var(--tint-gold);
+  color: var(--foreground);
+  min-width: 0;
+}
+.ownerOff > svg { flex: none; width: 1.125rem; height: 1.125rem; margin-top: 0.125rem; color: var(--gold-solid); }
+.ownerOffText { display: grid; gap: 0.25rem; flex: 1 1 16rem; min-width: 0; }
+.ownerOffText p { margin: 0; overflow-wrap: anywhere; }
+.ownerOff > button { flex: none; }
+@media (max-width: 639px) { .ownerOff > button { width: 100%; justify-content: center; } }
+
+/* v1.251.0 - "Who sees each tab", folded under the one matrix */
+.seesEditor { margin-top: 0.75rem; min-width: 0; }
+.seesEditor > summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem;
+  min-height: 2.75rem; padding: 0.625rem 0.875rem;
+  border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card);
+  font-weight: 600; cursor: pointer; list-style-position: inside;
+}
+.seesEditor[open] > summary { margin-bottom: 0.75rem; }
+.seesEditor > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }

@@ -46,6 +46,14 @@ with sync_playwright() as p:
             active = pg.evaluate("() => document.querySelector('.erp-topbar-title, h1')?.textContent ?? ''")
             r = pg.evaluate(PROBE)
             results.append({"port": port, "w": w, "tab": n, "title": active.strip()[:30], **r})
+            # v1.251.0 - and every view inside Users and Companies (the first-view-only sweep missed them)
+            if n in ("Users", "Companies") and w <= 820:
+                for t in pg.locator("[role=tablist] [role=tab]").all_inner_texts():
+                    tb = pg.get_by_role("tab", name=t.strip(), exact=True)
+                    if not t.strip() or tb.count() == 0: continue
+                    pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
+                    tb.first.click(force=True); pg.wait_for_timeout(1200)
+                    results.append({"port": port, "w": w, "tab": f"{n} > {t.strip()}", "title": active.strip()[:30], **pg.evaluate(PROBE)})
         if errs: print("PAGEERRORS", port, w, errs[:3])
         ctx.close()
     b.close()

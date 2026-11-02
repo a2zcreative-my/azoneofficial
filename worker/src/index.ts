@@ -3,7 +3,7 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // v1.5.0: notify imported too — the "client gone quiet" cron called it
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
-import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, type StaffUser } from "./staff";
+import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges } from "./accounts"; // v1.238.0 - account identity
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
@@ -5442,7 +5442,16 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const url = new URL(request.url);
     const limit = Math.min(Number(url.searchParams.get("limit") ?? 100), 300);
     const action = url.searchParams.get("action");
-    const rows = action
+    /* v1.251.0 - one person's trail (Users > Audit History from the Account
+       Management drawer): what was done TO the account, and what it did */
+    const target = Number(url.searchParams.get("target") ?? "");
+    const rows = Number.isInteger(target) && target > 0
+      ? await env.DB.prepare(
+          `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, u.name AS user_name
+           FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+           WHERE ((a.entity = 'users' AND a.entity_id = ?1) OR a.user_id = ?2)${action ? " AND a.action LIKE ?4 || '%'" : ""} ORDER BY a.id DESC LIMIT ?3`,
+        ).bind(String(target), target, limit, ...(action ? [action] : [])).all()
+      : action
       ? await env.DB.prepare(
           `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, u.name AS user_name
            FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
@@ -5882,15 +5891,31 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"]; // v1.249.2 - agent (0164) was offered in /admin but refused here
     const isPartTimeAliasC = body?.role === "live_host_part_time"; // v1.4.180
     const roleWantedC = isPartTimeAliasC ? "live_host" : (typeof body?.role === "string" ? body.role : "");
+    /* v1.251.0 - INVITE (the owner, 02-11-2026: "Create and invite users";
+       claude/CEO-ADMIN-USERS-AUDIT.md). The same account creation, without a
+       password typed by somebody else: the new person chooses their own with
+       the existing single-use set-password link (emailed when sending is set
+       up, else shown once to hand over). Staff roles only - an Agent comes
+       from a verified customer (Grant Agent Access), a customer signs up
+       themselves, a super admin is created in /admin. Every invite needs a
+       reason and the inviter's authenticator code. */
+    const invite = body?.invite === true;
     if (
       !body ||
       !isNonEmptyString(body.email, 200) ||
       !isNonEmptyString(body.name, 120) ||
-      !isNonEmptyString(body.password, 200) ||
-      (body.password as string).length < 10 ||
+      (!invite && (!isNonEmptyString(body.password, 200) || (body.password as string).length < 10)) ||
       !roles.includes(roleWantedC)
     ) {
-      return errorResponse("invalid_input", "email, name, role, and a password of 10+ characters are required", 400);
+      return errorResponse("invalid_input", invite ? "email, name and role are required" : "email, name, role, and a password of 10+ characters are required", 400);
+    }
+    if (invite) {
+      if (["customer", "agent", "super_admin"].includes(roleWantedC)) return errorResponse("invalid_input", "Invite a staff role here. An Agent is given from a verified customer account (Grant Agent Access); a Super Admin is created in /admin.", 400);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((body.email as string).trim())) return errorResponse("invalid_input", "That email address is not valid", 400);
+      const why = typeof body.reason === "string" ? body.reason.trim() : "";
+      if (why.length < 10) return errorResponse("reason_required", "Give the reason for this new account (at least 10 characters) - it is kept in the audit history.", 400);
+      const su = await requireFreshTotp(env, user, body.totp, errorResponse, "create this account");
+      if (su) return su;
     }
     /* v1.45.0 (security audit A1) — only a super admin may MINT authority.
        The old rule protected `super_admin` and `admin` and stopped there,
@@ -5903,9 +5928,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        (authenticator code and a reason); super admin and CEO accounts are
        the super admin's alone (permissions.ts mayGrant). */
     if ((PROTECTED_ROLES.includes(roleWantedC) || roleWantedC === "agent") && !mayGrant(user, roleWantedC)) { // v1.249.2 - an Agent account is the owner's to create (roleDoor role_any)
-      return errorResponse("forbidden", `Only the company owner or the super admin can create a ${roleWantedC} account`, 403);
+      return errorResponse("forbidden", `Only the company owner or the super admin can create a ${roleWantedC} account.` + ownerOffHint(user), 403);
     }
-    if (PROTECTED_ROLES.includes(roleWantedC)) {
+    if (PROTECTED_ROLES.includes(roleWantedC) && !invite) { // an invite took the code above
       const su = await ownerStepUp(env, user, body, `create a ${roleWantedC} account`, true);
       if (su) return su;
     }
@@ -5928,7 +5953,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (existing) {
       return errorResponse("email_exists", "A user with this email already exists", 409);
     }
-    const hash = await createPasswordHash(body.password as string, env.SESSION_PEPPER);
+    /* v1.251.0 - an invited account's password is a random secret nobody
+       ever sees; the set-password link replaces it before the first sign-in */
+    const hash = await createPasswordHash(invite ? Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("") : body.password as string, env.SESSION_PEPPER);
     try {
       const res = await env.DB.prepare(
         forcePartTimeC
@@ -5937,7 +5964,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       )
         .bind(email, hash, (body.name as string).trim(), roleWantedC)
         .first<{ id: number }>();
-      await audit(env, user.id, "user.create", "users", String(res?.id), { role: roleWantedC, ...(forcePartTimeC ? { employment_status: "part_time" } : {}) });
+      await audit(env, user.id, "user.create", "users", String(res?.id), { role: roleWantedC, ...(forcePartTimeC ? { employment_status: "part_time" } : {}), ...(invite ? { invite: true, reason: (body.reason as string).trim().slice(0, 300), by_owner: user.is_owner === true } : {}) });
+      if (invite && res?.id) {
+        const { emailed, link } = await issueSetPasswordLink(env, user, { id: res.id, email }, true);
+        await audit(env, user.id, "auth.password_link_issued", "users", String(res.id), { invite: true, emailed });
+        return json({ id: res.id, invited: true, emailed, expires_in_hours: 24, ...(emailed ? {} : { link }) }, 201);
+      }
       return json({ id: res?.id }, 201);
     } catch (e) {
       // Most likely a CHECK constraint (role not yet allowed by the DB) —
@@ -6032,7 +6064,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       const roleWanted = isPartTimeAlias ? "live_host" : body.role;
       if (roles.includes(roleWanted)) {
         const rule = roleChangeRule(user, { id: Number(id), role: target.role }, roleWanted);
-        if (!rule.ok && rule.code !== "self_change") return errorResponse(rule.code, rule.message, rule.status);
+        if (!rule.ok && rule.code !== "self_change") return errorResponse(rule.code, rule.message + (rule.status === 403 ? ownerOffHint(user) : ""), rule.status);
         if (["super_admin", "admin"].includes(roleWanted)) {
           const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
             .bind(id).first<{ email: string }>();

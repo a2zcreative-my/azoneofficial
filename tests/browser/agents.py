@@ -171,7 +171,7 @@ with sync_playwright() as p:
     ae = pg.get_by_test_id("agents-empty")
     check("the Agents view says No active agents yet, with Manage Agent Access", ae.count() == 1 and "No active agents yet." in ae.inner_text() and ae.get_by_role("button", name="Manage Agent Access").count() == 1)
     ae.get_by_role("button", name="Manage Agent Access").click(); pg.wait_for_timeout(2000)
-    check("Manage Agent Access opens Users > Customer Accounts, where access is given", pg.get_by_role("tab", name="Customer Accounts", selected=True).count() == 1 and pg.locator("[data-testid^='grant-agent-']").count() >= 1)
+    check("Manage Agent Access opens Users > Customers & Agents, where access is given", pg.get_by_role("tab", name="Customers & Agents", selected=True).count() == 1 and pg.locator("[data-testid^='grant-agent-']").count() >= 1)
     ctx.close()
 
     # ---- the owner with agents ----

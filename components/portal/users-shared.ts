@@ -36,7 +36,7 @@ const ROLE_LABEL: Record<string, string> = {
   ceo: "CEO", coo: "COO", cco: "CCO", hr_admin: "HR Admin",
   sales_marketing: "Sales & Marketing", live_host: "Live Host",
   editor: "Editor", marketing: "Marketing", customer: "Customer",
-  admin: "Admin", super_admin: "Super Admin",
+  admin: "Admin", super_admin: "Super Admin", agent: "Agent", // v1.251.0 - the role picker said "agent"
 };
 export const roleLabel = (r: string) => ROLE_LABEL[r] ?? r.replace(/_/g, " ");
 export const statusLabel = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());

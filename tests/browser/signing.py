@@ -30,8 +30,9 @@ def tab(pg, name):
     return False
 
 def signing_tab(pg):
-    if not tab(pg, "Users"): return False
-    t = pg.get_by_role("tab", name="Signatures & Stamps", exact=True)
+    # v1.251.0 - Signatures & Stamps moved from Users to Companies > Document & Signing
+    if not tab(pg, "Companies"): return False
+    t = pg.get_by_role("tab", name="Document & Signing", exact=True)
     if t.count() == 0: return False
     t.first.click(); pg.wait_for_timeout(1500); return True
 
@@ -50,7 +51,7 @@ with sync_playwright() as p:
 
     # ---- day one: nothing switched on ----
     ctx, pg, errs, reqs = page(b, 4177)
-    check("the CEO has a Signatures & Stamps tab under Users", signing_tab(pg))
+    check("the CEO has Document & Signing under Companies (moved from Users, v1.251.0)", signing_tab(pg))
     panel = pg.get_by_test_id("signing-panel")
     txt = panel.inner_text() if panel.count() else ""
     check("day one: both companies print as today (personal signing off), no approval limit", "Off - documents print as today" in txt and "Not required - no approval limit is set in Sales" in txt, txt[:300])
@@ -116,8 +117,8 @@ with sync_playwright() as p:
 
     # ---- a salesperson ----
     ctx, pg, errs, reqs = page(b, 4221)
-    has_users = tab(pg, "Users")
-    check("a salesperson has no Signatures & Stamps tab", not has_users or pg.get_by_role("tab", name="Signatures & Stamps").count() == 0)
+    has_co = tab(pg, "Companies")
+    check("a salesperson has no Document & Signing view", not has_co or pg.get_by_role("tab", name="Document & Signing").count() == 0)
     open_quotation(pg)
     card = pg.get_by_test_id("doc-signing")
     check("a salesperson sees the signatures on her quotation but no Approve button", card.count() == 1 and card.get_by_role("button", name="Approve and sign").count() == 0)
@@ -127,7 +128,7 @@ with sync_playwright() as p:
     # ---- phone: the panel fits ----
     ctx, pg, errs, reqs = page(b, 4219, 390, 844)
     signing_tab(pg)
-    check("on a phone the Signatures & Stamps tab fits the screen", pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
+    check("on a phone Document & Signing fits the screen", pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
     ctx.close()
 
     # ---- task dates ----

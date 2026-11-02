@@ -42,7 +42,7 @@ import { eventLabel, isSignIn, mytStamp2, roleLabel, type Account, type AuthEven
 import type { AttendanceMonitor } from "@/components/portal/attendance";
 import css from "./users-panel.module.css";
 
-export type UsersView = "overview" | "staff" | "customers" | "roles" | "security" | "signing"; // v1.248.0 - Signatures & Stamps
+export type UsersView = "overview" | "staff" | "customers" | "roles" | "security" | "audit"; // v1.251.0 - Audit History; Signatures & Stamps moved to Companies
 
 /** one named person from an event row (the audit join can leave the name empty) */
 const who = (e: AuthEvent) => properName(e.name ?? "") || e.email || "-";
@@ -88,9 +88,11 @@ type Attention = { key: string; name: string; photo?: string | null; what: strin
 const CHIP = { danger: chipSmDanger, warn: chipSmWarn, info: chipSmInfo, neutral: chipSmNeutral } as const;
 type LeaveRow = { id: number; user_id: number; name: string; photo_key?: string | null; type: string; status: string; created_at?: string | null; start_date: string };
 
-export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, go }: {
+export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, go, onAddUser }: {
   rows: Account[]; events: AuthEvent[]; loaded: boolean; eventsLoaded: boolean;
   open: (v: UsersView) => void; role: string;
+  /** v1.251.0 - Add User (invite) in Users itself */
+  onAddUser?: () => void;
   /** the portal's tab switch, for the action whose home is another tab */
   go?: (tab: TabName) => void;
 }) {
@@ -101,8 +103,10 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
   const monitor = useCachedApi<AttendanceMonitor>(people ? "/staff/attendance/monitor" : null);
   const leave = useCachedApi<{ leave?: LeaveRow[] }>("/staff/leave/month");
 
-  const staff = rows.filter((u) => u.role !== "customer");
+  /* v1.251.0 - an agent is not staff (v1.249.0): counted on its own */
+  const staff = rows.filter((u) => u.role !== "customer" && u.role !== "agent");
   const customers = rows.filter((u) => u.role === "customer");
+  const agents = rows.filter((u) => u.role === "agent");
   const active = rows.filter((u) => u.is_active).length;
   const inactive = rows.length - active;
   const share = (n: number) => (rows.length > 0 ? Math.round((n / rows.length) * 100) : 0);
@@ -192,13 +196,13 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
   return (
     <div className={css.ov}>
       <div className={css.kpis}>
-        {kpi("users", "gold", L("Total Accounts", "Jumlah Akaun"), rows.length, L(`${staff.length} staff + ${customers.length} customer`, `${staff.length} kakitangan + ${customers.length} pelanggan`))}
-        {kpi("success", "green", L("Active Accounts", "Akaun Aktif"), active,
-          <span className={css.up}>▲ {L(`${share(active)}% active`, `${share(active)}% aktif`)}</span>, { pct: share(active), tone: "green" })}
-        {kpi("blocked", "red", L("Inactive Accounts", "Akaun Tidak Aktif"), inactive,
+        {kpi("users", "gold", L("Total Accounts", "Jumlah Akaun"), rows.length, L(`${staff.length} staff · ${customers.length} customer · ${agents.length} agent`, `${staff.length} kakitangan · ${customers.length} pelanggan · ${agents.length} ejen`))}
+        {kpi("success", "green", L("Active Staff", "Kakitangan Aktif"), staff.filter((u) => u.is_active).length,
+          <span className={css.up}>▲ {L(`${share(active)}% of all accounts active`, `${share(active)}% semua akaun aktif`)}</span>, { pct: share(active), tone: "green" })}
+        {kpi("blocked", "red", L("Suspended / Inactive", "Digantung / Tidak Aktif"), inactive,
           <span className={css.down}>▼ {L(`${share(inactive)}% inactive`, `${share(inactive)}% tidak aktif`)}</span>, { pct: share(inactive), tone: "red" })}
-        {kpi("person", "blue", L("Staff Accounts", "Akaun Kakitangan"), staff.length, L("Internal team members", "Ahli pasukan dalaman"))}
         {kpi("cart", "purple", L("Customer Accounts", "Akaun Pelanggan"), customers.length, L("Google & self sign-up", "Google & daftar sendiri"))}
+        {kpi("clients", "blue", L("Active Agents", "Ejen Aktif"), agents.filter((u) => u.is_active).length, L("Outside sales partners", "Rakan jualan luar"))}
       </div>
 
       <div className={css.ovGrid}>
@@ -273,8 +277,8 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
             <p className={css.cardTitle}>{L("Account Summary", "Ringkasan Akaun")}</p>
             <div className={css.sumList}>
               {door("users", "gold", L("Staff Accounts", "Akaun Kakitangan"), L(`${staff.length} accounts`, `${staff.length} akaun`), L("Internal team members with system access", "Ahli pasukan dalaman dengan akses sistem"), () => open("staff"))}
-              {door("person", "blue", L("Customer Accounts", "Akaun Pelanggan"), L(`${customers.length} accounts`, `${customers.length} akaun`), L("Google & self sign-up accounts", "Akaun Google & daftar sendiri"), () => open("customers"))}
-              {door("access", "navy", L("Login & Security", "Log Masuk & Keselamatan"), L("View logs", "Lihat log"), L("Monitor login activities and security events", "Pantau aktiviti log masuk dan peristiwa keselamatan"), () => open("security"))}
+              {door("person", "blue", L("Customers & Agents", "Pelanggan & Ejen"), L(`${customers.length} customer · ${agents.length} agent`, `${customers.length} pelanggan · ${agents.length} ejen`), L("Google & self sign-ups, and the agents given access", "Pendaftaran Google & sendiri, dan ejen yang diberi akses"), () => open("customers"))}
+              {door("access", "navy", L("Security & Sessions", "Keselamatan & Sesi"), L("View logs", "Lihat log"), L("Monitor login activities and security events", "Pantau aktiviti log masuk dan peristiwa keselamatan"), () => open("security"))}
               {door("place", "red", L("Office Check-in", "Daftar Masuk Pejabat"),
                 fence.loading ? "…" : fence.data?.configured ? L("Configured", "Dikonfigurasi") : L("Not set", "Belum ditetapkan"),
                 L("Geofence location for staff check-in", "Lokasi geopagar untuk daftar masuk kakitangan"), () => open("security"))}
@@ -315,10 +319,10 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
           <p className={css.cardTitle}>{L("Quick Actions", "Tindakan Pantas")}</p>
         </div>
         <div className={css.quickList}>
-          {canAddStaff && go && (
-            <button type="button" className={css.qa} onClick={() => go("Staff Details")}
-              title={L("Opens the Staff tab, where Add staff creates the account", "Membuka tab Kakitangan, tempat Tambah kakitangan mencipta akaun")}>
-              <span className={`${css.qaIcon} ${css.gold}`}><AppIcon name="add" /></span>{L("Add Staff Account", "Tambah Akaun Kakitangan")}
+          {canAddStaff && (onAddUser || go) && (
+            <button type="button" className={css.qa} onClick={() => (onAddUser ? onAddUser() : go?.("Staff Details"))}
+              title={L("Create the account and give the person a link to choose their own password", "Cipta akaun dan beri pautan untuk memilih kata laluan sendiri")}>
+              <span className={`${css.qaIcon} ${css.gold}`}><AppIcon name="add" /></span>{L("Add User", "Tambah Pengguna")}
             </button>
           )}
           {adminDoor && (
