@@ -68,6 +68,7 @@ import ivc from "./inventory-overview.module.css"; // v1.193.0 - the Inventory p
 import { ClaimsOverview, ClaimsReports, monthName, type ClaimsView, type OvClaim } from "@/components/portal/claims-overview"; // v1.194.0
 import cov from "./claims-overview.module.css"; // v1.194.0 - the Claims page's tabs
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // v1.194.0
+import { ClaimDots, ClaimDrawer, approveLabel, claimStatusChip, type ClaimActionKey, type ClaimStep, type ClaimWaiter } from "@/components/portal/claim-detail"; // v1.254.0
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
    and compared strings stay English. */
@@ -4022,6 +4023,17 @@ interface Claim {
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;
+  /* v1.254.0 - the server's timeline (worker/src/claim-chain.ts): the page
+     keeps no copy of the chain */
+  timeline?: ClaimStep[];
+  waiting_on?: ClaimWaiter;
+  my_turn?: boolean;
+  actions?: ClaimActionKey[];
+  skip_if_approved?: ("hr" | "pre")[];
+  return_open?: boolean;
+  return_question?: string | null;
+  paid_bank_date?: string | null;
+  paid_by_name?: string | null;
 }
 
 /* v1.4.118 (CEO's numbering): CLM-AZOO{DDMMYY}-{running no. that day},
@@ -4065,11 +4077,9 @@ async function uploadFailure(up: Response): Promise<string> {
     : L(`The upload failed (HTTP ${up.status}) - try again.`, `Muat naik gagal (HTTP ${up.status}) - cuba lagi.`);
 }
 
-/* v1.4.106: which chain a claimant's role follows (mirrors the leave chain). */
-const claimChainOf = (role?: string | null): "staff" | "hr" | "exec" | "top" =>
-  ["marketing", "sales_marketing", "editor", "live_host"].includes(role ?? "") ? "staff"
-    : role === "hr_admin" ? "hr"
-      : ["coo", "cco"].includes(role ?? "") ? "exec" : "top";
+/* v1.254.0 - the page's copy of the claim chain (claimChainOf, v1.4.106)
+   is gone: who a claim waits on, what this person may do and the timeline
+   come from GET /claims (worker/src/claim-chain.ts, the one copy). */
 
 /** v1.4.92: printable Employee Claim Form — modelled on the CEO's
     AZOO-HR-CLM-001 template. HR prints the PDF, signatures are collected in
@@ -4485,24 +4495,24 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
   const decide = async (id: number, action: "approve" | "reject") => {
     // v1.4.107: the CEO can approve past an incomplete chain — but only after
     // confirming, and the bypass is recorded on the claim + audit log.
+    let reason = "";
+    if (action === "reject") {
+      /* v1.254.0 - a rejection says why: the claimant reads the reason on
+         the timeline (and in the notification) */
+      const r = await prompt({ title: L("Reject this claim?", "Tolak tuntutan ini?"), label: L("Reason - the claimant reads it", "Sebab - penuntut membacanya"),
+        initial: note[id] ?? "", required: true, confirmLabel: L("Reject", "Tolak"), variant: "danger" });
+      if (!r || r.value.trim().length < 3) return;
+      reason = r.value.trim();
+    }
     if (action === "approve") {
       const cl = claims.find((x) => x.id === id);
-      const ch = claimChainOf(cl?.claimant_role);
       /* v1.4.175: a missing stage whose approver IS the payee is WAIVED by
          design (they are forbidden from acting) — that is the normal route
          to the CEO, so no scary bypass dialog. Only genuinely skipped
-         stages still get the override confirm. */
-      const pr = cl?.payee_role ?? null;
-      const missingSkipped: string[] = [];
-      let anyWaived = false;
-      if (cl && cl.status === "pending") {
-        if (ch === "staff") {
-          if (!cl.hr_reviewed_at) { if (pr === "hr_admin") anyWaived = true; else missingSkipped.push("HR review"); }
-          if (!cl.pre_approved_at) { if (pr === "coo") anyWaived = true; else missingSkipped.push("COO pre-approval"); }
-        } else if (ch === "hr" && !cl.pre_approved_at) {
-          if (pr === "cco") anyWaived = true; else missingSkipped.push("CCO pre-approval");
-        }
-      }
+         stages still get the override confirm. v1.254.0: both facts come
+         from the server (skip_if_approved, the timeline's waived steps). */
+      const missingSkipped = cl?.status === "pending" ? (cl.skip_if_approved ?? []) : [];
+      const anyWaived = cl?.status === "pending" && (cl.timeline ?? []).some((s) => s.state === "skipped" && s.flags?.waived);
       if (missingSkipped.length > 0) {
         if (!(await confirm({
           title: L("Approve past the incomplete chain?", "Luluskan melangkaui rantaian yang belum lengkap?"),
@@ -4523,7 +4533,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     const res = await withStepUp<{ ok?: boolean; error?: { message?: string } }>(
       (totp) => api(`/claims/${id}/decide`, {
         method: "POST",
-        body: JSON.stringify({ action, note: note[id] || undefined, ...(totp ? { totp } : {}) }),
+        body: JSON.stringify({ action, note: (action === "reject" ? reason : note[id]) || undefined, ...(totp ? { totp } : {}) }),
       }),
       prompt,
     );
@@ -4544,6 +4554,41 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     showToast(L("Saved", "Disimpan"), L("Pre-approved — CEO notified for final approval", "Pra-diluluskan — CEO dimaklumkan untuk kelulusan akhir"));
     void load();
   };
+  /* v1.254.0 (D1) - ask the claimant for more information; the claim waits
+     on them and comes back to the same stage when they answer */
+  const returnClaim = async (id: number) => {
+    const r = await prompt({ title: L("Return for more information", "Kembalikan untuk maklumat"), label: L("Your question to the claimant (10+ characters)", "Soalan anda kepada penuntut (10+ aksara)"), required: true, confirmLabel: L("Return", "Kembalikan") });
+    if (!r) return;
+    const res = await api<{ error?: { message?: string } }>(`/claims/${id}/return`, { method: "POST", body: JSON.stringify({ comment: r.value.trim() }) });
+    if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Not returned", "Tidak dikembalikan"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), L("Returned — the claimant was asked", "Dikembalikan — penuntut ditanya"));
+    void load();
+  };
+  const answerClaim = async (id: number, answer: string): Promise<boolean> => {
+    const res = await api<{ error?: { message?: string } }>(`/claims/${id}/resubmit`, { method: "POST", body: JSON.stringify({ comment: answer }) });
+    if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Not sent", "Tidak dihantar"), "notice"); return false; }
+    showToast(L("Saved", "Disimpan"), L("Answered — the claim is back with the approver", "Dijawab — tuntutan kembali kepada pelulus"));
+    void load();
+    return true;
+  };
+  /* v1.254.0 (D3) - Mark paid asks for the BANK DATE: the day the money
+     actually left (today by default). The server holds it to the approval
+     date and today, and dates the claim's one cash book row with it. */
+  const markPaid = async (c: Claim) => {
+    const today = mytToday();
+    const r = await prompt({ title: L(`Mark ${claimNoOf(c)} paid`, `Tanda ${claimNoOf(c)} dibayar`), text: false,
+      message: L(`${fmtRM(c.amount_cents)} - record it only once the money has left the bank. Approval alone is not payment.`, `${fmtRM(c.amount_cents)} - rekod hanya selepas wang keluar dari bank. Kelulusan sahaja bukan bayaran.`),
+      date: { label: L("Bank date (the day the money left)", "Tarikh bank (hari wang keluar)"), initial: today, max: today, required: true },
+      confirmLabel: L("Mark paid", "Tanda dibayar") });
+    if (!r) return;
+    const res = await api<{ error?: { message?: string } }>(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({ paid_on: r.date || today }) });
+    if (!res.ok) { showToast(L("No changes", "Tiada perubahan"), res.data?.error?.message ?? L("Not marked paid", "Tidak ditanda dibayar"), "notice"); return; }
+    showToast(L("Saved", "Disimpan"), L("Claim marked PAID — claimant notified", "Tuntutan ditanda DIBAYAR — penuntut dimaklumkan"));
+    void load();
+  };
+  const [drawerId, setDrawerId] = useState<number | null>(null);
+  const drawerClaim = drawerId === null ? null : claims.find((x) => x.id === drawerId) ?? null;
+  const [onlyMine, setOnlyMine] = useState(true);
 
   const badgeCls: Record<string, string> = {
     pending: "erp-chip-warning",
@@ -4587,18 +4632,13 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
             ? L(`deducted on the ${payMonthLabel(c.payroll_month)} payslip`, `dipotong pada slip gaji ${payMonthLabel(c.payroll_month)}`)
             : L(`to be recovered from ${payMonthLabel(c.payroll_month)} payroll`, `akan dipotong daripada gaji ${payMonthLabel(c.payroll_month)}`)}</span>}{" "}
           <span className={`${chip} ${cl.capitalize} ${badgeCls[c.status] ?? "erp-chip-neutral"}`}>{statusLabel(c.status)}</span>
-          {c.status === "pending" && claimChainOf(c.claimant_role) === "staff" && (
-            <span className={`${chipSmInfo} ${cl.chipGap}`}
-              title={L("Chain: HR review → COO pre-approval → CEO final approval", "Rantaian: semakan HR → pra-kelulusan COO → kelulusan akhir CEO")}>
-              {c.pre_approved_at ? L("HR ✓ · COO ✓ — CEO next", "HR ✓ · COO ✓ — CEO seterusnya") : c.hr_reviewed_at ? L("HR ✓ — awaiting COO", "HR ✓ — menunggu COO") : L("awaiting HR review", "menunggu semakan HR")}
-            </span>
+          {/* v1.254.0 - who the claim waits on, from the server, and the
+              compact progress line (the shared StageDots) */}
+          {c.status === "pending" && (
+            <span className={`${claimStatusChip(c).cls} ${cl.chipGap}`} data-testid="claim-waiting">{claimStatusChip(c).text}</span>
           )}
-          {c.status === "pending" && claimChainOf(c.claimant_role) === "hr" && (
-            <span className={`${chipSmInfo} ${cl.chipGap}`}
-              title={L("Chain: CCO pre-approval → CEO final approval", "Rantaian: pra-kelulusan CCO → kelulusan akhir CEO")}>
-              {c.pre_approved_at ? L("CCO ✓ — CEO next", "CCO ✓ — CEO seterusnya") : L("awaiting CCO", "menunggu CCO")}
-            </span>
-          )}
+          {c.my_turn && <span className={`${chipSmWarn} ${cl.chipGap}`}>{L("Your action", "Tindakan anda")}</span>}
+          <span className={cl.chipGap}><ClaimDots c={c} /></span>
           {(c as Claim & { paid_at?: string | null }).paid_at && (
             <span className={`${chipSuccess} ${cl.chipGap} erp-strong`}
               title={L("Payment released by the CEO", "Bayaran dilepaskan oleh CEO")}><><AppIcon name="paid" className={cl.chipIcon} />{L("PAID", "DIBAYAR")}</> {dmy((c as Claim & { paid_at?: string | null }).paid_at!.slice(0, 10))}</span>
@@ -4613,6 +4653,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
             group — no more underlined words strung together with dots. */}
         <div className={`${rowActions} ${cl.rowActions}`}>
           <span>{dmy(c.claim_date)}</span>
+          <button type="button" className={rowBtn} data-testid={`claim-view-${c.id}`} onClick={() => setDrawerId(c.id)}>{L("View", "Lihat")}</button>
           {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && c.claim_type !== "salary_advance" && (
             <>
               <label className={`${rowBtn} ${cl.pointer}`} aria-busy={uploading === c.id || undefined} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
@@ -4789,26 +4830,26 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
               <button type="button" className={cl.textLink} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}>{L("View payment receipt (payout proof)", "Lihat resit bayaran (bukti bayaran)")}</button>
             </p>
           )}
-          {canDecide && c.status === "approved" && !c.paid_at && (
+          {(c.actions ?? []).includes("pay") && (
             <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
-              onClick={async () => {
-                const res = await api(`/claims/${c.id}/paid`, { method: "POST", body: JSON.stringify({}) });
-                if (res.ok) { showToast(L("Saved", "Disimpan"), L("Claim marked PAID — claimant notified", "Tuntutan ditanda DIBAYAR — penuntut dimaklumkan")); void load(); }
-              }}>
+              onClick={() => void markPaid(c)}>
               <><AppIcon name="paid" className={cl.chipIcon} />{L("Mark paid (money released)", "Tanda dibayar (wang dilepaskan)")}</>
             </button>
           )}
         </>
       )}
-      {actions && canDecide && (
+      {actions && (c.actions ?? []).some((a) => a === "approve" || a === "reject" || a === "return") && (
         <div className={cl.decision}>
-          <input className={`${inputClass} ${cl.decisionNote}`} placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
-            value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />
-          <button type="button" className={rowBtnPrimary}
-            title={claimChainOf(c.claimant_role) === "staff" && !c.pre_approved_at ? L("Chain (HR → COO) not finished — approving now is a recorded CEO override", "Rantaian (HR → COO) belum selesai — meluluskan sekarang ialah pintasan CEO yang direkodkan") : claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at ? L("CCO pre-approval not done — approving now is a recorded CEO override", "Pra-kelulusan CCO belum dibuat — meluluskan sekarang ialah pintasan CEO yang direkodkan") : L("Final approval", "Kelulusan akhir")}
-            onClick={() => void decide(c.id, "approve")}>{L("Approve", "Luluskan")}</button>
-          <button type="button" className={rowBtnDanger}
-            onClick={() => void decide(c.id, "reject")}>{L("Reject", "Tolak")}</button>
+          {(c.actions ?? []).includes("approve") && <input className={`${inputClass} ${cl.decisionNote}`} placeholder={L("Note (optional — sent to the claimant)", "Nota (pilihan — dihantar kepada penuntut)")}
+            value={note[c.id] ?? ""} onChange={(e) => setNote((n) => ({ ...n, [c.id]: e.target.value }))} />}
+          {/* v1.254.0 - the override is said on the button, before the click */}
+          {(c.actions ?? []).includes("approve") && <button type="button" className={(c.skip_if_approved ?? []).length ? rowBtn : rowBtnPrimary}
+            title={(c.skip_if_approved ?? []).length ? L("The chain is not finished — approving now is a recorded CEO override", "Rantaian belum selesai — meluluskan sekarang ialah pintasan CEO yang direkodkan") : L("Final approval", "Kelulusan akhir")}
+            onClick={() => void decide(c.id, "approve")}>{approveLabel(c)}</button>}
+          {(c.actions ?? []).includes("return") && !(c.actions ?? []).some((a) => a === "review" || a === "preapprove") && <button type="button" className={rowBtn}
+            onClick={() => void returnClaim(c.id)}>{L("Return for info", "Kembalikan untuk maklumat")}</button>}
+          {(c.actions ?? []).includes("reject") && <button type="button" className={rowBtnDanger}
+            onClick={() => void decide(c.id, "reject")}>{L("Reject", "Tolak")}</button>}
         </div>
       )}
       {/* v1.4.106 stage actions — HR review, COO/CCO pre-approval. No self-review.
@@ -4822,17 +4863,19 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       )}
       {c.status === "pending" && c.user_id !== userId && c.payee_user_id !== userId && (
         <>
-          {["hr_admin", "admin", "super_admin"].includes(role) && claimChainOf(c.claimant_role) === "staff" && !c.hr_reviewed_at && (
+          {/* v1.254.0 - the stage buttons are the server's answer (actions),
+              exactly what /review and /preapprove accept */}
+          {(c.actions ?? []).includes("review") && (
             <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
               onClick={() => void hrReview(c.id)}>{L("✔ HR review OK — pass to COO", "✔ Semakan HR OK — serah kepada COO")}</button>
           )}
-          {(role === "coo" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "staff" && c.hr_reviewed_at && !c.pre_approved_at && (
+          {(c.actions ?? []).includes("preapprove") && (
             <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
               onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
           )}
-          {(role === "cco" || ["admin", "super_admin"].includes(role)) && claimChainOf(c.claimant_role) === "hr" && !c.pre_approved_at && (
-            <button type="button" className={`${rowBtnPrimary} erp-mt-2`}
-              onClick={() => void preApprove(c.id)}>{L("✔ Pre-approve — pass to CEO", "✔ Pra-lulus — serah kepada CEO")}</button>
+          {(c.actions ?? []).some((a) => a === "review" || a === "preapprove") && (c.actions ?? []).includes("return") && (
+            <button type="button" className={`${rowBtn} erp-mt-2`}
+              onClick={() => void returnClaim(c.id)}>{L("Return for info", "Kembalikan untuk maklumat")}</button>
           )}
         </>
       )}
@@ -4894,6 +4937,21 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       {toastNode}
       {stepUpNode}
       {confirmNode}
+      {/* v1.254.0 - the claim drawer: Progress, Details, Documents, Comments,
+          Activity; its buttons call the same handlers as the rows */}
+      <ClaimDrawer c={drawerClaim} userId={userId} number={(c) => claimNoOf(c as Claim)} category={catLabel} items={(c) => claimItems(c as Claim)}
+        onClose={() => setDrawerId(null)}
+        onAct={(c, a) => {
+          if (a === "review") void hrReview(c.id);
+          else if (a === "preapprove") void preApprove(c.id);
+          else if (a === "approve") void decide(c.id, "approve");
+          else if (a === "reject") void decide(c.id, "reject");
+          else if (a === "return") void returnClaim(c.id);
+          else if (a === "pay") void markPaid(c as Claim);
+        }}
+        onResubmit={(c, answer) => answerClaim(c.id, answer)}
+        onOpenReceipt={(c) => openAttachment(`/api/v1/staff/claims/${c.id}/receipt`, L("Receipt", "Resit"))}
+        onOpenProof={(c) => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))} />
       {/* v1.194.0 - the tab row, with the month and Submit claim at the right */}
       <LineTabs value={view} onChange={(k) => openClaims(k)} label={L("Claims", "Tuntutan")} tabs={[
         ["overview", L("Overview", "Gambaran")],
@@ -4944,8 +5002,15 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
           <div className={cl.pendingList}>
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={2} />}
-            {loaded && pending.filter((c) => canDecide || c.user_id !== userId).length === 0 && <p className="erp-text-sm erp-muted">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
-            {pending.filter((c) => canDecide || c.user_id !== userId).map((c) => claimRow(c, true))}
+            {/* v1.254.0 - Waiting for my approval: the claims at this
+                person's own stage (the server's my_turn); All pending shows
+                every pending claim they can read */}
+            <div className="erp-segmented erp-mt-2" role="group" aria-label={L("Which pending claims", "Tuntutan menunggu yang mana")}>
+              <button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine(true)}>{L("Waiting for my approval", "Menunggu kelulusan saya")} ({pending.filter((c) => c.my_turn && (canDecide || c.user_id !== userId)).length})</button>
+              <button type="button" aria-pressed={!onlyMine} onClick={() => setOnlyMine(false)}>{L("All pending", "Semua menunggu")} ({pending.filter((c) => canDecide || c.user_id !== userId).length})</button>
+            </div>
+            {loaded && pending.filter((c) => (onlyMine ? c.my_turn && (canDecide || c.user_id !== userId) : canDecide || c.user_id !== userId)).length === 0 && <p className="erp-text-sm erp-muted">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
+            {pending.filter((c) => (onlyMine ? c.my_turn && (canDecide || c.user_id !== userId) : canDecide || c.user_id !== userId)).map((c) => claimRow(c, true))}
           </div>
         </div>
         </TabZone>

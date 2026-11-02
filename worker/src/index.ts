@@ -296,7 +296,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0166_leave_timeline";
+const LATEST_MIGRATION = "0167_claim_timeline";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -5148,6 +5148,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0164 (the agent role and agents' package requests)", `SELECT r.status, r.package_id, e.kind FROM agent_requests r, agent_request_events e LIMIT 0`],
       ["0165 (the agent portal workflow: request statuses, published quotation, visibility, files)", `SELECT r.published_doc_id, r.client_key, e.visibility, e.body, f.file_name FROM agent_requests r, agent_request_events e, agent_request_files f LIMIT 0`],
       ["0166 (the leave timeline: withdrawn and returned times, the comment thread)", `SELECT l.cancelled_at, l.returned_from, l.return_question, c.visibility FROM leave_requests l, leave_comments c LIMIT 0`],
+      ["0167 (the claim timeline: returned for information, the comment thread)", `SELECT c.returned_from, c.return_question, c.return_answered_at, m.visibility FROM claims c, claim_comments m LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5335,6 +5336,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0164_agent_role",
       "0165_agent_workflow",
       "0166_leave_timeline",
+      "0167_claim_timeline",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

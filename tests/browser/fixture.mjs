@@ -292,8 +292,34 @@ const claims = [
   { id: 7, user_id: 9002, claim_date: D + "10", category: "travel", amount_cents: 4500, description: "Grab to client", status: "pending", claimant: "Nur Aisyah", claimant_full: "Nur Aisyah binti Rahman", items: "[]", claim_type: "reimbursement", created_at: D + "10 09:00:00" },
   { id: 8, user_id: 9003, claim_date: D + "04", category: "equipment", amount_cents: 18900, description: "Ring light", status: "approved", paid_at: D + "06 10:00:00", claimant: "Farid Zul", items: "[]", claim_type: "reimbursement", created_at: D + "04 09:00:00" },
   { id: 9, user_id: 9001, claim_date: D + "02", category: "meals", amount_cents: 6200, description: "Client lunch", status: "approved", claimant: "Fixture Person", items: "[]", claim_type: "reimbursement", created_at: D + "02 09:00:00" },
-  { id: 10, user_id: 9002, claim_date: "2026-08-28", category: "travel", amount_cents: 3000, description: "Parking", status: "rejected", claimant: "Nur Aisyah", items: "[]", claim_type: "reimbursement", created_at: "2026-08-28 09:00:00" },
+  { id: 10, user_id: 9002, claim_date: "2026-08-28", category: "travel", amount_cents: 3000, description: "Parking", status: "rejected", claimant: "Nur Aisyah", items: "[]", claim_type: "reimbursement", created_at: "2026-08-28 09:00:00", decision_note: "Personal parking" },
+  /* v1.254.0 - an HR claim waiting on the CCO ("awaiting CCO"), a COO claim
+     at the CEO, and the fixture person's own claim returned with a question */
+  { id: 11, user_id: 9004, claim_date: D + "12", category: "stationery", amount_cents: 1130, description: "Printer paper", status: "pending", claimant: "Mei Ling", claimant_full: "Tan Mei Ling", claimant_role: "hr_admin", items: "[]", claim_type: "reimbursement", created_at: D + "12 09:07:00" },
+  { id: 12, user_id: 9005, claim_date: D + "13", category: "travel", amount_cents: 13000, description: "Toll and parking - Melaka", status: "pending", claimant: "Zul", claimant_full: "Zulkifli Ops", claimant_role: "coo", items: "[]", claim_type: "reimbursement", created_at: D + "13 10:00:00" },
+  { id: 13, user_id: 9001, claim_date: D + "14", category: "meals", amount_cents: 8800, description: "Team lunch", status: "pending", claimant: "Fixture Person", claimant_role: "ceo", items: "[]", claim_type: "reimbursement", created_at: D + "14 11:00:00",
+    returned_at: D + "15 02:00:00", return_question: "Which client attended the lunch?" },
 ];
+/* v1.254.0 - what GET /claims adds (worker/src/claim-chain.ts), per claim,
+   for the role this server plays: the timeline, who it waits on, whose turn
+   and what this person may do. Invented people only. */
+const claimView = (c) => {
+  const decider = ["ceo", "super_admin"].includes(ROLE);
+  const S = (key, state, extra = {}) => ({ key, state, who: null, at: null, text: null, ...extra });
+  const sub = S("submitted", "done", { who: c.claimant_full || c.claimant, at: c.created_at });
+  const v = { 7: { timeline: [sub, S("hr", "now", { flags: { role: "hr_admin" } }), S("pre", "todo", { flags: { role: "coo" } }), S("final", "todo", { flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "hr", skip: ["hr", "pre"],
+      acts: ROLE === "hr_admin" ? ["review", "return"] : decider ? ["approve", "return", "reject"] : [], turn: ROLE === "hr_admin" },
+    8: { timeline: [sub, S("final", "done", { who: "Fixture Person", at: D + "05 09:00:00", flags: { role: "ceo" } }), S("payment", "done", { who: "Fixture Person", at: c.paid_at, flags: { bank_date: D + "06", proof: true } })], waiting_on: null, skip: [], acts: [], turn: false },
+    9: { timeline: [sub, S("final", "done", { who: "Fixture Person", at: D + "03 09:00:00", flags: { role: "ceo" } }), S("payment", "now")], waiting_on: "payment", skip: [], acts: decider ? ["pay"] : [], turn: decider },
+    10: { timeline: [sub, S("hr", "rejected", { who: "Fixture Person", at: "2026-08-29 09:00:00", text: c.decision_note, flags: { role: "hr_admin" } }), S("pre", "off", { flags: { role: "coo" } }), S("final", "off", { flags: { role: "ceo" } }), S("payment", "off")], waiting_on: null, skip: [], acts: [], turn: false },
+    11: { timeline: [sub, S("pre", "now", { flags: { role: "cco" } }), S("final", "todo", { flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "cco", skip: ["pre"],
+      acts: ROLE === "cco" ? ["preapprove", "return"] : decider ? ["approve", "return", "reject"] : [], turn: ROLE === "cco" },
+    12: { timeline: [sub, S("final", "now", { flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "ceo", skip: [], acts: decider ? ["approve", "return", "reject"] : [], turn: decider },
+    13: { timeline: [sub, S("final", "returned", { who: "Tan Mei Ling", at: c.returned_at, text: c.return_question, flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "applicant", skip: [], acts: ["resubmit", ...(decider ? ["reject"] : [])], turn: true },
+  }[c.id];
+  if (!v) return c;
+  return { ...c, timeline: v.timeline, waiting_on: v.waiting_on, my_turn: v.turn, actions: v.acts, skip_if_approved: c.status === "pending" ? v.skip : [], return_open: c.id === 13, paid_bank_date: c.id === 8 ? D + "06" : null, paid_by_name: c.id === 8 ? "Fixture Person" : null, payment_proof_key: c.id === 8 ? "claims/8-proof" : c.payment_proof_key };
+};
 const enquiries = [
   { id: 1, name: "Aina Rahman", company: "Aina Boutique", phone: "0174761019", email: null, message: "Do you run TikTok lives for small fashion brands?", category: "live_commerce", status: "new", reply: null, replied_at: null, replied_name: null, assigned_to: null, assigned_name: null, created_at: D + "15 09:00:00", overdue: true, hours_waiting: 30 },
   { id: 2, name: "Hafiz Omar", company: null, phone: "0123456789", email: "hafiz@example.test", message: "Quotation for a product video, 3 SKUs.", category: "video", status: "new", reply: null, replied_at: null, replied_name: null, assigned_to: 9002, assigned_name: "Nur Aisyah", created_at: D + "16 08:00:00", overdue: false, hours_waiting: 2 },
@@ -701,7 +727,20 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     }
   }
   if (p === "/staff/leave/balance") data = { balances: { annual: { entitled: 14, used: 2, accrued: 10.5 }, medical: { entitled: 14, used: 0, accrued: 14 }, emergency: { entitled: 3, used: 0, accrued: 3 }, unpaid: { entitled: 0, used: 0 }, replacement: { entitled: 0, used: 0, accrued: 1 } }, hourly: false };
-  if (p === "/claims") data = { claims, can_decide: true };
+  if (p === "/claims") data = { claims: claims.map(claimView), can_decide: ["ceo", "super_admin"].includes(ROLE) };
+  /* v1.254.0 - one claim's thread and activity; the claimant never gets an internal note */
+  {
+    const cc = /^\/claims\/(\d+)\/(comments|activity)$/.exec(p);
+    if (cc) {
+      const cr = claims.find((x) => x.id === Number(cc[1]));
+      const own = cr?.user_id === 9001;
+      if (cc[2] === "comments") data = { can_internal: !own, comments: [
+        ...(cr?.return_question ? [{ id: 1, visibility: "employee", body: `Returned for more information: ${cr.return_question}`, created_at: D + "15 02:00:00", author: "Tan Mei Ling" }] : []),
+        ...(own ? [] : [{ id: 2, visibility: "internal", body: "Receipt matches the supplier invoice.", created_at: D + "15 03:00:00", author: "Tan Mei Ling" }]),
+      ] };
+      else data = { activity: [{ id: 21, action: "claim.create", created_at: cr?.created_at ?? D + "10 09:00:00", who: cr?.claimant_full || cr?.claimant || "" }, ...(cr?.paid_at ? [{ id: 22, action: "claim.paid", created_at: cr.paid_at, who: "Fixture Person" }] : [])] };
+    }
+  }
   if (p === "/claims/mileage-rate") data = { cents_per_km: 60, can_set: true };
   if (p === "/enquiries") data = { enquiries: q.get("status") ? enquiries.filter((e) => e.status === q.get("status")) : enquiries, counts: { new: 2, overdue: 1, mine: 0, contacted: 1, qualified: 0, closed: 0 }, people: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })), overdue_hours: 24 };
   /* v1.199.0 - can_remove is the worker's hr_manage answer: the four roles that keep the register */

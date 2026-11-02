@@ -21,6 +21,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.249.2 - the owner's reason
 import { withStepUp } from "@/components/portal/page-shared"; // v1.249.2 - the owner's authenticator code
+import { OwnerCard, useOwner } from "@/components/portal/owner-card"; // v1.252.1 - the one Company owner card, here too
 import { SiteEditor } from "@/components/admin/site-editor";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
@@ -710,6 +711,13 @@ function UsersPanel({ me }: { me: User }) {
   const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
+  /* v1.252.1 (the owner, 02-11-2026: "inside the /Admin User I cant see
+     anything for me to update") - the Super Admin names the company owner
+     here as well as in the portal. The same OwnerCard and the same
+     GET/POST /staff/owner; the server still decides (super admin only,
+     a reason, the authenticator code). */
+  const [ownerTick, setOwnerTick] = useState(0);
+  const ownerState = useOwner(me.role === "super_admin" || ownerCeo, ownerTick);
 
   const load = useCallback(async () => {
     const res = await api<{ users: AdminUser[] }>("/users");
@@ -812,6 +820,8 @@ function UsersPanel({ me }: { me: User }) {
   };
 
   return (
+    <div className="grid grid-cols-1 gap-8">
+    {ownerState && <div data-testid="admin-owner"><OwnerCard state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} /></div>}
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
       {userConfirmNode}
       {askNode}
@@ -1005,6 +1015,7 @@ function UsersPanel({ me }: { me: User }) {
           );
         })}
       </div>
+    </div>
     </div>
   );
 }

@@ -46,11 +46,19 @@ export function wrangler(args, opts = {}) {
     a stop in PUSH.bat can be read afterwards without copying the screen.
     Wrangler's own output is kept only for a failure, the last 25 lines,
     colour codes removed. Never fatal. */
+/** v1.254.0 - wrangler prints a signed download link for a D1 export
+    ("valid for one hour"). Anyone holding it can download the whole
+    database, so it never reaches the log or the screen: the address stays,
+    the signature after the "?" does not. */
+export function redact(text) {
+  return String(text).replace(/(https?:\/\/[^\s?"']+)\?[^\s"']*(X-Amz-|Signature=|sig=|token=)[^\s"']*/gi, "$1?<signed link removed>");
+}
+
 export function releaseLog(line, detail = "") {
   try {
     const dir = join(repoRoot, "backups");
     mkdirSync(dir, { recursive: true });
-    const tail = String(detail).replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(-25);
+    const tail = redact(String(detail)).replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(-25);
     appendFileSync(join(dir, "release-log.txt"), `${new Date().toISOString()} ${line}\n${tail.map((l) => `    | ${l}\n`).join("")}`);
   } catch { /* logging never stops a release */ }
 }

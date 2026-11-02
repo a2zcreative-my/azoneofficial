@@ -255,7 +255,7 @@ const MUT = [
   ["worker/src/index.ts", "an invitation needs no authenticator code", "      const su = await requireFreshTotp(env, user, body.totp, errorResponse, \"create this account\");\n      if (su) return su;", ""],
   ["worker/src/index.ts", "an invitation makes an Agent", "      if ([\"customer\", \"agent\", \"super_admin\"].includes(roleWantedC)) return errorResponse(", "      if (false) return errorResponse("],
   ["worker/src/index.ts", "one person's audit is everyone's", "    const rows = Number.isInteger(target) && target > 0", "    const rows = false"],
-  ["worker/src/staff.ts", "the refusal hides why", "    ? \" Your owner authority is off: the Super Admin names you company owner once (Users > Security & Sessions > Company owner), then this works for you.\"", "    ? \"\""],
+  ["worker/src/staff.ts", "the refusal hides why", "    ? \" Your owner authority is off: the Super Admin names you company owner once (signed in as the Super Admin: /admin > Users > Company owner), then this works for you.\"", "    ? \"\""],
 ];
 for (const [file, name, from, to] of MUT) {
   n++;

@@ -337,6 +337,17 @@ function sourceChecks() {
   ok(/^\/backups\/$/m.test(read(".gitignore")), "the release backups folder (a full export with bank details) is never committed");
   const rb = read("scripts/release-backup.mjs");
   ok(/\["d1", "export", DB, "--remote"/.test(rb) && !/execute|migrations apply|r2 object put|bucket create/.test(rb.replace(/console\.(error|log)\([^)]*\)/g, "")), "release-backup only reads production (export, bucket list) - it creates and changes nothing");
+  /* v1.254.0 - the 02-11-2026 PUSH.bat stop ("[ERROR] terminated"): the
+     export download was cut. It is asked for again (three tries), a partial
+     file is deleted before each try and after the last, the release still
+     stops without a complete export, and the signed download link wrangler
+     prints never reaches the log or the screen. */
+  ok(/const ATTEMPTS = 3;/.test(rb) && /rmSync\(file, \{ force: true \}\);\s*r = wrangler\(\["d1", "export"/.test(rb)
+     && /if \(body\) break;\s*rmSync\(file, \{ force: true \}\);/.test(rb) && /if \(!body\) \{[\s\S]{0,600}?process\.exit\(1\);/.test(rb),
+     "a cut export download is retried, a partial file never passes for a backup, and no complete export still means no release");
+  const we = read("scripts/wrangler-exec.mjs");
+  ok(/export function redact\(/.test(we) && /const tail = redact\(String\(detail\)\)/.test(we) && /redact\(String\(r\.stderr\)\)/.test(rb),
+     "the signed export link (a key to the whole database) is removed from the release log and the screen");
   /* the 31-10-2026 PUSH.bat stop: Node refuses `npx.cmd` without a shell on
      Windows (EINVAL), and a shell would re-read the SQL. Every release script
      runs wrangler through scripts/wrangler-exec.mjs (node + wrangler.js). */

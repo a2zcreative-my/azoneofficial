@@ -355,3 +355,9 @@ cancelled_by, returned_from, returned_by, returned_at and return_question
 (all nullable - existing rows read NULL, no history invented), and
 leave_comments holds the thread on one leave (append-only, employee or
 internal). Attendance and payroll keep reading approved leave as before.
+1.254.0 adds `0167_claim_timeline`: claims gains returned_from, returned_by,
+returned_at, return_question and return_answered_at (all nullable - existing
+claims read NULL, no history invented), and claim_comments holds the thread
+on one claim (append-only, employee or internal). The bank date of a payment
+is the effective date of the claim's one cash book row; Finance and payroll
+read claims as before.

@@ -25,6 +25,9 @@ const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
 const CHAIN_STAGES = {
   "leave-chain.ts:HR_STAGE_ROLES": "Leave and claims HR stage - the CEO is the final approver, chains unchanged",
   "leave-chain.ts:PREAPP_ROLES": "Leave pre-approval stage - the CEO is the final approver, chains unchanged",
+  /* v1.254.0 - the claim chain's admin backstop at the HR and pre-approval
+     stages, the same adminTier staff.ts always checked; the CEO decides */
+  "claim-chain.ts:ADMIN_TIER": "Claims HR review and pre-approval backstop - the CEO is the final approver, chains unchanged",
 };
 
 function check(files) {

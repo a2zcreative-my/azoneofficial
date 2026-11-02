@@ -20,7 +20,7 @@
  * included. Nothing here writes to production - `wrangler d1 export` reads.
  * It never prints a credential.
  */
-import { wrangler as runWrangler, releaseLog } from "./wrangler-exec.mjs";
+import { wrangler as runWrangler, releaseLog, redact } from "./wrangler-exec.mjs";
 import { createHash } from "node:crypto";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -78,13 +78,39 @@ if (mode === "export") {
   mkdirSync(backups, { recursive: true });
   const file = join(backups, `pre-${version}-${stamp()}.sql`);
   console.log(`  Exporting the production database to backups\\${file.split(/[\\/]/).pop()} ...`);
-  const r = wrangler(["d1", "export", DB, "--remote", `--output=${file}`]);
-  const ok = r.status === 0 && existsSync(file) && statSync(file).size > 0;
-  const body = ok ? readFileSync(file) : null;
-  if (!ok || !/CREATE TABLE/i.test(body.subarray(0, Math.min(body.length, 4 * 1024 * 1024)).toString("utf8"))) {
-    log(`export FAILED (wrangler exit ${r.status})`);
-    console.error(`  [X] The pre-release export failed (wrangler exit ${r.status}). Nothing was applied or published.`);
-    if (r.stderr) console.error(String(r.stderr).split("\n").filter((l) => l.trim()).slice(-5).map((l) => `      ${l}`).join("\n"));
+  /* v1.254.0 (the owner, 02-11-2026: the 1.253.0 release stopped at
+     "[ERROR] terminated") - Cloudflare built the export, then the download
+     of it was cut part way. A cut download is a network event, not a bad
+     database, so the export is asked for again, up to three times, with a
+     pause between. A half-written file is deleted before the next try and
+     after the last, so a partial copy can never pass for a backup. The rule
+     is unchanged: no complete export, no release. */
+  const ATTEMPTS = 3;
+  const valid = () => {
+    if (!existsSync(file) || statSync(file).size === 0) return null;
+    const b = readFileSync(file);
+    return /CREATE TABLE/i.test(b.subarray(0, Math.min(b.length, 4 * 1024 * 1024)).toString("utf8")) ? b : null;
+  };
+  const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  let r = null;
+  let body = null;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+    rmSync(file, { force: true });
+    r = wrangler(["d1", "export", DB, "--remote", `--output=${file}`]);
+    body = r.status === 0 ? valid() : null;
+    if (body) break;
+    rmSync(file, { force: true });
+    log(`export attempt ${attempt} of ${ATTEMPTS} failed (wrangler exit ${r.status})`);
+    if (attempt < ATTEMPTS) {
+      console.warn(`  [!] The export download did not finish (attempt ${attempt} of ${ATTEMPTS}) - trying again in ${attempt * 15} seconds...`);
+      pause(attempt * 15000);
+    }
+  }
+  if (!body) {
+    log(`export FAILED after ${ATTEMPTS} attempts (wrangler exit ${r.status})`);
+    console.error(`  [X] The pre-release export failed ${ATTEMPTS} times (wrangler exit ${r.status}). Nothing was applied or published.`);
+    console.error(`      This is usually the internet connection dropping during the download. Run PUSH.bat again in a few minutes.`);
+    if (r.stderr) console.error(redact(String(r.stderr)).split("\n").filter((l) => l.trim()).slice(-5).map((l) => `      ${l}`).join("\n"));
     process.exit(1);
   }
   const sha = createHash("sha256").update(body).digest("hex");

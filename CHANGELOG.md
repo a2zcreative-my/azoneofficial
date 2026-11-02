@@ -10,6 +10,45 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.254.0] - 2026-11-02 - Claims: approval and payment timeline, one chain, approved is not paid
+
+The owner, 02-11-2026: "A2Z OS - Claims Approval & Payment Timeline Upgrade"; claude/CLAIMS-TIMELINE-AUDIT.md; answers D1 add Return for info, D2 a comment thread, D3 the bank date on Mark paid; "approved". The approval chain itself is unchanged (staff: HR, COO, CEO; HR: CCO, CEO; COO and CCO: CEO; the CEO's early approval stays a recorded override).
+
+- One claim chain: worker/src/claim-chain.ts. `claimChain` moved there unchanged from staff.ts; the page's copy (`claimChainOf`) is gone. GET /claims rows carry `timeline`, `waiting_on`, `my_turn`, `actions` (exactly what the endpoints accept), `skip_if_approved`, and the payout facts: `paid_by_name` (the audit line of Mark paid) and `paid_bank_date` (the claim's one CLM- cash book row; a Finance reversal reads as reversed).
+- "Awaiting CCO" explained on screen: the row says whom the claim waits on, and the CEO's button says what an early approval skips ("Approve (skip CCO pre-approval)") before the click; the confirmation and the recorded note are unchanged.
+- One decision per stage: /decide, /review and /preapprove write only while the claim is still in the state read (409 `already_decided`) - two people pressing at once leave one decision and one notice.
+- D1 Return for info: `POST /claims/:id/return` (whoever may act now, or the CEO; a question of 10+ characters) keeps the claim pending and waiting on the claimant; `POST /claims/:id/resubmit` (the claimant's answer) sends it back to the same stage - nothing signed is undone. Approve and the stage actions wait while it is returned (409); Reject does not. An edit of the claim also answers it.
+- D2 Comments: `/claims/:id/comments` (employee or internal; the claimant and the payee never read internal notes) and `/claims/:id/activity` (the audit trail; no detail and no payee remark for the claimant). Append-only. The thread and the activity list are now one shared component, components/portal/record-thread.tsx, used by Leave and Claims.
+- D3 Bank date: Mark paid asks for the day the money left (today by default; never after today, never before the approval); it dates the claim's one cash book row. paid_at stays the moment it was recorded. Approval never books cash; Mark paid twice books once (unchanged).
+- Rejections ask for the reason the claimant reads.
+- Claims > Approvals: Waiting for my approval (the claims at this person's own stage) or All pending; each row has the status chip, the progress dots and View. The Claim drawer (Progress, Details, Documents, Comments, Activity) uses the shared StageTimeline and SideDrawer - full screen on a phone, actions above the bottom bar.
+- Migration 0167 (additive): claims + returned_from, returned_by, returned_at, return_question, return_answered_at; claim_comments. No existing claim, decision, payment or cash row is changed.
+- Tests: new tests/go-live-k.mjs (49 checks, 7 mutations; true races on two decisions and two pre-approvals); new tests/browser/claims-timeline.py (46 checks incl. phones 320-430 px); fixture claims carry the server's timeline.
+
+## [1.253.0] - 2026-11-02 - Users: subtle outset, one scroll, compact cards
+
+Release tool fix (same release): the first PUSH.bat run of 1.253.0 stopped at the pre-release export with "[ERROR] terminated" - Cloudflare had built the export and the download was cut. Nothing was applied or published. scripts/release-backup.mjs now asks for the export again (three tries, 15 s then 30 s apart), deletes a half-written file before each try and after the last, and still stops the release without a complete export. scripts/wrangler-exec.mjs removes the signed one-hour download link wrangler prints from backups/release-log.txt and from the screen. Pinned in tests/go-live-d.mjs.
+
+The owner, 02-11-2026: "A2Z OS - SUBTLE OUTSET UI REFINEMENT" for Users > Staff Accounts and Customers & Agents; claude/USERS-OUTSET-AUDIT.md, D1 to D3, "approved". UI only: no role, status, email, permission or Agent access logic changed.
+
+- Desktop (1024 px and up): the accounts table sits in a bordered, lightly lifted frame with a light-grey head band; rows are one line (60-69 px, were up to 109); the Manage icons sit side by side in a 6.5rem column, the same width on both tabs; the column heads line up with the cells (0 px).
+- D1: Grant Agent Access moved from Manage to beside the No staff access chip. It no longer spills over the Access column on a desk, or squeezes names to "Nari..." on a phone. Same condition as before.
+- D2: below 1024 px every account is a compact card (two per row from 768 px, one on a phone): the name and email keep the first line, the chips and the icons share the next. At 768 px the Manage column was cut off and unreachable; it is now on every card.
+- D3: no list scrolls inside the page any more; 25 accounts show, then Show more (n), the HR and Finance pattern. A new search starts again at 25.
+- The two account cards use the existing --elev-raised; each phone card --elev-subtle. No new token, component or design system.
+- Intro lines shortened (Staff 201 to 92 characters, Customers 155 to 99); Customers heading is now "Customers & agents".
+- Tests: new tests/browser/users-outset.py (82 checks: 7 widths x 2 tabs - sideways page, nested scroll, off-screen controls, actions past the row, one-line desk rows, head alignment, uncut emails; a 60-row list for 25 then Show more and search reset). users-ui guard updated to the approved behaviour (no inner scroller, 25 then Show more, Grant beside Access, cards below 1024).
+
+## [1.252.1] - 2026-11-02 - Where the Super Admin names the company owner
+
+The owner, 02-11-2026, signed in as the Super Admin: "inside the /Admin User I cant see anything for me to update". The Company owner card lived only in the portal (Users > Security & Sessions), below the sign-in log, and the CEO's banner did not say which account or which page.
+
+- /admin > Users: the Super Admin now sees the same Company owner card at the top (the one OwnerCard, the same GET/POST /staff/owner). The server is unchanged: super admin only, a reason of 10+ characters, the authenticator code, audited as owner.designate.
+- Portal > Users > Security & Sessions: while no owner is verified, Company owner is the first card; once verified it goes back below the sign-in log.
+- The CEO's owner-off banner and the server's refusal hint now say the Super Admin (not the CEO account) does it, in /admin > Users > Company owner.
+- The security view heading and its "Who owns what" lines read Security & Sessions, like the tab (they still said Security & Settings).
+- No migration, no permission, no data change. Tests: new tests/browser/owner-door.py (16 checks, desktop and 390 px); go-live-i hint text updated to the new wording (the mutation still bites).
+
 ## [1.252.0] - 2026-11-02 - Leave approval timeline: one chain, one source of truth, returned for information, a comment thread, the next approver told
 
 The owner's brief "Leave Application Status & Approval Timeline Upgrade", the read-only audit claude/LEAVE-TIMELINE-AUDIT.md, his answers (D1 add Returned for more information, D2 a comment thread with internal and employee notes, D3 notify the next approver) and his "Approved" (02-11-2026). Migration 0166 (additive).

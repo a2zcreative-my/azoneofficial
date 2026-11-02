@@ -121,7 +121,8 @@ ok("every row action carries a name, not a glyph",
    /aria-label=\{kind === "staff"[\s\S]{0,320}?Change role for \$\{properName/.test(src)
    && /className=\{iconBtn\}/.test(src) && !/>✎</.test(src));
 ok("the identity is never the part that gets squeezed",
-   /\.chips \{[^}]*grid-column: 1 \/ -1;/.test(mod) && /\.chips \{\s*display: contents;/.test(mod),
+   /* v1.253.0 - the identity now has the card's first line to itself; the chips and the icons share the second */
+   /\.identity \{\s*grid-column: 1 \/ -1;/.test(mod) && /\.chips \{\s*grid-column: 1;/.test(mod) && /\.chips \{\s*display: contents;/.test(mod),
    "chips beside the identity turned a name into 'Siti N...' at 390px; a phone gives them a line of their own, a desk a column each");
 ok("the name and the email get a line each", /className=\{css\.name\}>\{properName[\s\S]{0,160}?className=\{css\.email\}>\{u\.email\}/.test(src));
 ok("left / rejoined dates are on screen, not in a tooltip",
@@ -170,9 +171,20 @@ ok("the find box searches BOTH names and the role as it is written on screen",
    && /\(u\.name \?\? ""\)\.toLowerCase\(\)\.includes\(needle\)/.test(src)
    && /roleLabel\(u\.role\)\.toLowerCase\(\)\.includes\(needle\)/.test(src),
    "it tested full_name OR name, so the other one found nobody");
-ok("the list height has a fallback for a browser that does not know svh",
-   /max-height: 60vh;\s*max-height: 60svh;/.test(mod),
-   "iOS 15.0-15.3 ignores svh and the list grew without bound");
+/* v1.253.0 (the owner, D3) - the inner list scroller is gone by decision:
+   one page scroll, 25 accounts, then Show more. Pinned so it cannot creep
+   back, and so a long list never renders all at once. */
+ok("one scroll: no account list scrolls inside the page",
+   !/\.scroll\s*\{/.test(mod) && !/css\.scroll/.test(src) && !/overflow-y: auto/.test(mod.slice(mod.indexOf("the accounts table"), mod.indexOf("the overview"))),
+   "a list that scrolls inside a scrolling page is the trap the owner asked to remove");
+ok("long lists show 25, then Show more",
+   /const PAGE = 25;/.test(src) && /staffRows\.slice\(0, staffShown\)/.test(src) && /customerRows\.slice\(0, custShown\)/.test(src)
+   && (src.match(/Show more \(\$\{/g) ?? []).length === 2);
+ok("Grant Agent Access sits beside the access it changes; Manage holds icons, one width on both tabs",
+   /No staff access[\s\S]{0,600}?data-testid=\{`grant-agent-\$\{u\.id\}`\}/.test(src)
+   && (mod.match(/ 6\.5rem;/g) ?? []).length === 2);
+ok("below 1024px every account is a card, never a clipped table",
+   /@media \(min-width: 1024px\) \{[\s\S]{0,400}?\.header,\s*\.row \{/.test(mod) && !/@media \(min-width: 768px\) \{\s*\.header,/.test(mod));
 
 console.log(`${failed ? "✗" : "✓"} users-ui: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

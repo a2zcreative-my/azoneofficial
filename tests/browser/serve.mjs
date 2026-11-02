@@ -279,7 +279,7 @@ const server = http.createServer((req, res) => {
       if (req.method === "POST" && p === "/users") {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
         if (b.invite && !b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code to create this account" } })); return; }
-        if (b.invite && ["coo", "cco", "admin", "ceo"].includes(b.role) && !process.env.OWNER) { res.writeHead(403, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "forbidden", message: `Only the company owner or the super admin can create a ${b.role} account. Your owner authority is off: the Super Admin names you company owner once (Users > Security & Sessions > Company owner), then this works for you.` } })); return; }
+        if (b.invite && ["coo", "cco", "admin", "ceo"].includes(b.role) && !process.env.OWNER) { res.writeHead(403, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "forbidden", message: `Only the company owner or the super admin can create a ${b.role} account. Your owner authority is off: the Super Admin names you company owner once (signed in as the Super Admin: /admin > Users > Company owner), then this works for you.` } })); return; }
         res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 9200, invited: true, emailed: false, expires_in_hours: 24, link: "https://portal.example.test/set-password#token=" + "cd".repeat(32) })); return;
       }
       /* v1.250.2 - a new agent request and an agent file answer like agent.ts

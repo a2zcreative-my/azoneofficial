@@ -42,6 +42,7 @@ import { usePortal } from "@/components/portal/portal-provider"; // v1.206.0 - t
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { Avatar } from "@/components/ui/avatar";
 import { StageDots, StageTimeline, type Stage, type StageState } from "@/components/ui/stage-timeline"; // v1.252.0
+import { RecordActivity, RecordComments } from "@/components/portal/record-thread"; // v1.254.0 - one thread for Leave and Claims
 
 function coverageLabel(l: LeaveReq): string {
   if (!isPartialLeave(l)) return "";
@@ -374,51 +375,11 @@ export function LeaveDetail({ l, meName, part = "both" }: { l: LeaveReq; meName:
 
 /* v1.252.0 (D2) - THE COMMENT THREAD on one leave. The server decides who
    reads which note: the applicant never receives an internal one. */
+/* v1.254.0 - the thread is the shared RecordComments (record-thread.tsx),
+   which the Claim drawer reads too; same markup, same endpoint. */
 export function LeaveComments({ id, own }: { id: number; own: boolean }) {
-  const [d, setD] = useState<{ comments: { id: number; visibility: string; body: string; created_at: string; author: string | null }[]; can_internal: boolean } | null>(null);
-  const [tick, setTick] = useState(0);
-  const [msg, setMsg] = useState("");
-  const [vis, setVis] = useState<"employee" | "internal">("employee");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState("");
-  useEffect(() => {
-    let live = true;
-    void api<typeof d>(`/staff/leave/${id}/comments`).then((r) => { if (live) setD(r.ok ? r.data : { comments: [], can_internal: false }); });
-    return () => { live = false; };
-  }, [id, tick]);
-  const send = async () => {
-    setBusy(true); setProblem("");
-    const r = await api<{ error?: { message?: string } }>(`/staff/leave/${id}/comments`, { method: "POST", body: JSON.stringify({ body: msg.trim(), visibility: vis, client_key: `${id}-${Date.now()}` }) });
-    setBusy(false);
-    if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not sent - try again", "Tidak dihantar - cuba lagi")); return; }
-    setMsg(""); setTick((n) => n + 1);
-  };
-  return (
-    <section className={lv.dSection} aria-label={L("Comments", "Komen")} data-testid="leave-comments">
-      {!d ? <Skel className="h-16 w-full" /> : d.comments.length === 0 ? <p className={lv.sub}>{L("No comments yet.", "Tiada komen lagi.")}</p> : (
-        <ul className={lv.thread}>
-          {d.comments.map((c) => (
-            <li key={c.id} className={c.visibility === "internal" ? lv.threadInternal : ""}>
-              <span className={lv.threadHead}><strong>{properName(c.author ?? "")}</strong><span>{dmyMYT(c.created_at)}</span>{c.visibility === "internal" && <span className={chipSmNeutral}>{L("Internal", "Dalaman")}</span>}</span>
-              <span className={lv.threadBody}>{c.body}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <label className={lv.threadForm}>
-        <span className={lv.sub}>{own ? L("Write to HR and the approvers", "Tulis kepada HR dan pelulus") : L("Add a comment", "Tambah komen")}</span>
-        <textarea className={inputClass} rows={2} maxLength={1000} value={msg} onChange={(e) => setMsg(e.target.value)} aria-label={L("Comment", "Komen")} />
-      </label>
-      {d?.can_internal && (
-        <div className={lv.visRow} role="radiogroup" aria-label={L("Who sees it", "Siapa melihatnya")}>
-          <label><input type="radio" name={`vis-${id}`} checked={vis === "employee"} onChange={() => setVis("employee")} /> {L("Visible to the employee", "Dilihat oleh pekerja")}</label>
-          <label><input type="radio" name={`vis-${id}`} checked={vis === "internal"} onChange={() => setVis("internal")} /> {L("Internal - management only", "Dalaman - pengurusan sahaja")}</label>
-        </div>
-      )}
-      {problem && <p role="alert" className={lv.sub}>{problem}</p>}
-      <div><button type="button" className={btnSm} disabled={busy || msg.trim().length < 2} onClick={() => void send()}><AppIcon name="chat" />{L("Post comment", "Hantar komen")}</button></div>
-    </section>
-  );
+  return <RecordComments base={`/staff/leave/${id}`} own={own} testId="leave-comments" radioName={String(id)}
+    ownPrompt={L("Write to HR and the approvers", "Tulis kepada HR dan pelulus")} />;
 }
 
 const ACTIVITY: Record<string, [string, string]> = {
@@ -432,24 +393,8 @@ const ACTIVITY: Record<string, [string, string]> = {
 /* v1.252.0 - THE ACTIVITY: the audit trail of this leave, as it happened
    (audit events, kept apart from comments). */
 export function LeaveActivity({ id }: { id: number }) {
-  const [rows, setRows] = useState<{ id: number; action: string; created_at: string; who: string | null }[] | null>(null);
-  useEffect(() => {
-    let live = true;
-    void api<{ activity: { id: number; action: string; created_at: string; who: string | null }[] }>(`/staff/leave/${id}/activity`).then((r) => { if (live) setRows(r.ok ? r.data?.activity ?? [] : []); });
-    return () => { live = false; };
-  }, [id]);
-  return (
-    <section className={lv.dSection} aria-label={L("Activity", "Aktiviti")} data-testid="leave-activity">
-      {!rows ? <Skel className="h-16 w-full" /> : rows.length === 0 ? <p className={lv.sub}>{L("Nothing recorded for this leave yet (older records kept no trail).", "Tiada rekod untuk cuti ini lagi (rekod lama tiada jejak).")}</p> : (
-        <ul className={lv.thread}>
-          {rows.map((a) => (
-            <li key={a.id}><span className={lv.threadHead}><strong>{ACTIVITY[a.action] ? L(ACTIVITY[a.action]![0], ACTIVITY[a.action]![1]) : a.action}</strong><span>{dmyMYT(a.created_at)}</span></span>
-              {a.who && <span className={lv.threadBody}>{properName(a.who)}</span>}</li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
+  return <RecordActivity base={`/staff/leave/${id}`} labels={ACTIVITY} testId="leave-activity"
+    empty={L("Nothing recorded for this leave yet (older records kept no trail).", "Tiada rekod untuk cuti ini lagi (rekod lama tiada jejak).")} />;
 }
 
 /* v1.252.0 - THE DRAWER'S FOUR PARTS (the owner's mockup: Progress,
