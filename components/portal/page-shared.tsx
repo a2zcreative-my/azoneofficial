@@ -332,6 +332,15 @@ export interface LeaveReq {
   final_by_name?: string | null;
   final_by_full?: string | null;
   final_at?: string | null;
+  /* v1.252.0 - the approval timeline, worked out by the server (leave-chain.ts
+     leaveTimeline), who it waits on, and whether THIS person decides it now */
+  timeline?: { key: string; state: "done" | "now" | "todo" | "skipped" | "rejected" | "withdrawn" | "returned" | "off"; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | boolean> }[];
+  waiting_on?: "hr" | "coo_cco" | "ceo" | "applicant" | null;
+  can_act?: boolean;
+  returned_from?: string | null;
+  return_question?: string | null;
+  cancelled_at?: string | null;
+  recorded_direct?: number | null;
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;

@@ -26,7 +26,7 @@ import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; //
 import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
-import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0
+import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, type LeaveTimelineRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
@@ -2132,6 +2132,24 @@ export interface LeaveBalanceRow {
  * narrow one catches. Absent columns read as zero, which is exactly the old
  * behaviour — no adjustment.
  */
+/* v1.252.0 (the owner, 02-11-2026, D3: "notify the next approver") - tell
+   the people who can act on a leave request at `stage` that it waits on
+   them. Who they are is the chain's own rule (leaveCanActAt), never a second
+   list. The business officers are told (HR, COO and CCO, the CEO); the
+   technical admin and super admin accounts, who may act but are not the
+   approvers, only when nobody else could. One notice per request and stage
+   (the notification key), and never to the applicant. */
+export async function notifyLeaveActors(env: Env, leaveId: number, stage: string, applicantRole: string, applicantId: number, text: string, keySuffix = ""): Promise<void> {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, role FROM users WHERE is_active = 1 AND role IN ('hr_admin', 'coo', 'cco', 'ceo', 'admin', 'super_admin') AND id != ?1`,
+    ).bind(applicantId).all<{ id: number; role: string }>();
+    const can = results.filter((u) => leaveCanActAt(u, stage, applicantRole, applicantId));
+    const business = can.filter((u) => !["admin", "super_admin"].includes(u.role));
+    for (const u of business.length ? business : can) await notify(env, u.id, "leave", text, `leave:${leaveId}:${stage}${keySuffix}`, { once: true });
+  } catch { /* a notice never blocks the decision */ }
+}
+
 export async function leaveBalanceRow(
   env: Env, userId: number, year: number, type: string,
 ): Promise<LeaveBalanceRow> {
@@ -5960,6 +5978,63 @@ async function handleStaffRoutes(
 
   /* ---- leave ---- */
 
+  /* v1.252.0 - THE CHECKS A LEAVE REQUEST MUST PASS, once: a new request
+     (POST /leave) and a returned one resubmitted with new dates (PATCH
+     action resubmit, excludeId = itself so it does not clash with its own
+     days). Moved here unchanged from POST /leave. */
+  const checkLeave = async (uid: number, b: Record<string, unknown> | null, excludeId = 0): Promise<Response | { sdL: string; edL: string; coverage: Awaited<ReturnType<typeof leaveCoverageFor>> }> => {
+      if (
+        !b || typeof b.type !== "string" || !LEAVE_TYPES.includes(b.type as never) ||
+        !str(b.start_date, 10) || !str(b.end_date, 10) ||
+        typeof b.days !== "number" || b.days <= 0 || b.days > 60
+      ) {
+        return err("invalid_input", "type, start_date, end_date, and days are required", 400);
+      }
+      /* v1.243.0 (go-live audit D6) - FOUR THINGS A LEAVE REQUEST MUST BE:
+         real dates in the right order, not far in the past or the future;
+         no more days than the span holds; not overlapping another request of
+         this person that is still live (applied, in review, or approved); and
+         for annual leave, within what is left of the year's entitlement. */
+      const sdL = String(b.start_date), edL = String(b.end_date);
+      if (!validDay(sdL) || !validDay(edL) || edL < sdL) return err("invalid_input", "start_date and end_date must be real dates, and the end must not precede the start", 400);
+      const todayL = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const daysBack = (Date.parse(`${todayL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000;
+      const daysAhead = (Date.parse(`${sdL}T00:00:00Z`) - Date.parse(`${todayL}T00:00:00Z`)) / 86400000;
+      if (daysBack > 60) return err("invalid_input", "A leave cannot start more than 60 days ago. Ask HR to record an older one.", 400);
+      if (daysAhead > 400) return err("invalid_input", "A leave cannot start more than 400 days ahead.", 400);
+      const spanDays = (Date.parse(`${edL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000 + 1;
+      if (b.days > spanDays) return err("invalid_input", `${b.days} day(s) do not fit in ${sdL} to ${edL} (${spanDays} calendar day(s)).`, 400);
+      const clashL = await env.DB.prepare(
+        `SELECT id, type, start_date, end_date, status FROM leave_requests
+          WHERE user_id = ?1 AND status NOT IN ('rejected', 'cancelled') AND start_date <= ?3 AND end_date >= ?2 AND id != ?4 LIMIT 1`,
+      ).bind(uid, sdL, edL, excludeId).first<{ id: number; type: string; start_date: string; end_date: string; status: string }>();
+      if (clashL) return err("overlap", `You already have ${clashL.type} leave ${clashL.status === "approved" ? "approved" : "applied"} for ${clashL.start_date}${clashL.end_date !== clashL.start_date ? ` to ${clashL.end_date}` : ""}. Cancel or amend that one first.`, 409);
+      if (b.type === "annual" || b.type === "medical") {
+        const yearL = Number(sdL.slice(0, 4));
+        const rowL = await leaveBalanceRow(env, uid, yearL, b.type);
+        const usedL = await env.DB.prepare(
+          `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests WHERE user_id = ?1 AND type = ?2 AND status NOT IN ('rejected', 'cancelled') AND start_date LIKE ?3 || '%' AND id != ?4`,
+        ).bind(uid, b.type, String(yearL), excludeId).first<{ used: number }>();
+        const entitledL = (rowL.entitled ?? DEFAULT_ENTITLEMENT[b.type] ?? 0) + (rowL.adjust ?? 0);
+        const leftL = entitledL - ((usedL?.used ?? 0) + (rowL.used_adjust ?? 0));
+        if (b.days > leftL) return err("over_entitlement", `Only ${Math.max(0, leftL)} day(s) of ${b.type} leave are left for ${yearL} (${entitledL} entitled, ${entitledL - leftL} taken or applied). ${b.type === "annual" ? "Apply for the days you have, or for unpaid leave." : "Attach the medical certificate and ask HR to adjust the entitlement."}`, 400);
+      }
+      const coverage = await leaveCoverageFor(env, uid, sdL, edL, b.days, b.day_part);
+      if (coverage.error) return err("invalid_input", coverage.error, 400);
+      /* a full day of leave on a day the pattern gives no hours to is not a leave day */
+      if (!isPartialLeave({ days: b.days, day_part: coverage.day_part, coverage_json: coverage.coverage_json, start_date: sdL, end_date: edL } as LeaveCoverage)) {
+        let working = 0;
+        const atL = await shiftResolver(env).catch(() => null); // read the schedule once, not per day
+        for (let t = Date.parse(`${sdL}T00:00:00Z`); t <= Date.parse(`${edL}T00:00:00Z`); t += 86400000) {
+          const d = new Date(t).toISOString().slice(0, 10);
+          const shL = atL ? atL(uid, d) : null;
+          if (!shL || shL.kind !== "rest_day") working += 1;
+        }
+        if (working === 0) return err("invalid_input", `${sdL === edL ? sdL : `${sdL} to ${edL}`} is a rest day on your pattern - there is no working day to take leave from.`, 400);
+        if (b.days > working) return err("invalid_input", `${b.days} day(s) asked, but only ${working} working day(s) fall in ${sdL} to ${edL}.`, 400);
+      }
+      return { sdL, edL, coverage };
+  };
   if (path === "/leave" && method === "POST") {
     /* v1.93.0 — a part-time host has no leave to apply for. Said here, so
        the form cannot create a request the balance would then show as
@@ -5967,67 +6042,23 @@ async function handleStaffRoutes(
     if (await isHourlyUserId(env, user.id)) {
       return err("forbidden", "Part-time hosts are paid by the hour and have no leave entitlement", 403);
     }
-    if (
-      !body || typeof body.type !== "string" || !LEAVE_TYPES.includes(body.type as never) ||
-      !str(body.start_date, 10) || !str(body.end_date, 10) ||
-      typeof body.days !== "number" || body.days <= 0 || body.days > 60
-    ) {
-      return err("invalid_input", "type, start_date, end_date, and days are required", 400);
-    }
-    /* v1.243.0 (go-live audit D6) - FOUR THINGS A LEAVE REQUEST MUST BE:
-       real dates in the right order, not far in the past or the future;
-       no more days than the span holds; not overlapping another request of
-       this person that is still live (applied, in review, or approved); and
-       for annual leave, within what is left of the year's entitlement. */
-    const sdL = String(body.start_date), edL = String(body.end_date);
-    if (!validDay(sdL) || !validDay(edL) || edL < sdL) return err("invalid_input", "start_date and end_date must be real dates, and the end must not precede the start", 400);
-    const todayL = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const daysBack = (Date.parse(`${todayL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000;
-    const daysAhead = (Date.parse(`${sdL}T00:00:00Z`) - Date.parse(`${todayL}T00:00:00Z`)) / 86400000;
-    if (daysBack > 60) return err("invalid_input", "A leave cannot start more than 60 days ago. Ask HR to record an older one.", 400);
-    if (daysAhead > 400) return err("invalid_input", "A leave cannot start more than 400 days ahead.", 400);
-    const spanDays = (Date.parse(`${edL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000 + 1;
-    if (body.days > spanDays) return err("invalid_input", `${body.days} day(s) do not fit in ${sdL} to ${edL} (${spanDays} calendar day(s)).`, 400);
-    const clashL = await env.DB.prepare(
-      `SELECT id, type, start_date, end_date, status FROM leave_requests
-        WHERE user_id = ?1 AND status NOT IN ('rejected', 'cancelled') AND start_date <= ?3 AND end_date >= ?2 LIMIT 1`,
-    ).bind(user.id, sdL, edL).first<{ id: number; type: string; start_date: string; end_date: string; status: string }>();
-    if (clashL) return err("overlap", `You already have ${clashL.type} leave ${clashL.status === "approved" ? "approved" : "applied"} for ${clashL.start_date}${clashL.end_date !== clashL.start_date ? ` to ${clashL.end_date}` : ""}. Cancel or amend that one first.`, 409);
-    if (body.type === "annual" || body.type === "medical") {
-      const yearL = Number(sdL.slice(0, 4));
-      const rowL = await leaveBalanceRow(env, user.id, yearL, body.type);
-      const usedL = await env.DB.prepare(
-        `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests WHERE user_id = ?1 AND type = ?2 AND status NOT IN ('rejected', 'cancelled') AND start_date LIKE ?3 || '%'`,
-      ).bind(user.id, body.type, String(yearL)).first<{ used: number }>();
-      const entitledL = (rowL.entitled ?? DEFAULT_ENTITLEMENT[body.type] ?? 0) + (rowL.adjust ?? 0);
-      const leftL = entitledL - ((usedL?.used ?? 0) + (rowL.used_adjust ?? 0));
-      if (body.days > leftL) return err("over_entitlement", `Only ${Math.max(0, leftL)} day(s) of ${body.type} leave are left for ${yearL} (${entitledL} entitled, ${entitledL - leftL} taken or applied). ${body.type === "annual" ? "Apply for the days you have, or for unpaid leave." : "Attach the medical certificate and ask HR to adjust the entitlement."}`, 400);
-    }
-    const coverage = await leaveCoverageFor(env, user.id, sdL, edL, body.days, body.day_part);
-    if (coverage.error) return err("invalid_input", coverage.error, 400);
-    /* a full day of leave on a day the pattern gives no hours to is not a leave day */
-    if (!isPartialLeave({ days: body.days, day_part: coverage.day_part, coverage_json: coverage.coverage_json, start_date: sdL, end_date: edL } as LeaveCoverage)) {
-      let working = 0;
-      const atL = await shiftResolver(env).catch(() => null); // read the schedule once, not per day
-      for (let t = Date.parse(`${sdL}T00:00:00Z`); t <= Date.parse(`${edL}T00:00:00Z`); t += 86400000) {
-        const d = new Date(t).toISOString().slice(0, 10);
-        const shL = atL ? atL(user.id, d) : null;
-        if (!shL || shL.kind !== "rest_day") working += 1;
-      }
-      if (working === 0) return err("invalid_input", `${sdL === edL ? sdL : `${sdL} to ${edL}`} is a rest day on your pattern - there is no working day to take leave from.`, 400);
-      if (body.days > working) return err("invalid_input", `${body.days} day(s) asked, but only ${working} working day(s) fall in ${sdL} to ${edL}.`, 400);
-    }
+    const chk = await checkLeave(user.id, body);
+    if (chk instanceof Response) return chk;
+    const { coverage } = chk;
+    const b = body!;
     const res = await env.DB.prepare(
       `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
     ).bind(
-      user.id, body.type, body.start_date, body.end_date, body.days,
-      str(body.reason, 1000) ? body.reason : null,
-      typeof body.mc_media_id === "number" ? body.mc_media_id : null,
+      user.id, b.type, b.start_date, b.end_date, b.days,
+      str(b.reason, 1000) ? b.reason : null,
+      typeof b.mc_media_id === "number" ? b.mc_media_id : null,
       coverage.day_part, coverage.coverage_json,
     ).first<{ id: number }>();
     await stampIssuer(env, "leave_requests", res?.id);
     await audit(env, user.id, "leave.apply", "leave_requests", String(res?.id));
+    /* v1.252.0 (D3) - HR is told a request is waiting on them */
+    if (res?.id) await notifyLeaveActors(env, res.id, "applied", user.role, user.id, `${user.name} applied for ${String(b.type)} leave (${String(b.start_date)}${b.end_date !== b.start_date ? ` to ${String(b.end_date)}` : ""}) - it waits on your review`);
     return json({ id: res?.id }, 201);
   }
 
@@ -6045,17 +6076,35 @@ async function handleStaffRoutes(
         (SELECT COUNT(*) FROM leave_requests l2 WHERE date(l2.created_at) = date(l.created_at) AND l2.id <= l.id) AS day_seq,
         u.name AS user_name, u.full_name AS user_full, u.position AS user_position, u.department AS user_department, u.role AS applicant_role,
         hu.name AS hr_by_name, pu.name AS preapp_by_name, pu.full_name AS preapp_by_full, pu.role AS preapp_by_role,
-        fu.name AS final_by_name, fu.full_name AS final_by_full
+        fu.name AS final_by_name, fu.full_name AS final_by_full,
+        COALESCE(NULLIF(TRIM(ru.full_name), ''), ru.name) AS returned_by_name
       FROM leave_requests l JOIN users u ON u.id = l.user_id
       LEFT JOIN users hu ON hu.id = l.hr_by
       LEFT JOIN users pu ON pu.id = l.preapp_by
-      LEFT JOIN users fu ON fu.id = l.final_by`;
+      LEFT JOIN users fu ON fu.id = l.final_by
+      LEFT JOIN users ru ON ru.id = l.returned_by`;
     const { results } = await env.DB.prepare(
       all
         ? `${LSEL} ORDER BY l.created_at DESC LIMIT 200`
         : `${LSEL} WHERE l.user_id = ?1 ORDER BY l.created_at DESC LIMIT 100`,
-    ).bind(...(all ? [] : [user.id])).all();
-    return json({ leave: results });
+    ).bind(...(all ? [] : [user.id])).all<Record<string, unknown> & LeaveTimelineRow & { id: number; user_id: number; start_date: string; end_date: string }>();
+    /* v1.252.0 - THE TIMELINE, worked out once on the server (leave-chain.ts)
+       and sent with each row, with whether THIS person can decide it now
+       (the chain's own rule - the screen no longer keeps a copy) and the
+       payroll months it touches that are already released. */
+    let released: { month: string; released_at: string }[] = [];
+    try { released = (await env.DB.prepare(`SELECT month, released_at FROM payslip_releases WHERE released_at IS NOT NULL`).all<{ month: string; released_at: string }>()).results; } catch { /* pre-release table */ }
+    const monthsOf = (a: string, b: string) => { const out: string[] = []; let m = a.slice(0, 7); while (m <= b.slice(0, 7) && out.length < 24) { out.push(m); const [y, mo] = m.split("-").map(Number); m = mo === 12 ? `${y! + 1}-01` : `${y}-${String(mo! + 1).padStart(2, "0")}`; } return out; };
+    const leave = results.map((l) => {
+      const touched = monthsOf(String(l.start_date), String(l.end_date)).filter((m) => released.some((r) => r.month === m && (l.stage !== "approved" || r.released_at <= String(l.final_at ?? (l.recorded_direct ? l.created_at : "9999")))));
+      return {
+        ...l,
+        timeline: leaveTimeline(l, touched),
+        waiting_on: leaveWaitingOn(String(l.stage), String(l.applicant_role ?? "")),
+        can_act: leaveCanActAt(user, String(l.stage), String(l.applicant_role ?? ""), Number(l.user_id)),
+      };
+    });
+    return json({ leave });
   }
 
   /* v1.131.0 — WHICH DAYS ARE CLOSED, for the roster's pickers.
@@ -6290,36 +6339,42 @@ async function handleStaffRoutes(
   if (leaveMatch && method === "PATCH") {
     const id = leaveMatch[1]!;
     const row = await env.DB.prepare(
-      `SELECT l.user_id, l.stage, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json, u.role AS applicant_role
+      `SELECT l.user_id, l.stage, l.type, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json, l.returned_from, u.role AS applicant_role, u.name AS applicant_name
        FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`,
-    ).bind(id).first<LeaveCoverage & { user_id: number; stage: string; applicant_role: string }>();
+    ).bind(id).first<LeaveCoverage & { user_id: number; stage: string; type: string; returned_from: string | null; applicant_role: string; applicant_name: string }>();
     if (!row) return err("not_found", "Leave request not found", 404);
 
     const action = body?.action;
-    const comment = str(body?.comment, 500) ? (body!.comment as string) : null;
+    const comment = str(body?.comment, 500) ? (body!.comment as string).trim() : null;
+    const TERMINAL_L = ["approved", "rejected", "cancelled"];
+
+    /* v1.252.0 (claude/LEAVE-TIMELINE-AUDIT.md section 4) - ONE DECISION PER
+       STAGE. Every write below names the stage it read (`AND stage = ?`):
+       two officers pressing at once (the COO and the CCO), or an approval
+       landing just after a rejection, used to both succeed - the second
+       overwrote the first, and a rejected request could come back to life.
+       Now the second finds no row and is told who got there first. */
+    const conflict = async () => {
+      const now = await env.DB.prepare(
+        `SELECT l.stage, COALESCE(NULLIF(TRIM(f.full_name), ''), f.name) AS by_name FROM leave_requests l LEFT JOIN users f ON f.id = COALESCE(l.final_by, l.preapp_by, l.hr_by, l.returned_by, l.cancelled_by) WHERE l.id = ?1`,
+      ).bind(id).first<{ stage: string; by_name: string | null }>();
+      return err("already_decided", `This request was just ${leaveStageLabel(now?.stage ?? "")}${now?.by_name ? ` (${now.by_name})` : ""} - nothing was changed. Refresh to see where it stands.`, 409);
+    };
+    const changed = (r: { meta?: { changes?: number } }) => Number(r.meta?.changes ?? 0) > 0;
 
     /* v1.72.0 (CEO: "I want to have a function for me to approved the leave
-       form of all the staff which is can by pass their HOD").
-
-       The chain exists for a reason and stays exactly as it is: HR checks
-       the balance, the COO or CCO pre-approves, the CEO signs. What it
-       cannot survive is a person being away. A request stuck at HR while
-       the applicant is already on the plane is not governance, it is a
-       queue - and the CEO is the last signature on that form anyway, so
-       nothing is being approved by someone who could not have approved it.
-
-       The bypass is NOT a silent shortcut. hr_by and preapp_by stay NULL
-       while final_by carries the CEO, and that shape is exactly what the
-       printed form and the Leave tab read to say the stages were skipped -
-       no extra column needed to tell the two paths apart. audit_log records
-       the stage it jumped from. */
+       form of all the staff which is can by pass their HOD"). The chain
+       stays: HR checks the balance, the COO or CCO pre-approves, the CEO
+       signs. The CEO may decide past a stage whose approver is away. The
+       bypass is NOT a silent shortcut: hr_by and preapp_by stay NULL while
+       final_by carries the CEO - the timeline shows those stages as skipped,
+       never as signed - and audit_log records the stage it jumped from. */
     const OVERRIDE_ROLES: readonly Role[] = ["super_admin", "ceo"];
     if (body?.override === true && !OVERRIDE_ROLES.includes(user.role)) {
       return err("forbidden", "Only the CEO can decide outside the approval chain", 403);
     }
     const override = body?.override === true;
-    /* One rule the override does NOT relax: nobody signs their own leave.
-       That is the whole integrity of the form. */
+    /* Nobody signs their own leave - the whole integrity of the form. */
     if (override && row.user_id === user.id) {
       return err("forbidden", "You cannot approve your own leave", 403);
     }
@@ -6327,14 +6382,69 @@ async function handleStaffRoutes(
       return err("invalid_input", "This request is already closed", 400);
     }
 
-    // Owner may cancel while the request is still moving.
+    /* Owner may withdraw while the request is still moving (a returned one
+       too). v1.252.0: the time and who are kept, the trail has a line, and
+       whoever it was waiting on is told it is gone. */
     if (action === "cancel") {
       if (row.user_id !== user.id) return err("forbidden", "Not your request", 403);
-      if (["approved", "rejected", "cancelled"].includes(row.stage)) {
-        return err("invalid_input", "This request is already closed", 400);
+      if (TERMINAL_L.includes(row.stage)) return err("invalid_input", "This request is already closed", 400);
+      const r = await env.DB.prepare(
+        `UPDATE leave_requests SET stage = 'cancelled', status = 'cancelled', cancelled_at = datetime('now'), cancelled_by = ?2 WHERE id = ?1 AND stage = ?3`,
+      ).bind(id, user.id, row.stage).run();
+      if (!changed(r)) return conflict();
+      await audit(env, user.id, "leave.cancel", "leave_requests", id, { from_stage: row.stage });
+      if (row.stage !== "returned") await notifyLeaveActors(env, Number(id), row.stage, row.applicant_role, row.user_id, `${row.applicant_name} withdrew their ${row.type} leave request #${id} - nothing to decide`, ":withdrawn");
+      return json({ ok: true, stage: "cancelled" });
+    }
+
+    /* v1.252.0 (D1) - RETURNED FOR MORE INFORMATION. The approver at the
+       current stage sends it back with a question; the applicant answers by
+       resubmitting, and it comes back to the same stage. Nothing is
+       approved or rejected by it. */
+    if (action === "return") {
+      if (override) return err("invalid_input", "Return the request at its own stage, without the override", 400);
+      if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+        return err("forbidden", "You cannot act on this request at its current stage", 403);
       }
-      await env.DB.prepare(`UPDATE leave_requests SET stage = 'cancelled', status = 'cancelled' WHERE id = ?1`).bind(id).run();
-      return json({ ok: true });
+      if (!comment || comment.length < 10) return err("reason_required", "Write the question for the applicant (at least 10 characters)", 400);
+      const r = await env.DB.prepare(
+        `UPDATE leave_requests SET stage = 'returned', returned_from = ?2, returned_by = ?3, returned_at = datetime('now'), return_question = ?4 WHERE id = ?1 AND stage = ?2`,
+      ).bind(id, row.stage, user.id, comment).run();
+      if (!changed(r)) return conflict();
+      await env.DB.prepare(`INSERT INTO leave_comments (leave_id, author_id, visibility, body) VALUES (?1, ?2, 'employee', ?3)`).bind(Number(id), user.id, `Returned for more information: ${comment}`).run();
+      await audit(env, user.id, "leave.return", "leave_requests", id, { from_stage: row.stage, question: comment });
+      await notify(env, row.user_id, "leave", `Your leave request #${id} was returned with a question from ${user.name}: ${comment.slice(0, 160)}`, `leave:${id}:returned`);
+      return json({ ok: true, stage: "returned" });
+    }
+
+    /* v1.252.0 (D1) - THE ANSWER. Only the applicant, only while returned.
+       New dates, days or a new reason pass the same checks as a new request
+       (checkLeave, not clashing with itself); the answer is kept as a
+       comment the approvers read; the request goes back to the stage it
+       left, and whoever acts there is told. */
+    if (action === "resubmit") {
+      if (row.user_id !== user.id) return err("forbidden", "Not your request", 403);
+      if (row.stage !== "returned" || !row.returned_from) return err("invalid_input", "Only a returned request can be resubmitted", 400);
+      if (!comment || comment.length < 3) return err("reason_required", "Answer the question before resubmitting", 400);
+      const before = await env.DB.prepare(`SELECT type, start_date, end_date, days, reason, day_part FROM leave_requests WHERE id = ?1`).bind(id).first<Record<string, unknown>>();
+      const next = {
+        type: row.type,
+        start_date: typeof body?.start_date === "string" ? body.start_date : row.start_date,
+        end_date: typeof body?.end_date === "string" ? body.end_date : row.end_date,
+        days: typeof body?.days === "number" ? body.days : row.days,
+        day_part: body?.day_part ?? before?.day_part ?? null,
+        reason: str(body?.reason, 1000) ? body!.reason : (before?.reason ?? null),
+      };
+      const chk = await checkLeave(row.user_id, next, Number(id));
+      if (chk instanceof Response) return chk;
+      const r = await env.DB.prepare(
+        `UPDATE leave_requests SET stage = ?2, start_date = ?3, end_date = ?4, days = ?5, reason = ?6, day_part = ?7, coverage_json = ?8 WHERE id = ?1 AND stage = 'returned'`,
+      ).bind(id, row.returned_from, chk.sdL, chk.edL, next.days, next.reason, chk.coverage.day_part, chk.coverage.coverage_json).run();
+      if (!changed(r)) return conflict();
+      await env.DB.prepare(`INSERT INTO leave_comments (leave_id, author_id, visibility, body) VALUES (?1, ?2, 'employee', ?3)`).bind(Number(id), user.id, comment).run();
+      await audit(env, user.id, "leave.resubmit", "leave_requests", id, { to_stage: row.returned_from, before, after: { start_date: chk.sdL, end_date: chk.edL, days: next.days, reason: next.reason }, answer: comment });
+      await notifyLeaveActors(env, Number(id), row.returned_from, row.applicant_role, row.user_id, `${row.applicant_name} answered and resubmitted leave request #${id} - it waits on you again`, `:resubmit${Date.now()}`);
+      return json({ ok: true, stage: row.returned_from });
     }
 
     // Reject at any active stage ends the request.
@@ -6342,48 +6452,40 @@ async function handleStaffRoutes(
       if (!override && !leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
         return err("forbidden", "You cannot act on this request at its current stage", 403);
       }
-      await env.DB.prepare(
+      /* v1.252.0 - the applicant is told why */
+      if (!comment || comment.length < 5) return err("reason_required", "Give the reason for the rejection (at least 5 characters) - the applicant reads it", 400);
+      const r = await env.DB.prepare(
         `UPDATE leave_requests SET stage = 'rejected', status = 'rejected',
-           review_comment = ?2, final_by = ?3, final_at = datetime('now') WHERE id = ?1`,
-      ).bind(id, comment, user.id).run();
-      await notify(env, row.user_id, "leave", `Your leave request #${id} was rejected`, `leave:${id}`);
-      await audit(env, user.id, override ? "leave.override_reject" : "leave.reject", "leave_requests", id,
-        override ? { from_stage: row.stage } : undefined);
-      return json({ ok: true });
+           review_comment = ?2, final_by = ?3, final_at = datetime('now') WHERE id = ?1 AND stage = ?4`,
+      ).bind(id, comment, user.id, row.stage).run();
+      if (!changed(r)) return conflict();
+      await notify(env, row.user_id, "leave", `Your leave request #${id} was rejected: ${comment.slice(0, 160)}`, `leave:${id}`);
+      await audit(env, user.id, override ? "leave.override_reject" : "leave.reject", "leave_requests", id, { from_stage: row.stage, note: comment });
+      return json({ ok: true, stage: "rejected" });
     }
 
     // Approve advances one stage along the applicant's chain.
     if (action === "approve") {
+      if (row.stage === "returned") return err("invalid_input", "This request is with the applicant for more information - it comes back when they resubmit", 409);
       if (isPartialLeave(row) && !savedCoverage(row)) {
         return err("coverage_review", "Management must confirm the half-day coverage before this request can be approved", 409);
       }
-      /* v1.127.0 — the step-up guards the SIGNATURE, so it applies to the two
-         approvals that attach the CEO chop: the override (straight to
-         approved) and the last stage of the normal chain. HR review and
-         pre-approval advance the form without putting the final chop on it,
-         and gating them would ask a manager for a code four times a day for
-         a decision that signs nothing. */
+      /* v1.127.0 — the step-up guards the SIGNATURE: the override and the
+         last stage of the normal chain attach the CEO chop. */
       const willBeFinal = override || leaveNextStage(row.stage, row.applicant_role) === "approved";
       if (willBeFinal) {
         const stepUp = await requireFreshTotp(env, user, body?.totp, err);
         if (stepUp) return stepUp;
       }
-      /* The bypass: straight to fully approved from whatever stage it was
-         sitting at, with the CEO as the final signature. */
       if (override) {
-        await env.DB.prepare(
+        const r = await env.DB.prepare(
           `UPDATE leave_requests SET stage = 'approved', status = 'approved',
              review_comment = COALESCE(?2, review_comment),
-             final_by = ?3, final_at = datetime('now') WHERE id = ?1`,
-        ).bind(id, comment, user.id).run();
-        await notify(
-          env, row.user_id, "leave",
-          `Your leave request #${id} was approved directly by the CEO`,
-          `leave:${id}`,
-        );
-        await audit(env, user.id, "leave.override_approve", "leave_requests", id, {
-          from_stage: row.stage, applicant: row.user_id,
-        });
+             final_by = ?3, final_at = datetime('now') WHERE id = ?1 AND stage = ?4`,
+        ).bind(id, comment, user.id, row.stage).run();
+        if (!changed(r)) return conflict();
+        await notify(env, row.user_id, "leave", `Your leave request #${id} was approved directly by the CEO`, `leave:${id}`);
+        await audit(env, user.id, "leave.override_approve", "leave_requests", id, { from_stage: row.stage, applicant: row.user_id, ...(comment ? { note: comment } : {}) });
         return json({ ok: true, stage: "approved", bypassed_from: row.stage });
       }
       if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
@@ -6395,19 +6497,80 @@ async function handleStaffRoutes(
         row.stage === "applied" ? "hr_by = ?3, hr_at = datetime('now')"
         : row.stage === "hr_reviewed" ? "preapp_by = ?3, preapp_at = datetime('now')"
         : "final_by = ?3, final_at = datetime('now')";
-      await env.DB.prepare(
-        `UPDATE leave_requests SET stage = ?2, status = ?4, review_comment = COALESCE(?5, review_comment), ${col} WHERE id = ?1`,
-      ).bind(id, next, user.id, done ? "approved" : "pending", comment).run();
+      const r = await env.DB.prepare(
+        `UPDATE leave_requests SET stage = ?2, status = ?4, review_comment = COALESCE(?5, review_comment), ${col} WHERE id = ?1 AND stage = ?6`,
+      ).bind(id, next, user.id, done ? "approved" : "pending", comment, row.stage).run();
+      if (!changed(r)) return conflict();
       await notify(
         env, row.user_id, "leave",
         done ? `Your leave request #${id} is fully approved`
              : `Your leave request #${id} advanced to ${leaveStageLabel(next)}`,
         `leave:${id}`,
       );
-      await audit(env, user.id, `leave.advance.${next}`, "leave_requests", id);
+      await audit(env, user.id, `leave.advance.${next}`, "leave_requests", id, { from_stage: row.stage, ...(comment ? { note: comment } : {}) });
+      /* v1.252.0 (D3) - whoever decides next is told */
+      if (!done) await notifyLeaveActors(env, Number(id), next, row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}) waits on your ${next === "hr_reviewed" ? "pre-approval" : "final approval"}`);
       return json({ ok: true, stage: next });
     }
-    return err("invalid_input", "action must be cancel, approve, or reject", 400);
+    return err("invalid_input", "action must be cancel, approve, reject, return or resubmit", 400);
+  }
+
+  /* v1.252.0 (D2) - THE COMMENT THREAD on one leave. Who reads a leave reads
+     its employee notes; only management (leaveSeesAll) reads and writes
+     internal ones. The applicant writes employee notes on their own leave
+     and never sees an internal note. Append-only (0166 triggers). */
+  const leaveTalk = path.match(/^\/leave\/(\d+)\/(comments|activity)$/);
+  if (leaveTalk) {
+    const lid = Number(leaveTalk[1]);
+    const lr = await env.DB.prepare(`SELECT l.id, l.user_id, l.stage, u.role AS applicant_role, u.name AS applicant_name FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`)
+      .bind(lid).first<{ id: number; user_id: number; stage: string; applicant_role: string; applicant_name: string }>();
+    const mgmt = leaveSeesAll(user.role);
+    const own = !!lr && lr.user_id === user.id;
+    if (!lr || (!mgmt && !own)) return err("not_found", "Leave request not found", 404);
+    const internalOk = mgmt && !own;
+    if (leaveTalk[2] === "comments" && method === "GET") {
+      const { results } = await env.DB.prepare(
+        `SELECT c.id, c.visibility, c.body, c.created_at, c.author_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS author
+           FROM leave_comments c LEFT JOIN users u ON u.id = c.author_id
+          WHERE c.leave_id = ?1 ${internalOk ? "" : "AND c.visibility = 'employee'"} ORDER BY c.id`,
+      ).bind(lid).all();
+      return json({ comments: results, can_internal: internalOk });
+    }
+    if (leaveTalk[2] === "comments" && method === "POST") {
+      const text = typeof body?.body === "string" ? body.body.trim() : "";
+      if (text.length < 2 || text.length > 1000) return err("invalid_input", "Write the comment (2 to 1000 characters)", 400);
+      const vis = body?.visibility === "internal" ? "internal" : "employee";
+      if (vis === "internal" && !internalOk) return err("forbidden", "Only management writes internal notes", 403);
+      const ck = typeof body?.client_key === "string" ? body.client_key.slice(0, 80) : null;
+      if (ck) {
+        const again = await env.DB.prepare(`SELECT id FROM leave_comments WHERE author_id = ?1 AND client_key = ?2`).bind(user.id, ck).first<{ id: number }>();
+        if (again) return json({ ok: true, id: again.id, existing: true });
+      }
+      const ins = await env.DB.prepare(`INSERT INTO leave_comments (leave_id, author_id, visibility, body, client_key) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`)
+        .bind(lid, user.id, vis, text, ck).first<{ id: number }>();
+      await audit(env, user.id, "leave.comment", "leave_requests", String(lid), { comment: ins?.id, visibility: vis });
+      /* the other side is told: the applicant of a note they can read; whoever acts now of the applicant's note */
+      if (own) {
+        if (!["approved", "rejected", "cancelled"].includes(lr.stage) && lr.stage !== "returned") await notifyLeaveActors(env, lid, lr.stage, lr.applicant_role, lr.user_id, `${lr.applicant_name} commented on leave request #${lid}: ${text.slice(0, 120)}`, `:c${ins?.id ?? ""}`);
+      } else if (vis === "employee") {
+        await notify(env, lr.user_id, "leave", `${user.name} commented on your leave request #${lid}: ${text.slice(0, 120)}`, `leave:${lid}:c${ins?.id ?? ""}`);
+      }
+      return json({ ok: true, id: ins?.id }, 201);
+    }
+    if (leaveTalk[2] === "activity" && method === "GET") {
+      /* the audit trail of this leave - what happened, by whom, when. The
+         applicant reads the same lines without the internal notes in them */
+      const { results } = await env.DB.prepare(
+        `SELECT a.id, a.action, a.created_at, a.detail, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who
+           FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+          WHERE a.entity = 'leave_requests' AND a.entity_id = ?1 ORDER BY a.id`,
+      ).bind(String(lid)).all<{ id: number; action: string; created_at: string; detail: string | null; who: string | null }>();
+      const rows = results
+        .filter((a) => internalOk || !(a.action === "leave.comment" && /"visibility":"internal"/.test(a.detail ?? "")))
+        .map((a) => ({ id: a.id, action: a.action, created_at: a.created_at, who: a.who, ...(internalOk ? { detail: a.detail } : {}) }));
+      return json({ activity: rows });
+    }
+    return err("method_not_allowed", "Use GET or POST", 405);
   }
 
   /* ---- v1.218.0 - Cards 2.0: does each card still match the staff record?

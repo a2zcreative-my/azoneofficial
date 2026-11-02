@@ -69,10 +69,13 @@ const overview = read("components/portal/leave-overview.tsx");
   const out = join(dir, "chain.mjs");
   execSync(`npx esbuild "${join(root, "worker/src/leave-chain.ts")}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
   const chain = await import(pathToFileURL(out).href);
-  const list = (name) => [...((leave.match(new RegExp(`const ${name} = \\[([^\\]]*)\\]`)) ?? [])[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort().join();
-  ok("the page's HR stage is the worker's", list("HR") === [...chain.HR_STAGE_ROLES].sort().join(), list("HR"));
-  ok("the page's pre-approvers are the worker's", list("PRE") === [...chain.PREAPP_ROLES].sort().join(), list("PRE"));
-  ok("the page's final approvers are the worker's", list("FIN") === [...chain.FINAL_ROLES].sort().join(), list("FIN"));
+  /* v1.252.0 - the page keeps NO copy of the chain any more: the server sends
+     can_act (leaveCanActAt) and waiting_on with every request, and both the
+     board and the drawer read them */
+  ok("the page holds no copy of the approval lists", !/function canActOnStage|const (HR|PRE|FIN) = \[/.test(strip(leave)));
+  ok("the board and the drawer decide on the server's can_act", /const mine = inProgress && l\.can_act === true;/.test(leave) && /const waitsOnMe = d \? inProgress && d\.can_act === true && !own : false;/.test(leave));
+  const staffSrc = read("worker/src/staff.ts");
+  ok("the server sends can_act from the chain's own rule", /can_act: leaveCanActAt\(user, String\(l\.stage\), String\(l\.applicant_role \?\? ""\), Number\(l\.user_id\)\)/.test(staffSrc) && typeof chain.leaveTimeline === "function" && typeof chain.leaveWaitingOn === "function");
   const approvers = [...((leave.match(/const canApprove = \[([^\]]*)\]/) ?? [])[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
   const roles = ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"];
   ok("the roles that see the company board are leaveSeesAll's", JSON.stringify(approvers) === JSON.stringify(roles.filter((r) => chain.leaveSeesAll(r)).sort()), `${approvers}`);
@@ -87,7 +90,7 @@ const overview = read("components/portal/leave-overview.tsx");
   ok("the related records are links, gated by the tab strip", /canOpen\("Staff Details"\) &&/.test(rel) && /canOpen\("Attendance"\) &&/.test(rel) && /\{canOpen\("Payroll"\) && \(/.test(rel) && /openRecord\("Staff Details", "staff", l\.user_id!\)/.test(rel));
   ok("…and carry no figure and make no request", !/\bapi\b|csrfFetch|_cents|RM \$|salary|net_pay|gross/.test(rel));
   const drawer = strip(leave.slice(leave.indexOf("THE LEAVE DETAILS DRAWER"), leave.lastIndexOf("</SideDrawer>")));
-  ok("the drawer's decisions wait on you (the stage) and never on your own", /const waitsOnMe = d \? inProgress && canActOnStage\(user\.role, d\.stage \?\? "", d\.applicant_role \?\? ""\) && !own : false;/.test(drawer) && /\{waitsOnMe && \(/.test(drawer));
+  ok("the drawer's decisions wait on you (the stage) and never on your own", /const waitsOnMe = d \? inProgress && d\.can_act === true && !own : false;/.test(drawer) && /\{waitsOnMe && \(/.test(drawer)); // v1.252.0 - the server's can_act
   ok("the override is the CEO's, the amend and remove the CEO's, the cancel your own", /\{!waitsOnMe && inProgress && canOverride && !own && \(/.test(drawer) && /\{canAmend && !inProgress && \(/.test(drawer) && /\{own && inProgress && <button/.test(drawer));
   ok("the drawer calls only the page's own functions", !/\bapi\(|csrfFetch/.test(drawer) && /act\(d\.id, "approve"\)/.test(drawer) && /overrideAct\(d, "approve"\)/.test(drawer) && /removeLeave\(d\)/.test(drawer));
   ok("the gates are the ones they were", /const canOverride = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(leave) && /const canAmend = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(leave));

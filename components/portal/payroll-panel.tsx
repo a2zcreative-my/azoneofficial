@@ -1,4 +1,5 @@
 "use client";
+import { StageTimeline } from "@/components/ui/stage-timeline"; // v1.252.0 - one timeline for Payroll and Leave
 import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openPrintPreview } from "@/components/ui/document-preview";
 
@@ -1315,8 +1316,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
 
           <section className={card} aria-label={L("Payroll timeline", "Garis masa gaji")}>
             {head("orders", pp.blueWell, L("Payroll Timeline", "Garis Masa Gaji"), L("Where this month's run stands", "Kedudukan larian bulan ini"))}
-            <ol className={pp.steps}>
-              {[
+            {/* v1.252.0 - the shared StageTimeline (Leave draws the same one) */}
+            <StageTimeline label={L("Payroll timeline", "Garis masa gaji")} stages={[
                 { t: L("Calculate payroll", "Kira gaji"), s: L("Basic, allowance, OT and deductions", "Pokok, elaun, OT dan potongan"),
                   done: loaded && savedCount === staff.length && dirtyCount === 0,
                   note: loaded ? L(`${savedCount} of ${staff.length} saved`, `${savedCount} daripada ${staff.length} disimpan`) : "" },
@@ -1329,14 +1330,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 { t: L("Release to staff", "Keluarkan kepada kakitangan"), s: L("Payslips available in the staff portal", "Slip gaji tersedia dalam portal kakitangan"),
                   done: !!release?.released,
                   note: release?.released ? L("Released", "Dikeluarkan") : releaseAt },
-              ].map((st, i) => (
-                <li key={st.t} className={`${pp.step} ${st.done ? pp.stepDone : ""}`}>
-                  <span className={pp.stepNo} aria-hidden="true">{st.done ? <AppIcon name="success" /> : i + 1}</span>
-                  <span className={pp.stepText}><strong>{st.t}</strong><span>{st.s}</span></span>
-                  <span className={pp.stepNote}>{st.note}</span>
-                </li>
-              ))}
-            </ol>
+              ].map((st) => ({ key: st.t, title: st.t, sub: st.s, state: st.done ? "done" as const : "todo" as const, aside: st.note }))} />
           </section>
         </div>
 

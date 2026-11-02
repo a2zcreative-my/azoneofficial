@@ -41,6 +41,7 @@ import lv from "./leave-page.module.css"; // v1.196.0 - the Leave page's tabs
 import { usePortal } from "@/components/portal/portal-provider"; // v1.206.0 - the drawer's related links
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { Avatar } from "@/components/ui/avatar";
+import { StageDots, StageTimeline, type Stage, type StageState } from "@/components/ui/stage-timeline"; // v1.252.0
 
 function coverageLabel(l: LeaveReq): string {
   if (!isPartialLeave(l)) return "";
@@ -77,6 +78,7 @@ export const STAGE_LABEL: Record<string, string> = {
   approved: "Approved",
   rejected: "Rejected",
   cancelled: "Cancelled",
+  returned: "Returned for information",
 };
 /* BM twin of STAGE_LABEL — display only, the stage value itself stays EN. */
 export const STAGE_LABEL_MS: Record<string, string> = {
@@ -87,28 +89,15 @@ export const STAGE_LABEL_MS: Record<string, string> = {
   approved: "Diluluskan",
   rejected: "Ditolak",
   cancelled: "Dibatalkan",
+  returned: "Dikembalikan untuk maklumat",
 };
 export const stageL = (s: string) =>
   (getLang() === "ms" ? STAGE_LABEL_MS[s] : STAGE_LABEL[s]) ?? s;
 
-// Which stage a reviewer role can act on (mirrors the Worker's chain).
-export function canActOnStage(
-  role: string,
-  stage: string,
-  applicantRole: string
-): boolean {
-  const HR = ["super_admin", "admin", "hr_admin"];
-  const PRE = ["super_admin", "admin", "coo", "cco"];
-  const FIN = ["super_admin", "admin", "ceo"];
-  if (stage === "applied") return HR.includes(role);
-  if (stage === "hr_reviewed")
-    return applicantRole === "coo" || applicantRole === "cco"
-      ? FIN.includes(role)
-      : PRE.includes(role);
-  if (stage === "pre_approved" || stage === "pending_final")
-    return FIN.includes(role);
-  return false;
-}
+/* v1.252.0 - NO COPY OF THE CHAIN HERE. The page used to keep its own lists
+   of who acts at which stage (canActOnStage); the server now sends, with
+   every request, whether THIS person can decide it now (`can_act`, from
+   leave-chain.ts leaveCanActAt) and whom it waits on (`waiting_on`). */
 
 /* v1.4.134: printable Leave Application Form — AZOO-HR-LVE-001, same flow
    and layout language as the claim form: employee e-signature + submission
@@ -274,67 +263,230 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
  * and it opens the same grid the person sees on their own history plus the
  * approval trail. Module scope, per guard #30.
  */
-export function LeaveDetail({ l, meName }: { l: LeaveReq; meName: string }) {
-  const whoAt = (name?: string | null, full?: string | null, at?: string | null) =>
-    name || full ? `${properName(full || name || "")}${at ? ` · ${dmyMYT(at)}` : ""}` : "";
-  /* v1.206.0 - the approval trail as steps, from the same fields the printed
-     form reads: who signed each stage and when, the stage it waits on now,
-     and a stage the CEO's override skipped left visibly unsigned */
+/** v1.252.0 - THE APPROVAL TIMELINE, in words, from the server's steps
+    (leave-chain.ts leaveTimeline). Nothing is worked out here but the
+    sentence: who, when, what is waited on, what was written. */
+export function leaveStages(l: LeaveReq): Stage[] {
+  const at = (x: string | null) => (x ? dmyMYT(x) : "");
+  const title: Record<string, string> = {
+    submitted: L("Application submitted", "Permohonan dihantar"),
+    recorded: L("Recorded by management from Attendance", "Direkod oleh pengurusan dari Kehadiran"),
+    hr: L("HR review", "Semakan HR"),
+    pre: L("Pre-approval - COO or CCO", "Pra-kelulusan - COO atau CCO"),
+    final: L("CEO decision", "Keputusan CEO"),
+    effect: L("In Attendance & Payroll", "Dalam Kehadiran & Gaji"),
+  };
+  const waits: Record<string, string> = {
+    hr: L("Waiting on HR", "Menunggu HR"),
+    pre: L("Waiting on the COO or the CCO - either one decides", "Menunggu COO atau CCO - salah seorang memutuskan"),
+    final: L("Waiting on the CEO", "Menunggu CEO"),
+  };
+  return (l.timeline ?? []).map((s): Stage => {
+    const who = s.who ? properName(s.who) : "";
+    const whoAt = [who, at(s.at)].filter(Boolean).join(" · ");
+    const released = typeof s.flags?.released_months === "string" ? String(s.flags.released_months).split(",").map((m) => monthName(m)).join(", ") : "";
+    const base: Stage = { key: s.key, title: title[s.key] ?? s.key, state: s.state as StageState };
+    switch (s.state) {
+      case "done":
+        return { ...base,
+          sub: s.key === "effect" ? L(`Counted in Attendance and Payroll from ${at(s.at) || "the approval"}`, `Dikira dalam Kehadiran dan Gaji mulai ${at(s.at) || "kelulusan"}`)
+            : s.key === "final" && s.flags?.override ? L(`Decided directly by ${who || "the CEO"}${s.at ? ` · ${at(s.at)}` : ""}`, `Diputuskan terus oleh ${who || "CEO"}${s.at ? ` · ${at(s.at)}` : ""}`)
+            : whoAt || "—",
+          note: s.text || undefined,
+          warn: released ? L(`Payroll for ${released} was already released before this approval - HR to review.`, `Gaji untuk ${released} telah dikeluarkan sebelum kelulusan ini - HR perlu menyemak.`) : undefined,
+        };
+      case "now":
+        return { ...base, sub: waits[s.key] ?? "", aside: L("Currently waiting", "Sedang menunggu"),
+          note: s.flags?.returned_resubmitted ? L("It was returned once for more information and resubmitted.", "Ia pernah dikembalikan untuk maklumat dan dihantar semula.") : undefined };
+      case "returned":
+        return { ...base, sub: L(`Returned for more information by ${who || "the approver"}${s.at ? ` · ${at(s.at)}` : ""} - waiting on the applicant`, `Dikembalikan untuk maklumat oleh ${who || "pelulus"}${s.at ? ` · ${at(s.at)}` : ""} - menunggu pemohon`), note: s.text || undefined, aside: L("With the applicant", "Pada pemohon") };
+      case "rejected":
+        return { ...base, title: `${title[s.key] ?? s.key} - ${L("rejected", "ditolak")}`, sub: L(`Rejected by ${who || "the approver"}${s.at ? ` · ${at(s.at)}` : ""}`, `Ditolak oleh ${who || "pelulus"}${s.at ? ` · ${at(s.at)}` : ""}`), note: s.text || undefined };
+      case "withdrawn":
+        return { ...base, title: L("Withdrawn by the applicant", "Ditarik balik oleh pemohon"), sub: s.at ? at(s.at) : L("Withdrawn (the time was not recorded before November 2026)", "Ditarik balik (masa tidak direkod sebelum November 2026)") };
+      case "skipped":
+        return { ...base, sub: L("Skipped - the CEO decided directly", "Dilangkau - CEO memutuskan terus") };
+      case "off":
+        return { ...base, sub: L("Not reached", "Tidak sampai") };
+      default:
+        return { ...base, sub: s.key === "effect" ? L("When the leave is approved", "Apabila cuti diluluskan") : L("Not yet", "Belum"),
+          warn: released ? L(`Payroll for ${released} is already released - HR to review when this is decided.`, `Gaji untuk ${released} telah dikeluarkan - HR perlu menyemak apabila ini diputuskan.`) : undefined };
+    }
+  });
+}
+
+/** v1.252.0 - the compact progress line for a list row or a card */
+export function LeaveDots({ l }: { l: LeaveReq }) {
+  const steps = (l.timeline ?? []).filter((s) => s.key !== "effect");
+  if (!steps.length) return null;
+  return <StageDots states={steps.map((s) => s.state as StageState)} label={`${stageL(l.stage ?? l.status)}`} />;
+}
+
+/**
+ * v1.91.0 — one leave, opened (CEO, 04-09-2026: "Leave — whole company I
+ * want to have a clickable to see the details of the leave application!").
+ * v1.252.0 - in two parts the drawer shows under its own tabs: Progress (the
+ * approval timeline, from the server) and Details (the record and the
+ * printed form).
+ */
+export function LeaveDetail({ l, meName, part = "both" }: { l: LeaveReq; meName: string; part?: "both" | "progress" | "details" }) {
   const st = l.stage ?? l.status;
-  const terminal = ["approved", "rejected", "cancelled"].includes(st);
-  const topTier = l.applicant_role === "coo" || l.applicant_role === "cco";
-  const steps: { key: string; label: string; done: string; state: "done" | "now" | "todo" | "skipped" | "none" }[] = [
-    { key: "applied", label: L("Applied", "Dimohon"), done: whoAt(l.user_name, l.user_full, l.created_at), state: "done" },
-    { key: "hr", label: L("HR reviewed", "Disemak HR"), done: whoAt(l.hr_by_name, null, l.hr_at),
-      state: l.hr_by_name ? "done" : st === "applied" ? "now" : terminal ? "skipped" : "todo" },
-    { key: "pre", label: L("Pre-approved", "Pra-lulus"), done: topTier ? L("Not needed — COO and CCO go straight to the CEO", "Tidak perlu — COO dan CCO terus kepada CEO") : whoAt(l.preapp_by_name, l.preapp_by_full, l.preapp_at),
-      state: topTier ? "none" : l.preapp_by_name ? "done" : st === "hr_reviewed" ? "now" : terminal ? "skipped" : "todo" },
-    { key: "final", label: st === "rejected" ? L("Rejected", "Ditolak") : st === "cancelled" ? L("Withdrawn", "Ditarik balik") : L("Final", "Akhir"),
-      done: st === "cancelled" ? L("Withdrawn by the applicant", "Ditarik balik oleh pemohon") : whoAt(l.final_by_name, l.final_by_full, l.final_at),
-      state: st === "approved" || st === "rejected" || st === "cancelled" ? "done" : st === "pre_approved" || st === "pending_final" ? "now" : "todo" },
-  ];
   const mc = (l as LeaveReq & { mc_media_id?: number | null }).mc_media_id;
   return (
     <div className={lv.detail}>
-      <section className={lv.dSection} aria-label={L("Details", "Butiran")}>
-        <p className={lv.dTitle}>{L("Details", "Butiran")}</p>
-        <DetailGrid
-          items={[
-            { label: L("Leave no.", "No. cuti"), value: leaveNoOf(l) },
-            { label: L("Type", "Jenis"), value: leaveTypeL(l.type).replace(/^./, (c) => c.toUpperCase()) + (UNPAID_LEAVE_TYPES.includes(l.type) ? L(" — unpaid", " — tanpa gaji") : "") },
-            { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)}${l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}` },
-            { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
-            { label: L("Applied", "Dimohon"), value: dmyMYT(l.created_at) },
-            { label: L("Status", "Status"), value: stageL(st) },
-            { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
-            { label: L("Reviewer note", "Catatan penyemak"), wide: true, value: l.review_comment ?? "" },
-            ...(mc ? [{ label: L("Attachment", "Lampiran"), wide: true, value: L("A medical certificate is on file with this application.", "Sijil perubatan disimpan bersama permohonan ini.") }] : []),
-          ]}
-        />
-      </section>
-      <section className={lv.dSection} aria-label={L("Approval history", "Sejarah kelulusan")}>
-        <p className={lv.dTitle}>{L("Approval history", "Sejarah kelulusan")}</p>
-        <ol className={lv.steps}>
-          {steps.map((x) => (
-            <li key={x.key} className={lv[`step_${x.state}`]}>
-              <span className={lv.stepDot} aria-hidden="true" />
-              <span className={lv.stepText}>
-                <strong>{x.label}</strong>
-                <span>{x.state === "now" ? L(`Waiting on ${waitingOnLabel(l)}`, `Menunggu ${waitingOnLabel(l)}`)
-                  : x.state === "skipped" ? L("Not signed — decided at a later stage", "Tidak ditandatangani — diputuskan di peringkat kemudian")
-                  : x.state === "todo" ? L("Not yet", "Belum") : x.done || "—"}</span>
-              </span>
+      {part !== "progress" && (
+        <section className={lv.dSection} aria-label={L("Details", "Butiran")}>
+          <p className={lv.dTitle}>{L("Details", "Butiran")}</p>
+          <DetailGrid
+            items={[
+              { label: L("Leave no.", "No. cuti"), value: leaveNoOf(l) },
+              { label: L("Type", "Jenis"), value: leaveTypeL(l.type).replace(/^./, (c) => c.toUpperCase()) + (UNPAID_LEAVE_TYPES.includes(l.type) ? L(" — unpaid", " — tanpa gaji") : "") },
+              { label: L("Period", "Tempoh"), value: `${dmy(l.start_date)}${l.end_date !== l.start_date ? ` → ${dmy(l.end_date)}` : ""}` },
+              { label: L("Days", "Hari"), value: `${l.days} ${coverageLabel(l)}` },
+              { label: L("Applied", "Dimohon"), value: dmyMYT(l.created_at) },
+              { label: L("Status", "Status"), value: stageL(st) },
+              { label: L("Reason", "Sebab"), wide: true, value: l.reason ?? "" },
+              { label: L("Decision note", "Catatan keputusan"), wide: true, value: l.review_comment ?? "" },
+              ...(mc ? [{ label: L("Attachment", "Lampiran"), wide: true, value: L("A medical certificate is on file with this application.", "Sijil perubatan disimpan bersama permohonan ini.") }] : []),
+            ]}
+          />
+          <div>
+            <button type="button" className={rowBtn}
+              title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")}
+              onClick={() => printLeaveForm(l, meName)}>
+              {L("Print form", "Cetak borang")}
+            </button>
+          </div>
+        </section>
+      )}
+      {part !== "details" && (
+        <section className={lv.dSection} aria-label={L("Leave approval timeline", "Garis masa kelulusan cuti")}>
+          <p className={lv.dTitle}>{L("Leave approval timeline", "Garis masa kelulusan cuti")}</p>
+          <p className={lv.sub}>{L("The current status and the next step - who decided each step and when.", "Status semasa dan langkah seterusnya - siapa memutuskan setiap langkah dan bila.")}</p>
+          {(l.timeline ?? []).length > 0
+            ? <StageTimeline stages={leaveStages(l)} label={L("Leave approval timeline", "Garis masa kelulusan cuti")} testId="leave-timeline" />
+            : <p className={lv.sub}>{L("The timeline needs the latest server.", "Garis masa memerlukan pelayan terkini.")}</p>}
+        </section>
+      )}
+    </div>
+  );
+}
+
+/* v1.252.0 (D2) - THE COMMENT THREAD on one leave. The server decides who
+   reads which note: the applicant never receives an internal one. */
+export function LeaveComments({ id, own }: { id: number; own: boolean }) {
+  const [d, setD] = useState<{ comments: { id: number; visibility: string; body: string; created_at: string; author: string | null }[]; can_internal: boolean } | null>(null);
+  const [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState("");
+  const [vis, setVis] = useState<"employee" | "internal">("employee");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  useEffect(() => {
+    let live = true;
+    void api<typeof d>(`/staff/leave/${id}/comments`).then((r) => { if (live) setD(r.ok ? r.data : { comments: [], can_internal: false }); });
+    return () => { live = false; };
+  }, [id, tick]);
+  const send = async () => {
+    setBusy(true); setProblem("");
+    const r = await api<{ error?: { message?: string } }>(`/staff/leave/${id}/comments`, { method: "POST", body: JSON.stringify({ body: msg.trim(), visibility: vis, client_key: `${id}-${Date.now()}` }) });
+    setBusy(false);
+    if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not sent - try again", "Tidak dihantar - cuba lagi")); return; }
+    setMsg(""); setTick((n) => n + 1);
+  };
+  return (
+    <section className={lv.dSection} aria-label={L("Comments", "Komen")} data-testid="leave-comments">
+      {!d ? <Skel className="h-16 w-full" /> : d.comments.length === 0 ? <p className={lv.sub}>{L("No comments yet.", "Tiada komen lagi.")}</p> : (
+        <ul className={lv.thread}>
+          {d.comments.map((c) => (
+            <li key={c.id} className={c.visibility === "internal" ? lv.threadInternal : ""}>
+              <span className={lv.threadHead}><strong>{properName(c.author ?? "")}</strong><span>{dmyMYT(c.created_at)}</span>{c.visibility === "internal" && <span className={chipSmNeutral}>{L("Internal", "Dalaman")}</span>}</span>
+              <span className={lv.threadBody}>{c.body}</span>
             </li>
           ))}
-        </ol>
-      </section>
-      <div>
-        <button type="button" className={rowBtn}
-          title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")}
-          onClick={() => printLeaveForm(l, meName)}>
-          {L("Print form", "Cetak borang")}
-        </button>
-      </div>
+        </ul>
+      )}
+      <label className={lv.threadForm}>
+        <span className={lv.sub}>{own ? L("Write to HR and the approvers", "Tulis kepada HR dan pelulus") : L("Add a comment", "Tambah komen")}</span>
+        <textarea className={inputClass} rows={2} maxLength={1000} value={msg} onChange={(e) => setMsg(e.target.value)} aria-label={L("Comment", "Komen")} />
+      </label>
+      {d?.can_internal && (
+        <div className={lv.visRow} role="radiogroup" aria-label={L("Who sees it", "Siapa melihatnya")}>
+          <label><input type="radio" name={`vis-${id}`} checked={vis === "employee"} onChange={() => setVis("employee")} /> {L("Visible to the employee", "Dilihat oleh pekerja")}</label>
+          <label><input type="radio" name={`vis-${id}`} checked={vis === "internal"} onChange={() => setVis("internal")} /> {L("Internal - management only", "Dalaman - pengurusan sahaja")}</label>
+        </div>
+      )}
+      {problem && <p role="alert" className={lv.sub}>{problem}</p>}
+      <div><button type="button" className={btnSm} disabled={busy || msg.trim().length < 2} onClick={() => void send()}><AppIcon name="chat" />{L("Post comment", "Hantar komen")}</button></div>
+    </section>
+  );
+}
+
+const ACTIVITY: Record<string, [string, string]> = {
+  "leave.apply": ["Applied", "Dimohon"], "leave.advance.hr_reviewed": ["HR reviewed", "Disemak HR"], "leave.advance.pre_approved": ["Pre-approved", "Pra-diluluskan"],
+  "leave.advance.pending_final": ["Pre-approved", "Pra-diluluskan"], "leave.advance.approved": ["Approved", "Diluluskan"], "leave.reject": ["Rejected", "Ditolak"],
+  "leave.override_approve": ["Approved directly by the CEO", "Diluluskan terus oleh CEO"], "leave.override_reject": ["Rejected directly by the CEO", "Ditolak terus oleh CEO"],
+  "leave.cancel": ["Withdrawn by the applicant", "Ditarik balik oleh pemohon"], "leave.return": ["Returned for more information", "Dikembalikan untuk maklumat"],
+  "leave.resubmit": ["Answered and resubmitted", "Dijawab dan dihantar semula"], "leave.comment": ["Comment added", "Komen ditambah"],
+  "leave.amend": ["Amended by the CEO", "Dipinda oleh CEO"], "leave.unpaid_record": ["Recorded from Attendance", "Direkod dari Kehadiran"],
+};
+/* v1.252.0 - THE ACTIVITY: the audit trail of this leave, as it happened
+   (audit events, kept apart from comments). */
+export function LeaveActivity({ id }: { id: number }) {
+  const [rows, setRows] = useState<{ id: number; action: string; created_at: string; who: string | null }[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api<{ activity: { id: number; action: string; created_at: string; who: string | null }[] }>(`/staff/leave/${id}/activity`).then((r) => { if (live) setRows(r.ok ? r.data?.activity ?? [] : []); });
+    return () => { live = false; };
+  }, [id]);
+  return (
+    <section className={lv.dSection} aria-label={L("Activity", "Aktiviti")} data-testid="leave-activity">
+      {!rows ? <Skel className="h-16 w-full" /> : rows.length === 0 ? <p className={lv.sub}>{L("Nothing recorded for this leave yet (older records kept no trail).", "Tiada rekod untuk cuti ini lagi (rekod lama tiada jejak).")}</p> : (
+        <ul className={lv.thread}>
+          {rows.map((a) => (
+            <li key={a.id}><span className={lv.threadHead}><strong>{ACTIVITY[a.action] ? L(ACTIVITY[a.action]![0], ACTIVITY[a.action]![1]) : a.action}</strong><span>{dmyMYT(a.created_at)}</span></span>
+              {a.who && <span className={lv.threadBody}>{properName(a.who)}</span>}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/* v1.252.0 - THE DRAWER'S FOUR PARTS (the owner's mockup: Progress,
+   Details, Comments, Activity). A returned request shows its question and
+   the applicant's Edit & Resubmit on Progress. */
+type DrawerTab = "progress" | "details" | "comments" | "activity";
+export function LeaveDrawerBody({ l, own, meName, onResubmit }: { l: LeaveReq; own: boolean; meName: string; onResubmit: (answer: string, extra: Record<string, unknown>) => Promise<void> | void }) {
+  const [tab, setTab] = useState<DrawerTab>("progress");
+  const returned = l.stage === "returned";
+  const [ans, setAns] = useState({ answer: "", start_date: l.start_date, end_date: l.end_date, days: l.days, reason: l.reason ?? "" });
+  const changedDates = ans.start_date !== l.start_date || ans.end_date !== l.end_date || ans.days !== l.days;
+  return (
+    <div className={lv.drawerBody}>
+      <LineTabs value={tab} onChange={(k) => setTab(k as DrawerTab)} label={L("Leave application", "Permohonan cuti")} tabs={[
+        ["progress", L("Progress", "Kemajuan")], ["details", L("Details", "Butiran")], ["comments", L("Comments", "Komen")], ["activity", L("Activity", "Aktiviti")],
+      ] as readonly (readonly [DrawerTab, string])[]} />
+      {tab === "progress" && own && returned && (
+        <section className={lv.returnBox} data-testid="leave-resubmit" aria-label={L("Returned for more information", "Dikembalikan untuk maklumat")}>
+          <p className={lv.dTitle}>{L("Returned for more information", "Dikembalikan untuk maklumat")}</p>
+          {l.return_question && <p className={lv.threadBody}>{l.return_question}</p>}
+          <label className={lv.threadForm}><span className={lv.sub}>{L("Your answer", "Jawapan anda")}</span>
+            <textarea className={inputClass} rows={2} maxLength={500} value={ans.answer} onChange={(e) => setAns({ ...ans, answer: e.target.value })} /></label>
+          <div className={lv.resubGrid}>
+            <label><span className={lv.sub}>{L("Start", "Mula")}</span><input type="date" className={inputClass} value={ans.start_date} onChange={(e) => setAns({ ...ans, start_date: e.target.value })} /></label>
+            <label><span className={lv.sub}>{L("End", "Tamat")}</span><input type="date" className={inputClass} value={ans.end_date} onChange={(e) => setAns({ ...ans, end_date: e.target.value })} /></label>
+            <label><span className={lv.sub}>{L("Days", "Hari")}</span><input type="number" min={0.5} step={0.5} className={inputClass} value={ans.days} onChange={(e) => setAns({ ...ans, days: Number(e.target.value) })} /></label>
+          </div>
+          <label className={lv.threadForm}><span className={lv.sub}>{L("Reason", "Sebab")}</span>
+            <input className={inputClass} maxLength={1000} value={ans.reason} onChange={(e) => setAns({ ...ans, reason: e.target.value })} /></label>
+          <div><button type="button" className={btnClass} disabled={ans.answer.trim().length < 3} onClick={() => void onResubmit(ans.answer.trim(), {
+            ...(changedDates ? { start_date: ans.start_date, end_date: ans.end_date, days: ans.days } : {}), ...(ans.reason !== (l.reason ?? "") ? { reason: ans.reason } : {}),
+          })}><AppIcon name="verify" />{L("Resubmit", "Hantar semula")}</button></div>
+        </section>
+      )}
+      {(tab === "progress" || tab === "details") && <LeaveDetail l={l} meName={meName} part={tab} />}
+      {tab === "comments" && <LeaveComments id={l.id} own={own} />}
+      {tab === "activity" && <LeaveActivity id={l.id} />}
     </div>
   );
 }
@@ -779,6 +931,8 @@ export function LeaveEntitlement() {
    places read it now: the board badge, and the CEO override confirm, which
    has to say out loud which stage is being skipped. */
 export function waitingOnLabel(l: LeaveReq): string {
+  /* v1.252.0 - the server's answer first: either the COO or the CCO decides */
+  if (l.waiting_on) return l.waiting_on === "hr" ? "HR" : l.waiting_on === "coo_cco" ? L("COO or CCO", "COO atau CCO") : l.waiting_on === "ceo" ? "CEO" : L("the applicant (returned for information)", "pemohon (dikembalikan untuk maklumat)");
   const st = l.stage ?? "";
   if (st === "applied") return "HR";
   if (st === "hr_reviewed")
@@ -936,7 +1090,16 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
     });
     void load();
   };
-  const act = async (id: number, action: string, comment = "") => {
+  const act = async (id: number, action: string, comment = "", extra: Record<string, unknown> = {}) => {
+    /* v1.252.0 - a rejection says why (the applicant reads it); a return
+       asks the applicant a question (D1). Asked here, before the request. */
+    if ((action === "reject" || action === "return") && !comment.trim()) {
+      const p = await prompt(action === "reject"
+        ? { title: L("Reject this leave application?", "Tolak permohonan cuti ini?"), label: L("The reason - the applicant reads it (at least 5 characters)", "Sebabnya - pemohon akan membacanya (sekurang-kurangnya 5 aksara)"), required: true }
+        : { title: L("Return for more information", "Kembalikan untuk maklumat"), label: L("Your question for the applicant (at least 10 characters). It comes back to you when they resubmit.", "Soalan anda kepada pemohon (sekurang-kurangnya 10 aksara). Ia kembali kepada anda apabila mereka menghantar semula."), required: true });
+      if (!p?.value?.trim()) return;
+      comment = p.value.trim();
+    }
     /* v1.77.0 — approving or rejecting somebody's leave used to report
        nothing at all: the row simply moved. A decision about a person's time
        off should say what it did. */
@@ -946,7 +1109,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
     const res = await withStepUp<{ stage?: string; error?: { message?: string } }>(
       (totp) => api(`/staff/leave/${id}`, {
         method: "PATCH",
-        body: JSON.stringify({ action, comment, ...(totp ? { totp } : {}) }),
+        body: JSON.stringify({ action, comment, ...extra, ...(totp ? { totp } : {}) }),
       }),
       prompt,
     );
@@ -958,9 +1121,12 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
     showLeaveToast(
       action === "reject" ? L("Rejected", "Ditolak")
       : action === "cancel" ? L("Cancelled", "Dibatalkan")
+      : action === "return" ? L("Returned for information", "Dikembalikan untuk maklumat")
+      : action === "resubmit" ? L("Resubmitted", "Dihantar semula")
       : res.data?.stage === "approved" ? L("Approved", "Diluluskan") : L("Passed on", "Dihantar ke peringkat seterusnya"),
       action === "cancel"
         ? L("Your application has been withdrawn.", "Permohonan anda telah ditarik balik.")
+        : action === "resubmit" ? L("It is back with the approver who asked.", "Ia kembali kepada pelulus yang bertanya.")
         : L("The staff member has been notified.", "Kakitangan telah dimaklumkan."),
     );
     void load();
@@ -1346,7 +1512,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                       {shown.map((l) => {
                         const st = l.stage ?? l.status;
                         const inProgress = !TERMINAL.includes(st);
-                        const mine = inProgress && canActOnStage(user.role, l.stage ?? "", l.applicant_role ?? "") && l.user_id !== user.id;
+                        const mine = inProgress && l.can_act === true; // v1.252.0 - the server's answer for this person
                         const chip = leaveChip(st);
                         return (
                           <tr key={l.id} data-record={`leave:${l.id}`} className={mine ? lv.rowMine : ""}>
@@ -1361,9 +1527,13 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                             <td data-label={L("Leave period", "Tempoh cuti")}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}<span className={lv.cov}>{coverageLabel(l)}</span></td>
                             <td data-label={L("Days", "Hari")} className={lv.num}>{l.days}</td>
                             <td data-label={L("Status", "Status")}>
-                              {inProgress
-                                ? <span className={mine ? chipSmWarn : chipSmNeutral}>{L("Waiting on", "Menunggu")} {waitingOnLabel(l)}</span>
-                                : <span className={chip[0]}>{chip[1]}</span>}
+                              <span className={lv.statusCell}>
+                                <LeaveDots l={l} />
+                                {inProgress
+                                  ? <span className={mine ? chipSmWarn : chipSmNeutral}>{l.stage === "returned" ? L("Returned to the applicant", "Dikembalikan kepada pemohon") : <>{L("Waiting on", "Menunggu")} {waitingOnLabel(l)}</>}</span>
+                                  : <span className={chip[0]}>{chip[1]}</span>}
+                                {mine && <span className={lv.yourAction}>{L("Your action", "Tindakan anda")}</span>}
+                              </span>
                             </td>
                             <td className={lv.actCell}>
                               <span>
@@ -1461,14 +1631,14 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                         <td data-label={L("Leave type", "Jenis cuti")} className={lv.cap}>{leaveTypeL(l.type)}</td>
                         <td data-label={L("Leave period", "Tempoh cuti")}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}<span className={lv.cov}>{coverageLabel(l)}</span></td>
                         <td data-label={L("Days", "Hari")} className={lv.num}>{l.days}</td>
-                        <td data-label={L("Status", "Status")}>{inProgress ? <span className={chipSmWarn}>{stageL(st)}</span> : <span className={chip[0]}>{chip[1]}</span>}</td>
+                        <td data-label={L("Status", "Status")}><span className={lv.statusCell}><LeaveDots l={l} />{inProgress ? <span className={chipSmWarn}>{l.stage === "returned" ? L("Returned - your answer needed", "Dikembalikan - jawapan anda diperlukan") : stageL(st)}</span> : <span className={chip[0]}>{chip[1]}</span>}</span></td>
                         <td className={lv.actCell}>
                           <span>
                             <button type="button" className={rowBtn} onClick={() => setDrawerId(l.id)}>{L("View", "Lihat")}</button>
                             <button type="button" className={rowBtn} title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")} onClick={() => printLeaveForm(l, user.name)}>{L("Print form", "Cetak borang")}</button>
                             {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
                             <button type="button" className={rowBtn} title={L("Send the leave form as a PDF file", "Hantar borang cuti sebagai fail PDF")} onClick={() => void sendLeavePdf(l)}>{L("Send PDF", "Hantar PDF")}</button>
-                            {inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>{L("Cancel", "Batal")}</button>}
+                            {inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>{L("Withdraw", "Tarik balik")}</button>}
                           </span>
                         </td>
                       </tr>
@@ -1491,11 +1661,11 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
         const TERMINAL = ["approved", "rejected", "cancelled"];
         const inProgress = d ? !TERMINAL.includes(st) : false;
         const own = d ? d.user_id === user.id || (!d.user_id && mine.some((x) => x.id === d.id)) : false;
-        const waitsOnMe = d ? inProgress && canActOnStage(user.role, d.stage ?? "", d.applicant_role ?? "") && !own : false;
+        const waitsOnMe = d ? inProgress && d.can_act === true && !own : false; // v1.252.0 - the server says who decides now
         const close = () => { setDrawerId(null); setEditLeave(null); };
         return (
-          <SideDrawer open={d !== null} onClose={close} wide
-            title={d ? L("Leave application details", "Butiran permohonan cuti") : ""}
+          <SideDrawer open={d !== null} onClose={close} wide full
+            title={d ? `${L("Leave application", "Permohonan cuti")} - ${leaveNoOf(d)}` : ""}
             subtitle={d ? `${leaveNoOf(d)} · ${stageL(st)}` : undefined}
             footer={d ? (
               <span className={lv.drawerActions}>
@@ -1504,6 +1674,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                     <button type="button" className={btnClass} onClick={() => void act(d.id, "approve")}>
                       {d.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : d.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
                     </button>
+                    <button type="button" className={rowBtn} onClick={() => void act(d.id, "return")}>{L("Return for info", "Kembalikan untuk maklumat")}</button>
                     <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "reject")}>{L("Reject", "Tolak")}</button>
                   </>
                 )}
@@ -1513,7 +1684,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                     <button type="button" className={rowBtnDanger} onClick={() => void overrideAct(d, "reject")}>{L("Reject", "Tolak")}</button>
                   </>
                 )}
-                {own && inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "cancel")}>{L("Cancel my application", "Batalkan permohonan saya")}</button>}
+                {own && inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "cancel")}>{L("Withdraw my application", "Tarik balik permohonan saya")}</button>}
                 {canAmend && !inProgress && (
                   <>
                     <button type="button" className={rowBtn} title={L("Correct the type, the dates or the number of days", "Betulkan jenis, tarikh atau bilangan hari")}
@@ -1535,7 +1706,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                     <strong>{properName(d.user_full || d.user_name || user.name)}</strong>
                     <span>{[d.user_position, d.user_department].filter(Boolean).join(" · ") || (own ? L("You", "Anda") : "")}</span>
                   </span>
-                  {inProgress ? <span className={waitsOnMe ? chipSmWarn : chipSmNeutral}>{L("Waiting on", "Menunggu")} {waitingOnLabel(d)}</span> : <span className={leaveChip(st)[0]}>{leaveChip(st)[1]}</span>}
+                  {inProgress ? <span className={waitsOnMe ? chipSmWarn : chipSmNeutral}>{d.stage === "returned" ? L("Returned to the applicant", "Dikembalikan kepada pemohon") : <>{L("Waiting on", "Menunggu")} {waitingOnLabel(d)}</>}</span> : <span className={leaveChip(st)[0]}>{leaveChip(st)[1]}</span>}
                 </div>
                 {/* v1.83.0 — the amendment form, on the record it amends (CEO). */}
                 {editLeave?.id === d.id && (
@@ -1584,7 +1755,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                     </p>
                   </div>
                 )}
-                <LeaveDetail l={d} meName={user.name} />
+                <LeaveDrawerBody key={d.id} l={d} own={own} meName={user.name} onResubmit={(answer, extra) => act(d.id, "resubmit", answer, extra)} />
                 <LeaveRelated l={d} onLeave={close} />
               </div>
             )}

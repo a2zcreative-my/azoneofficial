@@ -350,3 +350,8 @@ timeline, budget, the published quotation revision, follow-up and a retry
 key; agent_request_events gets visibility (agent or internal) and the update
 fields; agent_request_files holds private files. sales_documents and
 customers are not changed.
+1.252.0 adds `0166_leave_timeline`: leave_requests gains cancelled_at,
+cancelled_by, returned_from, returned_by, returned_at and return_question
+(all nullable - existing rows read NULL, no history invented), and
+leave_comments holds the thread on one leave (append-only, employee or
+internal). Attendance and payroll keep reading approved leave as before.

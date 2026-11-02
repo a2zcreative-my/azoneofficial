@@ -114,7 +114,8 @@ const ok = (label, cond, extra = "") => {
     ["a company-board leave opens on its name", "components/portal/leave.tsx",
      /<button type="button" className=\{lv\.person\} onClick=\{\(\) => setDrawerId\(l\.id\)\}[\s\S]{0,300}?\{who\(l\)\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
     ["every leave opens the same drawer, with the one detail", "components/portal/leave.tsx",
-     /all\.find\(\(x\) => x\.id === drawerId\) \?\? mine\.find\(\(x\) => x\.id === drawerId\)[\s\S]{0,9000}?<LeaveDetail l=\{d\} meName=\{user\.name\} \/>/, "one detail for both halves of the board, not two"],
+     /* v1.252.0 - the drawer body holds the one LeaveDetail under its Progress and Details tabs */
+     /all\.find\(\(x\) => x\.id === drawerId\) \?\? mine\.find\(\(x\) => x\.id === drawerId\)[\s\S]{0,9000}?<LeaveDrawerBody key=\{d\.id\} l=\{d\} own=\{own\} meName=\{user\.name\}/, "one detail for both halves of the board, not two"],
     /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
     /* v1.93.0 — the circle and the phone row both press through one
        handler, and that handler opens the record. */
@@ -165,7 +166,8 @@ const ok = (label, cond, extra = "") => {
     ["the face says which mode it is in", "components/staff/staff-directory.tsx",
      /aria-pressed=\{selectMode \? selected : open\}/, "a face that ticks when you expected it to open teaches distrust"],
     ["the detail carries the approval trail", "components/portal/leave.tsx",
-     /function LeaveDetail\([\s\S]{0,2500}?L\("HR reviewed"[\s\S]{0,600}?L\("Pre-approved"[\s\S]{0,600}?L\("Final"/, "who decided it, and when, is what a manager opens a leave to see"],
+     /* v1.252.0 - the trail is the server's timeline (leave-chain.ts), drawn by the shared StageTimeline */
+     /function leaveStages\([\s\S]{0,1500}?L\("HR review"[\s\S]{0,300}?L\("Pre-approval - COO or CCO"[\s\S]{0,300}?L\("CEO decision"[\s\S]*?function LeaveDetail\([\s\S]{0,3500}?<StageTimeline stages=\{leaveStages\(l\)\}/, "who decided it, and when, is what a manager opens a leave to see"],
   ];
   for (const [label, file, re, why] of cases) {
     /* v1.99.2 — a case may be a regex OR a predicate over the file, so a

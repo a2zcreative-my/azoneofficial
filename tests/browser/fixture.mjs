@@ -264,11 +264,30 @@ const announcements = [
     to_line: "Sales team", memo_date: null, from_name: "Fixture Person, CEO", publisher_name: "Fixture Person", publisher_position: "CEO", created_by: 9001,
     files: [{ id: 1, filename: "october-targets.pdf", content_type: "application/pdf", size: 120400 }] },
 ];
+/* v1.252.0 - each leave carries the timeline the worker works out
+   (leave-chain.ts leaveTimeline) and who it waits on; can_act is added per
+   role when served (the worker's leaveCanActAt). Invented people only. */
+const T = (key, state, who = null, at = null, text = null, flags) => ({ key, state, who, at, text, ...(flags ? { flags } : {}) });
 const leave = [
-  { id: 1, type: "annual", start_date: D + "22", end_date: D + "23", days: 2, status: "pending", stage: "hr", applicant_role: "sales_marketing", user_id: 9002, user_name: "Nur Aisyah", user_full: "Nur Aisyah binti Rahman", reason: "Family matters", created_at: D + "14 10:00:00" },
-  { id: 2, type: "medical", start_date: D + "08", end_date: D + "08", days: 1, status: "approved", stage: "approved", applicant_role: "live_host", user_id: 9003, user_name: "Farid Zul", created_at: D + "08 08:00:00" },
-  { id: 3, type: "annual", start_date: "2026-08-19", end_date: "2026-08-20", days: 2, status: "approved", stage: "approved", applicant_role: "ceo", user_id: 9001, user_name: "Fixture Person", created_at: "2026-08-10 09:00:00" },
+  { id: 1, type: "annual", start_date: D + "22", end_date: D + "23", days: 2, status: "pending", stage: "hr_reviewed", applicant_role: "sales_marketing", user_id: 9002, user_name: "Nur Aisyah", user_full: "Nur Aisyah binti Rahman", user_department: "Sales and Marketing", reason: "Family matters", created_at: D + "14 10:00:00", hr_by_name: "Mei Ling", hr_at: D + "14 12:00:00",
+    waiting_on: "coo_cco", timeline: [T("submitted", "done", "Nur Aisyah", D + "14 10:00:00"), T("hr", "done", "Mei Ling", D + "14 12:00:00"), T("pre", "now"), T("final", "todo"), T("effect", "todo")] },
+  { id: 2, type: "medical", start_date: D + "08", end_date: D + "08", days: 1, status: "approved", stage: "approved", applicant_role: "live_host", user_id: 9003, user_name: "Farid Zul", created_at: D + "08 08:00:00", final_by_name: "Fixture Person", final_at: D + "08 09:00:00",
+    waiting_on: null, timeline: [T("submitted", "done", "Farid Zul", D + "08 08:00:00"), T("hr", "skipped", null, null, null, { override: true }), T("pre", "skipped", null, null, null, { override: true }), T("final", "done", "Fixture Person", D + "08 09:00:00", null, { override: true }), T("effect", "done", null, D + "08 09:00:00")] },
+  { id: 3, type: "annual", start_date: "2026-08-19", end_date: "2026-08-20", days: 2, status: "approved", stage: "approved", applicant_role: "ceo", user_id: 9001, user_name: "Fixture Person", created_at: "2026-08-10 09:00:00", hr_by_name: "Mei Ling", hr_at: "2026-08-10 11:00:00", final_by_name: "System Root", final_at: "2026-08-11 09:00:00",
+    waiting_on: null, timeline: [T("submitted", "done", "Fixture Person", "2026-08-10 09:00:00"), T("hr", "done", "Mei Ling", "2026-08-10 11:00:00"), T("final", "done", "System Root", "2026-08-11 09:00:00"), T("effect", "done", null, "2026-08-11 09:00:00", null, { released_months: "2026-08" })] },
+  { id: 4, type: "emergency", start_date: D + "26", end_date: D + "26", days: 1, status: "pending", stage: "returned", applicant_role: "ceo", user_id: 9001, user_name: "Fixture Person", created_at: D + "15 09:00:00", hr_by_name: "Mei Ling", hr_at: D + "15 10:00:00", returned_from: "hr_reviewed", return_question: "Which client meeting moves for this day?",
+    waiting_on: "applicant", timeline: [T("submitted", "done", "Fixture Person", D + "15 09:00:00"), T("hr", "done", "Mei Ling", D + "15 10:00:00"), T("final", "returned", "System Root", D + "15 11:00:00", "Which client meeting moves for this day?"), T("effect", "todo")] },
+  { id: 5, type: "annual", start_date: D + "28", end_date: D + "28", days: 1, status: "rejected", stage: "rejected", applicant_role: "sales_marketing", user_id: 9002, user_name: "Nur Aisyah", user_full: "Nur Aisyah binti Rahman", user_department: "Sales and Marketing", created_at: D + "12 09:00:00", final_by_name: "Mei Ling", final_at: D + "12 11:00:00", review_comment: "Stock count that day",
+    waiting_on: null, timeline: [T("submitted", "done", "Nur Aisyah", D + "12 09:00:00"), T("hr", "rejected", "Mei Ling", D + "12 11:00:00", "Stock count that day"), T("pre", "off"), T("final", "off"), T("effect", "off")] },
 ];
+const leaveCanAct = (l) => {
+  if (l.user_id === 9001) return false;
+  const HR = ["super_admin", "admin", "hr_admin"], PRE = ["super_admin", "admin", "coo", "cco"], FIN = ["super_admin", "admin", "ceo"];
+  if (l.stage === "applied") return HR.includes(ROLE);
+  if (l.stage === "hr_reviewed") return ["coo", "cco"].includes(l.applicant_role) ? FIN.includes(ROLE) : PRE.includes(ROLE);
+  if (l.stage === "pre_approved") return FIN.includes(ROLE);
+  return false;
+};
 const claims = [
   { id: 7, user_id: 9002, claim_date: D + "10", category: "travel", amount_cents: 4500, description: "Grab to client", status: "pending", claimant: "Nur Aisyah", claimant_full: "Nur Aisyah binti Rahman", items: "[]", claim_type: "reimbursement", created_at: D + "10 09:00:00" },
   { id: 8, user_id: 9003, claim_date: D + "04", category: "equipment", amount_cents: 18900, description: "Ring light", status: "approved", paid_at: D + "06 10:00:00", claimant: "Farid Zul", items: "[]", claim_type: "reimbursement", created_at: D + "04 09:00:00" },
@@ -667,7 +686,20 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     recipients: [{ id: 9002, name: "Nur Aisyah binti Rahman", department: "Sales", acked_at: D + "16 02:00:00", last_version: 2 }, { id: 9004, name: "Tan Mei Ling", department: "Sales", acked_at: null, last_version: 1 }] };
   if (/^\/staff\/announcements\/\d+\/versions$/.test(p)) data = { current: 2, versions: [{ version: 1, title: "Sales targets for October", body: "Targets are on the Sales tab.", category: "kpi", replaced_at: D + "15 03:00:00" }],
     my_acks: [{ version: 1, acked_at: "2026-08-31 01:00:00" }] };
-  if (p === "/staff/leave") data = { leave: q.get("all") ? leave : leave.filter((l) => l.user_id === 9001) };
+  if (p === "/staff/leave") data = { leave: (q.get("all") ? leave : leave.filter((l) => l.user_id === 9001)).map((l) => ({ ...l, can_act: leaveCanAct(l) })) };
+  /* v1.252.0 - the thread and the activity of one leave; the applicant (9001's own) never gets an internal note */
+  {
+    const lc = /^\/staff\/leave\/(\d+)\/(comments|activity)$/.exec(p);
+    if (lc) {
+      const lr = leave.find((x) => x.id === Number(lc[1]));
+      const own = lr?.user_id === 9001;
+      if (lc[2] === "comments") data = { can_internal: !own && ["ceo", "coo", "cco", "hr_admin", "admin", "super_admin"].includes(ROLE), comments: [
+        { id: 1, visibility: "employee", body: "Please attach the client's confirmation.", created_at: D + "14 12:05:00", author: "Mei Ling" },
+        ...(own ? [] : [{ id: 2, visibility: "internal", body: "Balance checked - 8 days left.", created_at: D + "14 12:06:00", author: "Mei Ling" }]),
+      ] };
+      else data = { activity: [{ id: 11, action: "leave.apply", created_at: D + "14 10:00:00", who: lr?.user_name ?? "" }, { id: 12, action: "leave.advance.hr_reviewed", created_at: D + "14 12:00:00", who: "Mei Ling" }] };
+    }
+  }
   if (p === "/staff/leave/balance") data = { balances: { annual: { entitled: 14, used: 2, accrued: 10.5 }, medical: { entitled: 14, used: 0, accrued: 14 }, emergency: { entitled: 3, used: 0, accrued: 3 }, unpaid: { entitled: 0, used: 0 }, replacement: { entitled: 0, used: 0, accrued: 1 } }, hourly: false };
   if (p === "/claims") data = { claims, can_decide: true };
   if (p === "/claims/mileage-rate") data = { cents_per_km: 60, can_set: true };

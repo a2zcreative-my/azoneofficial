@@ -1,0 +1,44 @@
+/* v1.252.0 - THE ONE STAGE TIMELINE (stage-timeline.tsx): the Payroll
+   Timeline's look - numbered stages on a vertical line, green done, gold
+   current, neutral pending, red rejected - now drawn by one component for
+   Payroll and Leave. Tokens only, both themes. */
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; min-width: 0; }
+.step { position: relative; display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; column-gap: 0.75rem; align-items: start; padding: 0 0 1rem; min-width: 0; }
+.step:last-child { padding-bottom: 0; }
+.step::before { content: ""; position: absolute; left: calc(1rem - 1px); top: 2rem; bottom: 0; width: 2px; background: var(--border); }
+.step:last-child::before { display: none; }
+.done::before { background: var(--success); }
+.no {
+  position: relative; z-index: 1; display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
+  border: 2px solid var(--border); background: var(--card); color: var(--muted-foreground);
+  font-size: var(--type-caption-size); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.no svg { width: 1rem; height: 1rem; }
+.done .no { background: var(--success); border-color: var(--success); color: var(--card); }
+.now .no, .returned .no { border-color: var(--gold-solid); color: var(--brand-accent-deep, var(--foreground)); box-shadow: 0 0 0 4px var(--tint-gold); }
+.rejected .no { background: var(--danger); border-color: var(--danger); color: var(--card); }
+.skipped .no, .withdrawn .no { border-style: dashed; }
+.off { opacity: 0.55; }
+.off .title { text-decoration: line-through; }
+.text { display: grid; gap: 0.125rem; min-width: 0; padding-top: 0.25rem; }
+.title { margin: 0; font-weight: 700; font-size: var(--type-body-sm-size); color: var(--foreground); overflow-wrap: anywhere; }
+.sub { margin: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.note { margin: 0.25rem 0 0; padding: 0.5rem 0.625rem; border-radius: 0.625rem; background: var(--secondary); font-size: var(--type-caption-size); color: var(--foreground); overflow-wrap: anywhere; white-space: pre-wrap; }
+.warn { margin: 0.25rem 0 0; font-size: var(--type-caption-size); font-weight: 600; color: var(--warning); overflow-wrap: anywhere; }
+.aside { padding-top: 0.25rem; font-size: var(--type-caption-size); color: var(--muted-foreground); text-align: right; white-space: nowrap; }
+.chipNow { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 999px; background: var(--tint-gold); color: var(--brand-accent-deep, var(--foreground)); font-weight: 600; }
+@media (max-width: 479px) {
+  .step { grid-template-columns: 2rem minmax(0, 1fr); }
+  .aside { grid-column: 2; text-align: left; padding-top: 0.125rem; white-space: normal; }
+}
+
+/* the compact line for a list cell: one dot per stage */
+.dots { display: inline-flex; align-items: center; gap: 0; min-width: 0; }
+.dot { width: 0.75rem; height: 0.75rem; border-radius: 50%; border: 2px solid var(--border); background: var(--card); flex: none; }
+.dotLink { width: 0.875rem; height: 2px; background: var(--border); flex: none; }
+.dot.done { background: var(--success); border-color: var(--success); }
+.dotLink.done { background: var(--success); }
+.dot.now, .dot.returned { border-color: var(--gold-solid); background: var(--tint-gold); }
+.dot.rejected { background: var(--danger); border-color: var(--danger); }
+.dot.skipped, .dot.withdrawn { border-style: dashed; }
+.dot.off { opacity: 0.45; }
