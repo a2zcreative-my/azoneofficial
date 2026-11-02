@@ -1,6 +1,6 @@
 /* v1.248.0 - Signatures & Stamps (signing-panel.tsx). Tokens only - both themes. */
 
-.wrap { display: grid; gap: 1rem; min-width: 0; }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
 .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
 .title { margin: 0; font-size: var(--type-section-size); font-weight: var(--type-section-weight); line-height: var(--type-section-lh); color: var(--foreground); }
 .sub { margin: 0.25rem 0 0; max-width: 46rem; font-size: var(--type-body-sm-size); color: var(--muted-foreground); }

@@ -830,11 +830,15 @@ td .who > span:first-child { flex-shrink: 0; }
 /* the task drawer */
 .detail {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* v1.254.2 - never wider than the drawer */
   gap: 1rem;
+  min-width: 0;
 }
 .detailSec {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* v1.254.2 - a section never outgrows the drawer */
   gap: 0.625rem;
+  min-width: 0;
   padding: 0.875rem;
   border: 1px solid var(--border);
   border-radius: var(--erp-radius-panel, 12px);

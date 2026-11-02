@@ -58,6 +58,8 @@ def answer_dialog(pg, label, button, value):
     d.get_by_role("button", name=button, exact=True).last.click(); pg.wait_for_timeout(1000)
 
 FITS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+# v1.254.2 - measured inside the drawer too: a fixed panel's overflow never shows on the page scroll width
+INSIDE = "(w) => { const d = [...document.querySelectorAll('[role=dialog]')].filter((x) => x.offsetParent !== null).pop(); return d ? [...d.querySelectorAll('*')].filter((e) => !e.closest('[class*=line-tabs_tabs]')).filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > w + 1; }).length : -1; }"
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -158,7 +160,7 @@ with sync_playwright() as p:
         pg.get_by_role("button", name="All pending (4)").click(); pg.wait_for_timeout(600)
         check(f"phone {w}px: Approvals does not scroll sideways", pg.evaluate(FITS))
         drawer(pg, 11)
-        check(f"phone {w}px: the drawer fits, with the vertical timeline", pg.evaluate(FITS) and pg.get_by_test_id("claim-timeline").is_visible())
+        check(f"phone {w}px: the drawer fits, with the vertical timeline", pg.evaluate(FITS) and pg.evaluate(INSIDE, w) == 0 and pg.get_by_test_id("claim-timeline").is_visible())
         btn = pg.get_by_test_id("claim-actions").get_by_role("button", name="Reject")
         box = btn.bounding_box() or {"y": 9999, "height": 0, "x": 0, "width": 0}
         check(f"phone {w}px: the actions are on screen", btn.is_visible() and box["y"] + box["height"] <= 860 and box["x"] + box["width"] <= w, box)

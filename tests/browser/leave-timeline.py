@@ -43,6 +43,8 @@ def patches(reqs, lid):
     return out
 
 FITS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+# v1.254.2 - measured inside the drawer too: a fixed panel's overflow never shows on the page scroll width
+INSIDE = "(w) => { const d = [...document.querySelectorAll('[role=dialog]')].filter((x) => x.offsetParent !== null).pop(); return d ? [...d.querySelectorAll('*')].filter((e) => !e.closest('[class*=line-tabs_tabs]')).filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > w + 1; }).length : -1; }"
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -123,7 +125,7 @@ with sync_playwright() as p:
         check(f"phone {w}px ({port}): the leave list does not scroll sideways", pg.evaluate(FITS))
         lid = 1 if port == 4179 else 4
         pg.locator(f"tr[data-record='leave:{lid}']").filter(visible=True).first.get_by_role("button", name="View").click(); pg.wait_for_timeout(1500)
-        check(f"phone {w}px: the leave sheet fits, with the vertical timeline", pg.evaluate(FITS) and pg.get_by_test_id("leave-timeline").is_visible())
+        check(f"phone {w}px: the leave sheet fits, with the vertical timeline", pg.evaluate(FITS) and pg.evaluate(INSIDE, w) == 0 and pg.get_by_test_id("leave-timeline").is_visible())
         btn = pg.get_by_role("button", name="Pre-approve" if port == 4179 else "Resubmit").last
         btn.scroll_into_view_if_needed()
         box = btn.bounding_box() or {"y": 9999, "height": 0}

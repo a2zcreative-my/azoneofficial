@@ -2,8 +2,12 @@
    Activity tabs, the review bar and the Add Status Update sheet (the owner's
    reference pictures 02 and 03). Tokens only - both themes. */
 
-.wrap { display: grid; gap: 0.875rem; min-width: 0; }
-.tabsGap { display: grid; gap: 0.875rem; padding-top: 0.25rem; }
+/* v1.254.2 (the owner, iPhone PWA screenshot 02-11-2026: the task drawer ran
+   past the right edge) - a stack grid needs an explicit minmax(0, 1fr)
+   column; the implicit auto column grew to its widest child (479 px on a
+   393 px phone), and min-width: 0 on the grid itself did not stop it. */
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; min-width: 0; }
+.tabsGap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; padding-top: 0.25rem; min-width: 0; }
 
 /* review / stage bar at the top of Details */
 .bar {

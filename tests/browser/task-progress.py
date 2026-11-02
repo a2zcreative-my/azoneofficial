@@ -267,6 +267,20 @@ with sync_playwright() as p:
         check("it posts the reason to the task's reminder route, and says the email is queued", any(x.get("p", "").endswith("/remind") and "Friday" in (x.get("body") or "") for x in puts) and pg.get_by_text("Reminder sent").count() >= 1)
     check("no page errors (quotation task, checklist, photos, task emails)", not errs, str(errs)[:300])
     ctx.close()
+    # v1.254.2 (the owner's iPhone PWA screenshot, 02-11-2026: the task drawer
+    # ran past the right edge). Measured INSIDE the drawer: a fixed panel's
+    # overflow never shows on the page's own scroll width.
+    DRAWER_FITS = """(w) => { const d = [...document.querySelectorAll('[role=dialog]')].filter((x) => x.offsetParent !== null).pop(); if (!d) return ['no drawer'];
+      return [...d.querySelectorAll('*')].filter((e) => !e.closest('[class*=line-tabs_tabs]')).filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > w + 1; }).map((e) => (e.className || '').toString().slice(0, 40)); }"""
+    for w in [320, 375, 393, 430]:
+        urllib.request.urlopen("http://127.0.0.1:4213/__reset").read()
+        ctx = b.new_context(viewport={"width": w, "height": 852}, is_mobile=True, has_touch=True, reduced_motion="reduce"); pg = ctx.new_page()
+        pg.goto("http://127.0.0.1:4213/portal?tab=Tasks"); pg.wait_for_timeout(2500)
+        pg.get_by_role("tab", name="All Tasks", exact=True).first.click(); pg.wait_for_timeout(900)
+        pg.get_by_text(TITLE).filter(visible=True).first.click(); pg.wait_for_timeout(1800)
+        bad = pg.evaluate(DRAWER_FITS, w)
+        check(f"phone {w}px: nothing in the task drawer runs past the screen's right edge", bad == [], bad[:5])
+        ctx.close()
     b.close()
 
 fails = [r for r in res if r.startswith("FAIL")]

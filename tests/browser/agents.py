@@ -233,6 +233,18 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs = page(b, 4180)
     check("a live host has no Agents tab", "Agents" not in set(rail(pg)) and not tab(pg, "Agents"))
     ctx.close()
+    # v1.254.1 - the agent's own name is the header title, 'A2Z agent' beside it
+    for w in [1440, 390, 320]:
+        ctx, pg, errs, _ = page(b, 4222, w=w, h=900)
+        tid = "agent-name" if w > 500 else "agent-name-phone"
+        t = pg.get_by_test_id(tid)
+        top = pg.locator("header.erp-topbar").inner_text()
+        check(f"{w}px: the header shows the agent's own name, not the word Agents", t.count() == 1 and t.is_visible() and t.inner_text().strip() == "Fixture Person" and "a2z agent" in top.lower() and "Agents" not in top.replace("A2Z agent", ""), top[:120])
+        check(f"{w}px: the header fits", pg.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"))
+        ctx.close()
+    ctx, pg, errs, _ = page(b, 4177, w=390, h=900)
+    check("staff headers are unchanged (no agent name line)", pg.get_by_test_id("agent-name-phone").count() == 0)
+    ctx.close()
     b.close()
 
 passed = sum(1 for _, ok in results if ok)

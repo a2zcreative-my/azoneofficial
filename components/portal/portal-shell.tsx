@@ -38,6 +38,7 @@ import { revealAnchor, mytTodayLine } from "@/components/portal/page-shared";
 import { REVENUE_ROLES } from "@/components/portal/dashboard";
 import { PORTAL_WIDTH, btnGhost, btnHdr, btnHdrDesktop, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
 import { L } from "@/components/portal/page-shared";
+import { properName } from "@/lib/names";
 import type { TabName } from "@/lib/portal-tabs";
 import { usePortal } from "@/components/portal/portal-provider";
 import { NotificationsPanel } from "@/components/portal/notifications-panel";
@@ -60,6 +61,9 @@ export function PortalShell({ children }: { children: ReactNode }) {
     sound, setSound, pushState, setPushState, chime,
     favourites, navItems, mobileStops, mobileMore, mobileGroups,
   } = usePortal();
+  /* v1.254.1 - an agent sees their own name as the header title */
+  const isAgent = user?.role === "agent";
+  const agentName = isAgent ? properName(user?.name ?? "") || L("Agent", "Ejen") : "";
 
   /* v1.175.0 — one module tile for the More sheet: the button that opens it,
      plus a pin toggle in its corner. Two sibling buttons, never nested, so
@@ -220,21 +224,26 @@ export function PortalShell({ children }: { children: ReactNode }) {
               </span>
             )}
             <div className="erp-min0">
+              {/* v1.254.1 (the owner, 02-11-2026: "I want to have a agent
+                  name publish on the top there instead of Agent tagging") -
+                  an agent's header carries their own name; the line above
+                  (desktop) or below (phone) says they are an A2Z agent */}
               <p className="erp-topbar-eyebrow erp-desktop-only">
-                {tr("Staff Portal short", lang)}
+                {isAgent ? L("A2Z agent portal", "Portal ejen A2Z") : tr("Staff Portal short", lang)}
               </p>
               {/* Tablet tools use a second row so translated titles remain readable. */}
-              <h1 className="erp-topbar-title erp-desktop-only">
-                {tr(activeTab, lang)}
+              <h1 className="erp-topbar-title erp-desktop-only" data-testid={isAgent ? "agent-name" : undefined}>
+                {isAgent ? agentName : tr(activeTab, lang)}
               </h1>
               {/* On phones the header reads like an app screen title.
                 v1.10.0: the Dashboard says "Today" (the reference design's
                 home title); every other tab keeps its own name. */}
-              <h1 className="erp-topbar-title erp-phone-only">
-                {activeTab === "Dashboard"
+              <h1 className="erp-topbar-title erp-phone-only" data-testid={isAgent ? "agent-name-phone" : undefined}>
+                {isAgent ? agentName : activeTab === "Dashboard"
                   ? tr("Today", lang)
                   : tr(activeTab, lang)}
               </h1>
+              {isAgent && <p className={`erp-phone-only ${css.phoneSub}`}>{L("A2Z agent", "Ejen A2Z")}</p>}
               {/* v1.229.0 - the owner's references (30-10-2026, answer
                   "Phone header subtitle"): one small line under the title
                   on phones - the date on Today, the company on On Shift */}

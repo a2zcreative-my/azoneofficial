@@ -10,6 +10,22 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.254.2] - 2026-11-02 - The task drawer no longer runs past the phone screen
+
+The owner, 02-11-2026, iPhone PWA screenshot of a task ("Why outset on PWA??"): the drawer's content ran past the right edge - names, Add helper, the Edit button and Add Update were cut off.
+
+- Cause: the drawer's stacks are CSS grids with no explicit column. An implicit grid column is sized to its widest child's minimum width, so one wide child (the tab row, the checklist) made the whole column 449-479 px on a 393 px phone. `min-width: 0` on the grid itself does not stop that.
+- Fix: those stacks get `grid-template-columns: minmax(0, 1fr)` - task-progress.module.css (.wrap, .tabsGap), tasks-page.module.css (.detail, .detailSec), and the same pattern in leave-page.module.css (.drawerBody - Leave and Claims drawers), agents-panel.module.css (.wrap, .drawer), project-workspace.module.css and signing-panel.module.css (.wrap). CSS only; no data or logic change.
+- Measured on the local build: elements past the right edge of the task drawer 51 at 320 px, 49 at 393 px before; 0 at 320, 375, 393 and 430 px after.
+- Why the tests missed it: they measured the page's scroll width, and a fixed drawer's overflow never shows there. task-progress.py, leave-timeline.py and claims-timeline.py now measure inside the open drawer.
+
+## [1.254.1] - 2026-11-02 - An agent's header shows their own name
+
+The owner, 02-11-2026 (three phone screenshots of the Agent workspace): "I want to have a agent name publish on the top there instead of Agent tagging".
+
+- components/portal/portal-shell.tsx: for the agent role the header title is the agent's own name (properName of the signed-in account's name) instead of the tab name "Agents"; under it on a phone "A2Z agent", and above it on a desktop "A2Z agent portal" in place of "A2Z Staff Portal". Staff headers are unchanged. Display only - no permission, route or data change.
+- tests/browser/agents.py: 62 checks (the header at 1440, 390 and 320 px shows the name and fits; a staff header has no agent line).
+
 ## [1.254.0] - 2026-11-02 - Claims: approval and payment timeline, one chain, approved is not paid
 
 The owner, 02-11-2026: "A2Z OS - Claims Approval & Payment Timeline Upgrade"; claude/CLAIMS-TIMELINE-AUDIT.md; answers D1 add Return for info, D2 a comment thread, D3 the bank date on Mark paid; "approved". The approval chain itself is unchanged (staff: HR, COO, CEO; HR: CCO, CEO; COO and CCO: CEO; the CEO's early approval stays a recorded override).

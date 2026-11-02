@@ -1,7 +1,7 @@
 /* v1.245.0 - Project Workspace (the owner's reference pictures 1 and 3,
    claude/PROJECT-WORKSPACE-AUDIT.md). Tokens only - both themes. */
 
-.wrap { display: grid; gap: 1rem; min-width: 0; }
+.wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
 
 /* the card head: icon well, title, sub, commands */
 .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
