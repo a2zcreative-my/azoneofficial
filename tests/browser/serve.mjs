@@ -275,6 +275,10 @@ const server = http.createServer((req, res) => {
         projectPosts.push({ p, body: p.endsWith("/files") ? `<${body.length} bytes>` : body, key: req.headers["idempotency-key"] ?? null, name: req.headers["x-file-name"] ?? null, csrf: req.headers["x-csrf-token"] ?? null });
         res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 900 + projectPosts.length })); return;
       }
+      /* v1.250.2 - a new agent request and an agent file answer like agent.ts
+         (201 with the new id - the form uploads the attachment to that id) */
+      if (req.method === "POST" && p === "/staff/agent/requests") { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 9, ref: "AGR-0009", status: "submitted" })); return; }
+      if (req.method === "POST" && /^\/staff\/agent\/requests\/\d+\/files$/.test(p)) { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 31, name: req.headers["x-file-name"] ?? "file" })); return; }
       if (req.method === "POST" && p === "/enquiries/introduce") { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 501 })); return; }
       if (req.method === "POST" && p === "/staff/support/report") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, task_id: 77, assigned_to: "Fixture Person" })); return; }
       if (req.method === "POST" && /^\/users\/\d+\/offboard$/.test(p)) {

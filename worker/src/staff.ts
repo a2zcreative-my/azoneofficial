@@ -273,10 +273,11 @@ export async function isHourlyUserId(env: Env, userId: number): Promise<boolean>
  * counts, pays, rosters and chases for a missing punch. */
 export const staffRolesSql = (alias = "") =>
   `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;
-/** v1.249.0 - the people WORK can be given to: staff, and agents for their own
-    tasks. Agents are never staff (payroll, attendance, headcount, leave). */
+/** v1.249.0 - the people WORK can be given to. v1.250.2 (the owner, 01-11-2026:
+    "Remove Tasks" - an agent works through their requests only): staff, never
+    agents. Agents are never staff (payroll, attendance, headcount, leave). */
 export const taskPeopleSql = (alias = "") =>
-  `${alias}role NOT IN ('customer', 'super_admin')`;
+  `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;
 
 /** THE SAME STAFF ORDER AS THE SCREEN, in SQL — v1.78.0.
  *
@@ -3371,9 +3372,9 @@ async function handleStaffRoutes(
     const { results } = await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
        WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
-         AND (u.role != 'agent' OR ?1 = 1)
+         AND u.role != 'agent'
        ORDER BY ${STAFF_ORDER_SQL}`,
-    ).bind(new URL(request.url).searchParams.get("agents") === "1" ? 1 : 0).all(); // v1.249.0 - agents only in the task pickers, never as a salesperson
+    ).all(); // v1.250.2 - agents are in no picker (no tasks since the owner's answer of 01-11-2026, never a salesperson)
     return json({ staff: results });
   }
   if (path === "/users/activity" && method === "GET") {

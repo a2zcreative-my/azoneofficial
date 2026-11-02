@@ -150,6 +150,8 @@ export interface MobileStop {
   anchor?: string;
   /** i18n key for the label; defaults to the tab's own name */
   label?: string;
+  /** v1.250.2 - a view inside the tab (the agent workspace's Overview, Requests...) */
+  view?: string;
 }
 
 /* Who gets which third and fourth stop. The three names are the dashboard's
@@ -177,6 +179,11 @@ export function mobileNavStops(
     if (stops.length >= 4 || stops.some((x) => x.key === s.key)) return;
     stops.push(s);
   };
+  /* v1.250.2 - an agent's bar is their workspace, never the staff bar */
+  if (opts.role === "agent") {
+    if (can("Agents")) for (const s of AGENT_STOPS) push({ key: `agent-${s.view}`, tab: "Agents", view: s.view, label: s.label });
+    return stops;
+  }
 
   /* Home is always first and is always the Dashboard — the one fixed point. */
   if (can("Dashboard")) push({ key: "Dashboard", tab: "Dashboard" });
@@ -227,8 +234,15 @@ export function mobilePrimaryTabs(
 /** Home and identity. Never hidden, never overridable — clocking in and
     reading your own payslip are not permissions. */
 export const ALWAYS_VISIBLE: readonly string[] = ["Dashboard", "Desk", "Profile", "On Shift"];
-/** v1.249.0 - the whole menu of an agent */
-export const AGENT_TABS: readonly string[] = ["Tasks", "Agents", "Profile"];
+/** v1.249.0 - the whole menu of an agent. v1.250.2 (the owner, 01-11-2026:
+    "Remove Tasks") - their workspace and their account; on a phone the bar
+    is the workspace's own views (mobileNavStops). */
+export const AGENT_TABS: readonly string[] = ["Agents", "Profile"];
+/** v1.250.2 - an agent's phone bar: four places inside their workspace; Profile is in More */
+export const AGENT_STOPS: readonly { view: string; label: string }[] = [
+  { view: "overview", label: "Overview" }, { view: "packages", label: "Packages" },
+  { view: "requests", label: "Requests" }, { view: "quotations", label: "Quotations" },
+];
 
 /**
  * PARKED — built, kept, and shown to nobody.
@@ -424,8 +438,8 @@ export function canSeeTab(
   person: PersonAccess | null = null,
 ): boolean {
   if (!role) return true; // pre-auth render: the strip is skeleton anyway
-  /* v1.249.0 - an agent's menu is fixed: their tasks, the agent desk, their
-     account. Above every rail and override - the API closes everything else
+  /* v1.249.0 - an agent's menu is fixed: the agent workspace and their
+     account (v1.250.2 - no Tasks). Above every rail and override - the API closes everything else
      to an agent anyway (index.ts AGENT_STAFF_PATHS). */
   if (role === "agent") return AGENT_TABS.includes(tab);
   if (ALWAYS_VISIBLE.includes(tab)) return true;

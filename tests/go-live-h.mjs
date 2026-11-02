@@ -171,6 +171,11 @@ async function runtime(workerBundle) {
       ok((await call(p, AG)).status === 403, `T4 the agent is refused ${what} on the server (${p})`);
     }
     ok((await call(`/staff/agent/packages`, AG)).j?.packages?.[0]?.total_cents === 70000, "T4 the agent sees the packages to promote (the published price)");
+    ok((await call(`/staff/tasks`, AG)).status === 403, "T4 the agent has no internal Tasks (v1.250.2)");
+    const al0 = await call(`/staff/agent/agents`, U.ceo);
+    const mara = al0.j?.agents?.find((a) => a.id === AG);
+    ok(al0.j?.can_grant === true && mara && mara.email_verified === 1 && mara.is_active === 1 && /A2Z CREATIVE MARKETING and AZ ONE OFFICIAL/.test(mara.scope) && mara.requests === 0, "M-1 the owner's Agents list: the account, verified email, active, scope, requests - and Manage Agent Access offered", JSON.stringify(al0.j).slice(0, 300));
+    ok((await call(`/staff/agent/agents`, U.coo)).j?.can_grant === false && (await call(`/staff/agent/agents`, AG)).status === 403, "M-1 ...the COO reads it without the grant; an agent cannot read it");
 
     /* ---------- T5-T6 submit, retry-safe ---------- */
     const body = { client_name: "Kasih Rabiah Enterprise", contact_person: "Puan Rabiah", client_phone: "0123456789", client_email: "rabiah@kasih.test", package_id: 1, requirement: "10 videos for a product campaign", timeline: "Nov 2026", budget_text: "RM700", client_key: "k-1" };
@@ -212,6 +217,14 @@ async function runtime(workerBundle) {
     const fu = await call(`/staff/agent/requests/${rid}/events`, AG, "POST", { kind: "update", body: "Client also asked about photos", next_action: "Wait for the quotation", client_key: "e-1" });
     const fu2 = await call(`/staff/agent/requests/${rid}/events`, AG, "POST", { kind: "update", body: "Client also asked about photos", client_key: "e-1" });
     ok(fu.status === 201 && fu2.j?.existing === true && n(`SELECT COUNT(*) AS n FROM agent_request_events WHERE client_key = 'e-1'`) === 1, "T16 an agent's progress update is kept once, even when the phone retries");
+    /* v1.250.2 - the Add Status Update form: a typed progress update with next action and follow-up */
+    const n5 = n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 5 AND kind = 'agent'`);
+    const su = await call(`/staff/agent/requests/${rid}/events`, AG, "POST", { kind: "update", body: "Client feedback: wants the videos in Malay", client_feedback: "wants the videos in Malay", next_action: "Wait for the quotation", follow_up_on: "2026-11-05", client_key: "u-1" });
+    const hv = await call(`/staff/agent/requests/${rid}`, AG);
+    const last = hv.j?.history?.find((e) => e.body === "Client feedback: wants the videos in Malay");
+    ok(su.status === 201 && last && last.next_action === "Wait for the quotation" && last.follow_up_on === "2026-11-05" && last.visibility === "agent" && last.actor_id === AG, "T10-T11 the agent's status update (type, next action, follow-up) is on their timeline, by them", JSON.stringify(last));
+    ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 5 AND kind = 'agent'`) === n5 + 1, "T12 the assigned salesperson is notified of the agent's update");
+    ok(db.prepare(`SELECT next_follow_up_on FROM agent_requests WHERE id = ?`).get(rid).next_follow_up_on !== "2026-11-05", "T10 an agent's follow-up date is their own note - it does not set Sales' follow-up");
     let frozen = false; try { db.exec(`UPDATE agent_request_events SET body = 'x' WHERE request_id = ${rid}`); } catch { frozen = true; }
     ok(frozen, "T16 updates are append-only");
 
@@ -243,7 +256,8 @@ async function runtime(workerBundle) {
 
     /* ---------- T13 share ---------- */
     ok((await call(`/staff/agent/requests/${rid}/shared`, AG, "POST", {})).status === 400, "T13 sharing says how it was shared");
-    const sh = await call(`/staff/agent/requests/${rid}/shared`, AG, "POST", { channel: "whatsapp", note: "Sent to Puan Rabiah" });
+    const sh = await call(`/staff/agent/requests/${rid}/shared`, AG, "POST", { channel: "whatsapp", note: "Sent to Puan Rabiah", next_action: "Call on Monday", follow_up_on: "2026-11-03" });
+    ok(db.prepare(`SELECT next_action, follow_up_on FROM agent_request_events WHERE request_id = ? AND kind = 'shared'`).get(rid)?.next_action === "Call on Monday", "T13 a share carries the update's next action and follow-up");
     ok(sh.status === 200 && db.prepare(`SELECT status FROM agent_requests WHERE id = ?`).get(rid).status === "with_client" && n(`SELECT COUNT(*) AS n FROM agent_request_events WHERE request_id = ? AND kind = 'shared' AND body LIKE '%self-reported%'`, rid) === 1, "T13 the agent records a WhatsApp share - marked self-reported");
     const se = await call(`/staff/agent/requests/${rid}/send`, AG, "POST", { to: "rabiah@kasih.test" });
     ok(se.status === 200 && sent.some((m) => m.to === "rabiah@kasih.test" && String(m.text).includes("/doc?t=")) && n(`SELECT COUNT(*) AS n FROM agent_request_events WHERE request_id = ? AND kind = 'sent'`, rid) === 1, "T13 a portal send goes through the existing mail sender and is recorded as sent", se.text.slice(0, 120));
@@ -324,6 +338,7 @@ const MUT = [
   ["worker/src/agent.ts", "any salesperson handles any request", "    const handler = manager || (viewer && r.assigned_to === user.id);", "    const handler = manager || viewer;"],
   ["worker/src/agent.ts", "the retry key is ignored", "      const key = text(body?.client_key, 80) || null;", "      const key = null;"],
   ["worker/src/staff.ts", "an unverified email becomes an agent", "    if (newRole === \"agent\" && target.role !== \"agent\") {", "    if (false) {"],
+  ["worker/src/agent.ts", "an agent's follow-up date moves Sales' follow-up", "      if (follow && handler) await env.DB.prepare(`UPDATE agent_requests SET next_follow_up_on", "      if (follow) await env.DB.prepare(`UPDATE agent_requests SET next_follow_up_on"],
   ["worker/src/agent.ts", "internal files reach the agent", "      if (!f || (!staff && f.visibility !== \"agent\")) return err(\"not_found\", \"File not found\", 404);", "      if (!f) return err(\"not_found\", \"File not found\", 404);"],
 ];
 for (const [file, name, from, to] of MUT) {

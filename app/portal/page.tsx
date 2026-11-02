@@ -248,7 +248,7 @@ export default function PortalPage() {
           {activeTab === "Agents" && (
             <TabPage>
               <TabZone label={user.role === "agent" ? L("Packages and my clients", "Pakej dan pelanggan saya") : L("Agents' clients", "Pelanggan ejen")}>
-                <AgentsPanel role={user.role} />
+                <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
               </TabZone>
             </TabPage>
           )}
@@ -262,7 +262,7 @@ export default function PortalPage() {
               page applied (Who sees what - CEO / super admin; the geofence -
               super admin / CEO / COO; role changes - super admin) moved with
               their cards into users-panel.tsx. */}
-          {activeTab === "Users" && <UsersPanel role={user.role} owner={user.is_owner === true} go={setTab} />}
+          {activeTab === "Users" && <UsersPanel role={user.role} owner={user.is_owner === true} go={setTab} initialView={startOf("Users")} />}
           {activeTab === "Profile" && (
             /* v1.220.0 - Profile 2.0 (the owner's answers, 28-10-2026): one
                page, three tabs - My Profile, Security & Account, My Payslips.

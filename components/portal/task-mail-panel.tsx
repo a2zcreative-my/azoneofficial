@@ -228,7 +228,7 @@ function BroadcastCard({ ready, onSent }: { ready: boolean; onSent: () => void }
   const pick = async (m: "open_work" | "people") => {
     setMode(m); setPrev(null);
     if (m === "people" && !people) {
-      const r = await api<{ staff?: { id: number; name: string; role?: string }[] }>("/staff/staff-list?agents=1");
+      const r = await api<{ staff?: { id: number; name: string; role?: string }[] }>("/staff/staff-list");
       setPeople(r.data?.staff ?? []);
     }
   };

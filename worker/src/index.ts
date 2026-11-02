@@ -1540,7 +1540,7 @@ async function enforce2fa(request: Request, env: Env, path: string): Promise<Res
 
 /* v1.249.0 - the staff API paths an agent may use (index.ts staff gate) */
 const AGENT_STAFF_PATHS: readonly RegExp[] = [
-  /^\/tasks$/, /^\/tasks\/\d+(\/(items(\/\d+(\/toggle)?)?|updates|review|comments|files(\/\d+)?|activity|ack))?$/,
+  /* v1.250.2 - no tasks (the owner, 01-11-2026: "Remove Tasks") - an agent works through their requests */
   /^\/agent(\/|$)/,
   /^\/profile$/, /^\/prefs(\/|$)/, /^\/notifications(\/|$)/, /^\/push\//, /^\/versions$/, /^\/tabs\/access$/,
   /^\/photo-book$/, /^\/support\//, /^\/debug\/overflow$/, /^\/responsibilities$/,
@@ -4489,7 +4489,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        (packages, their requests) and their own account. Everything else in
        the staff API is closed to them, whatever a menu might show. */
     if (user.role === "agent" && !AGENT_STAFF_PATHS.some((rx) => rx.test(sub))) {
-      return errorResponse("forbidden", "Agents use Tasks, the Agent desk and their own Profile", 403);
+      return errorResponse("forbidden", "Agents use their Agent workspace and their own Profile", 403);
     }
     /* v1.105.0 (roadmap phase 03) - a queueable write with an Idempotency-Key
        runs once and answers the same way forever after (worker/src/outbox.ts).

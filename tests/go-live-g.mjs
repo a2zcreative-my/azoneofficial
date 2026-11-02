@@ -143,7 +143,7 @@ async function runtime(workerBundle) {
   try {
     /* ---------- what an agent can reach ---------- */
     const tk = await call(`/staff/tasks`, U.agent);
-    ok(tk.status === 200 && (tk.j?.tasks ?? []).length === 1 && tk.j.tasks[0].id === 100, "A1 an agent sees the task given to them - and only that one", tk.text.slice(0, 160));
+    ok(tk.status === 403 && (await call(`/staff/tasks/100`, U.agent)).status === 403, "A1 an agent has no Tasks - not even an old task once given to them (v1.250.2, the owner's answer: Remove Tasks)", tk.text.slice(0, 160));
     ok((await call(`/staff/tasks/101`, U.agent)).status >= 403, "A2 an agent cannot open somebody else's task");
     ok((await call(`/staff/tasks`, U.agent, "POST", { title: "My own", assigned_to: U.aina })).status === 403, "A3 an agent does not set tasks");
     const pk = await call(`/staff/agent/packages`, U.agent);
@@ -182,9 +182,9 @@ async function runtime(workerBundle) {
     ok(frozen, "S7 a request's history cannot be edited");
 
     /* ---------- agents are not staff ---------- */
-    ok(!(await call(`/staff/staff-list`, U.ceo)).j?.staff?.some((s) => s.role === "agent") && (await call(`/staff/staff-list?agents=1`, U.ceo)).j?.staff?.some((s) => s.role === "agent"), "N1 agents are left out of staff pickers (never a salesperson) - and offered only where tasks are given");
+    ok(!(await call(`/staff/staff-list`, U.ceo)).j?.staff?.some((s) => s.role === "agent") && !(await call(`/staff/staff-list?agents=1`, U.ceo)).j?.staff?.some((s) => s.role === "agent"), "N1 agents are in no staff picker - never a salesperson, never given a task (v1.250.2)");
     const t2 = await call(`/staff/tasks`, U.ceo, "POST", { title: "Hand out flyers", assigned_to: U.agent2 });
-    ok(t2.status === 201, "N2 management can give an agent a task", t2.text.slice(0, 120));
+    ok(t2.status === 400, "N2 management cannot give an agent a task (v1.250.2 - an agent works through their requests)", t2.text.slice(0, 120));
     ok(money() === money0, "N3 no sales document, commission, payroll row or salary changes because agents exist");
 
     /* ---------- creating an agent ---------- */
@@ -197,19 +197,19 @@ async function runtime(workerBundle) {
     /* ---------- task-update emails ---------- */
     ok((await call(`/staff/tasks/mail-broadcast`, U.coo, "POST", { subject: "Week plan", message: "Please update all tasks", to: "open_work" })).status === 403, "E1 the COO cannot send a task update (the CEO by default)");
     const pv = await call(`/staff/tasks/mail-broadcast`, U.ceo, "POST", { subject: "Week plan", message: "Please update all tasks today", to: "open_work", preview: true });
-    ok(pv.status === 200 && pv.j?.recipients >= 3 && /Week plan/.test(pv.j?.subject ?? "") && n(`SELECT COUNT(*) AS n FROM mail_outbox WHERE kind = 'broadcast'`) === 0, "E2 the CEO previews it - nothing is queued", pv.text.slice(0, 160));
+    ok(pv.status === 200 && pv.j?.recipients >= 2 && /Week plan/.test(pv.j?.subject ?? "") && n(`SELECT COUNT(*) AS n FROM mail_outbox WHERE kind = 'broadcast'`) === 0, "E2 the CEO previews it - nothing is queued", pv.text.slice(0, 160));
     const bc = await call(`/staff/tasks/mail-broadcast`, U.ceo, "POST", { subject: "Week plan", message: "Please update all tasks today", to: "open_work" });
     const rows = db.prepare(`SELECT user_id, body_text FROM mail_outbox WHERE kind = 'broadcast' ORDER BY user_id`).all();
-    ok(bc.status === 200 && rows.length >= 3, "E3 everyone with open tasks gets one email", bc.text.slice(0, 160));
+    ok(bc.status === 200 && rows.length >= 2, "E3 everyone with open tasks gets one email", bc.text.slice(0, 160));
     const aina = rows.find((r) => r.user_id === 5)?.body_text ?? "";
     ok(/Please update all tasks today/.test(aina) && /Aina: follow up ABC/.test(aina) && !/Lia: deck/.test(aina) && !/expo/.test(aina), "E4 each email carries the message and ONLY that person's own tasks", aina.slice(0, 300));
-    ok(/Promote the video package/.test(rows.find((r) => r.user_id === 20)?.body_text ?? ""), "E5 an agent with an open task gets theirs too");
+    ok(!rows.some((r) => r.user_id === 20), "E5 an agent gets no task-update email (no Tasks since v1.250.2)");
     const again = await call(`/staff/tasks/mail-broadcast`, U.ceo, "POST", { subject: "Again", message: "Second time now", to: [5] });
     ok(again.j?.queued === 0 && again.j?.skipped?.[0]?.why === "already sent a task update this hour", "E6 once per person per hour");
     ok((await call(`/staff/tasks/mail-log`, U.cco)).status === 200 && (await call(`/staff/tasks/mail-log`, U.cco)).j?.rows?.some((r) => r.kind === "broadcast"), "E7 the CCO sees the sent updates in the log (read only)");
     ok(db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'task.mail_broadcast'`).get().n === 2, "E8 every send is audited (the second, refused for the hour, too)");
     await worker.drainMailOutbox(env);
-    ok(sent.length >= 3 && sent.every((m) => m.from === "A2Z Creative Marketing <hello@a2zcreative.my>"), "E10 the updates go out from hello@a2zcreative.my on the next pass");
+    ok(sent.length >= 2 && sent.every((m) => m.from === "A2Z Creative Marketing <hello@a2zcreative.my>"), "E10 the updates go out from hello@a2zcreative.my on the next pass");
   } catch (e) {
     ok(false, `the run threw: ${String(e?.stack ?? e).slice(0, 400)}`);
   } finally {
@@ -224,7 +224,7 @@ function sourceChecks() {
   const agent = readFileSync(join(root, "worker/src/agent.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   ok(!/(INSERT INTO|UPDATE|DELETE FROM)\s+(sales_documents|customers|commission_ledger|payroll_entries|users)\b/i.test(agent), "agent.ts writes no sales document, customer, commission, payroll or user row");
   const tabs = readFileSync(join(root, "lib/portal-tabs.ts"), "utf8");
-  ok(/AGENT_TABS: readonly string\[\] = \["Tasks", "Agents", "Profile"\]/.test(tabs) && /if \(role === "agent"\) return AGENT_TABS\.includes\(tab\);/.test(tabs), "an agent's menu is Tasks, Agents and Profile - above every override");
+  ok(/AGENT_TABS: readonly string\[\] = \["Agents", "Profile"\]/.test(tabs) && /if \(role === "agent"\) return AGENT_TABS\.includes\(tab\);/.test(tabs), "an agent's menu is their Agent workspace and Profile (no Tasks since v1.250.2) - above every override");
   const staff = readFileSync(join(root, "worker/src/staff.ts"), "utf8");
   ok(/export const staffRolesSql = \(alias = ""\) =>\s*`\$\{alias\}role NOT IN \('customer', 'agent', 'super_admin'\)`/.test(staff), "agents are never counted as staff (payroll, attendance, headcount)");
   return out;
@@ -252,7 +252,9 @@ const MUT = [
   ["worker/src/task-mail.ts", "updates repeat at will", "    if (recent) { out.skipped.push({ id, why: \"already sent a task update this hour\" }); continue; }", ""],
   ["worker/src/staff.ts", "anybody sends a task update", "    if (!can(user.role, \"task_mail_send\")) return err(\"forbidden\", \"Sending a task update is for the CEO (Roles & Permissions decides)\", 403);", ""],
   ["worker/src/staff.ts", "HR creates agents", "    if (agentNew ? !mayGrant(user, \"agent\") : !can(user.role, \"hr_manage\"))", "    if (!can(user.role, \"hr_manage\"))"],
-  ["worker/src/staff.ts", "agents become salespeople in the pickers", "         AND (u.role != 'agent' OR ?1 = 1)", "         AND (1 = 1 OR ?1 = 1)"],
+  ["worker/src/staff.ts", "agents become salespeople in the pickers", "         AND u.role != 'agent'\n       ORDER BY", "         AND 1 = 1\n       ORDER BY"],
+  ["worker/src/staff.ts", "agents can be given tasks again", "  `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;\n\n/** THE SAME STAFF ORDER", "  `${alias}role NOT IN ('customer', 'super_admin')`;\n\n/** THE SAME STAFF ORDER"],
+  ["worker/src/index.ts", "agents reach Tasks again", "  /* v1.250.2 - no tasks (the owner, 01-11-2026: \"Remove Tasks\") - an agent works through their requests */\n  /^\\/agent(\\/|$)/,", "  /^\\/tasks$/, /^\\/tasks\\/\\d+$/,\n  /^\\/agent(\\/|$)/,"],
 ];
 for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   n++;
@@ -270,4 +272,4 @@ for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   else console.log(`caught: ${name} -> ${res.filter(([p]) => !p).slice(0, 2).map(([, m]) => m.split(" - ")[0]).join("; ")}`);
 }
 if (fail) { console.error(`go-live-g: ${fail} of ${n} failed${given ? ` (bundle: ${given})` : ""}`); process.exitCode = 1; }
-else console.log(`go-live-g: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - the users table rebuilt with every row and column kept; an agent reaches only their own tasks, the active packages and their own requests; Sales reads and management edits the requests; agents are never staff for payroll or pickers; the owner alone creates agents; the CEO's task update gives each person only their own tasks, once an hour, audited, read by COO and CCO`);
+else console.log(`go-live-g: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - the users table rebuilt with every row and column kept; an agent reaches only the active packages and their own requests (no Tasks since v1.250.2); Sales reads and management edits the requests; agents are never staff for payroll or pickers; the owner alone creates agents; the CEO's task update gives each person only their own tasks, once an hour, audited, read by COO and CCO`);

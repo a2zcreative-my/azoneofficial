@@ -25,6 +25,10 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Expenses": { en: "Expenses", ms: "Perbelanjaan" },
   "Sales": { en: "Sales", ms: "Jualan" },
   "Agents": { en: "Agents", ms: "Ejen" },
+  /* v1.250.2 - the agent's phone bar (their workspace's views) */
+  "Packages": { en: "Packages", ms: "Pakej" },
+  "Requests": { en: "Requests", ms: "Permintaan" },
+  "Quotations": { en: "Quotations", ms: "Sebut Harga" },
   /* v1.183.0 - Sales Performance, Hankei's, Enquiries, Web Orders and
      Commission retired; their labels with them. */
   "Inventory": { en: "Inventory", ms: "Inventori" },

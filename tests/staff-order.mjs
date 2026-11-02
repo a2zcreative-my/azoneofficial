@@ -338,9 +338,12 @@ const page = readPortalSource(root);
   ok("no staff list asks for 'not a customer' instead of for staff", looseLines.length === 0,
      `worker/src/staff.ts line(s) ${looseLines.join(", ")} — the system account acquires an ` +
      "attendance record, an absence history and a place in every list");
+  /* v1.250.2 - the check now reads the predicate's own body. It used to
+     match any NOT IN ('customer', 'super_admin') in the file, which the
+     task picker happened to say until agents left Tasks. Agents are never
+     staff (v1.249.0), so the body names them too. */
   ok("there is one predicate for it",
-     /export const staffRolesSql = \(alias = ""\) =>/.test(staff)
-       && /role NOT IN \('customer', 'super_admin'\)/.test(staff));
+     /export const staffRolesSql = \(alias = ""\) =>\s*`\$\{alias\}role NOT IN \('customer', 'agent', 'super_admin'\)`;/.test(staff));
   const uses = (staff.match(/\$\{staffRolesSql\(/g) ?? []).length;
   ok("every staff list uses it", uses >= 10,
      `${uses} — the shift resolver, the entitlement editor, the rest-day scan, the two ` +

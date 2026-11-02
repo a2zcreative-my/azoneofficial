@@ -73,8 +73,11 @@ export { mytStamp2 };
 const EVENT_CHIP = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
 type StaffFilter = "all" | "active" | "disabled" | "no2fa";
 
-export function UsersPanel({ role, owner = false, go }: { role: string; owner?: boolean; go?: (tab: TabName) => void }) {
-  const [view, setView] = useState<UsersView>("overview");
+export function UsersPanel({ role, owner = false, go, initialView }: { role: string; owner?: boolean; go?: (tab: TabName) => void; initialView?: string }) {
+  /* v1.250.2 - Agents > Manage Agent Access opens Customer Accounts directly */
+  const [view, setView] = useState<UsersView>(() => (["overview", "staff", "customers", "roles", "security", "signing"].includes(initialView ?? "") ? initialView as UsersView : "overview"));
+  const [seenStart, setSeenStart] = useState(initialView);
+  if (initialView !== seenStart) { setSeenStart(initialView); if (initialView && ["overview", "staff", "customers", "roles", "security", "signing"].includes(initialView)) setView(initialView as UsersView); }
   const [rows, setRows] = useState<Account[]>([]);
   const [msg, setMsg] = useState("");
   // v1.4.153: user log (recent sign-ins + account events) for monitoring

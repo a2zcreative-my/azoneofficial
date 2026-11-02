@@ -1424,7 +1424,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
      (more info), 4 is his draft. Ros (9006) has 3, waiting for Sales to verify
      the client's yes. Internal entries never reach the agent's JSON. */
   const isAg = ROLE === "agent";
-  const AGREQ = [
+  /* v1.250.2 - AGENT_EMPTY=1: nobody has submitted anything and there are no agents (the empty states) */
+  const AGENT_EMPTY = !!process.env.AGENT_EMPTY;
+  const AGREQ = AGENT_EMPTY ? [] : [
     { id: 1, ref: "AGR-0001", agent_id: 9005, agent_name: "Zul Agent", client_name: "Puan Rina", contact_person: "Puan Rina", client_phone: "0129998888", client_email: "rina@example.test", company: "Rina Bakery", package_id: 11, package_name: "10 Video Content", custom: 0, requirement: "Ten videos for the CNY campaign", timeline: "Before CNY", budget_text: "RM700", note: null, issuer_code: "azoo", status: "quotation_ready", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: 1, quotation_number: "QT-AZO150926-1", published_number: "QT-AZO150926-1", published_revision: 0, next_follow_up_on: "2026-10-30", overdue: true, manager_note: "Quoted RM700", last_text: "Quotation QT-AZO150926-1 published to you", last_at: "2026-10-31 02:00:00", last_by: "Nur Aisyah binti Rahman", created_at: "2026-10-30 02:00:00" },
     { id: 2, ref: "AGR-0002", agent_id: 9005, agent_name: "Zul Agent", client_name: "Encik Kamal", contact_person: null, client_phone: null, client_email: "kamal@example.test", company: null, package_id: 12, package_name: "Promosi Produk", custom: 0, requirement: null, timeline: null, budget_text: null, note: null, issuer_code: "a2z", status: "more_info", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: null, quotation_number: null, published_number: null, published_revision: null, next_follow_up_on: null, overdue: false, manager_note: null, last_text: "More information needed: Which products?", last_at: "2026-10-31 03:00:00", last_by: "Nur Aisyah binti Rahman", created_at: "2026-10-31 03:00:00" },
     { id: 3, ref: "AGR-0003", agent_id: 9006, agent_name: "Ros Agent", client_name: "Cik Lina", contact_person: "Cik Lina", client_phone: "0111112222", client_email: null, company: "Lina Spa", package_id: 11, package_name: "10 Video Content", custom: 0, requirement: null, timeline: null, budget_text: null, note: null, issuer_code: "azoo", status: "acceptance_pending", assigned_to: 9002, assigned_name: "Nur Aisyah binti Rahman", quotation_id: 1, quotation_number: "QT-AZO150926-1", published_number: "QT-AZO150926-1", published_revision: 0, next_follow_up_on: "2026-11-05", overdue: false, manager_note: null, last_text: "Client says yes - to verify: Go ahead", last_at: "2026-11-01 01:00:00", last_by: "Ros Agent", created_at: "2026-10-29 03:00:00" },
@@ -1440,7 +1442,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     const counts = {}; for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
     data = { requests: rows, counts, can_manage: ["ceo", "coo", "cco", "super_admin"].includes(ROLE), can_submit: isAg, mail_ready: false, me: isAg ? 9005 : 9001 };
   }
-  if (p0 === "/staff/agent/agents") data = { agents: [{ id: 9005, name: "Zul Agent", email: "zul.agent@gmail.com", is_active: 1, requests: 2, won: 0 }, { id: 9006, name: "Ros Agent", email: "ros.agent@gmail.com", is_active: 1, requests: 1, won: 0 }] };
+  if (p0 === "/staff/agent/agents") data = isAg ? { error: { code: "forbidden", message: "Sales and management only" } } : { can_grant: (OWNER && ROLE === "ceo") || ROLE === "super_admin", agents: AGENT_EMPTY ? [] : [
+    { id: 9005, name: "Zul Agent", email: "zul.agent@gmail.com", is_active: 1, email_verified: 1, requests: 2, open_requests: 2, won: 0, last_activity: "2026-11-01 02:00:00", scope: "All active packages - A2Z CREATIVE MARKETING and AZ ONE OFFICIAL" },
+    { id: 9006, name: "Ros Agent", email: "ros.agent@gmail.com", is_active: 0, email_verified: 1, requests: 1, open_requests: 1, won: 0, last_activity: "2026-11-01 01:00:00", scope: "All active packages - A2Z CREATIVE MARKETING and AZ ONE OFFICIAL" }] };
   const agOne = /^\/staff\/agent\/requests\/(\d+)$/.exec(p0);
   if (agOne) {
     const r = AGREQ.find((x) => x.id === Number(agOne[1]));

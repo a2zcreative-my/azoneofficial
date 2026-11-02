@@ -52,7 +52,7 @@ import css from "@/app/portal/portal.module.css";
 export function PortalShell({ children }: { children: ReactNode }) {
   const {
     user, setUser, navCollapsed, toggleNavCollapsed,
-    tab, setTab, activeTab, canOpen, deskStop, setDeskStop, openRecord, searchQ, setSearchQ,
+    tab, setTab, activeTab, canOpen, deskStop, setDeskStop, openRecord, searchQ, setSearchQ, tabStart, setTabStart,
     setSalesStart, setSalesCreateRequest,
     dark, setDark, theme, setTheme, lang, setLangState,
     unread, showNotifs, setShowNotifs,
@@ -490,13 +490,15 @@ export function PortalShell({ children }: { children: ReactNode }) {
                Dashboard), so the active stop is keyed on the stop, not the
                tab. Nothing here reads a count: the bar never reorders. */
             const onTab = tab === t && !moreOpen;
-            const active = onTab && (stop.anchor ? deskStop : !(deskStop && stop.key === "Dashboard"));
+            /* v1.250.2 - an agent's stops are views of one tab: the view decides */
+            const active = onTab && (stop.view ? (tabStart?.tab === t ? tabStart.view : "overview") === stop.view : stop.anchor ? deskStop : !(deskStop && stop.key === "Dashboard"));
             return (
               <button
                 key={stop.key}
                 type="button"
                 onClick={() => {
                   setTab(t);
+                  if (stop.view) setTabStart({ tab: t, view: stop.view });
                   setMoreOpen(false);
                   setDeskStop(Boolean(stop.anchor));
                   if (stop.anchor) revealAnchor(stop.anchor);

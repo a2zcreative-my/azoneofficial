@@ -52,6 +52,10 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Expenses: TrendingDown,
   Sales: FileText,
   Agents: Handshake, // v1.249.0 - the agent desk
+  // v1.250.2 - the agent's phone bar: their workspace's views
+  Packages: Package,
+  Requests: ClipboardList,
+  Quotations: FileText,
   // v1.183.0 - Sales Performance (Target), Hankei's (ScanLine), Web Orders
   // (Globe, still admin's Website) and Commission (Percent) retired, their
   // glyphs with them. Enquiries below is admin's own tab and stays.

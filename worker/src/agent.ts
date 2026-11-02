@@ -190,13 +190,20 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
     /* ---- staff: the agents and their counts ---- */
     if (path === "/agent/agents" && method === "GET") {
       if (!staff) return err("forbidden", "Sales and management only", 403);
+      /* v1.250.2 - what the owner asked to see per agent: the account, whether its
+         email is proven, active or suspended, the scope (every active package,
+         both companies - agents have no company restriction), the requests and
+         the latest activity. Real rows only. */
       const { results } = await env.DB.prepare(
         `SELECT u.id, ${PERSON("u")} AS name, u.email, u.is_active,
+                CASE WHEN u.google_sub IS NOT NULL OR u.email_verified_at IS NOT NULL OR u.password_hash LIKE 'oauth$%' THEN 1 ELSE 0 END AS email_verified,
                 (SELECT COUNT(*) FROM agent_requests r WHERE r.agent_id = u.id AND r.status != 'draft') AS requests,
-                (SELECT COUNT(*) FROM agent_requests r WHERE r.agent_id = u.id AND r.status = 'won') AS won
+                (SELECT COUNT(*) FROM agent_requests r WHERE r.agent_id = u.id AND r.status NOT IN ('draft', 'won', 'not_proceeding')) AS open_requests,
+                (SELECT COUNT(*) FROM agent_requests r WHERE r.agent_id = u.id AND r.status = 'won') AS won,
+                (SELECT MAX(e.created_at) FROM agent_request_events e JOIN agent_requests r ON r.id = e.request_id WHERE r.agent_id = u.id AND e.actor_id = u.id) AS last_activity
            FROM users u WHERE u.role = 'agent' ORDER BY u.is_active DESC, name`,
       ).all();
-      return json({ agents: results ?? [] });
+      return json({ agents: (results ?? []).map((a) => ({ ...a, scope: "All active packages - A2Z CREATIVE MARKETING and AZ ONE OFFICIAL" })), can_grant: user.role === "super_admin" || (user.role === "ceo" && user.is_owner === true) });
     }
 
     const m = path.match(/^\/agent\/requests\/(\d+)(?:\/(events|files|prefill|publish|quotation|shared|send|feedback|verify)(?:\/(\d+))?)?$/);
@@ -456,7 +463,8 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
       }
       const note = text(body?.note, 500);
       await env.DB.prepare(`UPDATE agent_requests SET status = 'with_client', updated_at = ?1, updated_by = ?2 WHERE id = ?3`).bind(now(), user.id, r.id).run();
-      await event(env, r.id, user.id, { kind: sub === "send" ? "sent" : "shared", visibility: "agent", channel, body: note ? `${summary}. ${note}` : summary, status_from: r.status, status_to: "with_client" });
+      await event(env, r.id, user.id, { kind: sub === "send" ? "sent" : "shared", visibility: "agent", channel, body: note ? `${summary}. ${note}` : summary, status_from: r.status, status_to: "with_client",
+        next_action: text(body?.next_action, 500) || null, follow_up_on: validDay(body?.follow_up_on) ? body!.follow_up_on as string : null });
       await audit(env, user.id, sub === "send" ? "agent.quotation_sent" : "agent.quotation_shared", "agent_requests", String(r.id), { doc_id: r.published_doc_id, revision: r.published_revision, channel, verified: sub === "send" });
       await tellTeam(env, r.id, user.id, `${agentRef(r.id)} (${r.client_name}): ${summary}`, r.assigned_to);
       return json({ ok: true, status: "with_client" });

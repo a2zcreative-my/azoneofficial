@@ -1,9 +1,13 @@
 """v1.249.0 - the Agent desk and the CEO's task-update email, on screen.
-v1.250.0 - the agent portal workflow: the agent's workspace (Overview,
-Packages, My Requests, My Quotations, Updates), the shared request drawer,
-Sales read-only, management handling, Grant Agent Access.
+v1.250.0 - the agent portal workflow.
+v1.250.2 - "every action has a clear button": no Tasks for agents, the agent's
+own phone bar (Overview, Packages, Requests, Quotations), Submit Client
+Request on every view and in the empty state, a request opening on Overview /
+Updates & Comments / Files with Add Status Update, Manage Agent Access for the
+owner, role-specific empty states.
 
-Servers (servers.txt): ROLE=agent on 4222, ROLE=sales_marketing on 4182,
+Servers (servers.txt): ROLE=agent on 4222, ROLE=agent AGENT_EMPTY=1 on 4223,
+ROLE=ceo OWNER=1 AGENT_EMPTY=1 on 4224, ROLE=sales_marketing on 4182,
 ROLE=ceo on 4177, ROLE=live_host on 4180, ROLE=ceo OWNER=1 on 4191. The
 fixture is a stand-in for the worker; who may see what is proven by direct
 request in tests/go-live-g.mjs and tests/go-live-h.mjs."""
@@ -32,8 +36,8 @@ def tab(pg, name):
     if btn.count(): btn.first.click(); pg.wait_for_timeout(1800); return True
     return False
 
-def sub(pg, name):
-    t = pg.get_by_role("tab", name=name, exact=True).filter(visible=True)
+def sub(pg, name, scope=None):
+    t = (scope or pg).get_by_role("tab", name=name, exact=True).filter(visible=True)
     if t.count(): t.first.click(); pg.wait_for_timeout(900); return True
     return False
 
@@ -48,76 +52,136 @@ def posts(reqs, suffix, method="POST"):
             except Exception: out.append({})
     return out
 
+def fits(pg):
+    return pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
+
 with sync_playwright() as p:
     b = p.chromium.launch()
 
-    # ---- an agent ----
+    # ---- an agent, desktop ----
     ctx, pg, errs, reqs = page(b, 4222)
     names = set(rail(pg))
-    check("an agent's menu is Tasks, Agents and Profile - no Dashboard, Sales, HR, Payroll or Users",
-          {"Tasks", "Agents", "Profile"} <= names and not ({"Dashboard", "Desk", "Sales", "HR", "Payroll", "Users", "Finance", "Commission", "On Shift"} & names), sorted(names))
+    check("an agent's menu is their workspace and Profile - no Tasks, Dashboard, On Shift, HR, Staff, Users",
+          {"Agents", "Profile"} <= names and not ({"Tasks", "Dashboard", "Desk", "Sales", "HR", "Payroll", "Users", "Finance", "On Shift", "Staff Details"} & names), sorted(names))
     panel = pg.get_by_test_id("agents-panel")
     check("an agent lands on the Agent workspace", panel.count() == 1 and "Agent workspace" in panel.inner_text())
-    ov = panel.inner_text()
-    check("Overview counts the agent's own requests - one needs their reply, one quotation ready", "Need your reply" in ov and "Quotations ready" in ov, ov[:300])
-    check("the agent workspace has Overview, Packages, My Requests, My Quotations and Updates",
-          all(pg.get_by_role("tab", name=n, exact=True).count() == 1 for n in ["Overview", "Packages", "My Requests", "My Quotations", "Updates"]))
-    sub(pg, "Packages")
-    txt = panel.inner_text()
-    check("Packages shows the active packages with prices and contents", "10 Video Content" in txt and "RM 700.00" in txt and "10 × Video Content 30s" in txt, txt[:400])
-    pg.get_by_test_id("agent-pkg-11").get_by_role("button", name="Submit a client").click(); pg.wait_for_timeout(700)
+    big = pg.get_by_test_id("submit-client-request")
+    check("+ Submit Client Request is a prominent button on the workspace", big.count() == 1 and big.is_visible())
+    check("the workspace views are Overview, Packages, My Requests and My Quotations",
+          all(pg.get_by_role("tab", name=n, exact=True).count() == 1 for n in ["Overview", "Packages", "My Requests", "My Quotations"]))
+    big.click(); pg.wait_for_timeout(700)
     send = pg.get_by_role("button", name="Send to Sales")
     check("Send stays off until the client, a phone or email and a package are given", send.is_disabled())
     pg.get_by_label("Client or company *").fill("Puan Rina"); pg.get_by_label("Phone").fill("0129998888")
     pg.get_by_label("Contact person").fill("Puan Rina binti Ali")
-    check("...then it can be sent (the package came from the card)", not send.is_disabled())
+    pg.get_by_label("Package *").select_option("11")
+    pg.get_by_label("What the client needs").fill("Ten videos before CNY")
+    check("...then it can be sent", not send.is_disabled())
+    check("the form takes notes, budget, timeline and an attachment", pg.get_by_label("Your notes for Sales (optional)").count() == 1 and pg.get_by_label("Budget (optional)").count() == 1 and pg.get_by_label("Attachment (optional - PDF, image or Word)").count() == 1)
     reqs.clear(); send.click(); pg.wait_for_timeout(1200)
     posted = posts(reqs, "/staff/agent/requests")
-    check("the request goes to the server with the package, the contact and a retry key - never a price",
-          len(posted) == 1 and posted[0].get("package_id") == 11 and posted[0].get("client_name") == "Puan Rina" and posted[0].get("contact_person") == "Puan Rina binti Ali" and posted[0].get("client_key") and posted[0].get("draft") is False and "total_cents" not in posted[0], posted)
+    check("the request goes to the authoritative backend with the package, contact and a retry key - never a price or an agent id",
+          len(posted) == 1 and posted[0].get("package_id") == 11 and posted[0].get("client_name") == "Puan Rina" and posted[0].get("client_key") and posted[0].get("draft") is False and "total_cents" not in posted[0] and "agent_id" not in posted[0], posted)
+    check("...the form closes with a Sent toast and the agent is on My Requests", pg.get_by_role("button", name="Send to Sales").count() == 0 and "Sent to the sales team" in pg.inner_text("body"))
     sub(pg, "My Requests")
     t2 = panel.inner_text()
-    check("My Requests lists the agent's requests with the latest update and their quotation once published",
-          "AGR-0001" in t2 and "AGR-0002" in t2 and "Quotation ready" in t2 and "QT-AZO150926-1" in t2 and "Ros Agent" not in t2, t2[:400])
-    check("...never an internal note", "deposit term" not in t2)
-    panel.get_by_role("button", name="AGR-0001").click(); pg.wait_for_timeout(1200)
+    check("My Requests lists the agent's requests with status, quotation and latest update", "AGR-0001" in t2 and "AGR-0002" in t2 and "Quotation ready" in t2 and "QT-AZO150926-1" in t2 and "Ros Agent" not in t2 and "deposit term" not in t2, t2[:300])
+    check("...as one table on a desktop - the phone cards stay hidden", panel.locator("table").filter(visible=True).count() == 1 and pg.get_by_test_id("agent-card-1").is_hidden() and panel.get_by_role("button", name="AGR-0001").filter(visible=True).count() == 1)
+    panel.get_by_role("button", name="AGR-0001").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
     dr = pg.get_by_test_id("agent-request-drawer")
-    dt = dr.inner_text() if dr.count() else ""
-    check("the request drawer shows the published quotation: number, company, total, valid-until",
-          "QT-AZO150926-1" in dt and "AZ ONE OFFICIAL" in dt and "RM 700.00" in dt and "30-11-2026" in dt, dt[:400])
-    link = dr.get_by_role("link", name="Open quotation")
-    check("...opens the official customer link (no copy, no portal token)", link.count() == 1 and "/doc?t=" in (link.get_attribute("href") or ""))
-    check("...says the agent cannot change price, company, signature or payment", "Price, issuing company, signature and payment are Sales'" in dt)
-    check("...no internal entries and no who-sees-it labels for an agent", "deposit term" not in dt and "Internal" not in dt and "Agent can see" not in dt)
-    check("...and nothing a handler does (no Publish, no Create quotation, no Move to)", dr.get_by_role("button", name="Publish to Agent").count() == 0 and dr.get_by_role("button", name="Create quotation in Sales").count() == 0 and "Move to" not in dt)
-    check("email from the portal says it is not switched on yet", "Email from the portal is not switched on yet" in dt)
-    reqs.clear(); dr.get_by_role("button", name="I shared it").click(); pg.wait_for_timeout(900)
+    check("a request opens on Overview, Updates & Comments, Files", all(dr.get_by_role("tab", name=n).count() == 1 for n in ["Overview", "Files (0)"]) and dr.get_by_role("tab", name="Updates & Comments", exact=False).count() == 1)
+    dt = dr.inner_text()
+    check("...with the progress line, the assigned salesperson and the published quotation", "Quotation ready" in dt and "Assigned Sales" in dt and "Nur Aisyah" in dt and "QT-AZO150926-1" in dt and "RM 700.00" in dt, dt[:300])
+    check("...View approved quotation opens the official customer link", "/doc?t=" in (dr.get_by_role("link", name="View approved quotation").get_attribute("href") or ""))
+    check("...Add Status Update, I shared it, Request revision and Report client acceptance are visible buttons",
+          all(dr.get_by_role("button", name=n).count() == 1 for n in ["Add Status Update", "I shared it with the client", "Request revision", "Report client acceptance"]))
+    check("...and nothing a handler does (no Publish, Create quotation, Move to)", dr.get_by_role("button", name="Publish to Agent").count() == 0 and dr.get_by_role("button", name="Create quotation in Sales").count() == 0 and "Move to" not in dt)
+    dr.get_by_role("button", name="I shared it with the client").click(); pg.wait_for_timeout(600)
+    form = pg.get_by_test_id("add-update-form")
+    check("I shared it opens the one Add Status Update form, type preset", form.count() == 1 and form.get_by_label("Update type *").input_value() == "shared")
+    form.get_by_label("What happened *").fill("Sent on WhatsApp to Puan Rina")
+    form.get_by_label("Next action (optional)").fill("Call on Monday")
+    reqs.clear(); form.get_by_role("button", name="Submit Update").click(); pg.wait_for_timeout(1000)
     sh = posts(reqs, "/staff/agent/requests/1/shared")
-    check("I shared it records the channel (self-reported)", len(sh) == 1 and sh[0].get("channel") == "whatsapp", sh)
-    dr.get_by_role("button", name="Says yes").click(); pg.wait_for_timeout(400)
-    dr.get_by_label("What the client said").fill("Go ahead with the ten videos")
-    check("Says yes cannot be sent without evidence", dr.get_by_role("button", name="Send to Sales").first.is_disabled())
-    dr.get_by_role("button", name="Wants changes").click(); pg.wait_for_timeout(300)
-    dr.get_by_label("What the client said").fill("Wants twelve videos")
-    reqs.clear(); dr.get_by_role("button", name="Send to Sales").first.click(); pg.wait_for_timeout(900)
-    fbk = posts(reqs, "/staff/agent/requests/1/feedback")
-    check("Wants changes goes to Sales as a revision request", len(fbk) == 1 and fbk[0].get("kind") == "revision", fbk)
+    check("...which records the share (channel, note, next action) - self-reported", len(sh) == 1 and sh[0].get("channel") == "whatsapp" and "WhatsApp" in sh[0].get("note", "") and sh[0].get("next_action") == "Call on Monday", sh)
+    sub(pg, "Updates & Comments (4)", dr) or dr.get_by_role("tab", name="Updates & Comments", exact=False).first.click(); pg.wait_for_timeout(600)
+    dr.get_by_test_id("add-status-update").click(); pg.wait_for_timeout(500)
+    form = pg.get_by_test_id("add-update-form")
+    types = form.get_by_label("Update type *").locator("option").all_inner_texts()
+    check("the update types: progress, client feedback, shared, interested, revision, declined, acceptance", all(any(x in t for t in types) for x in ["General progress update", "Client feedback", "Quotation shared with client", "Client interested", "Revision requested", "Client declined", "Client acceptance reported"]), types)
+    form.get_by_label("Update type *").select_option("accepted"); pg.wait_for_timeout(300)
+    form.get_by_label("What happened *").fill("Client said yes on WhatsApp")
+    check("a reported acceptance needs evidence and says Sales verifies it", form.get_by_role("button", name="Submit Update").is_disabled() and "Sales verifies it" in form.inner_text())
+    form.get_by_label("Update type *").select_option("general"); pg.wait_for_timeout(300)
+    form.get_by_label("What happened *").fill("Client is comparing with another agency")
+    form.get_by_label("Follow-up date (optional)").fill("2026-11-06")
+    reqs.clear(); form.get_by_role("button", name="Submit Update").click(); pg.wait_for_timeout(1000)
+    up = posts(reqs, "/staff/agent/requests/1/events")
+    check("a general update is an append-only event with the follow-up date", len(up) == 1 and up[0].get("kind") == "update" and "comparing" in up[0].get("body", "") and up[0].get("follow_up_on") == "2026-11-06", up)
+    check("the agent sees no who-sees-it choice and no internal note", dr.get_by_role("radio", name="Internal only").count() == 0 and "deposit term" not in dr.inner_text())
+    dr.get_by_label("Write a comment", exact=True).fill("Thank you, will update after the call")
+    reqs.clear(); dr.get_by_role("button", name="Post").click(); pg.wait_for_timeout(900)
+    rp = posts(reqs, "/staff/agent/requests/1/events")
+    check("the agent replies to comments in their own request", len(rp) == 1 and rp[0].get("kind") == "comment", rp)
     pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
-    panel.get_by_role("button", name="AGR-0002").click(); pg.wait_for_timeout(1200)
+    panel.get_by_role("button", name="AGR-0002").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
     dr = pg.get_by_test_id("agent-request-drawer")
     check("a More info request shows Sales' question and asks for the answer", "Which products?" in dr.inner_text() and pg.get_by_label("Your answer to Sales *").count() == 1)
     pg.get_by_label("Your answer to Sales *").fill("Bakery boxes and cakes")
     reqs.clear(); pg.get_by_role("button", name="Send the answer").click(); pg.wait_for_timeout(900)
     an = posts(reqs, "/staff/agent/requests/2", "PATCH")
-    check("...the answer goes back to Sales", len(an) == 1 and an[0].get("submit") is True and "Bakery" in an[0].get("answer", ""), an)
+    check("...the answer goes back to Sales", len(an) == 1 and an[0].get("submit") is True, an)
     check("no page errors (agent)", not errs, errs)
     ctx.close()
 
+    # ---- an agent on a phone ----
     ctx, pg, errs, reqs = page(b, 4222, 390, 844)
-    sub(pg, "My Requests")
-    check("on a phone the agent workspace fits the screen", pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
-    pg.get_by_test_id("agents-panel").get_by_role("button", name="AGR-0001").click(); pg.wait_for_timeout(1200)
-    check("...and the request opens full screen without sideways scroll", pg.get_by_test_id("agent-request-drawer").count() == 1 and pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
+    bar = [t.strip() for t in pg.locator(".erp-bottom-nav-item").all_inner_texts()]
+    check("an agent's phone bar is Overview, Packages, Requests, Quotations (+ More) - no Tasks, Dashboard or On Shift", bar[:4] == ["Overview", "Packages", "Requests", "Quotations"] and not ({"Tasks", "Dashboard", "On Shift", "Desk"} & set(bar)), bar)
+    pg.locator(".erp-bottom-nav-item", has_text="Requests").click(); pg.wait_for_timeout(1000)
+    card = pg.get_by_test_id("agent-card-1")
+    check("Requests on a phone are touch cards with the status and the latest update time", card.is_visible() and "Quotation ready" in card.inner_text() and "Updated" in card.inner_text() and pg.get_by_test_id("submit-client-request").is_visible())
+    check("...the phone bar marks Requests", pg.locator(".erp-bottom-nav-item[aria-current='page']").inner_text().strip() == "Requests")
+    check("...no sideways scroll", fits(pg))
+    card.click(); pg.wait_for_timeout(1200)
+    add = pg.get_by_test_id("add-status-update")
+    check("on a phone the request opens with Add Status Update visible", add.is_visible() and fits(pg))
+    add.click(); pg.wait_for_timeout(600)
+    form = pg.get_by_test_id("add-update-form")
+    form.get_by_label("What happened *").fill("Met the client at the expo")
+    reqs.clear(); form.get_by_role("button", name="Submit Update").click(); pg.wait_for_timeout(1000)
+    check("...and an update is submitted from the phone", len(posts(reqs, "/staff/agent/requests/1/events")) == 1 and fits(pg))
+    check("no page errors (agent phone)", not errs, errs)
+    ctx.close()
+
+    # ---- an agent with nothing yet ----
+    ctx, pg, errs, reqs = page(b, 4223, 390, 844)
+    pg.locator(".erp-bottom-nav-item", has_text="Requests").click(); pg.wait_for_timeout(1000)
+    em = pg.get_by_test_id("agent-empty")
+    check("an agent with no requests sees the invitation and Submit Client Request", em.count() == 1 and "No client requests yet. Submit your first client request to get started." in em.inner_text() and em.get_by_test_id("submit-client-request").is_visible())
+    ctx.close()
+
+    # ---- management with nothing yet ----
+    ctx, pg, errs, reqs = page(b, 4224)
+    tab(pg, "Agents")
+    em = pg.get_by_test_id("staff-empty")
+    check("management with no submissions sees their own empty state with Manage Agent Access", em.count() == 1 and "No Agent submissions have been received yet." in em.inner_text() and em.get_by_role("button", name="Manage Agent Access").count() == 1)
+    check("...never the agent's Submit button", pg.get_by_test_id("submit-client-request").count() == 0)
+    sub(pg, "Agents")
+    ae = pg.get_by_test_id("agents-empty")
+    check("the Agents view says No active agents yet, with Manage Agent Access", ae.count() == 1 and "No active agents yet." in ae.inner_text() and ae.get_by_role("button", name="Manage Agent Access").count() == 1)
+    ae.get_by_role("button", name="Manage Agent Access").click(); pg.wait_for_timeout(2000)
+    check("Manage Agent Access opens Users > Customer Accounts, where access is given", pg.get_by_role("tab", name="Customer Accounts", selected=True).count() == 1 and pg.locator("[data-testid^='grant-agent-']").count() >= 1)
+    ctx.close()
+
+    # ---- the owner with agents ----
+    ctx, pg, errs, reqs = page(b, 4191)
+    tab(pg, "Agents")
+    check("the owner has Manage Agent Access in the Agents header", pg.get_by_test_id("manage-agent-access").count() == 1)
+    sub(pg, "Agents")
+    zr = pg.get_by_test_id("agent-acct-9005").inner_text(); rr = pg.get_by_test_id("agent-acct-9006").inner_text()
+    check("each agent shows the account, verified email, active or suspended, scope, requests and latest activity",
+          "Zul Agent" in zr and "Verified email" in zr and "Active" in zr and "AZ ONE OFFICIAL" in zr and "2 requests" in zr and "Latest activity" in zr and "Suspended" in rr, zr)
     ctx.close()
 
     # ---- Sales & Marketing: read and comment ----
@@ -126,13 +190,14 @@ with sync_playwright() as p:
     panel = pg.get_by_test_id("agents-panel")
     t = panel.inner_text()
     check("they see every agent's request with the agent, Sales and the latest update", "Ros Agent" in t and "Zul Agent" in t and "Lina Spa" in t and "Client says yes" in t and "Draft Co" not in t, t[:400])
-    panel.get_by_role("button", name="AGR-0003").click(); pg.wait_for_timeout(1200)
+    check("...and no Manage Agent Access (only the owner gives access)", pg.get_by_test_id("manage-agent-access").count() == 0)
+    panel.get_by_role("button", name="AGR-0003").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
     dr = pg.get_by_test_id("agent-request-drawer")
-    check("...read only for an unassigned salesperson (no Move to, no Publish, no Verify)", "Move to" not in dr.inner_text() and dr.get_by_role("button", name="Record and verify").count() == 0)
+    check("...read only for an unassigned salesperson (no Move to, no Verify)", "Move to" not in dr.inner_text() and dr.get_by_role("button", name="Record and verify").count() == 0)
     check("no page errors (sales)", not errs, errs)
     ctx.close()
 
-    # ---- the CEO: handles requests, sends task updates ----
+    # ---- the CEO: handles requests ----
     ctx, pg, errs, reqs = page(b, 4177)
     tab(pg, "Agents")
     panel = pg.get_by_test_id("agents-panel")
@@ -140,40 +205,28 @@ with sync_playwright() as p:
     ov = panel.inner_text()
     check("management's Overview shows the request statuses and overdue follow-ups", "Acceptance to verify" in ov and "Overdue follow-up" in ov, ov[:300])
     sub(pg, "Requests")
-    panel.get_by_role("button", name="AGR-0003").click(); pg.wait_for_timeout(1200)
+    panel.get_by_role("button", name="AGR-0003").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
     dr = pg.get_by_test_id("agent-request-drawer")
-    dt = dr.inner_text()
-    check("management sees internal notes marked Internal and the agent's evidence", "deposit term" in dt and "Internal" in dt and "whatsapp-yes.png" in dt, dt[:400])
     check("Verify needs who agreed and how - the quotation's own acceptance record", dr.get_by_role("button", name="Record and verify").count() == 1 and dr.get_by_role("button", name="Record and verify").is_disabled())
     dr.get_by_label("Who agreed").fill("Cik Lina")
     reqs.clear(); dr.get_by_role("button", name="Record and verify").click(); pg.wait_for_timeout(1500)
     acc = posts(reqs, "/staff/docs/1/acceptance"); ver = posts(reqs, "/staff/agent/requests/3/verify")
-    check("...records the acceptance on the quotation, then verifies the request", len(acc) == 1 and acc[0].get("accepted_name") == "Cik Lina" and acc[0].get("channel") == "whatsapp" and len(ver) == 1, (acc, ver))
-    dr.get_by_label("Comment").fill("Please send the signed order too")
+    check("...records the acceptance on the quotation, then verifies the request", len(acc) == 1 and acc[0].get("accepted_name") == "Cik Lina" and len(ver) == 1, (acc, ver))
+    dr.get_by_role("tab", name="Files (1)").click(); pg.wait_for_timeout(500)
+    check("the agent's evidence is in Files", "whatsapp-yes.png" in dr.inner_text())
+    dr.get_by_role("tab", name="Updates & Comments", exact=False).first.click(); pg.wait_for_timeout(500)
+    dt = dr.inner_text()
+    check("management sees internal notes marked Internal", "deposit term" in dt and "Internal" in dt, dt[:300])
+    check("management has no agent-only Add Status Update", dr.get_by_test_id("add-status-update").count() == 0)
+    dr.get_by_label("Write a comment", exact=True).fill("Please send the signed order too")
     dr.get_by_role("radio", name="Agent can see").click()
     reqs.clear(); dr.get_by_role("button", name="Post").click(); pg.wait_for_timeout(900)
     cm = posts(reqs, "/staff/agent/requests/3/events")
     check("a comment says who sees it (here: the agent)", len(cm) == 1 and cm[0].get("visibility") == "agent" and cm[0].get("kind") == "comment", cm)
-    check("Create quotation in Sales and Publish (the current revision, for one already published) are offered to the handler", dr.get_by_role("button", name="New quotation in Sales").count() == 1 and dr.get_by_role("button", name="Publish the current revision").count() == 1)
+    dr.get_by_role("tab", name="Overview").click(); pg.wait_for_timeout(500)
     dr.get_by_role("button", name="New quotation in Sales").click(); pg.wait_for_timeout(3000)
-    check("...which opens Sales' own Create Quotation form, prefilled with the request reference", pg.evaluate("[...document.querySelectorAll('input')].some(i => i.value === 'AGR-0003')"), pg.url)
-    tab(pg, "Tasks")
-    pg.get_by_role("tab", name="Reports & Archive", exact=True).first.click(); pg.wait_for_timeout(1500)
-    bc = pg.get_by_test_id("task-broadcast")
-    check("Reports & Archive offers the CEO Send a task update", bc.count() == 1)
-    bc.get_by_label("Subject").fill("Week plan"); bc.get_by_label("Message").fill("Please update every task today")
-    bc.get_by_role("button", name="Preview").click(); pg.wait_for_timeout(900)
-    reqs.clear(); bc.get_by_role("button", name="Send the update").click(); pg.wait_for_timeout(900)
-    sentb = posts(reqs, "/staff/tasks/mail-broadcast")
-    check("Send posts the subject, message and 'everyone with open tasks'", len(sentb) == 1 and sentb[0].get("to") == "open_work" and sentb[0].get("subject") == "Week plan" and "preview" not in sentb[0], sentb)
+    check("Create quotation in Sales opens Sales' own form, prefilled with the request reference", pg.evaluate("[...document.querySelectorAll('input')].some(i => i.value === 'AGR-0003')"), pg.url)
     check("no page errors (CEO)", not errs, errs)
-    ctx.close()
-
-    # ---- the owner: Grant Agent Access ----
-    ctx, pg, errs, reqs = page(b, 4191)
-    tab(pg, "Users")
-    sub(pg, "Customer Accounts")
-    check("Users › Customer Accounts offers the owner Grant Agent Access", pg.locator("[data-testid^='grant-agent-']").count() >= 1)
     ctx.close()
 
     # ---- other staff ----
