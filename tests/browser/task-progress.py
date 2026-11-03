@@ -80,7 +80,8 @@ with sync_playwright() as p:
     tabs = [t.inner_text().strip() for t in dr.get_by_role("tablist", name="Task sections").get_by_role("tab").all()]
     check("the drawer: Details · Updates & Comments (n) · Files (n) · Activity", len(tabs) == 4 and tabs[0] == "Details" and re.match(r"Updates & Comments \(\d+\)", tabs[1]) and re.match(r"Files \(\d+\)", tabs[2]) and tabs[3] == "Activity", str(tabs))
     bar = dr.get_by_test_id("review-bar")
-    check("Details: the review bar says it waits for review, with the latest report", bar.count() == 1 and "Ready for Review" in bar.inner_text() and "Submitted to the bank" in bar.inner_text())
+    sl = dr.get_by_test_id("summary-latest")  # v1.258.0 - the latest report moved from the bar's one line into the status summary, in full
+    check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "Ready for Review" in bar.inner_text() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text())
     check("Details: the reviewer has Approve and Return", bar.get_by_role("button", name="Approve").count() == 1 and bar.get_by_role("button", name="Return").count() == 1)
     det = dr.inner_text()
     check("Details: acknowledged time, helpers, the checklist and the task information kept", "Acknowledged" in det and "Helping" in det and "Deliverables checklist" in det and "Task information" in det)

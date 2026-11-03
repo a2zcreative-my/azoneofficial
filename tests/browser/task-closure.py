@@ -100,6 +100,8 @@ with sync_playwright() as p:
         st = dr.get_by_test_id("task-stages")
         states = [li.get_attribute("data-state") for li in st.locator("li").all()] if st.count() else []
         check(f"{w}px: its timeline ends in Closed, done", states and states[-1] == "done", str(states))
+        sl = dr.get_by_test_id("summary-latest")
+        check(f"{w}px: the status summary leads with the closure and its summary", sl.count() == 1 and "Closed" in sl.inner_text() and "Delivered the signed forms" in sl.inner_text(), sl.inner_text()[:200] if sl.count() else "")
         hdr = pg.get_by_role("dialog").filter(has_text=CLOSED).first.inner_text()
         check(f"{w}px: a closed task is never labelled Overdue - it says how late it closed", "Overdue" not in hdr and "closed" in hdr.lower(), hdr[:200])
         check(f"{w}px: no Update status on a closed task", dr.get_by_test_id("add-update").count() == 0)
@@ -130,6 +132,18 @@ with sync_playwright() as p:
         dr = pg.get_by_role("dialog").filter(has_text=EDITS).first
         rl = dr.get_by_test_id("reported-line")
         check(f"{w}px: Details shows the last reported % beside the checklist figure", rl.count() == 1 and "last reported 60%" in rl.inner_text(), rl.inner_text() if rl.count() else "")
+        # ---- v1.258.0: the status summary on Details ----
+        sm = dr.get_by_test_id("status-summary")
+        st = sm.inner_text() if sm.count() else ""
+        lt = sm.get_by_test_id("summary-latest").inner_text() if sm.count() else ""
+        check(f"{w}px: Details carries a status summary with the latest update in full", sm.count() == 1 and "Status summary" in st and "Documentation submitted to MARA Johor" in lt and "Farid Zulkifli" in lt, st[:300])
+        check(f"{w}px: the summary's latest update shows its reported %, that it was edited, and its next action", "Reported 60%" in lt and "Edited by" in lt and "Wait for the officer" in lt, lt[:300])
+        check(f"{w}px: the withdrawn entry stays out of the summary", "683768" not in st, st[:300])
+        fx = sm.get_by_test_id("summary-facts").inner_text() if sm.count() else ""
+        check(f"{w}px: where it stands - done so far, next action, blocking, progress - from the record only", "Not reported yet" in fx and "Wait for the officer" in fx and "Not blocked" in fx and "0% (checklist)" in fx and "reported 60%" in fx, fx[:300])
+        check(f"{w}px: the summary sits inside the drawer, nothing past its edge", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))
+        sm.get_by_test_id("summary-all").click(); pg.wait_for_timeout(1200)
+        check(f"{w}px: See all updates opens the Updates & Comments tab", dr.get_by_test_id("task-feed").count() == 1 and dr.get_by_test_id("task-feed").is_visible())
         dr.get_by_role("tab", name=re.compile("^Updates & Comments")).click(); pg.wait_for_timeout(1500)
         feed = dr.get_by_test_id("task-feed")
         wd = feed.locator("li[data-withdrawn='1']")

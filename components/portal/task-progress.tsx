@@ -179,6 +179,7 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
       <LineTabs value={tab} onChange={setTab} tabs={tabs} label={L("Task sections", "Bahagian tugasan")} />
       <div hidden={tab !== "details"} className={tp.tabsGap}>
         <ReviewBar d={d} onChanged={changed} onUpdate={() => setSheet(true)} onClose={() => setSheet("close")} />
+        {tab === "details" && <StatusSummary d={d} tick={tick} onSeeAll={() => setTab("updates")} />}
         <ExtraFacts d={d} onChanged={changed} />
         {details ?? <DefaultDetails d={d} onChanged={changed} />}
       </div>
@@ -305,7 +306,6 @@ function ReviewBar({ d, onChanged, onUpdate, onClose }: { d: TaskDetail; onChang
           <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span>
             {t.progress_source === "checklist" && t.reported && <span className={tp.barSub} data-testid="reported-line"> · {L(`last reported ${t.reported.value}% by ${t.reported.by ?? "—"}`, `terakhir dilaporkan ${t.reported.value}% oleh ${t.reported.by ?? "—"}`)}</span>}</span>
           <span className={tp.barSub} data-testid="next-step">{nextLine(d)}</span>
-          {t.latest_update && <span className={tp.barSub}>{L("Latest", "Terkini")}: “{t.latest_update.body.slice(0, 90)}” — {t.latest_update.by} · {stamp(t.latest_update.at)}</span>}
         </span>
         <span className={tp.barCmds}>
           {d.can.request_review && <button type="button" className={btnSm} onClick={onUpdate}>{L("Submit for review", "Hantar untuk semakan")}</button>}
@@ -319,6 +319,88 @@ function ReviewBar({ d, onChanged, onUpdate, onClose }: { d: TaskDetail; onChang
       </div>
       <Problem text={problem} />
     </div>
+  );
+}
+
+/* ---------------- Details: the status summary ----------------
+   v1.258.0 - the owner: "details seem doesnt populate data of the status
+   update". The latest status update in full (what was done, what blocks it,
+   the next action, the reported %), where the task stands, and the updates
+   before it. Read from the same GET /updates the Updates tab uses - one
+   source; a withdrawn update is left out and an edited one reads as edited.
+   Nothing is shown that the record does not hold. */
+type Shown = TUpdate & { edited: { by: string; at: string } | null };
+const shownOf = (u: TUpdate): Shown => {
+  const e = u.edits?.length ? u.edits[u.edits.length - 1]! : null;
+  return e ? { ...u, body: e.body, completed_work: e.completed_work, blockers: e.blockers, next_action: e.next_action, edited: { by: e.by, at: e.at } } : { ...u, edited: null };
+};
+const utcMs = (v: string) => Date.parse(v.replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? "" : "Z"));
+function StatusSummary({ d, tick, onSeeAll }: { d: TaskDetail; tick: number; onSeeAll: () => void }) {
+  const t = d.task;
+  const [ups, setUps] = useState<TUpdate[] | null>(null);
+  const [now] = useState(() => Date.now());
+  useEffect(() => {
+    let alive = true;
+    void api<{ updates: TUpdate[] }>(`/staff/tasks/${t.id}/updates`).then((r) => { if (alive) setUps(r.data?.updates ?? []); });
+    return () => { alive = false; };
+  }, [t.id, tick]);
+  if (ups === null) return <SkelRows rows={2} />;
+  const live = ups.filter((u) => !u.withdrawn && u.kind !== "file").sort((a, b) => b.id - a.id).map(shownOf);
+  const latest = live[0] ?? null;
+  const done = live.find((u) => u.completed_work);
+  const next = live.find((u) => u.next_action);
+  const block = t.stage === "blocked" ? live.find((u) => u.blockers || u.kind === "blocker") : undefined;
+  const open = t.status !== "completed";
+  const days = latest ? Math.max(0, Math.floor((now - utcMs(latest.created_at)) / 86400000)) : null;
+  const ago = days === null ? "" : days === 0 ? L("today", "hari ini") : days === 1 ? L("yesterday", "semalam") : L(`${days} days ago`, `${days} hari lalu`);
+  const who = (u: Shown) => `${u.author} · ${stamp(u.created_at)}`;
+  return (
+    <section className={tp.summary} data-testid="status-summary" aria-label={L("Status summary", "Ringkasan status")}>
+      <div className={tp.quickHead}>
+        <p className={tp.quickTitle}>{L("Status summary", "Ringkasan status")}</p>
+        {latest && <span className={tp.barSub}>{L(`Last update ${ago}`, `Kemas kini terakhir ${ago}`)}{open && days !== null && days >= 3 ? <> · <span className={chipSmWarn} data-testid="summary-quiet">{L(`No update for ${days} days`, `Tiada kemas kini ${days} hari`)}</span></> : null}</span>}
+      </div>
+      {!latest ? (
+        <p className={tp.empty} data-testid="summary-empty">{open && d.can.update ? L("No status update yet. Use Update status to post the first one - what was done, what is next.", "Belum ada kemas kini status. Guna Kemas kini status untuk yang pertama - apa yang siap, apa seterusnya.") : L("No status update recorded.", "Tiada kemas kini status direkod.")}</p>
+      ) : (
+        <>
+          <div className={tp.sumLatest} data-testid="summary-latest">
+            <span className={tp.sumMeta}>
+              <KindChip kind={latest.kind} />
+              <span>{who(latest)}</span>
+              {typeof latest.reported_progress === "number" && <span className={chipSmInfo}>{L(`Reported ${latest.reported_progress}%`, `Dilaporkan ${latest.reported_progress}%`)}</span>}
+              {latest.edited && <span className={tp.barSub}>{L(`Edited by ${latest.edited.by}`, `Disunting oleh ${latest.edited.by}`)}</span>}
+            </span>
+            <p className={tp.sumBody}>{latest.body}</p>
+            {(latest.completed_work || latest.blockers || latest.next_action) && (
+              <p className={tp.entryExtra}>
+                {latest.completed_work && <span><b>{L("Done", "Siap")}:</b> {latest.completed_work}</span>}
+                {latest.blockers && <span><b>{L("Blocking", "Halangan")}:</b> {latest.blockers}</span>}
+                {latest.next_action && <span><b>{L("Next", "Seterusnya")}:</b> {latest.next_action}</span>}
+              </p>
+            )}
+            {latest.files.length > 0 && <span className={tp.barSub}>{L(`${latest.files.length} file(s) attached`, `${latest.files.length} fail dilampirkan`)}</span>}
+          </div>
+          <dl className={tp.facts} data-testid="summary-facts">
+            <div><dt>{L("Done so far", "Siap setakat ini")}</dt><dd>{done ? done.completed_work : <span className={tp.barSub}>{L("Not reported yet", "Belum dilaporkan")}</span>}</dd></div>
+            <div><dt>{L("Next action", "Tindakan seterusnya")}</dt><dd>{next ? next.next_action : <span className={tp.barSub}>{L("Not set", "Belum ditetapkan")}</span>}</dd></div>
+            <div><dt>{L("Blocking", "Halangan")}</dt><dd>{t.stage === "blocked" ? (block ? (block.blockers || block.body) : L("Blocked", "Terhalang")) : <span className={tp.barSub}>{L("Not blocked", "Tidak terhalang")}</span>}</dd></div>
+            <div><dt>{L("Progress", "Kemajuan")}</dt><dd>{t.progress}%{t.progress_source === "checklist" ? L(" (checklist)", " (senarai semak)") : ""}{t.progress_source === "checklist" && t.reported ? <span className={tp.barSub}>{L(` · reported ${t.reported.value}%`, ` · dilaporkan ${t.reported.value}%`)}</span> : null}</dd></div>
+          </dl>
+          {live.length > 1 && (
+            <ol className={tp.sumList} data-testid="summary-recent" aria-label={L("Earlier updates", "Kemas kini terdahulu")}>
+              {live.slice(1, 4).map((u) => (
+                <li key={u.id}>
+                  <span className={tp.sumMeta}><KindChip kind={u.kind} /><span className={tp.barSub}>{who(u)}</span>{typeof u.reported_progress === "number" && <span className={tp.barSub}>· {u.reported_progress}%</span>}</span>
+                  <span className={tp.sumLine}>{u.body}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          <span><button type="button" className={btnSm} data-testid="summary-all" onClick={onSeeAll}>{L(`See all updates (${t.counts.updates})`, `Lihat semua kemas kini (${t.counts.updates})`)}</button></span>
+        </>
+      )}
+    </section>
   );
 }
 

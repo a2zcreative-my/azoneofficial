@@ -10,6 +10,15 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.258.0] - 2026-11-03 - Tasks: a status summary on Details
+
+The owner, 03-11-2026 (a screenshot of "TEKUN - DEHANA"): "details seem doesnt populate data of the status update which is easier for me to understand on the summary of the task and the latest of the updates on the details".
+
+- Why: Details showed only one line of the latest update, cut at 90 characters, with none of its parts (what was done, what blocks it, the next action, the reported %); the rest lived only on the Updates tab.
+- Status summary (components/portal/task-progress.tsx StatusSummary), under the stage timeline: the latest status update in full - its kind, who and when, the text, Done / Blocking / Next, the reported %, "Edited by", attached files; where the task stands - done so far, next action, blocking (only when the task is Blocked), progress (the checklist figure and the last reported %); the three updates before it; "See all updates (N)" opens the Updates & Comments tab; "Last update today / N days ago" with a "No update for N days" chip after 3 days on an open task.
+- One source: it reads the same GET /tasks/:id/updates the Updates tab uses (same permissions); a withdrawn update is left out, an edited one shows its latest text. No API, schema or data change. The truncated "Latest:" line in the bar is replaced by the summary.
+- Tests: tests/browser/task-closure.py (the summary on the edited/withdrawn task and on a closed task, inside the drawer at 1440/390/320).
+
 ## [1.257.0] - 2026-11-03 - Tasks: edit and withdraw an update (history kept), a reported % on checklist tasks
 
 The owner, 03-11-2026 (a phone and desktop screenshot of "MARA - DANANITA DEHANA"): "I cant edit or delete it, on PWA also I cant edit and no status percentage that I can add." His answers: Edit + Withdraw with the history kept; allow a reported percentage.
