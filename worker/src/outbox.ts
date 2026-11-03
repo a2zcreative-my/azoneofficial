@@ -77,6 +77,7 @@ export const ONCE_ONLY: readonly { method: string; path: RegExp }[] = [
   { method: "POST", path: /^\/tasks\/\d+\/review$/ },
   { method: "POST", path: /^\/tasks\/\d+\/close$/ },  // v1.256.0
   { method: "POST", path: /^\/tasks\/\d+\/reopen$/ }, // v1.256.0
+  { method: "POST", path: /^\/tasks\/\d+\/updates\/\d+\/(?:edit|withdraw)$/ }, // v1.257.0
 ];
 export function isOnceOnly(method: string, subPath: string): boolean {
   return ONCE_ONLY.some((r) => r.method === method && r.path.test(subPath));

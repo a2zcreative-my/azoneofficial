@@ -24,6 +24,7 @@ def check(name, cond, detail=""):
 def get(port, path): return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}{path}").read())
 READY = "Send the quotation to Zainab Kitchen"
 CLOSED = "Brochure posted to Zainab Kitchen"
+EDITS = "MARA - DANANITA DEHANA"
 PORT = 4213
 
 def page(b, w=1440, h=1000):
@@ -121,6 +122,46 @@ with sync_playwright() as p:
         dr.get_by_role("button", name="Status change", exact=True).click(); pg.wait_for_timeout(300)
         check(f"{w}px: Status change shows only status moves", set(li.get_attribute("data-kind") for li in feed.locator("li").all()) <= {"closed", "closed_with_exception", "reopened", "review_request", "review_approved", "review_returned", "cancel", "blocker", "waiting_client"})
         check(f"{w}px: the feed is not wider than the screen", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))
+        # ---- v1.257.0: edit and withdraw with the history kept; a reported % beside the checklist ----
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(600)
+        pg.get_by_role("tab", name="All Tasks", exact=True).first.click(); pg.wait_for_timeout(900)
+        pg.get_by_label("Status", exact=True).filter(visible=True).first.select_option("any"); pg.wait_for_timeout(600)
+        pg.get_by_role("button", name=EDITS).filter(visible=True).first.click(); pg.wait_for_timeout(2000)
+        dr = pg.get_by_role("dialog").filter(has_text=EDITS).first
+        rl = dr.get_by_test_id("reported-line")
+        check(f"{w}px: Details shows the last reported % beside the checklist figure", rl.count() == 1 and "last reported 60%" in rl.inner_text(), rl.inner_text() if rl.count() else "")
+        dr.get_by_role("tab", name=re.compile("^Updates & Comments")).click(); pg.wait_for_timeout(1500)
+        feed = dr.get_by_test_id("task-feed")
+        wd = feed.locator("li[data-withdrawn='1']")
+        check(f"{w}px: the mistaken entry is withdrawn - who and why shown, the number itself gone from the timeline", wd.count() == 1 and "withdrawn by" in wd.inner_text() and "Typed my authenticator code by mistake" in wd.inner_text() and "683768" not in feed.inner_text(), feed.inner_text()[:300])
+        wd.get_by_role("button", name="Show original").click(); pg.wait_for_timeout(300)
+        check(f"{w}px: Show original brings the withdrawn words back, marked as withdrawn", "683768" in feed.inner_text() and "Original - withdrawn by" in feed.inner_text())
+        ft = feed.inner_text()
+        check(f"{w}px: the edited update shows its new text and who edited it", "Documentation submitted to MARA Johor" in ft and "Edited by" in ft, ft[:300])
+        check(f"{w}px: its reported % is labelled against the official checklist", "Reported 60% · the checklist then 0% (official)" in ft, ft[:300])
+        mark = feed.get_by_test_id("edited-mark").filter(has_text="Edited by").first
+        mark.get_by_role("button", name="Show original").click(); pg.wait_for_timeout(300)
+        check(f"{w}px: Show original shows the words as first written", "Original, as first written" in feed.inner_text() and "Documentation submitted to MARA Johor" not in feed.locator("li", has_text="Original, as first written").first.inner_text())
+        eb = feed.get_by_test_id("edit-btn")
+        check(f"{w}px: Edit and Withdraw are offered on the update the server allows", eb.count() == 1 and feed.get_by_test_id("withdraw-btn").count() == 1)
+        eb.first.click(); pg.wait_for_timeout(300)
+        box = feed.get_by_test_id("edit-update")
+        box.locator("textarea").fill("Documentation submitted to MARA Johor on 3 Nov")
+        box.get_by_role("button", name="Save edit").click(); pg.wait_for_timeout(1500)
+        pe = [x for x in get(PORT, "/__tasks")["posts"] if x["p"].endswith("/edit")]
+        check(f"{w}px: Save edit sends one edit of that update, once-only", len(pe) == 1 and json.loads(pe[0]["body"]).get("body") == "Documentation submitted to MARA Johor on 3 Nov" and pe[0]["key"], str(pe))
+        feed.get_by_test_id("withdraw-btn").first.click(); pg.wait_for_timeout(500)
+        pd = pg.get_by_role("dialog").filter(has_text="Withdraw this update").last
+        check(f"{w}px: Withdraw asks the reason and says the status and progress stay", pd.count() == 1 and "status and progress stay" in pd.inner_text())
+        pd.get_by_label(re.compile("Reason")).fill("Posted on the wrong task")
+        pd.get_by_role("button", name="Withdraw", exact=True).click(); pg.wait_for_timeout(1500)
+        pw = [x for x in get(PORT, "/__tasks")["posts"] if x["p"].endswith("/withdraw")]
+        check(f"{w}px: one POST /withdraw with the reason", len(pw) == 1 and json.loads(pw[0]["body"]).get("reason") == "Posted on the wrong task", str(pw))
+        dr.get_by_role("tab", name="Details", exact=True).click(); pg.wait_for_timeout(500)
+        dr.get_by_test_id("add-update").click(); pg.wait_for_timeout(700)
+        rp = dr.get_by_test_id("reported-progress")
+        check(f"{w}px: on a checklist task the form offers a reported %, the checklist staying official", rp.count() == 1 and "official progress stays the checklist" in dr.get_by_test_id("update-sheet").inner_text())
+        check(f"{w}px: the edit and withdraw views are not wider than the screen", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))
         check(f"{w}px: no script errors", not errs, str(errs)[:300])
         ctx.close()
     b.close()

@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.257.0] - 2026-11-03 - Tasks: edit and withdraw an update (history kept), a reported % on checklist tasks
+
+The owner, 03-11-2026 (a phone and desktop screenshot of "MARA - DANANITA DEHANA"): "I cant edit or delete it, on PWA also I cant edit and no status percentage that I can add." His answers: Edit + Withdraw with the history kept; allow a reported percentage.
+
+- Why: task updates were append-only by his earlier rule (the database refuses a change); "Correct" only added a separate entry (how the "683768" card appeared); a task with a checklist took its percentage only from the ticks, so the % box was read-only.
+- Edit (POST /tasks/:id/updates/:uid/edit): the author, or the task's management, changes the text and the structured parts of a progress, blocker, waiting, review request, correction or offer while the task is open. A new row of kind edit names the update; the original is never changed - the card shows the new text, "Edited by X · time" and Show original.
+- Withdraw (POST /tasks/:id/updates/:uid/withdraw, a reason): the update leaves the timeline; one line says who withdrew it, when and why, and Show original brings the words back. Once per update. Neither edit nor withdrawal moves the task's status, stage or progress; a decision (approve, return, close, cancel, reopen) is never edited or withdrawn.
+- Reported % (reported_progress on an update, 0-100): on a checklist task the official progress stays the checklist; the Details bar says "last reported 60% by …" and the timeline "Reported 60% · the checklist then 0% (official)". On a task without a checklist the typed % stays the official one, as before.
+- The latest update in the lists is the edited text and never a withdrawn entry; the Updates count leaves edits and withdrawals out.
+- Migration 0170_task_update_edits: task_updates rebuilt with the kinds edit and withdrawn and the column reported_progress (every row copied with its id; append-only triggers and indexes re-created; one withdrawal per update).
+- Tests: tests/go-live-o.mjs J (edit, withdraw, permissions, decisions locked, latest, counts, reported %), the 0170 copy, 4 more mutations; tests/browser/task-closure.py (the withdrawn "683768", Show original, Edit, Withdraw, the reported %).
+
 ## [1.256.0] - 2026-11-03 - Tasks: Closed is reachable, one transition, reopen with a reason
 
 The owner's "Task Progress Timeline 2.1, Status Updates, Closure & Reopen Workflow" (03-11-2026), claude/TASK-CLOSURE-AUDIT.md and his "approved" (D1 a manager may close with deliverables open, with a reason; D2 whoever may close a task reopens it, a cancelled one management only; D3 migration 0169; D4 the dropdowns replaced).

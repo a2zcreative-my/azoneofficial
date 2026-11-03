@@ -64,6 +64,19 @@ function migrationCopy() {
   ok(fine && db.prepare(`SELECT MAX(id) AS m FROM task_updates`).get().m === 26, "0169 takes the new kinds and continues the numbering");
   let dup = false; try { db.exec(`INSERT INTO task_updates (task_id, author_id, kind, body, client_key) VALUES (1, 1, 'progress', 'again', 'k0')`); } catch { dup = true; }
   ok(dup, "0169 keeps the once-only key per author");
+  /* v1.257.0 - 0170 the same way: every row copied, reported_progress empty, still append-only */
+  const COLS = "id, task_id, project_id, author_id, kind, body, completed_work, blockers, next_action, status_to, stage_to, progress_snapshot, progress_source, corrects_id, client_key, created_at";
+  const b70 = sha(JSON.stringify(db.prepare(`SELECT ${COLS} FROM task_updates ORDER BY id`).all()));
+  applyFile(db, MIGS.find((x) => x.startsWith("0170")));
+  ok(b70 === sha(JSON.stringify(db.prepare(`SELECT ${COLS} FROM task_updates ORDER BY id`).all())) && db.prepare(`SELECT COUNT(*) AS n FROM task_updates WHERE reported_progress IS NOT NULL`).get().n === 0, "0170 copies every progress row exactly; no reported percentage is invented");
+  let b2 = 0;
+  try { db.exec(`UPDATE task_updates SET body = 'x' WHERE id = 1`); } catch { b2++; }
+  try { db.exec(`DELETE FROM task_updates WHERE id = 1`); } catch { b2++; }
+  let w2 = 0;
+  try { db.exec(`INSERT INTO task_updates (task_id, author_id, kind, body, corrects_id) VALUES (1, 1, 'withdrawn', 'mistake', 2)`); } catch { w2 = -1; }
+  try { db.exec(`INSERT INTO task_updates (task_id, author_id, kind, body, corrects_id) VALUES (1, 1, 'withdrawn', 'again', 2)`); } catch { w2 += 1; }
+  let r2 = false; try { db.exec(`INSERT INTO task_updates (task_id, author_id, kind, body, reported_progress) VALUES (1, 1, 'progress', 'x', 140)`); } catch { r2 = true; }
+  ok(b2 === 2 && w2 === 1 && r2, "0170 keeps the record append-only, withdraws an update once, and takes only 0-100 as a reported percentage");
   return out;
 }
 
@@ -145,7 +158,6 @@ async function runtime(workerBundle) {
     ok(lateA >= 1 && d.task.closure?.by === "Lia Seller" && d.task.closure?.summary === S && d.task.closure?.late_days === lateA && d.task.timeline?.at(-1)?.key === "closed" && d.task.timeline.at(-1).state === "done" && d.task.next === "closed",
       "A the task shows Closed with who, when, the summary - the days after its due date - and the timeline ends in Closed", JSON.stringify(d.task.closure));
     await capture("closed", U.lia, a1);
-    if (process.env.TASK_CLOSURE_OUT) writeFileSync(process.env.TASK_CLOSURE_OUT, JSON.stringify({ captured_from: "tests/go-live-o.mjs", owner: U.lia, views: cap }, null, 1));
     const listA = (await call(`/tasks`, U.lia)).j?.tasks?.find((t) => t.id === a1);
     const arch = (await call(`/tasks?archive=1`, U.lia)).j?.tasks?.find((t) => t.id === a1);
     ok(listA?.status === "completed" && listA.closed_late_days === lateA && !!listA.closed_at && arch?.status === "completed", "A/G My Tasks and the archive carry the same Closed record, with how late it was");
@@ -225,6 +237,39 @@ async function runtime(workerBundle) {
     const k = { summary: S, client_key: "press-1-0123456789" };
     const r1 = await call(`/tasks/${i2}/close`, U.ceo, "POST", k), r2 = await call(`/tasks/${i2}/close`, U.ceo, "POST", k);
     ok(r1.status === 200 && r2.j?.existing === true && rows(i2, "closed") === 1 && told(U.farid, "%Closed: Book the venue%") === 1, "I a retry of the same press records nothing twice and tells nobody twice");
+
+    /* ---------- J (1.257.0). edit and withdraw, history kept; a reported % beside the checklist ---------- */
+    const j = (await call(`/tasks`, U.ceo, "POST", { title: "MARA - DANANITA DEHANA", assigned_to: U.farid, items: ["Submit the MARA form"] })).j?.id;
+    const ju = (await call(`/tasks/${j}/updates`, U.farid, "POST", { kind: "progress", body: "Documentation submitted to MARA", next_action: "Wait for the officer", reported_progress: 60 })).j?.id;
+    ok(ju && task(j).progress === 0 && db.prepare(`SELECT reported_progress, progress_snapshot, progress_source FROM task_updates WHERE id = ?`).get(ju)?.reported_progress === 60
+      && (await detail(j, U.farid)).task.reported?.value === 60, "J a reported 60% is kept on the update; the official progress stays the checklist (0/1 = 0%)");
+    ok((await call(`/tasks/${j}/updates`, U.farid, "POST", { kind: "progress", body: "x", reported_progress: 140 })).status === 400 && (await call(`/tasks/${j}/updates`, U.farid, "POST", { kind: "progress", body: "x", progress: 60 })).j?.error?.code === "progress_from_checklist", "J the reported % is 0-100, and typing the official % on a checklist task is still refused");
+    const jc = (await call(`/tasks/${j}/updates`, U.farid, "POST", { kind: "correction", corrects_id: ju, body: "683768" })).j?.id;
+    const ed = await call(`/tasks/${j}/updates/${ju}/edit`, U.farid, "POST", { body: "Documentation submitted to MARA Johor", next_action: "Wait for the officer's visit" });
+    const orig = db.prepare(`SELECT body, next_action FROM task_updates WHERE id = ?`).get(ju);
+    let ups = (await call(`/tasks/${j}/updates`, U.farid)).j?.updates ?? [];
+    const one = ups.find((x) => x.id === ju);
+    ok(ed.status === 201 && orig.body === "Documentation submitted to MARA" && one?.edits?.at(-1)?.body === "Documentation submitted to MARA Johor" && one.edits.at(-1).next_action === "Wait for the officer's visit" && !ups.some((x) => x.kind === "edit"),
+      "J the author edits his update: the new text shows, the original stays exactly as written, the edit is not an entry of its own", JSON.stringify(one?.edits));
+    await call(`/tasks/${j}/assistants`, U.ceo, "POST", { user_id: U.aina });
+    ok((await call(`/tasks/${j}/updates/${ju}/edit`, U.lia, "POST", { body: "Not mine" })).status === 403 && (await call(`/tasks/${j}/updates/${jc}/withdraw`, U.aina, "POST", { reason: "Not mine either" })).status === 403
+      && (await call(`/tasks/${j}/updates/${ju}/edit`, U.aina, "POST", { body: "Helper rewrites it" })).status === 403, "J nobody else edits or withdraws it - not a stranger, not even a helper on the task");
+    ok((await call(`/tasks/${j}/updates/${jc}/withdraw`, U.farid, "POST", { reason: "no" })).status === 400, "J a withdrawal needs its reason");
+    const st0 = JSON.stringify(task(j));
+    const wd = await call(`/tasks/${j}/updates/${jc}/withdraw`, U.ceo, "POST", { reason: "Typed my authenticator code by mistake" });
+    ups = (await call(`/tasks/${j}/updates`, U.farid)).j?.updates ?? [];
+    ok(wd.status === 200 && ups.find((x) => x.id === jc)?.withdrawn?.reason === "Typed my authenticator code by mistake" && ups.find((x) => x.id === jc)?.withdrawn?.by === "Alif Farhan"
+      && db.prepare(`SELECT body FROM task_updates WHERE id = ?`).get(jc)?.body === "683768" && JSON.stringify(task(j)) === st0,
+      "J management withdraws the mistaken '683768' entry: the timeline says who and why, the original is still in the record, the task did not move");
+    ok((await call(`/tasks/${j}/updates/${jc}/withdraw`, U.ceo, "POST", { reason: "Typed it twice by mistake" })).status === 409 && ups.find((x) => x.id === jc)?.can_edit === false, "J an update is withdrawn once, and is then no longer editable");
+    const lst = (await call(`/tasks?all=1`, U.ceo)).j?.tasks?.find((t) => t.id === j);
+    ok(lst?.latest_update?.id === ju && lst.latest_update.body === "Documentation submitted to MARA Johor", "J the task list's latest update is the edited one - never the withdrawn entry", JSON.stringify(lst?.latest_update));
+    const dc = (await call(`/tasks/${a1}/updates`, U.lia)).j?.updates?.find((x) => x.kind === "closed");
+    ok(dc && dc.can_edit === false && (await call(`/tasks/${a1}/updates/${dc.id}/withdraw`, U.lia, "POST", { reason: "I closed it by mistake" })).status === 409, "J a decision (a closure) is never edited or withdrawn - the next decision changes it");
+    await capture("edits", U.ceo, j);
+    if (process.env.TASK_CLOSURE_OUT) writeFileSync(process.env.TASK_CLOSURE_OUT, JSON.stringify({ captured_from: "tests/go-live-o.mjs", owner: U.lia, edits_viewer: U.ceo, views: cap }, null, 1));
+    const jcount = (await detail(j, U.farid)).task.counts.updates;
+    ok(jcount === 1, "J the Updates count leaves out edits and withdrawn entries", String(jcount));
   } catch (e) {
     ok(false, `the run did not finish: ${e?.stack ?? e}`);
   } finally { globalThis.Date = RealDate; }
@@ -253,6 +298,10 @@ const MUT = [
   ["worker/src/tasks-progress.ts", "no completion summary", "if (!approving && summary.length < 10) return err(", "if (false) return err("],
   ["worker/src/tasks-progress.ts", "staff close with an exception", `      if (!can.close_exception) return err("forbidden",`, `      if (false) return err("forbidden",`],
   ["worker/src/staff.ts", "the old dropdown closes a task", `      if (body.status === "completed") return err("close_required",`, `      if (false) return err("close_required",`],
+  ["worker/src/tasks-progress.ts", "anyone edits or withdraws an update", "  if (u.author_id !== user.id && !a.manage) return err(", "  if (false) return err("],
+  ["worker/src/tasks-progress.ts", "a withdrawn update is still the latest", "                           AND NOT EXISTS (SELECT 1 FROM task_updates w WHERE w.corrects_id = y.id AND w.kind = 'withdrawn') GROUP BY y.task_id)`,", "                           GROUP BY y.task_id)`,"],
+  ["worker/src/tasks-progress.ts", "a reported % becomes the official progress", "  if (reported === null && cl.n === 0 && typeof body?.progress", "  if (reported !== null) progress = reported;\n  if (reported === null && cl.n === 0 && typeof body?.progress"],
+  ["worker/src/tasks-progress.ts", "a decision can be withdrawn", `export const EDITABLE_KINDS = ["progress",`, `export const EDITABLE_KINDS = ["closed", "progress",`],
   ["worker/src/tasks-progress.ts", "reopening resets the progress", `kind = "reopened"; text = reason; nextStatus = "in_progress"; nextStage = null;`, `kind = "reopened"; text = reason; nextStatus = "in_progress"; nextStage = null; progress = 0;`],
 ];
 for (const [file, name, from, to] of MUT) {

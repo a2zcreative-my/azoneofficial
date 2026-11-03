@@ -267,7 +267,7 @@ const server = http.createServer((req, res) => {
       }
       /* v1.246.0 - a task's update, comment, review, helper or file: answered
          as the worker would (201), recorded for the probe at /__tasks */
-      if ((req.method === "POST" || req.method === "PATCH" || req.method === "DELETE") && /^\/staff\/tasks\/\d+\/(updates|comments|review|close|reopen|files|assistants|items)(\/\d+)?$/.test(p) && !p.endsWith("/toggle")) {
+      if ((req.method === "POST" || req.method === "PATCH" || req.method === "DELETE") && (/^\/staff\/tasks\/\d+\/(updates|comments|review|close|reopen|files|assistants|items)(\/\d+)?$/.test(p) || /^\/staff\/tasks\/\d+\/updates\/\d+\/(edit|withdraw)$/.test(p)) && !p.endsWith("/toggle")) {
         taskPosts.push({ method: req.method, p, body: p.endsWith("/files") ? `<${body.length} bytes>` : body, key: req.headers["idempotency-key"] ?? null, name: req.headers["x-file-name"] ?? null, update: req.headers["x-update-id"] ?? null, comment: req.headers["x-comment-id"] ?? null });
         res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 950 + taskPosts.length })); return;
       }

@@ -1,6 +1,7 @@
 {
  "captured_from": "tests/go-live-o.mjs",
  "owner": 6,
+ "edits_viewer": 1,
  "views": {
   "ready": {
    "detail": {
@@ -14,7 +15,7 @@
      "deadline": "2026-11-01",
      "status": "open",
      "progress": 100,
-     "created_at": "2026-11-03 02:15:38",
+     "created_at": "2026-11-03 09:08:46",
      "link_kind": null,
      "link_id": null,
      "stage": null,
@@ -31,7 +32,7 @@
        "id": 1,
        "title": "Send QT-2026-0019",
        "done": 1,
-       "done_at": "2026-11-03 02:15:38",
+       "done_at": "2026-11-03 09:08:46",
        "done_by_name": "Lia Seller"
       }
      ],
@@ -45,7 +46,7 @@
        "key": "created",
        "state": "done",
        "who": "Lia Seller",
-       "at": "2026-11-03 02:15:38",
+       "at": "2026-11-03 09:08:46",
        "text": null
       },
       {
@@ -64,6 +65,7 @@
        "text": null
       }
      ],
+     "reported": null,
      "counts": {
       "updates": 0,
       "files": 0,
@@ -105,7 +107,7 @@
     "activity": [
      {
       "key": "c1",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "kind": "task.create",
       "text": "Created the task for Lia Seller",
       "by": "Lia Seller",
@@ -114,7 +116,7 @@
      },
      {
       "key": "e1",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "kind": "event.item_done",
       "text": "Ticked \"Send QT-2026-0019\"",
       "by": "Lia Seller",
@@ -138,7 +140,7 @@
      "deadline": "2026-11-01",
      "status": "open",
      "progress": 100,
-     "created_at": "2026-11-03 02:15:38",
+     "created_at": "2026-11-03 09:08:46",
      "link_kind": null,
      "link_id": null,
      "stage": null,
@@ -167,7 +169,7 @@
      "deadline": "2026-11-01",
      "status": "completed",
      "progress": 100,
-     "created_at": "2026-11-03 02:15:38",
+     "created_at": "2026-11-03 09:08:46",
      "link_kind": null,
      "link_id": null,
      "stage": null,
@@ -184,7 +186,7 @@
        "id": 1,
        "title": "Send QT-2026-0019",
        "done": 1,
-       "done_at": "2026-11-03 02:15:38",
+       "done_at": "2026-11-03 09:08:46",
        "done_by_name": "Lia Seller"
       }
      ],
@@ -193,13 +195,13 @@
       "id": 1,
       "kind": "closed",
       "body": "Delivered the signed forms to the bank counter",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "by": "Lia Seller",
       "by_id": 6
      },
      "closure": {
       "kind": "closed",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "by": "Lia Seller",
       "summary": "Delivered the signed forms to the bank counter",
       "late_days": 2
@@ -211,14 +213,14 @@
        "key": "created",
        "state": "done",
        "who": "Lia Seller",
-       "at": "2026-11-03 02:15:38",
+       "at": "2026-11-03 09:08:46",
        "text": null
       },
       {
        "key": "in_progress",
        "state": "done",
        "who": "Lia Seller",
-       "at": "2026-11-03 02:15:38",
+       "at": "2026-11-03 09:08:46",
        "text": null,
        "flags": {}
       },
@@ -226,13 +228,14 @@
        "key": "closed",
        "state": "done",
        "who": "Lia Seller",
-       "at": "2026-11-03 02:15:38",
+       "at": "2026-11-03 09:08:46",
        "text": "Delivered the signed forms to the bank counter",
        "flags": {
         "late_days": 2
        }
       }
      ],
+     "reported": null,
      "counts": {
       "updates": 1,
       "files": 0,
@@ -283,8 +286,12 @@
       "progress_snapshot": 100,
       "progress_source": "checklist",
       "corrects_id": null,
-      "created_at": "2026-11-03 02:15:38",
-      "files": []
+      "created_at": "2026-11-03 09:08:46",
+      "reported_progress": null,
+      "files": [],
+      "edits": [],
+      "withdrawn": null,
+      "can_edit": false
      }
     ]
    },
@@ -295,7 +302,7 @@
     "activity": [
      {
       "key": "c1",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "kind": "task.create",
       "text": "Created the task for Lia Seller",
       "by": "Lia Seller",
@@ -304,7 +311,7 @@
      },
      {
       "key": "e1",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "kind": "event.item_done",
       "text": "Ticked \"Send QT-2026-0019\"",
       "by": "Lia Seller",
@@ -314,7 +321,7 @@
      },
      {
       "key": "e2",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "kind": "event.status",
       "text": "Status → completed",
       "by": "Lia Seller",
@@ -324,7 +331,7 @@
      },
      {
       "key": "u1",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "kind": "update.closed",
       "text": "Closed the task",
       "by": "Lia Seller",
@@ -348,7 +355,7 @@
      "deadline": "2026-11-01",
      "status": "completed",
      "progress": 100,
-     "created_at": "2026-11-03 02:15:38",
+     "created_at": "2026-11-03 09:08:46",
      "link_kind": null,
      "link_id": null,
      "stage": null,
@@ -359,7 +366,7 @@
      "item_count": 1,
      "item_done": 1,
      "acknowledged": 0,
-     "closed_at": "2026-11-03 02:15:38",
+     "closed_at": "2026-11-03 09:08:46",
      "closed_by": "Lia Seller",
      "closed_kind": "closed",
      "closed_late_days": 2,
@@ -367,11 +374,327 @@
       "id": 1,
       "kind": "closed",
       "body": "Delivered the signed forms to the bank counter",
-      "at": "2026-11-03 02:15:38",
+      "at": "2026-11-03 09:08:46",
       "by": "Lia Seller",
       "by_id": 6
      },
      "assistants": [],
+     "link_label": null
+    }
+   ]
+  },
+  "edits": {
+   "detail": {
+    "task": {
+     "id": 9,
+     "title": "MARA - DANANITA DEHANA",
+     "description": null,
+     "assigned_to": 14,
+     "created_by": 1,
+     "priority": "normal",
+     "deadline": null,
+     "status": "in_progress",
+     "progress": 0,
+     "created_at": "2026-11-03 09:08:46",
+     "link_kind": null,
+     "link_id": null,
+     "stage": null,
+     "progress_source": "checklist",
+     "start_date": null,
+     "assignee": "Farid Zulkifli",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Alif Farhan",
+     "acknowledged_at": null,
+     "assistants": [
+      {
+       "id": 5,
+       "name": "Aina Seller",
+       "photo_key": null,
+       "added_at": "2026-11-03 09:08:46"
+      }
+     ],
+     "items": [
+      {
+       "id": 7,
+       "title": "Submit the MARA form",
+       "done": 0,
+       "done_at": null,
+       "done_by_name": null
+      }
+     ],
+     "link": null,
+     "latest_update": {
+      "id": 12,
+      "kind": "progress",
+      "body": "Documentation submitted to MARA Johor",
+      "at": "2026-11-03 09:08:46",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     "closure": null,
+     "outstanding": [
+      {
+       "id": 7,
+       "title": "Submit the MARA form"
+      }
+     ],
+     "next": "outstanding",
+     "timeline": [
+      {
+       "key": "created",
+       "state": "done",
+       "who": "Alif Farhan",
+       "at": "2026-11-03 09:08:46",
+       "text": null
+      },
+      {
+       "key": "acknowledged",
+       "state": "skipped",
+       "who": null,
+       "at": null,
+       "text": null
+      },
+      {
+       "key": "in_progress",
+       "state": "now",
+       "who": "Farid Zulkifli",
+       "at": "2026-11-03 09:08:46",
+       "text": null,
+       "flags": {}
+      },
+      {
+       "key": "review",
+       "state": "todo",
+       "who": null,
+       "at": null,
+       "text": null
+      },
+      {
+       "key": "closed",
+       "state": "todo",
+       "who": null,
+       "at": null,
+       "text": null
+      }
+     ],
+     "reported": {
+      "value": 60,
+      "at": "2026-11-03 09:08:46",
+      "by": "Farid Zulkifli"
+     },
+     "counts": {
+      "updates": 1,
+      "files": 0,
+      "comments": 0
+     }
+    },
+    "me": 1,
+    "can": {
+     "edit": true,
+     "reassign": true,
+     "assistants": true,
+     "tick": true,
+     "update": true,
+     "comment": true,
+     "files": true,
+     "restricted_files": true,
+     "request_review": false,
+     "review": false,
+     "approve": true,
+     "cancel": true,
+     "close": true,
+     "close_exception": true,
+     "reopen": false,
+     "return": false,
+     "assist": false,
+     "self_set": false,
+     "is_assignee": false,
+     "is_assistant": false,
+     "remind": true
+    }
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 13,
+      "task_id": 9,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "correction",
+      "body": "683768",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": null,
+      "stage_to": null,
+      "progress_snapshot": null,
+      "progress_source": null,
+      "corrects_id": 12,
+      "created_at": "2026-11-03 09:08:46",
+      "reported_progress": null,
+      "files": [],
+      "edits": [],
+      "withdrawn": {
+       "by": "Alif Farhan",
+       "at": "2026-11-03 09:08:46",
+       "reason": "Typed my authenticator code by mistake"
+      },
+      "can_edit": false
+     },
+     {
+      "id": 12,
+      "task_id": 9,
+      "project_id": null,
+      "author_id": 14,
+      "author": "Farid Zulkifli",
+      "photo_key": null,
+      "kind": "progress",
+      "body": "Documentation submitted to MARA",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": "Wait for the officer",
+      "status_to": "in_progress",
+      "stage_to": null,
+      "progress_snapshot": 0,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-03 09:08:46",
+      "reported_progress": 60,
+      "files": [],
+      "edits": [
+       {
+        "id": 14,
+        "body": "Documentation submitted to MARA Johor",
+        "completed_work": null,
+        "blockers": null,
+        "next_action": "Wait for the officer's visit",
+        "by": "Farid Zulkifli",
+        "by_id": 14,
+        "at": "2026-11-03 09:08:46"
+       }
+      ],
+      "withdrawn": null,
+      "can_edit": true
+     }
+    ]
+   },
+   "files": {
+    "files": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "a21",
+      "at": "2026-11-03 09:08:46",
+      "kind": "assist.add",
+      "text": "Added Aina Seller to help",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null
+     },
+     {
+      "key": "c9",
+      "at": "2026-11-03 09:08:46",
+      "kind": "task.create",
+      "text": "Created the task for Farid Zulkifli",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null
+     },
+     {
+      "key": "e24",
+      "at": "2026-11-03 09:08:46",
+      "kind": "event.status",
+      "text": "Status → in progress",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "u12",
+      "at": "2026-11-03 09:08:46",
+      "kind": "update.progress",
+      "text": "Progress update · 0%",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Documentation submitted to MARA"
+     },
+     {
+      "key": "u13",
+      "at": "2026-11-03 09:08:46",
+      "kind": "update.correction",
+      "text": "Correction",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "683768"
+     },
+     {
+      "key": "u14",
+      "at": "2026-11-03 09:08:46",
+      "kind": "update.edit",
+      "text": "Edited an update",
+      "by": "Farid Zulkifli",
+      "by_id": 14,
+      "photo_key": null,
+      "quote": "Documentation submitted to MARA Johor"
+     },
+     {
+      "key": "u15",
+      "at": "2026-11-03 09:08:46",
+      "kind": "update.withdrawn",
+      "text": "Withdrew an update",
+      "by": "Alif Farhan",
+      "by_id": 1,
+      "photo_key": null,
+      "quote": "Typed my authenticator code by mistake"
+     }
+    ]
+   },
+   "comments": {
+    "comments": []
+   },
+   "list": [
+    {
+     "id": 9,
+     "title": "MARA - DANANITA DEHANA",
+     "description": null,
+     "assigned_to": 14,
+     "created_by": 1,
+     "priority": "normal",
+     "deadline": null,
+     "status": "in_progress",
+     "progress": 0,
+     "created_at": "2026-11-03 09:08:46",
+     "link_kind": null,
+     "link_id": null,
+     "stage": null,
+     "progress_source": "checklist",
+     "start_date": null,
+     "assignee": "Farid",
+     "assignee_photo": null,
+     "item_count": 1,
+     "item_done": 0,
+     "acknowledged": 0,
+     "latest_update": {
+      "id": 12,
+      "kind": "progress",
+      "body": "Documentation submitted to MARA Johor",
+      "at": "2026-11-03 09:08:46",
+      "by": "Farid Zulkifli",
+      "by_id": 14
+     },
+     "assistants": [
+      {
+       "id": 5,
+       "name": "Aina Seller"
+      }
+     ],
      "link_label": null
     }
    ]

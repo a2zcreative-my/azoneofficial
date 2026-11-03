@@ -47,6 +47,7 @@ export interface TaskDetail {
     outstanding?: { id: number; title: string }[];
     next?: string;
     timeline?: { key: string; state: StageState; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | number | boolean> }[];
+    reported?: { value: number; at: string; by: string | null } | null; // v1.257.0 - the latest reported %, beside the official one
   };
   me: number;
   can: {
@@ -59,6 +60,10 @@ type TFile = { id: number; update_id: number | null; comment_id: number | null; 
 type TUpdate = {
   id: number; author_id: number; author: string; photo_key: string | null; kind: string; body: string; completed_work: string | null; blockers: string | null;
   next_action: string | null; status_to: string | null; stage_to: string | null; progress_snapshot: number | null; progress_source?: string | null; corrects_id: number | null; created_at: string; files: TFile[];
+  /* v1.257.0 - the reported percentage; the edits (newest last) and the withdrawal; whether this person may change it */
+  reported_progress?: number | null;
+  edits?: { id: number; body: string; completed_work: string | null; blockers: string | null; next_action: string | null; by: string; at: string }[];
+  withdrawn?: { by: string; at: string; reason: string } | null; can_edit?: boolean;
 };
 type TComment = { id: number; user_id: number; author: string; photo_key: string | null; comment: string; created_at: string; mentions: { id: number; name: string }[]; files: Omit<TFile, "update_id" | "uploader" | "open" | "created_at">[] };
 type TActivity = { key: string; at: string; kind: string; text: string; by: string | null; photo_key?: string | null; quote?: string | null; muted?: boolean };
@@ -297,7 +302,8 @@ function ReviewBar({ d, onChanged, onUpdate, onClose }: { d: TaskDetail; onChang
       {stages.length > 0 && <StageTimeline stages={stages} label={L("Task progress", "Kemajuan tugasan")} testId="task-stages" />}
       <div className={tp.bar}>
         <span className={tp.barText}>
-          <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span></span>
+          <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span>
+            {t.progress_source === "checklist" && t.reported && <span className={tp.barSub} data-testid="reported-line"> · {L(`last reported ${t.reported.value}% by ${t.reported.by ?? "—"}`, `terakhir dilaporkan ${t.reported.value}% oleh ${t.reported.by ?? "—"}`)}</span>}</span>
           <span className={tp.barSub} data-testid="next-step">{nextLine(d)}</span>
           {t.latest_update && <span className={tp.barSub}>{L("Latest", "Terkini")}: “{t.latest_update.body.slice(0, 90)}” — {t.latest_update.by} · {stamp(t.latest_update.at)}</span>}
         </span>
@@ -467,12 +473,25 @@ function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick
     setText(""); setFiles([]);
     onChanged(L("Update posted", "Kemas kini dihantar"), bad ? L(`A file was not attached - ${bad}`, `Fail tidak dilampirkan - ${bad}`) : L("It stays on the task's record with your name and the time.", "Ia kekal dalam rekod tugasan dengan nama anda dan masa."));
   });
-  const correct = (u: TUpdate) => run(async () => {
-    const got = await prompt({ title: L("Correct this update", "Betulkan kemas kini ini"), message: L("The original stays on the record; your correction is added under it.", "Asal kekal dalam rekod; pembetulan anda ditambah."), label: L("Correction", "Pembetulan"), required: true, confirmLabel: L("Add correction", "Tambah pembetulan") });
-    if (!got) return;
-    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/updates`, { method: "POST", body: JSON.stringify({ kind: "correction", corrects_id: u.id, body: got.value }) });
+  /* v1.257.0 - EDIT and WITHDRAW (the owner: "Edit + Withdraw, history kept"):
+     each is a new row on the record; the original words stay readable */
+  const [editing, setEditing] = useState<{ id: number; body: string; next_action: string } | null>(null);
+  const [orig, setOrig] = useState<Record<number, boolean>>({});
+  const saveEdit = () => run(async () => {
+    if (!editing) return;
+    setProblem("");
+    if (!editing.body.trim()) { setProblem(L("Write the update.", "Tulis kemas kini.")); return; }
+    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/updates/${editing.id}/edit`, { method: "POST", body: JSON.stringify({ body: editing.body.trim(), next_action: editing.next_action.trim() }) });
     if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not saved", "Tidak disimpan")); return; }
-    onChanged(L("Correction added", "Pembetulan ditambah"));
+    setEditing(null);
+    onChanged(L("Update edited", "Kemas kini disunting"), L("The original stays on the record - Show original opens it.", "Asal kekal dalam rekod - Tunjuk asal membukanya."));
+  });
+  const withdraw = (u: TUpdate) => run(async () => {
+    const got = await prompt({ title: L("Withdraw this update", "Tarik balik kemas kini ini"), message: L("It leaves the timeline; a line says who withdrew it and why, and the original stays in the record. The task's status and progress stay as they are - use Update status to change them.", "Ia keluar dari garis masa; satu baris menyatakan siapa menarik balik dan sebabnya, dan asal kekal dalam rekod. Status dan kemajuan tugasan kekal - guna Kemas kini status untuk mengubahnya."), label: L("Reason", "Sebab"), required: true, variant: "danger", confirmLabel: L("Withdraw", "Tarik balik") });
+    if (!got) return;
+    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/updates/${u.id}/withdraw`, { method: "POST", body: JSON.stringify({ reason: got.value }) });
+    if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not saved", "Tidak disimpan")); return; }
+    onChanged(L("Update withdrawn", "Kemas kini ditarik balik"), L("Who withdrew it and why is on the timeline.", "Siapa dan sebabnya ada pada garis masa."));
   });
   const canWrite = (d.can.comment || d.can.update) && t.status !== "completed";
   return (
@@ -520,33 +539,72 @@ function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick
               const title = e.kind === "progress" ? L("Progress update", "Kemas kini kemajuan") : e.kind === "comment" ? L("Comment", "Komen") : e.kind === "created" ? L("Task created", "Tugasan dicipta")
                 : L((KIND[e.kind] ?? [e.kind, e.kind])[0], (KIND[e.kind] ?? [e.kind, e.kind])[1]);
               const snap = e.u && e.u.progress_snapshot !== null && e.u.kind !== "correction" ? e.u.progress_snapshot : null;
+              const last = e.u?.edits?.length ? e.u.edits[e.u.edits.length - 1]! : null;
+              const showOrig = !!(e.u && orig[e.u.id]);
+              const shown = e.u && last && !showOrig ? { ...e.u, body: last.body, completed_work: last.completed_work, blockers: last.blockers, next_action: last.next_action } : e.u;
+              const gone = e.u?.withdrawn ?? null;
+              if (gone && !showOrig) {
+                return (
+                  <li key={e.key} className={tp.tlRow} data-kind={e.kind} data-withdrawn="1">
+                    <span className={tp.tlWhen}>{day(e.at)}<br />{stamp(e.at).split(", ")[1] ?? ""}</span>
+                    <span className={`${tp.tlMark} ${tp.mGrey}`} aria-hidden="true" />
+                    <div className={`${tp.tlCard} ${tp.entryMuted}`}>
+                      <span className={tp.barSub}>{L(`${title} withdrawn by ${gone.by} · ${stamp(gone.at)}: ${gone.reason}`, `${title} ditarik balik oleh ${gone.by} · ${stamp(gone.at)}: ${gone.reason}`)}</span>
+                      <button type="button" className={tp.entryCmd} onClick={() => setOrig({ ...orig, [e.u!.id]: true })}>{L("Show original", "Tunjuk asal")}</button>
+                    </div>
+                  </li>
+                );
+              }
               return (
                 <li key={e.key} className={tp.tlRow} data-kind={e.kind}>
                   <span className={tp.tlWhen}>{day(e.at)}<br />{stamp(e.at).split(", ")[1] ?? ""}</span>
                   <span className={`${tp.tlMark} ${tone}`} aria-hidden="true" />
                   <div className={`${tp.tlCard} ${e.kind === "comment" ? tp.entryMuted : ""}`}>
                     <span className={tp.tlHead}><strong>{title}</strong><KindChip kind={e.kind === "progress" ? "progress" : e.kind} /></span>
-                    <p className={tp.entryText}>{e.text}</p>
-                    {e.u && (e.u.completed_work || e.u.blockers || e.u.next_action) && (
+                    {editing && e.u && editing.id === e.u.id ? (
+                      <div className={tp.editBox} data-testid="edit-update">
+                        <textarea className={textareaClass} rows={3} maxLength={500} aria-label={L("Update text", "Teks kemas kini")} value={editing.body} onChange={(ev) => setEditing({ ...editing, body: ev.target.value })} />
+                        <input className={inputClass} maxLength={1000} aria-label={L("Next action", "Tindakan seterusnya")} placeholder={L("Next action (optional)", "Tindakan seterusnya (pilihan)")} value={editing.next_action} onChange={(ev) => setEditing({ ...editing, next_action: ev.target.value })} />
+                        <span className={tp.barCmds}>
+                          <button type="button" className={btnSmPrimary} disabled={busy} onClick={() => void saveEdit()}>{L("Save edit", "Simpan suntingan")}</button>
+                          <button type="button" className={btnSm} onClick={() => setEditing(null)}>{L("Cancel", "Batal")}</button>
+                        </span>
+                      </div>
+                    ) : (<>
+                    <p className={tp.entryText}>{shown ? shown.body : e.text}</p>
+                    {shown && (shown.completed_work || shown.blockers || shown.next_action) && (
                       <p className={tp.entryExtra}>
-                        {e.u.completed_work && <span><b>{L("Done", "Siap")}:</b> {e.u.completed_work}</span>}
-                        {e.u.blockers && <span><b>{L("Blocking", "Halangan")}:</b> {e.u.blockers}</span>}
-                        {e.u.next_action && <span><b>{L("Next", "Seterusnya")}:</b> {e.u.next_action}</span>}
+                        {shown.completed_work && <span><b>{L("Done", "Siap")}:</b> {shown.completed_work}</span>}
+                        {shown.blockers && <span><b>{L("Blocking", "Halangan")}:</b> {shown.blockers}</span>}
+                        {shown.next_action && <span><b>{L("Next", "Seterusnya")}:</b> {shown.next_action}</span>}
                       </p>
+                    )}
+                    </>)}
+                    {(last || gone) && (
+                      <span className={tp.barSub} data-testid="edited-mark">
+                        {showOrig ? (gone ? L(`Original - withdrawn by ${gone.by} · ${stamp(gone.at)}: ${gone.reason}`, `Asal - ditarik balik oleh ${gone.by} · ${stamp(gone.at)}: ${gone.reason}`) : L("Original, as first written", "Asal, seperti mula ditulis"))
+                          : L(`Edited by ${last!.by} · ${stamp(last!.at)}${e.u!.edits!.length > 1 ? ` (${e.u!.edits!.length} edits)` : ""}`, `Disunting oleh ${last!.by} · ${stamp(last!.at)}${e.u!.edits!.length > 1 ? ` (${e.u!.edits!.length} suntingan)` : ""}`)}
+                        {" "}<button type="button" className={tp.entryCmd} onClick={() => setOrig({ ...orig, [e.u!.id]: !showOrig })}>{showOrig ? L("Show current", "Tunjuk terkini") : L("Show original", "Tunjuk asal")}</button>
+                      </span>
                     )}
                     {snap !== null && (
                       <span className={tp.tlProg}>
                         <span className={tp.track}><span className={tp.fill} style={{ width: `${snap}%` }} /></span>
                         <span className={tp.tlPct}>{e.prev !== null ? `${e.prev}% → ${snap}%` : `${snap}%`}</span>
-                        <span className={tp.barSub}>{e.u!.progress_source === "checklist" ? L("the checklist at that time", "senarai semak pada masa itu") : L("reported", "dilaporkan")}</span>
+                        <span className={tp.barSub}>{e.u!.progress_source === "checklist"
+                          ? (e.u!.reported_progress != null ? L(`Reported ${e.u!.reported_progress}% · the checklist then ${snap}% (official)`, `Dilaporkan ${e.u!.reported_progress}% · senarai semak ketika itu ${snap}% (rasmi)`) : L("the checklist at that time", "senarai semak pada masa itu"))
+                          : L("reported", "dilaporkan")}</span>
                       </span>
                     )}
                     {e.c && e.c.mentions.length > 0 && <p className={tp.entryExtra}>{L("Mentions", "Sebut")}: {e.c.mentions.map((m) => `@${m.name}`).join(", ")}</p>}
                     <FileStrip taskId={t.id} files={(e.u?.files ?? e.c?.files ?? []) as TFile[]} />
                     <span className={tp.entryHead}>
                       {e.who && <span className={tp.entryWho}><Avatar name={e.who} photoKey={e.photo} size="sm" />{e.who}</span>}
-                      {e.u && (e.u.author_id === d.me || d.can.reassign) && !["correction", "review_approved", "review_returned", "cancel", "assist_request", "closed", "closed_with_exception", "reopened"].includes(e.u.kind) && t.status !== "completed" && d.can.update && (
-                        <button type="button" className={tp.entryCmd} onClick={() => void correct(e.u!)}>{L("Correct", "Betulkan")}</button>
+                      {e.u?.can_edit && !editing && (
+                        <span className={tp.entryCmds}>
+                          <button type="button" className={tp.entryCmd} data-testid="edit-btn" onClick={() => setEditing({ id: e.u!.id, body: shown?.body ?? e.u!.body, next_action: shown?.next_action ?? "" })}>{L("Edit", "Sunting")}</button>
+                          <button type="button" className={tp.entryCmd} data-testid="withdraw-btn" onClick={() => void withdraw(e.u!)}>{L("Withdraw", "Tarik balik")}</button>
+                        </span>
                       )}
                     </span>
                   </div>
@@ -703,6 +761,7 @@ export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; star
   const initial: SheetState = start ?? (t.stage === "blocked" ? "blocked" : t.stage === "waiting_client" ? "waiting_client" : "in_progress");
   const [state, setState] = useState<SheetState>(initial);
   const [progress, setProgress] = useState<number>(t.progress);
+  const [reported, setReported] = useState<string>(""); // v1.257.0 - on a checklist task, the percentage the author reports (the checklist stays official)
   const [text, setText] = useState("");
   const [open, setOpen] = useState({ completed_work: false, outstanding: false, blockers: initial === "blocked", next_action: false, follow_up: false });
   const [extra, setExtra] = useState({ completed_work: "", outstanding: "", blockers: "", next_action: "", follow_up: "" });
@@ -749,6 +808,7 @@ export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; star
       ...(open.blockers && extra.blockers.trim() ? { blockers: extra.blockers.trim() } : {}),
       ...(next ? { next_action: next } : {}),
       ...(!fromChecklist && progress !== t.progress ? { progress } : {}),
+      ...(fromChecklist && reported !== "" ? { reported_progress: Number(reported) } : {}),
     }) });
     if (!r.ok || !r.data?.id) { setProblem(r.data?.error?.message ?? L("Not saved - check the connection and try again. Nothing was recorded.", "Tidak disimpan - semak sambungan dan cuba lagi. Tiada yang direkodkan.")); return; }
     const bad = files.length ? await uploadFiles(t.id, files, { update: r.data.id }) : "";
@@ -787,6 +847,15 @@ export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; star
         </div>
         <span className={tp.range}><span className={tp.track}><span className={tp.fill} style={{ width: `${fromChecklist || closing ? t.progress : progress}%` }} /></span><span className={tp.pct}>{fromChecklist || closing ? t.progress : progress}%</span></span>
         {fromChecklist && !closing && <p className={tp.note}>{L(`From the checklist (${done}/${t.items.length}) - tick the deliverables to move it. A percentage never closes the task.`, `Daripada senarai semak (${done}/${t.items.length}) - tanda hasil kerja untuk menggerakkannya. Peratusan tidak menutup tugasan.`)}</p>}
+        {fromChecklist && !closing && (
+          <label className={fieldLabel}>{L("Reported progress (optional)", "Kemajuan dilaporkan (pilihan)")}
+            <select className={selectClass} value={reported} onChange={(e) => setReported(e.target.value)} aria-label={L("Reported progress percent", "Peratus kemajuan dilaporkan")} data-testid="reported-progress">
+              <option value="">{L("— not reported —", "— tidak dilaporkan —")}</option>
+              {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((p) => <option key={p} value={p}>{p}%</option>)}
+            </select>
+            <span className={tp.note}>{L("Your own estimate of the work, kept on this update. The official progress stays the checklist.", "Anggaran anda sendiri, disimpan pada kemas kini ini. Kemajuan rasmi kekal senarai semak.")}</span>
+          </label>
+        )}
         <label className={fieldLabel}>{closing ? (approving ? L("Approval note (optional)", "Nota kelulusan (pilihan)") : L("Completion summary *", "Ringkasan penyelesaian *")) : L("Update / Comment *", "Kemas kini / Komen *")}
           <textarea className={textareaClass} rows={4} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} data-testid="sheet-text"
             placeholder={closing ? L("What was delivered, and where it is", "Apa yang diserahkan, dan di mana") : L("What was done, what is next…", "Apa yang siap, apa seterusnya…")} />

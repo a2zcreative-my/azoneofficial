@@ -8551,7 +8551,7 @@ async function handleStaffRoutes(
   /* v1.246.0 - a task's own record: GET /tasks/:id, its progress updates,
      review, helpers, private files and activity (tasks-progress.ts decides
      who may do what). PATCH and DELETE /tasks/:id stay below. */
-  if (/^\/tasks\/\d+(\/updates|\/review|\/close|\/reopen|\/assistants(\/\d+)?|\/files(\/\d+)?|\/activity)?$/.test(path)) { // v1.256.0 - close, reopen
+  if (/^\/tasks\/\d+\/updates\/\d+\/(?:edit|withdraw)$/.test(path) || /^\/tasks\/\d+(\/updates|\/review|\/close|\/reopen|\/assistants(\/\d+)?|\/files(\/\d+)?|\/activity)?$/.test(path)) { // v1.256.0 - close, reopen
     const tp = await handleTaskProgress(env, path, method, body, user, request);
     if (tp) return tp;
   }

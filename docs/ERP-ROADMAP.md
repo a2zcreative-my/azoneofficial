@@ -375,3 +375,7 @@ row at settlement.
 be closed, closed_with_exception or reopened - every row is copied with its
 own id, the append-only triggers and indexes are created again, and no task,
 stage, progress, deadline or checklist changes.
+1.257.0 adds `0170_task_update_edits`: task_updates is rebuilt the same way
+with the kinds edit and withdrawn and a reported_progress column (0-100). An
+edit or a withdrawal is a new row naming the update it changes; the update
+itself is never changed. No task, stage, progress or checklist changes.

@@ -71,6 +71,12 @@ export const FILE_TYPES: Record<string, { max: number; kind: "image" | "document
 const TASK_KINDS = ["progress", "blocker", "waiting_client", "review_request", "correction", "assist_request"] as const;
 /** The kinds that count as the task's LATEST UPDATE - never a comment, never a file. */
 export const LATEST_KINDS = ["progress", "blocker", "waiting_client", "review_request", "review_approved", "review_returned", "correction", "cancel", "closed", "closed_with_exception", "reopened"];
+/** v1.257.0 (0170) - an update's own text may be edited or the update withdrawn by its
+    author or the task's management, while the task is open; a decision (approve, return,
+    close, cancel, reopen) is never edited or withdrawn - it is undone by the next decision */
+export const EDITABLE_KINDS = ["progress", "blocker", "waiting_client", "review_request", "correction", "assist_request"];
+/** rows that change another row, never shown as entries of their own */
+const META_KINDS = ["edit", "withdrawn"];
 /** v1.256.0 - the rows that close a task (the latest one after the latest reopening is THE closure) */
 export const CLOSING_KINDS = ["review_approved", "closed", "closed_with_exception", "cancel"];
 
@@ -200,6 +206,15 @@ export async function appendTaskUpdate(
     }
   }
   if (cl.n > 0) { progress = Math.round((cl.d / cl.n) * 100); source = "checklist"; }
+  /* v1.257.0 - the REPORTED percentage, kept on the update beside the official
+     one: on a checklist task it never moves the checklist figure */
+  let reported: number | null = null;
+  if (body?.reported_progress !== undefined && body.reported_progress !== null && kind !== "assist_request" && kind !== "correction") {
+    const rp = Number(body.reported_progress);
+    if (!(Number.isInteger(rp) && rp >= 0 && rp <= 100)) return err("invalid_input", "The reported progress is a whole percentage, 0 to 100", 400);
+    reported = rp;
+  }
+  if (reported === null && cl.n === 0 && typeof body?.progress === "number" && kind !== "assist_request" && kind !== "correction") reported = Math.round(body.progress);
   /* the state this update leaves the task in */
   let status = t.status;
   let stage = t.stage;
@@ -215,11 +230,11 @@ export async function appendTaskUpdate(
     if (stage !== t.stage) await event(env, t.id, `stage:${stage ?? "none"}`, user.id);
   }
   const row = await env.DB.prepare(
-    `INSERT INTO task_updates (task_id, project_id, author_id, kind, body, completed_work, blockers, next_action, status_to, stage_to, progress_snapshot, progress_source, corrects_id, client_key)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+    `INSERT INTO task_updates (task_id, project_id, author_id, kind, body, completed_work, blockers, next_action, status_to, stage_to, progress_snapshot, progress_source, corrects_id, client_key${reported !== null ? ", reported_progress" : ""})
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14${reported !== null ? ", ?15" : ""})
      ON CONFLICT(author_id, client_key) WHERE client_key IS NOT NULL DO NOTHING RETURNING id`,
   ).bind(t.id, a.project?.id ?? null, user.id, kind, text, extra("completed_work"), extra("blockers"), extra("next_action"),
-    moves ? status : null, moves ? stage : null, moves ? progress : null, moves ? source : null, corrects, key).first<{ id: number }>();
+    moves ? status : null, moves ? stage : null, moves ? progress : null, moves ? source : null, corrects, key, ...(reported !== null ? [reported] : [])).first<{ id: number }>();
   if (!row) {
     const again = await env.DB.prepare(`SELECT id FROM task_updates WHERE author_id = ?1 AND client_key = ?2`).bind(user.id, key).first<{ id: number }>();
     return json({ id: again?.id, existing: true });
@@ -412,7 +427,8 @@ export const lateDays = (deadline: string | null, closedAtUtc: string | null) =>
 export async function taskTimeline(env: Env, t: TaskRow, a: TaskAccess) {
   type Step = { key: string; state: "done" | "now" | "todo" | "rejected" | "returned" | "skipped"; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | number | boolean> };
   const ups = (await env.DB.prepare(
-    `SELECT x.id, x.kind, x.body, x.created_at, ${PERSON("u")} AS who FROM task_updates x JOIN users u ON u.id = x.author_id WHERE x.task_id = ?1 ORDER BY x.id`,
+    `SELECT x.id, x.kind, x.body, x.created_at, ${PERSON("u")} AS who FROM task_updates x JOIN users u ON u.id = x.author_id
+      WHERE x.task_id = ?1 AND x.kind NOT IN ('edit', 'withdrawn') AND NOT EXISTS (SELECT 1 FROM task_updates w WHERE w.corrects_id = x.id AND w.kind = 'withdrawn') ORDER BY x.id`,
   ).bind(t.id).all<{ id: number; kind: string; body: string; created_at: string; who: string | null }>().catch(() => ({ results: [] as { id: number; kind: string; body: string; created_at: string; who: string | null }[] }))).results;
   const evs = (await env.DB.prepare(
     `SELECT e.kind, e.created_at, ${PERSON("u")} AS who FROM task_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.task_id = ?1 AND (e.kind = 'ack' OR e.kind LIKE 'status:%') ORDER BY e.id`,
@@ -523,9 +539,11 @@ export async function latestUpdates(env: Env, ids: number[]): Promise<Map<number
       const ph = chunk.map((_, j) => `?${j + 1}`).join(",");
       const kinds = LATEST_KINDS.map((k) => `'${k}'`).join(",");
       const rows = (await env.DB.prepare(
-        `SELECT x.task_id, x.id, x.kind, x.body, x.created_at AS at, x.author_id AS by_id, ${PERSON("u")} AS by_name
+        `SELECT x.task_id, x.id, x.kind, COALESCE((SELECT e.body FROM task_updates e WHERE e.corrects_id = x.id AND e.kind = 'edit' ORDER BY e.id DESC LIMIT 1), x.body) AS body,
+                x.created_at AS at, x.author_id AS by_id, ${PERSON("u")} AS by_name
            FROM task_updates x JOIN users u ON u.id = x.author_id
-          WHERE x.id IN (SELECT MAX(y.id) FROM task_updates y WHERE y.task_id IN (${ph}) AND y.kind IN (${kinds}) GROUP BY y.task_id)`,
+          WHERE x.id IN (SELECT MAX(y.id) FROM task_updates y WHERE y.task_id IN (${ph}) AND y.kind IN (${kinds})
+                           AND NOT EXISTS (SELECT 1 FROM task_updates w WHERE w.corrects_id = y.id AND w.kind = 'withdrawn') GROUP BY y.task_id)`, /* v1.257.0 - a withdrawn update is not the latest; an edited one reads as edited */
       ).bind(...chunk).all<{ task_id: number; id: number; kind: string; body: string; at: string; by_id: number; by_name: string | null }>()).results;
       for (const r of rows) out.set(r.task_id, { id: r.id, kind: r.kind, body: r.body, at: r.at, by: r.by_name, by_id: r.by_id });
     }
@@ -538,6 +556,18 @@ export async function latestUpdates(env: Env, ids: number[]): Promise<Map<number
 export async function handleTaskProgress(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, request: Request,
 ): Promise<Response | null> {
+  const em = /^\/tasks\/(\d+)\/updates\/(\d+)\/(edit|withdraw)$/.exec(path);
+  if (em) {
+    if (method !== "POST") return null;
+    try {
+      const t = await loadTask(env, em[1]!);
+      if (!t) return err("not_found", "Task not found", 404);
+      const a = await taskAccess(env, user, t);
+      if (!a.view) return err("forbidden", "That task is not yours", 403);
+      const key = (request.headers.get("Idempotency-Key") ?? (typeof body?.client_key === "string" ? body.client_key : "")).slice(0, 80) || null;
+      return await editTaskUpdate(env, user, t, a, Number(em[2]), em[3] as "edit" | "withdraw", body, key);
+    } catch (e) { if (missing(e)) return err("migration_missing", "Run migration 0170 first (PUSH.bat)", 503); throw e; }
+  }
   const m = /^\/tasks\/(\d+)(\/updates|\/review|\/close|\/reopen|\/assistants(?:\/(\d+))?|\/files(?:\/(\d+))?|\/activity)?$/.exec(path);
   if (!m) return null;
   const sub = m[2] ?? "";
@@ -569,7 +599,8 @@ async function route(
       latestUpdates(env, [t.id]),
     ]);
     const counts = await env.DB.prepare(
-      `SELECT (SELECT COUNT(*) FROM task_updates WHERE task_id = ?1) AS updates, (SELECT COUNT(*) FROM task_files WHERE task_id = ?1) AS files,
+      `SELECT (SELECT COUNT(*) FROM task_updates WHERE task_id = ?1 AND kind NOT IN ('edit', 'withdrawn')
+                 AND NOT EXISTS (SELECT 1 FROM task_updates w WHERE w.corrects_id = task_updates.id AND w.kind = 'withdrawn')) AS updates, (SELECT COUNT(*) FROM task_files WHERE task_id = ?1) AS files,
               (SELECT COUNT(*) FROM task_comments WHERE task_id = ?1) AS comments`,
     ).bind(t.id).first<{ updates: number; files: number; comments: number }>();
     let link: { kind: string; id: number; label: string; project_id?: number; quotation_id?: number; quotation?: string; customer?: string } | null = null;
@@ -593,6 +624,11 @@ async function route(
       : a.selfSet ? (dec.close ? "close_ready" : "in_progress")
       : a.assignee ? "submit_review" : dec.close ? "close_ready" : "in_progress";
     const timeline = await taskTimeline(env, t, a);
+    /* v1.257.0 - the latest REPORTED percentage (not withdrawn), beside the official one */
+    const reported = await env.DB.prepare(
+      `SELECT x.reported_progress AS value, x.created_at AS at, ${PERSON("u")} AS by_name FROM task_updates x JOIN users u ON u.id = x.author_id
+        WHERE x.task_id = ?1 AND x.reported_progress IS NOT NULL AND NOT EXISTS (SELECT 1 FROM task_updates w WHERE w.corrects_id = x.id AND w.kind = 'withdrawn') ORDER BY x.id DESC LIMIT 1`,
+    ).bind(t.id).first<{ value: number; at: string; by_name: string | null }>().catch(() => null);
     return json({
       task: {
         ...t, assignee: assignee?.name ?? null, assignee_position: assignee?.position ?? null, assignee_photo: assignee?.photo_key ?? null,
@@ -600,6 +636,7 @@ async function route(
         progress_source: cl > 0 ? "checklist" : (t.progress_source ?? "manual"),
         latest_update: latest.get(t.id) ?? null,
         closure: closure ? { ...closure, late_days: lateDays(t.deadline, closure.at) } : null, outstanding, next, timeline,
+        reported: reported ? { value: Number(reported.value), at: reported.at, by: reported.by_name } : null,
         counts: { updates: Number(counts?.updates ?? 0), files: Number(counts?.files ?? 0), comments: a.team ? Number(counts?.comments ?? 0) : null },
       },
       me: user.id,
@@ -616,13 +653,24 @@ async function route(
 
   /* ---------------- progress updates (append-only) ---------------- */
   if (sub === "/updates" && method === "GET") {
-    const rows = (await env.DB.prepare(
+    const all = (await env.DB.prepare(
       `SELECT x.id, x.task_id, x.project_id, x.author_id, ${PERSON("u")} AS author, u.photo_key, x.kind, x.body, x.completed_work, x.blockers, x.next_action,
-              x.status_to, x.stage_to, x.progress_snapshot, x.progress_source, x.corrects_id, x.created_at
-         FROM task_updates x JOIN users u ON u.id = x.author_id WHERE x.task_id = ?1 ORDER BY x.id DESC LIMIT 500`,
+              x.status_to, x.stage_to, x.progress_snapshot, x.progress_source, x.corrects_id, x.created_at, x.reported_progress
+         FROM task_updates x JOIN users u ON u.id = x.author_id WHERE x.task_id = ?1 ORDER BY x.id DESC LIMIT 800`,
     ).bind(t.id).all<Record<string, unknown>>()).results;
     const files = await filesOf(env, t.id, a);
-    return json({ updates: rows.map((r) => ({ ...r, files: files.filter((f) => f.update_id === r.id) })) });
+    /* v1.257.0 - an edit and a withdrawal are folded into the update they change:
+       the original stays as it was written, its edits newest last, and who withdrew it and why */
+    const meta = all.filter((r) => META_KINDS.includes(String(r.kind)));
+    const rows = all.filter((r) => !META_KINDS.includes(String(r.kind)));
+    return json({ updates: rows.map((r) => {
+      const edits = meta.filter((x) => x.kind === "edit" && x.corrects_id === r.id).reverse()
+        .map((x) => ({ id: x.id, body: x.body, completed_work: x.completed_work, blockers: x.blockers, next_action: x.next_action, by: x.author, by_id: x.author_id, at: x.created_at }));
+      const w = meta.find((x) => x.kind === "withdrawn" && x.corrects_id === r.id);
+      const withdrawn = w ? { by: w.author, at: w.created_at, reason: w.body } : null;
+      const editable = !withdrawn && a.open && EDITABLE_KINDS.includes(String(r.kind)) && (r.author_id === user.id || a.manage);
+      return { ...r, files: files.filter((f) => f.update_id === r.id), edits, withdrawn, can_edit: editable };
+    }) });
   }
   if (sub === "/updates" && method === "POST") {
     const key = (request.headers.get("Idempotency-Key") ?? (typeof body?.client_key === "string" ? body.client_key : "")).slice(0, 80) || null;
@@ -766,7 +814,7 @@ export async function taskActivity(env: Env, t: TaskRow, a: TaskAccess) {
     if (!text) continue;
     add({ key: `e${e.id}`, at: e.created_at, kind: `event.${k.split(":")[0]}`, text, by: ["ack_nudge", "due_reminder", "overdue_alert"].includes(k) ? null : e.who, by_id: e.user_id, photo_key: e.photo_key, muted: ["ack_nudge", "due_reminder", "overdue_alert"].includes(k) });
   }
-  const KIND: Record<string, string> = { progress: "Progress update", blocker: "Reported a blocker", waiting_client: "Waiting for the client", review_request: "Submitted for review", review_approved: "Approved and closed", review_returned: "Returned for more work", correction: "Correction", assist_request: "Offered to help", cancel: "Cancelled the task", closed: "Closed the task", closed_with_exception: "Closed with deliverables still open", reopened: "Reopened the task" };
+  const KIND: Record<string, string> = { progress: "Progress update", blocker: "Reported a blocker", waiting_client: "Waiting for the client", review_request: "Submitted for review", review_approved: "Approved and closed", review_returned: "Returned for more work", correction: "Correction", assist_request: "Offered to help", cancel: "Cancelled the task", closed: "Closed the task", closed_with_exception: "Closed with deliverables still open", reopened: "Reopened the task", edit: "Edited an update", withdrawn: "Withdrew an update" };
   for (const u of (await env.DB.prepare(
     `SELECT x.id, x.kind, x.body, x.created_at, x.author_id, x.progress_snapshot, ${PERSON("u")} AS who, u.photo_key FROM task_updates x JOIN users u ON u.id = x.author_id WHERE x.task_id = ?1 ORDER BY x.id`,
   ).bind(t.id).all<{ id: number; kind: string; body: string; created_at: string; author_id: number; progress_snapshot: number | null; who: string; photo_key: string | null }>()).results)
@@ -780,4 +828,53 @@ export async function taskActivity(env: Env, t: TaskRow, a: TaskAccess) {
   for (const f of await filesOf(env, t.id, a))
     add({ key: `f${f.id}`, at: f.created_at, kind: "file", text: `Attached ${f.file_name}${f.level === "restricted" ? " (restricted)" : ""}`, by: f.uploader, by_id: f.uploader_id });
   return [...out.values()].sort((x, y) => x.at.localeCompare(y.at) || x.key.localeCompare(y.key));
+}
+
+/** v1.257.0 - EDIT or WITHDRAW one update (the owner, 03-11-2026: "Edit + Withdraw,
+    history kept"). Both are new rows that name the update (corrects_id); the
+    update itself is never changed - its original words stay readable. Neither
+    moves the task's status, stage or progress. */
+export async function editTaskUpdate(
+  env: Env, user: StaffUser, t: TaskRow, a: TaskAccess, updateId: number, action: "edit" | "withdraw", body: Record<string, unknown> | null, key: string | null,
+): Promise<Response> {
+  const u = await env.DB.prepare(`SELECT id, author_id, kind, body, completed_work, blockers, next_action FROM task_updates WHERE id = ?1 AND task_id = ?2`)
+    .bind(updateId, t.id).first<{ id: number; author_id: number; kind: string; body: string; completed_work: string | null; blockers: string | null; next_action: string | null }>();
+  if (!u) return err("not_found", "Update not found", 404);
+  if (!EDITABLE_KINDS.includes(u.kind)) return err("invalid_input", "A decision (approval, return, closing, cancelling, reopening) is not edited or withdrawn - the next decision changes it", 409);
+  if (u.author_id !== user.id && !a.manage) return err("forbidden", "You edit or withdraw your own updates; the task's management may edit others", 403);
+  if (!a.open) return err("task_closed", "This task is closed - reopen it first to change its record", 409);
+  if (key) {
+    const again = await env.DB.prepare(`SELECT id FROM task_updates WHERE author_id = ?1 AND client_key = ?2`).bind(user.id, key).first<{ id: number }>();
+    if (again) return json({ ok: true, id: again.id, existing: true });
+  }
+  const gone = await env.DB.prepare(`SELECT 1 AS x FROM task_updates WHERE corrects_id = ?1 AND kind = 'withdrawn'`).bind(u.id).first();
+  if (gone) return err("withdrawn", "That update was withdrawn already", 409);
+  const clip = (v: unknown, n: number) => typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null;
+  if (action === "withdraw") {
+    const reason = clip(body?.reason, 500) ?? "";
+    if (reason.length < 5) return err("invalid_input", "Say why it is withdrawn (at least 5 characters)", 400);
+    const r = await env.DB.prepare(
+      `INSERT OR IGNORE INTO task_updates (task_id, project_id, author_id, kind, body, corrects_id, client_key)
+       SELECT ?1, ?2, ?3, 'withdrawn', ?4, ?5, ?6 WHERE NOT EXISTS (SELECT 1 FROM task_updates WHERE corrects_id = ?5 AND kind = 'withdrawn')`,
+    ).bind(t.id, a.project?.id ?? null, user.id, reason, u.id, key).run();
+    if (!r.meta?.changes) return err("withdrawn", "That update was withdrawn already", 409);
+    await audit(env, user.id, "task.update_withdraw", "tasks", String(t.id), { update_id: u.id, reason });
+    return json({ ok: true });
+  }
+  const text = clip(body?.body, 500);
+  if (!text) return err("invalid_input", "Write the update (up to 500 characters)", 400);
+  const last = await env.DB.prepare(`SELECT body, completed_work, blockers, next_action FROM task_updates WHERE corrects_id = ?1 AND kind = 'edit' ORDER BY id DESC LIMIT 1`)
+    .bind(u.id).first<{ body: string; completed_work: string | null; blockers: string | null; next_action: string | null }>() ?? u;
+  const next = {
+    completed_work: body && "completed_work" in body ? clip(body.completed_work, 1000) : last.completed_work,
+    blockers: body && "blockers" in body ? clip(body.blockers, 1000) : last.blockers,
+    next_action: body && "next_action" in body ? clip(body.next_action, 1000) : last.next_action,
+  };
+  if (text === last.body && next.completed_work === last.completed_work && next.blockers === last.blockers && next.next_action === last.next_action) return json({ ok: true, unchanged: true });
+  const row = await env.DB.prepare(
+    `INSERT INTO task_updates (task_id, project_id, author_id, kind, body, completed_work, blockers, next_action, corrects_id, client_key)
+     VALUES (?1, ?2, ?3, 'edit', ?4, ?5, ?6, ?7, ?8, ?9) ON CONFLICT(author_id, client_key) WHERE client_key IS NOT NULL DO NOTHING RETURNING id`,
+  ).bind(t.id, a.project?.id ?? null, user.id, text, next.completed_work, next.blockers, next.next_action, u.id, key).first<{ id: number }>();
+  await audit(env, user.id, "task.update_edit", "tasks", String(t.id), { update_id: u.id });
+  return json({ ok: true, id: row?.id }, 201);
 }

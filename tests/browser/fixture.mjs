@@ -78,7 +78,8 @@ export function taskViewFor(p0) {
   if (!m) return undefined;
   const id = Number(m[1]);
   let v;
-  if (process.env.TASKP && CLOSURE_CAP && (id === 803 || id === 804)) v = asMe(remapTask(CLOSURE_CAP.views[id === 803 ? "ready" : "closed"], id, id === 803 ? "Send the quotation to Zainab Kitchen" : "Brochure posted to Zainab Kitchen"), CLOSURE_CAP.owner);
+  if (process.env.TASKP && CLOSURE_CAP?.views?.edits && id === 805) v = asMe(remapTask(CLOSURE_CAP.views.edits, 805), CLOSURE_CAP.edits_viewer);
+  else if (process.env.TASKP && CLOSURE_CAP && (id === 803 || id === 804)) v = asMe(remapTask(CLOSURE_CAP.views[id === 803 ? "ready" : "closed"], id, id === 803 ? "Send the quotation to Zainab Kitchen" : "Brochure posted to Zainab Kitchen"), CLOSURE_CAP.owner);
   else if (process.env.TASKP && id === 801) v = TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801);
   else if (process.env.TASKP && id === 802) v = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11) : remapTask(TASKS_CAP.views[TASK_VIEW.proj], 802);
   else {
@@ -96,7 +97,8 @@ export function taskListExtra(all) {
   const a = (TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801)).list ?? [];
   const b = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11).list ?? [] : [];
   const c = CLOSURE_CAP ? [803, 804].flatMap((id) => asMe(remapTask(CLOSURE_CAP.views[id === 803 ? "ready" : "closed"], id, id === 803 ? "Send the quotation to Zainab Kitchen" : "Brochure posted to Zainab Kitchen"), CLOSURE_CAP.owner).list ?? []) : [];
-  return [...a, ...b, ...c].map((r) => ({ ...r, ...(all ? {} : {}) }));
+  const e = CLOSURE_CAP?.views?.edits ? asMe(remapTask(CLOSURE_CAP.views.edits, 805), CLOSURE_CAP.edits_viewer).list ?? [] : [];
+  return [...a, ...b, ...c, ...e].map((r) => ({ ...r, ...(all ? {} : {}) }));
 }
 function projectFor(p, made) {
   if (!PROJ) return undefined;
