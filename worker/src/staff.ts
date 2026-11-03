@@ -14128,12 +14128,12 @@ async function handleStaffRoutes(
         ledger = (await env.DB.prepare(
           `SELECT l.id, l.kind, l.invoice_id, l.user_id, l.amount_cents, l.status, d.doc_number
              FROM commission_ledger l JOIN sales_documents d ON d.id = l.invoice_id
-            WHERE l.payroll_month = ?1 AND l.status IN ('included', 'paid') ORDER BY l.id`,
+            WHERE l.payroll_month = ?1 AND l.status IN ('included', 'paid') AND l.recipient_role = 'closer' ORDER BY l.id`,
         ).bind(mS).all()).results ?? [];
         const ids = (results ?? []).map((r) => Number((r as { invoice_id: number }).invoice_id));
         if (ids.length) {
           earned = ((await env.DB.prepare(
-            `SELECT invoice_id, amount_cents, status, payroll_month FROM commission_ledger WHERE kind = 'earn' AND status != 'void' AND invoice_id IN (${ids.map(() => "?").join(",")})`,
+            `SELECT invoice_id, amount_cents, status, payroll_month FROM commission_ledger WHERE kind = 'earn' AND status != 'void' AND recipient_role = 'closer' AND invoice_id IN (${ids.map(() => "?").join(",")})`, /* v1.255.0 (F12): the closer's row - an agent's amount never sits beside a payslip */
           ).bind(...ids).all()).results ?? []) as typeof earned;
         }
         policy = await env.DB.prepare(

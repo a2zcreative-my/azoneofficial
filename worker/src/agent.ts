@@ -36,7 +36,10 @@
    /agent/requests/:id/send              POST  agent: email from the portal (only when mail is set up)
    /agent/requests/:id/feedback          POST  agent: interest, wants changes, says yes (evidence), declined
    /agent/requests/:id/verify            POST  handler: Won, only with an acceptance on the published revision
-   /agent/agents                         GET   staff: the agents and their counts */
+   /agent/agents                         GET   staff: the agents and their counts
+   /agent/commission                     GET   agent: their own commission (v1.255.0)
+   /agent/assignments                    GET   staff: the standing agent -> salesperson history (v1.255.0)
+   /agent/assignments                    POST  management: assign from a date, with the reason (append-only) */
 import type { Env } from "./index";
 import { primaryOrigin } from "./index";
 import type { StaffUser } from "./staff";
@@ -46,6 +49,7 @@ import { can } from "./permissions";
 import { approvalLimit, overLimit, loadDocForSigning, issueDoc } from "./signing";
 import { FILE_TYPES, streamTaskFile } from "./tasks-progress";
 import { mailReady, sendMailResult } from "./mail";
+import { agentCommission } from "./commission"; // v1.255.0 - the agent's own 7% (calculated in Commission, never here)
 
 export const AGENT_STATUSES = ["draft", "submitted", "under_review", "more_info", "preparing", "quotation_ready", "with_client", "revision_requested", "acceptance_pending", "won", "not_proceeding"] as const;
 type Status = (typeof AGENT_STATUSES)[number];
@@ -171,12 +175,15 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
         if (dup) return json({ ok: true, id: dup.id, existing: true });
       }
       const t0 = now();
+      /* v1.255.0 - the agent's standing salesperson handles the request (a
+         manager may still reassign it; the request keeps whom it was given) */
+      const standing = await currentAssignment(env, user.id);
       const ins = await env.DB.prepare(
-        `INSERT INTO agent_requests (agent_id, client_name, contact_person, client_phone, client_email, company, package_id, package_version, custom, requirement, issuer_code, timeline, budget_text, note, status, client_key, created_at, submitted_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+        `INSERT INTO agent_requests (agent_id, client_name, contact_person, client_phone, client_email, company, package_id, package_version, custom, requirement, issuer_code, timeline, budget_text, note, status, client_key, created_at, submitted_at, assigned_to)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
          ON CONFLICT(agent_id, client_key) WHERE client_key IS NOT NULL DO NOTHING RETURNING id`,
       ).bind(user.id, f.client_name, f.contact_person, f.client_phone, f.client_email, f.company, f.package_id, ok.version, f.custom ? 1 : 0, f.requirement, ok.issuer,
-        f.timeline, f.budget_text, f.note, draft ? "draft" : "submitted", key, t0, draft ? null : t0).first<{ id: number }>();
+        f.timeline, f.budget_text, f.note, draft ? "draft" : "submitted", key, t0, draft ? null : t0, standing?.salesperson_id ?? null).first<{ id: number }>();
       if (!ins) {
         const again = await env.DB.prepare(`SELECT id FROM agent_requests WHERE agent_id = ?1 AND client_key = ?2`).bind(user.id, key).first<{ id: number }>();
         return json({ ok: true, id: again?.id, existing: true });
@@ -204,6 +211,51 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
            FROM users u WHERE u.role = 'agent' ORDER BY u.is_active DESC, name`,
       ).all();
       return json({ agents: (results ?? []).map((a) => ({ ...a, scope: "All active packages - A2Z CREATIVE MARKETING and AZ ONE OFFICIAL" })), can_grant: user.role === "super_admin" || (user.role === "ceo" && user.is_owner === true) });
+    }
+
+    /* ---- v1.255.0 - the agent's own commission (Commission calculates it) ---- */
+    if (path === "/agent/commission" && method === "GET") {
+      if (!isAgent || staff) return err("forbidden", "An agent's commission is read by that agent - management reads it in Commission", 403);
+      return agentCommission(env, user.id);
+    }
+
+    /* ---- v1.255.0 - the standing agent -> salesperson assignment: append-only,
+       from a date; it changes FUTURE requests only (a past request, its
+       attribution and its commission keep whom they had) ---- */
+    if (path === "/agent/assignments" && method === "GET") {
+      if (!staff) return err("forbidden", "Sales and management only", 403);
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT s.id, s.agent_id, s.salesperson_id, s.effective_from, s.reason, s.created_at, ${PERSON("a")} AS agent_name, ${PERSON("p")} AS salesperson_name, ${PERSON("b")} AS set_by_name
+             FROM agent_assignments s LEFT JOIN users a ON a.id = s.agent_id LEFT JOIN users p ON p.id = s.salesperson_id LEFT JOIN users b ON b.id = s.set_by
+            ORDER BY s.agent_id, s.effective_from DESC, s.id DESC`,
+        ).all<{ id: number; agent_id: number; salesperson_id: number; effective_from: string; reason: string; created_at: string; agent_name: string; salesperson_name: string; set_by_name: string }>();
+        const today = mytToday();
+        const current: Record<number, unknown> = {};
+        for (const r of results ?? []) if (r.effective_from <= today && !current[r.agent_id]) current[r.agent_id] = r;
+        const people = manager ? ((await env.DB.prepare(
+          `SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin') ORDER BY name`,
+        ).all()).results ?? []) : [];
+        return json({ history: results ?? [], current, salespeople: people, can_manage: manager, today });
+      } catch (e) {
+        if (missing(e)) return json({ history: [], current: {}, salespeople: [], can_manage: false, pending_migration: true });
+        throw e;
+      }
+    }
+    if (path === "/agent/assignments" && method === "POST") {
+      if (!manager) return err("forbidden", "Management assigns an agent to a salesperson", 403);
+      const agentId = Number(body?.agent_id), spId = Number(body?.salesperson_id);
+      const from = validDay(body?.effective_from) ? String(body!.effective_from) : mytToday();
+      const reason = text(body?.reason, 500);
+      if (from < mytToday()) return err("invalid_input", "An assignment starts today or later - the past keeps whom it had.", 400);
+      if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
+      const ag = await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND role = 'agent'`).bind(agentId).first();
+      if (!ag) return err("invalid_input", "Choose an agent", 400);
+      const sp = await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name FROM users u WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`).bind(spId).first<{ id: number; name: string }>();
+      if (!sp) return err("invalid_input", "Choose an active salesperson", 400);
+      const r = await env.DB.prepare(`INSERT INTO agent_assignments (agent_id, salesperson_id, effective_from, set_by, reason) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`).bind(agentId, spId, from, user.id, reason).first<{ id: number }>();
+      await audit(env, user.id, "agent.assign", "agent_assignments", String(r?.id), { agent_id: agentId, salesperson_id: spId, effective_from: from, reason });
+      return json({ ok: true, id: r?.id, salesperson: sp.name, effective_from: from }, 201);
     }
 
     const m = path.match(/^\/agent\/requests\/(\d+)(?:\/(events|files|prefill|publish|quotation|shared|send|feedback|verify)(?:\/(\d+))?)?$/);
@@ -623,4 +675,13 @@ export async function linkAgentQuotation(env: Env, docId: number | undefined, do
     await event(env, r.id, actorId, { kind: "quotation", visibility: "internal", body: `Quotation created in Sales (#${docId}) - publish it once approved and issued` });
     if (moveTo !== r.status) await event(env, r.id, actorId, { kind: "status", visibility: "agent", body: `Status: ${LABEL[moveTo]}`, status_from: r.status, status_to: moveTo });
   } catch (e) { if (!missing(e)) throw e; }
+}
+
+/** v1.255.0 - the agent's standing salesperson on a day (today by default), or null */
+export async function currentAssignment(env: Env, agentId: number, day = mytToday()): Promise<{ salesperson_id: number; effective_from: string } | null> {
+  try {
+    return await env.DB.prepare(
+      `SELECT salesperson_id, effective_from FROM agent_assignments WHERE agent_id = ?1 AND effective_from <= ?2 ORDER BY effective_from DESC, id DESC LIMIT 1`,
+    ).bind(agentId, day).first<{ salesperson_id: number; effective_from: string }>();
+  } catch { return null; } // pre-0168
 }

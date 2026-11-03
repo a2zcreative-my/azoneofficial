@@ -361,3 +361,13 @@ claims read NULL, no history invented), and claim_comments holds the thread
 on one claim (append-only, employee or internal). The bank date of a payment
 is the effective date of the claim's one cash book row; Finance and payroll
 read claims as before.
+1.255.0 adds `0168_agent_commission`: commission_policies gains agent_rate_bp,
+agent_closer_rate_bp, agent_renewal_rule and agent_mismatch_reason (NULL on
+v1); commission_ledger gains recipient_role (default closer - every existing
+row), attribution_id, agent_request_id and payout_id, with one live earn row
+per confirmation and role; commission_attributions (one per paid
+confirmation, evidence kept, decided once), agent_assignments (append-only),
+agent_payouts (authorised, then settled or cancelled - final) and
+commission_disputes are new. No existing row changes and nothing is
+back-filled. Payroll reads closer rows only; an agent payout books one cash
+row at settlement.

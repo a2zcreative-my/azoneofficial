@@ -462,3 +462,8 @@
   font-weight: 600;
   color: var(--foreground);
 }
+
+/* v1.255.0 - a typed reason keeps its lines */
+.preLine { white-space: pre-line; }
+/* v1.255.0 - a chip beside a tall list line stays its own height */
+.top { align-self: flex-start; }

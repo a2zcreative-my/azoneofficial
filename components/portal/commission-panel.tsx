@@ -41,6 +41,7 @@ import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
 import type { Policy, Summary } from "@/components/portal/commission-card";
 import css from "./commission.module.css";
+import { AgentDeals } from "./agent-deals";
 
 const api = makeApi("/staff/commission");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -54,12 +55,15 @@ interface Entry {
   amount_cents: number; basis_cents: number; status: "eligible" | "review" | "included" | "paid" | "void"; eligible_at: string; payroll_month: string | null;
   paid_out_at: string | null; note: string | null; confirmed_at: string | null; confirmed_by_name: string | null; decision_note: string | null;
   issuer_code?: string | null; next?: string;
+  /* v1.255.0 - agent partnership: whose row it is, the deal, a held sale */
+  recipient_role?: "closer" | "agent"; deal?: "direct" | "partnership" | "review" | null; hold?: number; agent_name?: string | null;
 }
 interface Estimate {
   invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; user_id: number | null; invoice_total: number; payment_status: string | null;
   received_cents: number; stage: "unpaid" | "part_paid" | "awaiting_confirmation"; package: string; created_at: string;
   estimate_cents: number | null; basis_cents: number | null; policy_version: number | null;
   issuer_code?: string | null; next?: string;
+  deal?: "direct" | "partnership" | "review"; closer_rate_bp?: number | null; agent_estimate_cents?: number | null;
 }
 type LineRule = "percent" | "fixed" | "none" | "default" | "not_listed";
 interface LineCalc { name: string; qty: number; basis_cents: number; package: string | null; rule: LineRule; rate_bp: number | null; fixed_cents: number | null; amount_cents: number }
@@ -84,6 +88,10 @@ const NEXT: Record<string, [string, string, string, string]> = {
   recompute_payroll: ["Recompute the month - not on the payslip yet", "Kira semula bulan - belum dalam slip gaji", "Payroll (HR)", "Gaji (HR)"],
   await_bank_run: ["Record the bank run as done", "Rekod pembayaran bank selesai", "Finance", "Kewangan"],
   settle_leaver: ["Settle in the final settlement", "Selesaikan dalam penyelesaian akhir", "CEO", "CEO"],
+  decide_attribution: ["Decide the attribution (agent deal or not)", "Putuskan atribusi (urusan ejen atau tidak)", "CEO", "CEO"],
+  attribution_hold: ["On hold: attribution review once paid", "Ditahan: semakan atribusi selepas dibayar", "CEO", "CEO"],
+  authorise_payout: ["Authorise the agent payout", "Benarkan bayaran ejen", "CEO", "CEO"],
+  confirm_settlement: ["Confirm the bank settlement", "Sahkan penyelesaian bank", "A second approver", "Pelulus kedua"],
   done: ["Nothing - paid", "Tiada - dibayar", "", ""],
   none: ["Nothing - closed", "Tiada - ditutup", "", ""],
 };
@@ -120,17 +128,32 @@ const STAGE: Record<Estimate["stage"], [string, string]> = {
   unpaid: ["Estimate · unpaid", "Anggaran · belum dibayar"], part_paid: ["Estimate · part paid", "Anggaran · dibayar sebahagian"],
   awaiting_confirmation: ["Estimate · waiting for CEO/COO", "Anggaran · menunggu CEO/COO"],
 };
-const statusChip = (e: Entry) => <span className={STATUS[e.status][2]}>{L(STATUS[e.status][0], STATUS[e.status][1])}{e.status === "included" ? ` · ${ym(e.payroll_month)}` : ""}</span>;
+const statusChip = (e: Entry) => e.hold && e.status === "review"
+  ? <span className={chipWarn}>{L("On hold: attribution review", "Ditahan: semakan atribusi")}</span>
+  : <span className={STATUS[e.status][2]}>{L(STATUS[e.status][0], STATUS[e.status][1])}{e.status === "included" ? (e.recipient_role === "agent" ? ` · ${L("payout", "bayaran")}` : ` · ${ym(e.payroll_month)}`) : ""}</span>;
+/* v1.255.0 - each reader is told their OWN rate ("Your commission rate: 3%");
+   management sees whose row it is and the deal */
+const pctOf = (bp: number | null | undefined) => `${((bp ?? 0) / 100).toFixed((bp ?? 0) % 100 ? 2 : 0)}%`;
+const rateCell = (e: Entry, mine: boolean) => e.kind !== "earn" ? "—" : e.hold ? L("On hold", "Ditahan")
+  : mine ? `${L("Your commission rate", "Kadar komisen anda")}: ${e.rate_bp !== null ? pctOf(e.rate_bp) : rateText(e)}${e.deal === "partnership" ? ` · ${L("agent deal", "urusan ejen")}` : ""}`
+  : `${e.rate_bp !== null ? pctOf(e.rate_bp) : rateText(e)} · v${e.policy_version ?? "—"}${e.deal === "partnership" ? ` · ${L("agent deal", "urusan ejen")}` : ""}`;
+const whoCell = (e: Entry) => e.recipient_role === "agent" ? <>{e.closer_name ?? "—"} <span className={chipInfo}>{L("Agent", "Ejen")}</span></> : <>{e.closer_name ?? "—"}{e.deal === "partnership" && e.agent_name ? <span className={css.sub}> · {L("with", "bersama")} {e.agent_name}</span> : null}</>;
+const estRate = (x: Estimate, mine: boolean) => x.deal === "review" ? L("On hold: attribution review", "Ditahan: semakan atribusi")
+  : x.deal === "partnership" ? `${mine ? `${L("Your commission rate", "Kadar komisen anda")}: ` : ""}${pctOf(x.closer_rate_bp)} · ${L("agent deal", "urusan ejen")}${!mine && x.agent_estimate_cents ? ` · ${L("agent", "ejen")} ${fmtRM(x.agent_estimate_cents)}` : ""}`
+  : x.policy_version ? `v${x.policy_version}` : L("No policy", "Tiada polisi");
+export const dealWord = (c: string, decision?: string | null) => decision === "partnership" ? L("Agent partnership (decided)", "Perkongsian ejen (diputuskan)")
+  : decision === "direct" ? L("Direct sale (decided)", "Jualan langsung (diputuskan)") : decision === "none" ? L("No commission (decided)", "Tiada komisen (diputuskan)")
+  : c === "partnership" ? L("Agent partnership", "Perkongsian ejen") : c === "review" ? L("Held: attribution review", "Ditahan: semakan atribusi") : L("Direct sale", "Jualan langsung");
 const payWord = (s: string | null) => s === "paid" ? L("Paid in full", "Dibayar penuh") : s === "overdue" ? L("Overdue", "Tertunggak") : L("Unpaid", "Belum dibayar");
 
-type View = "overview" | "transactions" | "policy" | "payroll" | "audit";
+type View = "overview" | "transactions" | "agents" | "policy" | "payroll" | "audit";
 type Filter = "" | "estimated" | Entry["status"];
 
 /* ------------------------------------------------------------------ */
 /* One entry: every fact, every step, the review                        */
 function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () => void; onSaved: () => void }) {
   const [tick, setTick] = useState(0);
-  const [got, setGot] = useState<{ id: number; d: { entry: Entry & { tax_percent: number; discount_cents: number; delivery_cents: number; policy_name: string | null; policy_basis: string | null }; related: { id: number; kind: string; status: string; amount_cents: number; payroll_month: string | null; note: string | null; created_at: string }[]; confirmations: { id: number; amount_cents: number; payment_ref: string | null; confirmed_at: string; confirmed_by_name: string | null; revoked_at: string | null; revoke_reason: string | null; revoked_by_name: string | null }[]; history: { action: string; detail: string | null; created_at: string; who: string | null }[]; breakdown?: LineCalc[] | null; can_decide: boolean } | null; e: string } | null>(null);
+  const [got, setGot] = useState<{ id: number; d: { entry: Entry & { tax_percent: number; discount_cents: number; delivery_cents: number; policy_name: string | null; policy_basis: string | null }; related: { id: number; kind: string; status: string; amount_cents: number; payroll_month: string | null; note: string | null; created_at: string }[]; confirmations: { id: number; amount_cents: number; payment_ref: string | null; confirmed_at: string; confirmed_by_name: string | null; revoked_at: string | null; revoke_reason: string | null; revoked_by_name: string | null }[]; history: { action: string; detail: string | null; created_at: string; who: string | null }[]; breakdown?: LineCalc[] | null; can_decide: boolean; attribution?: { classification: string; agent_name: string | null; decision: string | null } | null } | null; e: string } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -163,7 +186,8 @@ function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () 
             <dt>{L("Package or service", "Pakej atau servis")}</dt><dd>{e.package || "—"}</dd>
             <dt>{L("Verified closer", "Penutup disahkan")}</dt><dd>{e.closer_name ?? L("None yet", "Belum ada")}</dd>
             <dt>{L("Basis", "Asas")}</dt><dd>{fmtRM(e.basis_cents)}{e.kind === "earn" ? ` · ${basisText(e.policy_basis ?? undefined)}` : ""}</dd>
-            <dt>{L("Rate · policy", "Kadar · polisi")}</dt><dd>{e.kind === "earn" ? `${rateText(e)} · v${e.policy_version ?? "—"} ${e.policy_name ?? ""}` : `v${e.policy_version ?? "—"}`}</dd>
+            <dt>{L("Rate · policy", "Kadar · polisi")}</dt><dd>{e.kind === "earn" ? `${e.rate_bp !== null ? pctOf(e.rate_bp) : rateText(e)} · v${e.policy_version ?? "—"} ${e.policy_name ?? ""}` : `v${e.policy_version ?? "—"}`}</dd>
+            {d.attribution && <><dt>{L("Sale type", "Jenis jualan")}</dt><dd>{dealWord(d.attribution.classification, d.attribution.decision)}{d.attribution.agent_name ? ` · ${L("agent", "ejen")} ${d.attribution.agent_name}` : ""}{e.recipient_role === "agent" ? ` · ${L("this is the agent's row", "ini baris ejen")}` : ""}</dd></>}
             <dt>{L("Commission", "Komisen")}</dt><dd><strong>{fmtRM(e.amount_cents)}</strong> {statusChip(e)}</dd>
             <dt>{L("Eligible from", "Layak dari")}</dt><dd>{dmyMYT(e.eligible_at)}</dd>
             <dt>{L("Payroll", "Gaji")}</dt><dd>{e.payroll_month ? ym(e.payroll_month) : L("Not yet in a payroll month", "Belum dalam bulan gaji")}</dd>
@@ -180,7 +204,8 @@ function EntryDrawer({ id, onClose, onSaved }: { id: number | null; onClose: () 
           )}
           {e.note && <p className={`${css.note} ${e.status === "review" ? css.warnNote : ""}`}>{e.note}</p>}
           {e.decision_note && <p className={css.note}>{L("Decision", "Keputusan")}: {e.decision_note}</p>}
-          {d.can_decide && e.status === "review" && (
+          {e.hold ? <p className={`${css.note} ${css.warnNote}`}>{L("This sale is held for attribution review. Nothing is payable until the CEO decides it under Agent deals: an agent partnership (agent + closer rates), a direct sale, or no commission.", "Jualan ini ditahan untuk semakan atribusi. Tiada apa boleh dibayar sehingga CEO memutuskannya di Urusan Ejen: perkongsian ejen, jualan langsung, atau tiada komisen.")}</p> : null}
+          {d.can_decide && e.status === "review" && !e.hold && (
             <fieldset className={css.form} disabled={busy}>
               <p className={css.groupLabel}>{L("Decide this review", "Putuskan semakan ini")}</p>
               <label>{L("Reason", "Sebab")}<textarea aria-label={L("Decision reason", "Sebab keputusan")} className={inputClass} maxLength={500} value={note} onChange={(ev) => setNote(ev.target.value)} /></label>
@@ -336,9 +361,9 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
                   {rows.map((e) => (
                     <tr key={`l${e.id}`} onClick={() => setOpen(e.id)}>
                       <td><span className={css.strong}>{e.doc_number}</span>{e.kind === "reverse" ? ` · ${L("reversal", "pembalikan")}` : ""}{e.issuer_code ? <span className={css.sub}> · {e.issuer_code}</span> : null}</td>
-                      <td className={css.wrapCell}>{e.company ?? "—"}</td><td className={css.wrapCell}>{e.package || "—"}</td><td>{e.closer_name ?? "—"}</td>
+                      <td className={css.wrapCell}>{e.company ?? "—"}</td><td className={css.wrapCell}>{e.package || "—"}</td><td>{whoCell(e)}</td>
                       <td className={css.num}>{fmtRM(e.invoice_total)}</td><td>{payWord(e.payment_status)}</td>
-                      <td>{e.kind === "earn" ? `${rateText(e)} · v${e.policy_version ?? "—"}` : "—"}</td>
+                      <td className={css.wrapCell}>{rateCell(e, scope === "mine")}</td>
                       <td className={`${css.num} ${css.strong}`}>{fmtRM(e.amount_cents)}</td><td>{dmy(e.eligible_at.slice(0, 10))}</td><td>{statusChip(e)}</td>
                       <td className={css.wrapCell}>{nextText(e.next)}</td>
                     </tr>
@@ -348,7 +373,7 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
                       <td><span className={css.strong}>{x.doc_number}</span>{x.issuer_code ? <span className={css.sub}> · {x.issuer_code}</span> : null}</td>
                       <td className={css.wrapCell}>{x.company ?? "—"}</td><td className={css.wrapCell}>{x.package || "—"}</td><td>{x.closer_name ?? L("No closer", "Tiada penutup")}</td>
                       <td className={css.num}>{fmtRM(x.invoice_total)}</td><td>{x.stage === "part_paid" ? L(`Part paid · ${fmtRM(x.received_cents)}`, `Sebahagian · ${fmtRM(x.received_cents)}`) : payWord(x.payment_status)}</td>
-                      <td>{x.policy_version ? `v${x.policy_version}` : L("No policy", "Tiada polisi")}</td>
+                      <td className={css.wrapCell}>{estRate(x, scope === "mine")}</td>
                       <td className={css.num}>{x.estimate_cents === null ? "—" : fmtRM(x.estimate_cents)}</td><td>—</td>
                       <td><span className={chipNeutral}>{L(STAGE[x.stage][0], STAGE[x.stage][1])}</span></td>
                       <td className={css.wrapCell}>{nextText(x.next)}</td>
@@ -361,8 +386,9 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
               {rows.map((e) => (
                 <li key={`l${e.id}`}><button type="button" onClick={() => setOpen(e.id)}>
                   <span className={css.cardTop}><span className={css.strong}>{e.doc_number}</span><strong>{fmtRM(e.amount_cents)}</strong></span>
-                  <span className={css.facts}><span>{e.company ?? "—"}</span><span>{e.closer_name ?? "—"}</span><span>{fmtRM(e.invoice_total)}</span></span>
+                  <span className={css.facts}><span>{e.company ?? "—"}</span><span>{whoCell(e)}</span><span>{fmtRM(e.invoice_total)}</span></span>
                   <span>{statusChip(e)}</span>
+                  {e.kind === "earn" && <span className={css.sub}>{rateCell(e, scope === "mine")}</span>}
                   <span className={css.sub}>{L("Next", "Seterusnya")}: {nextText(e.next)}</span>
                 </button></li>
               ))}
@@ -371,6 +397,7 @@ function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: num
                   <span className={css.cardTop}><span className={css.strong}>{x.doc_number}</span><strong>{x.estimate_cents === null ? "—" : fmtRM(x.estimate_cents)}</strong></span>
                   <span className={css.facts}><span>{x.company ?? "—"}</span><span>{x.closer_name ?? L("No closer", "Tiada penutup")}</span><span>{fmtRM(x.invoice_total)}</span></span>
                   <span><span className={chipNeutral}>{L(STAGE[x.stage][0], STAGE[x.stage][1])}</span></span>
+                  {x.deal && x.deal !== "direct" && <span className={css.sub}>{estRate(x, scope === "mine")}</span>}
                   <span className={css.sub}>{L("Next", "Seterusnya")}: {nextText(x.next)}</span>
                 </button></li>
               ))}
@@ -502,7 +529,12 @@ function Flow({ revision }: { revision: number }) {
 /* ------------------------------------------------------------------ */
 /* Policy                                                               */
 interface PkgRule { package_name: string; match_key: string; rule: "percent" | "fixed" | "none"; rate_bp: number | null; fixed_cents: number | null }
-type PolicyP = Policy & { packages?: PkgRule[]; product_rule?: string | null };
+type PolicyP = Policy & { packages?: PkgRule[]; product_rule?: string | null; agent_rate_bp?: number | null; agent_closer_rate_bp?: number | null; agent_renewal_rule?: string | null; agent_mismatch_reason?: string | null };
+/* v1.255.0 - "Direct 10% · Agent deals: agent 7% + closer 3% = 10%" */
+const agentTerms = (p: PolicyP) => p.agent_rate_bp == null || p.agent_closer_rate_bp == null ? null
+  : L(`Direct ${p.rate_kind === "percent" ? pctOf(p.rate_bp) : rateText(p)} · Agent deals: agent ${pctOf(p.agent_rate_bp)} + closer ${pctOf(p.agent_closer_rate_bp)} = ${pctOf(p.agent_rate_bp + p.agent_closer_rate_bp)}`,
+    `Langsung ${p.rate_kind === "percent" ? pctOf(p.rate_bp) : rateText(p)} · Urusan ejen: ejen ${pctOf(p.agent_rate_bp)} + penutup ${pctOf(p.agent_closer_rate_bp)} = ${pctOf(p.agent_rate_bp + p.agent_closer_rate_bp)}`);
+const agentMismatch = (p: PolicyP) => p.agent_rate_bp != null && p.agent_closer_rate_bp != null && (p.rate_kind !== "percent" || p.agent_rate_bp + p.agent_closer_rate_bp !== p.rate_bp);
 interface Suggest { from_invoices: { name: string; n: number; last_price_cents: number | null; last_on: string }[]; rate_card: string[]; library?: { id: number; name: string; status: string; current_version: number }[] }
 /* v1.232.0 - a rule naming a library package covers every line of an invoice made from it */
 const libId = (r: { match_key: string }) => r.match_key.startsWith("pkg:") ? Number(r.match_key.slice(4)) || null : null;
@@ -537,7 +569,7 @@ type PkgForm = { name: string; rule: "percent" | "fixed" | "none"; value: string
 function PolicyView({ revision, onChanged }: { revision: number; onChanged: () => void }) {
   const [tick, setTick] = useState(0);
   const { d, e: loadErr } = usePolicy(revision, tick);
-  const [form, setForm] = useState<{ name: string; from: string; kind: "percent" | "fixed"; rate: string; fixed: string; basis: "net_of_tax_delivery" | "invoice_total"; reason: string; packages: PkgForm[] } | null>(null);
+  const [form, setForm] = useState<{ name: string; from: string; kind: "percent" | "fixed"; rate: string; fixed: string; basis: "net_of_tax_delivery" | "invoice_total"; reason: string; packages: PkgForm[]; agentOn: boolean; agentRate: string; closerRate: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<{ id: number; d: PreviewResp | null; e: string } | null>(null);
@@ -555,14 +587,21 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
     if (!form) return;
     setBusy(true); setError("");
     const packages = form.packages.filter((x) => x.pkgId || x.name.trim()).map((x) => ({ name: x.name.trim(), ...(x.pkgId ? { package_id: x.pkgId } : {}), rule: x.rule, ...(x.rule === "percent" ? { rate_pct: Number(x.value) } : x.rule === "fixed" ? { fixed_cents: Math.round(Number(x.value) * 100) } : {}) }));
-    const r = await api<{ version: number }>(`/policy`, { method: "POST", body: JSON.stringify({ name: form.name, effective_from: form.from, rate_kind: form.kind, rate_pct: Number(form.rate), fixed_cents: Math.round(Number(form.fixed) * 100), basis: form.basis, reason: form.reason, packages }) });
+    const r = await api<{ version: number }>(`/policy`, { method: "POST", body: JSON.stringify({ name: form.name, effective_from: form.from, rate_kind: form.kind, rate_pct: Number(form.rate), fixed_cents: Math.round(Number(form.fixed) * 100), basis: form.basis, reason: form.reason, packages, ...(form.agentOn && form.kind === "percent" ? { agent_rate_pct: Number(form.agentRate), agent_closer_rate_pct: Number(form.closerRate), agent_renewal_rule: "review" } : {}) }) });
     setBusy(false);
     if (r.ok) { setForm(null); done(L("Draft saved", "Draf disimpan"), r.data?.version ? L(`Version ${r.data.version} waits for the CEO's approval`, `Versi ${r.data.version} menunggu kelulusan CEO`) : L("It waits for the CEO's approval", "Ia menunggu kelulusan CEO")); } else setError(message(r));
   };
   const approve = async (p: PolicyP) => {
     const pk = p.packages?.length ? `\n${L("Package rules", "Peraturan pakej")}: ${p.packages.map((x) => `${pkgLabel(x)} ${pkgRuleText(x)}`).join(" · ")}` : "";
-    if (!(await confirm({ title: L(`Approve version ${p.version}?`, `Luluskan versi ${p.version}?`), message: `${p.name}\n${rateText(p)} · ${basisText(p.basis)}${pk}\n${L("From", "Mulai")} ${dmy(p.effective_from)}`, confirmLabel: L("Approve policy", "Luluskan polisi") }))) return;
-    const r = await api(`/policy/${p.id}/approve`, { method: "POST", body: JSON.stringify({ confirm: true }) });
+    const at = agentTerms(p);
+    if (!(await confirm({ title: L(`Approve version ${p.version}?`, `Luluskan versi ${p.version}?`), message: `${p.name}\n${at ?? rateText(p)} · ${basisText(p.basis)}${pk}\n${L("From", "Mulai")} ${dmy(p.effective_from)}`, confirmLabel: L("Approve policy", "Luluskan polisi") }))) return;
+    let mismatch_reason: string | undefined;
+    if (agentMismatch(p)) {
+      const got = await ask({ title: L("The agent rates do not add up to the direct rate", "Kadar ejen tidak sama dengan kadar langsung"), label: L(`${at}. Why approve it anyway? (at least 10 characters)`, `${at}. Mengapa luluskan juga? (sekurang-kurangnya 10 aksara)`), required: true, confirmLabel: L("Approve with this reason", "Luluskan dengan sebab ini") });
+      mismatch_reason = got?.value?.trim() ?? "";
+      if (!mismatch_reason) return;
+    }
+    const r = await api(`/policy/${p.id}/approve`, { method: "POST", body: JSON.stringify({ confirm: true, ...(mismatch_reason ? { mismatch_reason } : {}) }) });
     if (r.ok) done(L("Policy approved", "Polisi diluluskan"), L(`Version ${p.version} applies from ${dmy(p.effective_from)}`, `Versi ${p.version} terpakai mulai ${dmy(p.effective_from)}`)); else setError(message(r));
   };
   const reject = async (p: Policy) => {
@@ -620,6 +659,8 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                 <div><dt>{L("Partial payment", "Bayaran sebahagian")}</dt><dd>{L("Estimate only - the whole invoice earns once it is paid in full", "Anggaran sahaja - keseluruhan invois memperoleh apabila dibayar penuh")}</dd></div>
                 <div><dt>{L("Products", "Produk")}</dt><dd>{L("Services earn the default rate; a product earns only if a package rule lists it", "Servis memperoleh kadar asas; produk memperoleh hanya jika peraturan pakej menyenaraikannya")}</dd></div>
                 <div><dt>{L("Leavers", "Bekas staf")}</dt><dd>{L("Their final payroll, or recorded by the CEO as paid in the final settlement", "Gaji terakhir mereka, atau direkod CEO sebagai dibayar dalam penyelesaian akhir")}</dd></div>
+                <div><dt>{L("Agent deals", "Urusan ejen")}</dt><dd>{agentTerms(p) ?? L("Not in this version - an agent-linked sale is held for review, never paid as a direct sale", "Tiada dalam versi ini - jualan berkaitan ejen ditahan untuk semakan, tidak dibayar sebagai jualan langsung")}</dd></div>
+                {agentTerms(p) && <div><dt>{L("Agent customers' renewals", "Pembaharuan pelanggan ejen")}</dt><dd>{L("Every later invoice for an agent's customer goes to the CEO's review (R3)", "Setiap invois kemudian untuk pelanggan ejen pergi ke semakan CEO (R3)")}</dd></div>}
                 <div><dt>{L("Recurring services", "Servis berulang")}</dt><dd>{L("Every paid monthly invoice earns for its closer (approved 29-10-2026)", "Setiap invois bulanan dibayar memperoleh untuk penutupnya (diluluskan 29-10-2026)")}</dd></div>
                 <div><dt>{L("Refunds and cancellations", "Bayaran balik dan pembatalan")}</dt><dd>{L("A reversal for the CEO's review; never deducted from paid wages", "Pembalikan untuk semakan CEO; tidak dipotong daripada gaji yang dibayar")}</dd></div>
                 <div><dt>{L("Payroll cutoff", "Potongan gaji")}</dt><dd>{L("Confirmed by a month's last day -> that month, if not yet released; otherwise carried to the next open month", "Disahkan sebelum hari terakhir bulan -> bulan itu, jika belum dikeluarkan; jika tidak, dibawa ke bulan terbuka seterusnya")}</dd></div>
@@ -666,7 +707,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
         <div className={card}>
           {!d ? <SkelRows rows={3} /> : (
             <div className={css.body}>
-              {d.can_draft && !form && <div className={css.formRow}><button type="button" className={btnSmPrimary} onClick={() => setForm({ name: p ? `${p.name}` : L("A2Z Sales Commission", "Komisen Jualan A2Z"), from: floor, kind: p?.rate_kind ?? "percent", rate: p?.rate_bp ? String(p.rate_bp / 100) : "", fixed: p?.fixed_cents ? String(p.fixed_cents / 100) : "", basis: p?.basis ?? "net_of_tax_delivery", reason: "", packages: (p?.packages ?? []).map((x) => ({ name: x.package_name, pkgId: libId(x), rule: x.rule, value: x.rule === "percent" ? String((x.rate_bp ?? 0) / 100) : x.rule === "fixed" ? String((x.fixed_cents ?? 0) / 100) : "" })) })}><AppIcon name="add" />{L("Draft a new version", "Draf versi baharu")}</button></div>}
+              {d.can_draft && !form && <div className={css.formRow}><button type="button" className={btnSmPrimary} onClick={() => setForm({ name: p ? `${p.name}` : L("A2Z Sales Commission", "Komisen Jualan A2Z"), from: floor, kind: p?.rate_kind ?? "percent", rate: p?.rate_bp ? String(p.rate_bp / 100) : "", fixed: p?.fixed_cents ? String(p.fixed_cents / 100) : "", basis: p?.basis ?? "net_of_tax_delivery", reason: "", packages: (p?.packages ?? []).map((x) => ({ name: x.package_name, pkgId: libId(x), rule: x.rule, value: x.rule === "percent" ? String((x.rate_bp ?? 0) / 100) : x.rule === "fixed" ? String((x.fixed_cents ?? 0) / 100) : "" })), agentOn: p?.agent_rate_bp != null, agentRate: p?.agent_rate_bp != null ? String(p.agent_rate_bp / 100) : "7", closerRate: p?.agent_closer_rate_bp != null ? String(p.agent_closer_rate_bp / 100) : "3" })}><AppIcon name="add" />{L("Draft a new version", "Draf versi baharu")}</button></div>}
               {form && (
                 <fieldset className={css.form} disabled={busy}>
                   <p className={css.groupLabel}>{L("New version (draft)", "Versi baharu (draf)")}</p>
@@ -701,10 +742,23 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                     ))}
                     {form.packages.length < 50 && <div className={css.formRow}><button type="button" className={btnSm} onClick={() => setForm({ ...form, packages: [...form.packages, { name: "", rule: "percent", value: "", pkgId: null }] })}><AppIcon name="add" />{L("Add a package rule", "Tambah peraturan pakej")}</button></div>}
                   </div>
+                  {form.kind === "percent" && (
+                    <div className={css.pkgBox} data-testid="agent-rates">
+                      <label className={css.formRow}><input type="checkbox" checked={form.agentOn} onChange={(e) => setForm({ ...form, agentOn: e.target.checked })} /> {L("Agent partnership deals", "Urusan perkongsian ejen")}</label>
+                      <p className={css.sub}>{L("Rates on the eligible net sales value of a verified agent sale - not shares of the closer's commission. Without them, an agent-linked sale is held for review.", "Kadar atas nilai jualan bersih yang layak bagi jualan ejen yang disahkan - bukan bahagian komisen penutup. Tanpanya, jualan berkaitan ejen ditahan untuk semakan.")}</p>
+                      {form.agentOn && <div className={css.row}>
+                        <label>{L("Agent rate (%)", "Kadar ejen (%)")}<input type="number" aria-label={L("Agent rate percent", "Kadar ejen peratus")} min="0.01" max="50" step="0.01" className={inputClass} value={form.agentRate} onChange={(e) => setForm({ ...form, agentRate: e.target.value })} /></label>
+                        <label>{L("Verified closer rate (%)", "Kadar penutup disahkan (%)")}<input type="number" aria-label={L("Closer rate percent", "Kadar penutup peratus")} min="0.01" max="50" step="0.01" className={inputClass} value={form.closerRate} onChange={(e) => setForm({ ...form, closerRate: e.target.value })} /></label>
+                      </div>}
+                      {form.agentOn && <p className={Math.round((Number(form.agentRate) + Number(form.closerRate)) * 100) === Math.round(Number(form.rate) * 100) ? css.sub : `${css.note} ${css.warnNote}`}>
+                        {L(`Direct ${form.rate || "—"}% · Agent deals: agent ${form.agentRate || "—"}% + closer ${form.closerRate || "—"}% = ${(Number(form.agentRate) + Number(form.closerRate)).toFixed(2).replace(/\.00$/, "")}%`, `Langsung ${form.rate || "—"}% · Urusan ejen: ejen ${form.agentRate || "—"}% + penutup ${form.closerRate || "—"}% = ${(Number(form.agentRate) + Number(form.closerRate)).toFixed(2).replace(/\.00$/, "")}%`)}
+                        {" · "}{L("Renewals and repeat orders of an agent's customer: the CEO reviews each (R3)", "Pembaharuan dan pesanan ulangan pelanggan ejen: CEO menyemak setiap satu (R3)")}</p>}
+                    </div>
+                  )}
                   <label>{L("Reason for this version", "Sebab versi ini")}<textarea aria-label={L("Policy reason", "Sebab polisi")} className={inputClass} maxLength={500} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
                   <p className={css.sub}>{L("Every version carries the approved fixed rules: the whole invoice paid and confirmed, every paid renewal, refunds to review, the payroll cutoff, leavers (final payroll or settlement) and products (listed only). Changing one needs the owner's approval first.", "Setiap versi membawa peraturan tetap yang diluluskan: keseluruhan invois dibayar dan disahkan, setiap pembaharuan dibayar, bayaran balik untuk semakan, potongan gaji, bekas staf (gaji terakhir atau penyelesaian) dan produk (disenaraikan sahaja). Mengubahnya memerlukan kelulusan pemilik dahulu.")}</p>
                   <div className={css.formRow}>
-                    <button type="button" className={btnClass} disabled={form.name.trim().length < 3 || form.reason.trim().length < 10 || (form.kind === "percent" ? !(Number(form.rate) > 0) : !(Number(form.fixed) > 0)) || !form.packages.every(pkgValid)} onClick={() => void saveDraft()}><AppIcon name="save" />{L("Save draft", "Simpan draf")}</button>
+                    <button type="button" className={btnClass} disabled={form.name.trim().length < 3 || form.reason.trim().length < 10 || (form.kind === "percent" ? !(Number(form.rate) > 0) : !(Number(form.fixed) > 0)) || !form.packages.every(pkgValid) || (form.agentOn && form.kind === "percent" && !(Number(form.agentRate) > 0 && Number(form.closerRate) > 0))} onClick={() => void saveDraft()}><AppIcon name="save" />{L("Save draft", "Simpan draf")}</button>
                     <button type="button" className={btnSm} onClick={() => setForm(null)}>{L("Cancel", "Batal")}</button>
                   </div>
                 </fieldset>
@@ -717,6 +771,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                       <span className={css.listMain}>
                         <strong>v{v.version} · {v.name} · {rateText(v)} · {L("from", "mulai")} {dmy(v.effective_from)}</strong>
                         <span>{basisText(v.basis)}</span>
+                        {agentTerms(v) && <span>{agentTerms(v)}{v.agent_mismatch_reason ? ` · ${L("approved with the reason", "diluluskan dengan sebab")}: ${v.agent_mismatch_reason}` : ""}</span>}
                         {!!v.packages?.length && <span>{L("Packages", "Pakej")}: {v.packages.map((x) => `${pkgLabel(x)} ${pkgRuleText(x)}`).join(" · ")}</span>}
                         <span>{L("Drafted by", "Draf oleh")} {v.created_by_name ?? "—"} · {dmyMYT(v.created_at)} · {v.reason}</span>
                         {v.status === "active" && <span>{L("Approved by", "Diluluskan oleh")} {v.approved_by_name ?? "—"} · {v.approved_at ? dmyMYT(v.approved_at) : ""}</span>}
@@ -880,7 +935,7 @@ function AuditView({ revision }: { revision: number }) {
 export function CommissionPanel({ user }: { user: { id: number; role: string } }) {
   const all = VIEW_ALL.includes(user.role);
   const [view, setView] = useState<View>(all ? "overview" : "transactions");
-  const [seen, setSeen] = useState<Record<View, boolean>>({ overview: all, transactions: !all, policy: false, payroll: false, audit: false });
+  const [seen, setSeen] = useState<Record<View, boolean>>({ overview: all, transactions: !all, agents: false, policy: false, payroll: false, audit: false });
   const [scope, setScope] = useState<WsScope>(all ? "all" : "mine");
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((r) => r + 1), []);
@@ -894,7 +949,7 @@ export function CommissionPanel({ user }: { user: { id: number; role: string } }
   }, [sKey]);
   const s = sum?.k === sKey ? sum.d : null;
   const tabs = all
-    ? ([["overview", L("Overview", "Gambaran")], ["transactions", L("Transactions", "Transaksi")], ["policy", L("Policy Settings", "Tetapan Polisi")], ["payroll", L("Payroll Sync", "Penyegerakan Gaji")], ["audit", L("Audit History", "Sejarah Audit")]] as const)
+    ? ([["overview", L("Overview", "Gambaran")], ["transactions", L("Transactions", "Transaksi")], ["agents", L("Agent deals", "Urusan Ejen")], ["policy", L("Policy Settings", "Tetapan Polisi")], ["payroll", L("Payroll Sync", "Penyegerakan Gaji")], ["audit", L("Audit History", "Sejarah Audit")]] as const)
     : ([["transactions", L("My commission", "Komisen saya")]] as const);
   const figures = (
     <TabZone label={all && scope === "all" ? L("The team at a glance", "Pasukan sepintas lalu") : L("Mine at a glance", "Milik saya sepintas lalu")}>
@@ -914,6 +969,7 @@ export function CommissionPanel({ user }: { user: { id: number; role: string } }
       {s && !s.policy && view !== "audit" && <p className={`${css.note} ${css.warnNote}`}>{L("No commission policy is approved yet - nothing is estimated or earned until the CEO approves one (Policy Settings).", "Tiada polisi komisen diluluskan lagi - tiada apa dianggar atau diperoleh sehingga CEO meluluskannya (Tetapan Polisi).")}</p>}
       {all && <div className={css.body} hidden={view !== "overview"}>{seen.overview && <>{figures}<Flow revision={revision} /></>}</div>}
       <div className={css.body} hidden={view !== "transactions"}>{seen.transactions && <>{figures}<Entries scope={all ? scope : "mine"} revision={revision} onChanged={reload} /></>}</div>
+      {all && <div className={css.body} hidden={view !== "agents"}>{seen.agents && <AgentDeals revision={revision} onChanged={reload} />}</div>}
       {all && <div className={css.body} hidden={view !== "policy"}>{seen.policy && <PolicyView revision={revision} onChanged={reload} />}</div>}
       {all && <div className={css.body} hidden={view !== "payroll"}>{seen.payroll && <PayrollView revision={revision} onChanged={reload} summary={s} />}</div>}
       {all && <div className={css.body} hidden={view !== "audit"}>{seen.audit && <AuditView revision={revision} />}</div>}

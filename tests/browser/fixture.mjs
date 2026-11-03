@@ -1121,6 +1121,21 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       breakdown: e.id === 2 ? [{ name: "AZ Monthly Care", qty: 1, basis_cents: 39900, package: "AZ Monthly Care", rule: "fixed", rate_bp: null, fixed_cents: 3000, amount_cents: 3000 }, { name: "Content shoot", qty: 1, basis_cents: 9900, package: null, rule: "default", rate_bp: 1000, fixed_cents: null, amount_cents: 990 }] : null,
       can_decide: ["ceo", "super_admin"].includes(ROLE) };
   }
+  /* v1.255.0 - agent deals (the review queue, payouts, disputes) */
+  if (p === "/commission/attributions") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    attributions: [
+      { id: 41, invoice_id: 45, doc_number: "INV-A2Z031126-9", invoice_total: 100000, company: "Kedai Ros Rujukan Panjang Nama Syarikat Sdn Bhd", classification: "review", reasons: ["not_won", "no_acceptance"], agent_id: 9005, agent_name: "Zul Agent", agent_request_id: 12, quotation_number: "QT-A2Z011126-4", published_revision: 0, invoiced_revision: 0, accepted_name: null, accepted_at: null, assigned_name: "Fixture Person", closer_name: "Fixture Person", paid_day: "2026-11-02", policy_version: 1, eligible_cents: null, agent_cents: null, closer_cents: null, created_at: "2026-11-03 01:00:00", revoked_at: null, decision: null, decided_at: null, decided_by_name: null, decision_note: null, closed_at: null, closed_reason: null },
+      { id: 40, invoice_id: 44, doc_number: "INV-A2Z021126-8", invoice_total: 100000, company: "Kasih Rabiah Enterprise", classification: "partnership", reasons: [], agent_id: 9005, agent_name: "Zul Agent", agent_request_id: 11, quotation_number: "QT-A2Z011126-3", published_revision: 1, invoiced_revision: 1, accepted_name: "Puan Rabiah", accepted_at: "2026-11-01 03:00:00", assigned_name: "Fixture Person", closer_name: "Fixture Person", paid_day: "2026-11-03", policy_version: 2, eligible_cents: 100000, agent_cents: 7000, closer_cents: 3000, created_at: "2026-11-03 02:00:00", revoked_at: null, decision: null, decided_at: null, decided_by_name: null, decision_note: null, closed_at: null, closed_reason: null },
+    ],
+    versions: [{ id: 2, version: 2, name: "Agent partnership 2026", effective_from: "2026-11-03", rate_bp: 1000, agent_rate_bp: 700, agent_closer_rate_bp: 300 }, { id: 1, version: 1, name: "Sales commission 2026", effective_from: "2026-11-01", rate_bp: 1000, agent_rate_bp: null, agent_closer_rate_bp: null }],
+    disputes: [{ id: 3, scope: "customer", ref_id: 9, ref_label: "Syarikat Dipertikai", reason: "Two agents claim this client", created_at: "2026-11-02 02:00:00", created_by_name: "Fixture COO", cleared_at: null, cleared_by_name: null, clear_reason: null }],
+    agents: [{ id: 9005, name: "Zul Agent", is_active: 1 }], can_decide: ["ceo", "super_admin"].includes(ROLE), can_flag: ["ceo", "coo", "super_admin"].includes(ROLE), today: "2026-11-03" };
+  if (p === "/commission/payouts") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    due: [{ agent_id: 9005, agent_name: "Zul Agent", is_active: 1, n: 2, cents: 14000 }], rows: [],
+    payouts: [
+      { id: 7, agent_id: 9005, agent_name: "Zul Agent", status: "authorized", amount_cents: 7000, row_count: 1, note: null, authorized_by: 9001, authorized_by_name: "Fixture Person", authorized_at: "2026-11-03 02:00:00", settled_by_name: null, settled_on: null, bank_ref: null, proof_note: null, cancelled_by_name: null, cancel_reason: null },
+      { id: 6, agent_id: 9005, agent_name: "Zul Agent", status: "settled", amount_cents: 7000, row_count: 1, note: null, authorized_by: 9001, authorized_by_name: "Fixture Person", authorized_at: "2026-11-02 02:00:00", settled_by_name: "System Root", settled_on: "2026-11-02", bank_ref: "MBB-77821", proof_note: null, cancelled_by_name: null, cancel_reason: null },
+    ], can_authorise: ["ceo", "super_admin"].includes(ROLE), can_settle: ["ceo", "super_admin"].includes(ROLE), me: ROLE === "super_admin" ? 9010 : 9001, today: "2026-11-03" };
   if (p === "/commission/flow") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     start: "2026-11-01", sync: Boolean(process.env.COMM_SYNC), policy: cmPolicy,
     /* v1.232.0 - two rows, never added together */
@@ -1526,6 +1541,18 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p0 === "/staff/agent/agents") data = isAg ? { error: { code: "forbidden", message: "Sales and management only" } } : { can_grant: (OWNER && ROLE === "ceo") || ROLE === "super_admin", agents: AGENT_EMPTY ? [] : [
     { id: 9005, name: "Zul Agent", email: "zul.agent@gmail.com", is_active: 1, email_verified: 1, requests: 2, open_requests: 2, won: 0, last_activity: "2026-11-01 02:00:00", scope: "All active packages - A2Z CREATIVE MARKETING and AZ ONE OFFICIAL" },
     { id: 9006, name: "Ros Agent", email: "ros.agent@gmail.com", is_active: 0, email_verified: 1, requests: 1, open_requests: 1, won: 0, last_activity: "2026-11-01 01:00:00", scope: "All active packages - A2Z CREATIVE MARKETING and AZ ONE OFFICIAL" }] };
+  if (p0 === "/staff/agent/commission") data = !isAg ? { error: { code: "forbidden", message: "An agent's commission is read by that agent" } } : AGENT_EMPTY ? { rate_bp: 700, rows: [], totals: { estimated: 0, eligible: 0, pending_payout: 0, paid: 0, under_review: 0 } } : {
+    rate_bp: 700, totals: { estimated: 7000, eligible: 7000, pending_payout: 7000, paid: 7000, under_review: 1 },
+    rows: [
+      { id: "est-46", kind: "estimate", stage: "estimated", request_ref: "AGR-0013", client: "Kedai Baharu Dengan Nama Yang Sangat Panjang Sdn Bhd", quotation_number: null, invoice_number: "INV-A2Z031126-10", rate_bp: 700, amount_cents: 7000, at: "2026-11-03 01:00:00", payout: null },
+      { id: "held-41", kind: "earn", stage: "under_review", request_ref: "AGR-0012", client: "Kedai Ros", quotation_number: "QT-A2Z011126-4", invoice_number: "INV-A2Z031126-9", rate_bp: null, amount_cents: null, at: "2026-11-03 01:00:00", payout: null },
+      { id: 52, kind: "earn", stage: "eligible", request_ref: "AGR-0011", client: "Kasih Rabiah Enterprise", quotation_number: "QT-A2Z011126-3", invoice_number: "INV-A2Z021126-8", rate_bp: 700, amount_cents: 7000, at: "2026-11-03 02:00:00", payout: null },
+      { id: 51, kind: "earn", stage: "paid", request_ref: "AGR-0010", client: "Kedai Satu", quotation_number: "QT-A2Z011126-1", invoice_number: "INV-A2Z011126-1", rate_bp: 700, amount_cents: 7000, at: "2026-11-02 02:00:00", payout: { ref: "AGT-6", status: "settled", settled_on: "2026-11-02", bank_ref: "MBB-77821" } },
+    ] };
+  if (p0 === "/staff/agent/assignments") data = isAg ? { error: { code: "forbidden", message: "Sales and management only" } } : {
+    history: [{ id: 1, agent_id: 9005, salesperson_id: 9001, salesperson_name: "Fixture Person", effective_from: "2026-11-01", reason: "North region", created_at: "2026-11-01 01:00:00", agent_name: "Zul Agent", set_by_name: "Fixture Person" }],
+    current: { 9005: { id: 1, agent_id: 9005, salesperson_id: 9001, salesperson_name: "Fixture Person", effective_from: "2026-11-01", reason: "North region", created_at: "2026-11-01 01:00:00", agent_name: "Zul Agent", set_by_name: "Fixture Person" } },
+    salespeople: [{ id: 9001, name: "Fixture Person" }, { id: 9002, name: "Nur Aisyah" }], can_manage: ["ceo", "coo", "cco", "super_admin"].includes(ROLE), today: "2026-11-03" };
   const agOne = /^\/staff\/agent\/requests\/(\d+)$/.exec(p0);
   if (agOne) {
     const r = AGREQ.find((x) => x.id === Number(agOne[1]));

@@ -78,8 +78,8 @@ const Chip = ({ s }: { s: Status }) => <span className={`${css.chip} ${TONE[s]}`
 const STEPS: [string, string][] = [["Submitted", "Dihantar"], ["Quotation ready", "Sebut harga sedia"], ["With client", "Dengan pelanggan"], ["Closed", "Ditutup"]];
 const stepOf = (s: Status) => (s === "won" || s === "not_proceeding" ? 3 : ["with_client", "revision_requested", "acceptance_pending"].includes(s) ? 2 : s === "quotation_ready" ? 1 : 0);
 
-type View = "overview" | "packages" | "requests" | "quotations" | "agents";
-const AGENT_VIEWS: View[] = ["overview", "packages", "requests", "quotations"];
+type View = "overview" | "packages" | "requests" | "quotations" | "agents" | "commission";
+const AGENT_VIEWS: View[] = ["overview", "packages", "requests", "quotations", "commission"];
 const STAFF_VIEWS: View[] = ["overview", "requests", "agents", "packages"];
 
 export function AgentsPanel({ role, owner = false, initialView }: { role: string; owner?: boolean; initialView?: string }) {
@@ -126,7 +126,7 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
 
   if (failed) return <p className={css.warn} role="alert">{failed}</p>;
   const tabs: readonly (readonly [View, string])[] = isAgent
-    ? [["overview", L("Overview", "Ringkasan")], ["packages", L("Packages", "Pakej")], ["requests", L("My Requests", "Permintaan Saya")], ["quotations", L("My Quotations", "Sebut Harga Saya")]]
+    ? [["overview", L("Overview", "Ringkasan")], ["packages", L("Packages", "Pakej")], ["requests", L("My Requests", "Permintaan Saya")], ["quotations", L("My Quotations", "Sebut Harga Saya")], ["commission", L("My Commission", "Komisen Saya")]]
     : [["overview", L("Overview", "Ringkasan")], ["requests", L("Requests", "Permintaan")], ["agents", L("Agents", "Ejen")], ["packages", L("Packages", "Pakej")]];
   const submitBig = isAgent && list?.can_submit ? (
     <button type="button" className={css.bigBtn} data-testid="submit-client-request" onClick={() => setSubmit({ pkg: null })}><AppIcon name="add" />{L("Submit Client Request", "Hantar Permintaan Pelanggan")}</button>
@@ -161,7 +161,7 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
         {!isAgent && canGrant && <button type="button" className={btnSm} data-testid="manage-agent-access" onClick={manageAccess}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button>}
       </header>
       <LineTabs value={view} onChange={(v) => go(v)} tabs={tabs} label={L("Agents", "Ejen")} />
-      {isAgent && view !== "packages" && list && rows.length > 0 && submitBig}
+      {isAgent && view !== "packages" && view !== "commission" && list && rows.length > 0 && submitBig}
 
       {view === "overview" && (!list ? <SkelCard lines={3} /> : (
         <>
@@ -238,6 +238,7 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
       ))}
 
       {view === "agents" && !isAgent && <AgentsList canGrant={canGrant} onManage={manageAccess} />}
+      {view === "commission" && isAgent && <MyCommission />}
 
       {submit && pkgs && <SubmitSheet pkgs={pkgs} initial={submit.pkg} onClose={() => setSubmit(null)} onDone={(draft) => { setSubmit(null); go("requests"); reload(); show(draft ? L("Draft saved", "Draf disimpan") : L("Sent to the sales team", "Dihantar kepada pasukan jualan")); }} />}
       {open !== null && <RequestDrawer id={open} isAgent={isAgent} canManage={!!list?.can_manage} onClose={() => setOpen(null)} onChanged={(msg) => { reload(); if (msg) show(msg); }} />}
@@ -297,6 +298,10 @@ interface AgentRow { id: number; name: string; email: string; is_active: number;
 function AgentsList({ canGrant, onManage }: { canGrant: boolean; onManage: () => void }) {
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [failed, setFailed] = useState("");
+  const [asg, setAsg] = useState<AssignRes | null>(null);
+  const [aTick, setATick] = useState(0);
+  const [editing, setEditing] = useState<number | null>(null);
+  const { show, node: toastNode } = useSaveToast();
   useEffect(() => {
     const c = new AbortController();
     void api<{ agents?: AgentRow[]; error?: { message?: string } }>("/staff/agent/agents", { signal: c.signal }).then((r) => {
@@ -305,11 +310,18 @@ function AgentsList({ canGrant, onManage }: { canGrant: boolean; onManage: () =>
     });
     return () => c.abort();
   }, []);
+  /* v1.255.0 - the standing salesperson of each agent (append-only history) */
+  useEffect(() => {
+    const c = new AbortController();
+    void api<AssignRes>("/staff/agent/assignments", { signal: c.signal }).then((r) => { if (!c.signal.aborted && r.ok && r.data) setAsg(r.data); });
+    return () => c.abort();
+  }, [aTick]);
   if (failed) return <p className={css.warn} role="alert">{failed}</p>;
   if (!agents) return <SkelRows rows={3} />;
   const manageBtn = canGrant ? <button type="button" className={btnSmPrimary} onClick={onManage}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button> : null;
   return (
     <section className={css.panel} aria-label={L("Agents", "Ejen")}>
+      {toastNode}
       {agents.length === 0 ? (
         <div className={css.empty} data-testid="agents-empty">
           <p>{L("No active agents yet.", "Belum ada ejen aktif.")}</p>
@@ -331,6 +343,9 @@ function AgentsList({ canGrant, onManage }: { canGrant: boolean; onManage: () =>
               <span className={`${css.chip} ${a.is_active ? css.ok : css.off}`}>{a.is_active ? L("Active", "Aktif") : L("Suspended", "Digantung")}</span>
               <span className={css.stat}><strong>{a.requests}</strong> {L("requests", "permintaan")} · {a.open_requests} {L("open", "terbuka")} · {a.won} {L("won", "berjaya")}</span>
               <span className={css.muted}>{L("Latest activity", "Aktiviti terkini")}: {a.last_activity ? when(a.last_activity) : L("none yet", "belum ada")}</span>
+              <span className={css.muted} data-testid={`agent-assigned-${a.id}`}>{L("Assigned salesperson", "Jurujual ditugaskan")}: {asg?.current?.[a.id] ? `${asg.current[a.id]!.salesperson_name} · ${L("from", "mulai")} ${day(asg.current[a.id]!.effective_from)}` : L("none - Sales assigns each request", "tiada - Jualan menugaskan setiap permintaan")}
+                {asg?.can_manage && editing !== a.id && <> <button type="button" className={btnSmQuiet} onClick={() => setEditing(a.id)}>{asg.current?.[a.id] ? L("Change", "Tukar") : L("Assign", "Tugaskan")}</button></>}</span>
+              {asg?.can_manage && editing === a.id && <AssignForm agentId={a.id} people={asg.salespeople} today={asg.today ?? ""} onClose={() => setEditing(null)} onDone={(name) => { setEditing(null); setATick((t) => t + 1); show(L(`Assigned to ${name}`, `Ditugaskan kepada ${name}`), L("New requests go to them; past requests keep whom they had", "Permintaan baharu pergi kepada mereka; permintaan lama kekal")); }} />}
             </li>
           ))}
         </ul>
@@ -765,5 +780,83 @@ function Timeline({ items, isAgent }: { items: Ev[]; isAgent: boolean; files: Fi
         </li>
       ))}
     </ul>
+  );
+}
+
+/* ------------------------------------------------------- v1.255.0 */
+interface AssignRow { id: number; agent_id: number; salesperson_id: number; salesperson_name: string; effective_from: string; reason: string; set_by_name: string }
+interface AssignRes { history: AssignRow[]; current: Record<number, AssignRow | undefined>; salespeople: { id: number; name: string }[]; can_manage: boolean; today?: string }
+function AssignForm({ agentId, people, today, onClose, onDone }: { agentId: number; people: { id: number; name: string }[]; today: string; onClose: () => void; onDone: (name: string) => void }) {
+  const [sp, setSp] = useState(0);
+  const [from, setFrom] = useState(today);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const save = async () => {
+    setBusy(true); setErr("");
+    const r = await api<{ salesperson?: string; error?: { message?: string } }>("/staff/agent/assignments", { method: "POST", body: JSON.stringify({ agent_id: agentId, salesperson_id: sp, effective_from: from || undefined, reason }) });
+    setBusy(false);
+    if (r.ok) onDone(r.data?.salesperson ?? ""); else setErr(r.data?.error?.message ?? L("Could not save - try again.", "Tidak dapat disimpan - cuba lagi."));
+  };
+  return (
+    <fieldset className={css.assign} disabled={busy}>
+      <select aria-label={L("Salesperson", "Jurujual")} className={selectClassSm} value={sp} onChange={(e) => setSp(Number(e.target.value))}>
+        <option value={0}>{L("Choose the salesperson…", "Pilih jurujual…")}</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <input type="date" aria-label={L("From", "Mulai")} className={inputClassSm} min={today} value={from} onChange={(e) => setFrom(e.target.value)} />
+      <input aria-label={L("Reason", "Sebab")} className={inputClassSm} placeholder={L("Reason (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)")} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <span className={css.row}>
+        <button type="button" className={btnSmPrimary} disabled={!sp || reason.trim().length < 10} onClick={() => void save()}>{L("Save", "Simpan")}</button>
+        <button type="button" className={btnSm} onClick={onClose}>{L("Cancel", "Batal")}</button>
+      </span>
+      {err && <p className={css.warn} role="alert">{err}</p>}
+    </fieldset>
+  );
+}
+
+/* The agent's own commission: their rate, their sales, their payouts - never anyone else's. */
+interface MyRow { id: number | string; kind: string; stage: "estimated" | "eligible" | "pending_payout" | "paid" | "under_review"; request_ref: string | null; client: string | null; quotation_number: string | null; invoice_number: string; rate_bp: number | null; amount_cents: number | null; at: string; payout: { ref: string; status: string; settled_on: string | null; bank_ref: string | null } | null }
+interface MyRes { rate_bp: number | null; rows: MyRow[]; totals: { estimated: number; eligible: number; pending_payout: number; paid: number; under_review: number }; error?: { message?: string } }
+const STAGE_WORD: Record<MyRow["stage"], [string, string, string | undefined]> = {
+  estimated: ["Estimated - not paid yet", "Anggaran - belum dibayar", css.off], eligible: ["Eligible - waiting for payout", "Layak - menunggu bayaran", css.info],
+  pending_payout: ["Payout authorised", "Bayaran dibenarkan", css.gold], paid: ["Paid", "Dibayar", css.ok], under_review: ["Under review", "Dalam semakan", css.wait],
+};
+const pctAg = (bp: number | null) => (bp === null ? "—" : `${(bp / 100).toFixed(bp % 100 ? 2 : 0)}%`);
+function MyCommission() {
+  const [d, setD] = useState<MyRes | null>(null);
+  const [failed, setFailed] = useState("");
+  useEffect(() => {
+    const c = new AbortController();
+    void api<MyRes>("/staff/agent/commission", { signal: c.signal }).then((r) => {
+      if (c.signal.aborted) return;
+      if (r.ok && r.data) setD(r.data); else setFailed(r.data?.error?.message ?? L("Your commission could not be loaded - try again.", "Komisen anda tidak dapat dimuatkan - cuba lagi."));
+    });
+    return () => c.abort();
+  }, []);
+  if (failed) return <p className={css.warn} role="alert">{failed}</p>;
+  if (!d) return <SkelCard lines={3} />;
+  return (
+    <section className={css.panel} aria-label={L("My commission", "Komisen saya")} data-testid="agent-commission">
+      <p className={css.strong} data-testid="agent-rate">{L("Your commission rate", "Kadar komisen anda")}: {pctAg(d.rate_bp)}</p>
+      <p className={css.muted}>{L("Earned on the sales value of a client you brought in, once the client has paid in full and A2Z has confirmed it. Paid to you by bank transfer, recorded with the reference.", "Diperoleh atas nilai jualan pelanggan yang anda bawa, setelah pelanggan membayar penuh dan A2Z mengesahkannya. Dibayar melalui pindahan bank, direkod dengan rujukan.")}</p>
+      <KpiRow label={L("My commission", "Komisen saya")}>
+        <KpiTile icon="pending" tone="navy" label={L("Estimated", "Anggaran")} value={fmtRM(d.totals.estimated)} sub={L("Not paid by the client yet", "Belum dibayar pelanggan")} />
+        <KpiTile icon="verify" tone="gold" label={L("Eligible", "Layak")} value={fmtRM(d.totals.eligible)} sub={d.totals.under_review ? L(`${d.totals.under_review} under review`, `${d.totals.under_review} dalam semakan`) : L("Waiting for the payout", "Menunggu bayaran")} />
+        <KpiTile icon="money" tone="blue" label={L("Payout authorised", "Bayaran dibenarkan")} value={fmtRM(d.totals.pending_payout)} sub={L("The bank transfer is next", "Pindahan bank seterusnya")} />
+        <KpiTile icon="paid" tone="green" label={L("Paid", "Dibayar")} value={fmtRM(d.totals.paid)} sub={L("Settled to your bank", "Diselesaikan ke bank anda")} />
+      </KpiRow>
+      {d.rows.length === 0 ? <div className={css.empty}><p>{L("No commission yet. It appears here once a client you brought in is invoiced.", "Belum ada komisen. Ia dipaparkan di sini apabila pelanggan yang anda bawa diinvois.")}</p></div> : (
+        <ul className={css.cards}>
+          {d.rows.map((r) => (
+            <li key={r.id} className={css.reqCard} data-testid={`agent-comm-${r.id}`}>
+              <span className={css.cardTop}><span className={css.strong}>{r.client ?? "—"}</span><span className={`${css.chip} ${STAGE_WORD[r.stage][2]}`}>{L(STAGE_WORD[r.stage][0], STAGE_WORD[r.stage][1])}</span></span>
+              <span className={css.muted}>{[r.request_ref, r.quotation_number, r.invoice_number].filter(Boolean).join(" · ")}</span>
+              <span>{r.amount_cents === null ? L("The amount shows once A2Z completes its review", "Jumlah dipaparkan setelah A2Z selesai menyemak") : <><strong>{fmtRM(r.amount_cents)}</strong> · {L("Your commission rate", "Kadar komisen anda")}: {pctAg(r.rate_bp)}</>}</span>
+              {r.payout?.status === "settled" && <span className={css.muted}>{L("Paid", "Dibayar")} {day(r.payout.settled_on)} · {L("bank ref", "rujukan bank")} {r.payout.bank_ref} · {r.payout.ref}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
