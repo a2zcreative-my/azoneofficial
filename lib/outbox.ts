@@ -94,6 +94,8 @@ export const ONCE_ONLY: readonly { method: string; path: RegExp; kind: string }[
   { method: "POST", path: /^\/staff\/tasks\/\d+\/updates$/,           kind: "task_update" },
   { method: "POST", path: /^\/staff\/tasks\/\d+\/comments$/,          kind: "task_comment" },
   { method: "POST", path: /^\/staff\/tasks\/\d+\/review$/,            kind: "task_review" },
+  { method: "POST", path: /^\/staff\/tasks\/\d+\/close$/,             kind: "task_close" },  // v1.256.0
+  { method: "POST", path: /^\/staff\/tasks\/\d+\/reopen$/,            kind: "task_reopen" }, // v1.256.0
 ];
 export function onceOnlyKind(method: string | undefined, path: string): string | null {
   const m = (method ?? "GET").toUpperCase();

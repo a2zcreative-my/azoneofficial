@@ -66,8 +66,8 @@ with sync_playwright() as p:
     check("All Tasks: the Latest update column shows the report, who and when", "Submitted to the bank, reference MBB-SME-2207" in rt and "Farid Zulkifli" in rt and re.search(r"\d{1,2}:\d\d (AM|PM)", rt), rt[:300])
     check("All Tasks: the stage shows - Ready for Review", "Ready for Review" in rt)
     check("All Tasks: the header names the column", pg.locator("th", has_text="Latest update").count() >= 1)
-    opts = [o.inner_text().strip() for o in row.locator("select").first.locator("option").all()]
-    check("the row's status control does not offer Closed on a task somebody else set (T-2)", "Closed" not in opts, str(opts))
+    # v1.256.0 (TASK-CLOSURE-AUDIT D4) - the row's status dropdown is gone: the state, and one Update action into the task
+    check("the row shows the state and one Update action - no status dropdown that could close it (T-2, D4)", row.locator("select").count() == 0 and row.get_by_role("button", name=re.compile("^Update status")).count() == 1, rt[:200])
     st = pg.get_by_label("Status", exact=True).filter(visible=True).first
     st.select_option("review"); pg.wait_for_timeout(400)
     check("filter: Waiting for review keeps the task", pg.locator(f"tr:has-text('{TITLE}')").count() == 1)
@@ -92,9 +92,18 @@ with sync_playwright() as p:
     pd.get_by_role("button", name="Return", exact=True).last.click(); pg.wait_for_timeout(1500)
     rv = [x for x in get(4213, "/__tasks")["posts"] if x["p"].endswith("/review")]
     check("one POST /review: return, with the reason", len(rv) == 1 and json.loads(rv[0]["body"]) == {"decision": "return", "reason": "Attach the bank's acknowledgement slip"}, str(rv))
-    bar.get_by_role("button", name="Approve").click(); pg.wait_for_timeout(1500)
-    rv = [x for x in get(4213, "/__tasks")["posts"] if x["p"].endswith("/review")]
-    check("Approve: one POST /review approve, and the toast says so", len(rv) == 2 and json.loads(rv[1]["body"])["decision"] == "approve" and "Approved" in pg.inner_text("body"))
+    # v1.256.0 - Approve & close opens the one form on Closed (inside the drawer); posting it is the closure
+    bar.get_by_role("button", name="Approve & close").click(); pg.wait_for_timeout(700)
+    sh0 = dr.get_by_test_id("update-sheet")
+    check("Approve & close opens Add Status Update inside the same drawer, on Closed", sh0.count() == 1 and sh0.get_by_label("Status", exact=True).input_value() == "closed" and pg.get_by_role("dialog").count() == 1)
+    out = sh0.get_by_test_id("sheet-outstanding")
+    check("3 of 5 deliverables are open: they are named and closing is held (Test B)", out.count() == 1 and "3 deliverable(s) still open" in out.inner_text() and sh0.get_by_test_id("post-update").is_disabled(), out.inner_text()[:200] if out.count() else "")
+    out.get_by_role("checkbox").check(); pg.wait_for_timeout(200)
+    sh0.get_by_label("Reason for the exception *").fill("The bank accepted the application without the last two steps")
+    sh0.get_by_test_id("post-update").click(); pg.wait_for_timeout(1500)
+    cl = [x for x in get(4213, "/__tasks")["posts"] if x["p"].endswith("/close")]
+    cb = json.loads(cl[0]["body"]) if cl else {}
+    check("the CEO closes it as a management exception: one POST /close with the reason, and the toast says so", len(cl) == 1 and cb.get("exception") is True and "bank accepted" in cb.get("exception_reason", "") and "Task closed" in pg.inner_text("body"), str(cb))
 
     dr.get_by_role("tab", name=re.compile("^Updates & Comments")).click(); pg.wait_for_timeout(1500)
     feed = dr.get_by_test_id("task-feed")
@@ -160,7 +169,7 @@ with sync_playwright() as p:
     pg.get_by_role("tab", name="My Tasks", exact=True).first.click(); pg.wait_for_timeout(1000)
     pg.get_by_role("button", name=TITLE).first.click(); pg.wait_for_timeout(2000)
     dr = pg.get_by_role("dialog").filter(has_text=TITLE).first
-    check("phone: the task opens, its tabs and Add Update in reach", dr.is_visible() and dr.get_by_test_id("add-update").is_visible())
+    check("phone: the task opens, its tabs and Update status in reach", dr.is_visible() and dr.get_by_test_id("add-update").is_visible())
     check("phone: no sideways scroll", no_hscroll(pg))
     pg.screenshot(path=f"{S}/tp-phone-task.png")
     dr.get_by_test_id("add-update").click(); pg.wait_for_timeout(700)

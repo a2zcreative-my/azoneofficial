@@ -1,0 +1,380 @@
+{
+ "captured_from": "tests/go-live-o.mjs",
+ "owner": 6,
+ "views": {
+  "ready": {
+   "detail": {
+    "task": {
+     "id": 1,
+     "title": "Send the quotation to Zainab Kitchen",
+     "description": null,
+     "assigned_to": 6,
+     "created_by": 6,
+     "priority": "normal",
+     "deadline": "2026-11-01",
+     "status": "open",
+     "progress": 100,
+     "created_at": "2026-11-03 02:15:38",
+     "link_kind": null,
+     "link_id": null,
+     "stage": null,
+     "progress_source": "checklist",
+     "start_date": null,
+     "assignee": "Lia Seller",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Lia Seller",
+     "acknowledged_at": null,
+     "assistants": [],
+     "items": [
+      {
+       "id": 1,
+       "title": "Send QT-2026-0019",
+       "done": 1,
+       "done_at": "2026-11-03 02:15:38",
+       "done_by_name": "Lia Seller"
+      }
+     ],
+     "link": null,
+     "latest_update": null,
+     "closure": null,
+     "outstanding": [],
+     "next": "close_ready",
+     "timeline": [
+      {
+       "key": "created",
+       "state": "done",
+       "who": "Lia Seller",
+       "at": "2026-11-03 02:15:38",
+       "text": null
+      },
+      {
+       "key": "in_progress",
+       "state": "now",
+       "who": null,
+       "at": null,
+       "text": null,
+       "flags": {}
+      },
+      {
+       "key": "closed",
+       "state": "todo",
+       "who": null,
+       "at": null,
+       "text": null
+      }
+     ],
+     "counts": {
+      "updates": 0,
+      "files": 0,
+      "comments": 0
+     }
+    },
+    "me": 6,
+    "can": {
+     "edit": true,
+     "reassign": false,
+     "assistants": false,
+     "tick": true,
+     "update": true,
+     "comment": true,
+     "files": true,
+     "restricted_files": false,
+     "request_review": false,
+     "review": false,
+     "approve": true,
+     "cancel": false,
+     "close": true,
+     "close_exception": false,
+     "reopen": false,
+     "return": false,
+     "assist": false,
+     "self_set": true,
+     "is_assignee": true,
+     "is_assistant": false,
+     "remind": false
+    }
+   },
+   "updates": {
+    "updates": []
+   },
+   "files": {
+    "files": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "c1",
+      "at": "2026-11-03 02:15:38",
+      "kind": "task.create",
+      "text": "Created the task for Lia Seller",
+      "by": "Lia Seller",
+      "by_id": 6,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-03 02:15:38",
+      "kind": "event.item_done",
+      "text": "Ticked \"Send QT-2026-0019\"",
+      "by": "Lia Seller",
+      "by_id": 6,
+      "photo_key": null,
+      "muted": false
+     }
+    ]
+   },
+   "comments": {
+    "comments": []
+   },
+   "list": [
+    {
+     "id": 1,
+     "title": "Send the quotation to Zainab Kitchen",
+     "description": null,
+     "assigned_to": 6,
+     "created_by": 6,
+     "priority": "normal",
+     "deadline": "2026-11-01",
+     "status": "open",
+     "progress": 100,
+     "created_at": "2026-11-03 02:15:38",
+     "link_kind": null,
+     "link_id": null,
+     "stage": null,
+     "progress_source": "checklist",
+     "start_date": null,
+     "assignee": "Lia",
+     "assignee_photo": null,
+     "item_count": 1,
+     "item_done": 1,
+     "acknowledged": 0,
+     "latest_update": null,
+     "assistants": [],
+     "link_label": null
+    }
+   ]
+  },
+  "closed": {
+   "detail": {
+    "task": {
+     "id": 1,
+     "title": "Send the quotation to Zainab Kitchen",
+     "description": null,
+     "assigned_to": 6,
+     "created_by": 6,
+     "priority": "normal",
+     "deadline": "2026-11-01",
+     "status": "completed",
+     "progress": 100,
+     "created_at": "2026-11-03 02:15:38",
+     "link_kind": null,
+     "link_id": null,
+     "stage": null,
+     "progress_source": "checklist",
+     "start_date": null,
+     "assignee": "Lia Seller",
+     "assignee_position": null,
+     "assignee_photo": null,
+     "creator": "Lia Seller",
+     "acknowledged_at": null,
+     "assistants": [],
+     "items": [
+      {
+       "id": 1,
+       "title": "Send QT-2026-0019",
+       "done": 1,
+       "done_at": "2026-11-03 02:15:38",
+       "done_by_name": "Lia Seller"
+      }
+     ],
+     "link": null,
+     "latest_update": {
+      "id": 1,
+      "kind": "closed",
+      "body": "Delivered the signed forms to the bank counter",
+      "at": "2026-11-03 02:15:38",
+      "by": "Lia Seller",
+      "by_id": 6
+     },
+     "closure": {
+      "kind": "closed",
+      "at": "2026-11-03 02:15:38",
+      "by": "Lia Seller",
+      "summary": "Delivered the signed forms to the bank counter",
+      "late_days": 2
+     },
+     "outstanding": [],
+     "next": "closed",
+     "timeline": [
+      {
+       "key": "created",
+       "state": "done",
+       "who": "Lia Seller",
+       "at": "2026-11-03 02:15:38",
+       "text": null
+      },
+      {
+       "key": "in_progress",
+       "state": "done",
+       "who": "Lia Seller",
+       "at": "2026-11-03 02:15:38",
+       "text": null,
+       "flags": {}
+      },
+      {
+       "key": "closed",
+       "state": "done",
+       "who": "Lia Seller",
+       "at": "2026-11-03 02:15:38",
+       "text": "Delivered the signed forms to the bank counter",
+       "flags": {
+        "late_days": 2
+       }
+      }
+     ],
+     "counts": {
+      "updates": 1,
+      "files": 0,
+      "comments": 0
+     }
+    },
+    "me": 6,
+    "can": {
+     "edit": false,
+     "reassign": false,
+     "assistants": false,
+     "tick": false,
+     "update": false,
+     "comment": true,
+     "files": false,
+     "restricted_files": false,
+     "request_review": false,
+     "review": false,
+     "approve": false,
+     "cancel": false,
+     "close": false,
+     "close_exception": false,
+     "reopen": true,
+     "return": false,
+     "assist": false,
+     "self_set": true,
+     "is_assignee": true,
+     "is_assistant": false,
+     "remind": false
+    }
+   },
+   "updates": {
+    "updates": [
+     {
+      "id": 1,
+      "task_id": 1,
+      "project_id": null,
+      "author_id": 6,
+      "author": "Lia Seller",
+      "photo_key": null,
+      "kind": "closed",
+      "body": "Delivered the signed forms to the bank counter",
+      "completed_work": null,
+      "blockers": null,
+      "next_action": null,
+      "status_to": "completed",
+      "stage_to": null,
+      "progress_snapshot": 100,
+      "progress_source": "checklist",
+      "corrects_id": null,
+      "created_at": "2026-11-03 02:15:38",
+      "files": []
+     }
+    ]
+   },
+   "files": {
+    "files": []
+   },
+   "activity": {
+    "activity": [
+     {
+      "key": "c1",
+      "at": "2026-11-03 02:15:38",
+      "kind": "task.create",
+      "text": "Created the task for Lia Seller",
+      "by": "Lia Seller",
+      "by_id": 6,
+      "photo_key": null
+     },
+     {
+      "key": "e1",
+      "at": "2026-11-03 02:15:38",
+      "kind": "event.item_done",
+      "text": "Ticked \"Send QT-2026-0019\"",
+      "by": "Lia Seller",
+      "by_id": 6,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "e2",
+      "at": "2026-11-03 02:15:38",
+      "kind": "event.status",
+      "text": "Status → completed",
+      "by": "Lia Seller",
+      "by_id": 6,
+      "photo_key": null,
+      "muted": false
+     },
+     {
+      "key": "u1",
+      "at": "2026-11-03 02:15:38",
+      "kind": "update.closed",
+      "text": "Closed the task",
+      "by": "Lia Seller",
+      "by_id": 6,
+      "photo_key": null,
+      "quote": "Delivered the signed forms to the bank counter"
+     }
+    ]
+   },
+   "comments": {
+    "comments": []
+   },
+   "list": [
+    {
+     "id": 1,
+     "title": "Send the quotation to Zainab Kitchen",
+     "description": null,
+     "assigned_to": 6,
+     "created_by": 6,
+     "priority": "normal",
+     "deadline": "2026-11-01",
+     "status": "completed",
+     "progress": 100,
+     "created_at": "2026-11-03 02:15:38",
+     "link_kind": null,
+     "link_id": null,
+     "stage": null,
+     "progress_source": "checklist",
+     "start_date": null,
+     "assignee": "Lia",
+     "assignee_photo": null,
+     "item_count": 1,
+     "item_done": 1,
+     "acknowledged": 0,
+     "closed_at": "2026-11-03 02:15:38",
+     "closed_by": "Lia Seller",
+     "closed_kind": "closed",
+     "closed_late_days": 2,
+     "latest_update": {
+      "id": 1,
+      "kind": "closed",
+      "body": "Delivered the signed forms to the bank counter",
+      "at": "2026-11-03 02:15:38",
+      "by": "Lia Seller",
+      "by_id": 6
+     },
+     "assistants": [],
+     "link_label": null
+    }
+   ]
+  }
+ }
+}

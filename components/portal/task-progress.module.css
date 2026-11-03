@@ -110,3 +110,54 @@ a.fileChip:hover { border-color: var(--muted-foreground); }
 @media (prefers-reduced-motion: reduce) {
   .entry::before { transition: none; }
 }
+
+/* v1.256.0 - the decisions block, the closure, and Add Status Update inside the drawer */
+.decide { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; }
+.closedOk, .closedOff { display: flex; align-items: flex-start; gap: 0.625rem; padding: 0.75rem 0.875rem; border-radius: 0.75rem; border: 1px solid var(--border); }
+.closedOk { background: var(--success-soft); }
+.closedOff { background: var(--secondary); }
+.closedOk :global(.erp-icon) { color: var(--success); flex-shrink: 0; }
+.closedOff :global(.erp-icon) { color: var(--danger); flex-shrink: 0; }
+.sheet { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; min-width: 0; }
+.sheetHead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+.sheetTitle { margin: 0; font-size: var(--type-section-size); font-weight: 700; color: var(--foreground); }
+.twoCol { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; }
+@media (min-width: 640px) { .twoCol { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); } }
+.outstanding { display: grid; gap: 0.5rem; padding: 0.75rem; border-radius: 0.75rem; border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); background: var(--tint-gold); font-size: var(--type-body-sm-size); }
+.outstanding ul { margin: 0; padding-left: 1.125rem; }
+.outTitle { margin: 0; font-size: var(--type-body-sm-size); font-weight: 700; color: var(--foreground); }
+.details { display: grid; gap: 0.5rem; border: 0; padding: 0; margin: 0; min-width: 0; }
+.detailRow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; }
+@media (min-width: 640px) { .detailRow { grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); align-items: center; } }
+.check { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.25rem; font-size: var(--type-body-sm-size); color: var(--foreground); }
+.check input { width: 1.125rem; height: 1.125rem; accent-color: var(--info); }
+.infoNote, .okNote { margin: 0; padding: 0.625rem 0.75rem; border-radius: 0.625rem; font-size: var(--type-caption-size); color: var(--foreground); border: 1px solid var(--border); }
+.infoNote { background: var(--info-soft, var(--secondary)); }
+.okNote { background: var(--success-soft); }
+.sheet .sticky { padding-bottom: env(safe-area-inset-bottom, 0); }
+
+/* v1.256.0 - the task timeline (the owner's mockup): date, marker on one line, card */
+.tl { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.875rem; position: relative; }
+.tlRow { display: grid; grid-template-columns: 4.75rem 1.25rem minmax(0, 1fr); gap: 0.5rem; align-items: start; position: relative; }
+.tlRow::before { content: ""; position: absolute; left: calc(4.75rem + 0.5rem + 0.625rem - 1px); top: 1.4rem; bottom: -0.875rem; width: 2px; background: var(--border); }
+.tlRow:last-child::before { display: none; }
+.tlWhen { font-size: var(--type-caption-size); color: var(--muted-foreground); text-align: right; padding-top: 0.6rem; font-variant-numeric: tabular-nums; }
+.tlMark { width: 1.25rem; height: 1.25rem; margin-top: 0.55rem; border-radius: 999px; border: 3px solid var(--card); box-shadow: 0 0 0 1px var(--border); position: relative; z-index: 1; }
+.mGold { background: var(--gold-solid); } .mGreen { background: var(--success); } .mAmber { background: var(--warning); }
+.mRed { background: var(--danger); } .mNavy { background: var(--info); } .mGrey { background: var(--muted-foreground); }
+.tlCard { display: grid; gap: 0.375rem; min-width: 0; padding: 0.75rem 0.875rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); box-shadow: var(--shadow-soft, none); }
+.tlHead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.375rem 0.5rem; color: var(--foreground); font-size: var(--type-body-sm-size); }
+.tlProg { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.25rem 0.625rem; }
+.tlProg > :last-child { grid-column: 1 / -1; }
+.tlPct { font-size: var(--type-caption-size); font-weight: 700; color: var(--foreground); padding: 0.125rem 0.5rem; border-radius: 999px; background: var(--secondary); font-variant-numeric: tabular-nums; }
+.moreBtn { justify-self: center; }
+@media (max-width: 480px) {
+  .tlRow { grid-template-columns: 1.25rem minmax(0, 1fr); }
+  .tlRow::before { left: calc(0.625rem - 1px); }
+  .tlWhen { grid-column: 2; grid-row: 1; text-align: left; padding-top: 0; }
+  .tlMark { grid-column: 1; grid-row: 1 / span 2; }
+  .tlCard { grid-column: 2; }
+}
+.twoCol > label { display: grid; gap: 0.375rem; align-content: start; min-width: 0; }
+.twoCol select { width: 100%; }
+.twoCol .readonly { display: flex; align-items: center; min-height: 2.75rem; }

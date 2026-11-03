@@ -212,6 +212,11 @@ async function runtime(workerBundle) {
     ok(rq.status === 201 && db.prepare(`SELECT stage FROM tasks WHERE id = ?`).get(T1)?.stage === "review" && note(U.ceo, "%Ready for review: Financing%") === 1, "S16 he submits it for review; the person who set it is told", rq.text.slice(0, 120));
     await capture("reviewer", U.ceo, T1, true);
     await capture("assignee", U.farid, T1, false);
+    /* v1.256.0 (TASK-CLOSURE-AUDIT, Test B) - approving closes the task, so the
+       open deliverables are named and the approval refused until they are done */
+    const early = await call(`/staff/tasks/${T1}/review`, U.ceo, "POST", { decision: "approve", reason: "Checked with the bank" });
+    ok(early.status === 409 && early.j?.error?.code === "deliverables_outstanding" && early.j?.outstanding?.length === 3 && db.prepare(`SELECT status, stage FROM tasks WHERE id = ?`).get(T1)?.stage === "review", "S16 (1.256.0) with 3 of 5 deliverables still open the approval is refused and they are named - the task stays in review", early.text.slice(0, 160));
+    for (const it of ((await call(`/staff/tasks/${T1}/items`, U.farid)).j?.items ?? []).filter((x) => !x.done)) await call(`/staff/tasks/${T1}/items/${it.id}/toggle`, U.farid, "POST", {});
     const ap = await call(`/staff/tasks/${T1}/review`, U.ceo, "POST", { decision: "approve", reason: "Checked with the bank" });
     const t1c = db.prepare(`SELECT status, stage FROM tasks WHERE id = ?`).get(T1);
     const apr = db.prepare(`SELECT author_id, kind FROM task_updates WHERE task_id = ? ORDER BY id DESC LIMIT 1`).get(T1);
@@ -290,7 +295,11 @@ async function runtime(workerBundle) {
 
     /* ---------- S21 unrelated tasks behave as before ---------- */
     const self = await call("/staff/tasks", U.lia, "POST", { title: "Call back Zainab Kitchen" });
-    ok([200, 201].includes(self.status) && (await call(`/staff/tasks/${self.j?.id}`, U.lia, "PATCH", { status: "completed", progress: 100 })).status === 200, "S21 a self-set task still closes directly, as before");
+    /* v1.256.0 (TASK-CLOSURE-AUDIT D4) - a self-set task still closes directly, by its owner - through the
+       one transition, with a completion summary; the old dropdown PATCH is refused and says so */
+    const oldWay = await call(`/staff/tasks/${self.j?.id}`, U.lia, "PATCH", { status: "completed", progress: 100 });
+    const newWay = await call(`/staff/tasks/${self.j?.id}/close`, U.lia, "POST", { summary: "Called Zainab, she confirmed the order" });
+    ok([200, 201].includes(self.status) && oldWay.j?.error?.code === "close_required" && newWay.status === 200 && db.prepare(`SELECT status FROM tasks WHERE id = ?`).get(self.j?.id)?.status === "completed", "S21 a self-set task still closes directly by its owner - with a summary, not by the old dropdown", `${oldWay.text.slice(0, 120)} | ${newWay.text.slice(0, 120)}`);
     const plain = await call("/staff/tasks", U.ceo, "POST", { title: "Renew insurance", assigned_to: U.mira });
     ok((await call(`/staff/tasks/${plain.j?.id}/ack`, U.mira, "POST", {})).status === 200 && (await call(`/staff/tasks/${plain.j?.id}`, U.ceo, "DELETE")).status === 200, "S21 acknowledge and the CEO's delete still work on a task without history");
     ok((await call(`/staff/tasks/${T1}`, U.ceo, "DELETE")).status === 409 && n(`SELECT COUNT(*) AS n FROM tasks WHERE id = ${T1}`) === 1, "a task with progress reports keeps them - it is not deleted");
@@ -391,7 +400,7 @@ const checks = n;
 
 const MUT = [
   ["worker/src/tasks-progress.ts", "the assignee approves his own work", "  const review = selfSet ? (assignee || manage) : ((creator || manage) && !assignee);", "  const review = selfSet ? (assignee || manage) : (creator || manage || assignee);"],
-  ["worker/src/staff.ts", "the assignee closes a task somebody else set", "      if (body.status === \"completed\" && !selfSet) {", "      if (false) {"],
+  ["worker/src/staff.ts", "the assignee closes a task somebody else set", "      if (body.status === \"completed\") return err(\"close_required\",", "      if (false) return err(\"close_required\","], // v1.256.0 - every close goes through the one transition
   ["worker/src/staff.ts", "team_manage manages project tasks", "    const manages = projOfTask ? !projGate : can(user.role, \"team_manage\");", "    const manages = can(user.role, \"team_manage\") || (projOfTask ? !projGate : false);"],
   ["worker/src/tasks-progress.ts", "a retried update lands twice", [["    const again = await env.DB.prepare(`SELECT id FROM task_updates WHERE author_id = ?1 AND client_key = ?2`).bind(user.id, key).first<{ id: number }>();\n    if (again) return json({ id: again.id, existing: true });\n  }\n  let corrects", "  }\n  let corrects"], ["     ON CONFLICT(author_id, client_key) WHERE client_key IS NOT NULL DO NOTHING RETURNING id`,\n  ).bind(t.id,", "     RETURNING id`,\n  ).bind(t.id,"]]],
   ["worker/src/tasks-progress.ts", "an update overrides the checklist", "      if (Math.round(body.progress) !== derived) return err(", "      if (false) return err("],
@@ -399,7 +408,7 @@ const MUT = [
   ["worker/src/tasks-progress.ts", "anybody who sees the task posts progress", "  } else if (!a.update) {\n    return err(\"forbidden\", a.view", "  } else if (false) {\n    return err(\"forbidden\", a.view"],
   ["worker/src/staff.ts", "anybody who sees the task reads and writes its thread", "    return (await taskAccess(env, user, t)).team;", "    return (await taskAccess(env, user, t)).view;"],
   ["worker/src/staff.ts", "unticking erases the tick again", "          .bind(taskItemToggle[1], `${nowDone ? \"item_done\" : \"item_undone\"}:${it.id}`,", "          .bind(taskItemToggle[1], `x_${nowDone}:${it.id}`,"],
-  ["worker/src/tasks-progress.ts", "a return needs no reason", "      if (reason.length < 5) return err(\"invalid_input\", \"Say what still needs doing", "      if (false) return err(\"invalid_input\", \"Say what still needs doing"],
+  ["worker/src/tasks-progress.ts", "a return needs no reason", "    if (reason.length < 5) return err(\"invalid_input\", \"Say what still needs doing", "    if (false) return err(\"invalid_input\", \"Say what still needs doing"], // v1.256.0 - the rule now lives in transitionTask
   ["worker/src/tasks-progress.ts", "a helper opens a restricted file", "    if (f.level === \"restricted\" && !(a.manage || a.review || a.creator)) return err(", "    if (false) return err("],
   ["worker/src/staff.ts", "the open tasks are cut at 200 again", "AND t.status != 'completed' ORDER BY t.created_at DESC`)", "AND t.status != 'completed' ORDER BY t.created_at DESC LIMIT 200`)"],
   ["worker/src/tasks-progress.ts", "an offer to help counts as the latest update", "export const LATEST_KINDS = [\"progress\",", "export const LATEST_KINDS = [\"assist_request\", \"progress\","],

@@ -1091,3 +1091,6 @@ td .who > span:first-child { flex-shrink: 0; }
 
 /* v1.248.0 - the Dates cell: start over due, each on its own line */
 .dates { display: grid; gap: 0.125rem; white-space: nowrap; }
+
+/* v1.256.0 - the status cell: the state, when it closed, one Update action */
+.statusCell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.5rem; min-width: 0; }

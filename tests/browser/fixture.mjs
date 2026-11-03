@@ -48,6 +48,12 @@ export const projectFixture = { id: PROJ?.project_id ?? 1 };
 const TASKS_CAP = (() => {
   try { return JSON.parse(readFixtureFile(new URL("./task-fixture.json", import.meta.url), "utf8").replaceAll("QT-2026-0018", "QT-AZO150926-1").replaceAll("ABC Sdn Bhd", "Aina Boutique")); } catch { return null; }
 })();
+/* v1.256.0 - a self-set task ready to close (803) and the same task closed
+   (804), as its owner sees them: captured by tests/go-live-o.mjs
+   (TASK_CLOSURE_OUT=... NOMUT=1 node tests/go-live-o.mjs) */
+const CLOSURE_CAP = (() => {
+  try { return JSON.parse(readFixtureFile(new URL("./task-closure-fixture.json", import.meta.url), "utf8")); } catch { return null; }
+})();
 const TASK_VIEW = ROLE === "ceo" || ROLE === "coo" || ROLE === "cco" ? { std: "reviewer", proj: "assistant" } : ROLE === "live_host" ? { std: "assignee", proj: "assistant" } : ROLE === "editor" ? { std: "assignee", proj: "assistant" } : { std: "assignee", proj: "other" };
 /* the captured viewer becomes the fixture's signed-in person (9001), so the
    task lands in that person's My Tasks exactly as it would for them */
@@ -72,7 +78,8 @@ export function taskViewFor(p0) {
   if (!m) return undefined;
   const id = Number(m[1]);
   let v;
-  if (process.env.TASKP && id === 801) v = TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801);
+  if (process.env.TASKP && CLOSURE_CAP && (id === 803 || id === 804)) v = asMe(remapTask(CLOSURE_CAP.views[id === 803 ? "ready" : "closed"], id, id === 803 ? "Send the quotation to Zainab Kitchen" : "Brochure posted to Zainab Kitchen"), CLOSURE_CAP.owner);
+  else if (process.env.TASKP && id === 801) v = TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801);
   else if (process.env.TASKP && id === 802) v = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11) : remapTask(TASKS_CAP.views[TASK_VIEW.proj], 802);
   else {
     const pt = PROJ?.views?.[PROJ_VIEW]?.workspace?.tasks?.find((t) => t.id === id);
@@ -88,7 +95,8 @@ export function taskListExtra(all) {
   if (!TASKS_CAP || !process.env.TASKP) return [];
   const a = (TASK_VIEW.std === "assignee" ? asMe(remapTask(TASKS_CAP.views.assignee, 801), 14) : remapTask(TASKS_CAP.views[TASK_VIEW.std], 801)).list ?? [];
   const b = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11).list ?? [] : [];
-  return [...a, ...b].map((r) => ({ ...r, ...(all ? {} : {}) }));
+  const c = CLOSURE_CAP ? [803, 804].flatMap((id) => asMe(remapTask(CLOSURE_CAP.views[id === 803 ? "ready" : "closed"], id, id === 803 ? "Send the quotation to Zainab Kitchen" : "Brochure posted to Zainab Kitchen"), CLOSURE_CAP.owner).list ?? []) : [];
+  return [...a, ...b, ...c].map((r) => ({ ...r, ...(all ? {} : {}) }));
 }
 function projectFor(p, made) {
   if (!PROJ) return undefined;

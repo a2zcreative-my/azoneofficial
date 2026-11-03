@@ -268,6 +268,8 @@ export interface Task {
      comes from, the latest PROGRESS update (never a comment), the helpers and
      what it is about - present from 0159 */
   stage?: "waiting_client" | "blocked" | "review" | "cancelled" | null;
+  /* v1.256.0 - the closure in force (completed tasks): when, by whom, how many days after the due date */
+  closed_at?: string | null; closed_by?: string | null; closed_kind?: string | null; closed_late_days?: number | null;
   progress_source?: "checklist" | "manual" | null;
   created_at?: string;
   latest_update?: { id: number; kind: string; body: string; at: string; by: string | null; by_id: number } | null;

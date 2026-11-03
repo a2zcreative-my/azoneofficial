@@ -93,7 +93,9 @@ const staff = read("worker/src/staff.ts");
 /* ---- 5. the three statuses ---- */
 {
   const sel = code.slice(code.indexOf("const statusSelect"), code.indexOf("const ackControl"));
-  ok("the status control offers open, in_progress, completed and nothing else", /\["open", "Open"\],\s*\["in_progress", "In progress"\],[^\n]*\n\s*\["completed", "Closed"\],/.test(sel) && (sel.match(/\["[a-z_]+", "[A-Za-z ]+"\]/g) ?? []).length === 3);
+  /* v1.256.0 (claude/TASK-CLOSURE-AUDIT.md D4) - the row's status is shown, not chosen: the dropdown that
+     closed and reopened with no summary or reason is gone; Update opens the one Add Status Update form */
+  ok("the status control shows the state and one Update action - no dropdown that closes or reopens", /<StateChip status=\{t\.status\}/.test(sel) && !/<select/.test(sel) && /setSheetFor\(t\.id\)/.test(sel));
   ok("the worker's list is the same three", /\["open", "in_progress", "completed"\]\.includes\(body\.status\)/.test(staff));
   ok("the boards draw those three columns", /\(\["open", "in_progress", "completed"\] as const\)\.map/.test(code));
 }
@@ -115,7 +117,7 @@ const staff = read("worker/src/staff.ts");
 
 /* ---- 8. a link opens the drawer ---- */
 ok("a search hit, a notification or a Desk item opens the task's drawer", /useRecordFocus\(focus, loaded, \(f\) => \{[\s\S]{0,500}?setOpenTask\(t\.id\)/.test(code));
-ok("the drawer is the record (data-record) and closes cleanly", /<div className=\{tk\.detail\} data-record=\{`task:\$\{t\.id\}`\}>/.test(code) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\); \};/.test(code));
+ok("the drawer is the record (data-record) and closes cleanly", /<div className=\{tk\.detail\} data-record=\{`task:\$\{t\.id\}`\}>/.test(code) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\);(?: setSheetFor\(null\);)? \};/.test(code));
 
 ok("no sample data from the reference", !/Nur Dini Farhana|Nursyazwani|Zul Hisyam|Mohamad Izzudin|Zolkefli|Draft rundown structure|Website product update|TikTok content series/.test(src));
 ok("the guard is registered", /\["tasks-module", "/.test(read("scripts/run-guards.mjs")));

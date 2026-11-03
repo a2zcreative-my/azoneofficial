@@ -18,7 +18,7 @@ import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./p
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
-import { handleTaskProgress, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
+import { closuresOf, handleTaskProgress, lateDays, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
@@ -8551,7 +8551,7 @@ async function handleStaffRoutes(
   /* v1.246.0 - a task's own record: GET /tasks/:id, its progress updates,
      review, helpers, private files and activity (tasks-progress.ts decides
      who may do what). PATCH and DELETE /tasks/:id stay below. */
-  if (/^\/tasks\/\d+(\/updates|\/review|\/assistants(\/\d+)?|\/files(\/\d+)?|\/activity)?$/.test(path)) {
+  if (/^\/tasks\/\d+(\/updates|\/review|\/close|\/reopen|\/assistants(\/\d+)?|\/files(\/\d+)?|\/activity)?$/.test(path)) { // v1.256.0 - close, reopen
     const tp = await handleTaskProgress(env, path, method, body, user, request);
     if (tp) return tp;
   }
@@ -8619,7 +8619,10 @@ async function handleStaffRoutes(
       ).all<{ id: number; title: string; company: string | null }>()).results.map((p) => [p.id, p]));
       const custIds = [...new Set(results.filter((t) => t.link_kind === "customer").map((t) => Number(t.link_id)))];
       const custs = new Map(custIds.length ? (await env.DB.prepare(`SELECT id, company FROM customers WHERE id IN (${custIds.map((_, i) => `?${i + 1}`).join(",")})`).bind(...custIds).all<{ id: number; company: string }>()).results.map((c) => [c.id, c.company]) : []);
+      const closures = await closuresOf(env, results.filter((t) => t.status === "completed").map((t) => Number(t.id))); // v1.256.0 - when, by whom, how late
       for (const t of results) {
+        const c = closures.get(Number(t.id));
+        if (c) { t.closed_at = c.at; t.closed_by = c.by; t.closed_kind = c.kind; t.closed_late_days = lateDays((t.deadline as string | null) ?? null, c.at); }
         t.latest_update = latest.get(Number(t.id)) ?? null;
         t.assistants = helpers.filter((h) => h.task_id === Number(t.id)).map((h) => ({ id: h.user_id, name: h.name }));
         const pj = t.link_kind === "project" ? projects.get(Number(t.link_id)) : undefined;
@@ -9041,18 +9044,14 @@ async function handleStaffRoutes(
       /* v1.246.0 (T-2) - a task somebody else set is COMPLETED by its
          reviewer (POST /tasks/:id/review); the person doing it submits it
          for review. A self-set task closes here, as it always did. */
-      const selfSet = row.created_by === null || row.created_by === row.assigned_to;
-      if (body.status === "completed" && !selfSet) {
-        return err("review_required", row.assigned_to === user.id
-          ? "Submit it for review - the person who set it (or the Project Owner or management) approves it as completed"
-          : "Approve it from the task's review - the decision is recorded", 409);
-      }
+      /* v1.256.0 (TASK-CLOSURE-AUDIT D4) - closing and reopening go through
+         the ONE transition (tasks-progress.ts transitionTask): a completion
+         summary, the checklist checked, the decision on the task's record,
+         a reason to reopen. This route (an older screen, a phone's queued
+         change) moves only open <-> in progress, and never clears a stage. */
+      if (body.status === "completed") return err("close_required", "Close the task from the task itself (Close task) - with a short completion summary", 409);
+      if (row.status === "completed") return err("reopen_required", "A closed task is reopened from the task itself (Reopen), with the reason", 409);
       sets.push(`status = ?${sets.length + 1}`); vals.push(body.status);
-      sets.push(`stage = NULL`);
-      if (body.status === "completed") {
-        const cl = await env.DB.prepare(`SELECT COUNT(*) AS n FROM task_items WHERE task_id = ?1`).bind(id).first<{ n: number }>().catch(() => null);
-        if (!Number(cl?.n ?? 0)) { sets.push(`progress = ?${sets.length + 1}`); vals.push(100); }
-      }
       changed.status = [row.status, body.status];
     }
     /* v1.69.0 (CEO: "I want to have an option for me to update the Task") —

@@ -24,6 +24,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { SideDrawer } from "@/components/ui/side-drawer";
+import { StageTimeline, type Stage, type StageState } from "@/components/ui/stage-timeline";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
@@ -41,17 +42,23 @@ export interface TaskDetail {
     items: { id: number; title: string; done: number; done_at: string | null; done_by_name: string | null }[];
     link: { kind: string; id: number; label: string; project_id?: number; quotation_id?: number; quotation?: string; customer?: string } | null;
     latest_update: Latest | null; counts: { updates: number; files: number; comments: number | null };
+    /* v1.256.0 - the closure in force, what is still open, the one next step, the stages walked */
+    closure?: { kind: string; at: string; by: string | null; summary: string | null; late_days: number | null } | null;
+    outstanding?: { id: number; title: string }[];
+    next?: string;
+    timeline?: { key: string; state: StageState; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | number | boolean> }[];
   };
   me: number;
   can: {
     edit: boolean; reassign: boolean; assistants: boolean; tick: boolean; update: boolean; comment: boolean; files: boolean; restricted_files: boolean;
     request_review: boolean; review: boolean; approve: boolean; cancel: boolean; assist: boolean; self_set: boolean; is_assignee: boolean; is_assistant: boolean; remind?: boolean;
+    close?: boolean; close_exception?: boolean; reopen?: boolean; return?: boolean;
   };
 }
 type TFile = { id: number; update_id: number | null; comment_id: number | null; file_name: string; content_type: string | null; size_bytes: number | null; level: string; created_at: string; uploader: string; open: boolean };
 type TUpdate = {
   id: number; author_id: number; author: string; photo_key: string | null; kind: string; body: string; completed_work: string | null; blockers: string | null;
-  next_action: string | null; status_to: string | null; stage_to: string | null; progress_snapshot: number | null; corrects_id: number | null; created_at: string; files: TFile[];
+  next_action: string | null; status_to: string | null; stage_to: string | null; progress_snapshot: number | null; progress_source?: string | null; corrects_id: number | null; created_at: string; files: TFile[];
 };
 type TComment = { id: number; user_id: number; author: string; photo_key: string | null; comment: string; created_at: string; mentions: { id: number; name: string }[]; files: Omit<TFile, "update_id" | "uploader" | "open" | "created_at">[] };
 type TActivity = { key: string; at: string; kind: string; text: string; by: string | null; photo_key?: string | null; quote?: string | null; muted?: boolean };
@@ -74,7 +81,7 @@ export function day(v: string | null | undefined): string {
 const size = (b: number | null) => (b ? (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`) : "");
 /** The state a task is in, in words: status and stage together (T-7). */
 export function stateOf(status: string, stage: string | null): { label: string; cls: string } {
-  if (status === "completed") return stage === "cancelled" ? { label: L("Cancelled", "Dibatalkan"), cls: chipSmNeutral } : { label: L("Completed", "Selesai"), cls: chipSmSuccess };
+  if (status === "completed") return stage === "cancelled" ? { label: L("Cancelled", "Dibatalkan"), cls: chipSmNeutral } : { label: L("Closed", "Ditutup"), cls: chipSmSuccess }; // v1.256.0 - the owner's word
   if (stage === "review") return { label: L("Ready for Review", "Sedia untuk Semakan"), cls: chipSmWarn };
   if (stage === "blocked") return { label: L("Blocked", "Terhalang"), cls: chipSmDanger };
   if (stage === "waiting_client") return { label: L("Waiting for Client", "Menunggu Pelanggan"), cls: chipSmWarn };
@@ -102,8 +109,9 @@ export function StateChip({ status, stage }: { status: string; stage: string | n
 }
 const KIND: Record<string, [string, string, string]> = {
   progress: ["Update", "Kemas kini", chipSmInfo], blocker: ["Blocker", "Halangan", chipSmDanger], waiting_client: ["Waiting for client", "Menunggu pelanggan", chipSmWarn],
-  review_request: ["Ready for review", "Sedia disemak", chipSmWarn], review_approved: ["Approved", "Diluluskan", chipSmSuccess], review_returned: ["Returned", "Dikembalikan", chipSmDanger],
-  correction: ["Correction", "Pembetulan", chipSmNeutral], assist_request: ["Offer to help", "Tawaran membantu", chipSmNeutral], cancel: ["Cancelled", "Dibatalkan", chipSmNeutral],
+  review_request: ["Ready for review", "Sedia disemak", chipSmWarn], review_approved: ["Approved & closed", "Diluluskan & ditutup", chipSmSuccess], review_returned: ["Returned", "Dikembalikan", chipSmDanger],
+  correction: ["Correction", "Pembetulan", chipSmNeutral], assist_request: ["Offer to help", "Tawaran membantu", chipSmNeutral], cancel: ["Cancelled", "Dibatalkan", chipSmDanger],
+  closed: ["Closed", "Ditutup", chipSmSuccess], closed_with_exception: ["Closed - exception", "Ditutup - pengecualian", chipSmWarn], reopened: ["Reopened", "Dibuka semula", chipSmWarn], created: ["Created", "Dicipta", chipSmNeutral],
   comment: ["Comment", "Komen", chipSmNeutral],
 };
 function KindChip({ kind }: { kind: string }) {
@@ -133,11 +141,14 @@ async function uploadFiles(taskId: number, files: File[], link: { update?: numbe
 
 /* ======================================================================= */
 /** Details · Updates & Comments · Files · Activity (picture 02). */
-export function TaskProgressTabs({ taskId, details, onChanged, start = "details" }: { taskId: number; details?: ReactNode; onChanged?: () => void; start?: "details" | "updates" | "files" | "activity" }) {
+export function TaskProgressTabs({ taskId, details, onChanged, start = "details", startSheet = false }: { taskId: number; details?: ReactNode; onChanged?: () => void; start?: "details" | "updates" | "files" | "activity"; startSheet?: boolean }) {
   const [tab, setTab] = useState<"details" | "updates" | "files" | "activity">(start);
   const [tick, setTick] = useState(0);
   const { d, error } = useTaskDetail(taskId, tick);
-  const [sheet, setSheet] = useState(false);
+  /* v1.256.0 - ONE LAYER: Add Status Update opens inside this drawer (not a
+     second drawer over it); "close" opens it on Closed */
+  const [sheet, setSheetRaw] = useState<false | "update" | "close">(startSheet ? "update" : false);
+  const setSheet = (v: boolean | "update" | "close") => setSheetRaw(v === true ? "update" : v);
   const { show: toast, node: toastNode } = useSaveToast();
   const changed = (title?: string, sub?: string) => { if (title) toast(title, sub ?? ""); setTick((n) => n + 1); onChanged?.(); };
   if (error) return <p className={tp.warn} role="alert">{error}</p>;
@@ -149,12 +160,20 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
     ["files", L(`Files (${d.task.counts.files})`, `Fail (${d.task.counts.files})`)],
     ["activity", L("Activity", "Aktiviti")],
   ] as const;
+  if (sheet) {
+    return (
+      <div className={tp.wrap} data-testid="task-progress">
+        {toastNode}
+        <UpdateSheet d={d} start={sheet === "close" ? "closed" : undefined} onClose={() => setSheet(false)} onDone={(t, s) => { setSheet(false); changed(t, s); }} />
+      </div>
+    );
+  }
   return (
     <div className={tp.wrap} data-testid="task-progress">
       {toastNode}
       <LineTabs value={tab} onChange={setTab} tabs={tabs} label={L("Task sections", "Bahagian tugasan")} />
       <div hidden={tab !== "details"} className={tp.tabsGap}>
-        <ReviewBar d={d} onChanged={changed} onUpdate={() => setSheet(true)} />
+        <ReviewBar d={d} onChanged={changed} onUpdate={() => setSheet(true)} onClose={() => setSheet("close")} />
         <ExtraFacts d={d} onChanged={changed} />
         {details ?? <DefaultDetails d={d} onChanged={changed} />}
       </div>
@@ -167,12 +186,11 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
       <div hidden={tab !== "activity"} className={tp.tabsGap}>
         {tab === "activity" && <ActivityPanel taskId={d.task.id} tick={tick} />}
       </div>
-      {d.can.update && d.task.status !== "completed" && (
+      {(d.can.update || d.can.close) && d.task.status !== "completed" && (
         <div className={tp.sticky}>
-          <button type="button" className={`${btnClass} ${tp.submit}`} onClick={() => setSheet(true)} data-testid="add-update"><AppIcon name="add" className="erp-icon" />{L("Add Update", "Tambah Kemas Kini")}</button>
+          <button type="button" className={`${btnClass} ${tp.submit}`} onClick={() => setSheet(true)} data-testid="add-update"><AppIcon name="add" className="erp-icon" />{L("Update status", "Kemas kini status")}</button>
         </div>
       )}
-      {sheet && <UpdateSheet d={d} onClose={() => setSheet(false)} onDone={(t, s) => { setSheet(false); changed(t, s); }} />}
     </div>
   );
 }
@@ -188,30 +206,63 @@ export function TaskDrawer({ taskId, onClose, onChanged }: { taskId: number; onC
   );
 }
 
-/* ---------------- Details: the review bar ---------------- */
-function ReviewBar({ d, onChanged, onUpdate }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void; onUpdate: () => void }) {
+/* ---------------- Details: the stages, the next step, the decisions ----------------
+   v1.256.0 (claude/TASK-CLOSURE-AUDIT.md) - the task's stage timeline (the
+   same component as Leave and Claims), the ONE next step in words, the
+   closure in force, and exactly the decisions the server offers this
+   person. Every decision goes to the one transition (tasks-progress.ts). */
+const STAGE_TITLE: Record<string, [string, string]> = {
+  created: ["Created", "Dicipta"], acknowledged: ["Acknowledged", "Diakui"], in_progress: ["In progress", "Sedang berjalan"],
+  review: ["Ready for review", "Sedia untuk semakan"], closed: ["Closed", "Ditutup"], cancelled: ["Cancelled", "Dibatalkan"],
+};
+function taskStages(d: TaskDetail): Stage[] {
+  const t = d.task;
+  return (t.timeline ?? []).map((s) => {
+    const f = s.flags ?? {};
+    const title = s.key === "in_progress" && f.blocked ? L("Blocked", "Terhalang") : s.key === "in_progress" && f.waiting ? L("Waiting for the client", "Menunggu pelanggan")
+      : s.key === "review" && s.state === "returned" ? L("Returned for more work", "Dikembalikan untuk diperbaiki")
+      : L(STAGE_TITLE[s.key]?.[0] ?? s.key, STAGE_TITLE[s.key]?.[1] ?? s.key);
+    const who = [s.who, s.at ? stamp(s.at) : null].filter(Boolean).join(" · ");
+    const sub = s.state === "todo" ? (s.key === "review" ? L("The person who set it approves or returns it", "Yang menetapkan meluluskan atau mengembalikan") : s.key === "closed" ? L("Not closed yet", "Belum ditutup") : L("Not yet", "Belum"))
+      : s.state === "skipped" ? L("Not recorded", "Tidak direkod") : who || undefined;
+    const note = s.key === "in_progress" && f.reopened_at ? L(`Reopened by ${f.reopened_by} · ${stamp(String(f.reopened_at))}: ${s.text ?? ""}`, `Dibuka semula oleh ${f.reopened_by} · ${stamp(String(f.reopened_at))}: ${s.text ?? ""}`)
+      : s.text ?? undefined;
+    const warn = f.exception ? L("Closed with deliverables still open (management exception)", "Ditutup dengan hasil kerja belum siap (pengecualian pengurusan)")
+      : typeof f.late_days === "number" && f.late_days > 0 ? L(`${f.late_days} day(s) after the due date`, `${f.late_days} hari selepas tarikh akhir`) : undefined;
+    return { key: s.key, title, sub, note, warn, state: s.state, aside: s.state === "now" ? L("Now", "Kini") : undefined };
+  });
+}
+const nextLine = (d: TaskDetail): string => {
+  const t = d.task; const out = t.outstanding ?? [];
+  switch (t.next) {
+    case "closed": return L("Closed. It stays in the completed records; an authorised person may reopen it with a reason.", "Ditutup. Ia kekal dalam rekod selesai; orang yang dibenarkan boleh membukanya semula dengan sebab.");
+    case "cancelled": return L("Cancelled. Management may reopen it with a reason.", "Dibatalkan. Pengurusan boleh membukanya semula dengan sebab.");
+    case "review_decide": return L("Ready for review - approve and close it, or return it with what still needs doing.", "Sedia untuk semakan - luluskan dan tutup, atau kembalikan dengan apa yang perlu dibuat.");
+    case "review_wait": return L("Waiting for review - the person who set it, the Project Owner or management approves it or sends it back.", "Menunggu semakan - yang menetapkan, Pemilik Projek atau pengurusan meluluskan atau mengembalikannya.");
+    case "blocked": return L("Blocked - see the latest update for what is in the way.", "Terhalang - lihat kemas kini terkini.");
+    case "waiting_client": return L("Waiting for the client.", "Menunggu pelanggan.");
+    case "outstanding": return L(`${out.length} deliverable(s) still open: ${out.map((x) => x.title).join("; ")}. Tick them when done - the task closes after that.`, `${out.length} hasil kerja belum siap: ${out.map((x) => x.title).join("; ")}. Tandakan apabila siap - tugasan ditutup selepas itu.`);
+    case "close_ready": return t.items.length ? L("Every deliverable is done. Close the task with a short completion summary.", "Semua hasil kerja siap. Tutup tugasan dengan ringkasan penyelesaian.") : L(`Reported ${t.progress}%. When the work is done, close the task with a short completion summary - a percentage never closes it.`, `Dilaporkan ${t.progress}%. Apabila kerja siap, tutup tugasan dengan ringkasan - peratusan tidak menutupnya.`);
+    case "submit_review": return L("When the work is done, submit it for review - the person who set it closes it.", "Apabila kerja siap, hantar untuk semakan - yang menetapkan menutupnya.");
+    default: return d.can.self_set ? L("You set this task yourself - close it when it is done.", "Anda menetapkan tugasan ini sendiri - tutup apabila siap.") : L("Completion is approved by the person who set it, the Project Owner or management.", "Penyelesaian diluluskan oleh yang menetapkan, Pemilik Projek atau pengurusan.");
+  }
+};
+function ReviewBar({ d, onChanged, onUpdate, onClose }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void; onUpdate: () => void; onClose: () => void }) {
   const { prompt, node: promptNode } = usePrompt();
   const { busy, run } = useBusy();
   const [problem, setProblem] = useState("");
   const t = d.task;
-  const decide = (decision: "approve" | "return" | "cancel") => run(async () => {
+  const ask = async (title: string, message: string, confirmLabel: string, danger = false) => (await prompt({ title, message, label: L("Reason", "Sebab"), required: true, variant: danger ? "danger" : "default", confirmLabel }))?.value ?? "";
+  const send = (reopen: boolean, body: Record<string, unknown>, done: [string, string]) => run(async () => {
     setProblem("");
-    let reason = "";
-    if (decision !== "approve") {
-      const got = await prompt({
-        title: decision === "return" ? L("Return for more work", "Kembalikan untuk diperbaiki") : L("Cancel this task", "Batalkan tugasan ini"),
-        message: decision === "return" ? L("Say what still needs doing - the person doing it is told.", "Nyatakan apa yang perlu dibuat - pelaksana dimaklumkan.") : L("The task closes as cancelled, with your reason on its record.", "Tugasan ditutup sebagai dibatalkan, dengan sebab anda dalam rekod."),
-        label: L("Reason", "Sebab"), required: true, variant: decision === "cancel" ? "danger" : "default",
-        confirmLabel: decision === "return" ? L("Return", "Kembalikan") : L("Cancel task", "Batalkan tugasan"),
-      });
-      if (!got) return;
-      reason = got.value;
-    }
-    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/review`, { method: "POST", body: JSON.stringify({ decision, reason }) });
+    const init = { method: "POST", body: JSON.stringify(body) }; // the once-only key rides in the Idempotency-Key header (lib/outbox.ts ONCE_ONLY)
+    const r = reopen ? await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/reopen`, init) : await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/review`, init);
     if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not saved", "Tidak disimpan")); return; }
-    onChanged(decision === "approve" ? L("Approved", "Diluluskan") : decision === "return" ? L("Returned", "Dikembalikan") : L("Cancelled", "Dibatalkan"),
-      decision === "approve" ? L("The task is completed, with your name on the record.", "Tugasan selesai, dengan nama anda dalam rekod.") : L("The people on the task are told.", "Mereka yang terlibat dimaklumkan."));
+    onChanged(done[0], done[1]);
   });
+  const doReturn = async () => { const reason = await ask(L("Return for more work", "Kembalikan untuk diperbaiki"), L("Say what still needs doing - the person doing it is told.", "Nyatakan apa yang perlu dibuat - pelaksana dimaklumkan."), L("Return", "Kembalikan")); if (reason) await send(false, { decision: "return", reason }, [L("Returned", "Dikembalikan"), L("The people on the task are told.", "Mereka yang terlibat dimaklumkan.")]); };
+  const doCancel = async () => { const reason = await ask(L("Cancel this task", "Batalkan tugasan ini"), L("The task closes as cancelled, with your reason on its record.", "Tugasan ditutup sebagai dibatalkan, dengan sebab anda dalam rekod."), L("Cancel task", "Batalkan tugasan"), true); if (reason) await send(false, { decision: "cancel", reason }, [L("Cancelled", "Dibatalkan"), L("The people on the task are told.", "Mereka yang terlibat dimaklumkan.")]); };
+  const doReopen = async () => { const reason = await ask(L("Reopen this task", "Buka semula tugasan ini"), L("It goes back to In progress. The closing record, the checklist and the progress stay as they are.", "Ia kembali kepada Sedang berjalan. Rekod penutupan, senarai semak dan kemajuan kekal."), L("Reopen task", "Buka semula")); if (reason) await send(true, { reason }, [L("Reopened", "Dibuka semula"), L("The task is back in the active lists; the people on it are told.", "Tugasan kembali dalam senarai aktif; mereka yang terlibat dimaklumkan.")]); };
   /* v1.247.0 - a reminder to the assignee: the bell, and the official email
      when the sender is on; with a reason; once per task every 12 hours */
   const remind = () => run(async () => {
@@ -227,28 +278,39 @@ function ReviewBar({ d, onChanged, onUpdate }: { d: TaskDetail; onChanged: (t?: 
     onChanged(L("Reminder sent", "Peringatan dihantar"), r.data?.email ? L(`Notification sent; the email is queued for ${r.data.email_to}.`, `Notifikasi dihantar; e-mel dalam giliran untuk ${r.data.email_to}.`) : L(`Notification sent in the portal. No email: ${r.data?.why ?? "email is off"}.`, `Notifikasi dihantar dalam portal. Tiada e-mel: ${r.data?.why ?? "e-mel dimatikan"}.`));
   });
   const closed = t.status === "completed";
-  const line = closed ? (t.stage === "cancelled" ? L("This task was cancelled.", "Tugasan ini dibatalkan.") : L("This task is completed.", "Tugasan ini selesai."))
-    : t.stage === "review" ? L("Waiting for review - the person who set it, the Project Owner or management approves it or sends it back.", "Menunggu semakan - yang menetapkan, Pemilik Projek atau pengurusan meluluskan atau mengembalikannya.")
-    : t.stage === "blocked" ? L("Blocked - see the latest update for what is in the way.", "Terhalang - lihat kemas kini terkini.")
-    : t.stage === "waiting_client" ? L("Waiting for the client.", "Menunggu pelanggan.")
-    : d.can.self_set ? L("You set this task yourself - close it when it is done.", "Anda menetapkan tugasan ini sendiri - tutup apabila siap.")
-    : L("Completion is approved by the person who set it, the Project Owner or management.", "Penyelesaian diluluskan oleh yang menetapkan, Pemilik Projek atau pengurusan.");
+  const c = t.closure;
+  const stages = taskStages(d);
   return (
-    <div className={tp.bar} data-testid="review-bar">
+    <div className={tp.decide} data-testid="review-bar">
       {promptNode}
-      <span className={tp.barText}>
-        <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L("from the checklist", "daripada senarai semak") : L("reported in updates", "dilaporkan dalam kemas kini")}</span></span>
-        <span className={tp.barSub}>{line}</span>
-        {t.latest_update && <span className={tp.barSub}>{L("Latest", "Terkini")}: “{t.latest_update.body.slice(0, 90)}” — {t.latest_update.by} · {stamp(t.latest_update.at)}</span>}
-      </span>
-      <span className={tp.barCmds}>
-        {d.can.request_review && <button type="button" className={btnSm} onClick={onUpdate}>{L("Submit for review", "Hantar untuk semakan")}</button>}
-        {d.can.review && <button type="button" className={btnSmSuccess} disabled={busy} onClick={() => void decide("approve")}>{L("Approve", "Luluskan")}</button>}
-        {d.can.review && <button type="button" className={btnSm} disabled={busy} onClick={() => void decide("return")}>{L("Return", "Kembalikan")}</button>}
-        {!d.can.review && d.can.approve && !d.can.self_set && !closed && t.stage !== "review" && <button type="button" className={btnSm} disabled={busy} onClick={() => void decide("approve")}>{L("Close as completed", "Tutup sebagai selesai")}</button>}
-        {d.can.cancel && !d.can.self_set && <button type="button" className={btnSmDanger} disabled={busy} onClick={() => void decide("cancel")}>{L("Cancel task", "Batalkan")}</button>}
-        {d.can.remind && <button type="button" className={btnSm} disabled={busy} data-testid="send-reminder" onClick={() => void remind()}>{L("Send reminder", "Hantar peringatan")}</button>}
-      </span>
+      {closed && c && (
+        <div className={t.stage === "cancelled" ? tp.closedOff : tp.closedOk} data-testid="closure">
+          <AppIcon name={t.stage === "cancelled" ? "error" : "success"} className="erp-icon" />
+          <span className={tp.barText}>
+            <strong>{t.stage === "cancelled" ? L(`Cancelled ${stamp(c.at)}`, `Dibatalkan ${stamp(c.at)}`) : L(`Closed ${stamp(c.at)}`, `Ditutup ${stamp(c.at)}`)}{c.by ? ` · ${c.by}` : ""}</strong>
+            {c.summary && <span className={tp.barSub}>{c.summary}</span>}
+            {t.stage !== "cancelled" && (c.late_days ? <span className={tp.barSub}>{L(`Closed ${c.late_days} day(s) after the due date (${day(t.deadline)}).`, `Ditutup ${c.late_days} hari selepas tarikh akhir (${day(t.deadline)}).`)}</span>
+              : t.deadline ? <span className={tp.barSub}>{L("Closed on or before the due date.", "Ditutup pada atau sebelum tarikh akhir.")}</span> : null)}
+          </span>
+        </div>
+      )}
+      {stages.length > 0 && <StageTimeline stages={stages} label={L("Task progress", "Kemajuan tugasan")} testId="task-stages" />}
+      <div className={tp.bar}>
+        <span className={tp.barText}>
+          <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span></span>
+          <span className={tp.barSub} data-testid="next-step">{nextLine(d)}</span>
+          {t.latest_update && <span className={tp.barSub}>{L("Latest", "Terkini")}: “{t.latest_update.body.slice(0, 90)}” — {t.latest_update.by} · {stamp(t.latest_update.at)}</span>}
+        </span>
+        <span className={tp.barCmds}>
+          {d.can.request_review && <button type="button" className={btnSm} onClick={onUpdate}>{L("Submit for review", "Hantar untuk semakan")}</button>}
+          {d.can.close && t.stage === "review" && !d.can.self_set && <button type="button" className={btnSmSuccess} disabled={busy} onClick={onClose}>{L("Approve & close", "Lulus & tutup")}</button>}
+          {d.can.return && <button type="button" className={btnSm} disabled={busy} onClick={() => void doReturn()}>{L("Return", "Kembalikan")}</button>}
+          {d.can.close && (t.stage !== "review" || d.can.self_set) && <button type="button" className={btnSmSuccess} disabled={busy} data-testid="close-task" onClick={onClose}>{L("Close task", "Tutup tugasan")}</button>}
+          {d.can.reopen && <button type="button" className={btnSm} disabled={busy} data-testid="reopen-task" onClick={() => void doReopen()}>{L("Reopen", "Buka semula")}</button>}
+          {d.can.cancel && <button type="button" className={btnSmDanger} disabled={busy} onClick={() => void doCancel()}>{L("Cancel task", "Batalkan")}</button>}
+          {d.can.remind && <button type="button" className={btnSm} disabled={busy} data-testid="send-reminder" onClick={() => void remind()}>{L("Send reminder", "Hantar peringatan")}</button>}
+        </span>
+      </div>
       <Problem text={problem} />
     </div>
   );
@@ -348,10 +410,12 @@ function DefaultDetails({ d, onChanged }: { d: TaskDetail; onChanged: (t?: strin
 }
 
 /* ---------------- Updates & Comments (picture 02) ---------------- */
+const STATUS_KINDS = ["blocker", "waiting_client", "review_request", "review_approved", "review_returned", "cancel", "closed", "closed_with_exception", "reopened"];
 function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void; onUpdate: () => void }) {
   const t = d.task;
   const [data, setData] = useState<{ updates: TUpdate[]; comments: TComment[] } | null>(null);
-  const [show, setShow] = useState<"all" | "updates" | "comments">("all");
+  const [show, setShow] = useState<"all" | "updates" | "comments" | "progress" | "status">("all");
+  const [more, setMore] = useState(false);
   const [mode, setMode] = useState<"comment" | "progress">(d.can.comment ? "comment" : "progress");
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -366,12 +430,22 @@ function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick
     ]).then(([u, c]) => { if (alive) setData({ updates: u.data?.updates ?? [], comments: c.data?.comments ?? [] }); });
     return () => { alive = false; };
   }, [t.id, tick, d.can.comment]);
+  /* v1.256.0 - the owner's timeline: every real event, newest first, the
+     progress each update REPORTED (from -> to, and whether it was the
+     checklist at that moment or a typed figure), ending with the task's
+     creation. Nothing is invented: no row, no entry. */
   const feed = useMemo(() => {
     if (!data) return [];
-    const ups = data.updates.map((u) => ({ key: `u${u.id}`, at: u.created_at, kind: u.kind, who: u.author, photo: u.photo_key, text: u.body, u, c: null as TComment | null }));
-    const cms = data.comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, kind: "comment", who: c.author, photo: c.photo_key, text: c.comment, u: null as TUpdate | null, c }));
-    return [...(show === "comments" ? [] : ups), ...(show === "updates" ? [] : cms)].sort((a, b) => b.at.localeCompare(a.at) || b.key.localeCompare(a.key));
-  }, [data, show]);
+    const chrono = [...data.updates].sort((a, b) => a.id - b.id);
+    let last: number | null = null;
+    const prevOf = new Map<number, number | null>();
+    for (const u of chrono) { if (u.progress_snapshot !== null && u.kind !== "correction") { prevOf.set(u.id, last); last = u.progress_snapshot; } }
+    const ups = data.updates.map((u) => ({ key: `u${u.id}`, at: u.created_at, kind: u.kind, who: u.author, photo: u.photo_key, text: u.body, u, c: null as TComment | null, prev: prevOf.get(u.id) ?? null }));
+    const cms = data.comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, kind: "comment", who: c.author, photo: c.photo_key, text: c.comment, u: null as TUpdate | null, c, prev: null as number | null }));
+    const created = { key: `t${t.id}`, at: t.created_at, kind: "created", who: t.creator ?? t.assignee ?? "", photo: null as string | null, text: L(`Task "${t.title}" was created and assigned to ${t.assignee ?? "—"}.`, `Tugasan "${t.title}" dicipta dan ditugaskan kepada ${t.assignee ?? "—"}.`), u: null as TUpdate | null, c: null as TComment | null, prev: null as number | null };
+    const pick = show === "comments" ? cms : show === "updates" ? ups : show === "progress" ? ups.filter((e) => ["progress", "correction"].includes(e.kind)) : show === "status" ? ups.filter((e) => STATUS_KINDS.includes(e.kind)) : [...ups, ...cms];
+    return [...pick.sort((a, b) => b.at.localeCompare(a.at) || b.key.localeCompare(a.key)), ...(show === "all" || show === "updates" ? [created] : [])];
+  }, [data, show, t.id, t.created_at, t.creator, t.assignee, t.title]);
   const post = () => run(async () => {
     setProblem("");
     const body = text.trim();
@@ -432,36 +506,56 @@ function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick
       )}
       {d.can.assist && <AssistOffer taskId={t.id} onChanged={onChanged} />}
       <div className={tp.filter} role="group" aria-label={L("Show", "Tunjuk")}>
-        {(["all", "updates", "comments"] as const).filter((k) => k !== "comments" || d.can.comment).map((k) => (
-          <button key={k} type="button" className={btnSm} aria-pressed={show === k} onClick={() => setShow(k)}>{{ all: L("All", "Semua"), updates: L("Updates", "Kemas kini"), comments: L("Comments", "Komen") }[k]}</button>
+        {(["all", "updates", "comments", "progress", "status"] as const).filter((k) => k !== "comments" || d.can.comment).map((k) => (
+          <button key={k} type="button" className={btnSm} aria-pressed={show === k} onClick={() => { setShow(k); setMore(false); }}>{{ all: L("All", "Semua"), updates: L("Updates", "Kemas kini"), comments: L("Comments", "Komen"), progress: L("Progress", "Kemajuan"), status: L("Status change", "Perubahan status") }[k]}</button>
         ))}
       </div>
-      {data === null ? <SkelRows rows={3} /> : feed.length === 0 ? <p className={tp.empty}>{L("No progress report yet.", "Belum ada laporan kemajuan.")}</p> : (
-        <ol className={tp.feed} data-testid="task-feed">
-          {feed.map((e) => (
-            <li key={e.key} className={`${tp.entry} ${e.kind === "comment" ? tp.entryMuted : ""}`} data-kind={e.kind}>
-              <span className={tp.entryHead}>
-                <span className={tp.entryWho}><Avatar name={e.who} photoKey={e.photo} size="sm" />{e.who}</span>
-                <span>· {stamp(e.at)}</span>
-                <KindChip kind={e.kind} />
-                {e.u && e.u.progress_snapshot !== null && e.u.kind !== "correction" && <span>{e.u.progress_snapshot}%</span>}
-                {e.u && (e.u.author_id === d.me || d.can.reassign) && !["correction", "review_approved", "review_returned", "cancel", "assist_request"].includes(e.u.kind) && t.status !== "completed" && d.can.update && (
-                  <button type="button" className={tp.entryCmd} onClick={() => void correct(e.u!)}>{L("Correct", "Betulkan")}</button>
-                )}
-              </span>
-              <p className={tp.entryText}>{e.text}</p>
-              {e.u && (e.u.completed_work || e.u.blockers || e.u.next_action) && (
-                <p className={tp.entryExtra}>
-                  {e.u.completed_work && <span><b>{L("Done", "Siap")}:</b> {e.u.completed_work}</span>}
-                  {e.u.blockers && <span><b>{L("Blocking", "Halangan")}:</b> {e.u.blockers}</span>}
-                  {e.u.next_action && <span><b>{L("Next", "Seterusnya")}:</b> {e.u.next_action}</span>}
-                </p>
-              )}
-              {e.c && e.c.mentions.length > 0 && <p className={tp.entryExtra}>{L("Mentions", "Sebut")}: {e.c.mentions.map((m) => `@${m.name}`).join(", ")}</p>}
-              <FileStrip taskId={t.id} files={(e.u?.files ?? e.c?.files ?? []) as TFile[]} />
-            </li>
-          ))}
-        </ol>
+      {data === null ? <SkelRows rows={3} /> : feed.length === 0 ? <p className={tp.empty}>{L("Nothing recorded here yet.", "Belum ada rekod di sini.")}</p> : (
+        <>
+          <ol className={tp.tl} data-testid="task-feed">
+            {(more ? feed : feed.slice(0, 10)).map((e) => {
+              const tone = e.kind === "created" || e.kind === "closed" || e.kind === "review_approved" ? tp.mGreen : e.kind === "comment" || e.kind === "assist_request" ? tp.mGrey
+                : ["blocker", "review_returned", "cancel"].includes(e.kind) ? tp.mRed : ["waiting_client", "review_request", "reopened", "closed_with_exception"].includes(e.kind) ? tp.mAmber
+                : e.kind === "correction" ? tp.mNavy : tp.mGold;
+              const title = e.kind === "progress" ? L("Progress update", "Kemas kini kemajuan") : e.kind === "comment" ? L("Comment", "Komen") : e.kind === "created" ? L("Task created", "Tugasan dicipta")
+                : L((KIND[e.kind] ?? [e.kind, e.kind])[0], (KIND[e.kind] ?? [e.kind, e.kind])[1]);
+              const snap = e.u && e.u.progress_snapshot !== null && e.u.kind !== "correction" ? e.u.progress_snapshot : null;
+              return (
+                <li key={e.key} className={tp.tlRow} data-kind={e.kind}>
+                  <span className={tp.tlWhen}>{day(e.at)}<br />{stamp(e.at).split(", ")[1] ?? ""}</span>
+                  <span className={`${tp.tlMark} ${tone}`} aria-hidden="true" />
+                  <div className={`${tp.tlCard} ${e.kind === "comment" ? tp.entryMuted : ""}`}>
+                    <span className={tp.tlHead}><strong>{title}</strong><KindChip kind={e.kind === "progress" ? "progress" : e.kind} /></span>
+                    <p className={tp.entryText}>{e.text}</p>
+                    {e.u && (e.u.completed_work || e.u.blockers || e.u.next_action) && (
+                      <p className={tp.entryExtra}>
+                        {e.u.completed_work && <span><b>{L("Done", "Siap")}:</b> {e.u.completed_work}</span>}
+                        {e.u.blockers && <span><b>{L("Blocking", "Halangan")}:</b> {e.u.blockers}</span>}
+                        {e.u.next_action && <span><b>{L("Next", "Seterusnya")}:</b> {e.u.next_action}</span>}
+                      </p>
+                    )}
+                    {snap !== null && (
+                      <span className={tp.tlProg}>
+                        <span className={tp.track}><span className={tp.fill} style={{ width: `${snap}%` }} /></span>
+                        <span className={tp.tlPct}>{e.prev !== null ? `${e.prev}% → ${snap}%` : `${snap}%`}</span>
+                        <span className={tp.barSub}>{e.u!.progress_source === "checklist" ? L("the checklist at that time", "senarai semak pada masa itu") : L("reported", "dilaporkan")}</span>
+                      </span>
+                    )}
+                    {e.c && e.c.mentions.length > 0 && <p className={tp.entryExtra}>{L("Mentions", "Sebut")}: {e.c.mentions.map((m) => `@${m.name}`).join(", ")}</p>}
+                    <FileStrip taskId={t.id} files={(e.u?.files ?? e.c?.files ?? []) as TFile[]} />
+                    <span className={tp.entryHead}>
+                      {e.who && <span className={tp.entryWho}><Avatar name={e.who} photoKey={e.photo} size="sm" />{e.who}</span>}
+                      {e.u && (e.u.author_id === d.me || d.can.reassign) && !["correction", "review_approved", "review_returned", "cancel", "assist_request", "closed", "closed_with_exception", "reopened"].includes(e.u.kind) && t.status !== "completed" && d.can.update && (
+                        <button type="button" className={tp.entryCmd} onClick={() => void correct(e.u!)}>{L("Correct", "Betulkan")}</button>
+                      )}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          {!more && feed.length > 10 && <button type="button" className={`${btnSm} ${tp.moreBtn}`} onClick={() => setMore(true)}>{L(`Show more history (${feed.length - 10})`, `Tunjuk sejarah lagi (${feed.length - 10})`)}<AppIcon name="down" className="erp-icon" /></button>}
+        </>
       )}
     </>
   );
@@ -595,26 +689,66 @@ function ActivityPanel({ taskId, tick }: { taskId: number; tick: number }) {
   );
 }
 
-/* ---------------- Add Status Update (picture 03) ---------------- */
-export function UpdateSheet({ d, onClose, onDone }: { d: TaskDetail; onClose: () => void; onDone: (title: string, sub?: string) => void }) {
+/* ---------------- Add Status Update (picture 03; v1.256.0 the owner's mockup) ----------------
+   ONE form for every status move: In Progress, Waiting for Client, On Hold /
+   Blocked, Ready for Review (the assignee of a task somebody else set) and
+   Closed (whoever the server lets close it). It opens INSIDE the task drawer
+   - one layer, one scroll, the Post button kept above the phone's bar.
+   Closing needs a completion summary and every deliverable ticked; a
+   manager may close with the reason for what is still open (D1). */
+type SheetState = "in_progress" | "waiting_client" | "blocked" | "review" | "closed";
+const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; start?: SheetState; onClose: () => void; onDone: (title: string, sub?: string) => void }) {
   const t = d.task;
-  const initial = t.stage === "blocked" ? "blocked" : t.stage === "waiting_client" ? "waiting_client" : "in_progress";
-  const [state, setState] = useState<"in_progress" | "waiting_client" | "blocked" | "review">(initial);
+  const initial: SheetState = start ?? (t.stage === "blocked" ? "blocked" : t.stage === "waiting_client" ? "waiting_client" : "in_progress");
+  const [state, setState] = useState<SheetState>(initial);
   const [progress, setProgress] = useState<number>(t.progress);
   const [text, setText] = useState("");
-  const [extra, setExtra] = useState({ completed_work: "", blockers: "", next_action: "" });
+  const [open, setOpen] = useState({ completed_work: false, outstanding: false, blockers: initial === "blocked", next_action: false, follow_up: false });
+  const [extra, setExtra] = useState({ completed_work: "", outstanding: "", blockers: "", next_action: "", follow_up: "" });
   const [files, setFiles] = useState<File[]>([]);
+  const [exception, setException] = useState(false);
+  const [why, setWhy] = useState("");
   const [problem, setProblem] = useState("");
+  const [key] = useState(newKey);
+  const [todayMyt] = useState(() => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10));
   const { busy, run } = useBusy();
   const fromChecklist = t.progress_source === "checklist" && t.items.length > 0;
   const done = t.items.filter((i) => i.done).length;
+  const outstanding = t.outstanding ?? t.items.filter((i) => !i.done).map((i) => ({ id: i.id, title: i.title }));
+  const approving = t.stage === "review" && !d.can.self_set;
+  const closing = state === "closed";
+  const blockedClose = closing && outstanding.length > 0 && !(exception && d.can.close_exception);
+  const options: [SheetState, string, string, boolean][] = [
+    ["in_progress", "In Progress", "Sedang Berjalan", !!d.can.update],
+    ["waiting_client", "Waiting for Client", "Menunggu Pelanggan", !!d.can.update],
+    ["blocked", "On Hold / Blocked", "Ditangguh / Terhalang", !!d.can.update],
+    ["review", "Ready for Review", "Sedia untuk Semakan", !!d.can.request_review],
+    ["closed", approving ? "Closed (approve the review)" : "Closed", approving ? "Ditutup (luluskan semakan)" : "Ditutup", !!d.can.close],
+  ];
   const submit = () => run(async () => {
     setProblem("");
+    if (closing) {
+      if (!approving && text.trim().length < 10) { setProblem(L("Write the completion summary - what was delivered (at least 10 characters).", "Tulis ringkasan penyelesaian - apa yang diserahkan (sekurang-kurangnya 10 aksara).")); return; }
+      if (outstanding.length && !exception) { setProblem(L("Tick the open deliverables first, or close with an exception.", "Tandakan hasil kerja yang belum siap dahulu, atau tutup dengan pengecualian.")); return; }
+      if (exception && why.trim().length < 10) { setProblem(L("Give the reason for closing with deliverables open (at least 10 characters).", "Beri sebab menutup dengan hasil kerja belum siap (sekurang-kurangnya 10 aksara).")); return; }
+      const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${t.id}/close`, { method: "POST", body: JSON.stringify({ summary: text.trim(), exception: exception || undefined, exception_reason: exception ? why.trim() : undefined, client_key: key }) });
+      if (!r.ok) { setProblem(r.data?.error?.message ?? L("Not closed - check the connection and try again. Nothing was recorded.", "Tidak ditutup - semak sambungan dan cuba lagi. Tiada yang direkodkan.")); return; }
+      const bad = files.length ? await uploadFiles(t.id, files, {}) : "";
+      onDone(L("Task closed", "Tugasan ditutup"), bad ? L(`Closed; a file was not attached - ${bad}`, `Ditutup; fail tidak dilampirkan - ${bad}`) : L("Closed with your name, the time and your summary. It moves to the completed records.", "Ditutup dengan nama anda, masa dan ringkasan anda. Ia berpindah ke rekod selesai."));
+      return;
+    }
     if (!text.trim()) { setProblem(L("Write the update.", "Tulis kemas kini.")); return; }
     if (state === "blocked" && !text.trim() && !extra.blockers.trim()) { setProblem(L("Say what is blocking the task.", "Nyatakan halangan.")); return; }
     const kind = state === "blocked" ? "blocker" : state === "waiting_client" ? "waiting_client" : state === "review" ? "review_request" : "progress";
+    const next = [open.next_action ? extra.next_action.trim() : "", open.follow_up && extra.follow_up ? L(`follow up by ${day(extra.follow_up)}`, `susulan sebelum ${day(extra.follow_up)}`) : ""].filter(Boolean).join(" - ");
+    const body = [text.trim(), open.outstanding && extra.outstanding.trim() ? `${L("Outstanding", "Belum siap")}: ${extra.outstanding.trim()}` : ""].filter(Boolean).join("\n");
     const r = await api<{ id?: number; error?: { message?: string } }>(`/staff/tasks/${t.id}/updates`, { method: "POST", body: JSON.stringify({
-      kind, body: text.trim(), ...extra, ...(!fromChecklist && progress !== t.progress ? { progress } : {}),
+      kind, body: body.slice(0, 500), client_key: key,
+      ...(open.completed_work && extra.completed_work.trim() ? { completed_work: extra.completed_work.trim() } : {}),
+      ...(open.blockers && extra.blockers.trim() ? { blockers: extra.blockers.trim() } : {}),
+      ...(next ? { next_action: next } : {}),
+      ...(!fromChecklist && progress !== t.progress ? { progress } : {}),
     }) });
     if (!r.ok || !r.data?.id) { setProblem(r.data?.error?.message ?? L("Not saved - check the connection and try again. Nothing was recorded.", "Tidak disimpan - semak sambungan dan cuba lagi. Tiada yang direkodkan.")); return; }
     const bad = files.length ? await uploadFiles(t.id, files, { update: r.data.id }) : "";
@@ -623,58 +757,80 @@ export function UpdateSheet({ d, onClose, onDone }: { d: TaskDetail; onClose: ()
         : state === "review" ? L("The person who set it is told; they approve it or send it back.", "Yang menetapkan dimaklumkan; mereka meluluskan atau mengembalikannya.")
         : L("It stays on the task's record with your name and the time.", "Ia kekal dalam rekod tugasan dengan nama anda dan masa."));
   });
+  const DETAILS = [
+    ["completed_work", L("Completed work", "Kerja siap")], ["outstanding", L("Outstanding work", "Kerja belum siap")], ["blockers", L("Issues / Blockers", "Isu / Halangan")],
+    ["next_action", L("Next action", "Tindakan seterusnya")], ["follow_up", L("Target / Follow-up date", "Tarikh sasaran / susulan")],
+  ] as const;
+  const PCT = [...new Set([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, t.progress])].sort((a, b) => a - b);
   return (
-    <SideDrawer open onClose={onClose} full title={L("Add Status Update", "Tambah Kemas Kini Status")}
-      footer={<button type="button" className={`${btnClass} ${tp.submit}`} disabled={busy} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="post-update">{busy ? L("Posting…", "Menghantar…") : L("Post Update", "Hantar Kemas Kini")}</button>}>
-      <div className={tp.form} data-testid="update-sheet">
+    <section className={tp.sheet} data-testid="update-sheet" aria-label={L("Add Status Update", "Tambah Kemas Kini Status")}>
+      <div className={tp.sheetHead}>
+        <button type="button" className={btnSm} onClick={onClose} data-testid="sheet-back"><AppIcon name="previous" className="erp-icon" />{L("Back to task", "Kembali ke tugasan")}</button>
+        <h3 className={tp.sheetTitle}>{L("Add Status Update", "Tambah Kemas Kini Status")}</h3>
+      </div>
+      <div className={tp.form}>
         <div className={tp.taskHead}>
           <span className={tp.taskHeadIcon}><AppIcon name="document" /></span>
           <div><p className={tp.taskHeadName}>{t.title}</p><p className={tp.taskHeadSub}>{t.link?.quotation ?? t.link?.label ?? L(`Due ${day(t.deadline)}`, `Akhir ${day(t.deadline)}`)}</p></div>
         </div>
-        <label className={fieldLabel}>{L("Status", "Status")}
-          <select className={selectClass} value={state} onChange={(e) => setState(e.target.value as typeof state)} aria-label={L("Status", "Status")}>
-            <option value="in_progress">{L("In Progress", "Sedang Berjalan")}</option>
-            <option value="waiting_client">{L("Waiting for Client", "Menunggu Pelanggan")}</option>
-            <option value="blocked">{L("On Hold / Blocked", "Ditangguh / Terhalang")}</option>
-            {d.can.request_review && <option value="review">{L("Ready for Review", "Sedia untuk Semakan")}</option>}
-          </select>
-        </label>
-        <div className={fieldLabel}>
-          <span>{L("Progress", "Kemajuan")}</span>
-          {fromChecklist ? (
-            <>
-              <span className={tp.range}><span className={tp.track}><span className={tp.fill} style={{ width: `${t.progress}%` }} /></span><span className={tp.pct}>{t.progress}%</span></span>
-              <p className={tp.note}>{L(`From the checklist (${done}/${t.items.length}) - tick the deliverables to move it.`, `Daripada senarai semak (${done}/${t.items.length}) - tanda hasil kerja untuk menggerakkannya.`)}</p>
-            </>
-          ) : (
-            <span className={tp.range}>
-              <input type="range" min={0} max={100} step={5} value={progress} onChange={(e) => setProgress(Number(e.target.value))} aria-label={L("Progress percent", "Peratus kemajuan")} />
-              <span className={tp.pct}>{progress}%</span>
-            </span>
-          )}
+        <div className={tp.twoCol}>
+          <label className={fieldLabel}>{L("Status *", "Status *")}
+            <select className={selectClass} value={state} onChange={(e) => setState(e.target.value as SheetState)} aria-label={L("Status", "Status")} data-testid="sheet-status">
+              {options.filter((o) => o[3]).map(([v, en, ms]) => <option key={v} value={v}>{L(en, ms)}</option>)}
+            </select>
+          </label>
+          <label className={fieldLabel}>{L("Progress", "Kemajuan")}
+            {fromChecklist || closing
+              ? <span className={tp.readonly}>{fromChecklist ? L(`${t.progress}% · checklist ${done}/${t.items.length}`, `${t.progress}% · senarai semak ${done}/${t.items.length}`) : `${t.progress}%`}</span>
+              : <select className={selectClass} value={progress} onChange={(e) => setProgress(Number(e.target.value))} aria-label={L("Progress percent", "Peratus kemajuan")}>{PCT.map((p) => <option key={p} value={p}>{p}%</option>)}</select>}
+          </label>
         </div>
-        <label className={fieldLabel}>{L("Update / Comment", "Kemas kini / Komen")}
-          <textarea className={textareaClass} rows={4} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
+        <span className={tp.range}><span className={tp.track}><span className={tp.fill} style={{ width: `${fromChecklist || closing ? t.progress : progress}%` }} /></span><span className={tp.pct}>{fromChecklist || closing ? t.progress : progress}%</span></span>
+        {fromChecklist && !closing && <p className={tp.note}>{L(`From the checklist (${done}/${t.items.length}) - tick the deliverables to move it. A percentage never closes the task.`, `Daripada senarai semak (${done}/${t.items.length}) - tanda hasil kerja untuk menggerakkannya. Peratusan tidak menutup tugasan.`)}</p>}
+        <label className={fieldLabel}>{closing ? (approving ? L("Approval note (optional)", "Nota kelulusan (pilihan)") : L("Completion summary *", "Ringkasan penyelesaian *")) : L("Update / Comment *", "Kemas kini / Komen *")}
+          <textarea className={textareaClass} rows={4} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} data-testid="sheet-text"
+            placeholder={closing ? L("What was delivered, and where it is", "Apa yang diserahkan, dan di mana") : L("What was done, what is next…", "Apa yang siap, apa seterusnya…")} />
         </label>
-        <span className={tp.counter}>{text.length}/500</span>
-        <details open={state === "blocked"}>
-          <summary className={tp.note}>{L("Completed work, blockers, next action", "Kerja siap, halangan, tindakan seterusnya")}</summary>
-          <div className={tp.extras}>
-            {(["completed_work", "blockers", "next_action"] as const).map((k) => (
-              <label key={k} className={fieldLabel}>{{ completed_work: L("Completed work", "Kerja siap"), blockers: L("What is blocking it", "Apa yang menghalang"), next_action: L("Next action", "Tindakan seterusnya") }[k]}
-                <input className={inputClass} maxLength={1000} value={extra[k]} onChange={(e) => setExtra({ ...extra, [k]: e.target.value })} />
-              </label>
-            ))}
+        <span className={tp.counter}>{text.length} / 500</span>
+        {closing && outstanding.length > 0 && (
+          <div className={tp.outstanding} data-testid="sheet-outstanding">
+            <p className={tp.outTitle}>{L(`${outstanding.length} deliverable(s) still open`, `${outstanding.length} hasil kerja belum siap`)}</p>
+            <ul>{outstanding.map((o) => <li key={o.id}>{o.title}</li>)}</ul>
+            {d.can.close_exception ? (
+              <>
+                <label className={tp.check}><input type="checkbox" checked={exception} onChange={(e) => setException(e.target.checked)} />{L("Close anyway, as a management exception (the items stay unticked)", "Tutup juga, sebagai pengecualian pengurusan (item kekal tidak bertanda)")}</label>
+                {exception && <label className={fieldLabel}>{L("Reason for the exception *", "Sebab pengecualian *")}<input className={inputClass} maxLength={500} value={why} onChange={(e) => setWhy(e.target.value)} /></label>}
+              </>
+            ) : <p className={tp.note}>{L("Tick them in the checklist when they are done - then close the task.", "Tandakan dalam senarai semak apabila siap - kemudian tutup tugasan.")}</p>}
           </div>
-        </details>
+        )}
+        {!closing && (
+          <fieldset className={tp.details}>
+            <legend className={tp.outTitle}>{L("Update details (optional)", "Butiran kemas kini (pilihan)")}</legend>
+            {DETAILS.map(([k, label]) => (
+              <div key={k} className={tp.detailRow}>
+                <label className={tp.check}><input type="checkbox" checked={open[k]} onChange={(e) => setOpen({ ...open, [k]: e.target.checked })} />{label}</label>
+                {open[k] && (k === "follow_up"
+                  ? <input type="date" className={inputClass} aria-label={label} min={todayMyt} value={extra.follow_up} onChange={(e) => setExtra({ ...extra, follow_up: e.target.value })} />
+                  : <input className={inputClass} aria-label={label} maxLength={k === "outstanding" ? 300 : 1000} value={extra[k]} onChange={(e) => setExtra({ ...extra, [k]: e.target.value })} />)}
+              </div>
+            ))}
+          </fieldset>
+        )}
         {d.can.files && (
           <label className={tp.attach}><AppIcon name="attach" className="erp-icon" />{files.length ? L(`${files.length} file(s) attached`, `${files.length} fail dilampirkan`) : L("Attach files (optional)", "Lampirkan fail (pilihan)")}
             <input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp,.doc,.docx" onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 5))} />
           </label>
         )}
-        {state === "review" && <p className={tp.note}>{L("Your task goes for review. It is completed when the person who set it (or the Project Owner or management) approves it.", "Tugasan anda dihantar untuk semakan. Ia selesai apabila yang menetapkan (atau Pemilik Projek atau pengurusan) meluluskannya.")}</p>}
+        {state === "review" && <p className={tp.infoNote}>{L("Your task goes for review. It is closed when the person who set it (or the Project Owner or management) approves it.", "Tugasan anda dihantar untuk semakan. Ia ditutup apabila yang menetapkan (atau Pemilik Projek atau pengurusan) meluluskannya.")}</p>}
+        {closing && <p className={tp.okNote}><b>{L("Closed", "Ditutup")}</b> {L("marks the task complete and final, with your name and the time. An authorised person can reopen it, with a reason, if more work is needed.", "menandakan tugasan selesai dan muktamad, dengan nama anda dan masa. Orang yang dibenarkan boleh membukanya semula, dengan sebab, jika perlu.")}</p>}
         <Problem text={problem} />
+        <div className={tp.sticky}>
+          <button type="button" className={`${btnClass} ${tp.submit}`} disabled={busy || blockedClose} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="post-update">
+            {busy ? L("Saving…", "Menyimpan…") : closing ? (approving ? L("Approve & close", "Lulus & tutup") : L("Close task", "Tutup tugasan")) : L("Post Update", "Hantar Kemas Kini")}
+          </button>
+        </div>
       </div>
-    </SideDrawer>
+    </section>
   );
 }

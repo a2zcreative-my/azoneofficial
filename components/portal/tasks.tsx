@@ -24,12 +24,12 @@ import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { taskFigures } from "@/lib/task-figures"; // v1.203.0
-import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, inputClassSm } from "@/lib/ui-styles";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
 import { TaskMailPanel } from "@/components/portal/task-mail-panel"; // v1.247.0
-import { StateChip, TaskProgressTabs, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
+import { StateChip, TaskProgressTabs, day, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
@@ -68,6 +68,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     quotation_id: 0, // v1.246.2 - set under a quotation: the task joins its project
   });
   const [openTask, setOpenTask] = useState<number | null>(null);
+  const [sheetFor, setSheetFor] = useState<number | null>(null); // v1.256.0 - the task opened straight on Add Status Update
   const [items, setItems] = useState<TaskItem[] | null>(null);
   /* v1.246.2 - the quotations this person may set a task under (their own,
      or every live one for the CEO, COO and CCO); read when the drawer opens */
@@ -163,7 +164,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     const r = await api<{ items: TaskItem[] }>(`/staff/tasks/${id}/items`);
     if (r.ok && r.data) setItems(r.data.items ?? []);
   };
-  const closeDetail = () => { setOpenTask(null); setItems(null); setEditing(null); };
+  const closeDetail = () => { setOpenTask(null); setItems(null); setEditing(null); setSheetFor(null); };
   const toggleItem = async (taskId: number, itemId: number) => {
     const r = await api<{ done: number; progress: number }>(
       `/staff/tasks/${taskId}/items/${itemId}/toggle`,
@@ -283,36 +284,16 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const isAssigned = (t: Task) => t.created_by != null && t.assigned_to != null && t.created_by !== t.assigned_to;
   const unacked = (t: Task) => isAssigned(t) && t.acknowledged === 0 && t.status !== "completed";
 
+  /* v1.256.0 (TASK-CLOSURE-AUDIT D4) - the status dropdown on cards, rows and
+     the drawer footer is gone: it was a second way to close and reopen,
+     with no summary, no checklist check and no reason. Each place shows the
+     status and opens the ONE Add Status Update form inside the task. */
   const statusSelect = (t: Task) => (
-    <select
-      className={selectClassSm}
-      aria-label={`${L("Status", "Status")} — ${t.title}`}
-      value={t.status}
-      onChange={(e) =>
-        void update(t.id, {
-          status: e.target.value,
-          progress:
-            e.target.value === "completed" ? 100 : t.progress,
-        })
-      }
-    >
-      {[
-        ["open", "Open"],
-        ["in_progress", "In progress"], // v1.247.1 - one word for in_progress everywhere (the project table and the task drawer say In Progress)
-        ["completed", "Closed"],
-      ].filter(([v]) => v !== "completed" || !isAssigned(t) || t.status === "completed").map(([v, lbl]) => ( /* v1.246.0 (T-2) - a task somebody else set is closed by its reviewer, in the drawer */
-        <option key={v} value={v}>
-          {L(
-            lbl!,
-            v === "open"
-              ? "Terbuka"
-              : v === "in_progress"
-                ? "Sedang dibuat"
-                : "Selesai"
-          )}
-        </option>
-      ))}
-    </select>
+    <span className={tk.statusCell}>
+      <StateChip status={t.status} stage={t.stage ?? null} />
+      {t.status === "completed" && t.closed_at ? <span className={tk.muted}>{day(t.closed_at)}{t.closed_late_days ? L(` · ${t.closed_late_days}d late`, ` · lewat ${t.closed_late_days}h`) : ""}</span> : null}
+      {t.status !== "completed" && <button type="button" className={btnSm} aria-label={`${L("Update status", "Kemas kini status")} — ${t.title}`} onClick={() => { setSheetFor(t.id); void openChecklist(t.id); }}>{L("Update", "Kemas kini")}</button>}
+    </span>
   );
   const ackControl = (t: Task) => unacked(t) ? (
     isMine(t) ? (
@@ -1393,15 +1374,17 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             subtitle={<span className={tk.badges}>
               <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
               <StateChip status={t.status} stage={t.stage ?? null} />{/* v1.246.0 - status and stage together */}
-              {t.deadline && <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`Overdue — was due ${dmy(t.deadline)}`, `Lewat — sepatutnya ${dmy(t.deadline)}`) : L(`Due ${dmy(t.deadline)}`, `Perlu siap ${dmy(t.deadline)}`)}</span>}
+              {t.deadline && (t.status === "completed"
+                ? <span className={chipNeutral}>{t.closed_late_days ? L(`Was due ${dmy(t.deadline)} · closed ${t.closed_late_days} day(s) late`, `Sepatutnya ${dmy(t.deadline)} · ditutup lewat ${t.closed_late_days} hari`) : L(`Was due ${dmy(t.deadline)}`, `Sepatutnya ${dmy(t.deadline)}`)}</span>
+                : <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`Overdue — was due ${dmy(t.deadline)}`, `Lewat — sepatutnya ${dmy(t.deadline)}`) : L(`Due ${dmy(t.deadline)}`, `Perlu siap ${dmy(t.deadline)}`)}</span>)}
             </span>}
-            footer={<span className={tk.drawerFoot}>{statusSelect(t)}{ackControl(t)}{deleteBtn(t)}</span>}>
+            footer={(ackControl(t) || deleteBtn(t)) ? <span className={tk.drawerFoot}>{ackControl(t)}{deleteBtn(t)}</span> : undefined}>
             <div className={tk.detail} data-record={`task:${t.id}`}>
               {/* v1.246.0 - Details (the task information and checklist, as
                   before) · Updates & Comments · Files · Activity, the review
                   bar and the helpers: task-progress.tsx, the same pieces the
                   project rows and the phone open */}
-              <TaskProgressTabs key={t.id} taskId={t.id} onChanged={() => void load()} details={<>
+              <TaskProgressTabs key={`${t.id}:${sheetFor === t.id ? "s" : "d"}`} taskId={t.id} startSheet={sheetFor === t.id} onChanged={() => { setSheetFor(null); void load(); }} details={<>
               <section className={tk.detailSec} aria-label={L("Task information", "Maklumat tugasan")}>
                 <div className={tk.detailHead}>
                   <p className={tk.title}>{L("Task information", "Maklumat tugasan")}</p>

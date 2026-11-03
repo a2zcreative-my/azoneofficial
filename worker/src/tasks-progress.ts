@@ -70,7 +70,9 @@ export const FILE_TYPES: Record<string, { max: number; kind: "image" | "document
 /** The kinds an update on a TASK may be posted as (review_* and cancel are written by /review). */
 const TASK_KINDS = ["progress", "blocker", "waiting_client", "review_request", "correction", "assist_request"] as const;
 /** The kinds that count as the task's LATEST UPDATE - never a comment, never a file. */
-export const LATEST_KINDS = ["progress", "blocker", "waiting_client", "review_request", "review_approved", "review_returned", "correction", "cancel"];
+export const LATEST_KINDS = ["progress", "blocker", "waiting_client", "review_request", "review_approved", "review_returned", "correction", "cancel", "closed", "closed_with_exception", "reopened"];
+/** v1.256.0 - the rows that close a task (the latest one after the latest reopening is THE closure) */
+export const CLOSING_KINDS = ["review_approved", "closed", "closed_with_exception", "cancel"];
 
 export async function loadTask(env: Env, id: number | string): Promise<TaskRow | null> {
   return env.DB.prepare(`SELECT * FROM tasks WHERE id = ?1`).bind(Number(id)).first<TaskRow>();
@@ -252,6 +254,204 @@ export async function appendTaskUpdate(
   return json({ id: row.id, existing: false, status, stage, progress, progress_source: source }, 201);
 }
 
+/* =====================================================================
+ * v1.256.0 - ONE TRANSITION (the owner's "Task Progress Timeline 2.1,
+ * Status Updates, Closure & Reopen Workflow", claude/TASK-CLOSURE-AUDIT.md,
+ * his "approved", 03-11-2026: D1 a manager may close with outstanding
+ * deliverables, with a reason, recorded as an exception; D2 whoever may
+ * close a task reopens it, a cancelled one only a manager; D3 0169 adds the
+ * closed / closed_with_exception / reopened kinds; D4 the card and footer
+ * dropdowns are gone - every screen calls this).
+ *
+ * Closed is the existing `completed` state (Cancelled = completed +
+ * stage cancelled); no second status, no second state machine. Each
+ * decision is ONE batch: the progress row is written only if the task is
+ * still in the state that was read, and the task moves only if that row
+ * was written - so two presses, a retry or two people at once make one
+ * decision, one row, one notice. A percentage never closes a task.
+ * ===================================================================== */
+export type TaskDecision = "close" | "return" | "cancel" | "reopen";
+const OPEN_OF = (p: ProjectRow | null) => !p || OPEN_PROJECT.includes(p.status);
+/** what this person may decide on this task now (the screens show exactly these) */
+export function decisionsOf(t: TaskRow, a: TaskAccess) {
+  const projectOpen = OPEN_OF(a.project);
+  return {
+    close: a.open && a.review,                                   // self-set: the assignee or a manager; else the reviewer (never the assignee)
+    close_exception: a.open && a.manage,                         // D1
+    return: a.open && a.review && !a.selfSet && t.stage === "review",
+    cancel: a.open && (a.manage || (a.creator && !a.assignee)),
+    reopen: t.status === "completed" && projectOpen && (t.stage === "cancelled" ? a.manage : a.review), // D2
+  };
+}
+async function outstandingOf(env: Env, taskId: number): Promise<{ id: number; title: string }[]> {
+  return (await env.DB.prepare(`SELECT id, title FROM task_items WHERE task_id = ?1 AND done = 0 ORDER BY sort, id`).bind(taskId).all<{ id: number; title: string }>().catch(() => ({ results: [] as { id: number; title: string }[] }))).results;
+}
+
+export async function transitionTask(
+  env: Env, user: StaffUser, t: TaskRow, a: TaskAccess, decision: TaskDecision,
+  input: { summary?: string; reason?: string; exception?: boolean; key?: string | null },
+): Promise<Response> {
+  const can = decisionsOf(t, a);
+  const summary = (input.summary ?? "").trim().slice(0, 1000);
+  const reason = (input.reason ?? "").trim().slice(0, 500);
+  if (input.key) {
+    const again = await env.DB.prepare(`SELECT id, kind, status_to, stage_to FROM task_updates WHERE author_id = ?1 AND client_key = ?2 AND task_id = ?3`).bind(user.id, input.key, t.id)
+      .first<{ id: number; kind: string; status_to: string | null; stage_to: string | null }>();
+    if (again) return json({ ok: true, existing: true, id: again.id, kind: again.kind, status: again.status_to, stage: again.stage_to });
+  }
+  const cl = await checklistCount(env, t.id);
+  let kind: string, nextStatus: TaskRow["status"], nextStage: string | null, text: string, progress = Number(t.progress ?? 0), blockers: string | null = null;
+  if (decision === "close") {
+    if (!a.open) return err("task_closed", t.status === "completed" ? "This task is already closed" : "This task's project is closed", 409);
+    if (!can.close) {
+      return err("forbidden", a.assignee && !a.selfSet ? "Submit it for review - the person who set it (or the Project Owner or management) closes it"
+        : "Only the person who set the task, the Project Owner or management close it", 403);
+    }
+    const approving = t.stage === "review" && !a.selfSet;
+    if (!approving && summary.length < 10) return err("summary_required", "Write the completion summary (at least 10 characters) - what was delivered", 400);
+    const left = cl.n > cl.d ? await outstandingOf(env, t.id) : [];
+    if (left.length) {
+      if (!input.exception) {
+        return json({ error: { code: "deliverables_outstanding", message: `${left.length} deliverable(s) still open: ${left.map((x) => x.title).join("; ").slice(0, 300)}. Tick them when they are done${can.close_exception ? ", or close with an exception and the reason" : ""}.` }, outstanding: left }, 409);
+      }
+      if (!can.close_exception) return err("forbidden", "Only management (or the Project Owner, on a project task) closes a task with deliverables still open", 403);
+      if (reason.length < 10) return err("reason_required", "Give the reason for closing with deliverables still open (at least 10 characters)", 400);
+      blockers = `Open at closing: ${left.map((x) => x.title).join("; ")}`.slice(0, 1000);
+    }
+    kind = left.length ? "closed_with_exception" : approving ? "review_approved" : "closed";
+    text = left.length ? `${summary || "Closed"} - Exception: ${reason}` : (summary || "Approved as completed");
+    nextStatus = "completed"; nextStage = null;
+    progress = cl.n > 0 ? Math.round((cl.d / cl.n) * 100) : 100; // never ticks a deliverable; a task with no checklist is done when closed
+  } else if (decision === "return") {
+    if (!can.return) return err(a.review && !a.selfSet ? "invalid_input" : "forbidden", a.review && !a.selfSet ? "Only a task waiting for review is returned" : "Only the reviewer returns a task", a.review && !a.selfSet ? 409 : 403);
+    if (reason.length < 5) return err("invalid_input", "Say what still needs doing (at least 5 characters)", 400);
+    kind = "review_returned"; text = reason; nextStatus = "in_progress"; nextStage = null;
+  } else if (decision === "cancel") {
+    if (!a.open) return err("task_closed", "This task is already closed", 409);
+    if (!can.cancel) return err("forbidden", "Only the person who set the task, the Project Owner or management cancel it", 403);
+    if (reason.length < 10) return err("invalid_input", "Give the reason for cancelling (at least 10 characters)", 400);
+    kind = "cancel"; text = reason; nextStatus = "completed"; nextStage = "cancelled";
+  } else {
+    if (t.status !== "completed") return err("invalid_input", "Only a closed task is reopened", 409);
+    if (!can.reopen) return err("forbidden", t.stage === "cancelled" ? "Only management (or the Project Owner) reopens a cancelled task" : "Only the person who closes this task (or management) reopens it", 403);
+    if (reason.length < 10) return err("reason_required", "Say why the task is reopened (at least 10 characters)", 400);
+    kind = "reopened"; text = reason; nextStatus = "in_progress"; nextStage = null; // checklist and progress stay exactly as they are
+  }
+  const source = cl.n > 0 ? "checklist" : "manual";
+  const key = input.key || crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO task_updates (task_id, project_id, author_id, kind, body, blockers, status_to, stage_to, progress_snapshot, progress_source, client_key)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11 WHERE EXISTS (SELECT 1 FROM tasks WHERE id = ?1 AND status = ?12 AND stage IS ?13)`,
+    ).bind(t.id, a.project?.id ?? null, user.id, kind, text, blockers, nextStatus, nextStage, progress, source, key, t.status, t.stage),
+    env.DB.prepare(
+      `UPDATE tasks SET status = ?1, stage = ?2, progress = ?3, progress_source = ?4
+        WHERE id = ?5 AND status = ?6 AND stage IS ?7 AND EXISTS (SELECT 1 FROM task_updates WHERE author_id = ?8 AND client_key = ?9 AND task_id = ?5)`,
+    ).bind(nextStatus, nextStage, progress, source, t.id, t.status, t.stage, user.id, key),
+  ]);
+  const row = await env.DB.prepare(`SELECT id FROM task_updates WHERE author_id = ?1 AND client_key = ?2 AND task_id = ?3`).bind(user.id, key, t.id).first<{ id: number }>();
+  if (!row) return err("stale", "The task changed a moment ago - reload it and decide again", 409);
+  if (nextStatus !== t.status) await event(env, t.id, `status:${nextStatus}`, user.id);
+  if (nextStage !== t.stage) await event(env, t.id, `stage:${nextStage ?? "none"}`, user.id);
+  await audit(env, user.id, `task.${kind}`, "tasks", String(t.id), { ...(reason ? { reason } : {}), ...(summary ? { summary } : {}), from: { status: t.status, stage: t.stage }, to: { status: nextStatus, stage: nextStage } });
+  const team = [t.assigned_to, ...(await assistantsOf(env, t.id)).map((x) => x.id)];
+  const watchers = decision === "close" || decision === "cancel" ? [...team, t.created_by, a.project?.owner_id ?? null] : team;
+  const msg = kind === "review_approved" ? `✅ Approved: ${t.title} (${user.name}) - closed`
+    : kind === "closed" ? `✅ Closed: ${t.title} (${user.name})`
+    : kind === "closed_with_exception" ? `✅ Closed with deliverables open: ${t.title} (${user.name}) - ${reason.slice(0, 120)}`
+    : kind === "review_returned" ? `↩ Returned for more work: ${t.title} - ${reason.slice(0, 120)}`
+    : kind === "cancel" ? `⛔ Cancelled: ${t.title} - ${reason.slice(0, 120)}`
+    : `🔁 Reopened: ${t.title} (${user.name}) - ${reason.slice(0, 120)}`;
+  await tell(env, watchers, user.id, msg, `task:${t.id}:u:${row.id}`);
+  const tmd = await taskForMail(env, t.id);
+  if (tmd) await queueTaskMailTo(env, "decision", team, user.id, `task:${t.id}:decision:${row.id}`, { task: { ...tmd, status: nextStatus, stage: nextStage }, by: user.name,
+    summary: kind === "review_approved" || kind === "closed" ? `Closed as completed: ${text}` : kind === "closed_with_exception" ? `Closed: ${text}` : kind === "reopened" ? `Reopened: ${reason}` : `${kind === "review_returned" ? "Returned for more work" : "Cancelled"}: ${reason}` });
+  return json({ ok: true, id: row.id, kind, status: nextStatus, stage: nextStage, progress });
+}
+
+/** The closure in force (the latest closing row after the latest reopening), for
+    one task or a list. A task closed before 1.256.0 by the old dropdown has
+    no row: its closing time is its last status:completed event. */
+export async function closuresOf(env: Env, ids: number[]): Promise<Map<number, { kind: string; at: string; by: string | null; summary: string | null }>> {
+  const out = new Map<number, { kind: string; at: string; by: string | null; summary: string | null }>();
+  if (!ids.length) return out;
+  const kinds = [...CLOSING_KINDS, "reopened"].map((k) => `'${k}'`).join(",");
+  try {
+    for (let i = 0; i < ids.length; i += 90) {
+      const chunk = ids.slice(i, i + 90);
+      const ph = chunk.map((_, j) => `?${j + 1}`).join(",");
+      for (const r of (await env.DB.prepare(
+        `SELECT x.task_id, x.kind, x.body, x.created_at AS at, ${PERSON("u")} AS by_name FROM task_updates x JOIN users u ON u.id = x.author_id
+          WHERE x.id IN (SELECT MAX(y.id) FROM task_updates y WHERE y.task_id IN (${ph}) AND y.kind IN (${kinds}) GROUP BY y.task_id)`,
+      ).bind(...chunk).all<{ task_id: number; kind: string; body: string; at: string; by_name: string | null }>()).results) {
+        if (r.kind !== "reopened") out.set(r.task_id, { kind: r.kind, at: r.at, by: r.by_name, summary: r.body });
+      }
+      const missingIds = chunk.filter((id) => !out.has(id));
+      if (missingIds.length) {
+        const ph2 = missingIds.map((_, j) => `?${j + 1}`).join(",");
+        for (const r of (await env.DB.prepare(
+          `SELECT e.task_id, e.created_at AS at, ${PERSON("u")} AS by_name FROM task_events e LEFT JOIN users u ON u.id = e.user_id
+            WHERE e.id IN (SELECT MAX(f.id) FROM task_events f WHERE f.task_id IN (${ph2}) AND f.kind = 'status:completed' GROUP BY f.task_id)`,
+        ).bind(...missingIds).all<{ task_id: number; at: string; by_name: string | null }>().catch(() => ({ results: [] as { task_id: number; at: string; by_name: string | null }[] }))).results) {
+          out.set(r.task_id, { kind: "closed", at: r.at, by: r.by_name, summary: null });
+        }
+      }
+    }
+  } catch (e) { if (!missing(e)) throw e; }
+  return out;
+}
+/** days after the due date the task was closed (0 = on time); null without a due date */
+export const lateDays = (deadline: string | null, closedAtUtc: string | null) => {
+  if (!deadline || !closedAtUtc) return null;
+  const closedDay = new Date(Date.parse(`${closedAtUtc.replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  return Math.max(0, Math.round((Date.parse(closedDay) - Date.parse(deadline.slice(0, 10))) / 86400000));
+};
+
+/** THE TASK TIMELINE - the stages a task walks, from what happened only (the
+    shared StageTimeline draws it, as for Leave and Claims). */
+export async function taskTimeline(env: Env, t: TaskRow, a: TaskAccess) {
+  type Step = { key: string; state: "done" | "now" | "todo" | "rejected" | "returned" | "skipped"; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | number | boolean> };
+  const ups = (await env.DB.prepare(
+    `SELECT x.id, x.kind, x.body, x.created_at, ${PERSON("u")} AS who FROM task_updates x JOIN users u ON u.id = x.author_id WHERE x.task_id = ?1 ORDER BY x.id`,
+  ).bind(t.id).all<{ id: number; kind: string; body: string; created_at: string; who: string | null }>().catch(() => ({ results: [] as { id: number; kind: string; body: string; created_at: string; who: string | null }[] }))).results;
+  const evs = (await env.DB.prepare(
+    `SELECT e.kind, e.created_at, ${PERSON("u")} AS who FROM task_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.task_id = ?1 AND (e.kind = 'ack' OR e.kind LIKE 'status:%') ORDER BY e.id`,
+  ).bind(t.id).all<{ kind: string; created_at: string; who: string | null }>().catch(() => ({ results: [] as { kind: string; created_at: string; who: string | null }[] }))).results;
+  const lastReopen = [...ups].reverse().find((u) => u.kind === "reopened") ?? null;
+  const cycle = ups.filter((u) => !lastReopen || u.id > lastReopen.id);
+  const steps: Step[] = [{ key: "created", state: "done", who: await nameOf(env, t.created_by), at: t.created_at, text: null }];
+  if (!a.selfSet) {
+    const ack = evs.find((e) => e.kind === "ack");
+    steps.push(ack ? { key: "acknowledged", state: "done", who: ack.who, at: ack.created_at, text: null } : { key: "acknowledged", state: t.status === "open" ? "now" : "skipped", who: null, at: null, text: null });
+  }
+  const started = ups.find((u) => u.kind !== "assist_request" && u.kind !== "file") ?? null;
+  const startEv = evs.find((e) => e.kind === "status:in_progress");
+  const closed = t.status === "completed";
+  const working: Step = { key: "in_progress", state: closed ? "done" : "now", /* open or started, the work is the current stage */ who: started?.who ?? startEv?.who ?? null, at: started?.created_at ?? startEv?.created_at ?? null, text: null, flags: {} };
+  if (!closed && t.stage === "blocked") { working.state = "rejected"; working.flags!.blocked = true; }
+  if (!closed && t.stage === "waiting_client") working.flags!.waiting = true;
+  if (lastReopen) { working.flags!.reopened_at = lastReopen.created_at; working.flags!.reopened_by = lastReopen.who ?? ""; working.text = lastReopen.body; }
+  if (t.stage === "review" && !closed) working.state = "done";
+  steps.push(working);
+  if (!a.selfSet) {
+    const req = [...cycle].reverse().find((u) => u.kind === "review_request") ?? null;
+    const ret = [...cycle].reverse().find((u) => u.kind === "review_returned") ?? null;
+    const approved = closed && t.stage !== "cancelled" ? [...cycle].reverse().find((u) => u.kind === "review_approved") ?? null : null;
+    if (approved) steps.push({ key: "review", state: "done", who: approved.who, at: approved.created_at, text: null });
+    else if (t.stage === "review" && req) steps.push({ key: "review", state: "now", who: req.who, at: req.created_at, text: null });
+    else if (ret && (!req || ret.id > req.id) && !closed) steps.push({ key: "review", state: "returned", who: ret.who, at: ret.created_at, text: ret.body });
+    else steps.push({ key: "review", state: closed ? "skipped" : "todo", who: null, at: null, text: null });
+  }
+  if (closed) {
+    const c = [...cycle].reverse().find((u) => CLOSING_KINDS.includes(u.kind)) ?? null;
+    const ev = [...evs].reverse().find((e) => e.kind === "status:completed");
+    const at = c?.created_at ?? ev?.created_at ?? null;
+    steps.push({ key: t.stage === "cancelled" ? "cancelled" : "closed", state: t.stage === "cancelled" ? "rejected" : "done", who: c?.who ?? ev?.who ?? null, at, text: c?.body ?? null,
+      flags: { ...(c?.kind === "closed_with_exception" ? { exception: true } : {}), ...(lateDays(t.deadline, at) ? { late_days: lateDays(t.deadline, at)! } : {}) } });
+  } else steps.push({ key: "closed", state: "todo", who: null, at: null, text: null });
+  return steps;
+}
+
 /** A project-level entry: a note, a completion request or an offer to help on the project as a whole. */
 export async function appendProjectNote(
   env: Env, user: StaffUser, p: ProjectRow, kind: "note" | "done_request" | "assist_request" | "progress", text: string, extras: { completed_work: string | null; blockers: string | null; next_action: string | null }, key: string | null,
@@ -338,7 +538,7 @@ export async function latestUpdates(env: Env, ids: number[]): Promise<Map<number
 export async function handleTaskProgress(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, request: Request,
 ): Promise<Response | null> {
-  const m = /^\/tasks\/(\d+)(\/updates|\/review|\/assistants(?:\/(\d+))?|\/files(?:\/(\d+))?|\/activity)?$/.exec(path);
+  const m = /^\/tasks\/(\d+)(\/updates|\/review|\/close|\/reopen|\/assistants(?:\/(\d+))?|\/files(?:\/(\d+))?|\/activity)?$/.exec(path);
   if (!m) return null;
   const sub = m[2] ?? "";
   /* GET /tasks/:id is new here; PATCH and DELETE /tasks/:id stay in staff.ts */
@@ -382,12 +582,24 @@ async function route(
       link = { kind: t.link_kind, id: t.link_id, label: label ?? `${t.link_kind} #${t.link_id}` };
     }
     const cl = (items as { done: number }[]).length;
+    /* v1.256.0 - the decisions, the closure in force, what is still open, the timeline, the one next step */
+    const dec = decisionsOf(t, a);
+    const closure = t.status === "completed" ? (await closuresOf(env, [t.id])).get(t.id) ?? null : null;
+    const outstanding = (items as { id: number; title: string; done: number }[]).filter((i) => !i.done).map((i) => ({ id: i.id, title: i.title }));
+    const next = t.status === "completed" ? (t.stage === "cancelled" ? "cancelled" : "closed")
+      : t.stage === "review" ? (dec.close ? "review_decide" : "review_wait")
+      : t.stage === "blocked" ? "blocked" : t.stage === "waiting_client" ? "waiting_client"
+      : outstanding.length ? "outstanding"
+      : a.selfSet ? (dec.close ? "close_ready" : "in_progress")
+      : a.assignee ? "submit_review" : dec.close ? "close_ready" : "in_progress";
+    const timeline = await taskTimeline(env, t, a);
     return json({
       task: {
         ...t, assignee: assignee?.name ?? null, assignee_position: assignee?.position ?? null, assignee_photo: assignee?.photo_key ?? null,
         creator, acknowledged_at: ack?.created_at ?? null, assistants, items, link,
         progress_source: cl > 0 ? "checklist" : (t.progress_source ?? "manual"),
         latest_update: latest.get(t.id) ?? null,
+        closure: closure ? { ...closure, late_days: lateDays(t.deadline, closure.at) } : null, outstanding, next, timeline,
         counts: { updates: Number(counts?.updates ?? 0), files: Number(counts?.files ?? 0), comments: a.team ? Number(counts?.comments ?? 0) : null },
       },
       me: user.id,
@@ -395,7 +607,7 @@ async function route(
         edit: (a.assignee || a.manage) && a.open, reassign: a.manage && a.open, assistants: a.manage && a.open, tick: (a.assignee || a.assistant || a.manage) && a.open,
         update: a.update && a.open, comment: a.team, files: a.update && a.open, restricted_files: a.manage || (a.review && !a.assignee),
         request_review: a.assignee && !a.selfSet && a.open && t.stage !== "review", review: a.review && a.open && !a.selfSet && t.stage === "review",
-        approve: a.review && a.open, cancel: (a.manage || (a.creator && !a.assignee)) && a.open,
+        approve: dec.close, cancel: dec.cancel, close: dec.close, close_exception: dec.close_exception, reopen: dec.reopen, return: dec.return,
         assist: !!a.project && !a.team && !a.update && a.open, self_set: a.selfSet, is_assignee: a.assignee, is_assistant: a.assistant,
         remind: (a.manage || a.creator) && !a.assignee && a.open, // v1.247.0 - a manual reminder to the assignee (POST /tasks/:id/remind)
       },
@@ -420,40 +632,20 @@ async function route(
   /* ---------------- review: approve, return, cancel (T-2, T-7) ---------------- */
   if (sub === "/review" && method === "POST") {
     const decision = typeof body?.decision === "string" ? body.decision : "";
-    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "";
-    if (!a.open) return err("task_closed", "This task is already closed", 409);
-    if (decision === "approve") {
-      if (!a.review) return err("forbidden", a.assignee ? "Your work is approved by the person who set the task, the Project Owner or management" : "Only the person who set the task, the Project Owner or management approve it", 403);
-    } else if (decision === "return") {
-      if (!a.review || a.selfSet) return err("forbidden", "Only the reviewer returns a task", 403);
-      if (t.stage !== "review") return err("invalid_input", "Only a task waiting for review is returned", 409);
-      if (reason.length < 5) return err("invalid_input", "Say what still needs doing (at least 5 characters)", 400);
-    } else if (decision === "cancel") {
-      if (!(a.manage || (a.creator && !a.assignee))) return err("forbidden", "Only the person who set the task, the Project Owner or management cancel it", 403);
-      if (reason.length < 10) return err("invalid_input", "Give the reason for cancelling (at least 10 characters)", 400);
-    } else return err("invalid_input", "decision is approve, return or cancel", 400);
-    const cl = await checklistCount(env, t.id);
-    const nextStatus = decision === "return" ? "in_progress" : "completed";
-    const nextStage = decision === "cancel" ? "cancelled" : null;
-    const progress = cl.n > 0 ? Math.round((cl.d / cl.n) * 100) : decision === "approve" ? 100 : Number(t.progress ?? 0);
-    const r = await env.DB.prepare(`UPDATE tasks SET status = ?1, stage = ?2, progress = ?3, progress_source = ?4 WHERE id = ?5 AND status = ?6 AND stage IS ?7`)
-      .bind(nextStatus, nextStage, progress, cl.n > 0 ? "checklist" : "manual", t.id, t.status, t.stage).run();
-    if (!(r.meta?.changes ?? 0)) return err("stale", "The task changed a moment ago - reload it and decide again", 409);
-    const kind = decision === "approve" ? "review_approved" : decision === "return" ? "review_returned" : "cancel";
-    const text = reason || (decision === "approve" ? "Approved as completed" : "");
-    const row = await env.DB.prepare(
-      `INSERT INTO task_updates (task_id, project_id, author_id, kind, body, status_to, stage_to, progress_snapshot, progress_source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
-    ).bind(t.id, a.project?.id ?? null, user.id, kind, text, nextStatus, nextStage, progress, cl.n > 0 ? "checklist" : "manual").first<{ id: number }>();
-    await event(env, t.id, `status:${nextStatus}`, user.id);
-    if (nextStage !== t.stage) await event(env, t.id, `stage:${nextStage ?? "none"}`, user.id);
-    await audit(env, user.id, `task.${kind}`, "tasks", String(t.id), { ...(reason ? { reason } : {}), from: { status: t.status, stage: t.stage } });
-    const team = [t.assigned_to, ...(await assistantsOf(env, t.id)).map((x) => x.id)];
-    const msg = decision === "approve" ? `✅ Approved: ${t.title} (${user.name})` : decision === "return" ? `↩ Returned for more work: ${t.title} - ${reason.slice(0, 120)}` : `⛔ Cancelled: ${t.title} - ${reason.slice(0, 120)}`;
-    await tell(env, team, user.id, msg, `task:${t.id}:u:${row?.id}`);
-    /* v1.247.0 - the decision, by email, to the people who did the work */
-    const tmd = await taskForMail(env, t.id);
-    if (tmd) await queueTaskMailTo(env, "decision", team, user.id, `task:${t.id}:decision:${row?.id}`, { task: { ...tmd, status: nextStatus, stage: nextStage }, by: user.name, summary: decision === "approve" ? "Approved as completed - thank you." : `${decision === "return" ? "Returned for more work" : "Cancelled"}: ${reason}` });
-    return json({ ok: true, status: nextStatus, stage: nextStage, id: row?.id });
+    const reason = typeof body?.reason === "string" ? body.reason : "";
+    const key = (request.headers.get("Idempotency-Key") ?? (typeof body?.client_key === "string" ? body.client_key : "")).slice(0, 80) || null;
+    /* v1.256.0 - the review's approve is a close through the one transition
+       (the reviewer's note is the summary; the checklist is checked) */
+    if (decision === "approve") return transitionTask(env, user, t, a, "close", { summary: reason || (typeof body?.summary === "string" ? body.summary : ""), reason: typeof body?.exception_reason === "string" ? body.exception_reason : "", exception: body?.exception === true, key });
+    if (decision === "return" || decision === "cancel") return transitionTask(env, user, t, a, decision, { reason, key });
+    return err("invalid_input", "decision is approve, return or cancel", 400);
+  }
+  /* v1.256.0 - Close task (completion summary; a manager's exception) and Reopen (reason) */
+  if ((sub === "/close" || sub === "/reopen") && method === "POST") {
+    const key = (request.headers.get("Idempotency-Key") ?? (typeof body?.client_key === "string" ? body.client_key : "")).slice(0, 80) || null;
+    return sub === "/close"
+      ? transitionTask(env, user, t, a, "close", { summary: typeof body?.summary === "string" ? body.summary : "", reason: typeof body?.exception_reason === "string" ? body.exception_reason : "", exception: body?.exception === true, key })
+      : transitionTask(env, user, t, a, "reopen", { reason: typeof body?.reason === "string" ? body.reason : "", key });
   }
 
   /* ---------------- assistants ---------------- */
@@ -574,7 +766,7 @@ export async function taskActivity(env: Env, t: TaskRow, a: TaskAccess) {
     if (!text) continue;
     add({ key: `e${e.id}`, at: e.created_at, kind: `event.${k.split(":")[0]}`, text, by: ["ack_nudge", "due_reminder", "overdue_alert"].includes(k) ? null : e.who, by_id: e.user_id, photo_key: e.photo_key, muted: ["ack_nudge", "due_reminder", "overdue_alert"].includes(k) });
   }
-  const KIND: Record<string, string> = { progress: "Progress update", blocker: "Reported a blocker", waiting_client: "Waiting for the client", review_request: "Submitted for review", review_approved: "Approved as completed", review_returned: "Returned for more work", correction: "Correction", assist_request: "Offered to help", cancel: "Cancelled the task" };
+  const KIND: Record<string, string> = { progress: "Progress update", blocker: "Reported a blocker", waiting_client: "Waiting for the client", review_request: "Submitted for review", review_approved: "Approved and closed", review_returned: "Returned for more work", correction: "Correction", assist_request: "Offered to help", cancel: "Cancelled the task", closed: "Closed the task", closed_with_exception: "Closed with deliverables still open", reopened: "Reopened the task" };
   for (const u of (await env.DB.prepare(
     `SELECT x.id, x.kind, x.body, x.created_at, x.author_id, x.progress_snapshot, ${PERSON("u")} AS who, u.photo_key FROM task_updates x JOIN users u ON u.id = x.author_id WHERE x.task_id = ?1 ORDER BY x.id`,
   ).bind(t.id).all<{ id: number; kind: string; body: string; created_at: string; author_id: number; progress_snapshot: number | null; who: string; photo_key: string | null }>()).results)

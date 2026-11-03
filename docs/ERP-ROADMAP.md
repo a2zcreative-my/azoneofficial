@@ -371,3 +371,7 @@ agent_payouts (authorised, then settled or cancelled - final) and
 commission_disputes are new. No existing row changes and nothing is
 back-filled. Payroll reads closer rows only; an agent payout books one cash
 row at settlement.
+1.256.0 adds `0169_task_close`: task_updates is rebuilt so its kind may also
+be closed, closed_with_exception or reopened - every row is copied with its
+own id, the append-only triggers and indexes are created again, and no task,
+stage, progress, deadline or checklist changes.
