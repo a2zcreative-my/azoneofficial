@@ -307,7 +307,12 @@ function routedStage(s: TStep, at: (x: string | null) => string): Stage {
         : f.override ? L(`Decided by CEO override - ${whoAt || "the CEO"}`, `Diputuskan melalui pengecualian CEO - ${whoAt || "CEO"}`) : whoAt || "—",
       note: s.text || undefined };
   }
-  const title = L(`Manager's decision - ${ap || "the reporting manager"}${pos ? `, ${pos}` : ""}`, `Keputusan pengurus - ${ap || "pengurus pelapor"}${pos ? `, ${pos}` : ""}`);
+  /* v1.261.0 - up the chart: each step names its person; the last is the final approval */
+  const multi = Number(f.steps ?? 1) > 1;
+  const isFinal = f.final === true || !multi;
+  const title = isFinal
+    ? L(`${multi ? "Final approval" : "Manager's decision"} - ${ap || "the reporting manager"}${pos ? `, ${pos}` : ""}`, `${multi ? "Kelulusan akhir" : "Keputusan pengurus"} - ${ap || "pengurus pelapor"}${pos ? `, ${pos}` : ""}`)
+    : L(`Approval ${f.step} of ${f.steps} - ${ap}${pos ? `, ${pos}` : ""}`, `Kelulusan ${f.step} daripada ${f.steps} - ${ap}${pos ? `, ${pos}` : ""}`);
   const extra = [
     typeof f.reassigned_from === "string" && f.reassigned_from ? L(`Reassigned from ${properName(f.reassigned_from)} to ${properName(String(f.reassigned_to ?? ""))}${f.reassign_note ? `: ${f.reassign_note}` : ""}`, `Diserahkan semula daripada ${properName(f.reassigned_from)} kepada ${properName(String(f.reassigned_to ?? ""))}${f.reassign_note ? `: ${f.reassign_note}` : ""}`) : "",
     f.hr_check === "verified" ? L(`HR verified - ${properName(String(f.hr_by ?? ""))} · ${at(String(f.hr_at ?? ""))}${f.hr_note ? `: ${f.hr_note}` : ""}`, `Disahkan HR - ${properName(String(f.hr_by ?? ""))} · ${at(String(f.hr_at ?? ""))}${f.hr_note ? `: ${f.hr_note}` : ""}`)
@@ -316,7 +321,8 @@ function routedStage(s: TStep, at: (x: string | null) => string): Stage {
   switch (state) {
     case "done": return { key: s.key, state, title, sub: f.override ? L(`Decided by CEO override in the approver's place - ${whoAt}`, `Diputuskan melalui pengecualian CEO bagi pihak pelulus - ${whoAt}`) : L(`Approved by ${whoAt || "—"}`, `Diluluskan oleh ${whoAt || "—"}`), note: [s.text, extra].filter(Boolean).join(" · ") || undefined };
     case "rejected": return { key: s.key, state, title: `${title} - ${L("rejected", "ditolak")}`, sub: f.override ? L(`Rejected by CEO override - ${whoAt}`, `Ditolak melalui pengecualian CEO - ${whoAt}`) : L(`Rejected by ${whoAt || "—"}`, `Ditolak oleh ${whoAt || "—"}`), note: [s.text, extra].filter(Boolean).join(" · ") || undefined };
-    case "now": return { key: s.key, state, title, sub: L(`Waiting on ${ap || "the reporting manager"} - the final approval`, `Menunggu ${ap || "pengurus pelapor"} - kelulusan akhir`), aside: L("Currently waiting", "Sedang menunggu"),
+    case "skipped": return { key: s.key, state, title, sub: L(`Not needed - already decided by ${whoAt || "the same person"} (no one approves twice)`, `Tidak perlu - telah diputuskan oleh ${whoAt || "orang yang sama"} (tiada kelulusan dua kali)`) };
+    case "now": return { key: s.key, state, title, sub: isFinal ? L(`Waiting on ${ap || "the reporting manager"} - the final approval`, `Menunggu ${ap || "pengurus pelapor"} - kelulusan akhir`) : L(`Waiting on ${ap} - then it goes up to the next person on the chart`, `Menunggu ${ap} - kemudian ke orang seterusnya dalam carta`), aside: L("Currently waiting", "Sedang menunggu"),
       note: [f.returned_resubmitted ? L("It was returned once for more information and resubmitted.", "Ia pernah dikembalikan untuk maklumat dan dihantar semula.") : "", extra].filter(Boolean).join(" · ") || undefined };
     case "returned": return { key: s.key, state, title, sub: L(`Returned for more information by ${whoAt || "the approver"} - waiting on the applicant`, `Dikembalikan untuk maklumat oleh ${whoAt || "pelulus"} - menunggu pemohon`), note: s.text || undefined, aside: L("With the applicant", "Pada pemohon") };
     case "withdrawn": return { key: s.key, state, title: L("Withdrawn by the applicant", "Ditarik balik oleh pemohon"), sub: s.at ? at(s.at) : "—" };
@@ -1161,7 +1167,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       : action === "cancel" ? L("Cancelled", "Dibatalkan")
       : action === "return" ? L("Returned for information", "Dikembalikan untuk maklumat")
       : action === "resubmit" ? L("Resubmitted", "Dihantar semula")
-      : res.data?.stage === "approved" ? L("Approved", "Diluluskan") : L("Passed on", "Dihantar ke peringkat seterusnya"),
+      : res.data?.stage === "approved" ? L("Approved", "Diluluskan") : L("Approved - passed on", "Diluluskan - dihantar ke peringkat seterusnya"),
       action === "cancel"
         ? L("Your application has been withdrawn.", "Permohonan anda telah ditarik balik.")
         : action === "resubmit" ? L("It is back with the approver who asked.", "Ia kembali kepada pelulus yang bertanya.")

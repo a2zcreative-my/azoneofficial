@@ -116,32 +116,39 @@ async function runtime(workerBundle) {
     ok((await call(`/leave/routing`, U.coo, "PUT", { mode: "organisation" })).status === 403 && (await call(`/leave/routing`, U.hana, "PUT", { mode: "organisation" })).status === 403 && (await call(`/leave/routing`, U.sa, "PUT", { mode: "organisation" })).status === 403, "13: only the CEO turns it on - not the COO, HR or the Super Admin");
     ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "organisation" })).status === 401, "...and with his authenticator code");
     ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "organisation", totp: code() })).j?.mode === "organisation" && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'leave.routing_mode'`) === 1, "the CEO turns it on; it is audited");
-    ok((await call(`/leave/routing`, U.aina)).j?.my_route?.steps?.[0]?.approver?.name === "Cee Officer" && (await call(`/leave/routing`, U.ceo)).j?.my_route?.kind === "executive_record", "Your approval route: Aina -> the CCO; the CEO -> Executive Leave Record");
+    const myR = (await call(`/leave/routing`, U.aina)).j?.my_route;
+    ok(myR?.steps?.map((x) => `${x.approver.name}${x.final ? "*" : ""}`).join(">") === "Cee Officer>Alif Farhan*" && (await call(`/leave/routing`, U.ceo)).j?.my_route?.kind === "executive_record", "v1.261.0 Your approval route: Aina -> the CCO -> the CEO (final), up the chart; the CEO -> Executive Leave Record", JSON.stringify(myR));
     /* ---------- 1, 2: an ordinary employee -> their reporting manager, final ---------- */
     const A = await apply(U.aina, "2026-11-24");
     const a = A.j?.id;
     ok(A.status === 201 && A.j?.stage === "routed" && A.j?.approver === "Cee Officer" && one(`SELECT approver_id FROM leave_requests WHERE id = ?`, a).approver_id === U.cco, "1-2: Aina (reports to the CCO) is routed to the CCO", A.text.slice(0, 160));
     let l = await rowOf(U.aina, a);
-    ok(states(l) === "submitted:done line:now effect:todo" && l.timeline[1].flags?.approver_name === "Cee Officer" && l.timeline[1].flags?.approver_position === "Chief Commercial Officer" && l.waiting_on === "approver", "the timeline holds only the route's step - no HR, no COO/CCO, no CEO stage", states(l));
+    ok(states(l) === "submitted:done line:now line:todo effect:todo" && l.timeline[1].flags?.approver_name === "Cee Officer" && l.timeline[1].flags?.approver_position === "Chief Commercial Officer" && l.timeline[2].flags?.approver_name === "Alif Farhan" && l.timeline[2].flags?.final === true && l.waiting_on === "approver" && !l.timeline.some((x) => x.key === "hr"), "the timeline holds the reporting line only - the CCO, then the CEO (final); no HR stage", states(l));
     ok(noticed(U.cco, `leave:${a}:%`) === 1 && noticed(U.coo, `leave:${a}:%`) === 0 && noticed(U.hana, `leave:${a}:%`) === 0 && noticed(U.ceo, `leave:${a}:%`) === 0, "12: only the routed approver is asked - not every executive");
     ok((await rowOf(U.cco, a))?.can_act === true && (await rowOf(U.coo, a))?.can_act === false && (await rowOf(U.hana, a))?.can_act === false && (await rowOf(U.ceo, a))?.can_act === false, "can_act: the CCO only (the server's answer per person)");
     ok((await patch(a, U.coo, { action: "approve", totp: code() })).status === 403 && (await patch(a, U.hana, { action: "approve" })).status === 403 && (await patch(a, U.ceo, { action: "approve", totp: code() })).status === 403, "5, 16: the COO, HR and the CEO cannot approve it - visibility is not authority");
     ok((await patch(a, U.aina, { action: "approve", totp: code() })).status === 403 && (await patch(a, U.aina, { action: "approve", override: true, totp: code() })).status === 403, "16: the applicant cannot approve her own (nor by override)");
     ok((await patch(a, U.coo, { action: "approve", approver_id: U.coo, totp: code() })).status === 403, "13: a forged approver in the body is ignored");
-    ok((await patch(a, U.cco, { action: "approve" })).status === 401, "the final approval asks for the approver's code");
-    ok((await patch(a, U.cco, { action: "approve", totp: code() })).j?.stage === "approved", "the CCO approves - final, no further stage");
+    const s1 = await patch(a, U.cco, { action: "approve" });
+    ok(s1.j?.stage === "routed" && s1.j?.next === "Alif Farhan" && one(`SELECT approver_id, step_no, status FROM leave_requests WHERE id = ?`, a).approver_id === U.ceo, "3: the CCO approves (a step, no code asked) - it goes up to the CEO", s1.text.slice(0, 160));
+    ok(noticed(U.ceo, `leave:${a}:routed:s2`) === 1 && one(`SELECT status FROM leave_requests WHERE id = ?`, a).status === "pending", "...the CEO is told; it is still Tentative until the last step");
+    ok((await patch(a, U.cco, { action: "approve", totp: code() })).status === 403 && (await patch(a, U.coo, { action: "approve", totp: code() })).status === 403, "13: the CCO cannot approve again; the COO never could");
+    l = await rowOf(U.aina, a);
+    ok(states(l) === "submitted:done line:done line:now effect:todo" && l.timeline[1].who === "Cee Officer", "11: the timeline shows the CCO's approval with who and when, the CEO's step current", states(l));
+    ok((await patch(a, U.ceo, { action: "approve" })).status === 401, "the final approval asks for the CEO's code");
+    ok((await patch(a, U.ceo, { action: "approve", totp: code() })).j?.stage === "approved", "the CEO gives the final approval");
     const ar = one(`SELECT status, final_by, hr_by, preapp_by FROM leave_requests WHERE id = ?`, a);
     l = await rowOf(U.aina, a);
-    ok(ar.status === "approved" && ar.final_by === U.cco && ar.hr_by === null && ar.preapp_by === null && states(l) === "submitted:done line:done effect:done" && l.timeline[1].who === "Cee Officer" && l.timeline[1].flags?.by_role === "cco", "11: approved by the CCO, who and when on the timeline; no HR or pre-approval signature invented", JSON.stringify(ar));
-    ok((await patch(a, U.cco, { action: "approve", totp: code() })).status === 403 && n(`SELECT COUNT(*) AS n FROM leave_decisions WHERE leave_id = ? AND kind = 'approved'`, a) === 1, "13: a second approval is refused - one decision row");
-    ok((await call(`/leave/${a}/signature/ceo`, U.ceo)).j?.error?.message === "No signature applies at this stage", "no CEO chop on a decision the CCO made");
+    ok(ar.status === "approved" && ar.final_by === U.ceo && ar.preapp_by === U.cco && ar.hr_by === null && states(l) === "submitted:done line:done line:done effect:done" && l.timeline[2].flags?.by_role === "ceo", "11: approved - the CCO's pre-approval and the CEO's final decision, each by who made it; no HR signature invented", JSON.stringify(ar));
+    ok((await patch(a, U.ceo, { action: "approve", totp: code() })).status === 403 && n(`SELECT COUNT(*) AS n FROM leave_decisions WHERE leave_id = ? AND kind = 'approved'`, a) === 2, "13: a decided request is not approved again - one decision row per step");
+    ok((await call(`/leave/${a}/signature/ceo`, U.ceo)).j?.error?.message !== "No signature applies at this stage" && (await call(`/leave/${a}/signature/pre`, U.ceo)).j?.error?.message !== "No signature applies at this stage", "the form: the CEO's box carries his decision, the pre-approval box the CCO's");
     /* ---------- 2: the COO's report ---------- */
     const b = (await apply(U.lia, "2026-11-25")).j?.id;
-    ok(one(`SELECT approver_id FROM leave_requests WHERE id = ?`, b).approver_id === U.coo && (await rowOf(U.cco, b))?.can_act === false, "Lia (reports to the COO) is routed to the COO - never 'either COO or CCO'");
+    ok(one(`SELECT approver_id FROM leave_requests WHERE id = ?`, b).approver_id === U.coo && (await rowOf(U.cco, b))?.can_act === false && (await rowOf(U.lia, b)).timeline.filter((x) => x.key === "line").map((x) => x.flags?.approver_name).join(">") === "Ops Lead>Alif Farhan", "Lia (reports to the COO) goes to the COO, then the CEO - never 'either COO or CCO'");
     /* ---------- 5: HR's own leave ---------- */
     const c = (await apply(U.hana, "2026-11-26")).j?.id;
     l = await rowOf(U.hana, c);
-    ok(one(`SELECT stage, approver_id FROM leave_requests WHERE id = ?`, c).approver_id === U.cco && !l.timeline.some((s) => s.key === "hr"), "5: HR's own leave goes to her manager (the CCO) - no HR stage waiting on herself", states(l));
+    ok(one(`SELECT stage, approver_id FROM leave_requests WHERE id = ?`, c).approver_id === U.cco && !l.timeline.some((s) => s.key === "hr") && states(l) === "submitted:done line:now line:todo effect:todo", "5: HR's own leave goes HR and Admin -> the CCO -> the CEO - no HR stage waiting on herself", states(l));
     ok((await patch(c, U.hani, { action: "approve", totp: code() })).status === 403, "5: another HR officer has no approval authority either");
     /* ---------- B: HR's administrative check - never an approval ---------- */
     ok((await patch(c, U.hana, { action: "hr_verify" })).status === 403, "B: HR never verifies her own request");
@@ -152,7 +159,7 @@ async function runtime(workerBundle) {
     ok((await patch(c, U.aina, { action: "hr_verify" })).status === 403, "B: nobody outside HR checks");
     /* ---------- 6: the COO -> the CEO ---------- */
     const d = (await apply(U.coo, "2026-11-27")).j?.id;
-    ok(one(`SELECT approver_id FROM leave_requests WHERE id = ?`, d).approver_id === U.ceo && noticed(U.hana, `leave:${d}:%`) === 0, "6, D2: the COO's leave goes straight to the CEO - no HR stage");
+    ok(one(`SELECT approver_id FROM leave_requests WHERE id = ?`, d).approver_id === U.ceo && noticed(U.hana, `leave:${d}:%`) === 0 && (await rowOf(U.coo, d)).timeline.filter((x) => x.key === "line").length === 1, "6, D2: the COO's leave goes straight to the CEO - one step, no HR stage");
     ok((await patch(d, U.ceo, { action: "approve", totp: code() })).j?.stage === "approved", "the CEO approves the COO's leave");
     l = await rowOf(U.coo, d);
     ok(states(l) === "submitted:done line:done effect:done" && l.timeline[1].flags?.by_role === "ceo" && (await call(`/leave/${d}/signature/ceo`, U.ceo)).j?.error?.message !== "No signature applies at this stage", "his decision, his chop", states(l));
@@ -178,7 +185,8 @@ async function runtime(workerBundle) {
     const g = (await apply(U.kim, "2026-12-02")).j?.id;
     const timSees = ((await call(`/leave`, U.tim)).j?.leave ?? []).find((x) => x.id === g);
     ok(one(`SELECT approver_id FROM leave_requests WHERE id = ?`, g).approver_id === U.tim && timSees?.can_act === true, "Kim -> her team lead Tim, who sees it in his list to decide (he is not in the management tier)");
-    ok((await patch(g, U.coo, { action: "approve", totp: code() })).status === 403 && (await patch(g, U.tim, { action: "approve", totp: code() })).j?.stage === "approved", "...Tim decides it; the COO above him does not");
+    ok((await patch(g, U.coo, { action: "approve", totp: code() })).status === 403 && (await patch(g, U.tim, { action: "approve" })).j?.stage === "routed" && one(`SELECT approver_id FROM leave_requests WHERE id = ?`, g).approver_id === U.coo, "...Tim decides first (the COO above him cannot jump ahead), then it goes up to the COO");
+    ok((await patch(g, U.coo, { action: "approve" })).j?.next === "Alif Farhan" && (await patch(g, U.ceo, { action: "approve", totp: code() })).j?.stage === "approved" && n(`SELECT COUNT(*) AS n FROM leave_decisions WHERE leave_id = ? AND kind = 'approved'`, g) === 3, "Kim -> Tim -> the COO -> the CEO: three approvals up the chart, the CEO final");
     ok((await call(`/leave/${g}/comments`, U.tim)).status === 200, "the routed approver reads the request's thread");
     /* ---------- 14: a change of manager does not rewrite a pending route ---------- */
     const h = (await apply(U.lia, "2026-12-03")).j?.id;
@@ -195,6 +203,9 @@ async function runtime(workerBundle) {
     ok((await patch(h, U.coo, { action: "approve", totp: code() })).status === 403, "the COO no longer decides it");
     l = await rowOf(U.lia, h);
     ok(l.timeline[1].flags?.reassigned_from === "Ops Lead" && l.timeline[1].flags?.approver_name === "Alif Farhan", "the timeline says who it was reassigned from and to", JSON.stringify(l.timeline[1]));
+    ok((await patch(h, U.ceo, { action: "approve", totp: code() })).j?.stage === "approved" && n(`SELECT COUNT(*) AS n FROM leave_decisions WHERE leave_id = ? AND kind = 'approved'`, h) === 1, "4: the CEO now holds step 1 and is also step 2 - ONE approval, never two");
+    l = await rowOf(U.lia, h);
+    ok(states(l) === "submitted:done line:done line:skipped effect:done" && l.timeline[2].flags?.merged === true, "...the second step is shown as already decided by the same person", states(l));
     /* ---------- D7: the override decides in the approver's place, with a reason ---------- */
     const k = (await apply(U.aina, "2026-12-07")).j?.id;
     ok((await patch(k, U.ceo, { action: "approve", override: true, totp: code() })).j?.error?.code === "reason_required", "D7: deciding in the approver's place needs a reason");
@@ -203,7 +214,7 @@ async function runtime(workerBundle) {
     ok(l.timeline[1].state === "done" && l.timeline[1].flags?.override === true && l.timeline[1].who === "Alif Farhan" && n(`SELECT COUNT(*) AS n FROM leave_decisions WHERE leave_id = ? AND kind = 'override'`, k) === 1, "...shown as an override, never as the CCO's approval", JSON.stringify(l.timeline[1]));
     /* ---------- 10: rejection ends it ---------- */
     const m = (await apply(U.aina, "2026-12-08")).j?.id;
-    ok((await patch(m, U.cco, { action: "reject", comment: "Year-end stock count" })).j?.stage === "rejected" && states(await rowOf(U.aina, m)) === "submitted:done line:rejected effect:off", "10: the manager rejects; the route stops");
+    ok((await patch(m, U.cco, { action: "reject", comment: "Year-end stock count" })).j?.stage === "rejected" && states(await rowOf(U.aina, m)) === "submitted:done line:rejected line:off effect:off" && noticed(U.ceo, `leave:${m}:routed:s2`) === 0, "10: the manager rejects; the route stops - the CEO is never asked", states(await rowOf(U.aina, m)));
     /* ---------- returned and resubmitted, on the same step ---------- */
     const q = (await apply(U.aina, "2026-12-09")).j?.id;
     ok((await patch(q, U.cco, { action: "return", comment: "Who covers the Zainab shoot?" })).j?.stage === "returned" && (await patch(q, U.aina, { action: "resubmit", comment: "Lia covers it" })).j?.stage === "routed" && one(`SELECT approver_id FROM leave_requests WHERE id = ?`, q).approver_id === U.cco, "return and resubmit come back to the same approver");
@@ -230,7 +241,14 @@ async function runtime(workerBundle) {
     ok(one(`SELECT stage, approver_id FROM leave_requests WHERE id = ?`, q).approver_id === U.cco && (await rowOf(U.cco, q))?.can_act === true && (await rowOf(U.hana, q))?.can_act === false, "a routed request in flight keeps its approver and route - nothing re-staged");
     const z = (await apply(U.aina, "2026-12-15")).j?.id;
     ok(one(`SELECT stage FROM leave_requests WHERE id = ?`, z).stage === "applied", "a new request follows the previous rules again");
-    ok((await patch(q, U.cco, { action: "approve", totp: code() })).j?.stage === "approved", "...and the frozen route is still decided by its approver");
+    ok((await patch(q, U.cco, { action: "approve" })).j?.stage === "routed" && one(`SELECT approver_id FROM leave_requests WHERE id = ?`, q).approver_id === U.ceo, "...and the frozen route is still decided along it (the CCO, then the CEO)");
+    /* ---------- v1.261.0: a request frozen with the older route (the manager alone) ---------- */
+    db.exec(`INSERT INTO leave_requests (id, user_id, type, start_date, end_date, days, status, stage, route_json, route_version, step_no, approver_id, created_at) VALUES
+      (500, 6, 'emergency', '2026-12-21', '2026-12-21', 1, 'pending', 'routed', '${JSON.stringify({ v: 1, kind: "manager", applicant: { id: 6, name: "Hana HR", position: null, role: "hr_admin", department: null, manager_id: 4 }, steps: [{ n: 1, key: "line", approver: { id: 4, name: "Cee Officer", position: "Chief Commercial Officer", role: "cco", department: "Management" }, basis: "reporting_line", final: true }] })}', 1, 1, 4, datetime('now'))`);
+    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "organisation", totp: code() })).j?.mode === "organisation", "the CEO turns it back on");
+    ok((await rowOf(U.ceo, 500))?.can_reroute === true && (await patch(500, U.ceo, { action: "reroute", comment: "Up the chart to the CEO" })).j?.stage === "routed", "an older one-step route, nothing decided, can be re-routed up the chart - explicitly, with a reason");
+    ok(JSON.parse(one(`SELECT route_json FROM leave_requests WHERE id = 500`).route_json).steps.length === 2 && one(`SELECT approver_id FROM leave_requests WHERE id = 500`).approver_id === U.cco, "...it now goes the CCO, then the CEO");
+    ok((await patch(500, U.ceo, { action: "reroute", comment: "Again please" })).status === 400, "a current route is not re-routed");
     void B0;
     ok(money() === money0, "no payroll or balance row was written");
   } catch (e) {
@@ -256,7 +274,9 @@ if (given || process.env.NOMUT) {
 
 const MUT = [
   ["worker/src/leave-chain.ts", "anyone may decide a routed request", "  if (stage === \"routed\") return approverId != null && user.id === Number(approverId);", "  if (stage === \"routed\") return true;"],
-  ["worker/src/leave-chain.ts", "the route ignores the chart and goes to the CEO", "steps: [{ n: 1, key: \"line\", approver: personOf(sup),", "steps: [{ n: 1, key: \"line\", approver: personOf(list.find((x) => x.role === \"ceo\") ?? sup),"],
+  ["worker/src/leave-chain.ts", "the route stops at the direct manager (v1.261.0)", "  const chain = leaveAbove(list, applicantId);", "  const chain = leaveAbove(list, applicantId).slice(0, 1);"],
+  ["worker/src/leave-chain.ts", "the same person approves twice", "  for (const s of route.steps) if (s.n > stepNo && s.approver.id !== decidedBy) return s;", "  for (const s of route.steps) if (s.n > stepNo) return s;"],
+  ["worker/src/leave-chain.ts", "the route skips the manager and goes to the CEO", "  const steps: LeaveRouteStep[] = chain.map(", "  const steps: LeaveRouteStep[] = chain.slice(-1).map("],
   ["worker/src/staff.ts", "a step is reassigned to anyone", "      if (!target) return err(\"invalid_input\", \"The new approver must be above the applicant on the Organisation chart\", 400);", "      if (!target && to !== to) return err(\"invalid_input\", \"x\", 400);"],
   ["worker/src/staff.ts", "the Executive Leave Record without the CEO's code", "        const stepUp = await requireFreshTotp(env, user, b.totp, err, \"record your own leave\");\n        if (stepUp) return stepUp;", "        const stepUp = null;\n        if (stepUp) return stepUp;"],
   ["worker/src/staff.ts", "HR verifies her own request", "      if (row.user_id === user.id) return err(\"forbidden\", \"You cannot check your own request", "      if (false) return err(\"forbidden\", \"You cannot check your own request"],
@@ -284,4 +304,4 @@ for (const [file, name, from, to] of MUT) {
 }
 rmSync(dir, { recursive: true, force: true });
 if (fail) { console.error(`go-live-v: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`go-live-v: ${checks} checks passed (${MUT.length} mutations caught) - leave approval follows the Organisation chart: the reporting manager is final (no HR or CEO stage), the COO and CCO to the CEO, the CEO's Executive Leave Record, Requires configuration until Route now, the frozen route kept through a line change and the switch, reassignment upward with a reason, the override with a reason, HR's check never an approval, escalation by the start date, never auto-approved`);
+console.log(`go-live-v: ${checks} checks passed (${MUT.length} mutations caught) - leave approval follows the Organisation chart up to the CEO (v1.261.0): the direct manager first, each person above in turn, the CEO final, no HR stage, never the same person twice; the COO and CCO to the CEO, the CEO's Executive Leave Record, Requires configuration until Route now, the frozen route kept through a line change and the switch, reassignment upward with a reason, the override with a reason, HR's check never an approval, escalation by the start date, never auto-approved`);

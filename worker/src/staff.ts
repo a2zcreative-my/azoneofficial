@@ -26,7 +26,7 @@ import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; //
 import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
-import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, leaveRoute, leaveAbove, parseLeaveRoute, leaveRoutedTimeline, LEAVE_ROUTE_VERSION, type LeaveTimelineRow, type LeaveRoute, type LeaveDecisionRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
+import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, leaveRoute, leaveAbove, leaveNextStep, parseLeaveRoute, leaveRoutedTimeline, LEAVE_ROUTE_VERSION, type LeaveTimelineRow, type LeaveRoute, type LeaveDecisionRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
@@ -6230,7 +6230,7 @@ async function handleStaffRoutes(
     const { results } = await env.DB.prepare(
       all
         ? `${LSEL} ORDER BY l.created_at DESC LIMIT 200`
-        : `${LSEL} WHERE l.user_id = ?1 OR l.approver_id = ?1 ORDER BY l.created_at DESC LIMIT 100`, /* v1.260.0 - and the requests routed to you to decide */
+        : `${LSEL} WHERE l.user_id = ?1 OR l.approver_id = ?1 OR EXISTS (SELECT 1 FROM leave_decisions d WHERE d.leave_id = l.id AND d.actor_id = ?1) ORDER BY l.created_at DESC LIMIT 100`, /* v1.260.0 - and the requests routed to you to decide; v1.261.0 - and the ones you already decided a step of */
     ).bind(...(all ? [] : [user.id])).all<Record<string, unknown> & LeaveTimelineRow & { id: number; user_id: number; start_date: string; end_date: string }>();
     /* v1.252.0 - THE TIMELINE, worked out once on the server (leave-chain.ts)
        and sent with each row, with whether THIS person can decide it now
@@ -6321,7 +6321,8 @@ async function handleStaffRoutes(
           can_reassign: st === "routed" && !own && (adminOfRoute || Number(l.approver_id) === user.id),
           ...(st === "routed" && !own && (adminOfRoute || Number(l.approver_id) === user.id) && org.length ? { reassign_to: leaveAbove(org, Number(l.user_id)).filter((p) => p.id !== Number(l.approver_id)).map((p) => ({ id: p.id, name: p.name, position: p.position })) } : {}),
           can_route: st === "routing_required" && !own && adminOfRoute,
-          can_reroute: !routed && mode === "organisation" && LIVE_LEGACY.includes(st) && !own && adminOfRoute,
+          can_reroute: mode === "organisation" && !own && adminOfRoute && (!routed ? LIVE_LEGACY.includes(st)
+            : st === "routed" && Number(route!.v ?? 1) < LEAVE_ROUTE_VERSION && !(decOf.get(Number(l.id)) ?? []).some((d) => ["approved", "rejected", "override"].includes(d.kind))),
           can_hr_check: routed && ["routed", "returned"].includes(st) && !own && (user.role === "hr_admin" || user.role === "ceo"),
         } : {}),
       };
@@ -6748,7 +6749,8 @@ async function handleStaffRoutes(
       /* v1.260.0 - who may act is answered before the code is asked for:
          someone with no authority here is refused, not asked to sign */
       if (!override && !canAct(user)) return err("forbidden", "You cannot approve this request at its current stage", 403);
-      const willBeFinal = override || leaveNextStage(row.stage, row.applicant_role) === "approved";
+      /* v1.261.0 - a routed step is final only when nothing is left after it */
+      const willBeFinal = override || (route && row.stage === "routed" ? leaveNextStep(route, stepNo, user.id) === null : leaveNextStage(row.stage, row.applicant_role) === "approved");
       if (willBeFinal) {
         const stepUp = await requireFreshTotp(env, user, body?.totp, err);
         if (stepUp) return stepUp;
@@ -6777,17 +6779,22 @@ async function handleStaffRoutes(
          final_by is the person who actually decided (the form's CEO box and
          chop are his only when that person is the CEO - 1.259.0 L3). */
       if (route && row.stage === "routed") {
-        const last = stepNo >= route.steps.length;
-        const nxt = last ? null : route.steps[stepNo]!;
+        /* v1.261.0 - up the chart: the next person above decides next; the
+           last (the CEO) approves it. A step whose approver is the person
+           deciding now is satisfied by this same decision - never twice.
+           A step before the last is that person's pre-approval: kept in
+           preapp_by, so the printed form shows who really signed it. */
+        const nxt = leaveNextStep(route, stepNo, user.id);
+        const last = nxt === null;
         const r = last
           ? await env.DB.prepare(`UPDATE leave_requests SET stage = 'approved', status = 'approved', review_comment = COALESCE(?2, review_comment), final_by = ?3, final_at = datetime('now') WHERE id = ?1 AND stage = 'routed' AND step_no = ?4 AND approver_id = ?3`).bind(id, comment, user.id, stepNo).run()
-          : await env.DB.prepare(`UPDATE leave_requests SET step_no = ?2, approver_id = ?3 WHERE id = ?1 AND stage = 'routed' AND step_no = ?4 AND approver_id = ?5`).bind(id, stepNo + 1, nxt!.approver.id, stepNo, user.id).run();
+          : await env.DB.prepare(`UPDATE leave_requests SET step_no = ?2, approver_id = ?3, preapp_by = ?5, preapp_at = datetime('now') WHERE id = ?1 AND stage = 'routed' AND step_no = ?4 AND approver_id = ?5`).bind(id, nxt!.n, nxt!.approver.id, stepNo, user.id).run();
         if (!changed(r)) return conflict();
         await addLeaveDecision(env, Number(id), stepNo, "approved", user.id, { note: comment });
         await audit(env, user.id, last ? "leave.advance.approved" : "leave.advance.step", "leave_requests", id, { from_stage: "routed", step: stepNo, ...(comment ? { note: comment } : {}) });
         await notify(env, row.user_id, "leave", last ? `Your leave request #${id} is approved by ${user.name}` : `Your leave request #${id} was approved by ${user.name} and moved to ${nxt!.approver.name}`, `leave:${id}`);
-        if (nxt) await notifyLeaveActors(env, Number(id), "routed", row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}) waits on your approval`, `:s${stepNo + 1}`, nxt.approver.id);
-        return json({ ok: true, stage: last ? "approved" : "routed" });
+        if (nxt) await notifyLeaveActors(env, Number(id), "routed", row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}) was approved by ${user.name} and waits on your ${nxt.final ? "final " : ""}approval`, `:s${nxt.n}`, nxt.approver.id);
+        return json({ ok: true, stage: last ? "approved" : "routed", ...(nxt ? { next: nxt.approver.name } : {}) });
       }
       const next = leaveNextStage(row.stage, row.applicant_role);
       const done = next === "approved";
@@ -6844,7 +6851,12 @@ async function handleStaffRoutes(
       if (row.user_id === user.id) return err("forbidden", "You cannot route your own request", 403);
       if (action === "route" && row.stage !== "routing_required") return err("invalid_input", "Only a request that requires routing is routed", 400);
       if (action === "reroute") {
-        if (route || !["applied", "hr_reviewed", "pre_approved", "pending_final"].includes(row.stage)) return err("invalid_input", "Only a request waiting under the previous rules is re-routed", 400);
+        /* v1.261.0 - and a request frozen with an older route version (the
+           manager alone, before "up the chart to the CEO"), while no step of
+           it has been decided: explicit, with a reason, audited - never by itself */
+        const olderRoute = !!route && row.stage === "routed" && Number(route.v ?? 1) < LEAVE_ROUTE_VERSION
+          && !(await env.DB.prepare(`SELECT 1 AS x FROM leave_decisions WHERE leave_id = ?1 AND kind IN ('approved', 'rejected', 'override') LIMIT 1`).bind(id).first<{ x: number }>());
+        if (!olderRoute && (route || !["applied", "hr_reviewed", "pre_approved", "pending_final"].includes(row.stage))) return err("invalid_input", "Only a request waiting under the previous rules, or on an older route with nothing decided yet, is re-routed", 400);
         if ((await leaveRoutingMode(env)) !== "organisation") return err("invalid_input", "Turn on approval by the Organisation first", 400);
         if (!comment || comment.length < 5) return err("reason_required", "Give the reason for re-routing (at least 5 characters)", 400);
       }
@@ -6885,10 +6897,12 @@ async function handleStaffRoutes(
   const leaveTalk = path.match(/^\/leave\/(\d+)\/(comments|activity)$/);
   if (leaveTalk) {
     const lid = Number(leaveTalk[1]);
-    const lr = await env.DB.prepare(`SELECT l.id, l.user_id, l.stage, l.approver_id, u.role AS applicant_role, u.name AS applicant_name FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`)
-      .bind(lid).first<{ id: number; user_id: number; stage: string; approver_id: number | null; applicant_role: string; applicant_name: string }>();
-    /* v1.260.0 - the routed approver reads and writes like management on the request they decide */
-    const mgmt = leaveSeesAll(user.role) || (!!lr && lr.approver_id === user.id);
+    const lr = await env.DB.prepare(`SELECT l.id, l.user_id, l.stage, l.approver_id, l.route_json, u.role AS applicant_role, u.name AS applicant_name FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`)
+      .bind(lid).first<{ id: number; user_id: number; stage: string; approver_id: number | null; route_json: string | null; applicant_role: string; applicant_name: string }>();
+    /* v1.260.0 - the routed approver reads and writes like management on the
+       request they decide; v1.261.0 - so does everyone on its route (up the chart) */
+    const onRoute = !!lr && (lr.approver_id === user.id || !!parseLeaveRoute(lr.route_json)?.steps.some((x) => x.approver.id === user.id));
+    const mgmt = leaveSeesAll(user.role) || onRoute;
     const own = !!lr && lr.user_id === user.id;
     if (!lr || (!mgmt && !own)) return err("not_found", "Leave request not found", 404);
     const internalOk = mgmt && !own;

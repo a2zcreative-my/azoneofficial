@@ -249,7 +249,12 @@ export function leaveTimeline(r: LeaveTimelineRow, releasedMonths: string[] = []
  * Requests submitted before this (route_json NULL) keep the rules above.
  * ===================================================================== */
 
-export const LEAVE_ROUTE_VERSION = 1;
+/* v1.261.0 (the CEO, 04-11-2026: "it is supposed to HR and Admin -> CCO ->
+   CEO, refer to organisation"; his answer: "Up the chart to the CEO") -
+   route version 2: the request climbs the WHOLE reporting line, nearest
+   first, and the CEO at the top gives the final approval. Version 1 (the
+   direct manager alone, final) stays readable on the requests frozen with it. */
+export const LEAVE_ROUTE_VERSION = 2;
 export interface LeavePerson { id: number; name: string; position: string | null; role: string; department: string | null }
 export interface LeaveRouteStep { n: number; key: "line"; approver: LeavePerson; basis: "reporting_line"; final: boolean }
 export interface LeaveRoute {
@@ -270,7 +275,20 @@ export function leaveRoute(list: OrgPerson[], applicantId: number): LeaveRoute {
   if (me && line?.kind === "ceo") return { v: LEAVE_ROUTE_VERSION, kind: "executive_record", applicant, steps: [] };
   const sup = line && line.kind === "staff" && line.placed ? line.supervisor : null;
   if (!me || !sup || sup.id === applicantId) return { v: LEAVE_ROUTE_VERSION, kind: "routing_required", applicant, steps: [], reason: "no_manager" };
-  return { v: LEAVE_ROUTE_VERSION, kind: "manager", applicant: { ...applicant, manager_id: sup.id }, steps: [{ n: 1, key: "line", approver: personOf(sup), basis: "reporting_line", final: true }] };
+  /* everyone above, nearest first, to the top of the chart (the CEO) - one
+     step each, never the same person twice (leaveAbove walks distinct people) */
+  const chain = leaveAbove(list, applicantId);
+  const steps: LeaveRouteStep[] = chain.map((p, i) => ({ n: i + 1, key: "line", approver: p, basis: "reporting_line", final: i === chain.length - 1 }));
+  return { v: LEAVE_ROUTE_VERSION, kind: "manager", applicant: { ...applicant, manager_id: sup.id }, steps };
+}
+
+/** v1.261.0 - the step after `stepNo` that still needs a decision: a step
+    whose approver is the person who just decided is satisfied by that same
+    decision (no one approves twice, e.g. after a reassignment to someone
+    further up). null = nothing left - the request is approved. */
+export function leaveNextStep(route: LeaveRoute, stepNo: number, decidedBy: number): LeaveRouteStep | null {
+  for (const s of route.steps) if (s.n > stepNo && s.approver.id !== decidedBy) return s;
+  return null;
 }
 
 /** Everyone ABOVE a person on the chart, nearest first - the only people a
@@ -330,7 +348,8 @@ export function leaveRoutedTimeline(r: LeaveTimelineRow & { step_no?: number | n
   for (const s of route.steps) {
     const dec = decisions.find((d) => d.step_no === s.n && ["approved", "rejected", "override"].includes(d.kind));
     const re = [...decisions].reverse().find((d) => d.step_no === s.n && d.kind === "reassigned");
-    const base = { approver_name: re?.to_name ?? s.approver.name, approver_position: s.approver.position ?? "", ...(re ? { reassigned_from: re.from_name ?? "", reassigned_to: re.to_name ?? "", reassign_note: re.note ?? "" } : {}), ...(s.n === cur ? hrFlags : {}) };
+    const base = { approver_name: re?.to_name ?? s.approver.name, approver_position: s.approver.position ?? "", step: String(s.n), steps: String(route.steps.length), ...(s.final ? { final: true } : {}),
+      ...(re ? { reassigned_from: re.from_name ?? "", reassigned_to: re.to_name ?? "", reassign_note: re.note ?? "" } : {}), ...(s.n === cur ? hrFlags : {}) };
     if (ended) { steps.push({ key: "line", state: "off", who: null, at: null, text: null, flags: base }); continue; }
     if (dec) {
       const override = dec.kind === "override";
@@ -342,6 +361,9 @@ export function leaveRoutedTimeline(r: LeaveTimelineRow & { step_no?: number | n
     if (s.n === cur && st === "routed") { steps.push({ key: "line", state: "now", who: null, at: null, text: null, flags: { ...base, ...(r.returned_at && r.returned_from === "routed" ? { returned_resubmitted: true } : {}) } }); continue; }
     if (s.n === cur && st === "returned") { steps.push({ key: "line", state: "returned", who: r.returned_by_name ?? null, at: r.returned_at ?? null, text: r.return_question ?? null, flags: base }); continue; }
     if (s.n === cur && st === "cancelled") { steps.push({ key: "line", state: "withdrawn", who: r.user_name ?? null, at: r.cancelled_at ?? null, text: null, flags: base }); ended = true; continue; }
+    /* approved with no decision of its own: the same person already decided
+       an earlier step (a reassignment upward) - one approval, said so */
+    if (st === "approved") { const by = decisions.find((d) => ["approved", "override"].includes(d.kind) && (d.step_no ?? 0) < s.n); steps.push({ key: "line", state: "skipped", who: by?.actor_name ?? null, at: by?.created_at ?? null, text: null, flags: { ...base, merged: true } }); continue; }
     steps.push({ key: "line", state: st === "rejected" || st === "cancelled" ? "off" : "todo", who: null, at: null, text: null, flags: base });
   }
   steps.push(effect());

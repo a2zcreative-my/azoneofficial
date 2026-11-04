@@ -141,7 +141,7 @@ with sync_playwright() as p:
     check("the board says whom a routed request waits on - the named manager, with the position", "Zulkifli Ops (Chief Operational Officer)" in (r7.inner_text() if r7.count() else ""), r7.inner_text()[:200] if r7.count() else "")
     check("the status filter has Waiting for my approval and Requires configuration", pg.locator("option", has_text="Waiting for my approval").count() >= 1 and pg.locator("option", has_text="Requires configuration").count() >= 1)
     t7 = drawer_text(7)
-    check("the routed timeline holds only the route's step - the manager's decision, final; no HR, COO/CCO or CEO stage", "Manager's decision - Zulkifli Ops, Chief Operational Officer" in t7 and "the final approval" in t7 and "HR review" not in t7 and "Pre-approval" not in t7 and "CEO decision" not in t7, t7[:400])
+    check("v1.261.0 the routed timeline climbs the chart - the manager (step 1 of 2), then the CEO's final approval; no HR stage", "Approval 1 of 2 - Zulkifli Ops, Chief Operational Officer" in t7 and "then it goes up to the next person" in t7 and "Final approval - Fixture Person, CEO" in t7 and "HR review" not in t7 and "Pre-approval - COO or CCO" not in t7, t7[:500])
     check("...HR's check is said on the step, never as an approval", "HR verified - Tan Mei Ling" in t7, t7[:400])
     dl = pg.locator("[role=dialog]").filter(has=pg.get_by_role("tab", name="Activity", exact=True)).last
     check("the drawer says the reporting line changed (the request stays as submitted) and the approver is away", dl.get_by_test_id("line-changed").count() == 1 and "Tan Mei Ling" in dl.get_by_test_id("line-changed").inner_text() and dl.get_by_test_id("approver-away").count() == 1)

@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.261.0] - 2026-11-04 - Leave goes up the reporting line to the CEO
+
+The CEO, 04-11-2026, on Nursyazwani's request: "it is supposed to HR and Admin -> CCO -> CEO, refer to organisation"; his answer to the choice: "Up the chart to the CEO". This replaces D1 (c) of claude/LEAVE-ROUTING-AUDIT.md (the direct manager final).
+
+- Route version 2 (leave-chain.ts `leaveRoute`): every person above the applicant on the Organisation chart, nearest first, one step each, the CEO at the top giving the final approval. Nursyazwani, Nurfarah: the CCO, then the CEO. Nurul Fasehah: the COO, then the CEO. The COO and the CCO: the CEO (one step). A deeper chart climbs every level (Kim -> Tim -> the COO -> the CEO). No HR stage. The CEO's own leave stays an Executive Leave Record.
+- `leaveNextStep`: each approval hands the request to the next person up, who is told; it stays Tentative (not in Attendance) until the last step. A step whose approver is the person deciding now is satisfied by that same decision - nobody approves twice (shown as "Not needed - already decided by ..."). A rejection at any step ends it; nobody above is asked.
+- Only the final approval asks for the authenticator code; a step before it does not. The step before the last is kept in preapp_by, so the printed form's middle box shows who really pre-approved, and the CEO box the CEO's own decision.
+- Everyone on a request's route reads its thread and keeps it in their list after deciding their step.
+- A request already frozen with the version-1 route (the manager alone), with no step decided yet, can be re-routed up the chart by HR or the CEO - explicitly, with a reason, audited. Requests from before the switch keep Re-route by Organisation as in 1.260.0. Nothing is re-routed by itself.
+- Screens: "Approval 1 of 2 - <name>, <position>", then "Final approval - <name>, <position>"; Your approval route lists the whole line.
+- No schema change. Tests: tests/go-live-v.mjs (82 checks, 12 mutations incl. the route stopping at the manager, skipping the manager, and the same person approving twice); tests/browser/leave-timeline.py.
+
 ## [1.260.0] - 2026-11-04 - Leave approval follows the Organisation chart (off until the CEO turns it on)
 
 claude/LEAVE-ROUTING-AUDIT.md revision 2 and the CEO's "approved" (04-11-2026); his question the same day: why does an HR employee still wait on HR instead of her manager.
