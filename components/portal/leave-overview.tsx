@@ -25,7 +25,7 @@ import css from "./leave-page.module.css";
 
 export type LeaveView = "overview" | "apply" | "mine" | "calendar" | "manage";
 type Balance = { entitled: number; used: number; accrued?: number };
-type MonthLeave = { id: number; user_id: number; name: string; photo_key?: string | null; position?: string | null; type: string; start_date: string; end_date: string; days: number; status: string };
+type MonthLeave = { id: number; user_id: number; name: string; photo_key?: string | null; position?: string | null; type: string | null; start_date: string; end_date: string; days: number; status: string }; // type null = withheld by the server (v1.259.0, D6)
 type Holiday = { id: number; holiday_date: string; name: string; kind: string };
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -201,7 +201,10 @@ export function LeaveOverview({ userId, types, unpaidTypes, balances, mine, load
                     </span>
                     <span className={css.rowEnd}>
                       <span>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}</span>
-                      <span className={css.sub}>{l.days} {L("day(s)", "hari")}{l.status !== "approved" ? <span className={`${chipSmWarn} ${css.gap}`}>{L("Pending", "Menunggu")}</span> : null}</span>
+                      {/* v1.259.0 (the CEO, 04-11-2026: "PENDING LEAVE IS NOT CONFIRMED LEAVE") - Tentative or Approved, always said */}
+                      <span className={css.sub}>{l.days} {L("day(s)", "hari")}{l.status === "approved"
+                        ? <span className={`${chipSmSuccess} ${css.gap}`} data-state="approved">{L("Approved", "Diluluskan")}</span>
+                        : <span className={`${chipSmWarn} ${css.gap}`} data-state="tentative">{L("Tentative", "Sementara")}</span>}</span>
                     </span>
                   </li>
                 ))}
@@ -307,8 +310,13 @@ function MiniCalendar({ userId, today, holidays, onOpen }: { userId: number | nu
           {cells.map((d, i) => {
             if (!d) return <span key={`e${i}`} aria-hidden="true" />;
             const here = leave.filter((l) => l.start_date <= d && l.end_date >= d);
-            const mineHere = userId != null && here.some((l) => l.user_id === userId);
-            const team = here.some((l) => l.user_id !== userId);
+            const mineL = userId != null ? here.filter((l) => l.user_id === userId) : [];
+            const teamL = here.filter((l) => l.user_id !== userId);
+            const mineHere = mineL.length > 0, team = teamL.length > 0;
+            /* v1.259.0 - a dot is solid only for approved leave; a day whose
+               leave is all still waiting for a decision shows a hollow dot */
+            const mineTent = mineHere && mineL.every((l) => l.status !== "approved");
+            const teamTent = team && teamL.every((l) => l.status !== "approved");
             const h = hols.find((x) => x.holiday_date === d);
             return (
               <button key={d} type="button" onClick={onOpen}
@@ -316,8 +324,8 @@ function MiniCalendar({ userId, today, holidays, onOpen }: { userId: number | nu
                 aria-label={`${dmy(d)}${h ? ` · ${h.name}` : ""}${here.length ? ` · ${here.length} ${L("away", "bercuti")}` : ""}`}>
                 <span>{Number(d.slice(8, 10))}</span>
                 <span className={css.miniDots} aria-hidden="true">
-                  {mineHere && <span className={`${css.miniDot} ${css.keyMine}`} />}
-                  {team && <span className={`${css.miniDot} ${css.keyTeam}`} />}
+                  {mineHere && <span className={`${css.miniDot} ${css.keyMine} ${mineTent ? css.miniTent : ""}`} data-state={mineTent ? "tentative" : "approved"} />}
+                  {team && <span className={`${css.miniDot} ${css.keyTeam} ${teamTent ? css.miniTent : ""}`} data-state={teamTent ? "tentative" : "approved"} />}
                   {h && <span className={`${css.miniDot} ${css.keyHol}`} />}
                 </span>
               </button>
@@ -328,6 +336,7 @@ function MiniCalendar({ userId, today, holidays, onOpen }: { userId: number | nu
       <p className={css.legend}>
         <span><span className={`${css.key} ${css.keyMine}`} aria-hidden="true" />{L("My leave", "Cuti saya")}</span>
         <span><span className={`${css.key} ${css.keyTeam}`} aria-hidden="true" />{L("Team leave", "Cuti pasukan")}</span>
+        <span><span className={`${css.key} ${css.keyPending}`} aria-hidden="true" />{L("Tentative (hollow)", "Sementara (berongga)")}</span>
         <span><span className={`${css.key} ${css.keyHol}`} aria-hidden="true" />{L("Public holiday", "Cuti umum")}</span>
         <span><span className={`${css.key} ${css.keyToday}`} aria-hidden="true" />{L("Today", "Hari ini")}</span>
       </p>
@@ -378,7 +387,7 @@ export function TeamCalendarGrid({ userId }: { userId: number }) {
         <span><span className={`${css.key} ${css.keyMine}`} aria-hidden="true" />{L("My leave", "Cuti saya")}</span>
         <span><span className={`${css.key} ${css.keyTeam}`} aria-hidden="true" />{L("Team leave", "Cuti pasukan")}</span>
         <span><span className={`${css.key} ${css.keyHol}`} aria-hidden="true" />{L("Public holiday", "Cuti umum")}</span>
-        <span><span className={`${css.key} ${css.keyPending}`} aria-hidden="true" />{L("Waiting for a decision", "Menunggu keputusan")}</span>
+        <span><span className={`${css.key} ${css.keyPending}`} aria-hidden="true" />{L("Tentative - waiting for a decision", "Sementara - menunggu keputusan")}</span>
       </p>
       {!(month.done && hol.done) ? <SkelRows rows={5} /> : (
         <div className={css.calWrap}>
@@ -415,7 +424,7 @@ export function TeamCalendarGrid({ userId }: { userId: number }) {
                 <li key={l.id} className={css.row}>
                   <Avatar name={properName(l.name)} size="sm" />
                   <span className={css.rowMain}><span className={css.name}>{properName(l.name)}</span><span className={`${css.sub} ${css.cap}`}>{leaveTypeL(l.type)} · {dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}</span></span>
-                  <span className={l.status === "approved" ? chipSmSuccess : chipSmWarn}>{l.status === "approved" ? L("Approved", "Diluluskan") : L("Pending", "Menunggu")}</span>
+                  <span className={l.status === "approved" ? chipSmSuccess : chipSmWarn} data-state={l.status === "approved" ? "approved" : "tentative"}>{l.status === "approved" ? L("Approved", "Diluluskan") : L("Tentative", "Sementara")}</span>
                 </li>
               ))}
             </ul>

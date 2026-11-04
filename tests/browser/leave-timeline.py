@@ -118,6 +118,38 @@ with sync_playwright() as p:
     check("no page errors (applicant)", not errs, errs)
     ctx.close()
 
+    # ---- v1.259.0: decisions labelled from the evidence; Tentative is never confirmed absence ----
+    ctx, pg, errs, reqs = open_page(b, 4177)
+    tab(pg, "Approvals & Management")
+    def drawer_text(lid):
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+        pg.locator(f"tr[data-record='leave:{lid}']").filter(visible=True).first.get_by_role("button", name="View").click(); pg.wait_for_timeout(1300)
+        tl = pg.get_by_test_id("leave-timeline")
+        return tl.inner_text() if tl.count() else ""
+    t6 = drawer_text(6)
+    check("L1: a COO request the CEO approved on the normal path shows the CEO decision, approved by him - not Skipped", "CEO decision" in t6 and "Approved by Fixture Person" in t6 and "Skipped" not in t6 and "override" not in t6.lower(), t6[:400])
+    check("...and Payroll only as its records say: not prepared yet (never 'processed')", "Counts in Attendance and the roster from" in t6 and "payroll not prepared yet" in t6, t6[-300:])
+    t2 = drawer_text(2)
+    check("an override on record is named, with the stage it decided at", "Decided by CEO override at HR review" in t2 and "superseded by the CEO override" in t2, t2[:400])
+    t3 = drawer_text(3)
+    check("a decision the CEO did not make is a Final decision by whoever made it", "Final decision" in t3 and "Approved by System Root" in t3 and "CEO decision" not in t3, t3[:400])
+    check("...a released payroll month is said with its date", "payslips released" in t3, t3[-300:])
+    check("no page errors (CEO, evidence labels)", not errs, errs)
+    ctx.close()
+    ctx = b.new_context(viewport={"width": 1440, "height": 1000})
+    pg = ctx.new_page(); errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    pg.clock.set_fixed_time("2026-09-18T02:00:00Z")
+    pg.goto("http://127.0.0.1:4177/portal?tab=Leave"); pg.wait_for_timeout(2600)
+    tab(pg, "Overview")
+    up = pg.locator("section[aria-label='Upcoming team leave']")
+    ut = up.inner_text() if up.count() else ""
+    check("Upcoming Team Leave says Tentative for leave still waiting for a decision - never just a date", up.locator("[data-state=tentative]").count() >= 1 and "Pending" not in ut and "Siti Withheld" in ut, ut[:300])
+    check("...a withheld type reads as plain leave, with no reason shown", "Withheld" not in ut.replace("Siti Withheld", "") and "Dental surgery" not in ut, ut[:300])
+    check("the month calendar draws tentative leave as a hollow dot, with its legend", pg.locator("[data-state=tentative]").count() >= 2 and "Tentative" in (pg.locator("p[class*=legend]").first.inner_text() if pg.locator("p[class*=legend]").count() else ""))
+    check("no page errors (overview)", not errs, errs)
+    ctx.close()
+
     # ---- phones ----
     for port, w in [(4179, 320), (4179, 390), (4177, 375), (4177, 430)]:
         ctx, pg, errs, _ = open_page(b, port, w=w, h=860)

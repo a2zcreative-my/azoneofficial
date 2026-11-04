@@ -52,6 +52,18 @@ async function runtime(workerBundle) {
   const out = [];
   const ok = (c, m, why = "") => out.push([!!c, why && !c ? `${m} - ${why}` : m]);
   const db = new DatabaseSync(":memory:");
+  /* v1.259.0 - ONE CLOCK. The worker reads the fixed test clock through Date,
+     but SQLite's 'now' (column defaults, datetime('now') in a write) was the
+     real one. Once the real date passed the fixed date, a stamp SQLite wrote
+     came out after the bank date the test sends, and these checks failed for
+     the calendar, not for the code - the same 5 failed on the 1.258.0
+     bundle. SQLite's date functions now read 'now' from the same fixed clock
+     (an application function of the same name overrides the built-in, and
+     delegates everything else to a plain SQLite); no expectation changed. */
+  const realClock = new DatabaseSync(":memory:");
+  const pinTs = () => new Date().toISOString().slice(0, 19).replace("T", " ");
+  for (const fn of ["datetime", "date", "time", "julianday"]) db.function(fn, { varargs: true }, (...a) => realClock.prepare(`SELECT ${fn}(${(a.length ? a : ["now"]).map(() => "?").join(",")}) AS v`).get(...(a.length ? a : ["now"]).map((x) => (typeof x === "string" && x.toLowerCase() === "now" ? pinTs() : x))).v);
+  db.function("strftime", { varargs: true }, (...a) => realClock.prepare(`SELECT strftime(${a.map(() => "?").join(",")}) AS v`).get(...a.map((x, i) => (i > 0 && typeof x === "string" && x.toLowerCase() === "now" ? pinTs() : x))).v);
   for (const f of MIGS) applyFile(db, f);
   /* A TRUE RACE: while `barrier` is set, the route's read holding
      `barrier.sql` waits until both requests have read - two people at once */

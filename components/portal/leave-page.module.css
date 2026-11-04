@@ -1059,3 +1059,15 @@
 .returnBox { display: grid; gap: 0.625rem; padding: 0.875rem; border: 1px solid color-mix(in srgb, var(--gold-solid) 45%, var(--border)); border-radius: 0.875rem; background: var(--tint-gold); min-width: 0; }
 .resubGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 0.5rem; min-width: 0; }
 .resubGrid label { display: grid; gap: 0.25rem; min-width: 0; }
+
+/* v1.259.0 - a hollow dot: leave still waiting for a decision (tentative),
+   never drawn like confirmed absence */
+.miniDot.miniTent {
+  background: transparent;
+}
+.miniDot.miniTent.keyMine {
+  box-shadow: inset 0 0 0 1.5px var(--gold-solid);
+}
+.miniDot.miniTent.keyTeam {
+  box-shadow: inset 0 0 0 1.5px var(--info);
+}

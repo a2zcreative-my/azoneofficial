@@ -284,9 +284,48 @@ export interface LeaveLike {
   hr_by_name?: string | null; hr_at?: string | null;
   preapp_by_name?: string | null; preapp_by_full?: string | null; preapp_by_role?: string | null; preapp_at?: string | null;
   final_by_name?: string | null; final_by_full?: string | null; final_at?: string | null;
+  /* v1.259.0 - the evidence the boxes are filled from (see leaveFormDecision) */
+  applicant_role?: string | null; final_by_role?: string | null;
+  timeline?: { key: string; flags?: Record<string, string | boolean> }[];
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;
+}
+
+/** v1.259.0 (claude/LEAVE-ROUTING-AUDIT.md rev 2, section 9) - WHO SIGNED
+    WHICH BOX, from the record as stored. The CEO's normal approval of a COO
+    or CCO request is stored in preapp_by (the server's leaveDecider, L1):
+    it is that request's final decision and belongs in the final box, not in
+    the pre-approval box. The final box is titled "Chief Executive Officer"
+    only when the CEO decided it - a decision someone else made is printed
+    under "Final decision" with their name and no CEO chop (the server
+    refuses the chop too). A CEO override is said to be one, only when the
+    audit trail says so (the server's timeline flag). One rule for the PDF
+    and the printed page. */
+export interface LeaveFormDecision {
+  pre: { name: string; at: string | null } | null;
+  final: { name: string; at: string | null; role: string | null; override: boolean } | null;
+  finalTitle: string;
+  hr: { name: string; at: string | null } | null;
+}
+export function leaveFormDecision(l: Pick<LeaveLike, "stage" | "status" | "applicant_role" | "hr_by_name" | "hr_at" | "preapp_by_name" | "preapp_by_full" | "preapp_by_role" | "preapp_at" | "final_by_name" | "final_by_full" | "final_at" | "final_by_role" | "timeline">): LeaveFormDecision {
+  const stage = l.stage ?? l.status ?? "pending";
+  const topTier = l.applicant_role === "coo" || l.applicant_role === "cco";
+  const preName = (l.preapp_by_full || l.preapp_by_name || "").trim();
+  const finName = (l.final_by_full || l.final_by_name || "").trim();
+  const preIsFinal = stage === "approved" && !l.final_at && topTier && !!l.preapp_at;
+  const finalStep = (l.timeline ?? []).find((s) => s.key === "final");
+  const override = finalStep?.flags?.override === true;
+  const final = stage === "approved"
+    ? preIsFinal ? { name: preName, at: l.preapp_at ?? null, role: l.preapp_by_role ?? null, override: false }
+      : finName ? { name: finName, at: l.final_at ?? null, role: l.final_by_role ?? null, override } : null
+    : null;
+  return {
+    hr: l.hr_by_name ? { name: l.hr_by_name, at: l.hr_at ?? null } : null,
+    pre: !preIsFinal && preName ? { name: preName, at: l.preapp_at ?? null } : null,
+    final,
+    finalTitle: !final || final.role === "ceo" ? "Chief Executive Officer (CEO)" : "Final decision",
+  };
 }
 
 export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
@@ -308,12 +347,13 @@ export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
 
   y += 12;
   const stage = l.stage ?? l.status ?? "pending";
-  const statusLine = stage === "approved" ? `APPROVED IN SYSTEM${l.final_by_name ? ` by ${l.final_by_name}` : ""}${l.final_at ? ` on ${myt(l.final_at)}` : ""}`
+  const fd = leaveFormDecision(l);
+  const statusLine = stage === "approved" ? `APPROVED IN SYSTEM${fd.final ? ` by ${fd.final.name}${fd.final.override ? " (CEO override)" : ""}` : ""}${fd.final?.at ? ` on ${myt(fd.final.at)}` : ""}`
     : stage === "rejected" ? "REJECTED IN SYSTEM" : "PENDING SYSTEM APPROVAL";
   cv.text(`System status: ${statusLine}`, FM, y, 8.25, { bold: true }); y += 11;
   const chain = [
-    l.hr_by_name ? `HR reviewed by ${l.hr_by_name}${l.hr_at ? ` on ${myt(l.hr_at)}` : ""}` : null,
-    l.preapp_by_name ? `Pre-approved by ${l.preapp_by_name}${l.preapp_at ? ` on ${myt(l.preapp_at)}` : ""}` : null,
+    fd.hr ? `HR reviewed by ${fd.hr.name}${fd.hr.at ? ` on ${myt(fd.hr.at)}` : ""}` : null,
+    fd.pre ? `Pre-approved by ${fd.pre.name}${fd.pre.at ? ` on ${myt(fd.pre.at)}` : ""}` : null,
   ].filter(Boolean).join(" - ");
   if (chain) { y = cv.wrap(chain, FM, y, FW, 7, 9, { colour: SLATE }); }
 
@@ -323,11 +363,12 @@ export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
     { title: "Employee", name: applicant, date: myt(l.created_at),
       img: null, script: imgs.Im0 ? undefined : (l.user_full || l.user_name || "") },
     { title: "Administrative or|Head of Department (COO / CCO)",
-      name: (l.preapp_by_full || l.preapp_by_name || "").toUpperCase(),
-      date: (l.preapp_by_full || l.preapp_by_name) && l.preapp_at ? myt(l.preapp_at) : "", img: null },
-    { title: "Chief Executive Officer (CEO)",
-      name: stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : "",
-      date: stage === "approved" && l.final_at ? myt(l.final_at) : "", img: null },
+      name: (fd.pre?.name ?? "").toUpperCase(),
+      date: fd.pre?.at ? myt(fd.pre.at) : "", img: null },
+    { title: fd.final?.override ? "Chief Executive Officer (CEO)|(CEO override)" : fd.finalTitle,
+      name: (fd.final?.name ?? "").toUpperCase(),
+      date: fd.final?.at ? myt(fd.final.at) : "", img: null,
+      ...(fd.final && fd.final.role !== "ceo" ? { script: "Approved electronically in A2Z OS" } : {}) },
   ]);
   placeSignatures(cv, sigTop, imgs);
 

@@ -26,7 +26,7 @@ import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; //
 import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
-import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, type LeaveTimelineRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
+import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, type LeaveTimelineRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
@@ -6077,7 +6077,7 @@ async function handleStaffRoutes(
         (SELECT COUNT(*) FROM leave_requests l2 WHERE date(l2.created_at) = date(l.created_at) AND l2.id <= l.id) AS day_seq,
         u.name AS user_name, u.full_name AS user_full, u.position AS user_position, u.department AS user_department, u.role AS applicant_role,
         hu.name AS hr_by_name, pu.name AS preapp_by_name, pu.full_name AS preapp_by_full, pu.role AS preapp_by_role,
-        fu.name AS final_by_name, fu.full_name AS final_by_full,
+        fu.name AS final_by_name, fu.full_name AS final_by_full, fu.role AS final_by_role,
         COALESCE(NULLIF(TRIM(ru.full_name), ''), ru.name) AS returned_by_name
       FROM leave_requests l JOIN users u ON u.id = l.user_id
       LEFT JOIN users hu ON hu.id = l.hr_by
@@ -6096,11 +6096,40 @@ async function handleStaffRoutes(
     let released: { month: string; released_at: string }[] = [];
     try { released = (await env.DB.prepare(`SELECT month, released_at FROM payslip_releases WHERE released_at IS NOT NULL`).all<{ month: string; released_at: string }>()).results; } catch { /* pre-release table */ }
     const monthsOf = (a: string, b: string) => { const out: string[] = []; let m = a.slice(0, 7); while (m <= b.slice(0, 7) && out.length < 24) { out.push(m); const [y, mo] = m.split("-").map(Number); m = mo === 12 ? `${y! + 1}-01` : `${y}-${String(mo! + 1).padStart(2, "0")}`; } return out; };
+    /* v1.259.0 (claude/LEAVE-ROUTING-AUDIT.md rev 2, section 8) - THE
+       EVIDENCE the labels are read from, nothing rewritten: a CEO override
+       is called one only where audit_log records it (leave.override_approve
+       or leave.override_reject, with the stage it decided at); and where an
+       approved leave stands in Payroll comes from the payroll records
+       (payroll_entries = prepared, payslip_releases = released). */
+    const overrideOf = new Map<string, string>();
+    const prepared = new Set<string>();
+    try {
+      const ids = results.map((l) => String(l.id));
+      for (let i = 0; i < ids.length; i += 90) {
+        const chunk = ids.slice(i, i + 90);
+        const ov = await env.DB.prepare(
+          `SELECT entity_id, detail FROM audit_log WHERE entity = 'leave_requests' AND action IN ('leave.override_approve', 'leave.override_reject') AND entity_id IN (${chunk.map((_, j) => `?${j + 1}`).join(",")})`,
+        ).bind(...chunk).all<{ entity_id: string; detail: string | null }>();
+        for (const o of ov.results) { let from = "applied"; try { from = String((JSON.parse(o.detail ?? "{}") as { from_stage?: string }).from_stage ?? "applied"); } catch { /* no detail */ } overrideOf.set(String(o.entity_id), from); }
+      }
+      const who = [...new Set(results.filter((l) => l.stage === "approved").map((l) => Number(l.user_id)))];
+      for (let i = 0; i < who.length; i += 90) {
+        const chunk = who.slice(i, i + 90);
+        const pe = await env.DB.prepare(`SELECT user_id, month FROM payroll_entries WHERE user_id IN (${chunk.map((_, j) => `?${j + 1}`).join(",")})`).bind(...chunk).all<{ user_id: number; month: string }>();
+        for (const e of pe.results) prepared.add(`${e.user_id}:${e.month}`);
+      }
+    } catch { /* an older database: the labels fall back to "not recorded" and "not prepared" */ }
     const leave = results.map((l) => {
-      const touched = monthsOf(String(l.start_date), String(l.end_date)).filter((m) => released.some((r) => r.month === m && (l.stage !== "approved" || r.released_at <= String(l.final_at ?? (l.recorded_direct ? l.created_at : "9999")))));
+      const touched = monthsOf(String(l.start_date), String(l.end_date)).filter((m) => released.some((r) => r.month === m && (l.stage !== "approved" || r.released_at <= String(leaveDecider(l)?.at ?? (l.recorded_direct ? l.created_at : "9999")))));
+      const ev = { ...l, override_from: overrideOf.get(String(l.id)) ?? null };
+      const payroll = l.stage === "approved" ? monthsOf(String(l.start_date), String(l.end_date)).map((m) => {
+        const rl = released.find((r) => r.month === m);
+        return rl ? { month: m, state: "released" as const, at: rl.released_at } : { month: m, state: prepared.has(`${l.user_id}:${m}`) ? "prepared" as const : "not_prepared" as const, at: null };
+      }) : [];
       return {
         ...l,
-        timeline: leaveTimeline(l, touched),
+        timeline: leaveTimeline(ev, touched, payroll),
         waiting_on: leaveWaitingOn(String(l.stage), String(l.applicant_role ?? "")),
         can_act: leaveCanActAt(user, String(l.stage), String(l.applicant_role ?? ""), Number(l.user_id)),
       };
@@ -6158,7 +6187,8 @@ async function handleStaffRoutes(
      owner, 22-10-2026, with his reference: a "Leave Application" card on
      the Dashboard listing this month's applications with the person and
      the reason - and his explicit choice that EVERY staff member sees the
-     whole company's, reasons included (the roster's PDPA stance above
+     whole company's, reasons included (v1.259.0: superseded by his D6 (a) -
+     reasons and types now go to the applicant and the chain only, below) (the roster's PDPA stance above
      withholds type and reason; this route is the owner's deliberate
      exception for one card, and the comment is here so nobody widens it
      further by accident). Read only; cancelled applications are left out;
@@ -6176,8 +6206,17 @@ async function handleStaffRoutes(
            FROM leave_requests l JOIN users u ON u.id = l.user_id
           WHERE l.status != 'cancelled' AND l.start_date <= ?2 AND l.end_date >= ?1
           ORDER BY l.start_date ASC, l.id ASC LIMIT 200`,
-      ).bind(first, last).all();
-      return json({ month, leave: results });
+      ).bind(first, last).all<Record<string, unknown> & { user_id: number }>();
+      /* v1.259.0 (the CEO, 04-11-2026, D6 (a): "Sensitive leave types,
+         reasons, supporting documents and medical information must be
+         restricted according to existing permissions. Do not expose private
+         leave details through public calendar responses.") Everyone still
+         sees who is away, when, and whether it is Tentative or Approved; the
+         TYPE and the REASON go only to the applicant and to the approval
+         chain (leaveSeesAll: HR, the COO and CCO, the CEO). Withheld on the
+         server - the screen never receives what it may not show. */
+      const sees = leaveSeesAll(user.role);
+      return json({ month, private: !sees, leave: results.map((l) => (sees || l.user_id === user.id ? l : { ...l, type: null, reason: null })) });
     } catch {
       return json({ month, leave: [] });
     }
@@ -17475,20 +17514,22 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
     /* v1.127.0: same rule as claims — the form carries the chop of the entity
        that EMPLOYED the applicant, at the version current when each stage
        signed. A leave form re-printed today still shows what it showed then. */
-    let lv: { user_id: number; status: string; preapp_by: number | null; owner_role: string; pre_role: string | null; issuer_code?: string | null; created_at?: string | null; preapp_at?: string | null; final_at?: string | null } | null = null;
+    let lv: { user_id: number; status: string; preapp_by: number | null; owner_role: string; pre_role: string | null; issuer_code?: string | null; created_at?: string | null; preapp_at?: string | null; final_at?: string | null; stage?: string | null; final_role?: string | null } | null = null;
     try {
       lv = await env.DB.prepare(
-        `SELECT l.user_id, l.status, l.preapp_by, l.issuer_code, l.created_at, l.preapp_at, l.final_at,
-                u.role AS owner_role, p.role AS pre_role
+        `SELECT l.user_id, l.status, l.stage, l.preapp_by, l.issuer_code, l.created_at, l.preapp_at, l.final_at,
+                u.role AS owner_role, p.role AS pre_role, f.role AS final_role
          FROM leave_requests l JOIN users u ON u.id = l.user_id
          LEFT JOIN users p ON p.id = l.preapp_by
+         LEFT JOIN users f ON f.id = l.final_by
          WHERE l.id = ?1`,
       ).bind(sigLeave[1]).first();
     } catch {
       lv = await env.DB.prepare(
-        `SELECT l.user_id, l.status, l.preapp_by, u.role AS owner_role, p.role AS pre_role
+        `SELECT l.user_id, l.status, l.stage, l.preapp_by, l.preapp_at, l.final_at, u.role AS owner_role, p.role AS pre_role, f.role AS final_role
          FROM leave_requests l JOIN users u ON u.id = l.user_id
          LEFT JOIN users p ON p.id = l.preapp_by
+         LEFT JOIN users f ON f.id = l.final_by
          WHERE l.id = ?1`,
       ).bind(sigLeave[1]).first();
     }
@@ -17501,8 +17542,18 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
     let lvRole: string | null = null;
     let lvAt: string | null = null;
     if (which === "emp") { lvRole = SIG_ROLE_FILE[lv.owner_role] ? lv.owner_role : null; lvAt = lv.created_at ?? null; }
-    if (which === "pre") { lvRole = lv.preapp_by && SIG_ROLE_FILE[lv.pre_role ?? ""] ? lv.pre_role! : null; lvAt = lv.preapp_at ?? null; }
-    if (which === "ceo") { lvRole = lv.status === "approved" ? "ceo" : null; lvAt = lv.final_at ?? null; }
+    /* v1.259.0 (claude/LEAVE-ROUTING-AUDIT.md rev 2, L1 and L3) - A CHOP
+       ONLY FOR A DECISION ITS HOLDER MADE. The CEO box used to carry the CEO
+       chop on every approved request, whoever decided it (an unpaid day a
+       Super Admin recorded, an admin's final approval). It is served now
+       only when the person who made the final decision is the CEO. And the
+       CEO's normal approval of a COO/CCO request, which the system stores in
+       preapp_by (leaveDecider), is that request's FINAL decision: it belongs
+       in the CEO box, not in the pre-approval box. */
+    const decider = leaveDecider({ stage: String(lv.stage ?? lv.status), applicant_role: lv.owner_role, preapp_at: lv.preapp_at ?? null, preapp_by_role: lv.pre_role, final_at: lv.final_at ?? null, final_by_role: lv.final_role ?? null });
+    const preIsFinal = decider?.via === "preapp";
+    if (which === "pre") { lvRole = !preIsFinal && lv.preapp_by && SIG_ROLE_FILE[lv.pre_role ?? ""] ? lv.pre_role! : null; lvAt = lv.preapp_at ?? null; }
+    if (which === "ceo") { lvRole = lv.status === "approved" && decider?.role === "ceo" ? "ceo" : null; lvAt = decider?.at ?? null; }
     if (!lvRole) return err("not_found", "No signature applies at this stage", 404);
     const leaveKey = await resolveSignatureKey(lv.issuer_code, lvRole, lvAt);
     return serveSignatureKey(leaveKey, `leave:${sigLeave[1]}`);

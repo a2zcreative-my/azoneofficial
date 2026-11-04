@@ -95,8 +95,10 @@ export const LEAVE_TYPE_MS: Record<string, string> = {
   unpaid: "tanpa gaji",
   replacement: "gantian",
 };
-export const leaveTypeL = (t: string) =>
-  getLang() === "ms" ? (LEAVE_TYPE_MS[t] ?? t) : t;
+/* v1.259.0 - a null type is one the server withheld (D6: types go to the
+   applicant and the approval chain only) - it reads as plain "leave" */
+export const leaveTypeL = (t: string | null | undefined) =>
+  !t ? (getLang() === "ms" ? "cuti" : "leave") : getLang() === "ms" ? (LEAVE_TYPE_MS[t] ?? t) : t;
 export const PRIORITY_MS: Record<string, string> = {
   low: "rendah",
   normal: "biasa",
@@ -334,9 +336,10 @@ export interface LeaveReq {
   final_by_name?: string | null;
   final_by_full?: string | null;
   final_at?: string | null;
+  final_by_role?: string | null; // v1.259.0 - who made the final decision (the form's CEO box is his only when he did)
   /* v1.252.0 - the approval timeline, worked out by the server (leave-chain.ts
      leaveTimeline), who it waits on, and whether THIS person decides it now */
-  timeline?: { key: string; state: "done" | "now" | "todo" | "skipped" | "rejected" | "withdrawn" | "returned" | "off"; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | boolean> }[];
+  timeline?: { key: string; state: "done" | "now" | "todo" | "skipped" | "rejected" | "withdrawn" | "returned" | "off"; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | boolean>; payroll?: { month: string; state: "not_prepared" | "prepared" | "released"; at: string | null }[] }[];
   waiting_on?: "hr" | "coo_cco" | "ceo" | "applicant" | null;
   can_act?: boolean;
   returned_from?: string | null;

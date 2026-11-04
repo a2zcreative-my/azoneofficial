@@ -19,7 +19,7 @@ import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { sharePdfFile } from "@/lib/doc-pdf";
 import { esc } from "@/lib/escape-html";
-import { buildLeavePdf } from "@/lib/form-pdf";
+import { buildLeavePdf, leaveFormDecision } from "@/lib/form-pdf"; // leaveFormDecision v1.259.0
 import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
@@ -164,20 +164,23 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
     sales_marketing: "sales-marketing-sign.png",
   };
   const empSig = SIG_FILE[l.applicant_role ?? ""] ?? null;
+  /* v1.259.0 - who signed which box, from the record (lib/form-pdf.ts
+     leaveFormDecision - the PDF reads the same rule) */
+  const fd = leaveFormDecision(l);
   const statusLine =
     stage === "approved"
-      ? `APPROVED IN SYSTEM${l.final_by_name ? " by " + l.final_by_name : ""}${l.final_at ? " on " + myt(l.final_at) + " MYT" : ""}`
+      ? `APPROVED IN SYSTEM${fd.final ? " by " + fd.final.name + (fd.final.override ? " (CEO override)" : "") : ""}${fd.final?.at ? " on " + myt(fd.final.at) + " MYT" : ""}`
       : stage === "rejected"
         ? `REJECTED IN SYSTEM${l.final_by_name ? " by " + l.final_by_name : ""}${l.review_comment ? " · Note: " + l.review_comment : ""}`
         : stage === "cancelled"
           ? "CANCELLED BY APPLICANT"
           : `PENDING — ${stage === "applied" ? "awaiting HR review" : stage === "hr_reviewed" ? "HR ✓ — awaiting pre-approval" : "pre-approved — awaiting CEO"}`;
   const chainNotes = [
-    l.hr_by_name
-      ? `HR reviewed by ${l.hr_by_name}${l.hr_at ? " on " + myt(l.hr_at) + " MYT" : ""}`
+    fd.hr
+      ? `HR reviewed by ${fd.hr.name}${fd.hr.at ? " on " + myt(fd.hr.at) + " MYT" : ""}`
       : "",
-    l.preapp_by_name
-      ? `Pre-approved by ${l.preapp_by_name}${l.preapp_at ? " on " + myt(l.preapp_at) + " MYT" : ""}`
+    fd.pre
+      ? `Pre-approved by ${fd.pre.name}${fd.pre.at ? " on " + myt(fd.pre.at) + " MYT" : ""}`
       : "",
   ]
     .filter(Boolean)
@@ -225,7 +228,7 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
   <p class="status">System status: ${statusLine}</p>
   ${chainNotes ? `<p class="chain">${chainNotes}</p>` : ""}
   <table class="sig">
-    <tr><th style="width:33%">Employee</th><th style="width:34%">Administrative or<br/>Head of Department (COO / CCO)</th><th style="width:33%">Chief Executive Officer (CEO)</th></tr>
+    <tr><th style="width:33%">Employee</th><th style="width:34%">Administrative or<br/>Head of Department (COO / CCO)</th><th style="width:33%">${fd.finalTitle}${fd.final?.override ? "<br/>(CEO override)" : ""}</th></tr>
     <tr>
       <td class="body"><div class="cw"><div class="nm">Name: ${esc(applicant)}</div>
         <div class="sg">Signature:${
@@ -235,15 +238,15 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
         }</div>
         <div class="dt">Date: ${myt(cA)}${cA.length > 10 ? " MYT" : ""}</div></div></td>
       <td class="body"><div class="cw">${
-        l.preapp_by_full || l.preapp_by_name
-          ? `<div class="nm">Name: ${esc((l.preapp_by_full || l.preapp_by_name || "").toUpperCase())}</div>
+        fd.pre
+          ? `<div class="nm">Name: ${esc(fd.pre.name.toUpperCase())}</div>
            <div class="sg">Signature:<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/pre" alt="" onerror="this.style.display='none'"/></div>
-           <div class="dt">Date: ${l.preapp_at ? myt(l.preapp_at) + " MYT" : ""}</div>`
+           <div class="dt">Date: ${fd.pre.at ? myt(fd.pre.at) + " MYT" : ""}</div>`
           : `<div class="nm">Name:</div><div class="sg">Signature:</div><div class="dt">Date:</div>`
       }</div></td>
-      <td class="body"><div class="cw"><div class="nm">Name: ${esc(stage === "approved" ? (l.final_by_full || l.final_by_name || "").toUpperCase() : "")}</div>
-        <div class="sg">Signature:${stage === "approved" ? `<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/ceo" alt="" onerror="this.style.display='none'"/>` : ""}</div>
-        <div class="dt">Date: ${stage === "approved" && l.final_at ? myt(l.final_at) + " MYT" : ""}</div></div></td>
+      <td class="body"><div class="cw"><div class="nm">Name: ${esc((fd.final?.name ?? "").toUpperCase())}</div>
+        <div class="sg">Signature:${fd.final ? (fd.final.role === "ceo" ? `<img class="sigimg" src="/api/v1/staff/leave/${l.id}/signature/ceo" alt="" onerror="this.style.display='none'"/>` : `<span class="esub">(approved electronically in A2Z OS)</span>`) : ""}</div>
+        <div class="dt">Date: ${fd.final?.at ? myt(fd.final.at) + " MYT" : ""}</div></div></td>
     </tr>
   </table>
   <p class="foot">${issuer.name} · ${issuer.registration} · ${issuer.address.replace(/, Malaysia$/, "")} · This form accompanies the system record ${esc(lvNo)}; the in-system decision is authoritative.</p>
@@ -264,6 +267,21 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
  * and it opens the same grid the person sees on their own history plus the
  * approval trail. Module scope, per guard #30.
  */
+/* v1.259.0 - the stage a CEO override decided at, in words */
+const OVERRIDE_AT: Record<string, string> = { applied: "HR review", hr_reviewed: "pre-approval", pre_approved: "the final step", pending_final: "the final step" };
+/** v1.259.0 (the CEO, 04-11-2026, F: "Avoid showing a completed Payroll
+    processing stage before the actual run") - Attendance reads approved leave
+    directly, so it counts from the approval; Payroll is said only as its own
+    records have it: not prepared, prepared (not released), released. */
+function effectLine(approvedAt: string | null, payroll?: { month: string; state: "not_prepared" | "prepared" | "released"; at: string | null }[]): string {
+  const at = approvedAt ? dmyMYT(approvedAt) : "";
+  const att = L(`Counts in Attendance and the roster from ${at || "the approval"}.`, `Dikira dalam Kehadiran dan jadual mulai ${at || "kelulusan"}.`);
+  const pay = (payroll ?? []).map((p) => p.state === "released"
+    ? L(`${monthName(p.month)} payslips released ${p.at ? dmyMYT(p.at) : ""}`.trim(), `Slip gaji ${monthName(p.month)} dikeluarkan ${p.at ? dmyMYT(p.at) : ""}`.trim())
+    : p.state === "prepared" ? L(`${monthName(p.month)} payroll prepared, not released yet`, `Gaji ${monthName(p.month)} disediakan, belum dikeluarkan`)
+    : L(`${monthName(p.month)} payroll not prepared yet`, `Gaji ${monthName(p.month)} belum disediakan`));
+  return pay.length ? `${att} ${L("Payroll", "Gaji")}: ${pay.join("; ")}.` : att;
+}
 /** v1.252.0 - THE APPROVAL TIMELINE, in words, from the server's steps
     (leave-chain.ts leaveTimeline). Nothing is worked out here but the
     sentence: who, when, what is waited on, what was written. */
@@ -275,7 +293,7 @@ export function leaveStages(l: LeaveReq): Stage[] {
     hr: L("HR review", "Semakan HR"),
     pre: L("Pre-approval - COO or CCO", "Pra-kelulusan - COO atau CCO"),
     final: L("CEO decision", "Keputusan CEO"),
-    effect: L("In Attendance & Payroll", "Dalam Kehadiran & Gaji"),
+    effect: L("Attendance & Payroll", "Kehadiran & Gaji"),
   };
   const waits: Record<string, string> = {
     hr: L("Waiting on HR", "Menunggu HR"),
@@ -286,12 +304,19 @@ export function leaveStages(l: LeaveReq): Stage[] {
     const who = s.who ? properName(s.who) : "";
     const whoAt = [who, at(s.at)].filter(Boolean).join(" · ");
     const released = typeof s.flags?.released_months === "string" ? String(s.flags.released_months).split(",").map((m) => monthName(m)).join(", ") : "";
-    const base: Stage = { key: s.key, title: title[s.key] ?? s.key, state: s.state as StageState };
+    /* v1.259.0 - a decision is named by who made it: the final step says
+       "CEO decision" only when the CEO decided it (by_role) */
+    const byRole = typeof s.flags?.by_role === "string" ? s.flags.by_role : "";
+    const finalTitle = byRole && byRole !== "ceo" ? L("Final decision", "Keputusan akhir") : title.final;
+    const base: Stage = { key: s.key, title: s.key === "final" ? finalTitle! : title[s.key] ?? s.key, state: s.state as StageState };
+    const ovAt = typeof s.flags?.override_from === "string" ? (OVERRIDE_AT[s.flags.override_from] ?? "") : "";
     switch (s.state) {
       case "done":
         return { ...base,
-          sub: s.key === "effect" ? L(`Counted in Attendance and Payroll from ${at(s.at) || "the approval"}`, `Dikira dalam Kehadiran dan Gaji mulai ${at(s.at) || "kelulusan"}`)
-            : s.key === "final" && s.flags?.override ? L(`Decided directly by ${who || "the CEO"}${s.at ? ` · ${at(s.at)}` : ""}`, `Diputuskan terus oleh ${who || "CEO"}${s.at ? ` · ${at(s.at)}` : ""}`)
+          title: s.key === "recorded" && who ? L(`Recorded by ${who} from Attendance`, `Direkod oleh ${who} dari Kehadiran`) : base.title,
+          sub: s.key === "effect" ? effectLine(s.at, s.payroll)
+            : s.key === "final" && s.flags?.override ? L(`Decided by CEO override${ovAt ? ` at ${ovAt}` : ""} - ${who || "the CEO"}${s.at ? ` · ${at(s.at)}` : ""}`, `Diputuskan melalui pengecualian CEO${ovAt ? ` di ${ovAt}` : ""} - ${who || "CEO"}${s.at ? ` · ${at(s.at)}` : ""}`)
+            : s.key === "final" ? L(`Approved by ${whoAt || "—"}`, `Diluluskan oleh ${whoAt || "—"}`)
             : whoAt || "—",
           note: s.text || undefined,
           warn: released ? L(`Payroll for ${released} was already released before this approval - HR to review.`, `Gaji untuk ${released} telah dikeluarkan sebelum kelulusan ini - HR perlu menyemak.`) : undefined,
@@ -302,11 +327,15 @@ export function leaveStages(l: LeaveReq): Stage[] {
       case "returned":
         return { ...base, sub: L(`Returned for more information by ${who || "the approver"}${s.at ? ` · ${at(s.at)}` : ""} - waiting on the applicant`, `Dikembalikan untuk maklumat oleh ${who || "pelulus"}${s.at ? ` · ${at(s.at)}` : ""} - menunggu pemohon`), note: s.text || undefined, aside: L("With the applicant", "Pada pemohon") };
       case "rejected":
-        return { ...base, title: `${title[s.key] ?? s.key} - ${L("rejected", "ditolak")}`, sub: L(`Rejected by ${who || "the approver"}${s.at ? ` · ${at(s.at)}` : ""}`, `Ditolak oleh ${who || "pelulus"}${s.at ? ` · ${at(s.at)}` : ""}`), note: s.text || undefined };
+        return { ...base, title: `${title[s.key] ?? s.key} - ${L("rejected", "ditolak")}`,
+          sub: s.flags?.override ? L(`Rejected by CEO override - ${who || "the CEO"}${s.at ? ` · ${at(s.at)}` : ""}`, `Ditolak melalui pengecualian CEO - ${who || "CEO"}${s.at ? ` · ${at(s.at)}` : ""}`)
+            : L(`Rejected by ${who || "the approver"}${s.at ? ` · ${at(s.at)}` : ""}`, `Ditolak oleh ${who || "pelulus"}${s.at ? ` · ${at(s.at)}` : ""}`), note: s.text || undefined };
       case "withdrawn":
         return { ...base, title: L("Withdrawn by the applicant", "Ditarik balik oleh pemohon"), sub: s.at ? at(s.at) : L("Withdrawn (the time was not recorded before November 2026)", "Ditarik balik (masa tidak direkod sebelum November 2026)") };
+      /* v1.259.0 - an override is called one only on audit evidence;
+         without it the stage is "not recorded", never a guessed override */
       case "skipped":
-        return { ...base, sub: L("Skipped - the CEO decided directly", "Dilangkau - CEO memutuskan terus") };
+        return { ...base, sub: s.flags?.override ? L("Not reached - superseded by the CEO override", "Tidak sampai - digantikan oleh pengecualian CEO") : L("Not recorded - no signature or decision was stored for this stage", "Tidak direkod - tiada tandatangan atau keputusan disimpan bagi peringkat ini") };
       case "off":
         return { ...base, sub: L("Not reached", "Tidak sampai") };
       default:

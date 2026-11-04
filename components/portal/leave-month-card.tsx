@@ -5,7 +5,10 @@
    reason - on the Dashboard). The owner's explicit choice: EVERY staff
    member sees the whole company's applications for the month, reasons
    included (GET /staff/leave/month is the one route that returns them; its
-   comment names the PDPA trade-off). The card decides nothing: a row opens
+   comment names the PDPA trade-off). v1.259.0 (the CEO, D6 (a)): the
+   server now withholds the type and the reason of other people's leave from
+   anyone outside the approval chain - the row then shows who and when, and
+   Tentative or Approved, without a reason line. The card decides nothing: a row opens
    the Leave tab, where approvers act and everyone sees their own history.
    Read through useCachedApi on the `leave` topic, so a new application or a
    decision anywhere refreshes it without a reload. */
@@ -25,7 +28,7 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface MonthLeave {
   id: number; user_id: number; name: string; photo_key: string | null; position: string | null;
-  type: string; start_date: string; end_date: string; days: number; day_part: string | null;
+  type: string | null; start_date: string; end_date: string; days: number; day_part: string | null; // type and reason null = withheld (v1.259.0, D6)
   status: "pending" | "approved" | "rejected"; reason: string | null; created_at: string;
 }
 
@@ -42,7 +45,7 @@ export function LeaveMonthCard({ go }: { go: (tab: "Leave") => void }) {
   const rows = [...(view.data?.leave ?? [])].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   const shown = all ? rows : rows.slice(0, SHOW_FIRST);
   const statusL = (s: MonthLeave["status"]) =>
-    s === "pending" ? L("pending", "menunggu") : s === "approved" ? L("approved", "diluluskan") : L("rejected", "ditolak");
+    s === "pending" ? L("tentative", "sementara") : s === "approved" ? L("approved", "diluluskan") : L("rejected", "ditolak"); // v1.259.0 - pending leave is not confirmed absence
   const span = (r: MonthLeave) =>
     r.start_date === r.end_date ? dmy(r.start_date) : `${dmy(r.start_date)} – ${dmy(r.end_date)}`;
   return (
@@ -84,9 +87,11 @@ export function LeaveMonthCard({ go }: { go: (tab: "Leave") => void }) {
                   <Avatar name={r.name} photoKey={r.photo_key} size="md" />
                   <span className={css.lines}>
                     <span className={css.name}>{r.name}</span>
-                    <span className={css.reason}>
-                      {L("Reason", "Sebab")} : {r.reason?.trim() || leaveTypeL(r.type)}
-                    </span>
+                    {r.type !== null && (
+                      <span className={css.reason}>
+                        {L("Reason", "Sebab")} : {r.reason?.trim() || leaveTypeL(r.type)}
+                      </span>
+                    )}
                     <span className={css.when}>
                       {span(r)} · {r.days} {L(r.days === 1 ? "day" : "days", "hari")} · {leaveTypeL(r.type)}
                     </span>

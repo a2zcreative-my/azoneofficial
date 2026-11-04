@@ -86,6 +86,10 @@ async function runtime(workerBundle) {
   db.exec(`INSERT INTO leave_requests (id, user_id, type, start_date, end_date, days, status, stage, created_at, final_by, final_at) VALUES
     (90, 7, 'emergency', '2026-10-05', '2026-10-05', 1, 'cancelled', 'cancelled', '2026-10-01 01:00:00', NULL, NULL),
     (91, 7, 'emergency', '2026-10-12', '2026-10-12', 1, 'approved', 'approved', '2026-10-08 01:00:00', 1, '2026-10-09 02:00:00')`);
+  /* v1.259.0 - an unpaid day the Super Admin recorded, and an approval the Super Admin finalised (FINAL_ROLES holds the admin tier) */
+  db.exec(`INSERT INTO leave_requests (id, user_id, type, start_date, end_date, days, status, stage, created_at, final_by, final_at, recorded_direct, hr_by, hr_at, preapp_by, preapp_at) VALUES
+    (92, 7, 'unpaid', '2026-10-14', '2026-10-14', 1, 'approved', 'approved', '2026-10-14 09:00:00', 2, '2026-10-14 09:00:00', 1, NULL, NULL, NULL, NULL),
+    (93, 7, 'emergency', '2026-10-20', '2026-10-20', 1, 'approved', 'approved', '2026-10-15 01:00:00', 2, '2026-10-16 02:00:00', 0, 6, '2026-10-15 03:00:00', 3, '2026-10-15 05:00:00')`);
   const worker = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`));
   const app = worker.default;
   const tok = {};
@@ -177,11 +181,21 @@ async function runtime(workerBundle) {
     await call(`/leave/${F}`, U.hana, "PATCH", { action: "approve" });
     l = await rowOf(U.coo, F);
     ok(states(l) === "submitted:done hr:done final:now effect:todo" && l.waiting_on === "ceo" && noticed(U.ceo, `leave:${F}:hr_reviewed`) === 1 && noticed(U.cco, `leave:${F}:hr_reviewed`) === 0, "a COO's leave skips pre-approval: HR, then the CEO (told)", states(l));
+    /* ---------- v1.259.0 L1: the CEO's NORMAL approval of a COO request is its final decision ---------- */
+    const sigMsg = async (id, which) => { const r = await call(`/leave/${id}/signature/${which}`, U.ceo); return r.status === 200 ? "served" : (r.j?.error?.message ?? String(r.status)); };
+    ok((await call(`/leave/${F}`, U.ceo, "PATCH", { action: "approve", totp: code() })).j?.stage === "approved", "the CEO approves the COO's leave on the normal path");
+    const fRow = one(`SELECT preapp_by, final_by FROM leave_requests WHERE id = ?`, F);
+    l = await rowOf(U.coo, F);
+    ok(fRow.preapp_by === U.ceo && fRow.final_by === null, "the stored row is left as the system writes it (the CEO in preapp_by) - nothing is rewritten", JSON.stringify(fRow));
+    ok(states(l) === "submitted:done hr:done final:done effect:done" && l.timeline[2].who === "Alif" && l.timeline[2].at === l.preapp_at && l.timeline[2].flags?.by_role === "ceo" && !l.timeline[2].flags?.override, "L1: the timeline shows the CEO decision done by the CEO, at his time - never Skipped, never an override", states(l) + " " + JSON.stringify(l.timeline[2]));
+    ok(l.timeline[3].at === l.preapp_at && JSON.stringify(l.timeline[3].payroll) === JSON.stringify([{ month: "2026-11", state: "not_prepared", at: null }]), "Attendance from the approval; Payroll said as its records have it (not prepared yet)", JSON.stringify(l.timeline[3]));
+    ok(await sigMsg(F, "pre") === "No signature applies at this stage" && await sigMsg(F, "ceo") !== "No signature applies at this stage", "the form: the CEO's decision goes in the CEO box, not the pre-approval box");
     /* ---------- the CEO's override ---------- */
     const G = (await call(`/leave`, U.lia, "POST", { type: "emergency", start_date: "2026-11-23", end_date: "2026-11-23", days: 1 })).j?.id;
     await call(`/leave/${G}`, U.ceo, "PATCH", { action: "approve", override: true, totp: code() });
     l = await rowOf(U.lia, G);
     ok(states(l) === "submitted:done hr:skipped pre:skipped final:done effect:done" && l.timeline[3].flags?.override === true, "a CEO override shows the skipped stages as skipped - never as signed", states(l));
+    ok(l.timeline[3].flags?.override_from === "applied" && l.timeline[1].flags?.override === true && l.timeline[3].flags?.by_role === "ceo", "v1.259.0: the override is named from its audit row, with the stage it decided at", JSON.stringify(l.timeline[3]));
     /* ---------- comments and activity ---------- */
     ok((await call(`/leave/${A}/comments`, U.hana, "POST", { body: "Balance checked", visibility: "internal" })).status === 201, "management writes an internal note");
     const seen = (await call(`/leave/${A}/comments`, U.aina)).j;
@@ -203,8 +217,26 @@ async function runtime(workerBundle) {
     /* ---------- old rows ---------- */
     const o90 = await rowOf(U.lia, 90), o91 = await rowOf(U.lia, 91);
     ok(states(o90) === "submitted:done hr:withdrawn pre:off final:off effect:off" && o90.timeline[1].at === null, "an old withdrawal shows no time - none was stored, none is invented");
-    ok(states(o91) === "submitted:done hr:skipped pre:skipped final:done effect:done", "an old override shows its skipped stages", states(o91));
+    ok(states(o91) === "submitted:done hr:skipped pre:skipped final:done effect:done", "an old row shows its unsigned stages as not signed", states(o91));
+    ok(o91.timeline[1].flags?.not_recorded === true && !o91.timeline[1].flags?.override && !o91.timeline[3].flags?.override, "L2: with no override on record, an unsigned stage is Not recorded - never a guessed CEO override", JSON.stringify(o91.timeline.slice(1, 4)));
+    /* ---------- v1.259.0 L3: the CEO chop only for a decision the CEO made ---------- */
+    const o92 = await rowOf(U.lia, 92), o93 = await rowOf(U.lia, 93);
+    ok(o92.timeline[0].key === "recorded" && o92.timeline[0].who === "Root" && o92.timeline[0].flags?.by_role === "super_admin", "a recorded unpaid day names who recorded it", JSON.stringify(o92.timeline[0]));
+    ok(o93.timeline[3].flags?.by_role === "super_admin" && o93.timeline[3].who === "Root", "an approval someone else finalised names them, not the CEO", JSON.stringify(o93.timeline[3]));
+    ok(await sigMsg(92, "ceo") === "No signature applies at this stage" && await sigMsg(93, "ceo") === "No signature applies at this stage", "L3: no CEO chop on a decision the CEO did not make");
+    ok(await sigMsg(A, "ceo") !== "No signature applies at this stage" && await sigMsg(93, "pre") !== "No signature applies at this stage", "...and the CEO's own final approval, and a COO pre-approval, keep theirs");
+    /* ---------- v1.259.0 D6: who is away, not why ---------- */
+    const monthOf = async (uid) => (await call(`/leave/month?month=2026-11`, uid)).j;
+    const ml = await monthOf(U.lia), mh = await monthOf(U.hana);
+    const others = (ml?.leave ?? []).filter((x) => x.user_id !== U.lia), mine = (ml?.leave ?? []).filter((x) => x.user_id === U.lia);
+    ok(ml?.private === true && others.length > 0 && others.every((x) => x.type === null && x.reason === null && x.name && x.start_date && x.status), "an employee sees who is away, when and the status - not another person's type or reason", JSON.stringify(others[0]));
+    ok(mine.length > 0 && mine.every((x) => typeof x.type === "string"), "...their own leave in full");
+    ok(mh?.private === false && (mh?.leave ?? []).some((x) => x.user_id === U.aina && x.type === "emergency" && x.reason === "Family matter"), "the approval chain (HR) reads type and reason", JSON.stringify((mh?.leave ?? [])[0]));
     ok(money() === money0, "no payroll or balance row was written");
+    /* ---------- v1.259.0: payroll prepared, from its record ---------- */
+    db.exec(`INSERT INTO payroll_entries (user_id, month, basic_cents) VALUES (7, '2026-10', 300000)`);
+    const o91b = await rowOf(U.lia, 91), aRel = await rowOf(U.aina, A);
+    ok(JSON.stringify(o91b.timeline.at(-1).payroll) === JSON.stringify([{ month: "2026-10", state: "prepared", at: null }]) && aRel.timeline.at(-1).payroll?.[0]?.state === "released", "Payroll prepared or released only when its records say so", JSON.stringify([o91b.timeline.at(-1).payroll, aRel.timeline.at(-1).payroll]));
   } catch (e) {
     out.push([false, `runtime: ${e?.stack ?? e}`]);
   } finally {
@@ -233,7 +265,11 @@ const MUT = [
   ["worker/src/staff.ts", "a resubmission skips the checks", "      const chk = await checkLeave(row.user_id, next, Number(id));\n      if (chk instanceof Response) return chk;", "      const chk = { sdL: String(next.start_date), edL: String(next.end_date), coverage: { day_part: null, coverage_json: null } };"],
   ["worker/src/staff.ts", "a rejection needs no reason", "      if (!comment || comment.length < 5) return err(\"reason_required\", \"Give the reason for the rejection", "      if (false) return err(\"reason_required\", \"Give the reason for the rejection"],
   ["worker/src/staff.ts", "the applicant reads internal notes", "WHERE c.leave_id = ?1 ${internalOk ? \"\" : \"AND c.visibility = 'employee'\"} ORDER BY c.id`", "WHERE c.leave_id = ?1 ORDER BY c.id`"],
-  ["worker/src/leave-chain.ts", "an override shows skipped stages as signed", "      : { key: k, state: \"skipped\", who: null, at: null, text: null, flags: { override: true } });", "      : { key: k, state: \"done\", who: null, at: null, text: null, flags: { override: true } });"],
+  ["worker/src/leave-chain.ts", "an override shows skipped stages as signed", "      : { key: k, state: \"skipped\", who: null, at: null, text: null, flags: overridden ? { override: true } : { not_recorded: true } });", "      : { key: k, state: \"done\", who: null, at: null, text: null, flags: overridden ? { override: true } : { not_recorded: true } });"],
+  ["worker/src/leave-chain.ts", "an unsigned stage is called an override without evidence (L2)", "flags: overridden ? { override: true } : { not_recorded: true } });", "flags: { override: true } });"],
+  ["worker/src/leave-chain.ts", "the CEO's normal COO/CCO approval is not his final decision (L1)", "  if (r.stage === \"approved\" && topTier && r.preapp_at) return {", "  if (false) return {"],
+  ["worker/src/staff.ts", "the CEO chop on every approved form (L3)", "lvRole = lv.status === \"approved\" && decider?.role === \"ceo\" ? \"ceo\" : null;", "lvRole = lv.status === \"approved\" ? \"ceo\" : null;"],
+  ["worker/src/staff.ts", "the month's leave shows everyone's type and reason (D6)", "results.map((l) => (sees || l.user_id === user.id ? l : { ...l, type: null, reason: null }))", "results"],
   ["worker/src/staff.ts", "the next approver is not told", "      if (!done) await notifyLeaveActors(", "      if (false) await notifyLeaveActors("],
 ];
 for (const [file, name, from, to] of MUT) {
@@ -254,4 +290,4 @@ for (const [file, name, from, to] of MUT) {
 }
 rmSync(dir, { recursive: true, force: true });
 if (fail) { console.error(`go-live-l: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`go-live-l: ${checks} checks passed (${MUT.length} mutations caught) - the leave approval timeline: HR, then either the COO or the CCO, then the CEO, each step with who and when; one decision per stage under concurrent presses; returned with a question and resubmitted through the same checks; rejection and withdrawal terminal with the stage and the time; the override shown as skipped; internal notes never reach the applicant; the next approver told; released payroll months flagged; no payroll row written`);
+console.log(`go-live-l: ${checks} checks passed (${MUT.length} mutations caught) - v1.259.0: decisions labelled from the evidence (L1 CEO normal approval, L2 no guessed override, L3 CEO chop only for his decisions), payroll from its records, D6 type and reason withheld; the leave approval timeline: HR, then either the COO or the CCO, then the CEO, each step with who and when; one decision per stage under concurrent presses; returned with a question and resubmitted through the same checks; rejection and withdrawal terminal with the stage and the time; the override shown as skipped; internal notes never reach the applicant; the next approver told; released payroll months flagged; no payroll row written`);
