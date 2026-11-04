@@ -132,8 +132,14 @@ function source() {
   const out = [];
   const ok = (c, m) => out.push([!!c, m]);
   const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
-  const chains = ["worker/src/leave-chain.ts", "worker/src/claims-scope.ts"].map(read).join("\n");
-  ok(!/reports_to|reportingLine/.test(chains), "the leave and claims approval chains do not read reporting lines");
+  /* v1.260.0 - the CEO approved leave approval BY the Organisation chart
+     (claude/LEAVE-ROUTING-AUDIT.md rev 2, D1-D3): the leave chain now reads
+     the reporting line - but only through the chart's own rule
+     (lib/org-tree.ts reportingLine), never the raw column, so the chart, the
+     card and the route can never disagree. The claims chain still does not. */
+  const leaveChain = read("worker/src/leave-chain.ts"), claimsChain = read("worker/src/claims-scope.ts");
+  ok(!/reports_to|reportingLine/.test(claimsChain), "the claims approval chain does not read reporting lines");
+  ok(!/reports_to/.test(leaveChain) && /import \{ reportingLine, type OrgPerson \} from "\.\.\/\.\.\/lib\/org-tree";/.test(leaveChain), "the leave chain reads reporting lines only through the chart's rule (reportingLine), never the raw column");
   const card = read("components/portal/reporting-line-card.tsx");
   ok(/data\.kind === "system" \|\| data\.kind === "gone"\)\) return null/.test(card), "a system account sees no card");
   ok(!/api<[^>]*>\([^)]*method/.test(card) && !/method: "(POST|PATCH|PUT|DELETE)"/.test(card), "the card writes nothing");

@@ -379,3 +379,8 @@ stage, progress, deadline or checklist changes.
 with the kinds edit and withdrawn and a reported_progress column (0-100). An
 edit or a withdrawal is a new row naming the update it changes; the update
 itself is never changed. No task, stage, progress or checklist changes.
+1.260.0 adds `0171_leave_routing` (additive): leave_requests gains route_json,
+route_version, step_no and approver_id (NULL on every existing row - those keep
+the previous rules), and an append-only leave_decisions table records each
+decision on a routed request. Leave approval follows the Organisation chart
+only after the CEO turns it on; no row is changed or back-filled.

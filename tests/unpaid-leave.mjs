@@ -102,7 +102,9 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
   ok("the skipped stage is audited",
      /"leave\.override_approve"[\s\S]{0,120}?from_stage: row\.stage/.test(staff));
   ok("the normal path still requires the right stage",
-     /if \(!leaveCanActAt\(user, row\.stage, row\.applicant_role, row\.user_id\)\)/.test(staff),
+     /* v1.260.0 - the chain's rule through one wrapper that also passes the routed approver */
+     /const canAct = \(u: \{ id: number; role: string \}\) => leaveCanActAt\(u, row\.stage, row\.applicant_role, row\.user_id, row\.approver_id\);/.test(staff)
+       && /if \(!override && !canAct\(user\)\) return err\("forbidden"/.test(staff) && /if \(!canAct\(user\)\) \{\n\s+return err\("forbidden", "You cannot approve this request at its current stage", 403\);/.test(staff),
      "the override must be an extra door, not a replacement for the chain");
   ok("the client only offers the override to the CEO",
      /const canOverride = \["ceo", "super_admin"\]\.includes\(user\.role\)/.test(page));

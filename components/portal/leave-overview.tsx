@@ -12,7 +12,9 @@
 
 import { useEffect, useState } from "react";
 
-import { L, type LeaveReq, leaveTypeL } from "@/components/portal/page-shared";
+import { L, type LeaveReq, leaveTypeL, withStepUp } from "@/components/portal/page-shared";
+import { usePrompt } from "@/components/ui/prompt-dialog";
+import { useSaveToast } from "@/components/ui/save-toast";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
@@ -138,6 +140,7 @@ export function LeaveOverview({ userId, types, unpaidTypes, balances, mine, load
           {tile("cancelled", "blocked", "blue", L("Cancelled", "Dibatalkan"))}
         </KpiRow>
       )}
+      {!hourly && <ApprovalRoute />}
 
       <div className={css.ovGrid}>
         <div className={css.ovCol}>
@@ -431,6 +434,50 @@ export function TeamCalendarGrid({ userId }: { userId: number }) {
           )}
         </div>
       )}
+    </section>
+  );
+}
+
+/* v1.260.0 - YOUR APPROVAL ROUTE (the mockup's "Organisation Approval
+   Process", drawn from THIS person's real route - never a generic picture):
+   who your leave goes to today, from the Organisation chart. And, for the
+   CEO only, his switch (server-checked, with his authenticator code; off
+   until he turns it on). GET /staff/leave/routing. */
+type RouteView = { mode: "legacy" | "organisation"; can_set: boolean; my_route: { kind: "manager" | "executive_record" | "routing_required"; steps: { n: number; approver: { name: string; position: string | null }; final: boolean }[] } | null };
+function ApprovalRoute() {
+  const [tick, setTick] = useState(0);
+  const view = usePlain<RouteView>(`/staff/leave/routing?t=${tick}`);
+  const { prompt, node: promptNode } = usePrompt();
+  const { show, node: toastNode } = useSaveToast();
+  const [busy, setBusy] = useState(false);
+  const v = view.data;
+  if (!view.done || !v) return null;
+  const r = v.my_route;
+  const flip = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const to = v.mode === "organisation" ? "legacy" : "organisation";
+      const res = await withStepUp<{ mode?: string; error?: { message?: string } }>((totp) => api(`/staff/leave/routing`, { method: "PUT", body: JSON.stringify({ mode: to, ...(totp ? { totp } : {}) }) }), prompt);
+      if (!res.ok) { show(L("Not changed", "Tidak diubah"), res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice"); return; }
+      show(to === "organisation" ? L("Approval by Organisation is on", "Kelulusan ikut Organisasi dihidupkan") : L("Back to the previous rules", "Kembali kepada peraturan terdahulu"),
+        L("New applications follow it from now. Requests already routed keep their approver.", "Permohonan baharu mengikutinya mulai sekarang. Permohonan yang sudah dihalakan kekal dengan pelulusnya."));
+      setTick((n) => n + 1);
+    } finally { setBusy(false); }
+  };
+  const routeLine = v.mode !== "organisation"
+    ? L("Leave follows the previous approval rules: HR review, then the COO or the CCO, then the CEO.", "Cuti mengikut peraturan kelulusan terdahulu: semakan HR, kemudian COO atau CCO, kemudian CEO.")
+    : !r ? L("Your route could not be worked out.", "Laluan anda tidak dapat ditentukan.")
+    : r.kind === "executive_record" ? L("You are the top of the organisation: your leave is an Executive Leave Record - you record it, nobody approves it.", "Anda di puncak organisasi: cuti anda ialah Rekod Cuti Eksekutif - anda merekodnya, tiada kelulusan.")
+    : r.kind === "routing_required" ? L("Not configured yet: you have no reporting manager on the Organisation chart. Your requests wait until HR or the CEO sets it.", "Belum ditetapkan: anda tiada pengurus pelapor pada carta Organisasi. Permohonan anda menunggu sehingga HR atau CEO menetapkannya.")
+    : L(`You → ${r.steps.map((x) => `${properName(x.approver.name)}${x.approver.position ? ` (${x.approver.position})` : ""}${x.final ? " - final" : ""}`).join(" → ")}`, `Anda → ${r.steps.map((x) => `${properName(x.approver.name)}${x.approver.position ? ` (${x.approver.position})` : ""}${x.final ? " - akhir" : ""}`).join(" → ")}`);
+  return (
+    <section className={card} aria-label={L("Your approval route", "Laluan kelulusan anda")} data-testid="approval-route">
+      {promptNode}{toastNode}
+      <Head icon="users" tone={css.gold} title={L("Your approval route", "Laluan kelulusan anda")}
+        sub={v.mode === "organisation" ? L("From the Organisation chart, as it stands today.", "Daripada carta Organisasi, seperti hari ini.") : L("Approval by the Organisation chart is off.", "Kelulusan ikut carta Organisasi dimatikan.")}
+        {...(v.can_set ? { action: { label: v.mode === "organisation" ? L("Switch back to the previous rules", "Kembali kepada peraturan terdahulu") : L("Turn on approval by Organisation", "Hidupkan kelulusan ikut Organisasi"), onClick: () => void flip() } } : {})} />
+      <p className={css.sub} data-testid="approval-route-line">{routeLine}</p>
     </section>
   );
 }

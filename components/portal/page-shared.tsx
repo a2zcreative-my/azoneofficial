@@ -340,7 +340,13 @@ export interface LeaveReq {
   /* v1.252.0 - the approval timeline, worked out by the server (leave-chain.ts
      leaveTimeline), who it waits on, and whether THIS person decides it now */
   timeline?: { key: string; state: "done" | "now" | "todo" | "skipped" | "rejected" | "withdrawn" | "returned" | "off"; who: string | null; at: string | null; text: string | null; flags?: Record<string, string | boolean>; payroll?: { month: string; state: "not_prepared" | "prepared" | "released"; at: string | null }[] }[];
-  waiting_on?: "hr" | "coo_cco" | "ceo" | "applicant" | null;
+  waiting_on?: "hr" | "coo_cco" | "ceo" | "applicant" | "approver" | "configuration" | null;
+  /* v1.260.0 - the Organisation route (null = submitted under the previous rules) */
+  route?: { kind: "manager" | "executive_record" | "routing_required"; steps: { n: number; approver: { id: number; name: string; position: string | null; role: string }; final: boolean }[] } | null;
+  approver_id?: number | null; approver_name?: string | null; approver_position?: string | null;
+  line_changed?: string | null; approver_away_until?: string | null;
+  can_reassign?: boolean; can_route?: boolean; can_reroute?: boolean; can_hr_check?: boolean;
+  reassign_to?: { id: number; name: string; position: string | null }[];
   can_act?: boolean;
   returned_from?: string | null;
   return_question?: string | null;

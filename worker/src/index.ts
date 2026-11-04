@@ -3,7 +3,7 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // v1.5.0: notify imported too — the "client gone quiet" cron called it
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
-import { handleStaff, notify, requireFreshTotp, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
+import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges } from "./accounts"; // v1.238.0 - account identity
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
@@ -296,7 +296,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0170_task_update_edits";
+const LATEST_MIGRATION = "0171_leave_routing";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -2132,6 +2132,8 @@ export default {
         /* v1.247.0 - deadline reminders by email (lead time), overdue on day
            1, 3 and 7, the HOD after the escalation days - once each, by ref */
         try { await taskMailSweep(env); } catch (e) { await logError(env, "task_mail_sweep", e instanceof Error ? e.message : String(e)); }
+        /* v1.260.0 - routed leave waiting too long for its start date: tell the approver's manager and HR (never approves) */
+        try { await leaveEscalationSweep(env); } catch (e) { await logError(env, "leave_escalation", e instanceof Error ? e.message : String(e)); }
       }
       /* v1.163.0 - Hankei's reservations lapse on the five-minute tick.
          The STATIC QR does not expire with them: a customer who pays late
@@ -5152,6 +5154,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0168 (agent partnership commission: attributions, assignments, payouts, disputes)", `SELECT p.agent_rate_bp, l.recipient_role, l.payout_id, a.classification, s.salesperson_id, o.bank_ref, d.scope FROM commission_policies p, commission_ledger l, commission_attributions a, agent_assignments s, agent_payouts o, commission_disputes d LIMIT 0`],
       ["0169 (task closure and reopening: closed, closed_with_exception, reopened)", `SELECT id FROM task_updates WHERE kind IN ('closed', 'closed_with_exception', 'reopened') LIMIT 0`],
       ["0170 (task updates edited and withdrawn, the reported percentage)", `SELECT id, reported_progress FROM task_updates WHERE kind IN ('edit', 'withdrawn') LIMIT 0`],
+      ["0171 (leave approval follows the Organisation chart)", `SELECT route_json, route_version, step_no, approver_id FROM leave_requests LIMIT 0`],
+      ["0171 (leave decisions, append-only)", `SELECT id, kind, on_behalf_of FROM leave_decisions LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5343,6 +5347,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0168_agent_commission",
       "0169_task_close",
       "0170_task_update_edits",
+      "0171_leave_routing",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

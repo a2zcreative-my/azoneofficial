@@ -26,7 +26,7 @@ import { handleSalesPerformance, MEASURED_ROLES } from "./sales-performance"; //
 import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
-import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, type LeaveTimelineRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
+import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, leaveRoute, leaveAbove, parseLeaveRoute, leaveRoutedTimeline, LEAVE_ROUTE_VERSION, type LeaveTimelineRow, type LeaveRoute, type LeaveDecisionRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
@@ -2140,7 +2140,16 @@ export interface LeaveBalanceRow {
    technical admin and super admin accounts, who may act but are not the
    approvers, only when nobody else could. One notice per request and stage
    (the notification key), and never to the applicant. */
-export async function notifyLeaveActors(env: Env, leaveId: number, stage: string, applicantRole: string, applicantId: number, text: string, keySuffix = ""): Promise<void> {
+export async function notifyLeaveActors(env: Env, leaveId: number, stage: string, applicantRole: string, applicantId: number, text: string, keySuffix = "", approverId: number | null = null): Promise<void> {
+  /* v1.260.0 - a routed request tells exactly its approver, never a role */
+  if (stage === "routed" || stage === "routing_required") {
+    try {
+      const who = stage === "routed" ? (approverId ? [approverId] : [])
+        : (await env.DB.prepare(`SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo', 'hr_admin') AND id != ?1`).bind(applicantId).all<{ id: number }>()).results.map((u) => u.id);
+      for (const id of who) if (id !== applicantId) await notify(env, id, "leave", text, `leave:${leaveId}:${stage}${keySuffix}`, { once: true });
+    } catch { /* a notice never blocks the decision */ }
+    return;
+  }
   try {
     const { results } = await env.DB.prepare(
       `SELECT id, role FROM users WHERE is_active = 1 AND role IN ('hr_admin', 'coo', 'cco', 'ceo', 'admin', 'super_admin') AND id != ?1`,
@@ -2149,6 +2158,84 @@ export async function notifyLeaveActors(env: Env, leaveId: number, stage: string
     const business = can.filter((u) => !["admin", "super_admin"].includes(u.role));
     for (const u of business.length ? business : can) await notify(env, u.id, "leave", text, `leave:${leaveId}:${stage}${keySuffix}`, { once: true });
   } catch { /* a notice never blocks the decision */ }
+}
+
+/* ---- v1.260.0 - leave approval by the Organisation chart: the helpers ---- */
+/** The chart's people, the same read as GET /reporting-line (display fields only). */
+export async function leaveOrgList(env: Env): Promise<OrgPerson[]> {
+  return ((await env.DB.prepare(
+    `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to
+       FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin')`,
+  ).all<OrgPerson>()).results ?? []);
+}
+/** The CEO's switch (business_settings.leave_routing): "legacy" until he
+    turns it on. Requests already routed keep their route whatever it says. */
+export async function leaveRoutingMode(env: Env): Promise<"legacy" | "organisation"> {
+  try {
+    const r = await env.DB.prepare(`SELECT value FROM business_settings WHERE key = 'leave_routing'`).first<{ value: string | null }>();
+    const v = r?.value ? (JSON.parse(r.value) as { mode?: string }).mode : null;
+    return v === "organisation" ? "organisation" : "legacy";
+  } catch { return "legacy"; }
+}
+export async function addLeaveDecision(env: Env, leaveId: number, step: number | null, kind: string, actorId: number, extra: { from?: number | null; to?: number | null; note?: string | null } = {}): Promise<void> {
+  await env.DB.prepare(`INSERT INTO leave_decisions (leave_id, step_no, kind, actor_id, from_user, to_user, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
+    .bind(leaveId, step, kind, actorId, extra.from ?? null, extra.to ?? null, extra.note ?? null).run();
+}
+/** Working days from today (MYT) to a date, not counting today: Saturdays,
+    Sundays and the company calendar's holidays are not working days. 0 =
+    it starts today or tomorrow's first working day; negative = started. */
+export async function leaveWorkingDaysUntil(env: Env, start: string): Promise<number> {
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  if (start <= today) return start === today ? 0 : -1;
+  let hols = new Set<string>();
+  try { hols = new Set((await env.DB.prepare(`SELECT holiday_date FROM holidays WHERE holiday_date > ?1 AND holiday_date < ?2`).bind(today, start).all<{ holiday_date: string }>()).results.map((h) => h.holiday_date)); } catch { /* no calendar */ }
+  let n = 0;
+  for (let t = Date.parse(`${today}T00:00:00Z`) + 86400000; t < Date.parse(`${start}T00:00:00Z`) && n < 400; t += 86400000) {
+    const d = new Date(t); const dow = d.getUTCDay(); const iso = d.toISOString().slice(0, 10);
+    if (dow !== 0 && dow !== 6 && !hols.has(iso)) n++;
+  }
+  return n;
+}
+/** v1.260.0 (the CEO, D4: "An urgent request that starts tomorrow must not
+    be allowed to become stuck for three working days") - THE ESCALATION
+    SWEEP, hourly on the existing watcher cron. Routed requests only (the
+    previous rules keep the leave_aging watcher). Nothing is ever approved:
+    it tells people. Each notice once, by ref.
+      starts within 1 working day: after 4 hours, the approver's own manager and HR
+      starts within 3 working days: after 1 day, the same
+      otherwise: after 2 days a reminder to the approver; after 3 days the manager and HR
+      the start date passed while still waiting: every day, the approver, their manager and HR */
+export async function leaveEscalationSweep(env: Env): Promise<number> {
+  let rows: { id: number; user_id: number; start_date: string; approver_id: number | null; created_at: string; since: string | null; name: string; approver: string | null }[] = [];
+  try {
+    rows = (await env.DB.prepare(
+      `SELECT l.id, l.user_id, l.start_date, l.approver_id, l.created_at,
+              (SELECT MAX(d.created_at) FROM leave_decisions d WHERE d.leave_id = l.id AND d.kind IN ('reassigned', 'routed', 'resubmitted')) AS since,
+              COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS approver
+         FROM leave_requests l JOIN users u ON u.id = l.user_id LEFT JOIN users a ON a.id = l.approver_id
+        WHERE l.stage = 'routed' AND l.status = 'pending' LIMIT 200`,
+    ).all()).results as typeof rows;
+  } catch { return 0; }
+  if (!rows.length) return 0;
+  const list = await leaveOrgList(env).catch(() => [] as OrgPerson[]);
+  const hrIds = (await env.DB.prepare(`SELECT id FROM users WHERE is_active = 1 AND role = 'hr_admin'`).all<{ id: number }>()).results.map((u) => u.id);
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+  let sent = 0;
+  for (const r of rows) {
+    if (!r.approver_id) continue;
+    const waited = (Date.now() - Date.parse(`${String(r.since ?? r.created_at).replace(" ", "T")}Z`)) / 3600000;
+    const wd = await leaveWorkingDaysUntil(env, r.start_date);
+    const boss = list.length ? leaveAbove(list, r.approver_id)[0]?.id ?? null : null;
+    const up = [...new Set([...(boss ? [boss] : []), ...hrIds])].filter((id) => id !== r.user_id && id !== r.approver_id);
+    const tell = async (ids: number[], ref: string, text: string) => { for (const id of ids) if (await notify(env, id, "leave", text, ref, { once: true })) sent++; };
+    const what = `${r.name}'s leave from ${r.start_date} (#${r.id}) is still waiting on ${r.approver ?? "the approver"}`;
+    if (wd < 0) { await tell([r.approver_id, ...up], `leave:${r.id}:esc:started:${today}`, `${what} - it has started and is still Tentative. Decide it, or reassign the step.`); continue; }
+    if (wd <= 1) { if (waited >= 4) await tell(up, `leave:${r.id}:esc:urgent`, `URGENT: ${what} and starts ${wd === 0 ? "within a working day" : "on the next working day"}.`); continue; }
+    if (wd <= 3) { if (waited >= 24) await tell(up, `leave:${r.id}:esc:soon`, `${what} and starts in ${wd} working days.`); continue; }
+    if (waited >= 48) await tell([r.approver_id], `leave:${r.id}:esc:remind`, `Reminder: ${what}.`);
+    if (waited >= 72) await tell(up, `leave:${r.id}:esc:late`, `${what} for 3 days.`);
+  }
+  return sent;
 }
 
 export async function leaveBalanceRow(
@@ -3749,6 +3836,20 @@ async function handleStaffRoutes(
       from_id: before, from_name: beforeName,
       to_id: managerId, to_name: manager?.name ?? null,
     });
+    /* v1.260.0 - A PENDING LEAVE KEEPS ITS ROUTE. The new line decides this
+       person's next requests; one already waiting stays with the approver it
+       was routed to (frozen), and HR and the CEO are told so they can
+       reassign it with a reason - or Route now, when it was waiting for a
+       reporting line. Nothing is redirected here. */
+    try {
+      const pend = (await env.DB.prepare(`SELECT id, stage FROM leave_requests WHERE user_id = ?1 AND stage IN ('routed', 'routing_required', 'returned') AND route_json IS NOT NULL`).bind(id).all<{ id: number; stage: string }>()).results;
+      if (pend.length) {
+        const admins = (await env.DB.prepare(`SELECT id FROM users WHERE is_active = 1 AND role IN ('ceo', 'hr_admin') AND id != ?1`).bind(id).all<{ id: number }>()).results;
+        for (const lv of pend) for (const a of admins) await notify(env, a.id, "leave", lv.stage === "routing_required"
+          ? `${person.name}'s leave request #${lv.id} was waiting for a reporting line - it can be routed now (Leave, Route now)`
+          : `${person.name}'s reporting line changed; their pending leave request #${lv.id} stays with the approver it was routed to - reassign it if needed`, `leave:${lv.id}:line${Date.now()}`);
+      }
+    } catch { /* pre-0171: nothing is routed */ }
     return json({ ok: true, reports_to: managerId, manager_name: manager?.name ?? null });
   }
 
@@ -6047,6 +6148,46 @@ async function handleStaffRoutes(
     if (chk instanceof Response) return chk;
     const { coverage } = chk;
     const b = body!;
+    /* v1.260.0 - THE ORGANISATION ROUTE, when the CEO has switched it on.
+       The applicant is the session (nothing in the body names an approver);
+       the route is frozen on the request now. */
+    if ((await leaveRoutingMode(env)) === "organisation") {
+      const route = leaveRoute(await leaveOrgList(env), user.id);
+      const span = `${String(b.start_date)}${b.end_date !== b.start_date ? ` to ${String(b.end_date)}` : ""}`;
+      if (route.kind === "executive_record") {
+        /* D3 (a) - the CEO has no reporting manager: his leave is recorded,
+           not approved. No approval event, no signature; his authenticator
+           code, because it takes effect in Attendance and Payroll at once. */
+        const stepUp = await requireFreshTotp(env, user, b.totp, err, "record your own leave");
+        if (stepUp) return stepUp;
+      }
+      const stage = route.kind === "executive_record" ? "approved" : route.kind === "routing_required" ? "routing_required" : "routed";
+      const resR = await env.DB.prepare(
+        `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json, stage, status, route_json, route_version, step_no, approver_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) RETURNING id`,
+      ).bind(
+        user.id, b.type, b.start_date, b.end_date, b.days, str(b.reason, 1000) ? b.reason : null, typeof b.mc_media_id === "number" ? b.mc_media_id : null,
+        coverage.day_part, coverage.coverage_json, stage, stage === "approved" ? "approved" : "pending",
+        JSON.stringify(route), LEAVE_ROUTE_VERSION, route.kind === "manager" ? 1 : null, route.kind === "manager" ? route.steps[0]!.approver.id : null,
+      ).first<{ id: number }>();
+      const idR = resR?.id;
+      await stampIssuer(env, "leave_requests", idR);
+      await audit(env, user.id, "leave.apply", "leave_requests", String(idR), { route: route.kind, ...(route.steps[0] ? { approver: route.steps[0].approver.id } : {}) });
+      if (idR && route.kind === "executive_record") {
+        await addLeaveDecision(env, idR, null, "recorded", user.id);
+        await audit(env, user.id, "leave.executive_record", "leave_requests", String(idR));
+        const told = (await env.DB.prepare(`SELECT id FROM users WHERE is_active = 1 AND role IN ('coo', 'cco', 'hr_admin') AND id != ?1`).bind(user.id).all<{ id: number }>()).results;
+        for (const u of told) await notify(env, u.id, "leave", `${user.name} recorded ${String(b.type)} leave (${span}) - Executive Leave Record, for your awareness`, `leave:${idR}:exec`, { once: true });
+      } else if (idR && route.kind === "routing_required") {
+        await audit(env, user.id, "leave.routing_required", "leave_requests", String(idR));
+        await notifyLeaveActors(env, idR, "routing_required", user.role, user.id, `${user.name}'s ${String(b.type)} leave (${span}) needs an approval route - their reporting line is not set on the Organisation chart. Set it, then Route now.`);
+        await notify(env, user.id, "leave", `Your leave request #${idR} is saved. Your reporting line is not set yet, so HR or the CEO routes it to the right approver.`, `leave:${idR}`);
+      } else if (idR) {
+        const wd = await leaveWorkingDaysUntil(env, String(b.start_date));
+        await notifyLeaveActors(env, idR, "routed", user.role, user.id, `${wd <= 1 ? "URGENT - " : ""}${user.name} applied for ${String(b.type)} leave (${span}) - it waits on your approval`, "", route.steps[0]!.approver.id);
+      }
+      return json({ id: idR, stage, route: route.kind, ...(route.steps[0] ? { approver: route.steps[0].approver.name } : {}) }, 201);
+    }
     const res = await env.DB.prepare(
       `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
@@ -6078,16 +6219,18 @@ async function handleStaffRoutes(
         u.name AS user_name, u.full_name AS user_full, u.position AS user_position, u.department AS user_department, u.role AS applicant_role,
         hu.name AS hr_by_name, pu.name AS preapp_by_name, pu.full_name AS preapp_by_full, pu.role AS preapp_by_role,
         fu.name AS final_by_name, fu.full_name AS final_by_full, fu.role AS final_by_role,
-        COALESCE(NULLIF(TRIM(ru.full_name), ''), ru.name) AS returned_by_name
+        COALESCE(NULLIF(TRIM(ru.full_name), ''), ru.name) AS returned_by_name,
+        COALESCE(NULLIF(TRIM(au.full_name), ''), au.name) AS approver_name, au.position AS approver_position, au.role AS approver_role
       FROM leave_requests l JOIN users u ON u.id = l.user_id
       LEFT JOIN users hu ON hu.id = l.hr_by
       LEFT JOIN users pu ON pu.id = l.preapp_by
       LEFT JOIN users fu ON fu.id = l.final_by
-      LEFT JOIN users ru ON ru.id = l.returned_by`;
+      LEFT JOIN users ru ON ru.id = l.returned_by
+      LEFT JOIN users au ON au.id = l.approver_id`;
     const { results } = await env.DB.prepare(
       all
         ? `${LSEL} ORDER BY l.created_at DESC LIMIT 200`
-        : `${LSEL} WHERE l.user_id = ?1 ORDER BY l.created_at DESC LIMIT 100`,
+        : `${LSEL} WHERE l.user_id = ?1 OR l.approver_id = ?1 ORDER BY l.created_at DESC LIMIT 100`, /* v1.260.0 - and the requests routed to you to decide */
     ).bind(...(all ? [] : [user.id])).all<Record<string, unknown> & LeaveTimelineRow & { id: number; user_id: number; start_date: string; end_date: string }>();
     /* v1.252.0 - THE TIMELINE, worked out once on the server (leave-chain.ts)
        and sent with each row, with whether THIS person can decide it now
@@ -6120,6 +6263,33 @@ async function handleStaffRoutes(
         for (const e of pe.results) prepared.add(`${e.user_id}:${e.month}`);
       }
     } catch { /* an older database: the labels fall back to "not recorded" and "not prepared" */ }
+    /* v1.260.0 - routed requests: their decisions, today's chart (has the
+       reporting line moved since submission?), whether the approver is on
+       approved leave today, and what THIS person may do besides deciding */
+    const decOf = new Map<number, LeaveDecisionRow[]>();
+    const routedIds = results.filter((l) => l.route_json).map((l) => Number(l.id));
+    for (let i = 0; i < routedIds.length; i += 90) {
+      const chunk = routedIds.slice(i, i + 90);
+      const dr = await env.DB.prepare(
+        `SELECT d.leave_id, d.kind, d.step_no, d.note, d.created_at, COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS actor_name, a.role AS actor_role,
+                COALESCE(NULLIF(TRIM(f.full_name), ''), f.name) AS from_name, COALESCE(NULLIF(TRIM(t.full_name), ''), t.name) AS to_name
+           FROM leave_decisions d LEFT JOIN users a ON a.id = d.actor_id LEFT JOIN users f ON f.id = d.from_user LEFT JOIN users t ON t.id = d.to_user
+          WHERE d.leave_id IN (${chunk.map((_, j) => `?${j + 1}`).join(",")}) ORDER BY d.id`,
+      ).bind(...chunk).all<LeaveDecisionRow & { leave_id: number }>();
+      for (const d of dr.results) decOf.set(d.leave_id, [...(decOf.get(d.leave_id) ?? []), d]);
+    }
+    const mode = await leaveRoutingMode(env);
+    const org = routedIds.length || mode === "organisation" ? await leaveOrgList(env).catch(() => [] as OrgPerson[]) : [];
+    const todayL = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const awayUntil = new Map<number, string>();
+    const apprIds = [...new Set(results.map((l) => Number(l.approver_id ?? 0)).filter(Boolean))];
+    if (apprIds.length) {
+      const aw = await env.DB.prepare(`SELECT user_id, MAX(end_date) AS until FROM leave_requests WHERE status = 'approved' AND start_date <= ?1 AND end_date >= ?1 AND user_id IN (${apprIds.map((_, j) => `?${j + 2}`).join(",")}) GROUP BY user_id`)
+        .bind(todayL, ...apprIds).all<{ user_id: number; until: string }>().catch(() => ({ results: [] as { user_id: number; until: string }[] }));
+      for (const a of aw.results) awayUntil.set(a.user_id, a.until);
+    }
+    const LIVE_LEGACY = ["applied", "hr_reviewed", "pre_approved", "pending_final"];
+    const adminOfRoute = user.role === "ceo" || user.role === "hr_admin";
     const leave = results.map((l) => {
       const touched = monthsOf(String(l.start_date), String(l.end_date)).filter((m) => released.some((r) => r.month === m && (l.stage !== "approved" || r.released_at <= String(leaveDecider(l)?.at ?? (l.recorded_direct ? l.created_at : "9999")))));
       const ev = { ...l, override_from: overrideOf.get(String(l.id)) ?? null };
@@ -6127,14 +6297,62 @@ async function handleStaffRoutes(
         const rl = released.find((r) => r.month === m);
         return rl ? { month: m, state: "released" as const, at: rl.released_at } : { month: m, state: prepared.has(`${l.user_id}:${m}`) ? "prepared" as const : "not_prepared" as const, at: null };
       }) : [];
+      const route = parseLeaveRoute(l.route_json);
+      const own = Number(l.user_id) === user.id;
+      const st = String(l.stage);
+      const routed = !!route;
+      let lineChanged: string | null = null;
+      if (route && route.kind === "manager" && (st === "routed" || st === "returned") && org.length) {
+        const now = leaveRoute(org, Number(l.user_id));
+        const nowId = now.steps[0]?.approver.id ?? null;
+        if (nowId !== route.applicant.manager_id) lineChanged = now.steps[0]?.approver.name ?? "not set";
+      }
+      const { route_json: _rj, ...rest } = l;
+      void _rj;
       return {
-        ...l,
-        timeline: leaveTimeline(ev, touched, payroll),
-        waiting_on: leaveWaitingOn(String(l.stage), String(l.applicant_role ?? "")),
-        can_act: leaveCanActAt(user, String(l.stage), String(l.applicant_role ?? ""), Number(l.user_id)),
+        ...rest,
+        route: route ? { kind: route.kind, steps: route.steps.map((x) => ({ n: x.n, approver: x.approver, final: x.final })), applicant: route.applicant } : null,
+        timeline: routed ? leaveRoutedTimeline(ev, route!, decOf.get(Number(l.id)) ?? [], touched, payroll) : leaveTimeline(ev, touched, payroll),
+        waiting_on: leaveWaitingOn(st, String(l.applicant_role ?? "")),
+        can_act: leaveCanActAt(user, st, String(l.applicant_role ?? ""), Number(l.user_id), l.approver_id as number | null),
+        ...(routed || mode === "organisation" ? {
+          line_changed: lineChanged,
+          approver_away_until: l.approver_id ? awayUntil.get(Number(l.approver_id)) ?? null : null,
+          can_reassign: st === "routed" && !own && (adminOfRoute || Number(l.approver_id) === user.id),
+          ...(st === "routed" && !own && (adminOfRoute || Number(l.approver_id) === user.id) && org.length ? { reassign_to: leaveAbove(org, Number(l.user_id)).filter((p) => p.id !== Number(l.approver_id)).map((p) => ({ id: p.id, name: p.name, position: p.position })) } : {}),
+          can_route: st === "routing_required" && !own && adminOfRoute,
+          can_reroute: !routed && mode === "organisation" && LIVE_LEGACY.includes(st) && !own && adminOfRoute,
+          can_hr_check: routed && ["routed", "returned"].includes(st) && !own && (user.role === "hr_admin" || user.role === "ceo"),
+        } : {}),
       };
     });
-    return json({ leave });
+    return json({ leave, routing: mode });
+  }
+
+  /* v1.260.0 - THE CEO'S SWITCH and YOUR APPROVAL ROUTE. GET: everyone
+     reads the mode and the route a request of theirs would take today (the
+     "Your approval route" card). PUT: only the CEO, with his authenticator
+     code; audited. Turning it back to legacy is the operational rollback:
+     requests already routed keep their frozen route either way. */
+  if (path === "/leave/routing" && method === "GET") {
+    const mode = await leaveRoutingMode(env);
+    let mine: LeaveRoute | null = null;
+    try { mine = leaveRoute(await leaveOrgList(env), user.id); } catch { mine = null; }
+    return json({ mode, can_set: user.role === "ceo", my_route: mine ? { kind: mine.kind, steps: mine.steps.map((x) => ({ n: x.n, approver: x.approver, final: x.final })) } : null });
+  }
+  if (path === "/leave/routing" && method === "PUT") {
+    if (user.role !== "ceo") return err("forbidden", "Only the CEO switches how leave is approved", 403);
+    const to = body?.mode === "organisation" ? "organisation" : body?.mode === "legacy" ? "legacy" : null;
+    if (!to) return err("invalid_input", "mode is organisation or legacy", 400);
+    try { await env.DB.prepare(`SELECT route_json FROM leave_requests LIMIT 0`).all(); } catch { return err("migration_missing", "Run migration 0171 first (PUSH.bat)", 503); }
+    const stepUp = await requireFreshTotp(env, user, body?.totp, err, "change how leave is approved");
+    if (stepUp) return stepUp;
+    const from = await leaveRoutingMode(env);
+    await env.DB.prepare(`INSERT INTO business_settings (key, value, updated_by, updated_at) VALUES ('leave_routing', ?1, ?2, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+      .bind(JSON.stringify({ mode: to }), user.id).run();
+    await audit(env, user.id, "leave.routing_mode", "business_settings", "leave_routing", { from, to });
+    return json({ ok: true, mode: to });
   }
 
   /* v1.131.0 — WHICH DAYS ARE CLOSED, for the roster's pickers.
@@ -6379,10 +6597,14 @@ async function handleStaffRoutes(
   if (leaveMatch && method === "PATCH") {
     const id = leaveMatch[1]!;
     const row = await env.DB.prepare(
-      `SELECT l.user_id, l.stage, l.type, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json, l.returned_from, u.role AS applicant_role, u.name AS applicant_name
+      `SELECT l.user_id, l.stage, l.type, l.start_date, l.end_date, l.days, l.day_part, l.coverage_json, l.returned_from, l.route_json, l.step_no, l.approver_id, u.role AS applicant_role, u.name AS applicant_name
        FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`,
-    ).bind(id).first<LeaveCoverage & { user_id: number; stage: string; type: string; returned_from: string | null; applicant_role: string; applicant_name: string }>();
+    ).bind(id).first<LeaveCoverage & { user_id: number; stage: string; type: string; returned_from: string | null; route_json: string | null; step_no: number | null; approver_id: number | null; applicant_role: string; applicant_name: string }>();
     if (!row) return err("not_found", "Leave request not found", 404);
+    /* v1.260.0 - a request with a frozen route is decided only by its route */
+    const route = parseLeaveRoute(row.route_json);
+    const stepNo = Number(row.step_no ?? 1);
+    const canAct = (u: { id: number; role: string }) => leaveCanActAt(u, row.stage, row.applicant_role, row.user_id, row.approver_id);
 
     const action = body?.action;
     const comment = str(body?.comment, 500) ? (body!.comment as string).trim() : null;
@@ -6421,6 +6643,11 @@ async function handleStaffRoutes(
     if (override && ["approved", "rejected", "cancelled"].includes(row.stage)) {
       return err("invalid_input", "This request is already closed", 400);
     }
+    /* v1.260.0 (D7) - on a routed request the override is "decide in place
+       of the approver": a reason, the authenticator, and the approver told */
+    if (override && route && (!comment || comment.length < 5)) {
+      return err("reason_required", "Give the reason for deciding in place of the approver (at least 5 characters)", 400);
+    }
 
     /* Owner may withdraw while the request is still moving (a returned one
        too). v1.252.0: the time and who are kept, the trail has a line, and
@@ -6433,7 +6660,7 @@ async function handleStaffRoutes(
       ).bind(id, user.id, row.stage).run();
       if (!changed(r)) return conflict();
       await audit(env, user.id, "leave.cancel", "leave_requests", id, { from_stage: row.stage });
-      if (row.stage !== "returned") await notifyLeaveActors(env, Number(id), row.stage, row.applicant_role, row.user_id, `${row.applicant_name} withdrew their ${row.type} leave request #${id} - nothing to decide`, ":withdrawn");
+      if (row.stage !== "returned") await notifyLeaveActors(env, Number(id), row.stage, row.applicant_role, row.user_id, `${row.applicant_name} withdrew their ${row.type} leave request #${id} - nothing to decide`, ":withdrawn", row.approver_id);
       return json({ ok: true, stage: "cancelled" });
     }
 
@@ -6443,7 +6670,7 @@ async function handleStaffRoutes(
        approved or rejected by it. */
     if (action === "return") {
       if (override) return err("invalid_input", "Return the request at its own stage, without the override", 400);
-      if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+      if (!canAct(user)) {
         return err("forbidden", "You cannot act on this request at its current stage", 403);
       }
       if (!comment || comment.length < 10) return err("reason_required", "Write the question for the applicant (at least 10 characters)", 400);
@@ -6453,6 +6680,7 @@ async function handleStaffRoutes(
       if (!changed(r)) return conflict();
       await env.DB.prepare(`INSERT INTO leave_comments (leave_id, author_id, visibility, body) VALUES (?1, ?2, 'employee', ?3)`).bind(Number(id), user.id, `Returned for more information: ${comment}`).run();
       await audit(env, user.id, "leave.return", "leave_requests", id, { from_stage: row.stage, question: comment });
+      if (route) await addLeaveDecision(env, Number(id), stepNo, "returned", user.id, { note: comment });
       await notify(env, row.user_id, "leave", `Your leave request #${id} was returned with a question from ${user.name}: ${comment.slice(0, 160)}`, `leave:${id}:returned`);
       return json({ ok: true, stage: "returned" });
     }
@@ -6483,13 +6711,14 @@ async function handleStaffRoutes(
       if (!changed(r)) return conflict();
       await env.DB.prepare(`INSERT INTO leave_comments (leave_id, author_id, visibility, body) VALUES (?1, ?2, 'employee', ?3)`).bind(Number(id), user.id, comment).run();
       await audit(env, user.id, "leave.resubmit", "leave_requests", id, { to_stage: row.returned_from, before, after: { start_date: chk.sdL, end_date: chk.edL, days: next.days, reason: next.reason }, answer: comment });
-      await notifyLeaveActors(env, Number(id), row.returned_from, row.applicant_role, row.user_id, `${row.applicant_name} answered and resubmitted leave request #${id} - it waits on you again`, `:resubmit${Date.now()}`);
+      if (route) await addLeaveDecision(env, Number(id), stepNo, "resubmitted", user.id, { note: comment });
+      await notifyLeaveActors(env, Number(id), row.returned_from, row.applicant_role, row.user_id, `${row.applicant_name} answered and resubmitted leave request #${id} - it waits on you again`, `:resubmit${Date.now()}`, row.approver_id);
       return json({ ok: true, stage: row.returned_from });
     }
 
     // Reject at any active stage ends the request.
     if (action === "reject") {
-      if (!override && !leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+      if (!override && !canAct(user)) {
         return err("forbidden", "You cannot act on this request at its current stage", 403);
       }
       /* v1.252.0 - the applicant is told why */
@@ -6501,6 +6730,10 @@ async function handleStaffRoutes(
       if (!changed(r)) return conflict();
       await notify(env, row.user_id, "leave", `Your leave request #${id} was rejected: ${comment.slice(0, 160)}`, `leave:${id}`);
       await audit(env, user.id, override ? "leave.override_reject" : "leave.reject", "leave_requests", id, { from_stage: row.stage, note: comment });
+      if (route) {
+        await addLeaveDecision(env, Number(id), row.stage === "routing_required" ? null : stepNo, override ? "override" : "rejected", user.id, { note: comment });
+        if (override && row.approver_id && row.approver_id !== user.id) await notify(env, row.approver_id, "leave", `${user.name} rejected ${row.applicant_name}'s leave request #${id} in your place: ${comment!.slice(0, 120)}`, `leave:${id}:override`);
+      }
       return json({ ok: true, stage: "rejected" });
     }
 
@@ -6512,6 +6745,9 @@ async function handleStaffRoutes(
       }
       /* v1.127.0 — the step-up guards the SIGNATURE: the override and the
          last stage of the normal chain attach the CEO chop. */
+      /* v1.260.0 - who may act is answered before the code is asked for:
+         someone with no authority here is refused, not asked to sign */
+      if (!override && !canAct(user)) return err("forbidden", "You cannot approve this request at its current stage", 403);
       const willBeFinal = override || leaveNextStage(row.stage, row.applicant_role) === "approved";
       if (willBeFinal) {
         const stepUp = await requireFreshTotp(env, user, body?.totp, err);
@@ -6526,10 +6762,32 @@ async function handleStaffRoutes(
         if (!changed(r)) return conflict();
         await notify(env, row.user_id, "leave", `Your leave request #${id} was approved directly by the CEO`, `leave:${id}`);
         await audit(env, user.id, "leave.override_approve", "leave_requests", id, { from_stage: row.stage, applicant: row.user_id, ...(comment ? { note: comment } : {}) });
+        if (route) {
+          await addLeaveDecision(env, Number(id), row.stage === "routing_required" ? null : stepNo, "override", user.id, { note: comment });
+          if (row.approver_id && row.approver_id !== user.id) await notify(env, row.approver_id, "leave", `${user.name} approved ${row.applicant_name}'s leave request #${id} in your place: ${comment!.slice(0, 120)}`, `leave:${id}:override`);
+        }
         return json({ ok: true, stage: "approved", bypassed_from: row.stage });
       }
-      if (!leaveCanActAt(user, row.stage, row.applicant_role, row.user_id)) {
+      if (!canAct(user)) {
         return err("forbidden", "You cannot approve this request at its current stage", 403);
+      }
+      /* v1.260.0 - A ROUTED STEP. Only its approver (canAct); the write names
+         the step and the approver it read, so a reassignment or a second
+         press in between finds no row. The last step approves the request:
+         final_by is the person who actually decided (the form's CEO box and
+         chop are his only when that person is the CEO - 1.259.0 L3). */
+      if (route && row.stage === "routed") {
+        const last = stepNo >= route.steps.length;
+        const nxt = last ? null : route.steps[stepNo]!;
+        const r = last
+          ? await env.DB.prepare(`UPDATE leave_requests SET stage = 'approved', status = 'approved', review_comment = COALESCE(?2, review_comment), final_by = ?3, final_at = datetime('now') WHERE id = ?1 AND stage = 'routed' AND step_no = ?4 AND approver_id = ?3`).bind(id, comment, user.id, stepNo).run()
+          : await env.DB.prepare(`UPDATE leave_requests SET step_no = ?2, approver_id = ?3 WHERE id = ?1 AND stage = 'routed' AND step_no = ?4 AND approver_id = ?5`).bind(id, stepNo + 1, nxt!.approver.id, stepNo, user.id).run();
+        if (!changed(r)) return conflict();
+        await addLeaveDecision(env, Number(id), stepNo, "approved", user.id, { note: comment });
+        await audit(env, user.id, last ? "leave.advance.approved" : "leave.advance.step", "leave_requests", id, { from_stage: "routed", step: stepNo, ...(comment ? { note: comment } : {}) });
+        await notify(env, row.user_id, "leave", last ? `Your leave request #${id} is approved by ${user.name}` : `Your leave request #${id} was approved by ${user.name} and moved to ${nxt!.approver.name}`, `leave:${id}`);
+        if (nxt) await notifyLeaveActors(env, Number(id), "routed", row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}) waits on your approval`, `:s${stepNo + 1}`, nxt.approver.id);
+        return json({ ok: true, stage: last ? "approved" : "routed" });
       }
       const next = leaveNextStage(row.stage, row.applicant_role);
       const done = next === "approved";
@@ -6552,7 +6810,72 @@ async function handleStaffRoutes(
       if (!done) await notifyLeaveActors(env, Number(id), next, row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}) waits on your ${next === "hr_reviewed" ? "pre-approval" : "final approval"}`);
       return json({ ok: true, stage: next });
     }
-    return err("invalid_input", "action must be cancel, approve, reject, return or resubmit", 400);
+    /* ---- v1.260.0 - the Organisation route's own actions ---- */
+    const routeAdmin = user.role === "ceo" || user.role === "hr_admin";
+    /* REASSIGN (D4): a waiting step goes to someone ABOVE the applicant on the
+       chart, with a reason. The CEO, HR, or the current approver handing it
+       up. Never to the applicant, a peer, a junior, or HR by role. */
+    if (action === "reassign") {
+      if (!route || row.stage !== "routed") return err("invalid_input", "Only a step waiting on its approver can be reassigned", 400);
+      if (row.user_id === user.id) return err("forbidden", "You cannot reassign your own request", 403);
+      if (!routeAdmin && row.approver_id !== user.id) return err("forbidden", "Only the CEO, HR or the current approver reassigns this step", 403);
+      if (!comment || comment.length < 10) return err("reason_required", "Give the reason for reassigning (at least 10 characters)", 400);
+      const to = Number(body?.to_user ?? 0);
+      const above = leaveAbove(await leaveOrgList(env), row.user_id);
+      const target = above.find((p) => p.id === to);
+      if (!target) return err("invalid_input", "The new approver must be above the applicant on the Organisation chart", 400);
+      if (to === row.approver_id) return err("invalid_input", "That person already decides this step", 400);
+      const r = await env.DB.prepare(`UPDATE leave_requests SET approver_id = ?2 WHERE id = ?1 AND stage = 'routed' AND approver_id = ?3 AND step_no = ?4`).bind(id, to, row.approver_id, stepNo).run();
+      if (!changed(r)) return conflict();
+      await addLeaveDecision(env, Number(id), stepNo, "reassigned", user.id, { from: row.approver_id, to, note: comment });
+      await audit(env, user.id, "leave.reassign", "leave_requests", id, { step: stepNo, from: row.approver_id, to, reason: comment });
+      await notifyLeaveActors(env, Number(id), "routed", row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}) was reassigned to you by ${user.name}: ${comment.slice(0, 120)}`, `:r${Date.now()}`, to);
+      if (row.approver_id && row.approver_id !== user.id) await notify(env, row.approver_id, "leave", `${user.name} reassigned ${row.applicant_name}'s leave request #${id} to ${target.name}: ${comment.slice(0, 120)}`, `leave:${id}:r${Date.now()}`);
+      await notify(env, row.user_id, "leave", `Your leave request #${id} now waits on ${target.name}${target.position ? ` (${target.position})` : ""}`, `leave:${id}`);
+      return json({ ok: true, stage: "routed", approver: target.name });
+    }
+    /* ROUTE NOW (a request saved as "requires configuration", once its
+       reporting line is set) and RE-ROUTE BY ORGANISATION (D8: a request
+       still under the previous rules, one at a time, with a reason). HR or
+       the CEO. The route is built from today's chart and frozen; decisions
+       already made stay on the record. */
+    if (action === "route" || action === "reroute") {
+      if (!routeAdmin) return err("forbidden", "Only HR or the CEO routes a request", 403);
+      if (row.user_id === user.id) return err("forbidden", "You cannot route your own request", 403);
+      if (action === "route" && row.stage !== "routing_required") return err("invalid_input", "Only a request that requires routing is routed", 400);
+      if (action === "reroute") {
+        if (route || !["applied", "hr_reviewed", "pre_approved", "pending_final"].includes(row.stage)) return err("invalid_input", "Only a request waiting under the previous rules is re-routed", 400);
+        if ((await leaveRoutingMode(env)) !== "organisation") return err("invalid_input", "Turn on approval by the Organisation first", 400);
+        if (!comment || comment.length < 5) return err("reason_required", "Give the reason for re-routing (at least 5 characters)", 400);
+      }
+      const nr = leaveRoute(await leaveOrgList(env), row.user_id);
+      if (nr.kind !== "manager") return err("routing_required", nr.kind === "executive_record" ? "The CEO records his own leave - it has no approver" : "This person has no reporting manager on the Organisation chart yet - set it there first", 409);
+      const r = await env.DB.prepare(`UPDATE leave_requests SET stage = 'routed', status = 'pending', route_json = ?2, route_version = ?3, step_no = 1, approver_id = ?4 WHERE id = ?1 AND stage = ?5`)
+        .bind(id, JSON.stringify(nr), LEAVE_ROUTE_VERSION, nr.steps[0]!.approver.id, row.stage).run();
+      if (!changed(r)) return conflict();
+      await addLeaveDecision(env, Number(id), null, "routed", user.id, { to: nr.steps[0]!.approver.id, note: comment ?? (action === "route" ? "Reporting line set" : null) });
+      await audit(env, user.id, action === "route" ? "leave.route" : "leave.reroute", "leave_requests", id, { from_stage: row.stage, approver: nr.steps[0]!.approver.id, ...(comment ? { reason: comment } : {}) });
+      await notifyLeaveActors(env, Number(id), "routed", row.applicant_role, row.user_id, `${row.applicant_name}'s ${row.type} leave (#${id}, ${row.start_date}) waits on your approval`, `:routed`, nr.steps[0]!.approver.id);
+      await notify(env, row.user_id, "leave", `Your leave request #${id} now waits on ${nr.steps[0]!.approver.name}`, `leave:${id}`);
+      return json({ ok: true, stage: "routed", approver: nr.steps[0]!.approver.name });
+    }
+    /* HR'S ADMINISTRATIVE CHECK (B): verified, or an issue flagged. It never
+       approves, rejects or blocks - the manager's decision stands on its own.
+       HR (and the CEO) only; never on your own request. */
+    if (action === "hr_verify" || action === "hr_flag") {
+      if (!route || !["routed", "returned"].includes(row.stage)) return err("invalid_input", "The HR check is for a request waiting on its approver", 400);
+      if (user.role !== "hr_admin" && user.role !== "ceo") return err("forbidden", "Only HR checks leave records", 403);
+      if (row.user_id === user.id) return err("forbidden", "You cannot check your own request - another HR officer or the CEO does", 403);
+      if (action === "hr_flag" && (!comment || comment.length < 5)) return err("reason_required", "Say what the issue is (at least 5 characters)", 400);
+      await addLeaveDecision(env, Number(id), stepNo, action === "hr_verify" ? "hr_verified" : "hr_flagged", user.id, { note: comment });
+      await audit(env, user.id, action === "hr_verify" ? "leave.hr_verified" : "leave.hr_flagged", "leave_requests", id, comment ? { note: comment } : {});
+      if (action === "hr_flag") {
+        if (row.approver_id) await notify(env, row.approver_id, "leave", `HR flagged ${row.applicant_name}'s leave request #${id}: ${comment!.slice(0, 120)}`, `leave:${id}:hrflag${Date.now()}`);
+        await notify(env, row.user_id, "leave", `HR flagged your leave request #${id}: ${comment!.slice(0, 120)}`, `leave:${id}:hrflag${Date.now()}`);
+      }
+      return json({ ok: true, stage: row.stage });
+    }
+    return err("invalid_input", "action must be cancel, approve, reject, return, resubmit, reassign, route, reroute, hr_verify or hr_flag", 400);
   }
 
   /* v1.252.0 (D2) - THE COMMENT THREAD on one leave. Who reads a leave reads
@@ -6562,9 +6885,10 @@ async function handleStaffRoutes(
   const leaveTalk = path.match(/^\/leave\/(\d+)\/(comments|activity)$/);
   if (leaveTalk) {
     const lid = Number(leaveTalk[1]);
-    const lr = await env.DB.prepare(`SELECT l.id, l.user_id, l.stage, u.role AS applicant_role, u.name AS applicant_name FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`)
-      .bind(lid).first<{ id: number; user_id: number; stage: string; applicant_role: string; applicant_name: string }>();
-    const mgmt = leaveSeesAll(user.role);
+    const lr = await env.DB.prepare(`SELECT l.id, l.user_id, l.stage, l.approver_id, u.role AS applicant_role, u.name AS applicant_name FROM leave_requests l JOIN users u ON u.id = l.user_id WHERE l.id = ?1`)
+      .bind(lid).first<{ id: number; user_id: number; stage: string; approver_id: number | null; applicant_role: string; applicant_name: string }>();
+    /* v1.260.0 - the routed approver reads and writes like management on the request they decide */
+    const mgmt = leaveSeesAll(user.role) || (!!lr && lr.approver_id === user.id);
     const own = !!lr && lr.user_id === user.id;
     if (!lr || (!mgmt && !own)) return err("not_found", "Leave request not found", 404);
     const internalOk = mgmt && !own;
@@ -6591,7 +6915,7 @@ async function handleStaffRoutes(
       await audit(env, user.id, "leave.comment", "leave_requests", String(lid), { comment: ins?.id, visibility: vis });
       /* the other side is told: the applicant of a note they can read; whoever acts now of the applicant's note */
       if (own) {
-        if (!["approved", "rejected", "cancelled"].includes(lr.stage) && lr.stage !== "returned") await notifyLeaveActors(env, lid, lr.stage, lr.applicant_role, lr.user_id, `${lr.applicant_name} commented on leave request #${lid}: ${text.slice(0, 120)}`, `:c${ins?.id ?? ""}`);
+        if (!["approved", "rejected", "cancelled"].includes(lr.stage) && lr.stage !== "returned") await notifyLeaveActors(env, lid, lr.stage, lr.applicant_role, lr.user_id, `${lr.applicant_name} commented on leave request #${lid}: ${text.slice(0, 120)}`, `:c${ins?.id ?? ""}`, lr.approver_id);
       } else if (vis === "employee") {
         await notify(env, lr.user_id, "leave", `${user.name} commented on your leave request #${lid}: ${text.slice(0, 120)}`, `leave:${lid}:c${ins?.id ?? ""}`);
       }

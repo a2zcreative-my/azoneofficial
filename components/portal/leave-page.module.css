@@ -1071,3 +1071,14 @@
 .miniDot.miniTent.keyTeam {
   box-shadow: inset 0 0 0 1.5px var(--info);
 }
+
+/* v1.260.0 - what the Organisation route needs the reader to know (routing required, a changed reporting line, an approver away) */
+.note {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--warning-soft, var(--secondary));
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+  overflow-wrap: anywhere;
+}

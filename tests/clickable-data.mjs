@@ -115,7 +115,7 @@ const ok = (label, cond, extra = "") => {
      /<button type="button" className=\{lv\.person\} onClick=\{\(\) => setDrawerId\(l\.id\)\}[\s\S]{0,300}?\{who\(l\)\}/, "the reason and the approval trail were in the row and nowhere on the screen"],
     ["every leave opens the same drawer, with the one detail", "components/portal/leave.tsx",
      /* v1.252.0 - the drawer body holds the one LeaveDetail under its Progress and Details tabs */
-     /all\.find\(\(x\) => x\.id === drawerId\) \?\? mine\.find\(\(x\) => x\.id === drawerId\)[\s\S]{0,9000}?<LeaveDrawerBody key=\{d\.id\} l=\{d\} own=\{own\} meName=\{user\.name\}/, "one detail for both halves of the board, not two"],
+     /all\.find\(\(x\) => x\.id === drawerId\) \?\? mine\.find\(\(x\) => x\.id === drawerId\)[\s\S]{0,14000}?<LeaveDrawerBody key=\{d\.id\} l=\{d\} own=\{own\} meName=\{user\.name\}/, "one detail for both halves of the board, not two"],
     /* v1.92.0 — the Staff tab is a row of faces; a face opens its record. */
     /* v1.93.0 — the circle and the phone row both press through one
        handler, and that handler opens the record. */

@@ -135,6 +135,35 @@ with sync_playwright() as p:
     check("a decision the CEO did not make is a Final decision by whoever made it", "Final decision" in t3 and "Approved by System Root" in t3 and "CEO decision" not in t3, t3[:400])
     check("...a released payroll month is said with its date", "payslips released" in t3, t3[-300:])
     check("no page errors (CEO, evidence labels)", not errs, errs)
+    # ---- v1.260.0: a request ROUTED by the Organisation chart ----
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    r7 = pg.locator("tr[data-record='leave:7']").filter(visible=True).first
+    check("the board says whom a routed request waits on - the named manager, with the position", "Zulkifli Ops (Chief Operational Officer)" in (r7.inner_text() if r7.count() else ""), r7.inner_text()[:200] if r7.count() else "")
+    check("the status filter has Waiting for my approval and Requires configuration", pg.locator("option", has_text="Waiting for my approval").count() >= 1 and pg.locator("option", has_text="Requires configuration").count() >= 1)
+    t7 = drawer_text(7)
+    check("the routed timeline holds only the route's step - the manager's decision, final; no HR, COO/CCO or CEO stage", "Manager's decision - Zulkifli Ops, Chief Operational Officer" in t7 and "the final approval" in t7 and "HR review" not in t7 and "Pre-approval" not in t7 and "CEO decision" not in t7, t7[:400])
+    check("...HR's check is said on the step, never as an approval", "HR verified - Tan Mei Ling" in t7, t7[:400])
+    dl = pg.locator("[role=dialog]").filter(has=pg.get_by_role("tab", name="Activity", exact=True)).last
+    check("the drawer says the reporting line changed (the request stays as submitted) and the approver is away", dl.get_by_test_id("line-changed").count() == 1 and "Tan Mei Ling" in dl.get_by_test_id("line-changed").inner_text() and dl.get_by_test_id("approver-away").count() == 1)
+    reqs.clear()
+    dl.get_by_test_id("reassign-open").click(); pg.wait_for_timeout(400)
+    ra = dl.get_by_test_id("leave-reassign")
+    check("Reassign offers only people above the applicant", ra.count() == 1 and ra.locator("option").count() == 1 and "Fixture Person" in ra.inner_text())
+    ra.locator("textarea").fill("Zul is at the Melaka event all week")
+    ra.get_by_role("button", name="Reassign").click(); pg.wait_for_timeout(1200)
+    sent = patches(reqs, 7)
+    check("Reassign sends the person and the reason", len(sent) >= 1 and sent[-1].get("action") == "reassign" and sent[-1].get("to_user") == 9001 and sent[-1].get("comment", "").startswith("Zul is at"), sent)
+    t8 = drawer_text(8)
+    dl = pg.locator("[role=dialog]").filter(has=pg.get_by_role("tab", name="Activity", exact=True)).last
+    check("no reporting manager: 'Approval routing requires configuration', never a random approver", "Approval routing requires configuration" in t8 and dl.get_by_test_id("routing-required").count() == 1, t8[:300])
+    reqs.clear(); dl.get_by_test_id("route-now").click(); pg.wait_for_timeout(1200)
+    sent = patches(reqs, 8)
+    check("Route now sends the route action", len(sent) >= 1 and sent[-1].get("action") == "route", sent)
+    check("no page errors (routed)", not errs, errs)
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    tab(pg, "Overview")
+    ar = pg.get_by_test_id("approval-route")
+    check("Your approval route: the CEO's is an Executive Leave Record, and only he sees the switch", ar.count() == 1 and "Executive Leave Record" in ar.inner_text() and "Switch back to the previous rules" in ar.inner_text(), ar.inner_text()[:300] if ar.count() else "")
     ctx.close()
     ctx = b.new_context(viewport={"width": 1440, "height": 1000})
     pg = ctx.new_page(); errs = []
@@ -148,6 +177,13 @@ with sync_playwright() as p:
     check("...a withheld type reads as plain leave, with no reason shown", "Withheld" not in ut.replace("Siti Withheld", "") and "Dental surgery" not in ut, ut[:300])
     check("the month calendar draws tentative leave as a hollow dot, with its legend", pg.locator("[data-state=tentative]").count() >= 2 and "Tentative" in (pg.locator("p[class*=legend]").first.inner_text() if pg.locator("p[class*=legend]").count() else ""))
     check("no page errors (overview)", not errs, errs)
+    ctx.close()
+
+    # ---- v1.260.0: the routed drawer on a phone ----
+    ctx, pg, errs, _ = open_page(b, 4177, w=390, h=860)
+    tab(pg, "Approvals & Management")
+    pg.locator("tr[data-record='leave:7']").filter(visible=True).first.get_by_role("button", name="View").click(); pg.wait_for_timeout(1500)
+    check("phone 390px: the routed drawer fits, with its timeline and notes", pg.evaluate(FITS) and pg.evaluate(INSIDE, 390) == 0 and pg.get_by_test_id("leave-timeline").is_visible())
     ctx.close()
 
     # ---- phones ----

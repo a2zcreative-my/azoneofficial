@@ -24,7 +24,7 @@ import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
-import { btnClass, btnSm, card, chipSmNeutral, chipSmWarn, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipSmNeutral, chipSmWarn, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm, textareaClass } from "@/lib/ui-styles";
 import { AppIcon } from "@/components/ui/app-icon";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
@@ -80,6 +80,8 @@ export const STAGE_LABEL: Record<string, string> = {
   rejected: "Rejected",
   cancelled: "Cancelled",
   returned: "Returned for information",
+  routed: "Awaiting the manager's approval", // v1.260.0
+  routing_required: "Approval routing requires configuration",
 };
 /* BM twin of STAGE_LABEL — display only, the stage value itself stays EN. */
 export const STAGE_LABEL_MS: Record<string, string> = {
@@ -91,6 +93,8 @@ export const STAGE_LABEL_MS: Record<string, string> = {
   rejected: "Ditolak",
   cancelled: "Dibatalkan",
   returned: "Dikembalikan untuk maklumat",
+  routed: "Menunggu kelulusan pengurus",
+  routing_required: "Laluan kelulusan perlu ditetapkan",
 };
 export const stageL = (s: string) =>
   (getLang() === "ms" ? STAGE_LABEL_MS[s] : STAGE_LABEL[s]) ?? s;
@@ -167,7 +171,7 @@ export function printLeaveForm(l: LeaveReq, meName: string) {
   /* v1.259.0 - who signed which box, from the record (lib/form-pdf.ts
      leaveFormDecision - the PDF reads the same rule) */
   const fd = leaveFormDecision(l);
-  const statusLine =
+  const statusLine = fd.record ? "EXECUTIVE LEAVE RECORD - recorded by the CEO (top of the organisation, no approver)" :
     stage === "approved"
       ? `APPROVED IN SYSTEM${fd.final ? " by " + fd.final.name + (fd.final.override ? " (CEO override)" : "") : ""}${fd.final?.at ? " on " + myt(fd.final.at) + " MYT" : ""}`
       : stage === "rejected"
@@ -282,6 +286,44 @@ function effectLine(approvedAt: string | null, payroll?: { month: string; state:
     : L(`${monthName(p.month)} payroll not prepared yet`, `Gaji ${monthName(p.month)} belum disediakan`));
   return pay.length ? `${att} ${L("Payroll", "Gaji")}: ${pay.join("; ")}.` : att;
 }
+/** v1.260.0 - a step of a ROUTED request (the Organisation route): the
+    manager's decision with their name and position, the CEO's Executive
+    Leave Record, the routing step; HR's check and a reassignment are said on
+    the step they belong to. Only what the server's timeline holds. */
+type TStep = NonNullable<LeaveReq["timeline"]>[number];
+function routedStage(s: TStep, at: (x: string | null) => string): Stage {
+  const f = s.flags ?? {};
+  const who = s.who ? properName(s.who) : "";
+  const whoAt = [who, at(s.at)].filter(Boolean).join(" · ");
+  const ap = typeof f.approver_name === "string" ? properName(f.approver_name) : "";
+  const pos = typeof f.approver_position === "string" && f.approver_position ? f.approver_position : "";
+  const state = s.state as StageState;
+  if (s.key === "exec") return { key: s.key, state, title: L("Executive Leave Record", "Rekod Cuti Eksekutif"), sub: L(`Recorded by ${whoAt || "the CEO"} - the top of the organisation has no reporting manager, so nobody approves it`, `Direkod oleh ${whoAt || "CEO"} - puncak organisasi tiada pengurus pelapor, jadi tiada kelulusan`) };
+  if (s.key === "routing") {
+    if (f.routed) return { key: s.key, state, title: L("Routed by the Organisation chart", "Dihalakan mengikut carta Organisasi"), sub: whoAt || "—", note: s.text || undefined };
+    return { key: s.key, state, title: L("Approval routing requires configuration", "Laluan kelulusan perlu ditetapkan"),
+      sub: state === "now" ? L("No reporting manager on the Organisation chart yet - HR or the CEO sets it, then routes the request", "Belum ada pengurus pelapor pada carta Organisasi - HR atau CEO menetapkannya, kemudian menghalakan permohonan")
+        : state === "withdrawn" ? L("Withdrawn by the applicant", "Ditarik balik oleh pemohon")
+        : f.override ? L(`Decided by CEO override - ${whoAt || "the CEO"}`, `Diputuskan melalui pengecualian CEO - ${whoAt || "CEO"}`) : whoAt || "—",
+      note: s.text || undefined };
+  }
+  const title = L(`Manager's decision - ${ap || "the reporting manager"}${pos ? `, ${pos}` : ""}`, `Keputusan pengurus - ${ap || "pengurus pelapor"}${pos ? `, ${pos}` : ""}`);
+  const extra = [
+    typeof f.reassigned_from === "string" && f.reassigned_from ? L(`Reassigned from ${properName(f.reassigned_from)} to ${properName(String(f.reassigned_to ?? ""))}${f.reassign_note ? `: ${f.reassign_note}` : ""}`, `Diserahkan semula daripada ${properName(f.reassigned_from)} kepada ${properName(String(f.reassigned_to ?? ""))}${f.reassign_note ? `: ${f.reassign_note}` : ""}`) : "",
+    f.hr_check === "verified" ? L(`HR verified - ${properName(String(f.hr_by ?? ""))} · ${at(String(f.hr_at ?? ""))}${f.hr_note ? `: ${f.hr_note}` : ""}`, `Disahkan HR - ${properName(String(f.hr_by ?? ""))} · ${at(String(f.hr_at ?? ""))}${f.hr_note ? `: ${f.hr_note}` : ""}`)
+      : f.hr_check === "flagged" ? L(`HR flagged an issue - ${properName(String(f.hr_by ?? ""))}: ${f.hr_note ?? ""}`, `HR menandakan isu - ${properName(String(f.hr_by ?? ""))}: ${f.hr_note ?? ""}`) : "",
+  ].filter(Boolean).join(" · ");
+  switch (state) {
+    case "done": return { key: s.key, state, title, sub: f.override ? L(`Decided by CEO override in the approver's place - ${whoAt}`, `Diputuskan melalui pengecualian CEO bagi pihak pelulus - ${whoAt}`) : L(`Approved by ${whoAt || "—"}`, `Diluluskan oleh ${whoAt || "—"}`), note: [s.text, extra].filter(Boolean).join(" · ") || undefined };
+    case "rejected": return { key: s.key, state, title: `${title} - ${L("rejected", "ditolak")}`, sub: f.override ? L(`Rejected by CEO override - ${whoAt}`, `Ditolak melalui pengecualian CEO - ${whoAt}`) : L(`Rejected by ${whoAt || "—"}`, `Ditolak oleh ${whoAt || "—"}`), note: [s.text, extra].filter(Boolean).join(" · ") || undefined };
+    case "now": return { key: s.key, state, title, sub: L(`Waiting on ${ap || "the reporting manager"} - the final approval`, `Menunggu ${ap || "pengurus pelapor"} - kelulusan akhir`), aside: L("Currently waiting", "Sedang menunggu"),
+      note: [f.returned_resubmitted ? L("It was returned once for more information and resubmitted.", "Ia pernah dikembalikan untuk maklumat dan dihantar semula.") : "", extra].filter(Boolean).join(" · ") || undefined };
+    case "returned": return { key: s.key, state, title, sub: L(`Returned for more information by ${whoAt || "the approver"} - waiting on the applicant`, `Dikembalikan untuk maklumat oleh ${whoAt || "pelulus"} - menunggu pemohon`), note: s.text || undefined, aside: L("With the applicant", "Pada pemohon") };
+    case "withdrawn": return { key: s.key, state, title: L("Withdrawn by the applicant", "Ditarik balik oleh pemohon"), sub: s.at ? at(s.at) : "—" };
+    case "off": return { key: s.key, state, title, sub: L("Not reached", "Tidak sampai") };
+    default: return { key: s.key, state, title, sub: L("Not yet", "Belum"), note: extra || undefined };
+  }
+}
 /** v1.252.0 - THE APPROVAL TIMELINE, in words, from the server's steps
     (leave-chain.ts leaveTimeline). Nothing is worked out here but the
     sentence: who, when, what is waited on, what was written. */
@@ -301,6 +343,7 @@ export function leaveStages(l: LeaveReq): Stage[] {
     final: L("Waiting on the CEO", "Menunggu CEO"),
   };
   return (l.timeline ?? []).map((s): Stage => {
+    if (s.key === "line" || s.key === "exec" || s.key === "routing") return routedStage(s, at);
     const who = s.who ? properName(s.who) : "";
     const whoAt = [who, at(s.at)].filter(Boolean).join(" · ");
     const released = typeof s.flags?.released_months === "string" ? String(s.flags.released_months).split(",").map((m) => monthName(m)).join(", ") : "";
@@ -417,7 +460,9 @@ const ACTIVITY: Record<string, [string, string]> = {
   "leave.override_approve": ["Approved directly by the CEO", "Diluluskan terus oleh CEO"], "leave.override_reject": ["Rejected directly by the CEO", "Ditolak terus oleh CEO"],
   "leave.cancel": ["Withdrawn by the applicant", "Ditarik balik oleh pemohon"], "leave.return": ["Returned for more information", "Dikembalikan untuk maklumat"],
   "leave.resubmit": ["Answered and resubmitted", "Dijawab dan dihantar semula"], "leave.comment": ["Comment added", "Komen ditambah"],
-  "leave.amend": ["Amended by the CEO", "Dipinda oleh CEO"], "leave.unpaid_record": ["Recorded from Attendance", "Direkod dari Kehadiran"],
+  "leave.executive_record": ["Executive Leave Record", "Rekod Cuti Eksekutif"], "leave.routing_required": ["Routing requires configuration", "Laluan perlu ditetapkan"], "leave.route": ["Routed", "Dihalakan"], "leave.reroute": ["Re-routed by Organisation", "Dihalakan semula ikut Organisasi"],
+  "leave.reassign": ["Reassigned", "Diserahkan semula"], "leave.hr_verified": ["HR verified", "Disahkan HR"], "leave.hr_flagged": ["HR flagged an issue", "HR menandakan isu"], "leave.advance.step": ["Approved a step", "Meluluskan satu langkah"],
+    "leave.amend": ["Amended by the CEO", "Dipinda oleh CEO"], "leave.unpaid_record": ["Recorded from Attendance", "Direkod dari Kehadiran"],
 };
 /* v1.252.0 - THE ACTIVITY: the audit trail of this leave, as it happened
    (audit events, kept apart from comments). */
@@ -906,6 +951,8 @@ export function LeaveEntitlement() {
    has to say out loud which stage is being skipped. */
 export function waitingOnLabel(l: LeaveReq): string {
   /* v1.252.0 - the server's answer first: either the COO or the CCO decides */
+  if (l.waiting_on === "approver") return `${properName(l.approver_name ?? "")}${l.approver_position ? ` (${l.approver_position})` : ""}` || L("the reporting manager", "pengurus pelapor");
+  if (l.waiting_on === "configuration") return L("routing set-up (HR or the CEO)", "penetapan laluan (HR atau CEO)");
   if (l.waiting_on) return l.waiting_on === "hr" ? "HR" : l.waiting_on === "coo_cco" ? L("COO or CCO", "COO atau CCO") : l.waiting_on === "ceo" ? "CEO" : L("the applicant (returned for information)", "pemohon (dikembalikan untuk maklumat)");
   const st = l.stage ?? "";
   if (st === "applied") return "HR";
@@ -933,7 +980,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
     day_part: "full",
     reason: "",
   });
-  const canApprove = [
+  const canApproveRole = [
     "super_admin",
     "admin",
     "hr_admin",
@@ -955,7 +1002,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
   /* v1.206.0 - the company register's filters and page, and My Leave's status */
   const [regQ, setRegQ] = useState("");
   const [regDept, setRegDept] = useState("");
-  const [regStatus, setRegStatus] = useState<"" | "progress" | "approved" | "rejected" | "cancelled">("");
+  const [regStatus, setRegStatus] = useState<"" | "mine" | "routing" | "progress" | "approved" | "rejected" | "cancelled">("");
   const [regPage, setRegPage] = useState(0);
   const [regPer, setRegPer] = useState(10);
   const [mineStatus, setMineStatus] = useState<"" | "progress" | "approved" | "rejected" | "cancelled">("");
@@ -986,15 +1033,21 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      approval it waits on; the action buttons appear only on rows this viewer
      can act on (the old filter hid everything else, so COO/CEO saw an empty
      board while requests sat at HR). */
-  const allView = useCachedApi<{ leave: LeaveReq[] }>("/staff/leave?all=1", canApprove, ["leave"]);
+  const allView = useCachedApi<{ leave: LeaveReq[] }>("/staff/leave?all=1", canApproveRole, ["leave"]);
   const balances = useMemo(() => balanceView.data?.balances ?? {}, [balanceView.data]);
   /* v1.93.0 — a part-time host: no entitlement, no form; one line says why. */
   const hourly = Boolean(balanceView.data?.hourly);
-  const mine = useMemo(() => mineView.data?.leave ?? [], [mineView.data]);
-  const all = useMemo(() => allView.data?.leave ?? [], [allView.data]);
-  const loaded = !balanceView.loading && !mineView.loading && (!canApprove || !allView.loading);
+  /* v1.260.0 - GET /leave also carries the requests ROUTED to you to decide
+     (a team lead outside the management tier is an approver too): your own
+     stay under My Leave; the ones you decide make the board */
+  const mineRaw = useMemo(() => mineView.data?.leave ?? [], [mineView.data]);
+  const mine = useMemo(() => mineRaw.filter((l) => l.user_id == null || l.user_id === user.id), [mineRaw, user.id]);
+  const routedToMe = useMemo(() => mineRaw.filter((l) => l.user_id != null && l.user_id !== user.id), [mineRaw, user.id]);
+  const canApprove = canApproveRole || routedToMe.length > 0;
+  const all = useMemo(() => (canApproveRole ? allView.data?.leave ?? [] : routedToMe), [allView.data, canApproveRole, routedToMe]);
+  const loaded = !balanceView.loading && !mineView.loading && (!canApproveRole || !allView.loading);
   const refreshBalance = balanceView.refresh, refreshMine = mineView.refresh, refreshAll = allView.refresh;
-  const load = useCallback(async () => { refreshBalance(); refreshMine(); if (canApprove) refreshAll(); }, [refreshBalance, refreshMine, refreshAll, canApprove]);
+  const load = useCallback(async () => { refreshBalance(); refreshMine(); if (canApproveRole) refreshAll(); }, [refreshBalance, refreshMine, refreshAll, canApproveRole]);
   /* v1.205.0 - a search hit, a notification or a Desk item opens the request
      where it already lives: your own under My Leave, anyone else's on the
      company board under Approvals & Management - the row opened, the month
@@ -1036,10 +1089,17 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       showLeaveToast(L("Not sent", "Tidak dihantar"), L("Half-day leave needs one date and a first or second half. Submit full days separately.", "Cuti separuh hari memerlukan satu tarikh dan separuh pertama atau kedua. Hantar hari penuh secara berasingan."), "notice");
       return;
     }
-    const res = await api<{ id?: number; error?: { message?: string } }>(`/staff/leave`, {
+    /* v1.260.0 - the CEO's own leave is an Executive Leave Record, which asks
+       for his authenticator code (withStepUp asks only when the server does) */
+    type Applied = { id?: number; stage?: string; route?: string; approver?: string; error?: { code?: string; message?: string } };
+    let res = await api<Applied>(`/staff/leave`, {
       method: "POST",
       body: JSON.stringify({ ...draft, start_date: start, end_date: end }),
     });
+    if (!res.ok && res.status === 401 && res.data?.error?.code === "totp_required") {
+      const stepped = await withStepUp<Applied>((totp) => api(`/staff/leave`, { method: "POST", body: JSON.stringify({ ...draft, start_date: start, end_date: end, ...(totp ? { totp } : {}) }) }), prompt);
+      res = { ...res, ...stepped };
+    }
     if (!res.ok) {
       showLeaveToast(L("Not sent", "Tidak dihantar"),
         res.data?.error?.message ?? L("The server refused the request", "Pelayan menolak permohonan"), "notice");
@@ -1051,7 +1111,11 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       res.queued ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Leave requested", "Cuti dimohon"),
       res.queued
         ? L("Saved on this phone. It will be sent to HR the moment you are back online.", "Disimpan pada telefon ini. Ia akan dihantar kepada HR sebaik sahaja anda kembali dalam talian.")
-        : `${leaveTypeL(draft.type)} · ${draft.days} ${L("day(s)", "hari")} · ${dmy(start)}${end !== start ? ` – ${dmy(end)}` : ""} · ${L("waiting for HR", "menunggu HR")}`,
+        : `${leaveTypeL(draft.type)} · ${draft.days} ${L("day(s)", "hari")} · ${dmy(start)}${end !== start ? ` – ${dmy(end)}` : ""} · ${
+          res.data?.route === "manager" ? L(`waiting for ${properName(res.data.approver ?? "")}`, `menunggu ${properName(res.data.approver ?? "")}`)
+          : res.data?.route === "executive_record" ? L("recorded (Executive Leave Record)", "direkod (Rekod Cuti Eksekutif)")
+          : res.data?.route === "routing_required" ? L("HR or the CEO routes it to your manager", "HR atau CEO menghalakannya kepada pengurus anda")
+          : L("waiting for HR", "menunggu HR")}`,
       res.queued ? "notice" : "success",
     );
     setDraft({
@@ -1154,6 +1218,23 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      request could not. The stages skipped stay visibly unsigned on the
      printed form — that is the record. */
   const canOverride = ["ceo", "super_admin"].includes(user.role);
+  /* v1.260.0 - Route now, Re-route, Reassign, the HR check: one sender */
+  const [reassign, setReassign] = useState<{ id: number; to: number; why: string } | null>(null);
+  const routeAct = async (id: number, action: string, ask?: { title: string; label: string }, extra: Record<string, unknown> = {}) => {
+    let comment = "";
+    if (ask) {
+      const p = await prompt({ title: ask.title, label: ask.label, required: true });
+      if (!p?.value?.trim()) return;
+      comment = p.value.trim();
+    }
+    const res = await api<{ approver?: string; error?: { message?: string } }>(`/staff/leave/${id}`, { method: "PATCH", body: JSON.stringify({ action, ...(comment ? { comment } : {}), ...extra }) });
+    if (!res.ok) { showLeaveToast(L("Not changed", "Tidak diubah"), res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice"); return; }
+    showLeaveToast(
+      action === "hr_verify" ? L("HR verified", "Disahkan HR") : action === "hr_flag" ? L("Issue flagged", "Isu ditandakan") : action === "reassign" ? L("Reassigned", "Diserahkan semula") : L("Routed", "Dihalakan"),
+      res.data?.approver ? L(`It now waits on ${properName(res.data.approver)}.`, `Kini menunggu ${properName(res.data.approver)}.`) : L("It is on the record with your name and the time.", "Ia direkod dengan nama anda dan masa."),
+    );
+    void load();
+  };
   const overrideAct = async (l: LeaveReq, action: "approve" | "reject") => {
     const nm = properName(l.user_full || l.user_name || "");
     if (
@@ -1174,12 +1255,20 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       }))
     )
       return;
+    /* v1.260.0 (D7) - on a routed request the override decides in the
+       approver's place: the reason is required and the approver is told */
+    let why = "";
+    if (l.route) {
+      const p = await prompt({ title: L("Why are you deciding in the approver's place?", "Mengapa anda membuat keputusan bagi pihak pelulus?"), label: L(`The reason - ${waitingOnLabel(l)} is told (at least 5 characters)`, `Sebabnya - ${waitingOnLabel(l)} dimaklumkan (sekurang-kurangnya 5 aksara)`), required: true, confirmLabel: action === "approve" ? L("Approve now", "Luluskan terus") : L("Reject now", "Tolak terus") });
+      if (!p?.value?.trim()) return;
+      why = p.value.trim();
+    }
     /* The CEO override is a final approval by definition — it goes straight
        to approved with his chop on it, so it always meets the step-up. */
     const res = await withStepUp<{ error?: { message?: string } }>(
       (totp) => api(`/staff/leave/${l.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ action, override: true, ...(totp ? { totp } : {}) }),
+        body: JSON.stringify({ action, override: true, ...(why ? { comment: why } : {}), ...(totp ? { totp } : {}) }),
       }),
       prompt,
     );
@@ -1435,7 +1524,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
           const rows = all
             .filter((l) => !regNeedle || [l.user_full ?? "", l.user_name ?? "", leaveTypeL(l.type), l.type, l.reason ?? "", leaveNoOf(l)].some((t) => t.toLowerCase().includes(regNeedle)))
             .filter((l) => !regDept || (l.user_department ?? "").trim() === regDept)
-            .filter((l) => { const st = l.stage ?? l.status; return !regStatus || (regStatus === "progress" ? !TERMINAL.includes(st) : st === regStatus); })
+            .filter((l) => { const st = l.stage ?? l.status; return !regStatus || (regStatus === "mine" ? l.can_act === true : regStatus === "routing" ? st === "routing_required" : regStatus === "progress" ? !TERMINAL.includes(st) : st === regStatus); })
             .filter((l) => !leaveMonth || (l.start_date <= `${leaveMonth}-31` && l.end_date >= `${leaveMonth}-01`))
             .sort((a, b) => Number(TERMINAL.includes(a.stage ?? a.status)) - Number(TERMINAL.includes(b.stage ?? b.status)) || (b.created_at ?? "").localeCompare(a.created_at ?? ""));
           const pages = Math.max(1, Math.ceil(rows.length / regPer));
@@ -1462,7 +1551,9 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                 </select>
                 <select className={inputClassSm} value={regStatus} onChange={(e) => { setRegStatus(e.target.value as typeof regStatus); reset(); }} aria-label={L("Status", "Status")}>
                   <option value="">{L("All statuses", "Semua status")}</option>
+                  <option value="mine">{L("Waiting for my approval", "Menunggu kelulusan saya")}</option>
                   <option value="progress">{L("In progress", "Sedang diproses")}</option>
+                  <option value="routing">{L("Requires configuration", "Perlu ditetapkan")}</option>
                   <option value="approved">{L("Approved", "Diluluskan")}</option>
                   <option value="rejected">{L("Rejected", "Ditolak")}</option>
                   <option value="cancelled">{L("Cancelled", "Dibatalkan")}</option>
@@ -1514,7 +1605,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                                 {mine && (
                                   <>
                                     <button type="button" className={rowBtnPrimary} onClick={() => void act(l.id, "approve")}>
-                                      {l.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : l.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
+                                      {l.stage === "routed" ? L("Approve", "Luluskan") : l.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : l.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
                                     </button>
                                     <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "reject")}>{L("Reject", "Tolak")}</button>
                                   </>
@@ -1646,7 +1737,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                 {waitsOnMe && (
                   <>
                     <button type="button" className={btnClass} onClick={() => void act(d.id, "approve")}>
-                      {d.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : d.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
+                      {d.stage === "routed" ? L("Approve", "Luluskan") : d.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : d.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
                     </button>
                     <button type="button" className={rowBtn} onClick={() => void act(d.id, "return")}>{L("Return for info", "Kembalikan untuk maklumat")}</button>
                     <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "reject")}>{L("Reject", "Tolak")}</button>
@@ -1656,6 +1747,16 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                   <>
                     <button type="button" className={rowBtn} onClick={() => void overrideAct(d, "approve")}>{L("Approve now", "Luluskan terus")}</button>
                     <button type="button" className={rowBtnDanger} onClick={() => void overrideAct(d, "reject")}>{L("Reject", "Tolak")}</button>
+                  </>
+                )}
+                {/* v1.260.0 - the Organisation route's own actions, only where the server allows them */}
+                {d.can_route && <button type="button" className={btnClass} data-testid="route-now" onClick={() => void routeAct(d.id, "route")}>{L("Route now", "Halakan sekarang")}</button>}
+                {d.can_reroute && <button type="button" className={rowBtn} data-testid="reroute" onClick={() => void routeAct(d.id, "reroute", { title: L("Re-route by the Organisation chart", "Halakan semula mengikut carta Organisasi"), label: L("Why - it goes to the applicant's reporting manager; decisions already made stay on the record (at least 5 characters)", "Sebabnya - ia pergi kepada pengurus pelapor pemohon; keputusan yang dibuat kekal dalam rekod (sekurang-kurangnya 5 aksara)") })}>{L("Re-route by Organisation", "Halakan semula ikut Organisasi")}</button>}
+                {d.can_reassign && <button type="button" className={rowBtn} data-testid="reassign-open" onClick={() => setReassign(reassign?.id === d.id ? null : { id: d.id, to: d.reassign_to?.[0]?.id ?? 0, why: "" })}>{L("Reassign", "Serah semula")}</button>}
+                {d.can_hr_check && (
+                  <>
+                    <button type="button" className={rowBtn} data-testid="hr-verify" onClick={() => void routeAct(d.id, "hr_verify")}>{L("HR verified", "Disahkan HR")}</button>
+                    <button type="button" className={rowBtn} onClick={() => void routeAct(d.id, "hr_flag", { title: L("Flag an issue for the approver", "Tandakan isu untuk pelulus"), label: L("What is the issue - the approver and the applicant read it (at least 5 characters)", "Apakah isunya - pelulus dan pemohon membacanya (sekurang-kurangnya 5 aksara)") })}>{L("Flag an issue", "Tandakan isu")}</button>
                   </>
                 )}
                 {own && inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(d.id, "cancel")}>{L("Withdraw my application", "Tarik balik permohonan saya")}</button>}
@@ -1682,6 +1783,27 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                   </span>
                   {inProgress ? <span className={waitsOnMe ? chipSmWarn : chipSmNeutral}>{d.stage === "returned" ? L("Returned to the applicant", "Dikembalikan kepada pemohon") : <>{L("Waiting on", "Menunggu")} {waitingOnLabel(d)}</>}</span> : <span className={leaveChip(st)[0]}>{leaveChip(st)[1]}</span>}
                 </div>
+                {/* v1.260.0 - what the route needs the reader to know */}
+                {d.stage === "routing_required" && <p className={lv.note} role="status" data-testid="routing-required">{L("Approval routing requires configuration: this person has no reporting manager on the Organisation chart. Set it there, then Route now.", "Laluan kelulusan perlu ditetapkan: orang ini tiada pengurus pelapor pada carta Organisasi. Tetapkannya di sana, kemudian Halakan sekarang.")}</p>}
+                {d.line_changed && <p className={lv.note} role="status" data-testid="line-changed">{L(`Reporting line changed since submission - now ${properName(d.line_changed)}. This request stays with ${waitingOnLabel(d)} as submitted; reassign it if needed.`, `Garis pelaporan berubah selepas permohonan - kini ${properName(d.line_changed)}. Permohonan ini kekal dengan ${waitingOnLabel(d)} seperti dihantar; serah semula jika perlu.`)}</p>}
+                {d.approver_away_until && inProgress && <p className={lv.note} role="status" data-testid="approver-away">{L(`${waitingOnLabel(d)} is on approved leave until ${dmy(d.approver_away_until)} - reassign the step if it cannot wait.`, `${waitingOnLabel(d)} bercuti sehingga ${dmy(d.approver_away_until)} - serah semula jika tidak boleh menunggu.`)}</p>}
+                {reassign?.id === d.id && (
+                  <div className={lv.amend} data-testid="leave-reassign">
+                    <SubR t={L("Reassign to", "Serah kepada")}>
+                      <select className={inputClassSm} value={reassign.to} onChange={(e) => setReassign({ ...reassign, to: Number(e.target.value) })} aria-label={L("Reassign to", "Serah kepada")}>
+                        {(d.reassign_to ?? []).map((p) => <option key={p.id} value={p.id}>{properName(p.name)}{p.position ? ` - ${p.position}` : ""}</option>)}
+                      </select>
+                    </SubR>
+                    <SubR t={L("Reason", "Sebab")}>
+                      <textarea className={textareaClass} rows={2} maxLength={500} value={reassign.why} onChange={(e) => setReassign({ ...reassign, why: e.target.value })} aria-label={L("Reason for reassigning", "Sebab serah semula")} placeholder={L("Why it moves (at least 10 characters)", "Mengapa ia dipindahkan (sekurang-kurangnya 10 aksara)")} />
+                    </SubR>
+                    <span className={lv.drawerActions}>
+                      <button type="button" className={btnClass} onClick={() => void routeAct(d.id, "reassign", undefined, { to_user: reassign.to, comment: reassign.why.trim() }).then(() => setReassign(null))}>{L("Reassign", "Serah semula")}</button>
+                      <button type="button" className={rowBtn} onClick={() => setReassign(null)}>{L("Cancel", "Batal")}</button>
+                    </span>
+                    <p className={lv.sub}>{L("Only people above the applicant on the Organisation chart. The new approver, the old one and the applicant are told.", "Hanya mereka di atas pemohon pada carta Organisasi. Pelulus baharu, lama dan pemohon dimaklumkan.")}</p>
+                  </div>
+                )}
                 {/* v1.83.0 — the amendment form, on the record it amends (CEO). */}
                 {editLeave?.id === d.id && (
                   <div className={lv.amend}>

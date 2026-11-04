@@ -24,6 +24,7 @@
 
 import type { Role } from "./permissions";
 import { can } from "./permissions";
+import { reportingLine, type OrgPerson } from "../../lib/org-tree";
 
 export const HR_STAGE_ROLES: readonly Role[] = ["super_admin", "admin", "hr_admin"];
 export const PREAPP_ROLES: readonly Role[] = ["super_admin", "admin", "coo", "cco"];
@@ -55,9 +56,16 @@ export function leaveCanActAt(
   stage: string,
   applicantRole: string,
   applicantId: number,
+  /** v1.260.0 - a ROUTED request (stage `routed`) is decided by exactly the
+      person its frozen route names for the current step (or the person that
+      step was reassigned to): leave_requests.approver_id. Nobody else, by
+      role or otherwise. */
+  approverId?: number | null,
 ): boolean {
   // No one reviews their own request at any stage.
   if (user.id === applicantId) return false;
+  if (stage === "routed") return approverId != null && user.id === Number(approverId);
+  if (stage === "routing_required") return false; // nobody approves until it is routed
   if (stage === "applied") return (HR_STAGE_ROLES as readonly string[]).includes(user.role);
   if (stage === "hr_reviewed") {
     // COO/CCO applicants go straight to CEO; staff need COO/CCO pre-approval.
@@ -79,14 +87,18 @@ export function leaveStageLabel(stage: string): string {
     rejected: "rejected",
     cancelled: "cancelled",
     returned: "returned for information",
+    routed: "waiting on the approver",
+    routing_required: "approval routing requires configuration",
   } as Record<string, string>)[stage] ?? stage;
 }
 
 /** v1.252.0 - who a live request waits on: "hr", "coo_cco" (either one
     decides), "ceo", or "applicant" (returned with a question). null when
     nothing is waited on. */
-export type LeaveWaiter = "hr" | "coo_cco" | "ceo" | "applicant";
+export type LeaveWaiter = "hr" | "coo_cco" | "ceo" | "applicant" | "approver" | "configuration";
 export function leaveWaitingOn(stage: string, applicantRole: string): LeaveWaiter | null {
+  if (stage === "routed") return "approver"; // v1.260.0 - the named person (approver_id)
+  if (stage === "routing_required") return "configuration";
   if (stage === "applied") return "hr";
   if (stage === "hr_reviewed") return applicantRole === "coo" || applicantRole === "cco" ? "ceo" : "coo_cco";
   if (stage === "pre_approved" || stage === "pending_final") return "ceo";
@@ -136,7 +148,7 @@ export function leaveDecider(r: Pick<LeaveTimelineRow, "stage" | "applicant_role
 export interface LeavePayrollMonth { month: string; state: "not_prepared" | "prepared" | "released"; at: string | null }
 export type LeaveStepState = "done" | "now" | "todo" | "skipped" | "rejected" | "withdrawn" | "returned" | "off";
 export interface LeaveStep {
-  key: "submitted" | "recorded" | "hr" | "pre" | "final" | "effect";
+  key: "submitted" | "recorded" | "hr" | "pre" | "final" | "effect" | "line" | "exec" | "routing";
   state: LeaveStepState;
   who: string | null; at: string | null;
   /** the words a person wrote at that step: the rejection note, the question asked */
@@ -219,5 +231,119 @@ export function leaveTimeline(r: LeaveTimelineRow, releasedMonths: string[] = []
     steps.push(past && signed(k) ? { key: k, state: "done", who: sig[k]![0], at: sig[k]![1], text: null } : { key: k, state: "todo", who: null, at: null, text: null });
   }
   steps.push({ key: "effect", state: "todo", who: null, at: null, text: null, ...(rel ? { flags: rel } : {}) });
+  return steps;
+}
+
+/* =====================================================================
+ * v1.260.0 - LEAVE APPROVAL FOLLOWS THE ORGANISATION CHART.
+ * claude/LEAVE-ROUTING-AUDIT.md revision 2 and the CEO's "approved"
+ * (04-11-2026): D1 (c) an ordinary employee is approved by their REPORTING
+ * MANAGER on the Organisation chart, final - no HR stage, no CEO stage;
+ * D2 (b) the COO and the CCO by the CEO, their manager; D3 (a) the CEO's own
+ * leave is an Executive Leave Record - nobody approves it, nothing is
+ * signed. No valid manager = "Approval Routing Requires Configuration",
+ * never a random approver. The route is worked out HERE from the chart's
+ * own tree (lib/org-tree.ts reportingLine -> buildOrg, the same answer the
+ * chart and the reporting-line card draw) and FROZEN on the request when it
+ * is submitted: a later change of manager never redirects it silently.
+ * Requests submitted before this (route_json NULL) keep the rules above.
+ * ===================================================================== */
+
+export const LEAVE_ROUTE_VERSION = 1;
+export interface LeavePerson { id: number; name: string; position: string | null; role: string; department: string | null }
+export interface LeaveRouteStep { n: number; key: "line"; approver: LeavePerson; basis: "reporting_line"; final: boolean }
+export interface LeaveRoute {
+  v: number;
+  kind: "manager" | "executive_record" | "routing_required";
+  applicant: LeavePerson & { manager_id: number | null };
+  steps: LeaveRouteStep[];
+  /** why there is no route: not on the chart (no reporting line, a leaver, a loop) */
+  reason?: "no_manager";
+}
+const personOf = (u: OrgPerson): LeavePerson => ({ id: u.id, name: (u.full_name ?? "").trim() || u.name, position: u.position ?? null, role: u.role, department: (u.department ?? "").trim() || null });
+
+/** THE ROUTE of a new request, from the chart as it stands now. */
+export function leaveRoute(list: OrgPerson[], applicantId: number): LeaveRoute {
+  const me = list.find((u) => u.id === applicantId);
+  const line = me ? reportingLine(list, applicantId) : null;
+  const applicant = me ? { ...personOf(me), manager_id: null as number | null } : { id: applicantId, name: "", position: null, role: "", department: null, manager_id: null };
+  if (me && line?.kind === "ceo") return { v: LEAVE_ROUTE_VERSION, kind: "executive_record", applicant, steps: [] };
+  const sup = line && line.kind === "staff" && line.placed ? line.supervisor : null;
+  if (!me || !sup || sup.id === applicantId) return { v: LEAVE_ROUTE_VERSION, kind: "routing_required", applicant, steps: [], reason: "no_manager" };
+  return { v: LEAVE_ROUTE_VERSION, kind: "manager", applicant: { ...applicant, manager_id: sup.id }, steps: [{ n: 1, key: "line", approver: personOf(sup), basis: "reporting_line", final: true }] };
+}
+
+/** Everyone ABOVE a person on the chart, nearest first - the only people a
+    step may be reassigned to (never a peer, a junior, HR by role, or the
+    applicant). */
+export function leaveAbove(list: OrgPerson[], personId: number): LeavePerson[] {
+  const out: LeavePerson[] = [];
+  let cur = personId;
+  for (let hop = 0; hop < 64; hop++) {
+    const sup = reportingLine(list, cur)?.supervisor;
+    if (!sup || out.some((p) => p.id === sup.id)) break;
+    out.push(personOf(sup));
+    cur = sup.id;
+  }
+  return out;
+}
+
+export function parseLeaveRoute(json: unknown): LeaveRoute | null {
+  if (typeof json !== "string" || !json) return null;
+  try { const r = JSON.parse(json) as LeaveRoute; return r && Array.isArray(r.steps) ? r : null; } catch { return null; }
+}
+
+export interface LeaveDecisionRow { kind: string; step_no: number | null; actor_name: string | null; actor_role: string | null; note: string | null; created_at: string; from_name?: string | null; to_name?: string | null }
+
+/** THE TIMELINE of a routed request: only the steps its route holds - no HR,
+    COO/CCO or CEO stage is drawn unless the route names it. Each decision
+    from leave_decisions, with who and when; HR's check and a reassignment
+    are said on the step they belong to. */
+export function leaveRoutedTimeline(r: LeaveTimelineRow & { step_no?: number | null }, route: LeaveRoute, decisions: LeaveDecisionRow[], releasedMonths: string[] = [], payroll: LeavePayrollMonth[] = []): LeaveStep[] {
+  const rel = releasedMonths.length ? { released_months: releasedMonths.join(",") } : null;
+  const steps: LeaveStep[] = [{ key: "submitted", state: "done", who: r.user_name ?? null, at: r.created_at, text: null }];
+  const st = r.stage;
+  const effect = (): LeaveStep => st === "approved"
+    ? { key: "effect", state: "done", who: null, at: r.final_at ?? r.created_at, text: null, ...(rel ? { flags: rel } : {}), payroll }
+    : st === "rejected" || st === "cancelled" ? { key: "effect", state: "off", who: null, at: null, text: null }
+    : { key: "effect", state: "todo", who: null, at: null, text: null, ...(rel ? { flags: rel } : {}) };
+  if (route.kind === "executive_record") {
+    const rec = decisions.find((d) => d.kind === "recorded");
+    steps.push({ key: "exec", state: st === "cancelled" ? "withdrawn" : "done", who: rec?.actor_name ?? r.user_name ?? null, at: rec?.created_at ?? r.created_at, text: null, flags: { executive_record: true } });
+    steps.push(effect());
+    return steps;
+  }
+  const hr = [...decisions].reverse().find((d) => d.kind === "hr_verified" || d.kind === "hr_flagged");
+  const hrFlags = hr ? { hr_check: hr.kind === "hr_verified" ? "verified" : "flagged", hr_by: hr.actor_name ?? "", hr_at: hr.created_at, ...(hr.note ? { hr_note: hr.note } : {}) } : {};
+  if (route.kind === "routing_required") {
+    steps.push({ key: "routing", state: st === "cancelled" ? "withdrawn" : st === "rejected" ? "rejected" : st === "approved" ? "done" : "now",
+      who: st === "rejected" || st === "approved" ? r.final_by_name ?? null : null, at: st === "rejected" || st === "approved" ? r.final_at ?? null : st === "cancelled" ? r.cancelled_at ?? null : null,
+      text: st === "rejected" ? r.review_comment ?? null : null, flags: { routing_required: true, ...(st === "approved" || st === "rejected" ? { override: true } : {}) } });
+    steps.push(effect());
+    return steps;
+  }
+  /* routed later (Route now, or a request from before re-routed by the Organisation): said as its own blue step */
+  const routedDec = decisions.find((d) => d.kind === "routed");
+  if (routedDec) steps.push({ key: "routing", state: "done", who: routedDec.actor_name, at: routedDec.created_at, text: routedDec.note, flags: { routed: true } });
+  const cur = Number(r.step_no ?? 1);
+  let ended = false;
+  for (const s of route.steps) {
+    const dec = decisions.find((d) => d.step_no === s.n && ["approved", "rejected", "override"].includes(d.kind));
+    const re = [...decisions].reverse().find((d) => d.step_no === s.n && d.kind === "reassigned");
+    const base = { approver_name: re?.to_name ?? s.approver.name, approver_position: s.approver.position ?? "", ...(re ? { reassigned_from: re.from_name ?? "", reassigned_to: re.to_name ?? "", reassign_note: re.note ?? "" } : {}), ...(s.n === cur ? hrFlags : {}) };
+    if (ended) { steps.push({ key: "line", state: "off", who: null, at: null, text: null, flags: base }); continue; }
+    if (dec) {
+      const override = dec.kind === "override";
+      const rejected = dec.kind === "rejected" || (override && st === "rejected");
+      steps.push({ key: "line", state: rejected ? "rejected" : "done", who: dec.actor_name, at: dec.created_at, text: dec.note, flags: { ...base, ...(dec.actor_role ? { by_role: dec.actor_role } : {}), ...(override ? { override: true } : {}) } });
+      if (rejected) ended = true;
+      continue;
+    }
+    if (s.n === cur && st === "routed") { steps.push({ key: "line", state: "now", who: null, at: null, text: null, flags: { ...base, ...(r.returned_at && r.returned_from === "routed" ? { returned_resubmitted: true } : {}) } }); continue; }
+    if (s.n === cur && st === "returned") { steps.push({ key: "line", state: "returned", who: r.returned_by_name ?? null, at: r.returned_at ?? null, text: r.return_question ?? null, flags: base }); continue; }
+    if (s.n === cur && st === "cancelled") { steps.push({ key: "line", state: "withdrawn", who: r.user_name ?? null, at: r.cancelled_at ?? null, text: null, flags: base }); ended = true; continue; }
+    steps.push({ key: "line", state: st === "rejected" || st === "cancelled" ? "off" : "todo", who: null, at: null, text: null, flags: base });
+  }
+  steps.push(effect());
   return steps;
 }

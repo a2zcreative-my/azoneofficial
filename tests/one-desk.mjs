@@ -111,7 +111,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("staff.ts imports the chain from leave-chain.ts", /from "\.\/leave-chain"/.test(staff));
   ok("staff.ts no longer defines leaveCanActAt itself", !/^function leaveCanActAt\(/m.test(staff),
      "two copies of an approval rule is how the desk shows a request its owner cannot act on");
-  ok("the desk uses the shared rule", /import \{ leaveCanActAt \} from "\.\/leave-chain"/.test(deskSrc) && /leaveCanActAt\(user, r\.stage, r\.applicant_role, r\.user_id\)/.test(deskSrc));
+  ok("the desk uses the shared rule", /import \{ leaveCanActAt \} from "\.\/leave-chain"/.test(deskSrc) && /leaveCanActAt\(user, r\.stage, r\.applicant_role, r\.user_id, r\.approver_id\)/.test(deskSrc)); // v1.260.0 - the routed approver rides along
   ok("the decide route still uses it too", (staff.match(/leaveCanActAt\(/g) ?? []).length >= 1);
 }
 
@@ -263,7 +263,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      && (deskSrc.match(/kind: "decide"/g) ?? []).length >= 6
      && (deskSrc.match(/kind: "do"/g) ?? []).length >= 3);
   ok("an approval queue is a decision, and your own work is not",
-     /bucket: "leave"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
+     /bucket: "leave"[\s\S]{0,600}?kind: "decide"/.test(deskSrc)
      && /bucket: "claims"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
      && /bucket: "ot"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)
      && /bucket: "punches"[\s\S]{0,420}?kind: "decide"/.test(deskSrc)

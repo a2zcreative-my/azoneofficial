@@ -161,18 +161,18 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   /* ---- leave ---- */
   await guard("leave", async () => {
     const { results } = await env.DB.prepare(
-      `SELECT l.id, l.user_id, l.stage, l.type, l.start_date, l.end_date, l.days, l.created_at,
+      `SELECT l.id, l.user_id, l.stage, l.type, l.start_date, l.end_date, l.days, l.created_at, l.approver_id,
               u.role AS applicant_role, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
          FROM leave_requests l JOIN users u ON u.id = l.user_id
         WHERE l.status = 'pending'
         ORDER BY l.created_at ASC LIMIT 200`,
-    ).all<{ id: number; user_id: number; stage: string; type: string; start_date: string; end_date: string | null; days: number; created_at: string; applicant_role: string; name: string }>();
+    ).all<{ id: number; user_id: number; stage: string; type: string; start_date: string; end_date: string | null; days: number; created_at: string; approver_id: number | null; applicant_role: string; name: string }>();
     for (const r of results) {
-      if (!leaveCanActAt(user, r.stage, r.applicant_role, r.user_id)) continue;
+      if (!leaveCanActAt(user, r.stage, r.applicant_role, r.user_id, r.approver_id)) continue; // v1.260.0 - a routed request: its approver only
       items.push({
         bucket: "leave", id: `leave:${r.id}`, tab: "Leave",
         title: `${r.name} — ${r.type} leave, ${r.days} day${r.days === 1 ? "" : "s"}`,
-        sub: `${dmy(r.start_date)}${r.end_date && r.end_date !== r.start_date ? ` – ${dmy(r.end_date)}` : ""} · ${r.stage === "applied" ? "HR review" : r.stage === "hr_reviewed" ? "pre-approval" : "final approval"}`,
+        sub: `${dmy(r.start_date)}${r.end_date && r.end_date !== r.start_date ? ` – ${dmy(r.end_date)}` : ""} · ${r.stage === "routed" ? "your approval" : r.stage === "applied" ? "HR review" : r.stage === "hr_reviewed" ? "pre-approval" : "final approval"}`,
         since: r.created_at, overdue: ageDays(r.created_at) > 3,
         kind: "decide", who: r.name,
         next: r.stage === "applied" ? "Review as HR" : r.stage === "hr_reviewed" ? "Pre-approve or reject" : "Approve or reject",

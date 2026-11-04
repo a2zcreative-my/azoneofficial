@@ -287,6 +287,7 @@ export interface LeaveLike {
   /* v1.259.0 - the evidence the boxes are filled from (see leaveFormDecision) */
   applicant_role?: string | null; final_by_role?: string | null;
   timeline?: { key: string; flags?: Record<string, string | boolean> }[];
+  route?: { kind: string } | null; // v1.260.0 - an Executive Leave Record has no approver
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;
@@ -307,8 +308,11 @@ export interface LeaveFormDecision {
   final: { name: string; at: string | null; role: string | null; override: boolean } | null;
   finalTitle: string;
   hr: { name: string; at: string | null } | null;
+  /** v1.260.0 - the CEO's own leave: recorded, approved by nobody */
+  record: boolean;
 }
-export function leaveFormDecision(l: Pick<LeaveLike, "stage" | "status" | "applicant_role" | "hr_by_name" | "hr_at" | "preapp_by_name" | "preapp_by_full" | "preapp_by_role" | "preapp_at" | "final_by_name" | "final_by_full" | "final_at" | "final_by_role" | "timeline">): LeaveFormDecision {
+export function leaveFormDecision(l: Pick<LeaveLike, "stage" | "status" | "applicant_role" | "hr_by_name" | "hr_at" | "preapp_by_name" | "preapp_by_full" | "preapp_by_role" | "preapp_at" | "final_by_name" | "final_by_full" | "final_at" | "final_by_role" | "timeline" | "route">): LeaveFormDecision {
+  if (l.route?.kind === "executive_record") return { hr: null, pre: null, final: null, finalTitle: "Executive Leave Record", record: true };
   const stage = l.stage ?? l.status ?? "pending";
   const topTier = l.applicant_role === "coo" || l.applicant_role === "cco";
   const preName = (l.preapp_by_full || l.preapp_by_name || "").trim();
@@ -325,6 +329,7 @@ export function leaveFormDecision(l: Pick<LeaveLike, "stage" | "status" | "appli
     pre: !preIsFinal && preName ? { name: preName, at: l.preapp_at ?? null } : null,
     final,
     finalTitle: !final || final.role === "ceo" ? "Chief Executive Officer (CEO)" : "Final decision",
+    record: false,
   };
 }
 
@@ -348,7 +353,7 @@ export function drawLeave(l: LeaveLike, lvNo: string, imgs: Placed): string {
   y += 12;
   const stage = l.stage ?? l.status ?? "pending";
   const fd = leaveFormDecision(l);
-  const statusLine = stage === "approved" ? `APPROVED IN SYSTEM${fd.final ? ` by ${fd.final.name}${fd.final.override ? " (CEO override)" : ""}` : ""}${fd.final?.at ? ` on ${myt(fd.final.at)}` : ""}`
+  const statusLine = fd.record ? "EXECUTIVE LEAVE RECORD - recorded by the CEO (top of the organisation, no approver)" : stage === "approved" ? `APPROVED IN SYSTEM${fd.final ? ` by ${fd.final.name}${fd.final.override ? " (CEO override)" : ""}` : ""}${fd.final?.at ? ` on ${myt(fd.final.at)}` : ""}`
     : stage === "rejected" ? "REJECTED IN SYSTEM" : "PENDING SYSTEM APPROVAL";
   cv.text(`System status: ${statusLine}`, FM, y, 8.25, { bold: true }); y += 11;
   const chain = [

@@ -292,6 +292,16 @@ const leave = [
   /* v1.259.0 (L1) - a COO request the CEO approved on the normal path: the system keeps him in preapp_by, and that is the FINAL decision */
   { id: 6, type: "annual", start_date: D + "20", end_date: D + "20", days: 1, status: "approved", stage: "approved", applicant_role: "coo", user_id: 9005, user_name: "Zul", user_full: "Zulkifli Ops", user_department: "Management", created_at: D + "10 09:00:00", hr_by_name: "Mei Ling", hr_at: D + "10 10:00:00", preapp_by_name: "Fixture Person", preapp_by_role: "ceo", preapp_at: D + "10 11:00:00",
     waiting_on: null, timeline: [T("submitted", "done", "Zul", D + "10 09:00:00"), T("hr", "done", "Mei Ling", D + "10 10:00:00"), T("final", "done", "Fixture Person", D + "10 11:00:00", null, { by_role: "ceo" }), { ...T("effect", "done", null, D + "10 11:00:00"), payroll: [{ month: D.slice(0, 7), state: "not_prepared", at: null }] }] },
+  /* v1.260.0 - ROUTED by the Organisation chart: Nur Aisyah's request waits on her reporting manager (the COO), whose line has since
+     changed and who is away; HR verified it. And a request that requires configuration (no reporting manager). */
+  { id: 7, type: "annual", start_date: D + "29", end_date: D + "29", days: 1, status: "pending", stage: "routed", applicant_role: "sales_marketing", user_id: 9002, user_name: "Nur Aisyah", user_full: "Nur Aisyah binti Rahman", user_department: "Sales and Marketing", created_at: D + "16 09:00:00",
+    route: { kind: "manager", steps: [{ n: 1, approver: { id: 9005, name: "Zulkifli Ops", position: "Chief Operational Officer", role: "coo" }, final: true }] },
+    approver_id: 9005, approver_name: "Zulkifli Ops", approver_position: "Chief Operational Officer", waiting_on: "approver", line_changed: "Tan Mei Ling", approver_away_until: D + "30",
+    can_reassign: true, can_hr_check: true, can_route: false, can_reroute: false, reassign_to: [{ id: 9001, name: "Fixture Person", position: "CEO" }],
+    timeline: [T("submitted", "done", "Nur Aisyah", D + "16 09:00:00"), T("line", "now", null, null, null, { approver_name: "Zulkifli Ops", approver_position: "Chief Operational Officer", hr_check: "verified", hr_by: "Tan Mei Ling", hr_at: D + "16 10:00:00" }), T("effect", "todo")] },
+  { id: 8, type: "emergency", start_date: D + "30", end_date: D + "30", days: 1, status: "pending", stage: "routing_required", applicant_role: "live_host", user_id: 9003, user_name: "Farid Zul", created_at: D + "16 11:00:00",
+    route: { kind: "routing_required", steps: [] }, approver_id: null, waiting_on: "configuration", can_route: true, can_reassign: false, can_hr_check: false, can_reroute: false,
+    timeline: [T("submitted", "done", "Farid Zul", D + "16 11:00:00"), T("routing", "now", null, null, null, { routing_required: true }), T("effect", "todo")] },
 ];
 const leaveCanAct = (l) => {
   if (l.user_id === 9001) return false;
@@ -551,6 +561,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { city: "Kuala Terengganu", orders: 2, cents: 3970 }, { city: "Melaka", orders: 2, cents: 2550 }, { city: "Kuantan", orders: 1, cents: 936 },
   ] };
   /* v1.184.0 - the Dashboard's Leave Application card */
+  if (p === "/staff/leave/routing") data = { mode: "organisation", can_set: ROLE === "ceo", my_route: ROLE === "ceo" ? { kind: "executive_record", steps: [] } : { kind: "manager", steps: [{ n: 1, approver: { name: "Zulkifli Ops", position: "Chief Operational Officer" }, final: true }] } }; // v1.260.0
   if (p === "/staff/leave/month") data = { month: D.slice(0, 7), leave: [
     /* v1.259.0 (D6) - another person's leave as the server sends it outside the approval chain: type and reason withheld */
     { id: 16, user_id: 9006, name: "Siti Withheld", photo_key: null, position: "Designer", type: null, start_date: D + "27", end_date: D + "27", days: 1, day_part: null, status: "pending", reason: null, created_at: D + "16 10:00:00" },
@@ -727,7 +738,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     recipients: [{ id: 9002, name: "Nur Aisyah binti Rahman", department: "Sales", acked_at: D + "16 02:00:00", last_version: 2 }, { id: 9004, name: "Tan Mei Ling", department: "Sales", acked_at: null, last_version: 1 }] };
   if (/^\/staff\/announcements\/\d+\/versions$/.test(p)) data = { current: 2, versions: [{ version: 1, title: "Sales targets for October", body: "Targets are on the Sales tab.", category: "kpi", replaced_at: D + "15 03:00:00" }],
     my_acks: [{ version: 1, acked_at: "2026-08-31 01:00:00" }] };
-  if (p === "/staff/leave") data = { leave: (q.get("all") ? leave : leave.filter((l) => l.user_id === 9001)).map((l) => ({ ...l, can_act: leaveCanAct(l) })) };
+  if (p === "/staff/leave") data = { routing: "organisation", leave: (q.get("all") ? leave : leave.filter((l) => l.user_id === 9001)).map((l) => ({ ...l, can_act: leaveCanAct(l) })) };
   /* v1.252.0 - the thread and the activity of one leave; the applicant (9001's own) never gets an internal note */
   {
     const lc = /^\/staff\/leave\/(\d+)\/(comments|activity)$/.exec(p);
