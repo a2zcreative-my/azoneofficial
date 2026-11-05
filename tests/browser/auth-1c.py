@@ -15,6 +15,7 @@ What the worker decides is proven by direct request in tests/go-live-x.mjs.
 
     ROLE=customer node tests/browser/serve.mjs out 4245
     ROLE=ceo OWNER=1 node tests/browser/serve.mjs out 4246
+    ROLE=customer GMAIL_PW=1 node tests/browser/serve.mjs out 4247
     python3 tests/browser/auth-1c.py
 """
 from playwright.sync_api import sync_playwright
@@ -24,7 +25,7 @@ results = []
 def check(name, cond, detail=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{str(detail)[:300]}]"))
-CUST, OWNER = 4245, 4246
+CUST, OWNER, GMAIL = 4245, 4246, 4247
 FITS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
 
 def page(b, port, path, w=1440, h=1000, dark=False):
@@ -62,6 +63,19 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs, went = page(b, CUST, "/account?google=connected")
     gp = pg.locator("section[aria-label='Connected Google account']")
     check("back from Google on the account page, it says so and cleans the address", "Google is connected" in (gp.inner_text() if gp.count() else "") and "google=" not in pg.url, pg.url)
+    ctx.close()
+
+    # ---- v1.267.0: no email sending, a Gmail password customer ----
+    ctx, pg, errs, reqs, went = page(b, GMAIL, "/account")
+    gp = pg.locator("section[aria-label='Connected Google account']")
+    t = gp.inner_text() if gp.count() else ""
+    check("v1.267.0: without email sending, a Gmail customer is told to confirm with the password and the same Gmail address", "same Gmail address" in t, t[:300])
+    gp.get_by_role("button", name="Connect Google", exact=True).click(); pg.wait_for_timeout(300)
+    gp.get_by_label("Your password").fill("wrong"); gp.get_by_role("button", name="Continue to Google").click(); pg.wait_for_timeout(700)
+    check("...a wrong password says so and goes nowhere", "not correct" in gp.inner_text() and not went, gp.inner_text()[:200])
+    gp.get_by_label("Your password").fill("correct horse"); gp.get_by_role("button", name="Continue to Google").click(); pg.wait_for_timeout(1500)
+    check("...the password alone goes to Connect (no code asked), then to Google", posts(reqs, "/auth/google/connect")[-1] == {"password": "correct horse"} and went and not posts(reqs, "/auth/google/code"), [posts(reqs, "/auth/google/connect"), went])
+    check("no page error (Gmail customer)", not errs, errs)
     ctx.close()
 
     # ---- the owner: Sign-in settings ----

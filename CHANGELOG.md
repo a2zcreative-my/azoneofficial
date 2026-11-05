@@ -10,6 +10,26 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.267.0] - 2026-11-05 - Connect Google for a Gmail customer while email sending is not set up
+
+The CEO, 05-11-2026 (claude/INCIDENT-2026-11-05-GOOGLE-SIGNIN.md, option 3: "Proceed"). The production case: a customer account on a Gmail address with its own password; since 1.264.0 its Google sign-in is refused (never linked by email), and the approved path - Connect Google with the password + an emailed code - cannot work because Cloudflare Email Sending is not set up.
+
+- Migration 0176 (additive): oauth_requests.require_email - the exact address the Google account must prove on a Connect request; NULL on every existing row.
+- While email sending is NOT set up, a signed-in customer whose address is a Google mailbox (gmail.com / googlemail.com) and who has a password connects Google from the account page with the PASSWORD (re-checked) and then a Google account whose ID token carries exactly that address as verified. Another address, an unverified one, an address that changed meanwhile, another session: refused, nothing linked (audit auth.google_connect_refused {reason: google_email_not_the_account_address}). Success: the same guarded link as Connect, the address marked proven, audited, the person told.
+- Once email sending is set up, the emailed code is required again (the password alone no longer opens Google). Non-Google addresses always need the emailed code. Disconnect for customers still needs the emailed code.
+- Unchanged: a Google sign-in never links an account by email; staff connect with their authenticator code; every PKCE / ID-token check; 2FA; the legacy window.
+- Tests: tests/go-live-x.mjs 192 checks, 52 mutations (the production case refused at sign-in, the route offered only for Gmail without email sending, password required, another Google address / unverified / another session refused, connected and signing in, the code required again once email sending is set up); tests/browser/auth-1c.py.
+
+## [1.266.1] - 2026-11-05 - Google sign-in failures say where they stopped (production incident)
+
+The CEO, 05-11-2026, after deploying 1.266.0: Google sign-in on an iPhone ends on "Unable to sign in with the provided credentials." with no way to tell why. No security rule changes: email-match linking stays off for internal accounts, every Google check stays, 2FA unchanged, the legacy window unchanged. No migration.
+
+- Every failed Google sign-in now lands on /login?error=oauth&ref=<stage>-<code>. The stage says where it stopped, never anything about an account: S the request / this browser (state, binding cookie, replay), G Google's configuration (discovery, PKCE), T Google's answer (token exchange, ID token, email not verified), A the account rules (every account outcome alike, including no account). The same code is written into the audit row (detail.ref), so the owner can find the exact cause.
+- Previously silent failures are now recorded: a return from Google without this browser's binding cookie (no_binding_cookie - the iPhone home-screen-app case), an unverified email (email_not_verified), an account switched off (account_not_active).
+- email_verified given as the string "true" (Google's older format) is accepted; anything else is not.
+- The login page shows the reference and one line for everybody: staff sign in with email, password and authenticator code, then connect Google once from Profile -> Security (Google is no longer connected by email alone).
+- Tests: tests/go-live-x.mjs 175 checks, 46 mutations (every failure carries a reference; the stage per case; the reference is in the audit row); tests/account-identity.mjs, tests/login-ux.mjs follow; tests/browser/auth-1a.py shows the reference, refuses a malformed one.
+
 ## [1.266.0] - 2026-11-05 - Secure Authentication 2.0, Phase 1c (customers and Google)
 
 claude/AUTH-2.0-AUDIT.md revision 3 sec. 3.3, 3.4, 6.3, R8, R9, R11, F5 and the CEO's "Phase 1c". Builds on 1.265.0 (1b) and 1.264.0 (1a), none deployed yet. No password, TOTP secret, backup code, role or existing Google link is changed by the release; no email is sent by itself.

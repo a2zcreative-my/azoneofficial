@@ -110,7 +110,8 @@ async function runtime(workerBundle) {
     const bind = /azone_g_bind=([0-9a-f]{64})/.exec(st.headers.get("set-cookie") ?? "")?.[1] ?? "";
     const { code, state } = G.authorize(st.headers.get("location") ?? "https://x.invalid/", { sub, email });
     const r = await worker.fetch(new Request(`https://api.a2z.test/api/v1/auth/google/callback?code=${code}&state=${state}`, { headers: { cookie: `azone_g_bind=${bind}` } }), env);
-    return { status: r.status, loc: r.headers.get("location") ?? "", cookies: r.headers.get("set-cookie") ?? "" };
+    /* v1.266.1 - a failure carries a reference (&ref=A-1B2C3D); compare the page */
+    return { status: r.status, loc: (r.headers.get("location") ?? "").replace(/&ref=[SGTA]-[0-9A-F]{6}$/, ""), ref: /&ref=([SGTA]-[0-9A-F]{6})$/.exec(r.headers.get("location") ?? "")?.[1] ?? null, cookies: r.headers.get("set-cookie") ?? "" };
   };
   /* v1.264.0 - the code step after a Google sign-in: the challenge is the
      HttpOnly twofa_ch cookie the callback set, sent back the way a browser

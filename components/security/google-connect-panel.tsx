@@ -25,7 +25,7 @@ import css from "./google-connect-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-type GStatus = { linked: boolean; proof?: "totp" | "password_email"; can_connect: boolean; can_disconnect?: boolean; why?: string | null };
+type GStatus = { linked: boolean; proof?: "totp" | "password_email" | "password_google"; can_connect: boolean; can_disconnect?: boolean; why?: string | null };
 type Status = { enabled: boolean; google?: GStatus };
 type Action = "connect" | "disconnect";
 
@@ -33,7 +33,7 @@ type Action = "connect" | "disconnect";
 const OUTCOME: Record<string, { tone: "good" | "bad"; en: string; ms: string }> = {
   connected: { tone: "good", en: "Google is connected. Next time you can sign in with Google.", ms: "Google telah disambungkan. Lain kali anda boleh log masuk dengan Google." },
   already: { tone: "good", en: "That Google account was already connected to your account.", ms: "Akaun Google itu sudah disambungkan ke akaun anda." },
-  refused: { tone: "bad", en: "That Google account could not be connected - it may belong to another A2Z account. Nothing was changed.", ms: "Akaun Google itu tidak dapat disambungkan - ia mungkin milik akaun A2Z lain. Tiada apa-apa diubah." },
+  refused: { tone: "bad", en: "That Google account could not be connected - it may belong to another A2Z account, or (when you confirmed with your password only) it is not this account's own Gmail address. Nothing was changed.", ms: "Akaun Google itu tidak dapat disambungkan - ia mungkin milik akaun A2Z lain, atau (jika anda sahkan dengan kata laluan sahaja) ia bukan alamat Gmail akaun ini. Tiada apa-apa diubah." },
   failed: { tone: "bad", en: "Google did not confirm the connection, so nothing was changed. Try again from this page.", ms: "Google tidak mengesahkan sambungan, jadi tiada apa-apa diubah. Cuba lagi dari halaman ini." },
   off: { tone: "bad", en: "Google sign-in is switched off for now. Nothing was changed.", ms: "Log masuk Google dimatikan buat masa ini. Tiada apa-apa diubah." },
   disconnected: { tone: "good", en: "Google is disconnected. Sign in with your email and password from now on.", ms: "Google telah diputuskan. Log masuk dengan e-mel dan kata laluan anda mulai sekarang." },
@@ -90,12 +90,22 @@ export function GoogleConnectPanel() {
   }
   if (!status?.google) return null;
   const g = status.google;
-  const customer = g.proof === "password_email";
+  const customer = g.proof === "password_email" || g.proof === "password_google";
+  /* v1.267.0 - no email sending yet, a Gmail address: the password now, then
+     a Google account with this same address (the worker checks it) */
+  const viaGoogle = g.proof === "password_google" && action === "connect";
   const msg = (r: { data: unknown }) => (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("That did not work - try again.", "Itu tidak berjaya - cuba lagi.");
 
   const reset = () => { setAction(null); setCode(""); setPassword(""); setSentTo(""); setErr(""); setBusy(false); };
   const open = (a: Action) => { reset(); setOutcome(null); setAction(a); };
 
+  const connectWithPassword = async () => {
+    setErr(""); setBusy(true);
+    const r = await api<{ url?: string }>("/auth/google/connect", { method: "POST", body: JSON.stringify({ password }) });
+    setPassword("");
+    if (r.ok && r.data?.url) { window.location.assign(r.data.url); return; } // to Google; it comes back here
+    setBusy(false); setErr(msg(r));
+  };
   /* a customer's first step: the password, which emails the code */
   const askCode = async () => {
     setErr(""); setBusy(true);
@@ -144,6 +154,8 @@ export function GoogleConnectPanel() {
         ? customer
           ? L("You can sign in with Google.", "Anda boleh log masuk dengan Google.")
           : L("You can sign in with Google. Your authenticator code is still asked for.", "Anda boleh log masuk dengan Google. Kod pengesah anda masih diminta.")
+        : g.proof === "password_google"
+          ? L("Sign in with Google next time. You confirm with your password, then choose the Google account with this same Gmail address - another Google account is refused. Only that Google account is connected, and only to you.", "Log masuk dengan Google lain kali. Anda sahkan dengan kata laluan, kemudian pilih akaun Google dengan alamat Gmail yang sama ini - akaun Google lain ditolak. Hanya akaun Google itu disambungkan, dan hanya kepada anda.")
         : customer
           ? L("Sign in with Google next time. You confirm with your password and a code we email you, then choose your Google account. Only that Google account is connected, and only to you.", "Log masuk dengan Google lain kali. Anda sahkan dengan kata laluan dan kod yang kami e-melkan, kemudian pilih akaun Google anda. Hanya akaun Google itu disambungkan, dan hanya kepada anda.")
           : L("Sign in with Google next time. You confirm with your authenticator code, then choose your Google account. Only that Google account is connected, and only to you.", "Log masuk dengan Google lain kali. Anda sahkan dengan kod pengesah, kemudian pilih akaun Google anda. Hanya akaun Google itu disambungkan, dan hanya kepada anda.")}</p>
@@ -158,12 +170,14 @@ export function GoogleConnectPanel() {
       {!action && !(g.linked ? g.can_disconnect : g.can_connect) && g.why && WHY[g.why] && <p className={css.line}>{L(...WHY[g.why]!)}</p>}
 
       {action && customer && !sentTo && (
-        <form className={css.row} onSubmit={(e) => { e.preventDefault(); if (!busy && password) void askCode(); }}>
+        <form className={css.row} onSubmit={(e) => { e.preventDefault(); if (!busy && password) void (viaGoogle ? connectWithPassword() : askCode()); }}>
           <label className={css.field}>
             {L("Your password", "Kata laluan anda")}
             <input className={inputClass} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
           </label>
-          <button type="submit" className={btnClass} disabled={busy || !password}>{busy ? L("Sending…", "Menghantar…") : L("Email me a code", "E-melkan kod kepada saya")}</button>
+          <button type="submit" className={btnClass} disabled={busy || !password}>{viaGoogle
+            ? (busy ? L("Opening Google…", "Membuka Google…") : L("Continue to Google", "Teruskan ke Google"))
+            : (busy ? L("Sending…", "Menghantar…") : L("Email me a code", "E-melkan kod kepada saya"))}</button>
           <button type="button" className={btnGhost} onClick={reset}>{L("Cancel", "Batal")}</button>
         </form>
       )}

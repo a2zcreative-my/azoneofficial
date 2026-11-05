@@ -402,3 +402,6 @@ signed ID token and refuse a replayed, stale or foreign answer.
 customer before Google is connected to or disconnected from their account
 (keyed hash only, bound to the asking session, ten minutes, five tries, single
 use). No existing row changes.
+1.267.0 adds `0176_oauth_require_email` (additive): oauth_requests gains
+require_email, the exact address a Google account must prove when a Gmail
+customer connects Google with their password while email sending is not set up.

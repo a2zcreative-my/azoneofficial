@@ -176,6 +176,10 @@ export default function LoginPage() {
   /* v1.266.0 (R11) - after a failed Google sign-in, one line for everybody (it
      says nothing about any account): the old Google customers are helped in person */
   const [oauthHint, setOauthHint] = useState(false);
+  /* v1.266.1 - the worker's reference for a failed Google sign-in (a stage
+     letter and a code also kept in the audit history); it says nothing about
+     any account, so it is shown to everybody */
+  const [oauthRef, setOauthRef] = useState("");
   const [lang, setLangState] = useState<Lang>("en");
   const emailRef = useRef<HTMLInputElement>(null);
   const verifying = useRef(false);
@@ -269,7 +273,11 @@ export default function LoginPage() {
     const why = q.get("error");
     if (why === "oauth" || why === "google_off") requestAnimationFrame(() => {
       if (why === "google_off") setGoogleOn(false);
-      else setOauthHint(true);
+      else {
+        setOauthHint(true);
+        const r = q.get("ref") ?? "";
+        if (/^[SGTA]-[0-9A-F]{6}$/.test(r)) setOauthRef(r);
+      }
       setError(LE(...(why === "google_off" ? GOOGLE_OFF : FAILED)));
     });
   }, []);
@@ -440,7 +448,13 @@ export default function LoginPage() {
               </Field>
 
               {error && <ErrorNote id="form-error" message={error} />}
-              {oauthHint && error && <p className={css.hint}>{L("Used to sign in with Google and cannot now? Contact A2Z Creative Marketing - we will help you in person.", "Dahulu log masuk dengan Google dan kini tidak boleh? Hubungi A2Z Creative Marketing - kami akan membantu anda secara bersemuka.")}</p>}
+              {oauthHint && error && (
+                <>
+                  <p className={css.hint}>{L("Staff: sign in with your email, password and authenticator code, then connect Google once from Profile -> Security. Google is no longer connected by email alone.", "Kakitangan: log masuk dengan e-mel, kata laluan dan kod pengesah, kemudian sambungkan Google sekali dari Profil -> Keselamatan. Google tidak lagi disambungkan melalui e-mel sahaja.")}</p>
+                  <p className={css.hint}>{L("Used to sign in with Google and cannot now? Contact A2Z Creative Marketing - we will help you in person.", "Dahulu log masuk dengan Google dan kini tidak boleh? Hubungi A2Z Creative Marketing - kami akan membantu anda secara bersemuka.")}</p>
+                  {oauthRef && <p className={css.hint}>{L(`Reference: ${oauthRef}`, `Rujukan: ${oauthRef}`)}</p>}
+                </>
+              )}
 
               <button type="submit" className={btnClassBlock} disabled={busy}>
                 {busy ? L("Please wait…", "Sila tunggu…") : L("Sign in", "Log masuk")}

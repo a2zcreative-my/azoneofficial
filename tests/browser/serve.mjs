@@ -190,7 +190,8 @@ const server = http.createServer((req, res) => {
       /* v1.265.0 - Connect Google: the authenticator code 123456 sends the person to Google */
       if (req.method === "POST" && p === "/auth/google/connect") {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
-        const good = b.totp === "123456" || b.code === "123456";
+        if (b.password !== undefined && b.password !== "correct horse") { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "invalid_password", message: "That password is not correct." } })); return; }
+        const good = b.totp === "123456" || b.code === "123456" || b.password === "correct horse";
         res.writeHead(good ? 200 : 401, { "content-type": "application/json" });
         res.end(JSON.stringify(good ? { url: `https://accounts.google.com/o/oauth2/v2/auth?client_id=fixture&return_to=${encodeURIComponent(b.return_to ?? "")}` } : { error: { code: "totp_invalid", message: "That code is not correct." } })); return;
       }
@@ -377,7 +378,7 @@ const server = http.createServer((req, res) => {
       /* v1.265.0 - Connected Google account (Profile -> Security); GLINKED=1: already connected */
       if (req.method === "GET" && p === "/auth/2fa/status" && data && !data.error) {
         data.google = process.env.ROLE === "customer"
-          ? { linked: !!process.env.GLINKED, proof: "password_email", can_connect: !process.env.GLINKED, can_disconnect: !!process.env.GLINKED, why: null }
+          ? { linked: !!process.env.GLINKED, proof: process.env.GMAIL_PW && !process.env.GLINKED ? "password_google" : "password_email", can_connect: !process.env.GLINKED, can_disconnect: !!process.env.GLINKED, why: null } /* v1.267.0 GMAIL_PW=1: no email sending, a Gmail address */
           : { linked: !!process.env.GLINKED, proof: "totp", can_connect: !process.env.GLINKED && (process.env.TWOFA ? twofaOn : true), can_disconnect: !!process.env.GLINKED, why: null };
       }
       if (process.env.TWOFA && req.method === "GET") {

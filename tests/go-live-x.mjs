@@ -87,7 +87,9 @@ async function runtime(workerBundle) {
     (25,'Leg F','leg.f@gmail.com','customer',1,'oauth$google',1,'${SECRET}','2026-08-04 03:00:00'),
     (26,'Late','late@gmail.com','customer',1,'oauth$google',0,NULL,'2026-11-02 03:00:00'),
     (27,'Leg G','leg.g@gmail.com','customer',1,'oauth$google',0,NULL,'2026-08-05 03:00:00'),
-    (28,'Leg H','leg.h@gmail.com','customer',1,'oauth$google',0,NULL,'2026-08-06 03:00:00')`);
+    (28,'Leg H','leg.h@gmail.com','customer',1,'oauth$google',0,NULL,'2026-08-06 03:00:00'),
+    (29,'Pw Gmail','pw.gmail@gmail.com','customer',1,'x',0,NULL,'2026-07-30 14:28:57'),
+    (30,'Pw Other','pw.other@example.test','customer',1,'x',0,NULL,'2026-08-01 03:00:00')`);
   /* v1.266.0 - the legacy window is the owner's; open here for the 1a checks, closed and reopened below */
   db.exec(`INSERT INTO business_settings (key, value) VALUES ('auth_google', '{"enabled":true,"customer_signup":true,"legacy_link_until":"2026-12-31"}')`);
   db.exec(`INSERT INTO customers (id, company, email, created_by) VALUES (501, 'Kedai Shop', 'shop@gmail.com', 1), (502, 'Leg C Trading', 'leg.c@gmail.com', 1)`);
@@ -107,6 +109,7 @@ async function runtime(workerBundle) {
   /* v1.266.0 - real passwords for the customers who have one */
   db.prepare(`UPDATE users SET password_hash = ? WHERE id = 9`).run(await mod.createPasswordHash("Shop-pass-2026", "pepper"));
   db.prepare(`UPDATE users SET password_hash = ? WHERE id = 10`).run(await mod.createPasswordHash("Ed-pass-2026", "pepper"));
+  db.prepare(`UPDATE users SET password_hash = ? WHERE id IN (29, 30)`).run(await mod.createPasswordHash("Gmail-pass-2026", "pepper"));
   const tok = {};
   const signIn = (id) => {
     tok[id] = `t-${id}-${Math.random()}`;
@@ -119,8 +122,15 @@ async function runtime(workerBundle) {
     const r = await worker.fetch(new Request(`https://api.a2z.test/api/v1${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined }), env);
     const text = await r.text();
     let j = null; try { j = JSON.parse(text); } catch { /* a redirect */ }
-    return { status: r.status, j, text, loc: r.headers.get("location") ?? "", cookies: r.headers.get("set-cookie") ?? "" };
+    /* v1.266.1 - a failed Google sign-in carries a reference (&ref=S-1A2B3C);
+       `loc` keeps the page it lands on, `ref` the reference. A failure
+       WITHOUT a reference is recorded and fails the run below. */
+    const loc0 = r.headers.get("location") ?? "";
+    const m = /^(\/login\?error=oauth)&ref=([SGTA])-([0-9A-F]{6})$/.exec(loc0);
+    if (loc0 === "/login?error=oauth") noRef.push(path);
+    return { status: r.status, j, text, loc: m ? m[1] : loc0, stage: m?.[2] ?? null, ref: m ? `${m[2]}-${m[3]}` : null, cookies: r.headers.get("set-cookie") ?? "" };
   };
+  const noRef = [];
   const call = (path, uid, method = "GET", body) => raw(path, { uid, method, body });
   const bindOf = (cookies) => /azone_g_bind=([0-9a-f]{64})/.exec(cookies)?.[1] ?? "";
   /* the round trip in two halves: the start (PKCE, nonce, state, the
@@ -146,7 +156,7 @@ async function runtime(workerBundle) {
     /* ---------- 1b, N11: no PKCE S256, no Google sign-in (never silently without) ---------- */
     G.s256 = false;
     const noPkce = await raw("/auth/google");
-    ok(noPkce.status === 302 && noPkce.loc === FAIL && !bindOf(noPkce.cookies) && db.prepare(`SELECT COUNT(*) AS n FROM oauth_requests`).get().n === 0, "N11: Google's discovery without S256 - the sign-in does not start, nothing stored", noPkce.loc);
+    ok(noPkce.stage === "G" && noPkce.status === 302 && noPkce.loc === FAIL && !bindOf(noPkce.cookies) && db.prepare(`SELECT COUNT(*) AS n FROM oauth_requests`).get().n === 0, "N11: Google's discovery without S256 - the sign-in does not start, nothing stored", noPkce.loc);
     ok(lastAudit("auth.google_unavailable")?.d?.reason === "pkce_s256_not_advertised", "...and the reason is recorded for the owner");
     G.s256 = true; G.discoveryDown = true;
     ok((await raw("/auth/google")).loc === FAIL && lastAudit("auth.google_unavailable")?.d?.reason === "discovery_unreachable", "Google's discovery unreachable: the same, fail closed");
@@ -168,6 +178,7 @@ async function runtime(workerBundle) {
     ok(G.tokenCalls.at(-1)?.code_verifier && createHash("sha256").update(G.tokenCalls.at(-1).code_verifier).digest("base64url") === au?.searchParams.get("code_challenge"), "...the token request carried the verifier for that challenge");
     const replayCb = await raw(`/auth/google/callback?code=${g0.code}&state=${g0.state}`, { cookie: `azone_g_bind=${s1.bind}` });
     ok(replayCb.loc === FAIL && !session(replayCb) && lastAudit("auth.google_callback_rejected")?.d?.reason === "state_unknown_used_or_expired", "N12: a replayed callback (same state) is refused - single use", replayCb.loc);
+    ok(replayCb.stage === "S" && lastAudit("auth.google_callback_rejected")?.d?.ref === replayCb.ref.slice(2), "v1.266.1: ...reference stage S (the request), in the audit row too");
     db.exec(`UPDATE users SET google_sub = NULL WHERE id = 20`); // back to unlinked for the 1a checks below
     const s2 = await gStart();
     const wrongBind = await gFinish(s2, "g-x1", "x1@gmail.com", { cookie: `azone_g_bind=${"0".repeat(64)}` });
@@ -175,12 +186,14 @@ async function runtime(workerBundle) {
     const s3 = await gStart();
     const noBind = await gFinish(s3, "g-x1", "x1@gmail.com", { cookie: "" });
     ok(noBind.loc === FAIL && !session(noBind), "...and with no binding cookie at all");
+    ok(noBind.stage === "S" && lastAudit("auth.google_callback_rejected")?.d?.reason === "no_binding_cookie" && lastAudit("auth.google_callback_rejected").d.ref === noBind.ref.slice(2), "v1.266.1: a return from Google without this browser's cookie (an iPhone app handing over to Safari) is recorded as such", JSON.stringify(lastAudit("auth.google_callback_rejected")?.d));
     const s4 = await gStart();
     db.exec(`UPDATE oauth_requests SET expires_at = datetime('now', '-1 minute') WHERE id = '${sha(new URL(s4.loc).searchParams.get("state"))}'`);
     ok((await gFinish(s4, "g-x1", "x1@gmail.com")).loc === FAIL, "N12: a stale callback (past ten minutes) is refused");
     G.refuseVerifier = true;
     const pk = await gFinish(await gStart(), "g-x1", "x1@gmail.com");
     ok(pk.loc === FAIL && !session(pk) && lastAudit("auth.google_token_refused")?.d?.status === 400, "N11: Google refusing the PKCE verifier stops the sign-in and is reported", pk.loc);
+    ok(pk.stage === "T", "v1.266.1: ...reference stage T (Google's answer)");
     G.refuseVerifier = false;
     /* every way an ID token can be wrong */
     const now = () => Math.floor(Date.now() / 1000);
@@ -215,7 +228,13 @@ async function runtime(workerBundle) {
     }
     G.token = null;
     const unv = await gFinish(await gStart(), "g-unv", "unverified@gmail.com", { email_verified: false });
-    ok(unv.loc === FAIL && !session(unv) && db.prepare(`SELECT COUNT(*) AS n FROM users WHERE email = 'unverified@gmail.com'`).get().n === 0, "an address Google has not verified signs nobody in and creates nothing");
+    ok(unv.loc === FAIL && !session(unv) && db.prepare(`SELECT COUNT(*) AS n FROM users WHERE email = 'unverified@gmail.com'`).get().n === 0 && unv.stage === "T" && lastAudit("auth.google_token_rejected")?.d?.reason === "email_not_verified", "an address Google has not verified signs nobody in and creates nothing (stage T, recorded)");
+    G.tamper = (c) => ({ ...c, email_verified: "true" });
+    const strV = await gFinish(await gStart(), "g-strv", "string.verified@gmail.com");
+    ok(session(strV), "v1.266.1: email_verified given as the string \"true\" (older Google format) is accepted", strV.loc);
+    G.tamper = (c) => ({ ...c, email_verified: "yes" });
+    ok((await gFinish(await gStart(), "g-strv2", "string.other@gmail.com")).stage === "T", "...anything else is not");
+    G.tamper = null;
     ok(db.prepare(`SELECT COUNT(*) AS n FROM users WHERE email = 'bad@gmail.com'`).get().n === 0, "no refused token created an account");
 
     /* ---------- the order: internal accounts are never linked by email ---------- */
@@ -223,6 +242,7 @@ async function runtime(workerBundle) {
     const ed = await google("g-ed", "ed@a2z.test");
     ok(ed.loc === FAIL && !session(ed) && !chOf(ed.cookies) && user(10).google_sub === null, "an internal account's email is refused - no link, no session, no challenge", JSON.stringify([ed.loc, user(10).google_sub]));
     ok(lastAudit("auth.google_refused")?.d?.reason === "internal_account_not_linked", "...audited with why (the page says the one neutral sentence)");
+    ok(ed.stage === "A" && lastAudit("auth.google_refused")?.d?.ref === ed.ref.slice(2), "v1.266.1: the page carries a reference - stage A (account rules) - and the same code is in the audit row", JSON.stringify([ed.ref, lastAudit("auth.google_refused")?.d]));
     ok(notices(10) === 1, "...and the person is told someone tried", String(notices(10)));
     await google("g-ed", "ed@a2z.test");
     await google("g-ed2", "ed@a2z.test");
@@ -345,7 +365,7 @@ async function runtime(workerBundle) {
     const notEnrolled = await conn(15, { totp: code() });
     ok(notEnrolled.status === 403 && notEnrolled.j?.error?.code === "twofa_required", "N15 / F7: Connect is not exempt from the mandatory-2FA gate", notEnrolled.text);
     signIn(9);
-    ok((await conn(9, { totp: code() })).j?.error?.code === "code_required", "a customer cannot connect with an authenticator code - only with the password and the emailed code (1c)");
+    ok(["code_required", "password_required"].includes((await conn(9, { totp: code() })).j?.error?.code), "a customer cannot connect with an authenticator code - only with the password and the emailed code (1c)");
     const cs = await conn(10, { totp: code() });
     ok(cs.status === 200 && cs.j?.url?.startsWith("https://accounts.google.com/") && bindOf(cs.cookies), "with the code, Connect hands back Google's address and a binding cookie", cs.text);
     const crow = db.prepare(`SELECT * FROM oauth_requests WHERE id = ?`).get(sha(new URL(cs.j.url).searchParams.get("state")));
@@ -415,6 +435,7 @@ async function runtime(workerBundle) {
     const walk = db.prepare(`SELECT role, google_sub, totp_enabled FROM users WHERE email = 'walk.in@gmail.com'`).get();
     ok(session(su2) && walk?.role === "customer" && walk.google_sub === "g-walk", "with sign-up on, an unknown Google account becomes a customer, linked to its id - never anything else");
     ok((await raw("/staff/auth/settings")).status === 401, "the settings need a session");
+    ok(noRef.length === 0, "v1.266.1: every failed Google sign-in in this run carried a reference", JSON.stringify(noRef.slice(0, 5)));
 
     {
     /* ================= 1c (v1.266.0): customers and Google ================= */
@@ -432,6 +453,40 @@ async function runtime(workerBundle) {
     ok((await put({ legacy_link_until: "2026-12-04" })).status === 200 && lastAudit("auth.settings_google")?.d?.after?.legacy_link_until === "2026-12-04", "the owner opens it to a date, audited");
     const lgO = await google("g-27", "leg.g@gmail.com");
     ok(session(lgO) && user(27).google_sub === "g-27" && user(27).email_verified_at, "with the window open, the legacy link works", lgO.loc);
+    /* v1.267.0 (the CEO: "Proceed") - no email sending yet: a Gmail customer
+       with a password connects Google with the password + a Google account
+       proving that same address. The production case: a password customer
+       on a Gmail address whose Google sign-in was refused since 1.264.0. */
+    signIn(29); signIn(30);
+    const g29 = await google("g-pw-gmail", "pw.gmail@gmail.com");
+    ok(g29.loc === FAIL && g29.stage === "A" && user(29).google_sub === null && lastAudit("auth.google_refused")?.d?.reason === "customer_has_password", "the production case: a Gmail password customer's Google sign-in is refused (never linked by email), stage A", JSON.stringify([g29.loc, g29.ref]));
+    const st29 = await call("/auth/2fa/status", 29);
+    ok(st29.j?.google?.proof === "password_google" && st29.j.google.can_connect === true, "without email sending, the account page offers Connect Google with the password and the same Gmail address", st29.text);
+    const st30 = await call("/auth/2fa/status", 30);
+    ok(st30.j?.google?.can_connect === false && st30.j.google.why === "mail_unavailable", "...a non-Google address cannot (it needs the emailed code)", st30.text);
+    ok((await call("/auth/google/connect", 30, "POST", { password: "Gmail-pass-2026" })).j?.error?.code === "mail_unavailable", "...and the worker refuses it the same way");
+    ok((await call("/auth/google/connect", 29, "POST", {})).j?.error?.code === "password_required", "Connect needs the password");
+    ok((await call("/auth/google/connect", 29, "POST", { password: "wrong" })).j?.error?.code === "invalid_password", "...the right one");
+    const c29a = await call("/auth/google/connect", 29, "POST", { password: "Gmail-pass-2026" });
+    ok(c29a.status === 200 && c29a.j?.url?.startsWith("https://accounts.google.com/"), "the right password opens Google", c29a.text);
+    ok(db.prepare(`SELECT require_email FROM oauth_requests WHERE id = ?`).get(sha(new URL(c29a.j.url).searchParams.get("state")))?.require_email === "pw.gmail@gmail.com", "...the request names the address the Google account must prove");
+    const w29 = await gFinish({ loc: c29a.j.url, bind: bindOf(c29a.cookies) }, "g-someone-else", "someone.else@gmail.com", { uid: 29 });
+    ok(w29.loc === "/account?google=refused" && user(29).google_sub === null && lastAudit("auth.google_connect_refused")?.d?.reason === "google_email_not_the_account_address", "a Google account with ANOTHER address is refused - nothing linked", w29.loc);
+    db.exec(`DELETE FROM rate_limits WHERE key = 'gconnect:29'`); // an hour later (5 Connect starts an hour)
+    const c29b = await call("/auth/google/connect", 29, "POST", { password: "Gmail-pass-2026" });
+    const u29 = await gFinish({ loc: c29b.j.url, bind: bindOf(c29b.cookies) }, "g-pw-gmail", "pw.gmail@gmail.com", { uid: 29, email_verified: false });
+    ok(u29.loc === "/account?google=refused" && user(29).google_sub === null, "...the same address NOT verified by Google is refused");
+    const c29e = await call("/auth/google/connect", 29, "POST", { password: "Gmail-pass-2026" });
+    const e29 = await gFinish({ loc: c29e.j.url, bind: bindOf(c29e.cookies) }, "g-pw-gmail", "pw.gmail@gmail.com", { uid: 20 });
+    ok(e29.loc.includes("google=failed") && user(29).google_sub === null && user(20).google_sub !== "g-pw-gmail", "...the answer in another person's session links nobody");
+    const c29c = await call("/auth/google/connect", 29, "POST", { password: "Gmail-pass-2026" });
+    const ok29 = await gFinish({ loc: c29c.j.url, bind: bindOf(c29c.cookies) }, "g-pw-gmail", "PW.Gmail@gmail.com", { uid: 29 });
+    ok(ok29.loc === "/account?google=connected" && user(29).google_sub === "g-pw-gmail" && user(29).email_verified_at && lastAudit("auth.google_linked")?.entity_id === "29", "the same Gmail address, verified by Google, in the same session: connected, the address marked proven", ok29.loc);
+    const s29 = await google("g-pw-gmail", "pw.gmail@gmail.com");
+    ok(session(s29) && s29.loc === "/account", "...and the customer now signs in with Google", s29.loc);
+    ok((await call("/auth/2fa/status", 29)).j?.google?.linked === true, "...the account page says connected");
+    ok((await google("g-pw-other", "pw.other@example.test")).stage === "A" && user(30).google_sub === null, "a non-Gmail password customer is still refused at sign-in (unchanged)");
+
     /* the notice (Q7): words on screen, sent only by the owner, each customer once */
     const pv = await call("/staff/auth/legacy-notice", 8, "POST", {});
     ok(pv.status === 200 && pv.j?.remaining === 3 && pv.j.window_open === true && /04-12-2026/.test(pv.j.subject) && /\{name\}/.test(pv.j.text) && pv.j.can_send === false, "the super admin reads the notice: how many, the exact words, the last day", pv.text);
@@ -465,6 +520,9 @@ async function runtime(workerBundle) {
     ok(ac.status === 200 && ac.j?.to === "sh***@gmail.com" && ecode && !ac.text.includes(ecode), "the right password emails a six-digit code to the address on file (never in the answer)", ac.text);
     ok(db.prepare(`SELECT code_hash FROM email_codes ORDER BY id DESC LIMIT 1`).get().code_hash !== ecode && !JSON.stringify(db.prepare(`SELECT * FROM email_codes`).all()).includes(`"${ecode}"`), "only a keyed hash of the code is stored");
     ok((await call("/auth/google/connect", 9, "POST", { code: ecode === "000000" ? "111111" : "000000" })).j?.error?.code === "invalid_code", "a wrong code is refused");
+    ok((await call("/auth/2fa/status", 9)).j?.google?.proof === "password_email", "v1.267.0: once email sending is set up, a Gmail customer uses the emailed code again");
+    db.exec(`DELETE FROM rate_limits WHERE key = 'gconnect:9'`);
+    ok((await call("/auth/google/connect", 9, "POST", { password: "Shop-pass-2026" })).j?.error?.code === "code_required", "...and the password alone no longer opens Google");
     const tokOld = tok[9]; signIn(9); // a second browser of the same customer
     ok((await call("/auth/google/connect", 9, "POST", { code: ecode })).j?.error?.code === "code_expired", "the code works only in the browser that asked for it");
     tok[9] = tokOld;
@@ -570,7 +628,17 @@ const MUT = [
   ["worker/src/index.ts", "1b: the binding cookie not checked (login CSRF)", "    if (!oreq || !timingSafeEqual(oreq.binding_hash, await sha256Hex(bindCookie))) {", "    if (!oreq) {"],
   ["worker/src/index.ts", "1b: Connect answered in any session", '      if (!me || me.id !== oreq.user_id || !oreq.session_hash || !timingSafeEqual(oreq.session_hash, await sha256Hex(tok)) || (me.role === "customer") !== (oreq.return_to === null)) {', "      if (!me) {"],
   ["worker/src/index.ts", "1b: Connect without the code", '      const stepUp = await requireFreshTotp(env, me, body?.totp, errorResponse, "connect Google");\n      if (stepUp) return stepUp;\n', ""],
-  ["worker/src/index.ts", "1b: an unverified Google email signs in", "    if (!claims.email || claims.email_verified !== true) return failed();", "    if (!claims.email) return failed();"],
+  ["worker/src/index.ts", "1b: an unverified Google email signs in", '    if (!claims.email || !(claims.email_verified === true || (claims.email_verified as unknown) === "true")) {', "    if (!claims.email) {"],
+  /* v1.267.0 - the Gmail password route */
+  ["worker/src/index.ts", "1.267.0: any Google account accepted on the password route", '        if (!verified || gEmail !== oreq.require_email || me.email.toLowerCase().trim() !== oreq.require_email || !GOOGLE_MAILBOX.test(gEmail)) {', "        if (false) {"],
+  ["worker/src/index.ts", "1.267.0: an unverified Google address accepted", "        if (!verified || gEmail !== oreq.require_email", "        if (gEmail !== oreq.require_email"],
+  ["worker/src/index.ts", "1.267.0: the password route for any address", '      if (!GOOGLE_MAILBOX.test(me.email)) return errorResponse("mail_unavailable",', '      if (false) return errorResponse("mail_unavailable",'],
+  ["worker/src/index.ts", "1.267.0: the password route without the password", '      if (!(await verifyPassword(body!.password as string, pw.password_hash, env.SESSION_PEPPER))) return errorResponse("invalid_password",', '      if (false) return errorResponse("invalid_password",'],
+  ["worker/src/index.ts", "1.267.0: the password route even with email sending set up", '    if (me.role === "customer" && !mailReady(env) && body?.code === undefined) {', '    if (me.role === "customer" && body?.code === undefined) {'],
+  ["worker/src/index.ts", "1.267.0: the required address not stored", "extra.returnTo ?? null, extra.requireEmail).run();", "extra.returnTo ?? null, null).run();"],
+  /* v1.266.1 - the reference on every failure */
+  ["worker/src/index.ts", "1.266.1: a failure without its reference", "Location: to === OAUTH_FAILED ? `${OAUTH_FAILED}&ref=${stage}-${ref}` : to,", "Location: to,"],
+  ["worker/src/index.ts", "1.266.1: the reference not in the audit row", '{ reason: why, ref });', '{ reason: why });'],
   /* v1.266.0 - Phase 1c */
   ["worker/src/index.ts", "1c R11: the legacy window ignored", '        if (!legacyWindowOpen(gset)) return await refuseG(byEmail.id, "legacy_window_closed");\n', ""],
   ["worker/src/staff.ts", "1c R11: a window longer than 90 days", "if (!d || d < today || d > last) return err(", "if (!d || d < today) return err("],

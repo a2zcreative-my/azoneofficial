@@ -85,6 +85,14 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs = page(b, ON, "/login?error=oauth")
     check("?error=oauth still says the one neutral sentence", "Unable to sign in with the provided credentials." in pg.inner_text("body"))
     ctx.close()
+    # v1.266.1 - the reference and the staff line under a failed Google sign-in
+    ctx, pg, errs, reqs = page(b, ON, "/login?error=oauth&ref=A-1B2C3D")
+    body = pg.inner_text("body")
+    check("a failed Google sign-in shows its reference and tells staff to connect Google from Profile", "Reference: A-1B2C3D" in body and "connect Google once from Profile" in body, body[:400])
+    ctx.close()
+    ctx, pg, errs, reqs = page(b, ON, "/login?error=oauth&ref=<script>x")
+    check("...a malformed reference is not shown", "Reference:" not in pg.inner_text("body"))
+    ctx.close()
 
     # ---- phones, both themes ----
     for port, path, w, dark in [(ON, "/login", 390, False), (OFF, "/login?error=google_off", 320, True), (ON, "/login?2fa=1", 390, True)]:
