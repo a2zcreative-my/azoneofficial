@@ -58,7 +58,8 @@ import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang, type Lang } from "@/lib/i18n";
 import { LeaveMonthCard } from "@/components/portal/leave-month-card";
 import { ReportingLineStrip } from "@/components/portal/reporting-line-card";
-import { WeekTargetCard } from "@/components/portal/week-target-card";
+import { AdviceSummaryCard, FinanceHealthCard, PipelineCard, SalesPaceCard, TeamPerformanceCard, TodayFocusCard, useWeekDash } from "@/components/portal/week-target-card";
+import { usePortal } from "@/components/portal/portal-provider";
 import type { TodayShiftKind } from "@/components/portal/on-shift";
 import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
@@ -177,6 +178,11 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   const invView = useCachedApi<{ items?: { id: number; stock: number }[] }>(canInv ? "/staff/inventory" : null, canInv);
   const taskView = useCachedApi<{ tasks: Task[] }>(`/staff/tasks${manage ? "?all=1" : ""}`, true, ["tasks"]);
   const desk = useDeskData();
+  /* v1.263.0 - the week (Sales' own engine), one shared request for the KPI strip and rows 2-4 */
+  const weekView = useWeekDash();
+  const wk = weekView.data;
+  const { openRecord } = usePortal();
+  const [moreOpen, setMoreOpen] = useState(false);
   const [audit, setAudit] = useState<AuditRow[] | null | "denied">(adminTier ? null : "denied");
   const [events, setEvents] = useState<CompanyEvent[] | null>(null);
   const [health, setHealth] = useState<Health | null | "denied">(adminTier ? null : "denied");
@@ -215,6 +221,41 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
      them, the person's own figures where not, in a fixed order ---- */
   type Tile = { key: string; node: ReactNode };
   const tiles: Tile[] = [];
+  /* v1.263.0 - ROW 1 (claude/COMPACT-DASHBOARD-AUDIT.md sec. 3): management
+     reads the week's six figures from Sales' engine; a staff member reads
+     their own; the tiles of before stay for anyone the week does not cover.
+     Sales this month is in Sales performance, Inventory items and Active
+     staff in Business summary and Team on shift - nothing is lost. */
+  const wkTiles: Tile[] = [];
+  const tasksTile: Tile = { key: "tasks", node: (
+    <KpiTile icon="orders" tone="red" label={manage ? L("Open tasks", "Tugasan terbuka") : L("My open tasks", "Tugasan terbuka saya")} busy={!tasksLoaded}
+      value={tf.openTasks.length}
+      sub={tf.overdueCount > 0 ? L(`${tf.overdueCount} overdue`, `${tf.overdueCount} lewat`) : L("None overdue", "Tiada yang lewat")}
+      onClick={() => go("Tasks")} />
+  ) };
+  if (wk?.outlook) {
+    const o = wk.outlook, c = wk.company, gap = c.gap_cents;
+    wkTiles.push(
+      { key: "w-target", node: <KpiTile icon="target" tone="gold" label={L("Weekly target", "Sasaran mingguan")} value={c.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(c.target_cents)} sub={`${dmy(wk.week.from)} – ${dmy(wk.week.to)}`} onClick={() => go("Sales")} /> },
+      { key: "w-collected", node: <KpiTile icon="money" tone="green" label={L("Collected", "Dikutip")} value={fmtRM(c.basis_cents)} sub={c.pct === null ? L("Paid in full this week", "Dibayar penuh minggu ini") : L(`${c.pct}% of target`, `${c.pct}% daripada sasaran`)} bar={c.pct === null ? undefined : { pct: c.pct, tone: "gold" }} onClick={() => go("Sales")} /> },
+      { key: "w-gap", node: <KpiTile icon="balance" tone="red" label={L("Remaining gap", "Baki")} value={gap === null ? "—" : fmtRM(gap)} sub={L(`${o.days_left} working day(s) left`, `${o.days_left} hari bekerja lagi`)} onClick={() => go("Sales")} /> },
+      { key: "w-pace", node: <KpiTile icon="fast" tone="navy" label={L("Required pace", "Rentak diperlukan")} value={o.required_per_day_cents === null ? "—" : fmtRM(o.required_per_day_cents)} sub={o.required_per_day_cents === null ? (gap === null ? L("No company target", "Tiada sasaran syarikat") : L("Nothing left to pace", "Tiada baki")) : L("collected per working day", "dikutip setiap hari bekerja")} onClick={() => go("Sales")} /> },
+      { key: "w-open", node: <KpiTile icon="document" tone="purple" label={L("Open quotations", "Sebut harga terbuka")} value={fmtRM(o.open_quotations.cents)} sub={L(`${o.open_quotations.n} open${o.ageing_quotations ? ` · ${o.ageing_quotations} going cold` : ""}`, `${o.open_quotations.n} terbuka${o.ageing_quotations ? ` · ${o.ageing_quotations} semakin sejuk` : ""}`)} onClick={() => (openAt ? openAt("Sales", "open_quotations") : go("Sales"))} /> },
+      tasksTile,
+    );
+  } else if (wk?.me) {
+    const me = wk.me, goal = me.goals[0];
+    const { decide: d0, attention: a0 } = splitDesk(deskItems);
+    wkTiles.push(
+      { key: "w-mine", node: <KpiTile icon="target" tone="gold" label={me.target_cents !== null ? L("My weekly target", "Sasaran mingguan saya") : goal ? L("My weekly goal", "Matlamat mingguan saya") : L("My weekly target", "Sasaran mingguan saya")}
+        value={me.target_cents !== null ? fmtRM(me.target_cents) : goal ? `${goal.actual} / ${goal.target}` : L("None set", "Tiada")} sub={me.target_cents !== null ? L(`${fmtRM(me.basis_cents)} collected`, `${fmtRM(me.basis_cents)} dikutip`) : L(`Company ${wk.company.pct ?? 0}%`, `Syarikat ${wk.company.pct ?? 0}%`)}
+        bar={me.pct === null ? undefined : { pct: me.pct, tone: "gold" }} onClick={() => go(wk.can_sales && can("Sales") ? "Sales" : "Dashboard")} /> },
+      { key: "w-fu", node: <KpiTile icon="calendarAdd" tone="blue" label={L("Follow-ups due", "Susulan perlu")} value={(me.followups_today ?? 0) + me.followups_overdue} sub={L(`${me.followups_overdue} late`, `${me.followups_overdue} lewat`)} onClick={() => go(can("Sales") ? "Sales" : "Desk")} /> },
+      tasksTile,
+      { key: "desk", node: <KpiTile icon="pending" tone="navy" label={L("Waiting on me", "Menunggu saya")} busy={desk.data === null} value={d0.length + a0.length} sub={L(`${d0.length} need my decision`, `${d0.length} perlu keputusan saya`)} onClick={() => go("Desk")} /> },
+      { key: "leave", node: <KpiTile icon="holiday" tone="purple" label={L("My leave", "Cuti saya")} value={ownLeave.length} sub={ownLeave.length ? L("Waiting for a decision", "Menunggu keputusan") : L("Nothing pending", "Tiada menunggu")} onClick={() => go("Leave")} /> },
+    );
+  }
   if (canRevenue && (can("Sales") || can("Ecommerce"))) {
     tiles.push({ key: "sales", node: (
       <KpiTile icon="money" tone="green" label={L("Sales this month", "Jualan bulan ini")} busy={!rev}
@@ -249,12 +290,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         onClick={() => go(can("Staff Details") ? "Staff Details" : "Attendance")} />
     ) });
   }
-  tiles.push({ key: "tasks", node: (
-    <KpiTile icon="orders" tone="red" label={manage ? L("Open tasks", "Tugasan terbuka") : L("My open tasks", "Tugasan terbuka saya")} busy={!tasksLoaded}
-      value={tf.openTasks.length}
-      sub={tf.overdueCount > 0 ? L(`${tf.overdueCount} overdue`, `${tf.overdueCount} lewat`) : L("None overdue", "Tiada yang lewat")}
-      onClick={() => go("Tasks")} />
-  ) });
+  tiles.push(tasksTile);
   /* the person's own figures fill the row for the roles without the company ones */
   if (tiles.length < 5) {
     const { decide: d, attention } = splitDesk(deskItems);
@@ -490,7 +526,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
       {head(L("Upcoming & Pending", "Akan Datang & Menunggu"), viewAll(() => go("Desk"), L("Open the Desk", "Buka Meja")))}
       {!upLoaded ? <SkelRows rows={5} /> : ups.length === 0 ? empty("success", L("Nothing waiting and nothing coming up.", "Tiada yang menunggu dan tiada yang akan datang.")) : (
         <ul className={ov.rows}>
-          {ups.slice(0, 6).map((u) => (
+          {ups.slice(0, 3).map((u) => (
             <li key={u.key}>
               <button type="button" className={`${ov.row} ${ov.rowBtn}`} onClick={u.open}>
                 <span className={`${ov.well} ${u.well}`} aria-hidden><AppIcon name={u.icon} /></span>
@@ -596,45 +632,68 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     </section>
   ) : null;
 
+  /* ---- v1.263.0 - rows 2 and 3 from the week (Sales' engine), each card
+     only where the server sent its part ---- */
+  const refreshWeek = weekView.refresh;
+  const toSalesWeek = () => go("Sales");
+  const row2: ReactNode[] = [];
+  const row3: ReactNode[] = [];
+  if (wk) {
+    row2.push(<SalesPaceCard key="pace" d={wk} go={go} canSales={wk.can_sales && can("Sales")} refresh={refreshWeek} />);
+    if (wk.opportunities && can("Sales")) row2.push(<PipelineCard key="pipe" d={wk} openAll={() => (openAt ? openAt("Sales", "open_quotations") : go("Sales"))} openDoc={(id) => { openRecord("Sales", "document", id); go("Sales"); }} />);
+    if (wk.outlook && can("Finance")) row2.push(<FinanceHealthCard key="fin" d={wk} unpaid={typeof sum?.outstanding_invoices === "number" ? sum.outstanding_invoices : null} openFinance={() => go("Finance")} />);
+    if (wk.advisory && can("Sales") && (wk.advisory.cards.length > 0 || wk.can_view_all)) {
+      row3.push(<AdviceSummaryCard key="adv" d={wk} refresh={refreshWeek} openAll={toSalesWeek} onNavigate={(x) => (x === "tasks" ? go("Tasks") : go("Sales"))} />);
+    }
+    if (wk.me) row3.push(<TodayFocusCard key="focus" d={wk} openFollowups={() => go(can("Sales") ? "Sales" : "Desk")} openTask={(id) => { openRecord("Tasks", "task", id); go("Tasks"); }} openDay={onOpenDay} />);
+  }
+  row3.push(<Fragment key="up">{upcomingCard}</Fragment>);
+  /* a row of one card joins the next, so no row is a lone third */
+  const rowsAB = row2.length < 2 ? [[...row2, ...row3]] : [row2, row3];
+  const teamCard = wk && (wk.all || wk.team) ? <TeamPerformanceCard d={wk} openTeam={toSalesWeek} /> : null;
+  const shownTiles = wkTiles.length ? wkTiles : tiles.slice(0, 5);
+
   return (
     <div className={ov.page}>
-      {/* v1.240.0 - A. THE WEEKLY SALES TARGET FIRST (the owner's mobile
-          brief, 31-10-2026: "a compact Weekly Sales Target card immediately
-          after the Overview/My Day tabs"): the company's week, mine, and the
-          sales actions, from Sales' own engine (week-target-card.tsx) */}
-      <WeekTargetCard go={go} canOpen={canOpen} onCreateQuotation={onCreateQuotation} />
-      {/* B. the five tiles - two compact columns on a phone */}
-      <div className={ov.kpis}>
+      {/* ROW 1 - the executive KPI strip: six compact figures, each a way in */}
+      <div className={`${ov.kpis} ${ov.kpisCompact} ${shownTiles.length === 6 ? ov.kpis6 : ""}`}>
         <KpiRow label={L("At a glance", "Sepintas lalu")}>
-          {tiles.slice(0, 5).map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
+          {shownTiles.map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
         </KpiRow>
       </div>
       {/* v1.233.0 / v1.239.0 - the reporting line, one line (none for the
           CEO); the full card is on Staff -> Organisation */}
       <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
-      {/* C. the main information grid */}
-      <div className={ov.grid}>
-        {activityCard}
+      {/* ROWS 2-3 - the sales command centre and what needs acting on (a
+          summary and three items each; the detail is in its module) */}
+      {!wk && weekView.loading && <div className={ov.grid}><section className={`${card} ${ov.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}><SkelRows rows={3} /></section></div>}
+      {rowsAB.map((r, i) => <div key={i} className={`${ov.grid} ${ov.gridTop}`} data-row={i === 0 ? "command" : "actions"}>{r}</div>)}
+      {/* ROW 4 - the business overview */}
+      <div className={`${ov.grid} ${ov.gridTop}`} data-row="overview">
         {taskCard}
+        {teamCard}
         {salesCard}
       </div>
-      {/* D. the operational overview (v1.213.0: top-aligned - the third
-          column is two cards tall, so the others keep their own height) */}
-      <div className={`${ov.grid} ${ov.gridTop}`}>
-        {livesCard}
-        {shiftCard}
-        {/* v1.213.0 - the month's leave applications sit under Upcoming &
-            Pending (moved from My Day, the owner, 27-10-2026: one place) */}
-        <div className={ov.column}>
-          {upcomingCard}
+      {/* the rest, unchanged - on a phone behind More (decision D1) */}
+      <button type="button" className={ov.moreBtn} aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
+        {moreOpen ? L("Show less", "Kurangkan") : L("More: activities, team on shift, leave, quick actions, summary", "Lagi: aktiviti, pasukan syif, cuti, tindakan pantas, ringkasan")}
+        <AppIcon name={moreOpen ? "up" : "down"} />
+      </button>
+      <div className={`${ov.rest} ${moreOpen ? ov.restOpen : ""}`} data-row="more">
+        <div className={`${ov.grid} ${ov.gridTop}`}>
+          {activityCard}
+          <div className={ov.column}>
+            {livesCard}
+            {shiftCard}
+          </div>
+          {/* v1.213.0 - the month's leave applications (one place, on the Overview) */}
           <LeaveMonthCard go={go} />
         </div>
-      </div>
-      {/* E. the bottom row */}
-      <div className={ov.grid}>
-        {quickCard}
-        {summaryCard}
-        {statusCard}
+        <div className={ov.grid}>
+          {quickCard}
+          {summaryCard}
+          {statusCard}
+        </div>
       </div>
     </div>
   );

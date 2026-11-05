@@ -20,7 +20,8 @@ import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
 import { WEEK_STATUS, GOAL_LABEL } from "@/lib/week-status";
-import { AdvisorySettingsDrawer, AllocationDrawer, CommandStrip, type Outlook } from "@/components/portal/sales-discipline";
+import { AdviceList, AdvisorySettingsDrawer, AllocationDrawer, CommandStrip, Opportunities, WeeklyRhythm, type AdviceCard, type Opportunity, type Outlook } from "@/components/portal/sales-discipline";
+import { usePortal } from "@/components/portal/portal-provider";
 import css from "./weekly-sales.module.css";
 
 const api = makeApi("/staff");
@@ -393,6 +394,12 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
   const [assign, setAssign] = useState<{ id: number; name: string } | null>(null);
   const [alloc, setAlloc] = useState(false);
   const [advice, setAdvice] = useState(false);
+  /* v1.263.0 - the full Sales advice and open quotations live HERE (the
+     Dashboard shows the first three and links to this) */
+  const { setTab } = usePortal();
+  /* the advice refreshes on its own after a Do it, so the scorecard (and the toast) stay on screen */
+  const [advTick, setAdvTick] = useState(0);
+  const [adv, setAdv] = useState<{ cards: AdviceCard[]; inactive: { rule: string; needs: string }[]; opps: Opportunity[]; sells: boolean } | null>(null);
   const { show: toast, node: toastNode } = useSaveToast();
   useEffect(() => {
     const c = new AbortController();
@@ -400,6 +407,17 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
     void api<WeekResp>(`/sales/week?scope=${s}${w ? `&week=${w}` : ""}`, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setGot({ key, d: r.ok && r.data ? r.data : null, status: r.status, e: r.ok ? "" : message(r) }); });
     return () => c.abort();
   }, [key]);
+  useEffect(() => {
+    const c = new AbortController();
+    void Promise.all([
+      api<{ cards: AdviceCard[]; inactive: { rule: string; needs: string }[] }>(`/sales/week/advisory`, { signal: c.signal }),
+      api<{ rows: Opportunity[]; can_sales: boolean }>(`/sales/week/opportunities`, { signal: c.signal }),
+    ]).then(([a, o]) => {
+      if (c.signal.aborted) return;
+      setAdv({ cards: a.ok && a.data ? a.data.cards : [], inactive: a.ok && a.data ? a.data.inactive : [], opps: o.ok && o.data ? o.data.rows : [], sells: Boolean(o.ok && o.data?.can_sales) });
+    });
+    return () => c.abort();
+  }, [revision, advTick]);
   const mine = got?.key === key ? got : null;
   /* an older worker without the weekly route: the card it already had */
   if (mine && !mine.d && mine.status === 404) return <>{fallback ?? null}</>;
@@ -485,6 +503,16 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
           <p className={css.sub}>{L("For managers only. A status is a prompt to help, not a judgement; amounts are sales collected, not anyone's pay.", "Untuk pengurus sahaja. Status ialah gesaan untuk membantu, bukan penilaian; jumlah ialah jualan dikutip, bukan gaji sesiapa.")}</p>
         </div>
       ) : null}
+
+      {/* v1.263.0 - this week's advice and open quotations in full (current week only) */}
+      {d && w && w.to >= w.today && adv && (adv.cards.length > 0 || adv.opps.length > 0) && (
+        <div className={css.wrap} id="sales-week-advice">
+          {d.scope === "all" && <WeeklyRhythm checkpoint={w.checkpoint} />}
+          <AdviceList cards={adv.cards} total={adv.cards.length} inactive={d.scope === "all" ? adv.inactive : undefined} onDone={() => setAdvTick((t) => t + 1)}
+            onNavigate={(x) => (x === "allocate" ? setAlloc(true) : x === "plan" ? setPlan(d.me?.user_id ?? null) : setTab("Tasks"))} />
+          <Opportunities rows={adv.opps} canAct={adv.sells} onChanged={() => setAdvTick((t) => t + 1)} title={d.scope === "all" ? L("Open quotations - status first", "Sebut harga terbuka - status dahulu") : L("My open quotations", "Sebut harga terbuka saya")} />
+        </div>
+      )}
 
       {person && w && (
         <SideDrawer open onClose={() => setPerson(null)} wide title={person.name} subtitle={`${dmy(w.from)} – ${dmy(w.to)}`}

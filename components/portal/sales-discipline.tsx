@@ -38,6 +38,8 @@ export interface Outlook {
   required_per_day_cents: number | null; best_week: { from: string; cents: number } | null; ageing_quotations: number;
   confidence: { level: string; target_weeks: number; achieved_weeks: number; decided_quotations: number; needs: { target_weeks: number; decided_quotations: number } };
   risk: { level: string | null; ratio: number | null; reasons: string[] };
+  /* v1.263.0 - whether Cash Watch can start (two counts, never a balance) */
+  cash_watch?: { banks: number; with_opening: number } | null;
 }
 export interface AdviceCard {
   key: string; rule: string; severity: "critical" | "warn" | "info"; owner: { id: number | null; name: string | null };
@@ -106,6 +108,20 @@ function evidenceLine(c: AdviceCard): string {
   }
 }
 
+/** v1.263.0 - the one-line reason for the compact Dashboard list */
+function evidenceShort(c: AdviceCard): string {
+  const e = c.evidence as Record<string, number | string | boolean | null>;
+  switch (c.rule) {
+    case "qt_very_old": case "qt_ageing": return L(`${e.doc_number} · ${e.age_days} days · ${e.last_contact ? "contacted" : "no contact"}${c.owner.name ? ` · ${c.owner.name}` : ""}`, `${e.doc_number} · ${e.age_days} hari · ${e.last_contact ? "dihubungi" : "tiada hubungan"}${c.owner.name ? ` · ${c.owner.name}` : ""}`);
+    case "invoice_unpaid": return L(`${e.doc_number} · ${fmtRM(Number(e.total_cents ?? 0))} · ${e.days_late} days late`, `${e.doc_number} · ${fmtRM(Number(e.total_cents ?? 0))} · lewat ${e.days_late} hari`);
+    case "low_pipeline": return L(`${fmtRM(Number(e.pipeline_cents ?? 0))} open vs ${fmtRM(Number(e.gap_cents ?? 0))} gap (${e.ratio}×)${e.company ? "" : ` · ${c.owner.name ?? ""}`}`, `${fmtRM(Number(e.pipeline_cents ?? 0))} terbuka vs baki ${fmtRM(Number(e.gap_cents ?? 0))} (${e.ratio}×)${e.company ? "" : ` · ${c.owner.name ?? ""}`}`);
+    case "no_activity": return L(`${c.owner.name ?? ""} · nothing recorded since ${dmy(String(e.since))}`, `${c.owner.name ?? ""} · tiada rekod sejak ${dmy(String(e.since))}`);
+    case "delivery_bottleneck": return L(`${c.owner.name ?? ""} · ${e.overdue_tasks} overdue task(s)`, `${c.owner.name ?? ""} · ${e.overdue_tasks} tugasan lewat`);
+    default: return "";
+  }
+}
+const SHORT_ACTION: Record<AdviceCard["action"], [string, string]> = { followup: ["Follow up", "Susuli"], task: ["Create task", "Cipta tugasan"], allocate: ["Allocate", "Agih"], plan: ["Open plan", "Buka pelan"], tasks: ["Open Tasks", "Buka Tugasan"] };
+
 /* ---------------- the command strip ---------------- */
 const CONF: Record<string, [string, string]> = { not_enough_data: ["Not enough data", "Data tidak mencukupi"], high: ["High", "Tinggi"], medium: ["Medium", "Sederhana"], low: ["Low", "Rendah"] };
 const RISKL: Record<string, [string, string, string]> = { high: ["High", "Tinggi", chipSmDanger], medium: ["Medium", "Sederhana", chipSmWarn], low: ["Low", "Rendah", chipSmSuccess], none: ["Target reached", "Sasaran dicapai", chipSmSuccess] };
@@ -142,8 +158,10 @@ export function CommandStrip({ o, gap }: { o: Outlook; gap: number | null }) {
 }
 
 /* ---------------- Sales advice ---------------- */
-export function AdviceList({ cards, total, inactive, onDone, onNavigate }: {
+export function AdviceList({ cards, total, inactive, onDone, onNavigate, compact = false }: {
   cards: AdviceCard[]; total: number; inactive?: { rule: string; needs: string }[]; onDone: () => void; onNavigate: (action: "allocate" | "plan" | "tasks") => void;
+  /** v1.263.0 - the Dashboard's collapsed form: one line per item, one button; the full cards live in Sales */
+  compact?: boolean;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<{ key: string; text: string } | null>(null);
@@ -159,6 +177,25 @@ export function AdviceList({ cards, total, inactive, onDone, onNavigate }: {
         : r.data.kind === "task" ? L("It is in Tasks for the owner", "Ia dalam Tugasan untuk pemilik") : L("For the closer, due the next working day. Record what the customer says when it is done.", "Untuk penutup, pada hari bekerja berikutnya. Rekod jawapan pelanggan apabila selesai."));
     onDone();
   };
+  if (compact) {
+    return (
+      <>
+        {toastNode}
+        {cards.length === 0 ? <p className={css.muted}>{L("Nothing needs attention from the records right now.", "Tiada yang perlu perhatian daripada rekod buat masa ini.")}</p> : (
+          <ul className={css.lines} aria-label={L("Sales advice", "Nasihat jualan")}>
+            {cards.map((c) => (
+              <li key={c.key} data-severity={c.severity}>
+                <span className={css.sevDot} data-severity={c.severity} title={L(SEV_WORD[c.severity][0], SEV_WORD[c.severity][1])} aria-label={L(SEV_WORD[c.severity][0], SEV_WORD[c.severity][1])} role="img" />
+                <span className={css.lineText}><strong>{L(RULE[c.rule]?.[0] ?? c.rule, RULE[c.rule]?.[1] ?? c.rule)}</strong><span>{evidenceShort(c)}</span>
+                  {problem?.key === c.key && <span role="alert" className={css.error}>{problem.text}</span>}</span>
+                <button type="button" className={c.severity === "critical" ? btnSmPrimary : btnSm} disabled={busy !== null} onClick={() => void act(c)}>{busy === c.key ? L("Working…", "Sedang…") : L(SHORT_ACTION[c.action][0], SHORT_ACTION[c.action][1])}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </>
+    );
+  }
   return (
     <div className={css.block}>
       {toastNode}

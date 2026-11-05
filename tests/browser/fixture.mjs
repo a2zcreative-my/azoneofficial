@@ -993,7 +993,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   const wkOutlook = { invoiced: { cents: 450000, n: 1 }, open_quotations: { cents: 780000, n: 3 }, followups_scheduled: 0, days_left: 1, required_per_day_cents: 1100000,
     best_week: { from: "2026-08-31", cents: 520000 }, ageing_quotations: 2,
     confidence: { level: "not_enough_data", target_weeks: 2, achieved_weeks: 0, decided_quotations: 4, needs: { target_weeks: 8, decided_quotations: 20 } },
-    risk: { level: "high", ratio: 0.71, reasons: ["pipeline_low", "no_followups", "ageing_quotations", "gap_above_best_week"] } };
+    risk: { level: "high", ratio: 0.71, reasons: ["pipeline_low", "no_followups", "ageing_quotations", "gap_above_best_week"] },
+    cash_watch: { banks: 0, with_opening: 0 } }; // v1.263.0 - two counts, never a balance
   const wkCards = [
     { key: "pipe:company", rule: "low_pipeline", severity: "critical", owner: { id: null, name: null }, record: { kind: "company", id: null, label: null }, amount_cents: 1100000, due_on: "2026-09-20", action: "allocate", risk: "target_unreachable",
       evidence: { pipeline_cents: 780000, gap_cents: 1100000, ratio: 0.71, multiple: 1.5, company: true } },
@@ -1023,6 +1024,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     data = q.get("scope") === "all" && wkAll ? {
       week, scope: "all", can_set: wkSetter, can_view_all: true, commission: { policy: false },
       company: { target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, confirmed_cents: 280000, pct: 27, gap_cents: 1100000 },
+      outlook: wkOutlook, // v1.262.0 - the strip beside the team's week
       rows: [
         wkRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, target_from: "2026-09-07", target_set_by: "Fixture COO", target_reason: "September push on live packages",
           gap_cents: 300000, pct: 0, expected_cents: 240000, status: "action", followups_overdue: 3,

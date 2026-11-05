@@ -144,6 +144,13 @@ async function runtime(workerBundle) {
     ok(o?.confidence?.level === "not_enough_data" && o.confidence.target_weeks === 0 && o.confidence.decided_quotations === 1, "forecast confidence reads Not enough data below 8 target weeks and 20 decided quotations", JSON.stringify(o?.confidence));
     ok(o?.risk?.level === "high" && o.risk.ratio === 0.99 && o.risk.reasons.join() === "pipeline_low,ageing_quotations,gap_above_best_week" && o.followups_scheduled === 1, "sales recovery risk is High, with its evidence: the pipeline covers 0.99x the gap, quotations going cold, the gap above the best week (one follow-up is scheduled - the one from before 0172 counts)", JSON.stringify([o?.risk, o?.followups_scheduled]));
     ok(d?.company?.target_cents === 700000 && n(`SELECT COUNT(*) AS n FROM sales_week_targets`) === 1, "the CEO's target is never changed by the system");
+    /* v1.263.0 - the compact Dashboard: one shared read, the same answers */
+    ok(o?.cash_watch?.banks === 0 && o.cash_watch.with_opening === 0, "v1.263.0 Financial health: no bank account entered - two counts, never a balance", JSON.stringify(o?.cash_watch));
+    const advFull = (await call(`/sales/week/advisory`, U.ceo)).j, oppFull = (await call(`/sales/week/opportunities`, U.ceo)).j;
+    ok(JSON.stringify(d.advisory.cards.map((c) => c.key)) === JSON.stringify(advFull.cards.slice(0, 5).map((c) => c.key)) && d.advisory.total === advFull.cards.length, "v1.263.0 the Dashboard's advice (read once, shared) is the advisory's own first five", JSON.stringify([d.advisory.cards.map((c) => c.key), advFull.cards.map((c) => c.key)]));
+    ok(JSON.stringify(d.opportunities.map((x) => x.id)) === JSON.stringify(oppFull.rows.slice(0, 5).map((x) => x.id)) && JSON.stringify(d.opportunities[0]) === JSON.stringify(oppFull.rows[0]), "v1.263.0 ...and its open quotations are the Sales list's own first five, row for row");
+    const dt0 = (await dash(U.tim)).j, at0 = (await call(`/sales/week/advisory`, U.tim)).j;
+    ok(JSON.stringify(dt0.advisory.cards) === JSON.stringify(at0.cards.slice(0, 5)), "v1.263.0 ...for a seller too (own only)");
     const wk = (await call(`/sales/week?scope=all`, U.coo)).j;
     ok(wk?.outlook?.required_per_day_cents === 350000, "Sales -> the team's week shows the same pace (one engine)");
     /* ---------- privacy: the strip is management's, a seller sees their own ---------- */
@@ -254,6 +261,9 @@ async function runtime(workerBundle) {
     for (let i = 0; i < 20; i++) { doc(100 + i, "QT", `QT-H${i}`, 11, 1000, U.coo, "2026-09-20 02:00:00"); doc(200 + i, "INV", `INV-H${i}`, 11, 3000, U.coo, "2026-09-21 02:00:00", { converted_from: 100 + i, payment_status: "paid", paid_at: "2026-09-08 02:00:00" }); }
     const cf = (await dash(U.ceo)).j?.outlook?.confidence;
     ok(cf?.target_weeks === 8 && cf.decided_quotations >= 20 && cf.level === "low" && cf.achieved_weeks === 3, "with 8 target weeks and 20 decided quotations it reports the record: target reached in 3 of 8 weeks (Low) - a count, not a prediction", JSON.stringify(cf));
+    db.exec(`INSERT INTO bank_accounts (name, bank, number_masked, active, opening_balance_cents, opening_on) VALUES ('Operating', 'Bank A', '****1234', 1, 100000, '2026-11-01'), ('Payroll', 'Bank B', '****5678', 1, NULL, NULL)`);
+    const cw = (await dash(U.ceo)).j?.outlook?.cash_watch;
+    ok(cw?.banks === 2 && cw.with_opening === 1 && !/opening_balance|balance_cents|number_masked|\*\*\*\*1234/.test(JSON.stringify((await dash(U.ceo)).j)), "v1.263.0 two banks, one with an opening balance: counted, the balance itself never sent", JSON.stringify(cw));
     /* ---------- nothing else moved ---------- */
     db.exec(`DELETE FROM sales_documents WHERE id >= 100`);
     ok(hashOf(`SELECT * FROM sales_documents ORDER BY id`) === docs0, "no quotation or invoice was changed - no status, no expiry, no void");
@@ -291,6 +301,7 @@ const MUT = [
   ["worker/src/weekly-sales.ts", "the allocation pre-fills an equal split", "      target_cents: rev.target_cents, target_from: rev.from,", "      target_cents: rev.target_cents ?? (company.target_cents === null ? null : Math.round(company.target_cents / people.length)), target_from: rev.from,"],
   ["worker/src/weekly-sales.ts", "the command strip reaches every staff member", "  const outlook = allowAll ? await companyOutlook(", "  const outlook = true ? await companyOutlook("],
   ["worker/src/weekly-sales.ts", "confidence is given without enough history", "  const enough = targetWeeks >= 8 && decided >= 20;", "  const enough = true;"],
+  ["worker/src/weekly-sales.ts", "the shared read ignores whose quotations they are (v1.263.0)", "  const oq = sells ? await openQuotations(env, today, allowAll ? null : user.id) : null;", "  const oq = sells ? await openQuotations(env, today, null) : null;"],
   ["worker/src/weekly-sales.ts", "the follow-up goes to whoever pressed, not the closer", "    let owner = d.salesperson_id ?? user.id;", "    let owner = user.id;"],
   ["worker/src/weekly-sales.ts", "a very old quotation reads as merely going cold", "    const veryOld = q.age_days > s.very_old_days;", "    const veryOld = false;"],
   ["worker/src/business.ts", "lost without a reason", "      if ((outcome === \"lost\" || outcome === \"disputed\") && (!obstacle || obstacle.length < 3))", "      if (false)"],

@@ -1178,7 +1178,9 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
   );
 }
 
-export function Sales({ user, workExtra, customersExtra, reports, initialView = "documents", createRequest = 0, focus }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode; reports?: ReactNode; initialView?: "documents" | "create"; createRequest?: number; focus?: RecordFocus | null }) {
+export function Sales({ user, workExtra, customersExtra, reports, initialView = "documents", createRequest = 0, focus, startView }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode; reports?: ReactNode; initialView?: "documents" | "create"; createRequest?: number; focus?: RecordFocus | null;
+  /** v1.263.0 - where the Dashboard's View all sent you: "open_quotations" = the Documents list filtered to open quotations */
+  startView?: string }) {
   /* v1.123.0 - one area at a time (CEO, 06-09-2026) */
   const [custTab, setCustTab] = useState<"add" | "clients">("clients");
   const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts" | "packages">(initialView);
@@ -1300,6 +1302,17 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const [docStatus, setDocStatus] = useState<"all" | "unpaid" | "paid" | "open" | "invoiced">("all");
   const [docQuery, setDocQuery] = useState("");
   const [docPage, setDocPage] = useState(1);
+  /* v1.263.0 (claude/COMPACT-DASHBOARD-AUDIT.md sec. 6) - the Dashboard's
+     "View all" on Pipeline & quotations opens THIS list with its own
+     Open quotations filter - there is no second quotations screen */
+  useEffect(() => {
+    if (startView !== "open_quotations") return;
+    const frame = requestAnimationFrame(() => {
+      setWsView("documents"); setWorkTab("documents"); setDocType("QT"); setDocStatus("open"); setDocQuery(""); setDocPage(1);
+      requestAnimationFrame(() => document.getElementById("sales-work")?.scrollIntoView({ block: "start" }));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [startView]);
   /* v1.191.0 - the owner's photo: "10 / page" beside numbered pages */
   const [DOC_PER, setDocPer] = useState(10);
   /* v1.191.0 - the photo puts Receipts, Credit notes and Outstanding on the

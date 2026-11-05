@@ -140,7 +140,7 @@ export default function PortalPage() {
               {/* v1.214.0 - the map and the longer view are the workspace's
                   Reports tab: the same three cards, one tab instead of the
                   bottom of a long page */}
-              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />}
+              <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} startView={startOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />}
                 reports={<>
                   <TabZone label={L("This month", "Bulan ini")}>
                     <SalesMap />

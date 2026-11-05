@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.263.0] - 2026-11-05 - Compact executive Dashboard
+
+claude/COMPACT-DASHBOARD-AUDIT.md revision 1 and the CEO's "approved" (05-11-2026), D1-D4 as recommended. Presentation only: no target, commission, payroll, finance, leave, task, role or schema change.
+
+- The 1.262.0 Weekly Sales Target card (2,000 px on desktop, 3,294 px on a phone with fixture data) is replaced by rows. Row 1: six compact KPI tiles - management: weekly target, collected (% of target), remaining gap (working days left), required pace per working day, open quotations (RM, count, going cold), open tasks; staff: my target or goal, follow-ups due, my open tasks, waiting on me, my leave. They replace the "At a glance" tiles for those people (Sales this month stays in Sales performance; inventory and staff in Business summary and Team on shift).
+- Row 2: Sales target & pace (one bar, risk chip, invoiced, best week, confidence, pipeline cover; Manage targets opens the allocation; View sales details) or My week for staff (my target or goal, why it applies to my role); Pipeline & quotations (count and value, the top three with a status from what is recorded only, View all opens Sales -> Documents filtered to open quotations, a row opens that quotation in Sales); Financial health for Finance readers in management (cash: Data not available; bank accounts: a count; unpaid invoices; never A2Z and AZ ONE together).
+- Row 3: Sales advice - the top three, one line and one button each (the same engine and Do it), View all goes to Sales; Today's focus (my follow-ups due or late, my sales tasks); Upcoming & pending (three items, the Desk). Row 4: Task overview, Team performance (four rows, View team), Sales performance. The other cards follow unchanged; on a phone behind More.
+- Sales -> the team's week now carries the full Sales advice, the open quotations with their outcomes, and the weekly rhythm - their one home. Record acceptance and record what they said are no longer repeated on the Dashboard.
+- Worker: the dashboard reads the open quotations once per request and shares them (it read them three times); outlook.cash_watch gives two counts (bank accounts, with an opening balance) - never a balance.
+- Not added: a payroll tile, cash in or runway (no verified source); the mockup's figures and names.
+- Tests: tests/go-live-w.mjs 77 checks, 15 mutations (the shared read equals the dedicated endpoints, the bank count); tests/browser/compact-dashboard.py (new); tests/browser/sales-discipline.py follows the lists into Sales; tests/dashboard-overview.mjs (leave-month placement).
+
 ## [1.262.0] - 2026-11-05 - Sales discipline (Phase 1 of the Sales Recovery plan)
 
 claude/SALES-RECOVERY-AUDIT.md revision 2 and the CEO's "Phase by Phase" (05-11-2026). Phase 1 only; Phase 2 (accountability and coaching) and Phase 3 (Cash Watch) wait for their own approval.

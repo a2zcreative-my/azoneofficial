@@ -15,18 +15,17 @@
    the Sales team). No commission is shown or estimated here. */
 
 import { useState, type ReactNode } from "react";
-import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { AppIcon } from "@/components/ui/app-icon";
 import { SideDrawer } from "@/components/ui/side-drawer";
-import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { TargetsDrawer } from "@/components/portal/weekly-sales";
-import { AdviceList, AllocationDrawer, CashWatchPlaceholder, CommandStrip, KIND, Opportunities, WeeklyRhythm, type AdviceCard, type Opportunity, type Outlook } from "@/components/portal/sales-discipline";
+import { AdviceList, AllocationDrawer, KIND, OUTCOME, type AdviceCard, type Opportunity, type Outlook } from "@/components/portal/sales-discipline";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import type { TabName } from "@/lib/portal-tabs";
 import { dmy, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, textareaClass } from "@/lib/ui-styles";
+import { btnClass, btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, textareaClass } from "@/lib/ui-styles";
 import { GOAL_LABEL, WEEK_STATUS, type WeekStatus, type WeekTone } from "@/lib/week-status";
 import css from "./week-target-card.module.css";
 
@@ -61,40 +60,6 @@ export interface WeekDash {
 function Bar({ pct, label }: { pct: number | null; label: string }) {
   const w = Math.max(0, Math.min(100, pct ?? 0));
   return <span className={css.bar} role="img" aria-label={label}><span style={{ width: `${w}%` }} /></span>;
-}
-
-/** v1.240.0 - one figure against its target, compact (the owner's mobile
-    reference, 31-10-2026): label, the target, a bar, then "collected (pct)"
-    and "left". With no target: the empty state, never a 0%. */
-function Against({ title, icon, basis, target, pct, gap, empty, emptyNote, right }: {
-  title: string; icon: AppIconName; basis: number; target: number | null; pct: number | null; gap: number | null;
-  empty: string; emptyNote: string; right?: ReactNode;
-}) {
-  return (
-    <div className={css.col}>
-      <div className={css.colHead}>
-        <span className={css.colIcon} aria-hidden><AppIcon name={icon} /></span>
-        <span className={css.colTitle}>{title}</span>
-        {right}
-      </div>
-      {target === null ? (
-        <>
-          <p className={css.notSet}>{empty}</p>
-          <p className={css.muted}>{emptyNote}</p>
-          <p className={css.muted}><strong className={css.strongNum}>{fmtRM(basis)}</strong> {L("collected this week", "dikutip minggu ini")}</p>
-        </>
-      ) : (
-        <>
-          <p className={css.target}>{fmtRM(target)}</p>
-          <Bar pct={pct} label={L(`${pct ?? 0}% of ${fmtRM(target)}`, `${pct ?? 0}% daripada ${fmtRM(target)}`)} />
-          <p className={css.split}>
-            <span>{fmtRM(basis)} ({pct ?? 0}%)</span>
-            <span>{(gap ?? 0) > 0 ? L(`${fmtRM(gap ?? 0)} left`, `${fmtRM(gap ?? 0)} lagi`) : L("Reached", "Dicapai")}</span>
-          </p>
-        </>
-      )}
-    </div>
-  );
 }
 
 /** The Introduce-a-lead form: an ordinary enquiry for the Sales team. */
@@ -150,7 +115,7 @@ export function IntroduceLeadAction({ trigger }: { trigger: (open: () => void) =
     company's week and mine in one sentence; pressing it opens the Overview,
     where the full card is. The same request as the card. */
 export function WeekTargetStrip({ onOpen }: { onOpen: () => void }) {
-  const d = useCachedApi<WeekDash>("/staff/sales/week/dashboard", true, ["docs", "sales", "tasks", "enquiries"]).data;
+  const d = useWeekDash().data;
   if (!d) return null;
   const co = d.company.target_cents === null ? L("company target not set", "sasaran syarikat belum ditetapkan") : L(`company ${d.company.pct ?? 0}%`, `syarikat ${d.company.pct ?? 0}%`);
   const me = !d.me ? "" : d.me.target_cents !== null ? L(` · me ${d.me.pct ?? 0}%`, ` · saya ${d.me.pct ?? 0}%`)
@@ -165,163 +130,198 @@ export function WeekTargetStrip({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: TabName) => void; canOpen?: (t: string) => boolean; onCreateQuotation?: () => void }) {
-  const view = useCachedApi<WeekDash>("/staff/sales/week/dashboard", true, ["docs", "sales", "tasks", "enquiries"]);
-  const [introduce, setIntroduce] = useState(false);
-  const [targets, setTargets] = useState(false);
-  const [lists, setLists] = useState(false);
-  const [alloc, setAlloc] = useState(false);
-  const d = view.data;
-  const open = (t: string) => (canOpen ? canOpen(t) : false);
+/* ==== v1.263.0 - THE COMPACT DASHBOARD (claude/COMPACT-DASHBOARD-AUDIT.md,
+   approved 05-11-2026, D1-D4 as recommended). The long card of 1.262.0 is
+   gone: the Dashboard shows a summary and the first few items, and every
+   "View all" opens the module that owns the detail - Sales (the team's
+   week, the Documents list filtered to open quotations, the quotation
+   itself), Tasks, the Desk, Finance. ONE request feeds every piece
+   (GET /staff/sales/week/dashboard, shared through the cache); nothing is
+   computed, judged or invented here - the server decides who sees what. ==== */
 
-  if (!d) {
+/** The Dashboard's week, shared by every piece below and by My Day's strip. */
+export function useWeekDash() {
+  return useCachedApi<WeekDash>("/staff/sales/week/dashboard", true, ["docs", "sales", "tasks", "enquiries"]);
+}
+
+function Box({ title, label, chipText, action, children, testid }: { title: string; label: string; chipText?: string; action?: ReactNode; children: ReactNode; testid?: string }) {
+  return (
+    <section className={`${card} ${css.box}`} aria-label={label} data-testid={testid}>
+      <div className={css.boxHead}>
+        <h3 className={css.boxTitle}>{title}{chipText && <span className={chipSmNeutral}>{chipText}</span>}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+const Pill = ({ onClick, children }: { onClick: () => void; children: ReactNode }) => <button type="button" className={css.headBtn} onClick={onClick}>{children}</button>;
+const RISK_CHIP: Record<string, [string, string, string]> = { high: ["Risk: High", "Risiko: Tinggi", chipSmDanger], medium: ["Risk: Medium", "Risiko: Sederhana", chipSmWarn], low: ["Risk: Low", "Risiko: Rendah", chipSmSuccess], none: ["Target reached", "Sasaran dicapai", chipSmSuccess] };
+
+/** Row 2, left: the week against its target - one bar, four facts, Manage targets and View sales details. */
+export function SalesPaceCard({ d, go, canSales, refresh }: { d: WeekDash; go: (t: TabName) => void; canSales: boolean; refresh: () => void }) {
+  const [alloc, setAlloc] = useState(false);
+  const [targets, setTargets] = useState(false);
+  const [introduce, setIntroduce] = useState(false);
+  const o = d.outlook, me = d.me, c = d.company;
+  const exec = Boolean(o);
+  const behind = me && ["at_risk", "action", "missed"].includes(me.status);
+  if (exec && o) {
+    const r = o.risk.level && RISK_CHIP[o.risk.level] ? RISK_CHIP[o.risk.level]! : null;
     return (
-      <section className={`${card} ${css.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}>
-        {view.failed ? <p className={css.muted}>{L("The weekly target could not be loaded.", "Sasaran mingguan tidak dapat dimuatkan.")}</p> : <SkelRows rows={3} />}
-      </section>
+      <Box title={L("Sales target & pace", "Sasaran & rentak jualan")} label={L("Weekly sales target", "Sasaran jualan mingguan")} testid="sales-pace"
+        action={d.can_set ? <Pill onClick={() => setAlloc(true)}>{L("Manage targets", "Urus sasaran")}</Pill> : undefined}>
+        <p className={css.dates}>{dmy(d.week.from)} – {dmy(d.week.to)}</p>
+        {c.target_cents === null ? <p className={css.notSet}>{L("Target Not Set", "Sasaran Belum Ditetapkan")}</p> : (
+          <>
+            <p className={css.split}><span><strong className={css.big}>{fmtRM(c.basis_cents)}</strong> / {fmtRM(c.target_cents)}</span>{r && <span className={r[2]}>{L(r[0], r[1])}</span>}</p>
+            <Bar pct={c.pct} label={L(`${c.pct ?? 0}% of ${fmtRM(c.target_cents)}`, `${c.pct ?? 0}% daripada ${fmtRM(c.target_cents)}`)} />
+          </>
+        )}
+        <dl className={css.facts}>
+          <dt>{L("Invoiced this week", "Diinvois minggu ini")}</dt><dd>{fmtRM(o.invoiced.cents)}</dd>
+          <dt>{L("Best week", "Minggu terbaik")}</dt><dd>{o.best_week ? fmtRM(o.best_week.cents) : "—"}</dd>
+          <dt>{L("Confidence", "Keyakinan")}</dt><dd>{o.confidence.level === "not_enough_data" ? L("Not enough data", "Data tidak mencukupi") : o.confidence.level === "high" ? L("High", "Tinggi") : o.confidence.level === "medium" ? L("Medium", "Sederhana") : L("Low", "Rendah")}</dd>
+          <dt>{L("Pipeline cover", "Perlindungan saluran")}</dt><dd>{o.risk.ratio !== null ? L(`${o.risk.ratio}× the gap`, `${o.risk.ratio}× baki`) : "—"}</dd>
+        </dl>
+        <div className={css.foot}>{canSales && <button type="button" className={btnSmPrimary} onClick={() => go("Sales")}>{L("View sales details", "Lihat butiran jualan")}<AppIcon name="next" /></button>}</div>
+        {alloc && <AllocationDrawer week={d.week.from} onClose={() => setAlloc(false)} onSaved={refresh} onGoals={() => { setAlloc(false); setTargets(true); }} />}
+        {targets && <TargetsDrawer week={d.week.from} onClose={() => setTargets(false)} onSaved={refresh} />}
+      </Box>
     );
   }
-  const me = d.me;
-  const behind = me && ["at_risk", "action", "missed"].includes(me.status);
-  const sales = d.can_sales && open("Sales");
-
-  /* the sales actions - each opens a module that already exists */
-  const acts: { key: string; icon: AppIconName; label: string; onClick: () => void }[] = [];
-  if (sales && behind) acts.push({ key: "plan", icon: "target", label: me?.plan ? L("Recovery plan", "Pelan pemulihan") : L("Submit recovery plan", "Hantar pelan pemulihan"), onClick: () => go("Sales") });
-  if (me) acts.push({ key: "lead", icon: "add", label: L("New enquiry", "Pertanyaan baharu"), onClick: () => setIntroduce(true) });
-  if (sales && onCreateQuotation) acts.push({ key: "qt", icon: "document", label: L("Create quotation", "Cipta sebut harga"), onClick: onCreateQuotation });
-  if (sales) acts.push({ key: "fu", icon: "clients", label: me && me.followups_overdue > 0 ? L(`Follow up customers (${me.followups_overdue})`, `Susuli pelanggan (${me.followups_overdue})`) : L("Follow up customers", "Susuli pelanggan"), onClick: () => go("Sales") });
-  if (sales) acts.push({ key: "pipe", icon: "chart", label: me && me.open_quotations.n > 0 ? L(`Sales pipeline (${me.open_quotations.n})`, `Saluran jualan (${me.open_quotations.n})`) : L("Sales pipeline", "Saluran jualan"), onClick: () => go("Sales") });
-  if (me && open("Tasks")) acts.push({ key: "tasks", icon: "assignment", label: me.tasks.open > 0 ? L(`My sales tasks (${me.tasks.open})`, `Tugasan jualan saya (${me.tasks.open})`) : L("My sales tasks", "Tugasan jualan saya"), onClick: () => go("Tasks") });
-
-  const hasLists = Boolean(d.team || d.all);
-
+  /* a staff member: MY week - my target or goal, why it applies to my role, my progress */
+  const goal = me?.goals[0];
   return (
-    <section className={`${card} ${css.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}>
-      <div className={css.head}>
-        <span className={css.headIcon} aria-hidden><AppIcon name="chart" /></span>
-        <div className={css.headText}>
-          <h3 className={css.title}>{L("Weekly Sales Target", "Sasaran Jualan Mingguan")}</h3>
-          <p className={css.dates}>{dmy(d.week.from)} – {dmy(d.week.to)}</p>
-        </div>
-        {d.can_set && <button type="button" className={css.headBtn} onClick={() => setAlloc(true)}>{L("Allocate", "Agih")}</button>}
-        {d.can_set && <button type="button" className={css.headBtn} onClick={() => setTargets(true)}>{L("Manage", "Urus")}</button>}
-        {sales && <button type="button" className={css.headBtn} onClick={() => go("Sales")}>{L("View details", "Lihat butiran")}<AppIcon name="next" /></button>}
-      </div>
-
-      <div className={css.cols}>
-        <Against title={L("Company target", "Sasaran syarikat")} icon="chart" basis={d.company.basis_cents} target={d.company.target_cents} pct={d.company.pct} gap={d.company.gap_cents}
-          empty={L("Target Not Set", "Sasaran Belum Ditetapkan")}
-          emptyNote={d.can_set ? L("Set this week's target with Manage.", "Tetapkan sasaran minggu ini melalui Urus.") : L("Management has not set this week's target.", "Pengurusan belum menetapkan sasaran minggu ini.")} />
-        {me && (
-          <div className={css.colGroup}>
-            <Against title={L("My target", "Sasaran saya")} icon="person" basis={me.basis_cents} target={me.target_cents} pct={me.pct} gap={me.gap_cents}
-              right={me.target_cents !== null ? chip(me.status) : undefined}
-              empty={L("No Individual Target Assigned", "Tiada Sasaran Individu")}
-              emptyNote={me.goals.length ? L("Your goals this week are below.", "Matlamat anda minggu ini di bawah.") : L("Every lead you bring in still helps the company target.", "Setiap petunjuk yang anda bawa tetap membantu sasaran syarikat.")} />
-            {me.goals.length > 0 && (
-              <ul className={css.goals} aria-label={L("My contribution goals", "Matlamat sumbangan saya")}>
-                {me.goals.map((g) => (
-                  <li key={g.metric}>
-                    <span>{GOAL_LABEL[g.metric] ? L(GOAL_LABEL[g.metric]![0], GOAL_LABEL[g.metric]![1]) : g.metric}</span>
-                    <strong>{g.actual} / {g.target}</strong>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {(me.introductions.pending ?? 0) > 0 && <p className={css.muted}>{L(`${me.introductions.pending} lead(s) you introduced waiting for Sales`, `${me.introductions.pending} petunjuk anda menunggu Jualan`)}</p>}
-            {me.kind && KIND[me.kind] && <p className={css.muted}><strong>{L(KIND[me.kind]![0], KIND[me.kind]![1])}.</strong> {L(KIND[me.kind]![2], KIND[me.kind]![3])}</p>}
-            {(me.next_followups?.length ?? 0) > 0 && (
-              <ul className={css.goals} aria-label={L("My follow-ups due", "Susulan saya")}>
-                {me.next_followups!.map((f) => <li key={f.id}><span>{f.due_on < d.week.today ? L("Late", "Lewat") : L("Today", "Hari ini")} · {f.company ?? "-"} · {f.note}</span></li>)}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
-
-      {d.outlook && <CommandStrip o={d.outlook} gap={d.company.gap_cents} />}
-
-      <p className={css.basis}>
-        {L("Counts invoices paid in full this week, by the closer.", "Mengira invois dibayar penuh minggu ini, oleh penutup.")}
-        {d.other_channels_cents !== null && d.other_channels_cents > 0 ? L(` Not counted: ${fmtRM(d.other_channels_cents)} TikTok, online and manual sales.`, ` Tidak dikira: ${fmtRM(d.other_channels_cents)} jualan TikTok, dalam talian dan manual.`) : ""}
-      </p>
-
-      {acts.length > 0 && (
-        <div className={css.acts} role="group" aria-label={L("Sales actions", "Tindakan jualan")}>
-          {acts.map((a) => <button key={a.key} type="button" className={css.act} onClick={a.onClick}><AppIcon name={a.icon} />{a.label}</button>)}
-        </div>
-      )}
-
-      {d.advisory && (d.advisory.cards.length > 0 || d.can_view_all) && (
-        <AdviceList cards={d.advisory.cards} total={d.advisory.total} inactive={d.can_view_all ? d.advisory.inactive : undefined} onDone={view.refresh}
-          onNavigate={(a) => (a === "allocate" && d.can_set ? setAlloc(true) : a === "tasks" ? go("Tasks") : go("Sales"))} />
-      )}
-      {d.opportunities && d.opportunities.length > 0 && (
-        <Opportunities rows={d.opportunities} canAct={d.can_sales} onChanged={view.refresh}
-          title={d.can_view_all ? L("Open quotations - status first", "Sebut harga terbuka - status dahulu") : L("My open quotations", "Sebut harga terbuka saya")} />
-      )}
-
-      {hasLists && (
+    <Box title={L("My week", "Minggu saya")} label={L("Weekly sales target", "Sasaran jualan mingguan")} testid="sales-pace"
+      action={me && me.target_cents !== null ? chip(me.status) : undefined}>
+      <p className={css.dates}>{dmy(d.week.from)} – {dmy(d.week.to)} · {L(`company ${c.pct ?? 0}%`, `syarikat ${c.pct ?? 0}%`)}</p>
+      {me && me.target_cents !== null ? (
         <>
-          <button type="button" className={css.listsToggle} aria-expanded={lists} onClick={() => setLists((v) => !v)}>
-            {d.all ? L(`Team & departments${d.all.attention.length ? ` · ${d.all.attention.length} need attention` : ""}`, `Pasukan & jabatan${d.all.attention.length ? ` · ${d.all.attention.length} perlu perhatian` : ""}`)
-              : L("My team", "Pasukan saya")}
-            <AppIcon name={lists ? "up" : "down"} />
-          </button>
-          <div className={`${css.lists} ${lists ? css.listsOpen : ""}`}>
-            {d.team && (
-              <div className={css.block}>
-                <p className={css.label}>{L("My team", "Pasukan saya")}</p>
-                {d.team.target_cents === null
-                  ? <p className={css.muted}>{L("No team member has a target this week.", "Tiada ahli pasukan mempunyai sasaran minggu ini.")} <strong>{fmtRM(d.team.basis_cents)}</strong> {L("collected.", "dikutip.")}</p>
-                  : <>
-                    <p className={css.split}><span><strong className={css.strongNum}>{fmtRM(d.team.basis_cents)}</strong> / {fmtRM(d.team.target_cents)}</span><span>{d.team.pct ?? 0}%</span></p>
-                    <Bar pct={d.team.pct} label={L(`Team: ${d.team.pct ?? 0}% of the combined target`, `Pasukan: ${d.team.pct ?? 0}% daripada sasaran gabungan`)} />
-                  </>}
-                <ul className={css.people}>
-                  {d.team.rows.slice(0, 8).map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.target_cents === null ? fmtRM(r.basis_cents) : `${r.pct ?? 0}%`}</span>{chip(r.status)}{r.plan && <span className={chipSmNeutral}>{L(PLAN_WORD[r.plan]?.[0] ?? r.plan, PLAN_WORD[r.plan]?.[1] ?? r.plan)}</span>}</li>)}
-                </ul>
-              </div>
-            )}
-            {d.all && (
-              <>
-                <div className={css.block}>
-                  <p className={css.label}>{L("Needs attention", "Perlu perhatian")}</p>
-                  {d.all.attention.length === 0
-                    ? <p className={css.muted}>{d.all.rows.some((r) => r.target_cents !== null) ? L("Nobody is behind their pace right now.", "Tiada siapa ketinggalan buat masa ini.") : L("No individual targets are set this week.", "Tiada sasaran individu ditetapkan minggu ini.")}</p>
-                    : <ul className={css.people}>{d.all.attention.map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.pct ?? 0}% · {fmtRM(r.gap_cents ?? 0)}</span>{chip(r.status)}</li>)}</ul>}
-                </div>
-                {d.all.departments.length > 0 && (
-                  <div className={css.block}>
-                    <p className={css.label}>{L("By department", "Mengikut jabatan")}</p>
-                    <ul className={css.depts}>
-                      {d.all.departments.slice(0, 6).map((x) => (
-                        <li key={x.name ?? "-"}>
-                          <span className={css.who}>{x.name ?? L("No department", "Tiada jabatan")}</span>
-                          <span className={css.amt}>{fmtRM(x.basis_cents)}{x.target_cents !== null ? ` / ${fmtRM(x.target_cents)}` : ""}</span>
-                          {x.target_cents !== null && <Bar pct={x.pct} label={`${x.pct ?? 0}%`} />}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          <p className={css.split}><span><strong className={css.big}>{fmtRM(me.basis_cents)}</strong> / {fmtRM(me.target_cents)}</span><span>{(me.gap_cents ?? 0) > 0 ? L(`${fmtRM(me.gap_cents ?? 0)} left`, `${fmtRM(me.gap_cents ?? 0)} lagi`) : L("Reached", "Dicapai")}</span></p>
+          <Bar pct={me.pct} label={`${me.pct ?? 0}%`} />
         </>
-      )}
-
-      {d.can_view_all && (
+      ) : goal ? (
         <>
-          <WeeklyRhythm checkpoint={d.week.checkpoint} />
-          <CashWatchPlaceholder />
+          <p className={css.split}><span><strong className={css.big}>{goal.actual} / {goal.target}</strong> {GOAL_LABEL[goal.metric] ? L(GOAL_LABEL[goal.metric]![0], GOAL_LABEL[goal.metric]![1]) : goal.metric}</span>{me!.goals.length > 1 && <span>{L(`+${me!.goals.length - 1} more`, `+${me!.goals.length - 1} lagi`)}</span>}</p>
+          <Bar pct={goal.target ? Math.round((goal.actual / goal.target) * 100) : 0} label={`${goal.actual}/${goal.target}`} />
         </>
-      )}
-
+      ) : <p className={css.notSet}>{L("No individual target this week", "Tiada sasaran individu minggu ini")}</p>}
+      {me?.kind && KIND[me.kind] && <p className={css.why}><strong>{L(KIND[me.kind]![0], KIND[me.kind]![1])}.</strong> {L(KIND[me.kind]![2], KIND[me.kind]![3])}</p>}
+      <div className={css.foot}>
+        {canSales && behind ? <button type="button" className={btnSmPrimary} onClick={() => go("Sales")}><AppIcon name="target" />{me?.plan ? L("My recovery plan", "Pelan pemulihan saya") : L("Submit recovery plan", "Hantar pelan pemulihan")}</button>
+          : canSales ? <button type="button" className={btnSm} onClick={() => go("Sales")}>{L("View details", "Lihat butiran")}<AppIcon name="next" /></button>
+            : me && <button type="button" className={btnSm} onClick={() => setIntroduce(true)}><AppIcon name="add" />{L("Introduce a lead", "Perkenalkan petunjuk")}</button>}
+      </div>
       <IntroduceLead open={introduce} onClose={() => setIntroduce(false)} />
-      {targets && <TargetsDrawer week={d.week.from} onClose={() => setTargets(false)} onSaved={view.refresh} />}
-      {alloc && <AllocationDrawer week={d.week.from} onClose={() => setAlloc(false)} onSaved={view.refresh} onGoals={() => { setAlloc(false); setTargets(true); }} />}
-    </section>
+    </Box>
+  );
+}
+
+/** What a quotation's status says on the Dashboard - only what is recorded:
+    the owner's outcome, the open follow-up, or that nothing is recorded. */
+function oppStatus(o: Opportunity, today: string): [string, string] {
+  if (o.acceptance?.current) return [L("Accepted", "Diterima"), chipSmSuccess];
+  if (o.last_contact?.outcome && OUTCOME[o.last_contact.outcome]) return [L(OUTCOME[o.last_contact.outcome]![0], OUTCOME[o.last_contact.outcome]![1]), OUTCOME[o.last_contact.outcome]![2]];
+  if (o.next) return o.next.due_on < today ? [L("Follow-up late", "Susulan lewat"), chipSmWarn] : o.next.due_on === today ? [L("Follow-up today", "Susulan hari ini"), chipSmInfo] : [L(`Follow-up ${dmy(o.next.due_on)}`, `Susulan ${dmy(o.next.due_on)}`), chipSmNeutral];
+  return [L("No follow-up", "Tiada susulan"), chipSmWarn];
+}
+
+/** Row 2, centre: the count and value, the top three, one View all into Sales. */
+export function PipelineCard({ d, openAll, openDoc }: { d: WeekDash; openAll: () => void; openDoc: (id: number) => void }) {
+  const rows = (d.opportunities ?? []).slice(0, 3);
+  const total = d.outlook?.open_quotations ?? d.me?.open_quotations ?? null;
+  return (
+    <Box title={d.outlook ? L("Pipeline & quotations", "Saluran & sebut harga") : L("My open quotations", "Sebut harga terbuka saya")} label={L("Open quotations", "Sebut harga terbuka")} testid="pipeline"
+      chipText={total ? `${total.n} · ${fmtRM(total.cents)}` : undefined} action={<Pill onClick={openAll}>{L("View all", "Lihat semua")}</Pill>}>
+      {rows.length === 0 ? <p className={css.muted}>{L("No open quotations.", "Tiada sebut harga terbuka.")}</p> : (
+        <ul className={css.lines}>
+          {rows.map((o) => {
+            const [word, tone] = oppStatus(o, d.week.today);
+            return (
+              <li key={o.id}>
+                <button type="button" className={css.lineBtn} onClick={() => openDoc(o.id)} title={L("Open this quotation in Sales", "Buka sebut harga ini dalam Jualan")}>
+                  <span className={css.lineText}><strong>{o.doc_number} · {o.company ?? "-"}</strong><span>{fmtRM(o.total_cents)} · {L(`${o.age_days} days`, `${o.age_days} hari`)}{o.owner.name && d.outlook ? ` · ${o.owner.name}` : ""}</span></span>
+                  <span className={tone}>{word}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Box>
+  );
+}
+
+/** Row 2, right (Finance readers who are management): what is known, and
+    that cash is NOT known until banks and opening balances are entered. */
+export function FinanceHealthCard({ d, unpaid, openFinance }: { d: WeekDash; unpaid: number | null; openFinance: () => void }) {
+  const cw = d.outlook?.cash_watch ?? null;
+  return (
+    <Box title={L("Financial health", "Kesihatan kewangan")} label={L("Financial health", "Kesihatan kewangan")} testid="finance-health" action={<Pill onClick={openFinance}>{L("Finance", "Kewangan")}</Pill>}>
+      <dl className={css.facts}>
+        <dt>{L("Cash available", "Tunai tersedia")}</dt><dd>{L("Data not available", "Data tidak tersedia")}</dd>
+        <dt>{L("Bank accounts", "Akaun bank")}</dt><dd>{cw === null ? L("Data not available", "Data tidak tersedia") : cw.banks === 0 ? L("Not set up", "Belum disediakan") : L(`${cw.banks} · ${cw.with_opening} with opening balance`, `${cw.banks} · ${cw.with_opening} dengan baki pembukaan`)}</dd>
+        <dt>{L("Unpaid invoices", "Invois belum dibayar")}</dt><dd>{unpaid ?? "—"}</dd>
+      </dl>
+      <p className={css.alert}><AppIcon name="lock" />{L("Cash runway is not calculated without a bank account and a verified opening balance per company. A2Z Creative Marketing and AZ ONE OFFICIAL are never added together.", "Jangka hayat tunai tidak dikira tanpa akaun bank dan baki pembukaan disahkan bagi setiap syarikat. A2Z Creative Marketing dan AZ ONE OFFICIAL tidak dicampur.")}</p>
+    </Box>
+  );
+}
+
+/** Row 3, left: the three most urgent pieces of advice, one button each. */
+export function AdviceSummaryCard({ d, refresh, onNavigate, openAll }: { d: WeekDash; refresh: () => void; onNavigate: (a: "allocate" | "plan" | "tasks") => void; openAll: () => void }) {
+  const a = d.advisory!;
+  return (
+    <Box title={L("Sales advice", "Nasihat jualan")} label={L("Sales advice", "Nasihat jualan")} testid="advice"
+      chipText={a.total > 3 ? L(`3 of ${a.total}`, `3 daripada ${a.total}`) : a.total ? String(a.total) : undefined} action={<Pill onClick={openAll}>{L("View all", "Lihat semua")}</Pill>}>
+      <AdviceList compact cards={a.cards.slice(0, 3)} total={a.total} onDone={refresh} onNavigate={onNavigate} />
+    </Box>
+  );
+}
+
+/** Row 3, centre: my follow-ups due today or late, then my sales tasks - three lines. */
+export function TodayFocusCard({ d, openFollowups, openTask, openDay }: { d: WeekDash; openFollowups: () => void; openTask: (id: number) => void; openDay: () => void }) {
+  const me = d.me!;
+  const lines: { key: string; title: string; sub: string; late: boolean; on: () => void }[] = [
+    ...(me.next_followups ?? []).map((f) => ({ key: `f${f.id}`, title: f.note, sub: `${f.due_on < d.week.today ? L("Follow-up late", "Susulan lewat") : L("Follow-up due today", "Susulan hari ini")} · ${f.company ?? "-"}`, late: f.due_on < d.week.today, on: openFollowups })),
+    ...me.top_tasks.map((t) => ({ key: `t${t.id}`, title: t.title, sub: `${L("Sales task", "Tugasan jualan")} · ${t.deadline ? dmy(t.deadline) : L("no due date", "tiada tarikh")}`, late: Boolean(t.deadline && t.deadline < d.week.today), on: () => openTask(t.id) })),
+  ].slice(0, 3);
+  return (
+    <Box title={L("Today's focus", "Fokus hari ini")} label={L("Today's focus", "Fokus hari ini")} testid="today-focus" action={<Pill onClick={openDay}>{L("My Day", "Hari Saya")}</Pill>}>
+      {lines.length === 0 ? <p className={css.muted}>{L("Nothing due today.", "Tiada yang perlu hari ini.")}</p> : (
+        <ul className={css.lines}>
+          {lines.map((x) => (
+            <li key={x.key}>
+              <button type="button" className={css.lineBtn} onClick={x.on}>
+                <span className={css.lineText}><strong className={css.keep}>{x.title}</strong><span>{x.sub}</span></span>
+                {x.late && <span className={chipSmWarn}>{L("Late", "Lewat")}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Box>
+  );
+}
+
+/** Row 4: the people behind the target - the weakest four, one View team into Sales. */
+export function TeamPerformanceCard({ d, openTeam }: { d: WeekDash; openTeam: () => void }) {
+  const rows = (d.all?.rows ?? d.team?.rows ?? []).slice(0, 4);
+  return (
+    <Box title={L("Team performance", "Prestasi pasukan")} label={L("Team performance", "Prestasi pasukan")} testid="team-performance" chipText={L("this week", "minggu ini")} action={<Pill onClick={openTeam}>{L("View team", "Lihat pasukan")}</Pill>}>
+      {rows.length === 0 ? <p className={css.muted}>{L("No one on the scorecard this week.", "Tiada sesiapa dalam kad skor minggu ini.")}</p> : (
+        <ul className={css.people}>
+          {rows.map((r) => (
+            <li key={r.user_id}>
+              <span className={css.who}>{r.name}</span>
+              <span className={css.amt}>{r.target_cents === null ? fmtRM(r.basis_cents) : `${fmtRM(r.basis_cents)} / ${fmtRM(r.target_cents)}`}</span>
+              {chip(r.status)}
+              {r.plan && <span className={chipSmNeutral}>{L(PLAN_WORD[r.plan]?.[0] ?? r.plan, PLAN_WORD[r.plan]?.[1] ?? r.plan)}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Box>
   );
 }

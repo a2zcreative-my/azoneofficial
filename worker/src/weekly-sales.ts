@@ -529,13 +529,17 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
      risk, invoiced, pipeline); the advisory, worst first, at most five - a
      person who sells sees only their own; the open quotations */
   const s = await advisorySettings(env);
-  const outlook = allowAll ? await companyOutlook(env, from, to, today, startDow, company, s) : null;
+  /* v1.263.0 - the open quotations are read ONCE per request and shared by
+     the strip, the advice and the list (the same rows each read before) */
+  const sells = allowAll || can(user.role, "sales");
+  const oq = sells ? await openQuotations(env, today, allowAll ? null : user.id) : null;
+  const outlook = allowAll ? await companyOutlook(env, from, to, today, startDow, company, s, oq ?? undefined) : null;
   let advisory: { cards: Card[]; total: number; inactive: typeof INACTIVE_RULES } | null = null;
   let opportunities: OpenQuotation[] | null = null;
-  if (allowAll || can(user.role, "sales")) {
-    const cards = await advisoryCards(env, allowAll, user.id, from, to, today, s);
+  if (sells && oq) {
+    const cards = await advisoryCards(env, allowAll, user.id, from, to, today, s, oq);
     advisory = { cards: cards.slice(0, 5), total: cards.length, inactive: INACTIVE_RULES };
-    opportunities = (await openQuotations(env, today, allowAll ? null : user.id))
+    opportunities = [...oq]
       .sort((a, b) => Number(Boolean(a.last_contact?.outcome)) - Number(Boolean(b.last_contact?.outcome)) || b.age_days - a.age_days).slice(0, 5);
   }
   return json({
@@ -680,7 +684,7 @@ async function companyDaysLeft(env: Env, from: string, to: string, today: string
     target is never changed here; the pace is the truthful remaining gap per
     working day; confidence needs history before it says anything; risk is
     the evidence, named. */
-async function companyOutlook(env: Env, from: string, to: string, today: string, startDow: number, company: { target_cents: number | null; basis_cents: number; gap_cents: number | null }, s: AdvisorySettings) {
+async function companyOutlook(env: Env, from: string, to: string, today: string, startDow: number, company: { target_cents: number | null; basis_cents: number; gap_cents: number | null }, s: AdvisorySettings, pre?: OpenQuotation[]) {
   const one = async (sql: string, ...b: unknown[]) => { try { return await env.DB.prepare(sql).bind(...b).first<{ c: number; n: number }>(); } catch { return null; } };
   const invoiced = await one(`SELECT COALESCE(SUM(total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2`, from, to);
   const pipe = await one(`SELECT COALESCE(SUM(q.total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents q WHERE ${openQuotationSql("q", "?1")}`, today);
@@ -718,7 +722,7 @@ async function companyOutlook(env: Env, from: string, to: string, today: string,
   const confidence = { level: !enough ? "not_enough_data" : hit >= 0.75 ? "high" : hit >= 0.4 ? "medium" : "low", target_weeks: targetWeeks, achieved_weeks: achieved, decided_quotations: decided, needs: { target_weeks: 8, decided_quotations: 20 } };
   /* risk: the evidence, never a person */
   const pipeline = Number(pipe?.c ?? 0);
-  const ageing = (await openQuotations(env, today, null)).filter((q) => !q.next && q.idle_days > s.quote_age_days).length;
+  const ageing = (pre ?? await openQuotations(env, today, null)).filter((q) => !q.next && q.idle_days > s.quote_age_days).length;
   let risk: { level: string | null; ratio: number | null; reasons: string[] } = { level: null, ratio: null, reasons: ["no_target"] };
   if (company.target_cents !== null && gap !== null) {
     if (gap <= 0) risk = { level: "none", ratio: null, reasons: ["reached"] };
@@ -741,6 +745,15 @@ async function companyOutlook(env: Env, from: string, to: string, today: string,
     required_per_day_cents: gap !== null && gap > 0 && daysLeft > 0 ? Math.ceil(gap / daysLeft) : null,
     best_week: best ? { from: best.wk, cents: best.c } : null,
     confidence, risk, ageing_quotations: ageing,
+    /* v1.263.0 (claude/COMPACT-DASHBOARD-AUDIT.md D2) - Financial health on
+       the Dashboard says whether Cash Watch can start: how many bank
+       accounts exist and how many carry an opening balance. Two counts, no
+       balance, read only; null when the table is not there. */
+    cash_watch: await env.DB.prepare(`SELECT COUNT(*) AS banks, COUNT(opening_on) AS with_opening FROM bank_accounts`).first<{ banks: number; with_opening: number }>()
+      .then((r) => ({ banks: Number(r?.banks ?? 0), with_opening: Number(r?.with_opening ?? 0) }))
+      .catch(async () => {
+        try { const r = await env.DB.prepare(`SELECT COUNT(*) AS banks FROM bank_accounts`).first<{ banks: number }>(); return { banks: Number(r?.banks ?? 0), with_opening: 0 }; } catch { return null; }
+      }),
   };
 }
 
@@ -816,12 +829,12 @@ type Card = {
   record: { kind: "quotation" | "invoice" | "person" | "company" | "tasks"; id: number | null; label: string | null };
   evidence: Record<string, unknown>; risk: string; action: "followup" | "task" | "allocate" | "plan" | "tasks"; due_on: string | null; amount_cents: number;
 };
-async function advisoryCards(env: Env, scopeAll: boolean, uid: number, from: string, to: string, today: string, s: AdvisorySettings): Promise<Card[]> {
+async function advisoryCards(env: Env, scopeAll: boolean, uid: number, from: string, to: string, today: string, s: AdvisorySettings, pre?: OpenQuotation[]): Promise<Card[]> {
   const cards: Card[] = [];
   const due = await nextWorkingDay(env, today);
   const mine = scopeAll ? null : uid;
   /* quotations going cold: no open follow-up and nothing heard within the interval */
-  for (const q of await openQuotations(env, today, mine)) {
+  for (const q of pre ?? await openQuotations(env, today, mine)) {
     if (q.next) continue;
     if (q.last_contact?.outcome === "lost" || (q.acceptance?.current)) continue; // the owner already said; Sales decides what to do with the document
     const interval = (q.package_id && s.package_days[String(q.package_id)]) || s.quote_age_days;

@@ -127,9 +127,14 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
      !/tr\("Apply leave", lang\)\}\s*<\/button>[\s\S]{0,900}?\{otButtons\}/.test(dashCode) && !/tr\("Create quotation", lang\)/.test(dashCode)
      && /\{otButtons && <div className=\{shiftCss\.quick\}>\{otButtons\}<\/div>\}/.test(dashCode)
      && /key: "leave", icon: "holiday", label: L\("Apply leave"/.test(code) && /key: "quote", icon: "document", label: L\("Create quotation"/.test(code));
-  ok("the month's leave applications are one card, on the Overview under Upcoming & Pending",
+  /* v1.263.0 (claude/COMPACT-DASHBOARD-AUDIT.md, approved 05-11-2026) -
+     Upcoming & Pending moved up into the actions row with three items; the
+     month's leave stays ONE card on the Overview (never on My Day), with the
+     other cards below - on a phone behind More */
+  ok("the month's leave applications are one card, on the Overview (not My Day), with the cards below the overview rows",
      !/LeaveMonthCard/.test(dashCode) && (code.match(/<LeaveMonthCard /g) ?? []).length === 1
-     && /<div className=\{ov\.column\}>\s*\{upcomingCard\}\s*<LeaveMonthCard go=\{go\} \/>/.test(code));
+     && /data-row="more"[\s\S]{0,600}?<LeaveMonthCard go=\{go\} \/>/.test(code)
+     && /row3\.push\(<Fragment key="up">\{upcomingCard\}<\/Fragment>\)/.test(code));
   ok("The Company card stays on My Day (the owner kept it)", /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(dash));
 }
 
