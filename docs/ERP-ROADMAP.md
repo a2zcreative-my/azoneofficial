@@ -405,3 +405,6 @@ use). No existing row changes.
 1.267.0 adds `0176_oauth_require_email` (additive): oauth_requests gains
 require_email, the exact address a Google account must prove when a Gmail
 customer connects Google with their password while email sending is not set up.
+1.268.0 adds `0177_exec_recovery` (additive): exec_recovery_panel and
+exec_recovery_requests (the owner's recovery panel, two-person requests, the
+12-hour wait - nothing deleted) and users.recovery_rotation_required.

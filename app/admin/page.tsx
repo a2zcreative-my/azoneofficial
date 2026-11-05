@@ -10,6 +10,7 @@ import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a 
 import { signOutRequest } from "@/lib/push-client"; // v1.226.0: signing out unbinds this device's push
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
+import { RecoveryPanel } from "@/components/security/recovery-panel"; // v1.268.0 - Phase R
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
@@ -1297,6 +1298,7 @@ export default function AdminPage() {
             <div className={card}><AccountPanel /></div>
             <TwoFactorPanel />
             <GoogleConnectPanel />
+            <RecoveryPanel />
           </div>
         )}
         {tabNow === "Testimonials" && (

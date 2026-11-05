@@ -835,6 +835,16 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     : { month: q.get("month"), entry: { user_id: 9001, month: q.get("month"), basic_cents: 350000, commission_cents: 42000, allowance_cents: 20000, deduction_cents: 5000, ot_hours: 0, ot_cents: 0, note: null, name: "Fixture Person", full_name: "Fixture Person bin Test", employee_id: "A2Z-001", position: "CEO", department: "Management", employment_status: "permanent", bank_name: "Maybank", bank_account: "•••• 5621", joined_on: "2023-01-01" },
         extras: { working_day: 21, public_holiday: 1, annual_leave: 0, medical_leave: 0, annual_bal: 8, sick_bal: 14 }, joined_on: "2023-01-01", release_issuer_code: "a2z" };
   if (p === "/auth/2fa/status") data = { enabled: false, eligible: true, backup_codes_left: 0, reauth: "password" };
+  /* v1.268.0 - Phase R: executive recovery. The owner (OWNER=1 ceo) sees the panel with one
+     member and a request waiting; a COO is a named member who has not accepted yet. */
+  if (p === "/staff/recovery") data = ["ceo", "super_admin", "coo", "cco"].includes(ROLE) ? {
+    me: { is_owner: OWNER && ROLE === "ceo", member: ROLE === "coo" ? { accepted: false, effective_at: "2026-11-06 02:00:00", can_act: false, why: "not_accepted" } : ROLE === "cco" ? { accepted: true, effective_at: "2026-11-04 02:00:00", can_act: true, why: null } : null, is_target: ["ceo", "super_admin"].includes(ROLE) },
+    panel: [{ id: 1, user_id: 9006, name: "Farid Zulkifli", role: "cco", accepted: true, effective_at: "2026-11-04 02:00:00", active: true, why: null }, { id: 2, user_id: 9003, name: "Hakim Rosli", role: "coo", accepted: false, effective_at: "2026-11-06 02:00:00", active: false, why: "not_accepted" }],
+    available: false, eligible: OWNER && ROLE === "ceo" ? [] : [], targets: [{ id: 9001, name: "Fixture Person", role: "ceo" }, { id: 9010, name: "Root Person", role: "super_admin" }],
+    locked: [], limits: { approve_within_hours: 24, execute_after_hours: 12, effective_after_hours: 24 },
+    requests: [{ id: 7, target_id: 9010, target_name: "Root Person", requested_by_name: "Farid Zulkifli", approved_by_name: null, reason: "Lost the phone with the authenticator", identity_checked: "Seen in the office, MyKad checked", identity_method: "in_person", unlink_google: false, status: "requested", created_at: "2026-11-05 03:00:00", approve_by: "2026-11-06 03:00:00", approved_at: null, execute_after: null, executed_at: null, cancelled_at: null, cancel_reason: null, can_approve: false, can_cancel: ROLE === "cco" || (OWNER && ROLE === "ceo") }],
+  } : { error: { code: "forbidden", message: "Only the company owner, the recovery panel and the Super Admin see executive recovery." } };
+  if (p === "/staff/recovery/review") data = { required: false, two_factor_on: true, history: [] };
   /* v1.266.0 - Secure Authentication 2.0, Phase 1c: the owner's sign-in settings and customer recovery */
   if (p === "/staff/auth/settings") data = ["ceo", "super_admin"].includes(ROLE) ? {
     google: { enabled: true, customer_signup: true, legacy_link_until: null, updated_at: null, updated_by: null },

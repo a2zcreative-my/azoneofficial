@@ -31,6 +31,7 @@ import { roleLabel } from "@/components/portal/users-shared";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
 import { SignInSettingsPanel } from "@/components/security/signin-settings-panel"; // v1.266.0
+import { RecoveryPanel } from "@/components/security/recovery-panel"; // v1.268.0 - Phase R
 import { ResponsibilitiesView } from "@/components/staff/responsibilities"; // v1.174.0
 import { ShiftReminderPrefs } from "@/components/portal/shift-reminder-prefs"; // v1.226.0
 import { AppIcon } from "@/components/ui/app-icon";
@@ -222,6 +223,12 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
           <GoogleConnectPanel />
           {["ceo", "super_admin"].includes(profile.role ?? "") && <SignInSettingsPanel />}
         </TabZone>
+        {/* v1.268.0 - Phase R: executive recovery (the owner, the panel, the Super Admin) */}
+        {["ceo", "super_admin", "coo", "cco"].includes(profile.role ?? "") && (
+          <TabZone label={L("Executive recovery", "Pemulihan eksekutif")}>
+            <RecoveryPanel />
+          </TabZone>
+        )}
         {/* v1.248.0 - the signature that prints on documents you prepare (signing-panel.tsx) */}
         {view === "security" && (
           <TabZone label={L("Document signature", "Tandatangan dokumen")} hint={L("Used only after you confirm it and the CEO approves it.", "Digunakan hanya selepas anda mengesahkannya dan CEO meluluskannya.")}>

@@ -174,6 +174,11 @@ const server = http.createServer((req, res) => {
         return b.password === "correct horse" ? send(200, { sent: true, to: "fi***@example.test" }) : send(401, { error: { code: "invalid_password", message: "That password is not correct." } });
       }
       if (req.method === "POST" && p === "/auth/google/disconnect") return send(200, { ok: true });
+      /* v1.268.0 - Phase R: every panel step needs a code (123456) */
+      if (req.method === "POST" && p.startsWith("/staff/recovery")) {
+        const b = jb();
+        return b.totp === "123456" ? send(200, { ok: true }) : send(401, { error: { code: "totp_invalid", message: "That code is not valid" } });
+      }
       if (req.method === "PUT" && p === "/staff/auth/settings") {
         const b = jb();
         return /^\d{6}$/.test(b.totp ?? "") && (b.reason ?? "").length >= 5 ? send(200, { ok: true }) : send(400, { error: { code: "invalid_input", message: "Give a reason" } });

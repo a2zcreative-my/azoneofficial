@@ -11,6 +11,7 @@ import { isCurrentStaff } from "../../lib/staff-order"; // v1.233.0 - one report
 import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remainingWindows, timeWindow, type LeaveCoverage, type TimeWindow } from "../../lib/leave-coverage";
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
+import { handleRecovery } from "./recovery"; // v1.268.0 - Phase R
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
@@ -2876,6 +2877,11 @@ async function handleStaffRoutes(
     ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
+
+  /* v1.268.0 - Phase R: executive recovery (recovery.ts) */
+  if (path === "/recovery" || path.startsWith("/recovery/")) {
+    return handleRecovery(env, path, method, body, user);
+  }
 
   if (path.startsWith("/companies/")) {
     return handleCompanyReview(env, new URL(request.url), path.slice("/companies".length), method, body, user);

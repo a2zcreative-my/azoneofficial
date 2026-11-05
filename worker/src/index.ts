@@ -4,6 +4,7 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
+import { runDueRecoveries } from "./recovery"; // v1.268.0 - Phase R
 import { googleDiscovery, pkcePair, verifyGoogleIdToken } from "./google-oidc"; // v1.265.0 - Google OpenID Connect
 import { mailReady, sendMail } from "./mail"; // v1.266.0 - the customer's emailed code
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, legacyWindowOpen, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
@@ -298,7 +299,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0176_oauth_require_email";
+const LATEST_MIGRATION = "0177_exec_recovery";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -2247,6 +2248,8 @@ export default {
          pass); a failure is retried at 5 and 20 minutes, then the row is
          dead and on the log. Never fatal, never before the orders. */
       try { await drainMailOutbox(env); } catch (e) { await logError(env, "task_mail", e instanceof Error ? e.message : String(e)); }
+      /* v1.268.0 - Phase R: an approved executive recovery runs once its 12 hours are over */
+      try { await runDueRecoveries(env); } catch (e) { await logError(env, "exec_recovery", e instanceof Error ? e.message : String(e)); }
       /* The cron does not pass through the staff dispatch, so the topics it
          writes are bumped by hand. A web order that lands while the ops map
          is open should move the map, not wait for somebody to reload. */
@@ -5637,6 +5640,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0174 (Google OpenID Connect: single-use requests with PKCE and a nonce)", `SELECT id, purpose, binding_hash, nonce, code_verifier, user_id, session_hash, return_to, used_at FROM oauth_requests LIMIT 0`],
       ["0175 (a customer proves their mailbox with an emailed code before Google is connected or disconnected)", `SELECT id, user_id, purpose, code_hash, session_hash, attempts, expires_at, used_at FROM email_codes LIMIT 0`],
       ["0176 (a Connect Google request may name the address the Google account must prove)", `SELECT require_email FROM oauth_requests LIMIT 0`],
+      ["0177 (executive recovery: the panel, two-person requests, the 12-hour wait)", `SELECT id, target_id, requested_by, approved_by, status, execute_after FROM exec_recovery_requests LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5834,6 +5838,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0174_oauth_requests",
       "0175_email_codes",
       "0176_oauth_require_email",
+      "0177_exec_recovery",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
