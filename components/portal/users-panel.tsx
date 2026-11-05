@@ -41,6 +41,7 @@ import { AccessPolicyCard, AccessReviewDrawer, ExceptionsCard, usePolicy, useRev
 import { OwnerCard, useOwner } from "@/components/portal/owner-card";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { AccountSheet } from "@/components/portal/account-sheet";
+import { CustomerRecoverySheet } from "@/components/portal/customer-recovery-sheet"; // v1.266.0
 import { SupportCard } from "@/components/portal/support-card";
 import { SystemHealthCard } from "@/components/admin/system-health";
 import { withStepUp } from "@/components/portal/page-shared";
@@ -110,6 +111,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   /* v1.238.0 - the Sign-in & recovery sheet (components/portal/account-sheet) */
   const recovery = holdsCap("account_recovery", superAdmin || owner) || holdsCap("account_email", superAdmin || owner);
   const [sheetId, setSheetId] = useState<number | null>(null);
+  const [custSheetId, setCustSheetId] = useState<number | null>(null); // v1.266.0 - customer recovery
   /* v1.137.0 - one find box over both lists. The customer list is Google
      sign-ups and only grows; finding a person was scrolling. From v1.189.0
      each list is its own tab, and the box on either one is this one. */
@@ -312,11 +314,20 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           </div>
         )}
       </div>
-      {((canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin"))) || (kind === "staff" && recovery)) && (
+      {((canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin"))) || ((kind === "staff" || u.role === "customer") && recovery)) && (
         <div className={css.act}>
           {/* v1.238.0 - Sign-in & recovery: login email, password link, 2FA
               reset, Google link, devices (owner + super admin; the worker's
               canManageAccount decides each account) */}
+          {/* v1.266.0 - a customer who cannot sign in: identity check first, then one recovery step */}
+          {u.role === "customer" && recovery && (
+            <button type="button" className={iconBtn}
+              aria-label={L(`Recover sign-in: ${properName(u.full_name || u.name)}`, `Pulihkan log masuk: ${properName(u.full_name || u.name)}`)}
+              title={L("Recover sign-in", "Pulihkan log masuk")} data-testid={`recover-${u.id}`}
+              onClick={() => setCustSheetId(u.id)}>
+              <AppIcon name="access" />
+            </button>
+          )}
           {(kind === "staff" || u.role === "agent") && recovery && (
             <button type="button" className={iconBtn}
               aria-label={L(`Manage account: ${properName(u.full_name || u.name)}`, `Urus akaun: ${properName(u.full_name || u.name)}`)}
@@ -438,6 +449,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   return (
     <TabPage className={css.page}>
       {toastNode}{promptNode}
+      <CustomerRecoverySheet userId={custSheetId} open={custSheetId !== null} onClose={() => setCustSheetId(null)} onChanged={load} />
       <AccountSheet userId={sheetId} open={sheetId !== null} onClose={() => setSheetId(null)} onChanged={load}
         onPermissions={holds ? () => { setSheetId(null); openView("roles"); } : undefined}
         onAudit={auditTab ? (id) => { const u = rows.find((x) => x.id === id); setSheetId(null); setAuditPerson({ id, name: properName(u?.full_name || u?.name || `#${id}`) }); openView("audit"); } : undefined} />

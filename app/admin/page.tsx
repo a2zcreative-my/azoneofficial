@@ -9,6 +9,7 @@
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { signOutRequest } from "@/lib/push-client"; // v1.226.0: signing out unbinds this device's push
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
+import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
@@ -1120,6 +1121,10 @@ export default function AdminPage() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
   const [tab, setTab] = useState<Tab>("Dashboard");
+  /* v1.265.0 - back from Connect Google (?google=...): the Account tab, where the panel says how it went */
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("google")) requestAnimationFrame(() => setTab("Account" as Tab));
+  }, []);
   /* v1.25.7: EN/BM toggle — same storage as /portal. State lives here so
      flipping it re-renders the whole console (L() re-reads per render).
      Hydrated in an effect because localStorage is client-only. */
@@ -1291,6 +1296,7 @@ export default function AdminPage() {
           <div className="space-y-4 md:space-y-6">
             <div className={card}><AccountPanel /></div>
             <TwoFactorPanel />
+            <GoogleConnectPanel />
           </div>
         )}
         {tabNow === "Testimonials" && (

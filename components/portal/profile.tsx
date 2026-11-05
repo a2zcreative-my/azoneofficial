@@ -29,6 +29,8 @@ import { L } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { roleLabel } from "@/components/portal/users-shared";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
+import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
+import { SignInSettingsPanel } from "@/components/security/signin-settings-panel"; // v1.266.0
 import { ResponsibilitiesView } from "@/components/staff/responsibilities"; // v1.174.0
 import { ShiftReminderPrefs } from "@/components/portal/shift-reminder-prefs"; // v1.226.0
 import { AppIcon } from "@/components/ui/app-icon";
@@ -55,6 +57,10 @@ const dmy = (iso: string | null | undefined) => (iso && iso.length >= 10 ? `${is
 
 export function Profile({ payslips }: { payslips?: ReactNode }) {
   const [view, setView] = useState<View>("profile");
+  /* v1.265.0 - back from Connect Google (?google=...): open Security, where the panel says how it went */
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("google")) requestAnimationFrame(() => setView("security"));
+  }, []);
   const [profile, setProfile] = useState<Prof>({});
   /* v1.77.0 - skeleton until the first fetch lands: a "—" for every field
      while loading read as a blank profile. */
@@ -210,6 +216,11 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
             <ChangePasswordForm />
           </section>
           <TwoFactorPanel />
+        </TabZone>
+        {/* v1.265.0 - Connect Google (Secure Authentication 2.0, Phase 1b) */}
+        <TabZone label={L("Google sign-in", "Log masuk Google")}>
+          <GoogleConnectPanel />
+          {["ceo", "super_admin"].includes(profile.role ?? "") && <SignInSettingsPanel />}
         </TabZone>
         {/* v1.248.0 - the signature that prints on documents you prepare (signing-panel.tsx) */}
         {view === "security" && (

@@ -41,6 +41,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, createHmac } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { fakeGoogle } from "./lib/fake-google.mjs"; // v1.265.0 - Google is OpenID Connect now
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const bundle = (srcRoot, entry, out) => execSync(`npx esbuild "${join(srcRoot, entry)}" --bundle --format=esm --platform=neutral --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
@@ -84,15 +85,10 @@ async function runtime(workerBundle) {
   const RealDate = globalThis.Date; let fixed = new RealDate("2026-10-31T02:00:00Z").getTime();
   globalThis.Date = class extends RealDate { constructor(...a) { super(...(a.length ? a : [fixed])); } static now() { return fixed; } };
   const code = () => { fixed += 31000; return totpAt(fixed); };
-  /* Google, as the callback sees it */
-  let gProfile = null;
+  /* Google, as the worker sees it (v1.265.0: discovery, PKCE, a signed ID token) */
+  const G = fakeGoogle({ clientId: "cid" });
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (u) => {
-    const url = String(u instanceof Request ? u.url : u);
-    if (url.startsWith("https://oauth2.googleapis.com/token")) return new Response(JSON.stringify({ access_token: "at" }), { status: 200 });
-    if (url.startsWith("https://www.googleapis.com/oauth2/v3/userinfo")) return new Response(JSON.stringify(gProfile), { status: 200 });
-    return new Response("{}", { status: 200 });
-  };
+  globalThis.fetch = async (u, init) => (await G.fetch(u, init)) ?? new Response("{}", { status: 200 });
   const worker = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`)).default;
   const tok = {};
   const signIn = (id) => {
@@ -107,9 +103,13 @@ async function runtime(workerBundle) {
     let j = null; try { j = JSON.parse(text); } catch { /* a redirect */ }
     return { status: r.status, j, text, loc: r.headers.get("location"), cookies: r.headers.get("set-cookie") ?? "" };
   };
+  /* the whole round trip: start (PKCE, nonce, state, binding cookie), the
+     person picks their Google account, the callback */
   const google = async (sub, email) => {
-    gProfile = { sub, email, email_verified: true, name: "G" };
-    const r = await worker.fetch(new Request(`https://api.a2z.test/api/v1/auth/google/callback?code=c&state=S1`, { headers: { cookie: "azone_oauth_state=S1" } }), env);
+    const st = await worker.fetch(new Request(`https://api.a2z.test/api/v1/auth/google`), env);
+    const bind = /azone_g_bind=([0-9a-f]{64})/.exec(st.headers.get("set-cookie") ?? "")?.[1] ?? "";
+    const { code, state } = G.authorize(st.headers.get("location") ?? "https://x.invalid/", { sub, email });
+    const r = await worker.fetch(new Request(`https://api.a2z.test/api/v1/auth/google/callback?code=${code}&state=${state}`, { headers: { cookie: `azone_g_bind=${bind}` } }), env);
     return { status: r.status, loc: r.headers.get("location") ?? "", cookies: r.headers.get("set-cookie") ?? "" };
   };
   /* v1.264.0 - the code step after a Google sign-in: the challenge is the

@@ -165,6 +165,35 @@ const server = http.createServer((req, res) => {
           res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, backup_codes: ["AAAA-1111", "BBBB-2222", "CCCC-3333", "DDDD-4444", "EEEE-5555", "FFFF-6666", "GGGG-7777", "HHHH-8888"] })); return;
         }
       }
+      /* v1.266.0 - Phase 1c: a customer's emailed code (password "correct horse"), the owner's
+         settings and legacy notice, customer recovery (the link shown once) */
+      const jb = () => { try { return JSON.parse(body || "{}"); } catch { return {}; } };
+      const send = (st, o) => { res.writeHead(st, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
+      if (req.method === "POST" && p === "/auth/google/code") {
+        const b = jb();
+        return b.password === "correct horse" ? send(200, { sent: true, to: "fi***@example.test" }) : send(401, { error: { code: "invalid_password", message: "That password is not correct." } });
+      }
+      if (req.method === "POST" && p === "/auth/google/disconnect") return send(200, { ok: true });
+      if (req.method === "PUT" && p === "/staff/auth/settings") {
+        const b = jb();
+        return /^\d{6}$/.test(b.totp ?? "") && (b.reason ?? "").length >= 5 ? send(200, { ok: true }) : send(400, { error: { code: "invalid_input", message: "Give a reason" } });
+      }
+      if (req.method === "POST" && p === "/staff/auth/legacy-notice") {
+        return send(200, { remaining: 4, not_yet_told: 4, window_open: false, legacy_link_until: null, subject: "Your A2Z account: sign in with Google once before {the last day of the window}", text: "Hello {name},\n\nYou created your A2Z Creative Marketing account by signing in with Google. (fixture)", can_send: true });
+      }
+      if (req.method === "POST" && /^\/staff\/customer-accounts\/\d+\/(password-link|google-unlink|suspend)$/.test(p)) {
+        const b = jb();
+        if (!b.identity_checked || !b.identity_method || (b.reason ?? "").length < 10) return send(400, { error: { code: "identity_required", message: "Record who checked the identity" } });
+        if (!b.totp) return send(401, { error: { code: "totp_required", message: "Your authenticator code is required" } });
+        return send(200, p.endsWith("password-link") ? { ok: true, emailed: false, link: "https://a2z.example/set-password#token=fixture", expires_in_hours: 24 } : { ok: true });
+      }
+      /* v1.265.0 - Connect Google: the authenticator code 123456 sends the person to Google */
+      if (req.method === "POST" && p === "/auth/google/connect") {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        const good = b.totp === "123456" || b.code === "123456";
+        res.writeHead(good ? 200 : 401, { "content-type": "application/json" });
+        res.end(JSON.stringify(good ? { url: `https://accounts.google.com/o/oauth2/v2/auth?client_id=fixture&return_to=${encodeURIComponent(b.return_to ?? "")}` } : { error: { code: "totp_invalid", message: "That code is not correct." } })); return;
+      }
       if (req.method === "POST" && p === "/staff/attendance") {
         punchLog.push({ key: req.headers["idempotency-key"] ?? null, client_at: req.headers["x-client-at"] ?? null, replay: req.headers["x-outbox-replay"] ?? null, status: punchStatus, body });
         if (punchStatus === 401) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return; }
@@ -344,6 +373,12 @@ const server = http.createServer((req, res) => {
         const copy = { at: "2026-10-31T21:30:00.000Z", live: 1240, copied: mediaBk === "pending" ? 40 : 0, pending: mediaBk === "pending" ? 120 : 0 };
         data.media_backup = mediaBk === "unbound" ? { bucket_bound: false, last_copy: null, last_reconcile: null }
           : { bucket_bound: true, last_copy: copy, last_reconcile: mediaBk === "pending" ? null : { at: "2026-10-31T19:25:00.000Z", live: 1240, missing: 0, stale: 0, bad: mediaBk === "damaged" ? 2 : 0 } };
+      }
+      /* v1.265.0 - Connected Google account (Profile -> Security); GLINKED=1: already connected */
+      if (req.method === "GET" && p === "/auth/2fa/status" && data && !data.error) {
+        data.google = process.env.ROLE === "customer"
+          ? { linked: !!process.env.GLINKED, proof: "password_email", can_connect: !process.env.GLINKED, can_disconnect: !!process.env.GLINKED, why: null }
+          : { linked: !!process.env.GLINKED, proof: "totp", can_connect: !process.env.GLINKED && (process.env.TWOFA ? twofaOn : true), can_disconnect: !!process.env.GLINKED, why: null };
       }
       if (process.env.TWOFA && req.method === "GET") {
         if (p === "/auth/me" && data?.user) data.user.requires_2fa = !twofaOn;

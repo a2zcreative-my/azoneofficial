@@ -185,7 +185,8 @@ const i18n = read("lib/i18n.ts");
      code step and the session - go anywhere else. */
   const cb = worker.slice(worker.indexOf('const OAUTH_FAILED = "/login?error=oauth";'), worker.indexOf('/* v1.23.1 (CEO: "when my staff login using Google'));
   const rets = [...cb.matchAll(/\breturn\b[^;]*;/g)].map((m) => m[0]);
-  const bad = rets.filter((r) => !/^return (await refuseG\(|failed\(|new Response\(null, \{ status: 302, headers: \{ Location: to, "Set-Cookie": clearState \} \}\)|\{ ok: |await )/.test(r) && !/^return (await )?(refuseG|failed)\(/.test(r));
+  const bad = rets.filter((r) => !/^return (await refuseG\(|failed\(|new Response\(null, \{ status: 302, headers: \{ Location: to, "Set-Cookie": clearState \} \}\)|\{ ok: |await )/.test(r) && !/^return (await )?(refuseG|failed|connectBack)\(/.test(r) && !/^return isConnect \? connectBack\("\w+"\) : failed\((GOOGLE_OFF)?\);$/.test(r));
+  /* v1.265.0 - a Connect Google answer goes back to Profile through the same failed() door */
   ok("every Google failure lands on /login, one way", cb.length > 500 && /const failed = \(to = OAUTH_FAILED\) => new Response\(null, \{ status: 302, headers: \{ Location: to, "Set-Cookie": clearState \} \}\);/.test(cb)
      && (cb.match(/Location:/g) ?? []).length === 1 && rets.length >= 12 && bad.length === 0 && !/\/admin\?(error|pending)/.test(worker), JSON.stringify(bad));
   ok("the server still answers a bad password and a missing account the same", /return errorResponse\("invalid_credentials", "Email or password is incorrect", 401\);/.test(worker) && /DUMMY_PASSWORD_HASH/.test(worker));

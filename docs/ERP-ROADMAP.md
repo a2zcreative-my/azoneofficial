@@ -394,3 +394,11 @@ only inside a batch (a step that changed no row makes the whole batch roll back,
 and it is emptied at the end of every batch), and twofa_challenges gains
 pending_google_sub and pending_change_id (NULL on every existing row), so a
 Google link or login email change is applied only after the second factor.
+1.265.0 adds `0174_oauth_requests` (additive): one single-use row per Google
+sign-in or Connect Google request (state and binding cookie as SHA-256, the
+nonce, the PKCE verifier, ten minutes), so the callback can verify Google's
+signed ID token and refuse a replayed, stale or foreign answer.
+1.266.0 adds `0175_email_codes` (additive): a six-digit code emailed to a
+customer before Google is connected to or disconnected from their account
+(keyed hash only, bound to the asking session, ten minutes, five tries, single
+use). No existing row changes.

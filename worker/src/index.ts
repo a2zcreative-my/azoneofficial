@@ -4,7 +4,9 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
-import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
+import { googleDiscovery, pkcePair, verifyGoogleIdToken } from "./google-oidc"; // v1.265.0 - Google OpenID Connect
+import { mailReady, sendMail } from "./mail"; // v1.266.0 - the customer's emailed code
+import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, legacyWindowOpen, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
@@ -296,13 +298,16 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0173_auth_google_identity";
+const LATEST_MIGRATION = "0175_email_codes";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
 const TWOFA_CH_COOKIE = "twofa_ch";
 /* v1.264.0 - where a Google sign-in lands while the owner has Google off */
 const GOOGLE_OFF = "/login?error=google_off";
+/* v1.265.0 - ties a Google request to the browser that started it (HttpOnly,
+   scoped to /api/v1/auth/google, ten minutes); stored only as its SHA-256 */
+const G_BIND_COOKIE = "azone_g_bind";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 
@@ -1531,6 +1536,77 @@ const TWOFA_EXEMPT_PATHS: ReadonlySet<string> = new Set([
   /* "/api/v1/setup" was listed until 1.263.0 - no such route exists */
 ]);
 
+/* ---- v1.266.0 - SECURE AUTHENTICATION 2.0, PHASE 1c (claude/AUTH-2.0-AUDIT.md
+   rev 3 sec. 3.3, R8). A customer proves a Google change with their password
+   AND a six-digit code emailed to the address on file: two independent
+   proofs; the code also proves the mailbox (email_verified_at, F5). A code is
+   keyed-hashed, bound to the session that asked for it, ten minutes, five
+   tries, single use - spent in the same guarded batch as what it allows. ---- */
+type EmailCodePurpose = "google_connect" | "google_disconnect";
+const emailCodeHash = (env: Env, userId: number, purpose: EmailCodePurpose, code: string) =>
+  sha256Hex(`${env.SESSION_PEPPER}:email-code:${userId}:${purpose}:${code}`);
+async function emailCodeProof(
+  env: Env, request: Request, userId: number, purpose: EmailCodePurpose, code: unknown,
+): Promise<{ ok: true; stmts: D1PreparedStatement[] } | { ok: false; code: string; message: string; status: number }> {
+  if (typeof code !== "string" || !/^\d{6}$/.test(code)) return { ok: false, code: "code_required", message: "Enter the 6-digit code we emailed you.", status: 400 };
+  const sess = await sha256Hex(getCookie(request, SESSION_COOKIE) ?? "");
+  let row: { id: number; code_hash: string; attempts: number } | null = null;
+  try {
+    row = await env.DB.prepare(
+      `SELECT id, code_hash, attempts FROM email_codes WHERE user_id = ?1 AND purpose = ?2 AND session_hash = ?3 AND used_at IS NULL AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1`,
+    ).bind(userId, purpose, sess).first<{ id: number; code_hash: string; attempts: number }>();
+  } catch (e) {
+    if (/no such table: email_codes/i.test(String(e))) return { ok: false, code: "migration_missing", message: "Run migration 0175 first (PUSH.bat).", status: 503 };
+    throw e;
+  }
+  if (!row) return { ok: false, code: "code_expired", message: "That code has expired or was already used - ask for a new one.", status: 401 };
+  if (row.attempts >= 5) return { ok: false, code: "too_many_attempts", message: "Too many wrong codes - ask for a new one.", status: 401 };
+  if (!timingSafeEqual(row.code_hash, await emailCodeHash(env, userId, purpose, code))) {
+    await env.DB.prepare(`UPDATE email_codes SET attempts = attempts + 1 WHERE id = ?1`).bind(row.id).run();
+    return { ok: false, code: "invalid_code", message: "That code is not correct.", status: 401 };
+  }
+  return { ok: true, stmts: [
+    env.DB.prepare(`UPDATE email_codes SET used_at = datetime('now') WHERE id = ?1 AND used_at IS NULL AND expires_at > datetime('now')`).bind(row.id),
+    assertOne(env),
+    env.DB.prepare(`UPDATE users SET email_verified_at = COALESCE(email_verified_at, datetime('now')) WHERE id = ?1`).bind(userId),
+  ] };
+}
+/** Spend a code on its own (Connect Google: the link itself comes later, at Google's answer). */
+async function spendEmailCode(
+  env: Env, request: Request, userId: number, purpose: EmailCodePurpose, code: unknown,
+): Promise<{ ok: true } | { ok: false; code: string; message: string; status: number }> {
+  const p = await emailCodeProof(env, request, userId, purpose, code);
+  if (!p.ok) return p;
+  try { await env.DB.batch([...p.stmts, clearAsserts(env)]); } catch { return { ok: false, code: "code_expired", message: "That code has expired or was already used - ask for a new one.", status: 401 }; }
+  return { ok: true };
+}
+/** Connected Google account, as Profile -> Security and the account page show it. */
+async function googleStatus(
+  env: Env, me: { role: string }, row: { google_sub?: string | null; password_hash?: string | null; totp_enabled?: number | null } | null,
+): Promise<{ linked: boolean; proof: "totp" | "password_email"; can_connect: boolean; can_disconnect: boolean; why: string | null }> {
+  const g = await googleAuthSettings(env);
+  const linked = !!row?.google_sub;
+  const hasPw = !!row?.password_hash && !row.password_hash.startsWith("oauth$");
+  if (me.role === "customer") {
+    const mail = mailReady(env);
+    return {
+      linked, proof: "password_email",
+      can_connect: !linked && hasPw && g.enabled && mail,
+      can_disconnect: linked && hasPw && mail,
+      why: !hasPw ? "google_only" : !mail ? "mail_unavailable" : !linked && !g.enabled ? "google_off" : null,
+    };
+  }
+  const totp = !!row?.totp_enabled;
+  return {
+    linked, proof: "totp",
+    can_connect: !linked && totp && g.enabled,
+    /* R8 - only while a verified way in remains: a password AND two-factor */
+    can_disconnect: linked && totp && hasPw,
+    why: !totp ? "twofa_off" : linked && !hasPw ? "google_only" : !linked && !g.enabled ? "google_off" : null,
+  };
+}
+const maskEmail = (e: string) => e.replace(/^(.{1,2})[^@]*(@.*)$/, (_m, a: string, b: string) => `${a}***${b}`);
+
 /**
  * v1.264.0 (claude/AUTH-2.0-AUDIT.md rev 3, G1) - apply what a Google sign-in
  * left pending, once the person is proven: the restricted legacy link, or a
@@ -1554,7 +1630,9 @@ async function applyGooglePending(
     }
     stmts.push(...emailChangeStatements(env, change, pendSub));
   } else if (pendSub) {
-    /* the only link a sign-in makes on its own: the legacy customer one */
+    /* the only link a sign-in makes on its own: the legacy customer one -
+       and only while its window is still open (v1.266.0) */
+    if (!legacyWindowOpen(await googleAuthSettings(env))) return { ok: false, code: "legacy_window_closed" };
     stmts.push(...linkGoogleStatements(env, userId, pendSub, { legacy: true }));
   }
   if (!stmts.length) return { ok: true };
@@ -3989,8 +4067,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/auth/2fa/status" && method === "GET") {
     const me = await getSessionUser(request, env);
     if (!me) return errorResponse("unauthorized", "Sign in required", 401);
-    const row = await env.DB.prepare(`SELECT totp_enabled, password_hash FROM users WHERE id = ?1`)
-      .bind(me.id).first<{ totp_enabled: number; password_hash: string }>();
+    const row = await env.DB.prepare(`SELECT totp_enabled, password_hash, google_sub, email_verified_at FROM users WHERE id = ?1`)
+      .bind(me.id).first<{ totp_enabled: number; password_hash: string; google_sub: string | null; email_verified_at: string | null }>();
     const codes = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM twofa_backup_codes WHERE user_id = ?1 AND used_at IS NULL`,
     ).bind(me.id).first<{ n: number }>();
@@ -4000,6 +4078,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       backup_codes_left: codes?.n ?? 0,
       /* v1.220.0 - what turning it on will ask for (see twoFactorReauth) */
       reauth: row?.password_hash?.startsWith("oauth$") ? "recent_sign_in" : "password",
+      /* v1.265.0 - Connected Google account (Profile -> Security): whether one
+         is connected and whether this account may connect one here (internal,
+         two-factor on, Google switched on). Never the Google id itself. */
+      google: await googleStatus(env, me, row ?? null),
     });
   }
 
@@ -4261,27 +4343,176 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   const oauthBase = allowedOrigins(env).includes(selfOrigin) ? selfOrigin : primaryOrigin(env);
   const redirectUri = `${oauthBase}/api/v1/auth/google/callback`;
 
+  /* v1.265.0 (claude/AUTH-2.0-AUDIT.md rev 3 sec. 3.2, Phase 1b) - every
+     Google request, a sign-in or a Connect Google, starts here: PKCE (S256),
+     a nonce and a state, stored server-side in oauth_requests (state and
+     binding cookie as SHA-256 only), single use, ten minutes. Google's
+     discovery document must advertise S256 or nothing starts (F6). */
+  const G_BIND_CLEAR = `${G_BIND_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth/google; Max-Age=0`;
+  const beginGoogle = async (
+    purpose: "signin" | "connect", extra: { userId?: number; sessionHash?: string; returnTo?: "portal" | "admin" } = {},
+  ): Promise<{ ok: true; url: string; cookie: string } | { ok: false; reason: string }> => {
+    const disc = await googleDiscovery();
+    if (!disc.ok) {
+      await audit(env, extra.userId ?? null, "auth.google_unavailable", undefined, undefined, { reason: disc.reason });
+      return { ok: false, reason: disc.reason };
+    }
+    const state = randomHex(32);
+    const nonce = randomHex(32);
+    const binding = randomHex(32);
+    const { verifier, challenge } = await pkcePair();
+    try {
+      await env.DB.prepare(`DELETE FROM oauth_requests WHERE expires_at < datetime('now', '-1 day')`).run();
+      await env.DB.prepare(
+        `INSERT INTO oauth_requests (id, purpose, binding_hash, nonce, code_verifier, user_id, session_hash, return_to, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now', '+10 minutes'))`,
+      ).bind(await sha256Hex(state), purpose, await sha256Hex(binding), nonce, verifier, extra.userId ?? null, extra.sessionHash ?? null, extra.returnTo ?? null).run();
+    } catch (e) {
+      if (/no such table: oauth_requests/i.test(String(e))) return { ok: false, reason: "migration_missing" };
+      throw e;
+    }
+    const authUrl = new URL(disc.d.authorization_endpoint);
+    authUrl.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", redirectUri);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", "openid email profile");
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("nonce", nonce);
+    authUrl.searchParams.set("code_challenge", challenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+    authUrl.searchParams.set("prompt", "select_account");
+    return { ok: true, url: authUrl.toString(), cookie: `${G_BIND_COOKIE}=${binding}; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth/google; Max-Age=600` };
+  };
+
   if (path === "/api/v1/auth/google" && method === "GET") {
     /* v1.264.0 - the kill switch (PUT /staff/auth/settings, the company
        owner only): Google off, password + authenticator stay on */
     if (!(await googleAuthSettings(env)).enabled) {
       return new Response(null, { status: 302, headers: { Location: GOOGLE_OFF } });
     }
-    const state = randomHex(16);
-    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    authUrl.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
-    authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("scope", "openid email profile");
-    authUrl.searchParams.set("state", state);
-    authUrl.searchParams.set("prompt", "select_account");
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: authUrl.toString(),
-        "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
-      },
+    const g = await beginGoogle("signin");
+    if (!g.ok) return new Response(null, { status: 302, headers: { Location: "/login?error=oauth" } });
+    const h = new Headers({ Location: g.url });
+    h.append("Set-Cookie", g.cookie);
+    h.append("Set-Cookie", `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`); // the pre-1.265.0 state cookie
+    return new Response(null, { status: 302, headers: h });
+  }
+
+  /* v1.265.0 (rev 3 sec. 3.3) - CONNECT GOOGLE, signed in, from Profile ->
+     Security. Internal accounts only in 1b (customers: Phase 1c). Needs two-
+     factor ON and a fresh authenticator code; not exempt from the mandatory-
+     2FA gate (F7); a POST behind the Origin + CSRF check. The request is
+     bound to THIS session: the callback links only into the same live
+     session's account. */
+  if (path === "/api/v1/auth/google/connect" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    if (!(await googleAuthSettings(env)).enabled) return errorResponse("google_off", "Google sign-in is switched off for now.", 409);
+    const row = await env.DB.prepare(`SELECT totp_enabled, google_sub FROM users WHERE id = ?1`).bind(me.id).first<{ totp_enabled: number; google_sub: string | null }>();
+    if (row?.google_sub) return errorResponse("already_linked", "A Google account is already connected to your account.", 409);
+    if (me.role !== "customer" && !row?.totp_enabled) return errorResponse("twofa_needed", "Turn on two-factor first - Google is connected with your authenticator code.", 403);
+    if (!(await checkRateLimit(env, `gconnect:${me.id}`, 5, 3600))) return errorResponse("rate_limited", "Too many attempts - try again in an hour.", 429);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (me.role === "customer") {
+      /* v1.266.0 (rev 3 sec. 3.3) - a customer proves it with their password
+         and the six-digit code emailed to them (POST /auth/google/code) */
+      const proof = await spendEmailCode(env, request, me.id, "google_connect", body?.code);
+      if (!proof.ok) return errorResponse(proof.code, proof.message, proof.status);
+    } else {
+      const stepUp = await requireFreshTotp(env, me, body?.totp, errorResponse, "connect Google");
+      if (stepUp) return stepUp;
+    }
+    const returnTo = me.role === "customer" ? undefined : body?.return_to === "admin" ? "admin" : "portal";
+    const g = await beginGoogle("connect", { userId: me.id, sessionHash: await sha256Hex(getCookie(request, SESSION_COOKIE) ?? ""), returnTo });
+    if (!g.ok) return errorResponse(g.reason === "migration_missing" ? "migration_missing" : "google_unavailable", g.reason === "migration_missing" ? "Run migration 0174 first (PUSH.bat)." : "Google sign-in is not available right now - try again later.", 503);
+    await audit(env, me.id, "auth.google_connect_started", "users", String(me.id));
+    return json({ url: g.url }, 200, { "Set-Cookie": g.cookie });
+  }
+
+  /* v1.266.0 (rev 3 sec. 3.3) - a customer asks for the emailed code that,
+     with their password, lets them connect or disconnect Google. Customers
+     only (staff use their authenticator code); five a day; the code goes
+     only to the address on file. */
+  if (path === "/api/v1/auth/google/code" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    if (me.role !== "customer") return errorResponse("not_available", "Staff confirm with their authenticator code.", 403);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const purpose: EmailCodePurpose | null = body?.purpose === "connect" ? "google_connect" : body?.purpose === "disconnect" ? "google_disconnect" : null;
+    if (!purpose || !isNonEmptyString(body?.password, 200)) return errorResponse("invalid_input", "Your password and what the code is for are required", 400);
+    const row = await env.DB.prepare(`SELECT password_hash, google_sub FROM users WHERE id = ?1`).bind(me.id).first<{ password_hash: string | null; google_sub: string | null }>();
+    if (!row?.password_hash || row.password_hash.startsWith("oauth$")) return errorResponse("google_only", "Your account signs in with Google only. To change that, contact A2Z Creative Marketing.", 409);
+    if (purpose === "google_connect" && row.google_sub) return errorResponse("already_linked", "A Google account is already connected to your account.", 409);
+    if (purpose === "google_disconnect" && !row.google_sub) return errorResponse("not_linked", "No Google account is connected.", 409);
+    if (purpose === "google_connect" && !(await googleAuthSettings(env)).enabled) return errorResponse("google_off", "Google sign-in is switched off for now.", 409);
+    if (!mailReady(env)) return errorResponse("mail_unavailable", "Email sending is not set up yet, so this cannot be done online. Contact A2Z Creative Marketing.", 503);
+    if (!(await checkRateLimit(env, `gcode:${me.id}`, 5, 86400))) return errorResponse("rate_limited", "Too many attempts today - try again tomorrow.", 429);
+    if (!(await verifyPassword(body!.password as string, row.password_hash, env.SESSION_PEPPER))) return errorResponse("invalid_password", "That password is not correct.", 401);
+    const n = crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000;
+    const code = String(n).padStart(6, "0");
+    try {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE email_codes SET used_at = datetime('now') WHERE user_id = ?1 AND purpose = ?2 AND used_at IS NULL`).bind(me.id, purpose),
+        env.DB.prepare(`INSERT INTO email_codes (user_id, purpose, code_hash, session_hash, expires_at) VALUES (?1, ?2, ?3, ?4, datetime('now', '+10 minutes'))`)
+          .bind(me.id, purpose, await emailCodeHash(env, me.id, purpose, code), await sha256Hex(getCookie(request, SESSION_COOKIE) ?? "")),
+      ]);
+    } catch (e) {
+      if (/no such table: email_codes/i.test(String(e))) return errorResponse("migration_missing", "Run migration 0175 first (PUSH.bat).", 503);
+      throw e;
+    }
+    const what = purpose === "google_connect" ? "connect a Google account to" : "disconnect Google from";
+    const sent = await sendMail(env, {
+      to: me.email,
+      subject: `Your A2Z code: ${code}`,
+      text: `Your code to ${what} your A2Z Creative Marketing account is ${code}.\n\nIt works once, for 10 minutes, in the browser where you asked for it.\n\nIf you did not ask for this, ignore this email and change your password. A2Z never asks you to read out a code.`,
     });
+    if (!sent) {
+      await env.DB.prepare(`UPDATE email_codes SET used_at = datetime('now') WHERE user_id = ?1 AND purpose = ?2 AND used_at IS NULL`).bind(me.id, purpose).run();
+      return errorResponse("mail_failed", "The code could not be emailed just now - try again shortly.", 503);
+    }
+    await audit(env, me.id, "auth.email_code_sent", "users", String(me.id), { purpose });
+    return json({ sent: true, to: maskEmail(me.email) });
+  }
+
+  /* v1.266.0 (R8) - DISCONNECT GOOGLE, yourself, only while a verified way
+     in remains: staff keep a password and two-factor (and confirm with their
+     authenticator code); a customer keeps a password and proves it with the
+     password + the emailed code. One guarded batch. */
+  if (path === "/api/v1/auth/google/disconnect" && method === "POST") {
+    const me = await getSessionUser(request, env);
+    if (!me) return errorResponse("unauthorized", "Sign in required", 401);
+    const row = await env.DB.prepare(`SELECT password_hash, google_sub, totp_enabled FROM users WHERE id = ?1`).bind(me.id).first<{ password_hash: string | null; google_sub: string | null; totp_enabled: number }>();
+    if (!row?.google_sub) return errorResponse("not_linked", "No Google account is connected.", 409);
+    const hasPw = !!row.password_hash && !row.password_hash.startsWith("oauth$");
+    if (!hasPw || (me.role !== "customer" && !row.totp_enabled)) {
+      return errorResponse("no_alternative", me.role === "customer"
+        ? "Google is your only way to sign in, so it cannot be disconnected here. Contact A2Z Creative Marketing."
+        : "Keep Google until you have a password and two-factor on - otherwise you could not sign in.", 409);
+    }
+    /* staff: five an hour (a customer's emailed code has its own five tries and five codes a day) */
+    if (me.role !== "customer" && !(await checkRateLimit(env, `gdisc:${me.id}`, 5, 3600))) return errorResponse("rate_limited", "Too many attempts - try again in an hour.", 429);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const stmts: D1PreparedStatement[] = [
+      env.DB.prepare(`UPDATE users SET google_sub = NULL WHERE id = ?1 AND google_sub = ?2`).bind(me.id, row.google_sub),
+      assertOne(env),
+    ];
+    if (me.role === "customer") {
+      const p = await emailCodeProof(env, request, me.id, "google_disconnect", body?.code);
+      if (!p.ok) return errorResponse(p.code, p.message, p.status);
+      stmts.push(...p.stmts);
+    } else {
+      const stepUp = await requireFreshTotp(env, me, body?.totp, errorResponse, "disconnect Google");
+      if (stepUp) return stepUp;
+    }
+    try {
+      await env.DB.batch([...stmts, clearAsserts(env)]);
+    } catch {
+      return errorResponse("changed_meanwhile", "Your account changed meanwhile - nothing was disconnected. Reload and try again.", 409);
+    }
+    await audit(env, me.id, "auth.google_unlinked", "users", String(me.id), { via: "self" });
+    try { await notify(env, me.id, "security", "Google was disconnected from your account. Sign in with your email and password from now on.", `google_disconnected:${me.id}:${Date.now()}`); } catch { /* a notice never undoes it */ }
+    if (mailReady(env)) await sendMail(env, { to: me.email, subject: "Google was disconnected from your A2Z account", text: "Google sign-in was disconnected from your A2Z Creative Marketing account. You sign in with your email and password from now on.\n\nIf you did not do this, change your password and tell A2Z Creative Marketing at once." });
+    return json({ ok: true });
   }
 
   /* v1.211.0 (the owner's sign-in brief, 25-10-2026): every Google sign-in
@@ -4296,18 +4527,48 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const url2 = new URL(request.url);
     const code = url2.searchParams.get("code");
     const state = url2.searchParams.get("state");
-    const cookieState = getCookie(request, OAUTH_STATE_COOKIE);
-    const clearState = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+    const bindCookie = getCookie(request, G_BIND_COOKIE);
+    const clearState = G_BIND_CLEAR;
     const failed = (to = OAUTH_FAILED) => new Response(null, { status: 302, headers: { Location: to, "Set-Cookie": clearState } });
 
-    if (!code || !state || !cookieState || state !== cookieState) return failed();
+    /* v1.265.0 - the request this answer belongs to: known, unused, in
+       time, and started in THIS browser (the binding cookie). It is spent
+       NOW - a single statement, its own row count - so a replayed or second
+       callback with the same state finds it used, whatever happens next. */
+    if (!code || !state || state.length > 200 || code.length > 2048 || !bindCookie) return failed();
+    type OReq = { id: string; purpose: "signin" | "connect"; binding_hash: string; nonce: string; code_verifier: string; user_id: number | null; session_hash: string | null; return_to: string | null };
+    let oreq: OReq | null = null;
+    const stateHash = await sha256Hex(state);
+    try {
+      oreq = await env.DB.prepare(`SELECT id, purpose, binding_hash, nonce, code_verifier, user_id, session_hash, return_to FROM oauth_requests WHERE id = ?1 AND used_at IS NULL AND expires_at > datetime('now')`).bind(stateHash).first<OReq>();
+    } catch (e) {
+      if (!/no such table: oauth_requests/i.test(String(e))) throw e;
+    }
+    if (!oreq || !timingSafeEqual(oreq.binding_hash, await sha256Hex(bindCookie))) {
+      await audit(env, null, "auth.google_callback_rejected", undefined, undefined, { reason: oreq ? "binding_mismatch" : "state_unknown_used_or_expired" });
+      return failed();
+    }
+    const spent = await env.DB.prepare(`UPDATE oauth_requests SET used_at = datetime('now') WHERE id = ?1 AND used_at IS NULL AND expires_at > datetime('now')`).bind(stateHash).run();
+    if (Number(spent.meta?.changes ?? 0) !== 1) {
+      await audit(env, null, "auth.google_callback_rejected", undefined, undefined, { reason: "state_already_used" });
+      return failed();
+    }
+    /* where a Connect Google answer lands (never a sign-in page) */
+    /* a customer's request carries no return_to (the CHECK allows portal / admin): /account */
+    const connectBack = (outcome: string) => failed(`${oreq!.return_to === "admin" ? "/admin?" : oreq!.return_to === "portal" ? "/portal?tab=Profile&" : "/account?"}google=${outcome}`);
+    const isConnect = oreq.purpose === "connect";
     /* the switch is read again here: a sign-in started before it was turned
        off does not finish after */
     const gset = await googleAuthSettings(env);
-    if (!gset.enabled) return failed(GOOGLE_OFF);
+    if (!gset.enabled) return isConnect ? connectBack("off") : failed(GOOGLE_OFF);
 
-    // Exchange code for tokens
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    const disc = await googleDiscovery();
+    if (!disc.ok) {
+      await audit(env, oreq.user_id, "auth.google_unavailable", undefined, undefined, { reason: disc.reason });
+      return isConnect ? connectBack("failed") : failed();
+    }
+    // Exchange the code, with the PKCE verifier
+    const tokenRes = await fetch(disc.d.token_endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -4316,21 +4577,54 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         client_secret: env.GOOGLE_CLIENT_SECRET,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
+        code_verifier: oreq.code_verifier,
       }),
     });
-    const tokens = (await tokenRes.json().catch(() => null)) as { access_token?: string } | null;
-    if (!tokenRes.ok || !tokens?.access_token) return failed();
+    const tokens = (await tokenRes.json().catch(() => null)) as { id_token?: string; error?: string } | null;
+    if (!tokenRes.ok || !tokens?.id_token) {
+      /* F6 - a refused verifier is reported, never worked around */
+      await audit(env, oreq.user_id, "auth.google_token_refused", undefined, undefined, { status: tokenRes.status, error: typeof tokens?.error === "string" ? tokens.error.slice(0, 60) : null });
+      return isConnect ? connectBack("failed") : failed();
+    }
+    const vt = await verifyGoogleIdToken(tokens.id_token, { clientId: env.GOOGLE_CLIENT_ID, nonce: oreq.nonce, jwksUri: disc.d.jwks_uri });
+    if (!vt.ok) {
+      await audit(env, oreq.user_id, "auth.google_token_rejected", undefined, undefined, { reason: vt.reason });
+      return isConnect ? connectBack("failed") : failed();
+    }
+    const claims = vt.claims;
+    const sub = claims.sub;
 
-    // Fetch verified profile
-    const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    });
-    const profile = (await profileRes.json().catch(() => null)) as
-      | { sub?: string; email?: string; email_verified?: boolean; name?: string }
-      | null;
-    if (!profileRes.ok || !profile?.email || profile.email_verified !== true) return failed();
+    if (isConnect) {
+      /* the same live session that asked, the same account, still allowed in */
+      const me = await getSessionUser(request, env);
+      const tok = getCookie(request, SESSION_COOKIE) ?? "";
+      if (!me || me.id !== oreq.user_id || !oreq.session_hash || !timingSafeEqual(oreq.session_hash, await sha256Hex(tok)) || (me.role === "customer") !== (oreq.return_to === null)) {
+        await audit(env, oreq.user_id, "auth.google_connect_refused", "users", oreq.user_id ? String(oreq.user_id) : undefined, { reason: "session_mismatch" });
+        return connectBack("failed");
+      }
+      const holder = await env.DB.prepare(`SELECT id FROM users WHERE google_sub = ?1`).bind(sub).first<{ id: number }>();
+      if (holder?.id === me.id) return connectBack("already");
+      if (holder) {
+        await audit(env, me.id, "auth.google_connect_refused", "users", String(me.id), { reason: "google_account_linked_elsewhere" });
+        return connectBack("refused");
+      }
+      try {
+        await env.DB.batch([...linkGoogleStatements(env, me.id, sub), clearAsserts(env)]);
+      } catch {
+        await audit(env, me.id, "auth.google_connect_refused", "users", String(me.id), { reason: "changed_meanwhile" });
+        return connectBack("refused");
+      }
+      await audit(env, me.id, "auth.google_linked", "users", String(me.id), { via: "profile_connect" });
+      try {
+        await notify(env, me.id, "security", "A Google account was connected to your A2Z OS account. You can now sign in with Google (and your authenticator code). If this was not you, tell A2Z Creative Marketing at once.", `google_connected:${me.id}:${Date.now()}`);
+      } catch { /* a notice never undoes it */ }
+      return connectBack("connected");
+    }
 
-    const email = profile.email.toLowerCase().trim();
+    /* a sign-in needs the address Google has verified */
+    if (!claims.email || claims.email_verified !== true) return failed();
+    const profile = { name: typeof claims.name === "string" ? claims.name.slice(0, 200) : undefined };
+    const email = claims.email.toLowerCase().trim();
     /* v1.264.0 - WHO A GOOGLE ACCOUNT IS (claude/AUTH-2.0-AUDIT.md rev 3
        sec. 3.1, approved by the CEO "by phase"). Google's `sub` is the
        identity; an email is only a hint. Order:
@@ -4341,8 +4635,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
             - linked to a DIFFERENT Google account: refused, never merged;
             - an INTERNAL account (staff, admin, agent): refused. Linking
               by email is gone for good - there is no setting that brings
-              it back. The person is told (once a day) and links Google
-              from Profile -> Security when that arrives (Phase 1b);
+              it back. The person is told (once a day) and connects Google
+              from Profile -> Security (1.265.0);
             - a customer with a password: refused (they sign in with it);
             - one of the Google-created customers from before 1.238.0
               (password 'oauth$google', created before 31-10-2026, no sub):
@@ -4354,8 +4648,6 @@ async function route(request: Request, env: Env, path: string): Promise<Response
        Nothing is linked or changed before the second factor: with 2FA on,
        the pending link / change rides on the challenge and is applied by
        /auth/2fa/verify in ONE guarded batch, or never. */
-    const sub = typeof profile.sub === "string" && profile.sub.length > 0 && profile.sub.length <= 255 ? profile.sub : null;
-    if (!sub) return failed();
     type GAcct = { id: number; is_active: number; employment_status: string | null; email: string; google_sub: string | null; role: string; password_hash: string | null; created_at: string | null };
     const GCOLS = `id, is_active, employment_status, email, google_sub, role, password_hash, created_at`;
     const refuseG = async (userId: number | null, why: string, notice?: string) => {
@@ -4389,13 +4681,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         if (byEmail.google_sub) return await refuseG(byEmail.id, "linked_to_a_different_google_account");
         if (byEmail.role !== "customer") {
           return await refuseG(byEmail.id, "internal_account_not_linked",
-            `Someone tried to sign in to your A2Z OS account with Google as ${email}. Google is not linked to your account, so nobody was let in. Sign in with your email, password and authenticator code. If this was not you, tell A2Z Creative Marketing.`);
+            `Someone tried to sign in to your A2Z OS account with Google as ${email}. Google is not connected to your account, so nobody was let in. If it was you, sign in with your email, password and authenticator code, then connect Google from Profile -> Security. If it was not you, tell A2Z Creative Marketing.`);
         }
         const legacy = byEmail.password_hash === "oauth$google" && !!byEmail.created_at && byEmail.created_at < LEGACY_GOOGLE_BEFORE;
         if (!legacy) {
           return await refuseG(byEmail.id, byEmail.password_hash === "oauth$google" ? "not_a_legacy_google_customer" : "customer_has_password",
-            `Someone tried to sign in to your A2Z account with Google as ${email}. Your account signs in with its password, so nobody was let in. If this was not you, change your password.`);
+            `Someone tried to sign in to your A2Z account with Google as ${email}. Your account signs in with its password, so nobody was let in. If it was you, sign in with your password and connect Google from your account page. If it was not, change your password.`);
         }
+        /* v1.266.0 (R11) - only while the owner's legacy window is open;
+           after it, the neutral message (the login page adds: contact A2Z)
+           and customer recovery links them in person - nobody is locked out */
+        if (!legacyWindowOpen(gset)) return await refuseG(byEmail.id, "legacy_window_closed");
         account = byEmail;
         pendSub = sub;
       } else {
@@ -4524,7 +4820,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!t) return bad;
     const hash = await createPasswordHash(pw, env.SESSION_PEPPER);
     await env.DB.batch([
-      env.DB.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2`).bind(hash, t.user_id),
+      /* v1.266.0 - the link went to this address, so using it proves it (F5) */
+      env.DB.prepare(`UPDATE users SET password_hash = ?1, email_verified_at = COALESCE(email_verified_at, datetime('now')) WHERE id = ?2`).bind(hash, t.user_id),
       env.DB.prepare(`UPDATE account_tokens SET used_at = datetime('now'), token_hash = 'used:' || id WHERE user_id = ?1 AND kind = 'set_password' AND used_at IS NULL`).bind(t.user_id),
       env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(t.user_id),
     ]);
@@ -5270,6 +5567,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0171 (leave decisions, append-only)", `SELECT id, kind, on_behalf_of FROM leave_decisions LIMIT 0`],
       ["0172 (a follow-up names its document and records the outcome)", `SELECT doc_id, outcome, obstacle FROM customer_followups LIMIT 0`],
       ["0173 (Google identity: guarded batches, a 2FA challenge carries the pending link)", `SELECT ok FROM auth_assert LIMIT 0`],
+      ["0174 (Google OpenID Connect: single-use requests with PKCE and a nonce)", `SELECT id, purpose, binding_hash, nonce, code_verifier, user_id, session_hash, return_to, used_at FROM oauth_requests LIMIT 0`],
+      ["0175 (a customer proves their mailbox with an emailed code before Google is connected or disconnected)", `SELECT id, user_id, purpose, code_hash, session_hash, attempts, expires_at, used_at FROM email_codes LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5464,6 +5763,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0171_leave_routing",
       "0172_followup_outcomes",
       "0173_auth_google_identity",
+      "0174_oauth_requests",
+      "0175_email_codes",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -5704,9 +6005,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      the customer's users.email to the CRM customers registry by email. */
   if (path === "/api/v1/account/orders" && method === "GET") {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
-    const acct = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`)
-      .bind(user.id).first<{ password_hash: string }>();
-    const verified = acct?.password_hash.startsWith("oauth$") ?? false;
+    /* v1.266.0 (rev 3 F5) - the address is PROVEN when it is: Google, the
+       email link, the emailed code or the legacy link set email_verified_at.
+       It used to read "signs in with Google" as the proof, so a Google
+       customer given a password (recovery) lost their own invoices, and a
+       password customer who proved their address never saw them. */
+    let acct: { password_hash: string; email_verified_at?: string | null } | null = null;
+    try {
+      acct = await env.DB.prepare(`SELECT password_hash, email_verified_at FROM users WHERE id = ?1`).bind(user.id).first<{ password_hash: string; email_verified_at: string | null }>();
+    } catch {
+      acct = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?1`).bind(user.id).first<{ password_hash: string }>();
+    }
+    const verified = !!acct?.email_verified_at || (acct?.password_hash.startsWith("oauth$") ?? false);
     if (!verified) {
       return json({ locked: true, docs: [], lives: [], brand: null });
     }

@@ -835,6 +835,16 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     : { month: q.get("month"), entry: { user_id: 9001, month: q.get("month"), basic_cents: 350000, commission_cents: 42000, allowance_cents: 20000, deduction_cents: 5000, ot_hours: 0, ot_cents: 0, note: null, name: "Fixture Person", full_name: "Fixture Person bin Test", employee_id: "A2Z-001", position: "CEO", department: "Management", employment_status: "permanent", bank_name: "Maybank", bank_account: "•••• 5621", joined_on: "2023-01-01" },
         extras: { working_day: 21, public_holiday: 1, annual_leave: 0, medical_leave: 0, annual_bal: 8, sick_bal: 14 }, joined_on: "2023-01-01", release_issuer_code: "a2z" };
   if (p === "/auth/2fa/status") data = { enabled: false, eligible: true, backup_codes_left: 0, reauth: "password" };
+  /* v1.266.0 - Secure Authentication 2.0, Phase 1c: the owner's sign-in settings and customer recovery */
+  if (p === "/staff/auth/settings") data = ["ceo", "super_admin"].includes(ROLE) ? {
+    google: { enabled: true, customer_signup: true, legacy_link_until: null, updated_at: null, updated_by: null },
+    legacy: { remaining: 4, told: 0, window_open: false, legacy_link_until: null }, can_set: OWNER && ROLE === "ceo",
+  } : { error: { code: "forbidden", message: "Only the CEO and the super admin see the sign-in settings" } };
+  {
+    const cm = p.match(/^\/staff\/customer-accounts\/(\d+)$/);
+    if (cm) data = { account: { id: Number(cm[1]), name: "Narida Binti Aziz", email: "narida@example.test", is_active: true, has_password: false, google_connected: false, email_verified: true, legacy: true, created_at: "2026-07-14 03:00:00" },
+      history: [{ action: "auth.google_refused", created_at: "2026-11-05 03:10:00", who: null }], mail_ready: false };
+  }
   if (p === "/cashflow") data = { entries: cash };
   /* v1.221.0 - Companies 2.0 (worker/src/company-review.ts) in the shape it
      sends: test rows only - two companies, nine registers, one reviewed,

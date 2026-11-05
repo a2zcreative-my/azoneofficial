@@ -162,14 +162,26 @@ export async function applyEmailChange(env: Env, c: ChangeRow, opts: { googleSub
    `customer_signup` decides whether an unknown Google account may become a
    customer (R10 - on, as today, until the CEO decides). There is NO setting
    that brings back email-match linking for an internal account. ---- */
-export interface GoogleAuthSettings { enabled: boolean; customer_signup: boolean; updated_at?: string | null; updated_by?: string | null }
+export interface GoogleAuthSettings { enabled: boolean; customer_signup: boolean; legacy_link_until: string | null; updated_at?: string | null; updated_by?: string | null }
+/* v1.266.0 (rev 3 sec. 3.4, R11) - the legacy link window: the last day
+   (YYYY-MM-DD, Malaysia time) on which a Google-created customer from before
+   1.238.0 may take the one-time legacy link. None set = closed. The owner
+   opens it (at most 90 days) when the notice to those customers is approved. */
+export function legacyWindowOpen(g: Pick<GoogleAuthSettings, "legacy_link_until">, now = Date.now()): boolean {
+  const d = g.legacy_link_until;
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  return now <= Date.parse(`${d}T23:59:59+08:00`);
+}
+/** Google-created customers from before 1.238.0 still without a Google id. */
+export const LEGACY_CUSTOMER_SQL = `role = 'customer' AND password_hash = 'oauth$google' AND google_sub IS NULL AND is_active = 1 AND created_at < '${LEGACY_GOOGLE_BEFORE}'`;
 export async function googleAuthSettings(env: Env): Promise<GoogleAuthSettings> {
   try {
     const r = await env.DB.prepare(`SELECT s.value, s.updated_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who FROM business_settings s LEFT JOIN users u ON u.id = s.updated_by WHERE s.key = 'auth_google'`)
       .first<{ value: string | null; updated_at: string | null; who: string | null }>();
     const v = r?.value ? JSON.parse(r.value) as Record<string, unknown> : {};
-    return { enabled: v.enabled !== false, customer_signup: v.customer_signup !== false, updated_at: r?.updated_at ?? null, updated_by: r?.who ?? null };
-  } catch { return { enabled: true, customer_signup: true }; }
+    const until = typeof v.legacy_link_until === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.legacy_link_until) ? v.legacy_link_until : null;
+    return { enabled: v.enabled !== false, customer_signup: v.customer_signup !== false, legacy_link_until: until, updated_at: r?.updated_at ?? null, updated_by: r?.who ?? null };
+  } catch { return { enabled: true, customer_signup: true, legacy_link_until: null }; }
 }
 
 /** The pending change a Google sign-in as `email` would complete, if any. */

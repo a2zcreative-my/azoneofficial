@@ -7,6 +7,7 @@ import { Skel, SkelText } from "@/components/ui/skeleton"; // v1.77.0
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useEffect, useState } from "react";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.266.0 - Connect / disconnect Google
 import { useSaveToast } from "@/components/ui/save-toast";
 import { card, inputClass, btnClass, chipSuccess, chipWarn, chipNeutral } from "@/lib/ui-styles";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton"; // v1.228.0
@@ -191,6 +192,10 @@ export default function AccountPage() {
             </>
           )}
         </div>
+        {/* v1.266.0 (Secure Authentication 2.0, Phase 1c) - Connected Google
+            account: connect with the password + an emailed code, or
+            disconnect while the password remains */}
+        <GoogleConnectPanel />
         {/* v1.27.0: the "ELFIA drops" card was removed. ELFIA is an
             independent client brand, not an A2Z product, and this card
             advertised one client's storefront to every signed-in customer —

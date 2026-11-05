@@ -61,7 +61,7 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
 import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
-import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, googleAuthSettings, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
+import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, googleAuthSettings, legacyWindowOpen, LEGACY_CUSTOMER_SQL, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
 import { mailReady, sendMail, sendMailResult } from "./mail"; // v1.238.0 - Cloudflare Email Sending; v1.247.0 - the provider answer for the log
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
@@ -1937,8 +1937,27 @@ export async function ownerStepUp(
    the person is withdrawn first; only the hash is stored. Emailed when
    sending is set up, otherwise returned to be shown once and handed over in
    person - never stored, never logged. */
+/* v1.266.0 (R11) - the legacy Google customers, counted for the owner */
+async function legacyCounts(env: Env, g: { legacy_link_until: string | null }): Promise<{ remaining: number; told: number; window_open: boolean; legacy_link_until: string | null }> {
+  const r = await env.DB.prepare(`SELECT COUNT(*) AS n FROM users WHERE ${LEGACY_CUSTOMER_SQL}`).first<{ n: number }>();
+  const t = await env.DB.prepare(`SELECT COUNT(DISTINCT entity_id) AS n FROM audit_log WHERE action = 'auth.legacy_notice_sent'`).first<{ n: number }>();
+  return { remaining: Number(r?.n ?? 0), told: Number(t?.n ?? 0), window_open: legacyWindowOpen(g), legacy_link_until: g.legacy_link_until };
+}
+/** The legacy notice, word for word (claude/GATE-1.266.0.md, for the CEO's approval, Q7). */
+export function legacyNotice(env: Env, c: { name: string; email: string }, until: string): { subject: string; text: string } {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(until) ? `${until.slice(8, 10)}-${until.slice(5, 7)}-${until.slice(0, 4)}` : until;
+  return {
+    subject: `Your A2Z account: sign in with Google once before ${day}`,
+    text: `Hello ${c.name},\n\n`
+      + `You created your A2Z Creative Marketing account by signing in with Google. We have made Google sign-in more secure: your account is now tied to your Google account itself, not only to its email address.\n\n`
+      + `To keep using Google sign-in, sign in once with Google at ${primaryOrigin(env)}/login on or before ${day}, using the same Google account (${c.email}). Nothing else changes - your enquiries, quotations and invoices stay exactly as they are.\n\n`
+      + `If you cannot sign in by then, contact A2Z Creative Marketing and we will help you.\n\n`
+      + `A2Z will never ask you for your password or a code by email, phone or WhatsApp.\n\nA2Z Creative Marketing`,
+  };
+}
+
 export async function issueSetPasswordLink(
-  env: Env, actor: { id: number; name: string }, target: { id: number; email: string }, invite: boolean,
+  env: Env, actor: { id: number; name: string }, target: { id: number; email: string }, invite: boolean, customer = false,
 ): Promise<{ emailed: boolean; link: string }> {
   const tok = newToken();
   await env.DB.batch([
@@ -1946,7 +1965,10 @@ export async function issueSetPasswordLink(
     env.DB.prepare(`INSERT INTO account_tokens (user_id, kind, token_hash, expires_at, created_by) VALUES (?1, 'set_password', ?2, datetime('now', '+${SET_PASSWORD_TTL_HOURS} hours'), ?3)`).bind(target.id, await sha256Acct(tok), actor.id),
   ]);
   const link = `${primaryOrigin(env)}/set-password#token=${tok}`;
-  const emailed = await sendMail(env, invite
+  const emailed = await sendMail(env, customer
+    /* v1.266.0 - a customer: no "A2Z OS", no two-factor line */
+    ? { to: target.email, subject: "Set the password of your A2Z account", text: `A2Z Creative Marketing sent you a link to set a password for your A2Z account. It works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nIf you did not ask us for this, ignore this email and tell A2Z Creative Marketing.` }
+    : invite
     ? { to: target.email, subject: "Your A2Z OS account", text: `${actor.name} created an A2Z OS account for you. Choose your password with this link - it works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nYou will set up two-factor sign-in the first time you sign in.` }
     : { to: target.email, subject: "Set your A2Z OS password", text: `${actor.name} sent you a link to set the password of your A2Z OS account. It works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nYour two-factor sign-in still applies.` });
   return { emailed, link };
@@ -6365,7 +6387,7 @@ async function handleStaffRoutes(
   if (path === "/auth/settings" && method === "GET") {
     if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO and the super admin see the sign-in settings", 403);
     const g = await googleAuthSettings(env);
-    return json({ google: g, can_set: user.role === "ceo" && user.is_owner === true });
+    return json({ google: g, legacy: await legacyCounts(env, g), can_set: user.role === "ceo" && user.is_owner === true });
   }
   if (path === "/auth/settings" && method === "PUT") {
     if (user.role !== "ceo" || user.is_owner !== true) return err("forbidden", "Only the company owner changes how people sign in", 403);
@@ -6376,14 +6398,125 @@ async function handleStaffRoutes(
     const stepUp = await requireFreshTotp(env, user, body?.totp, err, "change how people sign in");
     if (stepUp) return stepUp;
     const before = await googleAuthSettings(env);
-    const after = { enabled: g.enabled, customer_signup: g.customer_signup };
+    /* v1.266.0 (R11) - the legacy link window: kept unless named; null closes
+       it; a date opens it to the end of that day (Malaysia time), today at the
+       earliest and 90 days ahead at the latest */
+    let until = before.legacy_link_until;
+    if ("legacy_link_until" in g) {
+      if (g.legacy_link_until === null) until = null;
+      else {
+        const d = typeof g.legacy_link_until === "string" && /^\d{4}-\d{2}-\d{2}$/.test(g.legacy_link_until) ? g.legacy_link_until : "";
+        const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+        const last = new Date(Date.now() + 8 * 3600_000 + 90 * 86400_000).toISOString().slice(0, 10);
+        if (!d || d < today || d > last) return err("invalid_input", `The legacy window ends between ${today} and ${last} (90 days at most), or is closed (null)`, 400);
+        until = d;
+      }
+    }
+    const after = { enabled: g.enabled, customer_signup: g.customer_signup, legacy_link_until: until };
     await env.DB.prepare(`INSERT INTO business_settings (key, value, updated_by, updated_at) VALUES ('auth_google', ?1, ?2, datetime('now'))
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
       .bind(JSON.stringify(after), user.id).run();
     await audit(env, user.id, "auth.settings_google", "business_settings", "auth_google", {
-      before: { enabled: before.enabled, customer_signup: before.customer_signup }, after, reason,
+      before: { enabled: before.enabled, customer_signup: before.customer_signup, legacy_link_until: before.legacy_link_until }, after, reason,
     });
     return json({ ok: true, google: await googleAuthSettings(env) });
+  }
+
+  /* v1.266.0 (rev 3 sec. 3.4, R11, Q7) - THE LEGACY NOTICE to the Google-
+     created customers from before 1.238.0 who have not signed in with Google
+     since. Read (CEO, super admin): how many, and the exact words. Send: only
+     the company owner, with a fresh code and a reason, only while the legacy
+     window is open (the email names its last day), each customer once,
+     through the existing mail service. Nothing is ever sent by itself. */
+  if (path === "/auth/legacy-notice" && method === "POST") {
+    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO and the super admin see the legacy notice", 403);
+    const g = await googleAuthSettings(env);
+    const send = body?.send === true;
+    const due = (await env.DB.prepare(`SELECT id, email, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE ${LEGACY_CUSTOMER_SQL} ORDER BY id`).all<{ id: number; email: string; name: string }>()).results;
+    const notified = new Set((await env.DB.prepare(`SELECT entity_id FROM audit_log WHERE action = 'auth.legacy_notice_sent'`).all<{ entity_id: string }>()).results.map((r) => Number(r.entity_id)));
+    const until = g.legacy_link_until;
+    const draft = legacyNotice(env, { name: "{name}", email: "{email}" }, until ?? "{the last day of the window}");
+    if (!send) return json({ remaining: due.length, not_yet_told: due.filter((d) => !notified.has(d.id)).length, window_open: legacyWindowOpen(g), legacy_link_until: until, subject: draft.subject, text: draft.text, can_send: user.role === "ceo" && user.is_owner === true });
+    if (user.role !== "ceo" || user.is_owner !== true) return err("forbidden", "Only the company owner sends the legacy notice", 403);
+    if (!legacyWindowOpen(g) || !until) return err("window_closed", "Open the legacy window first - the email tells the customers its last day.", 409);
+    if (!mailReady(env)) return err("mail_unavailable", "Email sending is not set up yet.", 503);
+    const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 5 || reason.length > 300) return err("invalid_input", "Give a reason (5 to 300 characters)", 400);
+    const stepUp = await requireFreshTotp(env, user, body?.totp, err, "send the legacy notice");
+    if (stepUp) return stepUp;
+    let sent = 0, failed = 0;
+    for (const c of due.filter((d) => !notified.has(d.id))) {
+      const m = legacyNotice(env, c, until);
+      if (await sendMail(env, { to: c.email, subject: m.subject, text: m.text })) {
+        sent++;
+        await audit(env, user.id, "auth.legacy_notice_sent", "users", String(c.id), { legacy_link_until: until, reason });
+      } else failed++;
+    }
+    return json({ ok: true, sent, failed, already_told: due.length - sent - failed });
+  }
+
+  /* v1.266.0 (rev 3 R9, sec. 6.3 row 11) - CUSTOMER RECOVERY. The company
+     owner or the super admin, for a customer who cannot sign in: a recorded
+     identity check (who checked and how - nothing stored but that), a reason
+     and a fresh code, then ONE of: a set-password link to the address on
+     file, disconnect Google, suspend. Never the email in the same step; never
+     lifts a suspension; three actions per customer a day; audited; the
+     customer is told. */
+  const custAcct = path.match(/^\/customer-accounts\/(\d+)(\/(?:password-link|google-unlink|suspend))?$/);
+  if (custAcct) {
+    if (!allows(user, "account_recovery")) return err("forbidden", "Only the company owner or the super admin recovers a customer account." + ownerOffHint(user), 403);
+    type CRow = { id: number; name: string; email: string; role: string; is_active: number; password_hash: string | null; google_sub: string | null; email_verified_at: string | null; created_at: string | null };
+    const c = await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, email, role, is_active, password_hash, google_sub, email_verified_at, created_at FROM users WHERE id = ?1`).bind(Number(custAcct[1])).first<CRow>();
+    if (!c || c.role !== "customer") return err("not_found", "No such customer account", 404);
+    const hasPw = !!c.password_hash && !c.password_hash.startsWith("oauth$");
+    if (method === "GET" && !custAcct[2]) {
+      const history = (await env.DB.prepare(
+        `SELECT a.action, a.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+         WHERE a.entity_id = ?1 AND (a.action LIKE 'auth.%' OR a.action LIKE 'user.%') ORDER BY a.id DESC LIMIT 20`,
+      ).bind(String(c.id)).all()).results;
+      return json({
+        account: { id: c.id, name: c.name, email: c.email, is_active: !!c.is_active, has_password: hasPw, google_connected: !!c.google_sub, email_verified: !!c.email_verified_at || (c.password_hash ?? "").startsWith("oauth$"), legacy: !c.google_sub && c.password_hash === "oauth$google" && !!c.created_at && c.created_at < "2026-10-31 00:00:00", created_at: c.created_at },
+        history, mail_ready: mailReady(env),
+      });
+    }
+    if (method !== "POST" || !custAcct[2]) return err("not_found", "Not found", 404);
+    const action = custAcct[2].slice(1) as "password-link" | "google-unlink" | "suspend";
+    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    const checkedBy = typeof body?.identity_checked === "string" ? body.identity_checked.trim().slice(0, 120) : "";
+    const how = ["whatsapp_video", "registered_contact", "in_person"].includes(String(body?.identity_method)) ? String(body!.identity_method) : "";
+    if (checkedBy.length < 3 || !how) return err("identity_required", "Record who checked the customer's identity and how (a WhatsApp video call, the registered company contact, or in person).", 400);
+    if (reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    if (action === "suspend" && !c.is_active) return err("invalid_state", "Already suspended - recovery never lifts a suspension.", 409);
+    if (action === "google-unlink" && !c.google_sub) return err("invalid_state", "No Google account is connected", 409);
+    if (action === "google-unlink" && !hasPw) return err("no_alternative", "Google is this customer's only way in. Send a set-password link first, then disconnect Google.", 409);
+    if (action === "password-link" && !c.is_active) return err("invalid_state", "This account is suspended.", 409);
+    const su = await requireFreshTotp(env, user, body?.totp, err, "recover this customer account");
+    if (su) return su;
+    if (!(await checkRateLimit(env, `custrec:${c.id}`, 3, 86400))) return err("rate_limited", "Three recovery actions a day for one customer - try again tomorrow.", 429);
+    const detail = { action, reason, identity_checked_by: checkedBy, identity_method: how, by_owner: user.role !== "super_admin" };
+    if (action === "password-link") {
+      /* F5 - a Google-created customer's address was proven by Google; say
+         so BEFORE the password replaces 'oauth$google', so their invoices stay */
+      if ((c.password_hash ?? "").startsWith("oauth$") && !c.email_verified_at) {
+        await env.DB.prepare(`UPDATE users SET email_verified_at = datetime('now') WHERE id = ?1 AND email_verified_at IS NULL`).bind(c.id).run();
+      }
+      const { emailed, link } = await issueSetPasswordLink(env, user, c, false, true);
+      await audit(env, user.id, "auth.customer_recovery", "users", String(c.id), { ...detail, emailed });
+      return json({ ok: true, emailed, expires_in_hours: SET_PASSWORD_TTL_HOURS, ...(emailed ? {} : { link }) });
+    }
+    if (action === "google-unlink") {
+      const r = await env.DB.prepare(`UPDATE users SET google_sub = NULL WHERE id = ?1 AND google_sub = ?2`).bind(c.id, c.google_sub).run();
+      if (Number(r.meta?.changes ?? 0) !== 1) return err("changed_meanwhile", "The account changed meanwhile - nothing was disconnected.", 409);
+      await audit(env, user.id, "auth.customer_recovery", "users", String(c.id), detail);
+      if (mailReady(env)) await sendMail(env, { to: c.email, subject: "Google was disconnected from your A2Z account", text: "At your request, A2Z Creative Marketing disconnected Google sign-in from your A2Z account. Sign in with your email and password.\n\nIf you did not ask for this, tell A2Z Creative Marketing at once." });
+      return json({ ok: true });
+    }
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE users SET is_active = 0 WHERE id = ?1`).bind(c.id),
+      env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(c.id),
+    ]);
+    await audit(env, user.id, "auth.customer_recovery", "users", String(c.id), detail);
+    return json({ ok: true, is_active: false });
   }
 
   /* v1.131.0 — WHICH DAYS ARE CLOSED, for the roster's pickers.
@@ -13445,7 +13578,7 @@ async function handleStaffRoutes(
     if (action === "/google/unlink") {
       await env.DB.prepare(`UPDATE users SET google_sub = NULL WHERE id = ?1`).bind(t.id).run();
       await auditAcct(env, user.id, "auth.google_unlinked", String(t.id), { reason, by_owner: byOwner });
-      try { await notify(env, t.id, "security", `${user.name} unlinked your Google account. Your next Google sign-in links the account you use then.`, `gunlink:${Date.now()}`); } catch { /* never blocks */ }
+      try { await notify(env, t.id, "security", `${user.name} disconnected your Google account. Sign in with your email, password and authenticator code; connect Google again from Profile -> Security if you want to.`, `gunlink:${Date.now()}`); } catch { /* never blocks */ }
       return json({ ok: true });
     }
     if (action === "/sessions/revoke") {

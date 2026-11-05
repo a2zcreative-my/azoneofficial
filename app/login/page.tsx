@@ -173,6 +173,9 @@ export default function LoginPage() {
   /* v1.264.0 - the worker says which ways in are on (GET /auth/methods);
      until it answers the Google button shows, as it always has */
   const [googleOn, setGoogleOn] = useState(true);
+  /* v1.266.0 (R11) - after a failed Google sign-in, one line for everybody (it
+     says nothing about any account): the old Google customers are helped in person */
+  const [oauthHint, setOauthHint] = useState(false);
   const [lang, setLangState] = useState<Lang>("en");
   const emailRef = useRef<HTMLInputElement>(null);
   const verifying = useRef(false);
@@ -266,6 +269,7 @@ export default function LoginPage() {
     const why = q.get("error");
     if (why === "oauth" || why === "google_off") requestAnimationFrame(() => {
       if (why === "google_off") setGoogleOn(false);
+      else setOauthHint(true);
       setError(LE(...(why === "google_off" ? GOOGLE_OFF : FAILED)));
     });
   }, []);
@@ -436,6 +440,7 @@ export default function LoginPage() {
               </Field>
 
               {error && <ErrorNote id="form-error" message={error} />}
+              {oauthHint && error && <p className={css.hint}>{L("Used to sign in with Google and cannot now? Contact A2Z Creative Marketing - we will help you in person.", "Dahulu log masuk dengan Google dan kini tidak boleh? Hubungi A2Z Creative Marketing - kami akan membantu anda secara bersemuka.")}</p>}
 
               <button type="submit" className={btnClassBlock} disabled={busy}>
                 {busy ? L("Please wait…", "Sila tunggu…") : L("Sign in", "Log masuk")}

@@ -183,7 +183,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
               <dt>{L("Sign-in methods", "Kaedah log masuk")}</dt><dd className={css.chips}>
                 {a.methods.password && <span className={chipSmNeutral}>{L("Email + password", "E-mel + kata laluan")}</span>}
                 {a.methods.google && <span className={chipSmNeutral}>{L("Google (linked)", "Google (dipautkan)")}</span>}
-                {a.methods.google_unlinked_signup && <span className={chipSmWarn}>{L("Google - links at the next Google sign-in", "Google - dipautkan pada log masuk Google seterusnya")}</span>}
+                {a.methods.google_unlinked_signup && <span className={chipSmWarn}>{L("Google only, not connected - they connect it from Profile -> Security once signed in", "Google sahaja, tidak disambungkan - mereka menyambungkannya dari Profil -> Keselamatan selepas log masuk")}</span>}
               </dd>
               <dt>{L("Two-factor", "Dua faktor")}</dt><dd>{a.totp_enabled ? L(`On · ${a.backup_codes_left} backup code(s) left`, `Hidup · ${a.backup_codes_left} kod sandaran berbaki`) : L("Off - set up at the next sign-in", "Mati - ditetapkan pada log masuk seterusnya")}</dd>
               <dt>{L("Last sign-in", "Log masuk terakhir")}</dt><dd>{stamp(a.last_login)}</dd>
