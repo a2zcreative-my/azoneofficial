@@ -20,6 +20,7 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { TargetsDrawer } from "@/components/portal/weekly-sales";
+import { AdviceList, AllocationDrawer, CashWatchPlaceholder, CommandStrip, KIND, Opportunities, WeeklyRhythm, type AdviceCard, type Opportunity, type Outlook } from "@/components/portal/sales-discipline";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import type { TabName } from "@/lib/portal-tabs";
@@ -31,9 +32,11 @@ import css from "./week-target-card.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const TONE: Record<WeekTone, string> = { neutral: chipSmNeutral, info: chipSmInfo, success: chipSmSuccess, warn: chipSmWarn, danger: chipSmDanger };
+/* v1.262.0 - a team row's plan state (the HOD's "their reports' plan states") */
+const PLAN_WORD: Record<string, [string, string]> = { draft: ["Plan drafted", "Pelan dideraf"], submitted: ["Plan submitted", "Pelan dihantar"], approved: ["Plan approved", "Pelan diluluskan"], returned: ["Plan returned", "Pelan dikembalikan"] };
 const chip = (s: WeekStatus) => <span className={TONE[WEEK_STATUS[s].tone]} title={L(WEEK_STATUS[s].hint_en, WEEK_STATUS[s].hint_ms)}>{L(WEEK_STATUS[s].en, WEEK_STATUS[s].ms)}</span>;
 
-interface Slim { user_id: number; name: string; department: string | null; target_cents: number | null; basis_cents: number; pct: number | null; gap_cents: number | null; status: WeekStatus }
+interface Slim { user_id: number; name: string; department: string | null; target_cents: number | null; basis_cents: number; pct: number | null; gap_cents: number | null; status: WeekStatus; kind?: string; plan?: string | null }
 interface Goal { metric: string; target: number; actual: number; pct?: number }
 export interface WeekDash {
   week: { from: string; to: string; today: string; checkpoint: string; start_dow: number };
@@ -45,7 +48,11 @@ export interface WeekDash {
     open_quotations: { n: number; cents: number }; followups_overdue: number; tasks: { open: number; done: number; overdue: number };
     top_tasks: { id: number; title: string; deadline: string | null; link_kind: string | null }[];
     enquiries_waiting: number | null; introductions: { pending: number | null; verified_week: number | null }; plan: { status: string } | null;
+    /* v1.262.0 - My week */
+    kind?: string; role?: string; followups_today?: number | null; next_followups?: { id: number; due_on: string; note: string; company: string | null }[];
   };
+  /* v1.262.0 - management's command strip; the advice and open quotations (own, for a seller) */
+  outlook?: Outlook | null; advisory?: { cards: AdviceCard[]; total: number; inactive: { rule: string; needs: string }[] } | null; opportunities?: Opportunity[] | null;
   team: null | { target_cents: number | null; basis_cents: number; pct: number | null; gap_cents: number | null; rows: Slim[] };
   all: null | { rows: (Slim & { goals: Goal[] })[]; counts: Record<string, number>; attention: Slim[]; departments: { name: string | null; target_cents: number | null; basis_cents: number; people: number; pct: number | null }[] };
   can_set: boolean; can_view_all: boolean; can_assign: boolean; can_sales: boolean;
@@ -163,6 +170,7 @@ export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: Tab
   const [introduce, setIntroduce] = useState(false);
   const [targets, setTargets] = useState(false);
   const [lists, setLists] = useState(false);
+  const [alloc, setAlloc] = useState(false);
   const d = view.data;
   const open = (t: string) => (canOpen ? canOpen(t) : false);
 
@@ -196,6 +204,7 @@ export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: Tab
           <h3 className={css.title}>{L("Weekly Sales Target", "Sasaran Jualan Mingguan")}</h3>
           <p className={css.dates}>{dmy(d.week.from)} – {dmy(d.week.to)}</p>
         </div>
+        {d.can_set && <button type="button" className={css.headBtn} onClick={() => setAlloc(true)}>{L("Allocate", "Agih")}</button>}
         {d.can_set && <button type="button" className={css.headBtn} onClick={() => setTargets(true)}>{L("Manage", "Urus")}</button>}
         {sales && <button type="button" className={css.headBtn} onClick={() => go("Sales")}>{L("View details", "Lihat butiran")}<AppIcon name="next" /></button>}
       </div>
@@ -221,9 +230,17 @@ export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: Tab
               </ul>
             )}
             {(me.introductions.pending ?? 0) > 0 && <p className={css.muted}>{L(`${me.introductions.pending} lead(s) you introduced waiting for Sales`, `${me.introductions.pending} petunjuk anda menunggu Jualan`)}</p>}
+            {me.kind && KIND[me.kind] && <p className={css.muted}><strong>{L(KIND[me.kind]![0], KIND[me.kind]![1])}.</strong> {L(KIND[me.kind]![2], KIND[me.kind]![3])}</p>}
+            {(me.next_followups?.length ?? 0) > 0 && (
+              <ul className={css.goals} aria-label={L("My follow-ups due", "Susulan saya")}>
+                {me.next_followups!.map((f) => <li key={f.id}><span>{f.due_on < d.week.today ? L("Late", "Lewat") : L("Today", "Hari ini")} · {f.company ?? "-"} · {f.note}</span></li>)}
+              </ul>
+            )}
           </div>
         )}
       </div>
+
+      {d.outlook && <CommandStrip o={d.outlook} gap={d.company.gap_cents} />}
 
       <p className={css.basis}>
         {L("Counts invoices paid in full this week, by the closer.", "Mengira invois dibayar penuh minggu ini, oleh penutup.")}
@@ -234,6 +251,15 @@ export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: Tab
         <div className={css.acts} role="group" aria-label={L("Sales actions", "Tindakan jualan")}>
           {acts.map((a) => <button key={a.key} type="button" className={css.act} onClick={a.onClick}><AppIcon name={a.icon} />{a.label}</button>)}
         </div>
+      )}
+
+      {d.advisory && (d.advisory.cards.length > 0 || d.can_view_all) && (
+        <AdviceList cards={d.advisory.cards} total={d.advisory.total} inactive={d.can_view_all ? d.advisory.inactive : undefined} onDone={view.refresh}
+          onNavigate={(a) => (a === "allocate" && d.can_set ? setAlloc(true) : a === "tasks" ? go("Tasks") : go("Sales"))} />
+      )}
+      {d.opportunities && d.opportunities.length > 0 && (
+        <Opportunities rows={d.opportunities} canAct={d.can_sales} onChanged={view.refresh}
+          title={d.can_view_all ? L("Open quotations - status first", "Sebut harga terbuka - status dahulu") : L("My open quotations", "Sebut harga terbuka saya")} />
       )}
 
       {hasLists && (
@@ -254,7 +280,7 @@ export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: Tab
                     <Bar pct={d.team.pct} label={L(`Team: ${d.team.pct ?? 0}% of the combined target`, `Pasukan: ${d.team.pct ?? 0}% daripada sasaran gabungan`)} />
                   </>}
                 <ul className={css.people}>
-                  {d.team.rows.slice(0, 8).map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.target_cents === null ? fmtRM(r.basis_cents) : `${r.pct ?? 0}%`}</span>{chip(r.status)}</li>)}
+                  {d.team.rows.slice(0, 8).map((r) => <li key={r.user_id}><span className={css.who}>{r.name}</span><span className={css.amt}>{r.target_cents === null ? fmtRM(r.basis_cents) : `${r.pct ?? 0}%`}</span>{chip(r.status)}{r.plan && <span className={chipSmNeutral}>{L(PLAN_WORD[r.plan]?.[0] ?? r.plan, PLAN_WORD[r.plan]?.[1] ?? r.plan)}</span>}</li>)}
                 </ul>
               </div>
             )}
@@ -286,8 +312,16 @@ export function WeekTargetCard({ go, canOpen, onCreateQuotation }: { go: (t: Tab
         </>
       )}
 
+      {d.can_view_all && (
+        <>
+          <WeeklyRhythm checkpoint={d.week.checkpoint} />
+          <CashWatchPlaceholder />
+        </>
+      )}
+
       <IntroduceLead open={introduce} onClose={() => setIntroduce(false)} />
-      {targets && <TargetsDrawer week={d.week.from} onClose={() => setTargets(false)} onSaved={() => undefined} />}
+      {targets && <TargetsDrawer week={d.week.from} onClose={() => setTargets(false)} onSaved={view.refresh} />}
+      {alloc && <AllocationDrawer week={d.week.from} onClose={() => setAlloc(false)} onSaved={view.refresh} onGoals={() => { setAlloc(false); setTargets(true); }} />}
     </section>
   );
 }

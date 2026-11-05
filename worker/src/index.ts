@@ -296,7 +296,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0171_leave_routing";
+const LATEST_MIGRATION = "0172_followup_outcomes";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
@@ -5156,6 +5156,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0170 (task updates edited and withdrawn, the reported percentage)", `SELECT id, reported_progress FROM task_updates WHERE kind IN ('edit', 'withdrawn') LIMIT 0`],
       ["0171 (leave approval follows the Organisation chart)", `SELECT route_json, route_version, step_no, approver_id FROM leave_requests LIMIT 0`],
       ["0171 (leave decisions, append-only)", `SELECT id, kind, on_behalf_of FROM leave_decisions LIMIT 0`],
+      ["0172 (a follow-up names its document and records the outcome)", `SELECT doc_id, outcome, obstacle FROM customer_followups LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5348,6 +5349,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0169_task_close",
       "0170_task_update_edits",
       "0171_leave_routing",
+      "0172_followup_outcomes",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

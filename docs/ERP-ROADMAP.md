@@ -384,3 +384,8 @@ route_version, step_no and approver_id (NULL on every existing row - those keep
 the previous rules), and an append-only leave_decisions table records each
 decision on a routed request. Leave approval follows the Organisation chart
 only after the CEO turns it on; no row is changed or back-filled.
+1.262.0 adds `0172_followup_outcomes` (additive): customer_followups gains
+doc_id, outcome and obstacle (NULL on every existing row), and a partial unique
+index allows one open follow-up per quotation or invoice. Closing a follow-up
+on a document records what the customer said; the document never changes and
+nothing is marked lost or expired by itself.

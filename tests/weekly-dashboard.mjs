@@ -152,7 +152,9 @@ async function runtime(workerBundle) {
     ok(!names.includes("Gone Seller") && !names.includes("Lia Host"), "13 ...not a leaver from before the week, not another department");
     ok(team.target_cents === 600000 + 200000 && team.basis_cents === 300000 + 120000, "2 the team target is the sum of its members' targets; team collected is theirs", JSON.stringify({ t: team?.target_cents, b: team?.basis_cents }));
     const keys = new Set(team.rows.flatMap((r) => Object.keys(r)));
-    ok(["confirmed_cents", "plan", "goals", "paid_invoices", "open_quotations", "commission"].every((k) => !keys.has(k)), "2 a team row is name, target, collected, % and status - nothing private", [...keys].join());
+    ok(["confirmed_cents", "goals", "paid_invoices", "open_quotations", "commission"].every((k) => !keys.has(k)), "2 a team row is name, target, collected, % and status - nothing private", [...keys].join());
+    /* v1.262.0 (claude/SALES-RECOVERY-AUDIT.md rev 2 sec. 10, "HOD: their reports' plan states") - the plan's STATE only, never its actions or notes */
+    ok(team.rows.every((r) => (r.plan === null || typeof r.plan === "string") && ["revenue", "contribution", "operational"].includes(r.kind)), "2 ...plus the kind of target and the plan's state - a word, never the plan itself", JSON.stringify(team.rows.map((r) => [r.kind, r.plan])));
     ok(d.all === null, "2 the HOD does not get everyone");
 
     /* 1 the CEO */

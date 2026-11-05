@@ -55,6 +55,16 @@ async function weekStartDow(env: Env): Promise<number> {
   } catch { return 1; }
 }
 
+/** v1.262.0 - THE OPEN QUOTATION, one rule for the scorecard, the plan's
+    facts, the advisory and the opportunities list: a quotation that is not
+    void, has no live invoice (a voided invoice reopens it, as Sales has done
+    since v1.242.0) and is still within its validity. `t` names the bound
+    parameter that holds today. Nothing here marks a quotation lost. */
+export const openQuotationSql = (a: string, t: string) =>
+  `${a}.doc_type = 'QT' AND ${a}.voided_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = ${a}.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void')
+        AND (${a}.valid_until IS NULL OR substr(${a}.valid_until, 1, 10) >= ${t})`;
+
 type Resolved = { target_cents: number | null; target_count: number | null; from: string | null; set_by: string | null; reason: string | null; id: number | null };
 const NONE: Resolved = { target_cents: null, target_count: null, from: null, set_by: null, reason: null, id: null };
 /** The approved target for a week: the latest row from that week or before,
@@ -166,9 +176,7 @@ async function personWeek(env: Env, uid: number, from: string, to: string, today
     `SELECT COALESCE(SUM(total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents WHERE doc_type = 'INV' AND converted_from IS NOT NULL AND salesperson_id = ?1 AND date(created_at, '+8 hours') BETWEEN ?2 AND ?3`, uid, from, to);
   const open = await one<{ c: number; n: number }>(
     `SELECT COALESCE(SUM(q.total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents q
-      WHERE q.doc_type = 'QT' AND q.salesperson_id = ?1
-        AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV')
-        AND (q.valid_until IS NULL OR substr(q.valid_until, 1, 10) >= ?2)`, uid, today);
+      WHERE q.salesperson_id = ?1 AND ${openQuotationSql("q", "?2")}`, uid, today);
   const fuDone = await one<{ n: number }>(`SELECT COUNT(*) AS n FROM customer_followups WHERE owner_id = ?1 AND done_at IS NOT NULL AND date(done_at, '+8 hours') BETWEEN ?2 AND ?3`, uid, from, to);
   const fuOver = await one<{ n: number }>(`SELECT COUNT(*) AS n FROM customer_followups WHERE owner_id = ?1 AND done_at IS NULL AND cancelled_at IS NULL AND due_on < ?2`, uid, today);
   const enq = await one<{ n: number }>(`SELECT COUNT(*) AS n FROM enquiries WHERE assigned_to = ?1 AND date(created_at, '+8 hours') BETWEEN ?2 AND ?3`, uid, from, to);
@@ -423,7 +431,8 @@ const ACTION_KEYS = ["quotations", "leads", "renewals", "smaller_package", "pric
      all     - exec_view: every scorecard row, the weakest first, by
                department, and who needs attention.
    Nothing is written here: no finalising, no task, no alert. ---- */
-type Slim = { user_id: number; name: string; department: string | null; target_cents: number | null; basis_cents: number; pct: number | null; gap_cents: number | null; status: WeekStatus };
+type Slim = { user_id: number; name: string; department: string | null; target_cents: number | null; basis_cents: number; pct: number | null; gap_cents: number | null; status: WeekStatus;
+  kind: "revenue" | "contribution" | "operational"; plan: string | null }; // v1.262.0 - the kind of target held, and the plan's state (HOD and management)
 const SEVERITY: Record<WeekStatus, number> = { action: 0, at_risk: 1, missed: 2, planning: 3, on_track: 4, no_target: 5, not_working: 6, achieved: 7 };
 async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
   if (user.role === "customer") return err("forbidden", "Staff only", 403);
@@ -437,6 +446,7 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
   const other = can(user.role, "revenue_view") ? await otherChannelsWeek(env, from, to) : null;
   const slim = (r: Awaited<ReturnType<typeof weekFor>>, department: string | null): Slim => ({
     user_id: r.user_id, name: r.name, department, target_cents: r.target_cents, basis_cents: r.basis_cents, pct: r.pct, gap_cents: r.gap_cents, status: r.status,
+    kind: r.target_cents !== null ? "revenue" : r.goals.length ? "contribution" : "operational", plan: r.plan?.status ?? null,
   });
   const run = async <T>(sql: string, ...b: unknown[]) => { try { return ((await env.DB.prepare(sql).bind(...b).all<T>()).results ?? []) as T[]; } catch { return [] as T[]; } };
   const num = async (sql: string, ...b: unknown[]) => { try { return Number((await env.DB.prepare(sql).bind(...b).first<{ n: number }>())?.n ?? 0); } catch { return null; } };
@@ -459,6 +469,13 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
         verified_week: await num(`SELECT COUNT(*) AS n FROM enquiries WHERE referred_by = ?1 AND qualified_at IS NOT NULL AND COALESCE(qualified_by, 0) != ?1 AND date(qualified_at, '+8 hours') BETWEEN ?2 AND ?3`, user.id, from, to),
       },
       plan: r.plan ? { status: r.plan.status } : null,
+      /* v1.262.0 - My week: the kind of target I hold (the card says why it
+         applies to my role), and my follow-ups due today or late */
+      kind: r.target_cents !== null ? "revenue" : r.goals.length ? "contribution" : "operational", role: user.role,
+      followups_today: await num(`SELECT COUNT(*) AS n FROM customer_followups WHERE owner_id = ?1 AND done_at IS NULL AND cancelled_at IS NULL AND due_on = ?2`, user.id, today),
+      next_followups: await run<{ id: number; due_on: string; note: string; company: string | null }>(
+        `SELECT f.id, f.due_on, f.note, c.company FROM customer_followups f LEFT JOIN customers c ON c.id = f.customer_id
+          WHERE f.owner_id = ?1 AND f.done_at IS NULL AND f.cancelled_at IS NULL AND f.due_on <= ?2 ORDER BY f.due_on, f.id LIMIT 3`, user.id, today),
     };
   }
 
@@ -508,13 +525,437 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
         .sort((a, b) => (a.name === null ? 1 : b.name === null ? -1 : b.basis_cents - a.basis_cents)),
     };
   }
+  /* v1.262.0 - management's command strip (pace, best week, confidence,
+     risk, invoiced, pipeline); the advisory, worst first, at most five - a
+     person who sells sees only their own; the open quotations */
+  const s = await advisorySettings(env);
+  const outlook = allowAll ? await companyOutlook(env, from, to, today, startDow, company, s) : null;
+  let advisory: { cards: Card[]; total: number; inactive: typeof INACTIVE_RULES } | null = null;
+  let opportunities: OpenQuotation[] | null = null;
+  if (allowAll || can(user.role, "sales")) {
+    const cards = await advisoryCards(env, allowAll, user.id, from, to, today, s);
+    advisory = { cards: cards.slice(0, 5), total: cards.length, inactive: INACTIVE_RULES };
+    opportunities = (await openQuotations(env, today, allowAll ? null : user.id))
+      .sort((a, b) => Number(Boolean(a.last_contact?.outcome)) - Number(Boolean(b.last_contact?.outcome)) || b.age_days - a.age_days).slice(0, 5);
+  }
   return json({
     week: { from, to, today, checkpoint, start_dow: startDow },
     company: { target_cents: company.target_cents, target_from: company.target_from, basis_cents: company.basis_cents, pct: company.pct, gap_cents: company.gap_cents },
+    outlook, advisory, opportunities,
     other_channels_cents: other, me, team, all,
     can_set: can(user.role, "sales_week_target"), can_view_all: allowAll, can_assign: can(user.role, "team_manage"), can_sales: can(user.role, "sales"),
     commission: { policy: false },
   });
+}
+
+/* ==== v1.262.0 - PHASE 1, SALES DISCIPLINE (claude/SALES-RECOVERY-AUDIT.md
+   revision 2, approved "Phase by Phase", 05-11-2026). Everything below reads
+   the records the engine above already reads; it writes only when a person
+   presses a button: a target row (Copy last week), the advisory settings,
+   one follow-up or one task (Do it), a follow-up's outcome. Nothing marks a
+   quotation lost or expired, nothing is sent to a customer, no notification
+   is raised, no revenue is predicted, commission is never read or written.
+   The words are prompts to act, never a judgement on a person. ==== */
+
+export const QT_OUTCOMES = ["interested", "negotiating", "waiting", "accepted", "lost", "no_response"] as const;
+export const INV_OUTCOMES = ["promised", "paid", "disputed", "no_response"] as const;
+
+/** D3 - the thresholds. Stored in business_settings `sales_advisory`; a key
+    that is missing or out of range reads its default. */
+export const ADVISORY_DEFAULTS = { pipeline_multiple: 1.5, quote_age_days: 14, very_old_days: 60, invoice_fallback_days: 14 };
+type AdvisorySettings = typeof ADVISORY_DEFAULTS & { package_days: Record<string, number>; updated_at?: string | null; updated_by?: string | null };
+const ADVISORY_RANGE: Record<keyof typeof ADVISORY_DEFAULTS, [number, number]> = {
+  pipeline_multiple: [1, 5], quote_age_days: [3, 60], very_old_days: [15, 365], invoice_fallback_days: [1, 90],
+};
+async function advisorySettings(env: Env): Promise<AdvisorySettings> {
+  const out: AdvisorySettings = { ...ADVISORY_DEFAULTS, package_days: {} };
+  try {
+    const r = await env.DB.prepare(`SELECT s.value, s.updated_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who FROM business_settings s LEFT JOIN users u ON u.id = s.updated_by WHERE s.key = 'sales_advisory'`)
+      .first<{ value: string | null; updated_at: string | null; who: string | null }>();
+    const v = r?.value ? JSON.parse(r.value) as Record<string, unknown> : {};
+    for (const k of Object.keys(ADVISORY_DEFAULTS) as (keyof typeof ADVISORY_DEFAULTS)[]) {
+      const n = Number(v[k]);
+      if (Number.isFinite(n) && n >= ADVISORY_RANGE[k][0] && n <= ADVISORY_RANGE[k][1]) out[k] = n;
+    }
+    const pd = v.package_days && typeof v.package_days === "object" ? v.package_days as Record<string, unknown> : {};
+    for (const [id, days] of Object.entries(pd)) { const n = Number(days); if (/^\d+$/.test(id) && Number.isInteger(n) && n >= 1 && n <= 90) out.package_days[id] = n; }
+    out.updated_at = r?.updated_at ?? null; out.updated_by = r?.who ?? null;
+  } catch { /* no settings table, or unreadable JSON - the defaults */ }
+  return out;
+}
+
+/** A day's date in Malaysia time from a stored UTC timestamp. */
+const mytDay = (ts: string | null | undefined) => (ts ? new Date(Date.parse(`${ts.slice(0, 19).replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10) : null);
+const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
+
+/** The next working day after `d` (Monday to Friday, not a public holiday). */
+async function nextWorkingDay(env: Env, d: string): Promise<string> {
+  let x = addDays(d, 1);
+  for (let i = 0; i < 14; i++, x = addDays(x, 1)) {
+    if (dow(x) === 0 || dow(x) === 6) continue;
+    const h = await env.DB.prepare(`SELECT 1 AS y FROM holidays WHERE holiday_date = ?1`).bind(x).first().catch(() => null);
+    if (!h) return x;
+  }
+  return addDays(d, 1);
+}
+
+/** ONE OPEN FOLLOW-UP PER DOCUMENT (audit sec. 5, 0172). Opens a follow-up on
+    a quotation or invoice of that customer, or returns the one already open -
+    a second press never makes a duplicate (the partial unique index stops a
+    race too). Used by Sales -> the client file and by the advisory's Do it. */
+export async function openDocFollowup(env: Env, f: { customerId: number; docId: number; ownerId: number; dueOn: string; note: string; createdBy: number }): Promise<{ id: number; existing: boolean } | Response> {
+  const d = await env.DB.prepare(`SELECT id, doc_type, customer_id FROM sales_documents WHERE id = ?1`).bind(f.docId).first<{ id: number; doc_type: string; customer_id: number }>();
+  if (!d || (d.doc_type !== "QT" && d.doc_type !== "INV") || Number(d.customer_id) !== f.customerId) return err("invalid_input", "That document is not a quotation or invoice of this customer.", 400);
+  const openOne = () => env.DB.prepare(`SELECT id FROM customer_followups WHERE doc_id = ?1 AND done_at IS NULL AND cancelled_at IS NULL LIMIT 1`).bind(f.docId).first<{ id: number }>();
+  try {
+    const had = await openOne();
+    if (had) return { id: had.id, existing: true };
+    const r = await env.DB.prepare(
+      `INSERT INTO customer_followups (customer_id, due_on, owner_id, note, created_by, doc_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id`,
+    ).bind(f.customerId, f.dueOn, f.ownerId, f.note, f.createdBy, f.docId).first<{ id: number }>();
+    await audit(env, f.createdBy, "customer.followup_add", "customer_followups", String(r?.id), { customer_id: f.customerId, doc_id: f.docId, due_on: f.dueOn, owner_id: f.ownerId });
+    return { id: Number(r?.id), existing: false };
+  } catch (e) {
+    if (/no such column|has no column/i.test(String(e))) return err("migration_missing", "Run migration 0172 first (PUSH.bat)", 503);
+    if (/UNIQUE/i.test(String(e))) { const had = await openOne(); if (had) return { id: had.id, existing: true }; }
+    throw e;
+  }
+}
+
+/** Everything known about the open quotations (all, or one closer's):
+    owner, age, the last recorded contact, the follow-up that is open, and the
+    acceptance of the current revision. Read only. */
+async function openQuotations(env: Env, today: string, ownerId: number | null) {
+  type Q = { id: number; doc_number: string; customer_id: number; company: string | null; total_cents: number; created_at: string; valid_until: string | null; revision: number; issuer_code: string | null;
+    share_token: string | null; package_id: number | null; salesperson_id: number | null; owner: string | null };
+  let rows: Q[] = [];
+  try {
+    rows = (await env.DB.prepare(
+      `SELECT q.id, q.doc_number, q.customer_id, c.company, q.total_cents, q.created_at, q.valid_until, COALESCE(q.revision, 0) AS revision, q.issuer_code, q.share_token, q.package_id, q.salesperson_id,
+              COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS owner
+         FROM sales_documents q LEFT JOIN customers c ON c.id = q.customer_id LEFT JOIN users u ON u.id = q.salesperson_id
+        WHERE ${openQuotationSql("q", "?1")} AND (?2 IS NULL OR q.salesperson_id = ?2)
+        ORDER BY q.created_at, q.id LIMIT 200`,
+    ).bind(today, ownerId).all<Q>()).results ?? [];
+  } catch { return []; }
+  const out = [];
+  for (const q of rows) {
+    type F = { id: number; due_on: string; note: string; owner_id: number | null; owner: string | null; done_at: string | null; done_note: string | null; outcome?: string | null; obstacle?: string | null; by?: string | null };
+    let open: F | null = null, last: F | null = null, linked = true;
+    try {
+      open = await env.DB.prepare(`SELECT f.id, f.due_on, f.note, f.owner_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS owner FROM customer_followups f LEFT JOIN users u ON u.id = f.owner_id
+        WHERE f.done_at IS NULL AND f.cancelled_at IS NULL AND (f.doc_id = ?1 OR (f.doc_id IS NULL AND f.customer_id = ?2)) ORDER BY (f.doc_id IS NULL), f.due_on LIMIT 1`).bind(q.id, q.customer_id).first<F>();
+      last = await env.DB.prepare(`SELECT f.id, f.due_on, f.note, f.owner_id, f.done_at, f.done_note, f.outcome, f.obstacle, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by FROM customer_followups f LEFT JOIN users u ON u.id = f.done_by
+        WHERE f.done_at IS NOT NULL AND (f.doc_id = ?1 OR (f.doc_id IS NULL AND f.customer_id = ?2)) ORDER BY f.done_at DESC, f.id DESC LIMIT 1`).bind(q.id, q.customer_id).first<F>();
+    } catch {
+      linked = false; // pre-0172: a follow-up names only the customer
+      open = await env.DB.prepare(`SELECT f.id, f.due_on, f.note, f.owner_id, NULL AS owner FROM customer_followups f WHERE f.done_at IS NULL AND f.cancelled_at IS NULL AND f.customer_id = ?1 ORDER BY f.due_on LIMIT 1`).bind(q.customer_id).first<F>().catch(() => null);
+      last = await env.DB.prepare(`SELECT f.id, f.due_on, f.note, f.done_at, f.done_note FROM customer_followups f WHERE f.done_at IS NOT NULL AND f.customer_id = ?1 ORDER BY f.done_at DESC LIMIT 1`).bind(q.customer_id).first<F>().catch(() => null);
+    }
+    const acc = await env.DB.prepare(`SELECT revision, accepted_name, accepted_at, channel FROM quotation_acceptances WHERE doc_id = ?1 ORDER BY revision DESC, id DESC LIMIT 1`).bind(q.id)
+      .first<{ revision: number; accepted_name: string; accepted_at: string; channel: string | null }>().catch(() => null);
+    const created = mytDay(q.created_at) ?? today;
+    const lastDay = mytDay(last?.done_at ?? null);
+    out.push({
+      id: q.id, doc_number: q.doc_number, customer_id: q.customer_id, company: q.company, total_cents: Number(q.total_cents), created_on: created, age_days: Math.max(0, daysBetween(created, today)),
+      idle_days: Math.max(0, daysBetween(lastDay && lastDay > created ? lastDay : created, today)), valid_until: q.valid_until, revision: Number(q.revision), issuer_code: q.issuer_code,
+      shared_online: Boolean(q.share_token), package_id: q.package_id, owner: { id: q.salesperson_id, name: q.owner },
+      next: open ? { id: open.id, due_on: open.due_on, note: open.note, owner: open.owner ?? null, linked } : null,
+      last_contact: last ? { at: last.done_at, by: last.by ?? null, outcome: last.outcome ?? null, obstacle: last.obstacle ?? null, note: last.done_note } : null,
+      acceptance: acc ? { revision: Number(acc.revision), name: acc.accepted_name, at: acc.accepted_at, channel: acc.channel, current: Number(acc.revision) === Number(q.revision) } : null,
+    });
+  }
+  return out;
+}
+type OpenQuotation = Awaited<ReturnType<typeof openQuotations>>[number];
+
+/** The company's working days left this week: Monday to Friday from today,
+    less public holidays (nobody's leave - this is the company calendar). */
+async function companyDaysLeft(env: Env, from: string, to: string, today: string) {
+  if (today > to) return 0;
+  return (await workingDays(env, 0, today > from ? today : from, to)).total;
+}
+
+/** Sec. 4 - TARGET, PACE, CONFIDENCE AND RISK, each shown on its own. The
+    target is never changed here; the pace is the truthful remaining gap per
+    working day; confidence needs history before it says anything; risk is
+    the evidence, named. */
+async function companyOutlook(env: Env, from: string, to: string, today: string, startDow: number, company: { target_cents: number | null; basis_cents: number; gap_cents: number | null }, s: AdvisorySettings) {
+  const one = async (sql: string, ...b: unknown[]) => { try { return await env.DB.prepare(sql).bind(...b).first<{ c: number; n: number }>(); } catch { return null; } };
+  const invoiced = await one(`SELECT COALESCE(SUM(total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2`, from, to);
+  const pipe = await one(`SELECT COALESCE(SUM(q.total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents q WHERE ${openQuotationSql("q", "?1")}`, today);
+  const scheduled = await one(`SELECT 0 AS c, COUNT(*) AS n FROM customer_followups WHERE done_at IS NULL AND cancelled_at IS NULL AND due_on BETWEEN ?1 AND ?2`, today, to);
+  const daysLeft = await companyDaysLeft(env, from, to, today);
+  const gap = company.gap_cents;
+  /* each finished week's Collected, by the business week it fell in */
+  let weeks: { wk: string; c: number }[] = [];
+  try {
+    weeks = (await env.DB.prepare(
+      `SELECT date(date(COALESCE(d.paid_at, d.created_at), '+8 hours'), '-6 days', 'weekday ${Number(startDow)}') AS wk, SUM(d.total_cents) AS c
+         FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' GROUP BY wk`,
+    ).all<{ wk: string; c: number }>()).results ?? [];
+  } catch { weeks = []; }
+  const done = weeks.filter((w) => w.wk < from);
+  const best = done.reduce<{ wk: string; c: number } | null>((b, w) => (!b || Number(w.c) > Number(b.c) ? { wk: w.wk, c: Number(w.c) } : b), null);
+  /* confidence: finished weeks that HAD a company target, and decided quotations */
+  let rows: { week_from: string; target_cents: number | null }[] = [];
+  try { rows = (await env.DB.prepare(`SELECT week_from, target_cents FROM sales_week_targets WHERE scope = 'company' AND COALESCE(metric, 'revenue') = 'revenue' ORDER BY week_from, id`).all<{ week_from: string; target_cents: number | null }>()).results ?? []; } catch { rows = []; }
+  let targetWeeks = 0, achieved = 0;
+  if (rows.length) {
+    for (let wk = weekStartOf(rows[0]!.week_from, startDow), i = 0; wk < from && i < 104; wk = addDays(wk, 7), i++) {
+      const inForce = rows.filter((r) => r.week_from <= wk).pop();
+      if (!inForce || inForce.target_cents === null) continue;
+      targetWeeks++;
+      if (Number(done.find((w) => w.wk === wk)?.c ?? 0) >= Number(inForce.target_cents)) achieved++;
+    }
+  }
+  const decided = Number((await one(
+    `SELECT 0 AS c, COUNT(*) AS n FROM sales_documents q WHERE q.doc_type = 'QT' AND date(q.created_at, '+8 hours') >= date(?1, '-90 days')
+       AND (EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void')
+         OR EXISTS (SELECT 1 FROM customer_followups f WHERE f.doc_id = q.id AND f.outcome = 'lost'))`, today))?.n ?? 0);
+  const enough = targetWeeks >= 8 && decided >= 20;
+  const hit = targetWeeks ? achieved / targetWeeks : 0;
+  const confidence = { level: !enough ? "not_enough_data" : hit >= 0.75 ? "high" : hit >= 0.4 ? "medium" : "low", target_weeks: targetWeeks, achieved_weeks: achieved, decided_quotations: decided, needs: { target_weeks: 8, decided_quotations: 20 } };
+  /* risk: the evidence, never a person */
+  const pipeline = Number(pipe?.c ?? 0);
+  const ageing = (await openQuotations(env, today, null)).filter((q) => !q.next && q.idle_days > s.quote_age_days).length;
+  let risk: { level: string | null; ratio: number | null; reasons: string[] } = { level: null, ratio: null, reasons: ["no_target"] };
+  if (company.target_cents !== null && gap !== null) {
+    if (gap <= 0) risk = { level: "none", ratio: null, reasons: ["reached"] };
+    else {
+      const ratio = Math.round((pipeline / gap) * 100) / 100;
+      const reasons: string[] = [];
+      if (ratio < s.pipeline_multiple) reasons.push("pipeline_low");
+      if (Number(scheduled?.n ?? 0) === 0) reasons.push("no_followups");
+      if (ageing > 0) reasons.push("ageing_quotations");
+      if (best && gap > best.c) reasons.push("gap_above_best_week");
+      const level = ratio < 1 || (ratio < s.pipeline_multiple && reasons.includes("no_followups")) ? "high" : reasons.length ? "medium" : "low";
+      risk = { level, ratio, reasons };
+    }
+  }
+  return {
+    invoiced: { cents: Number(invoiced?.c ?? 0), n: Number(invoiced?.n ?? 0) },
+    open_quotations: { cents: pipeline, n: Number(pipe?.n ?? 0) },
+    followups_scheduled: Number(scheduled?.n ?? 0),
+    days_left: daysLeft,
+    required_per_day_cents: gap !== null && gap > 0 && daysLeft > 0 ? Math.ceil(gap / daysLeft) : null,
+    best_week: best ? { from: best.wk, cents: best.c } : null,
+    confidence, risk, ageing_quotations: ageing,
+  };
+}
+
+/** D1 - THE WEEK'S ALLOCATION: every person on staff, what kind of target
+    they hold (revenue, a contribution goal, or neither - operational), a
+    suggestion drawn from the records, and the reconciliation line
+    company = the revenue targets + Unallocated (management). Nothing is
+    split or pre-filled: the suggestion is a label, the CEO types the amounts. */
+async function allocation(env: Env, from: string, to: string, today: string) {
+  const company = await targetFor(env, "company", null, from);
+  const people = await targetCandidates(env, from, to);
+  const list = [];
+  for (const p of people) {
+    const rev = await targetFor(env, "person", p.id, from);
+    const goals: Record<string, number | null> = {};
+    for (const m of GOAL_METRICS) goals[m] = (await targetFor(env, "person", p.id, from, m)).target_count;
+    const hasGoal = Object.values(goals).some((n) => n !== null && n > 0);
+    const deals = Number((await env.DB.prepare(`SELECT COUNT(*) AS n FROM sales_documents WHERE salesperson_id = ?1 AND doc_type IN ('QT', 'INV') AND date(created_at, '+8 hours') >= date(?2, '-90 days')`).bind(p.id, today).first<{ n: number }>().catch(() => null))?.n ?? 0);
+    const pipe = await env.DB.prepare(`SELECT COALESCE(SUM(q.total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents q WHERE q.salesperson_id = ?1 AND ${openQuotationSql("q", "?2")}`).bind(p.id, today).first<{ c: number; n: number }>().catch(() => null);
+    const kind = rev.target_cents !== null ? "revenue" : hasGoal ? "contribution" : "operational";
+    const suggested = deals > 0 || Number(pipe?.n ?? 0) > 0 ? "revenue" : p.role === "sales_marketing" ? "contribution" : "operational";
+    list.push({ id: p.id, name: p.name, role: p.role, kind, suggested, holds_unallocated: p.role === "ceo", deals_90d: deals,
+      open_quotations: { n: Number(pipe?.n ?? 0), cents: Number(pipe?.c ?? 0) },
+      target_cents: rev.target_cents, target_from: rev.from, target_set_by: rev.set_by, goals });
+  }
+  const sum = list.reduce((n, x) => n + (x.target_cents ?? 0), 0);
+  return {
+    company: { target_cents: company.target_cents, from: company.from, set_by: company.set_by },
+    people: list, revenue_sum_cents: sum,
+    unallocated_cents: company.target_cents === null ? null : company.target_cents - sum,
+    over_allocated: company.target_cents !== null && sum > company.target_cents,
+  };
+}
+
+/** COPY LAST WEEK. Targets already carry forward (the latest row from a
+    week or before is in force), so a copy writes a row ONLY where this
+    week's value differs from last week's - e.g. a different amount was set
+    ahead for this week. With dry_run it lists those rows and writes nothing. */
+async function copyLastWeek(env: Env, user: StaffUser, dest: string, reason: string, dry: boolean) {
+  const src = addDays(dest, -7);
+  const changes: { scope: "company" | "person"; user_id: number | null; name: string; metric: string; from_value: number | null; to_value: number | null }[] = [];
+  const cmp = async (scope: "company" | "person", uid: number | null, name: string, metric: "revenue" | GoalMetric) => {
+    const a = await targetFor(env, scope, uid, src, metric);
+    const b = await targetFor(env, scope, uid, dest, metric);
+    if (a.id === null) return;
+    const av = metric === "revenue" ? a.target_cents : a.target_count;
+    const bv = metric === "revenue" ? b.target_cents : b.target_count;
+    if (av !== bv) changes.push({ scope, user_id: uid, name, metric, from_value: bv, to_value: av });
+  };
+  await cmp("company", null, "", "revenue");
+  for (const p of await targetCandidates(env, dest, addDays(dest, 6))) {
+    await cmp("person", p.id, p.name, "revenue");
+    for (const m of GOAL_METRICS) await cmp("person", p.id, p.name, m);
+  }
+  if (dry || changes.length === 0) return { source_week: src, changes, written: [] as number[] };
+  const written: number[] = [];
+  const why = `Copied from the week of ${src}: ${reason}`.slice(0, 300);
+  for (const c of changes) {
+    const r = await env.DB.prepare(
+      `INSERT INTO sales_week_targets (scope, user_id, team, week_from, target_cents, reason, set_by, metric, target_count) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+    ).bind(c.scope, c.user_id, dest, c.metric === "revenue" ? c.to_value : null, why, user.id, c.metric, c.metric === "revenue" ? null : c.to_value).first<{ id: number }>();
+    if (r?.id) written.push(r.id);
+  }
+  await audit(env, user.id, "sales.week_target_copy", "sales_week_targets", written.join(","), { from_week: src, to_week: dest, rows: changes, reason });
+  return { source_week: src, changes, written };
+}
+
+/** Sec. 6 - THE ADVISORY CARDS. Display only; each names its evidence, the
+    record, the business risk, one action, its owner and a due day. Visible to
+    management for everyone, to anyone else for their own records only. */
+type Card = {
+  key: string; rule: string; severity: "critical" | "warn" | "info"; owner: { id: number | null; name: string | null };
+  record: { kind: "quotation" | "invoice" | "person" | "company" | "tasks"; id: number | null; label: string | null };
+  evidence: Record<string, unknown>; risk: string; action: "followup" | "task" | "allocate" | "plan" | "tasks"; due_on: string | null; amount_cents: number;
+};
+async function advisoryCards(env: Env, scopeAll: boolean, uid: number, from: string, to: string, today: string, s: AdvisorySettings): Promise<Card[]> {
+  const cards: Card[] = [];
+  const due = await nextWorkingDay(env, today);
+  const mine = scopeAll ? null : uid;
+  /* quotations going cold: no open follow-up and nothing heard within the interval */
+  for (const q of await openQuotations(env, today, mine)) {
+    if (q.next) continue;
+    if (q.last_contact?.outcome === "lost" || (q.acceptance?.current)) continue; // the owner already said; Sales decides what to do with the document
+    const interval = (q.package_id && s.package_days[String(q.package_id)]) || s.quote_age_days;
+    const veryOld = q.age_days > s.very_old_days;
+    if (!veryOld && q.idle_days <= interval) continue;
+    cards.push({ key: `qt:${q.id}`, rule: veryOld ? "qt_very_old" : "qt_ageing", severity: veryOld ? "critical" : "warn", owner: q.owner,
+      record: { kind: "quotation", id: q.id, label: q.doc_number }, amount_cents: q.total_cents, due_on: due, action: "followup", risk: veryOld ? "pipeline_overstated" : "going_cold",
+      evidence: { doc_number: q.doc_number, company: q.company, customer_id: q.customer_id, total_cents: q.total_cents, age_days: q.age_days, idle_days: q.idle_days, interval_days: interval,
+        last_contact: q.last_contact?.at ?? null, last_outcome: q.last_contact?.outcome ?? null } });
+  }
+  /* unpaid invoices: past their due date, or past the fallback when none is set */
+  try {
+    const inv = (await env.DB.prepare(
+      `SELECT d.id, d.doc_number, d.customer_id, c.company, d.total_cents, d.due_date, d.created_at, d.salesperson_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS owner
+         FROM sales_documents d LEFT JOIN customers c ON c.id = d.customer_id LEFT JOIN users u ON u.id = d.salesperson_id
+        WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') NOT IN ('paid', 'void') AND (?1 IS NULL OR d.salesperson_id = ?1)
+          AND NOT EXISTS (SELECT 1 FROM customer_followups f WHERE f.doc_id = d.id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
+        ORDER BY d.created_at LIMIT 100`,
+    ).bind(mine).all<{ id: number; doc_number: string; customer_id: number; company: string | null; total_cents: number; due_date: string | null; created_at: string; salesperson_id: number | null; owner: string | null }>()).results ?? [];
+    for (const d of inv) {
+      const issued = mytDay(d.created_at) ?? today;
+      const dueDay = d.due_date && DAY.test(d.due_date.slice(0, 10)) ? d.due_date.slice(0, 10) : null;
+      const limit = dueDay ?? addDays(issued, s.invoice_fallback_days);
+      if (limit >= today) continue;
+      const late = daysBetween(limit, today);
+      cards.push({ key: `inv:${d.id}`, rule: "invoice_unpaid", severity: late > 30 ? "critical" : "warn", owner: { id: d.salesperson_id, name: d.owner },
+        record: { kind: "invoice", id: d.id, label: d.doc_number }, amount_cents: Number(d.total_cents), due_on: due, action: "followup", risk: "cash_not_collected",
+        evidence: { doc_number: d.doc_number, company: d.company, customer_id: d.customer_id, total_cents: Number(d.total_cents), issued_on: issued, due_date: dueDay, fallback: !dueDay, days_late: late } });
+    }
+  } catch { /* pre-0172: the follow-up has no document - no invoice cards */ }
+  /* the people with a target this week */
+  const people = scopeAll ? await staffList(env, from, to) : [{ id: uid, name: "", role: "" }];
+  const midWeek = today >= addDays(from, 2) && today <= to;
+  for (const p of people) {
+    const t = await targetFor(env, "person", p.id, from);
+    const goals = await goalsFor(env, p.id, from, to);
+    if (t.target_cents === null && goals.length === 0) continue;
+    const f = await personWeek(env, p.id, from, to, today);
+    const who = p.name || (await env.DB.prepare(`SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id = ?1`).bind(p.id).first<{ n: string }>().catch(() => null))?.n || null;
+    if (t.target_cents !== null) {
+      const gap = Math.max(0, t.target_cents - f.basis_cents);
+      if (gap > 0 && f.open_quotations.cents < s.pipeline_multiple * gap) {
+        cards.push({ key: `pipe:${p.id}`, rule: "low_pipeline", severity: f.open_quotations.cents < gap ? "critical" : "warn", owner: { id: p.id, name: who },
+          record: { kind: "person", id: p.id, label: who }, amount_cents: gap, due_on: to, action: "task", risk: "target_unreachable",
+          evidence: { pipeline_cents: f.open_quotations.cents, gap_cents: gap, ratio: Math.round((f.open_quotations.cents / gap) * 100) / 100, multiple: s.pipeline_multiple } });
+      }
+    }
+    if (midWeek && f.followups_done === 0 && f.quotations.n === 0 && f.tasks.done === 0) {
+      cards.push({ key: `idle:${p.id}`, rule: "no_activity", severity: "info", owner: { id: p.id, name: who }, record: { kind: "person", id: p.id, label: who }, amount_cents: 0, due_on: today,
+        action: "plan", risk: "pace_lost", evidence: { followups_done: 0, quotations: 0, tasks_done: 0, since: from } });
+    }
+  }
+  /* the company's own line, for management */
+  if (scopeAll) {
+    const c = await companyWeek(env, from, to);
+    const pipe = await env.DB.prepare(`SELECT COALESCE(SUM(q.total_cents), 0) AS c FROM sales_documents q WHERE ${openQuotationSql("q", "?1")}`).bind(today).first<{ c: number }>().catch(() => null);
+    const pc = Number(pipe?.c ?? 0);
+    if (c.gap_cents !== null && c.gap_cents > 0 && pc < s.pipeline_multiple * c.gap_cents) {
+      cards.push({ key: "pipe:company", rule: "low_pipeline", severity: pc < c.gap_cents ? "critical" : "warn", owner: { id: null, name: null }, record: { kind: "company", id: null, label: null },
+        amount_cents: c.gap_cents, due_on: to, action: "allocate", risk: "target_unreachable",
+        evidence: { pipeline_cents: pc, gap_cents: c.gap_cents, ratio: Math.round((pc / c.gap_cents) * 100) / 100, multiple: s.pipeline_multiple, company: true } });
+    }
+  }
+  /* delivery bottleneck: overdue tasks on a project or a quotation */
+  try {
+    const late = (await env.DB.prepare(
+      `SELECT t.assigned_to AS id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, COUNT(*) AS n, MIN(t.deadline) AS oldest
+         FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to
+        WHERE t.status != 'completed' AND t.link_kind IN ('project', 'quotation') AND t.deadline IS NOT NULL AND substr(t.deadline, 1, 10) < ?1 AND (?2 IS NULL OR t.assigned_to = ?2)
+        GROUP BY t.assigned_to`,
+    ).bind(today, mine).all<{ id: number; name: string | null; n: number; oldest: string }>()).results ?? [];
+    for (const l of late) cards.push({ key: `late:${l.id}`, rule: "delivery_bottleneck", severity: "info", owner: { id: l.id, name: l.name }, record: { kind: "tasks", id: l.id, label: l.name },
+      amount_cents: 0, due_on: null, action: "tasks", risk: "delivery_not_sales", evidence: { overdue_tasks: Number(l.n), oldest_deadline: String(l.oldest).slice(0, 10) } });
+  } catch { /* no task links */ }
+  const SEV = { critical: 0, warn: 1, info: 2 };
+  return cards.sort((a, b) => SEV[a.severity] - SEV[b.severity] || b.amount_cents - a.amount_cents || a.key.localeCompare(b.key));
+}
+const INACTIVE_RULES = [
+  { rule: "low_conversion", needs: "20 decided quotations in 90 days" },
+  { rule: "margin_risk", needs: "the cost of each service" },
+];
+
+/** Do it - ONE linked record, only when a person presses it, and a second
+    press returns the same record. The card is worked out again on the
+    server from the key; nothing the browser sends is trusted but the key. */
+async function advisoryAct(env: Env, user: StaffUser, key: string, from: string, to: string, today: string, s: AdvisorySettings): Promise<Response> {
+  const m = /^(qt|inv|pipe):(\d+)$/.exec(key);
+  if (!m) return err("validation", "This advice has no record to create - open the screen it points to", 400);
+  const docKind = m[1] === "qt" ? "QT" : m[1] === "inv" ? "INV" : null;
+  const id = Number(m[2]);
+  if (docKind) {
+    const d = await env.DB.prepare(`SELECT id, doc_type, doc_number, customer_id, salesperson_id FROM sales_documents WHERE id = ?1`).bind(id).first<{ id: number; doc_type: string; doc_number: string; customer_id: number; salesperson_id: number | null }>();
+    if (!d || d.doc_type !== docKind) return err("not_found", "That document was not found", 404);
+    const mineDoc = d.salesperson_id === user.id;
+    if (!mineDoc && !VIEW_ALL(user)) return err("forbidden", "Only the document's closer or management acts on this advice", 403);
+    if (!can(user.role, "sales")) return err("forbidden", "Sales access required to schedule a follow-up", 403);
+    /* already in hand: the open follow-up, never a second one */
+    try {
+      const had = await env.DB.prepare(`SELECT id FROM customer_followups WHERE doc_id = ?1 AND done_at IS NULL AND cancelled_at IS NULL LIMIT 1`).bind(id).first<{ id: number }>();
+      if (had) return json({ ok: true, kind: "followup", id: had.id, existing: true });
+    } catch (e) { if (/no such column/i.test(String(e))) return err("migration_missing", "Run migration 0172 first (PUSH.bat)", 503); throw e; }
+    const cards = await advisoryCards(env, true, user.id, from, to, today, s);
+    const c = cards.find((x) => x.key === key);
+    if (!c) return err("not_applicable", "This advice no longer applies - the record has changed", 409);
+    let owner = d.salesperson_id ?? user.id;
+    const ok = await env.DB.prepare(`SELECT role, is_active FROM users WHERE id = ?1`).bind(owner).first<{ role: string; is_active: number }>();
+    if (!ok || !ok.is_active || !can(ok.role, "sales")) owner = user.id; // a closer who left: the person pressing it takes it
+    const note = (docKind === "QT"
+      ? `Confirm the status of ${d.doc_number} with the customer and record what they said`
+      : `Collection: ask the customer about payment of ${d.doc_number}`).slice(0, 300);
+    const r = await openDocFollowup(env, { customerId: Number(d.customer_id), docId: id, ownerId: owner, dueOn: c.due_on ?? await nextWorkingDay(env, today), note, createdBy: user.id });
+    if (r instanceof Response) return r;
+    await audit(env, user.id, "sales.advisory_act", "customer_followups", String(r.id), { key, rule: c.rule, existing: r.existing });
+    return json({ ok: true, kind: "followup", id: r.id, existing: r.existing }, r.existing ? 200 : 201);
+  }
+  /* low pipeline for a person: one task for the week, for them */
+  if (id !== user.id && !can(user.role, "team_manage")) return err("forbidden", "Only the person or a manager acts on this advice", 403);
+  const title = `Build pipeline for the week of ${from}`;
+  const had = await env.DB.prepare(`SELECT id FROM tasks WHERE link_kind = 'advisory' AND link_id = ?1 AND assigned_to = ?2 AND title = ?3 LIMIT 1`).bind(Number(from.replace(/-/g, "")), id, title).first<{ id: number }>().catch(() => null);
+  if (had) return json({ ok: true, kind: "task", id: had.id, existing: true });
+  const cards = await advisoryCards(env, true, user.id, from, to, today, s);
+  const c = cards.find((x) => x.key === key);
+  if (!c) return err("not_applicable", "This advice no longer applies - the pipeline covers the gap now", 409);
+  const ev = c.evidence as { pipeline_cents: number; gap_cents: number };
+  const ins = await env.DB.prepare(
+    `INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline, link_kind, link_id)
+     SELECT ?1, ?2, ?3, ?4, 'normal', ?5, 'advisory', ?6
+      WHERE NOT EXISTS (SELECT 1 FROM tasks WHERE link_kind = 'advisory' AND link_id = ?6 AND assigned_to = ?3 AND title = ?1)
+     RETURNING id`,
+  ).bind(title, `Sales advice: the open quotations (RM ${(ev.pipeline_cents / 100).toFixed(2)}) cover less than ${s.pipeline_multiple} times the gap (RM ${(ev.gap_cents / 100).toFixed(2)}). Prospect, follow up qualified leads, or ask for introductions.`,
+    id, user.id, to, Number(from.replace(/-/g, ""))).first<{ id: number }>();
+  const tid = ins?.id ?? (await env.DB.prepare(`SELECT id FROM tasks WHERE link_kind = 'advisory' AND link_id = ?1 AND assigned_to = ?2 AND title = ?3 LIMIT 1`).bind(Number(from.replace(/-/g, "")), id, title).first<{ id: number }>())?.id;
+  await audit(env, user.id, "sales.advisory_act", "tasks", String(tid), { key, rule: c.rule, existing: !ins?.id });
+  return json({ ok: true, kind: "task", id: tid, existing: !ins?.id }, ins?.id ? 201 : 200);
 }
 
 export async function handleWeeklySales(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
@@ -544,7 +985,9 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     for (const p of people) rows.push(await weekFor(env, p.id, p.name, from, to, today, startDow));
     const companyRow = await companyWeek(env, from, to);
     if (ended) await finalise(env, from, rows, { target: companyRow.target_cents, basis: companyRow.basis_cents, confirmed: companyRow.confirmed_cents });
-    return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "all", can_set: isSetter, can_view_all: true, company: companyRow, rows, commission: { policy: false } });
+    /* v1.262.0 - pace, best week, confidence and risk beside the target, never instead */
+    const outlook = await companyOutlook(env, from, to, today, startDow, companyRow, await advisorySettings(env));
+    return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "all", can_set: isSetter, can_view_all: true, company: companyRow, outlook, rows, commission: { policy: false } });
   }
 
   /* ---- targets: read (management, or your own) and set (CEO, COO, super admin) ---- */
@@ -639,6 +1082,75 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     return json({ ok: true });
   }
 
+  /* ---- v1.262.0 Phase 1 (claude/SALES-RECOVERY-AUDIT.md rev 2) ---- */
+  if (path === "/sales/week/allocation" && method === "GET") {
+    if (!allowAll) return err("forbidden", "Management access required", 403);
+    return json({ week: { from, to, today, start_dow: startDow }, can_set: isSetter, ...(await allocation(env, from, to, today)) });
+  }
+  if (path === "/sales/week/targets/copy" && method === "POST") {
+    if (!isSetter) return err("forbidden", "Only the CEO, COO or super admin sets a weekly target", 403);
+    const week = String(body?.week_from ?? "");
+    const dry = body?.dry_run === true;
+    const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
+    if (!DAY.test(week) || weekStartOf(week, startDow) !== week) return err("validation", "Choose the first day of a week", 400);
+    if (week < weekStartOf(today, startDow)) return err("week_final", "A week that has ended keeps its targets. Copy into this week or a later one.", 409);
+    if (!dry && reason.length < 8) return err("validation", "Give a reason of at least 8 characters", 400);
+    try {
+      const r = await copyLastWeek(env, user, week, reason, dry);
+      return json({ ok: true, dry_run: dry, week_from: week, ...r }, !dry && r.written.length ? 201 : 200);
+    } catch (e) {
+      if (/no such (table|column)|no column named/i.test(String(e))) return err("migration_missing", "Run migration 0156 first (PUSH.bat)", 503);
+      throw e;
+    }
+  }
+  if (path === "/sales/week/advisory" && method === "GET") {
+    const s = await advisorySettings(env);
+    const cards = await advisoryCards(env, allowAll, user.id, from, to, today, s);
+    return json({ week: { from, to, today }, scope: allowAll ? "all" : "mine", cards, inactive: INACTIVE_RULES, settings: s, can_configure: isSetter });
+  }
+  if (path === "/sales/week/advisory/settings" && method === "PUT") {
+    if (!isSetter) return err("forbidden", "Only the CEO, COO or super admin changes the sales advisory", 403);
+    const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
+    if (reason.length < 8) return err("validation", "Give a reason of at least 8 characters", 400);
+    const before = await advisorySettings(env);
+    const next: Record<string, unknown> = {};
+    for (const k of Object.keys(ADVISORY_DEFAULTS) as (keyof typeof ADVISORY_DEFAULTS)[]) {
+      const raw = body?.[k];
+      if (raw === undefined || raw === null) { next[k] = before[k]; continue; }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < ADVISORY_RANGE[k][0] || n > ADVISORY_RANGE[k][1] || (k !== "pipeline_multiple" && !Number.isInteger(n))) {
+        return err("validation", `${k} must be from ${ADVISORY_RANGE[k][0]} to ${ADVISORY_RANGE[k][1]}`, 400);
+      }
+      next[k] = n;
+    }
+    const pd: Record<string, number> = {};
+    const inPd = body?.package_days === undefined ? before.package_days : body?.package_days;
+    if (inPd !== null && (typeof inPd !== "object" || Array.isArray(inPd))) return err("validation", "package_days maps a package id to a number of days", 400);
+    for (const [pid, days] of Object.entries((inPd ?? {}) as Record<string, unknown>)) {
+      const n = Number(days);
+      if (!/^\d+$/.test(pid) || !Number.isInteger(n) || n < 1 || n > 90) return err("validation", "A package follow-up interval is 1 to 90 days", 400);
+      const pk = await env.DB.prepare(`SELECT id FROM sales_packages WHERE id = ?1`).bind(Number(pid)).first().catch(() => null);
+      if (!pk) return err("not_found", `Package ${pid} was not found`, 404);
+      pd[pid] = n;
+    }
+    next.package_days = pd;
+    await env.DB.prepare(`INSERT INTO business_settings (key, value, updated_by) VALUES ('sales_advisory', ?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = datetime('now')`)
+      .bind(JSON.stringify(next), user.id).run();
+    const { updated_at: _a, updated_by: _b, ...was } = before;
+    void _a; void _b;
+    await audit(env, user.id, "sales.advisory_settings", "business_settings", "sales_advisory", { before: was, after: next, reason });
+    return json({ ok: true, settings: await advisorySettings(env) });
+  }
+  if (path === "/sales/week/advisory/act" && method === "POST") {
+    const key = typeof body?.key === "string" ? body.key : "";
+    return advisoryAct(env, user, key, weekStartOf(today, startDow), addDays(weekStartOf(today, startDow), 6), today, await advisorySettings(env));
+  }
+  if (path === "/sales/week/opportunities" && method === "GET") {
+    const rows = await openQuotations(env, today, allowAll ? null : user.id);
+    rows.sort((a, b) => Number(Boolean(a.last_contact?.outcome)) - Number(Boolean(b.last_contact?.outcome)) || b.age_days - a.age_days);
+    return json({ today, scope: allowAll ? "all" : "mine", rows, outcomes: { quotation: QT_OUTCOMES, invoice: INV_OUTCOMES }, can_sales: can(user.role, "sales") });
+  }
+
   /* ---- the recovery plan ---- */
   if (path === "/sales/week/plan" && method === "GET") {
     const uid = params.has("user_id") ? Number(params.get("user_id")) : user.id;
@@ -651,14 +1163,11 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     /* the facts the plan starts from - read, never invented */
     const quotations = await run<{ id: number; doc_number: string; company: string | null; total_cents: number; valid_until: string | null; created_at: string; customer_id: number | null }>(
       `SELECT q.id, q.doc_number, c.company, q.total_cents, q.valid_until, q.created_at, q.customer_id FROM sales_documents q LEFT JOIN customers c ON c.id = q.customer_id
-        WHERE q.doc_type = 'QT' AND q.salesperson_id = ?1
-          AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV')
-          AND (q.valid_until IS NULL OR substr(q.valid_until, 1, 10) >= ?2)
+        WHERE q.salesperson_id = ?1 AND ${openQuotationSql("q", "?2")}
         ORDER BY q.total_cents DESC LIMIT 20`, uid, today);
     const noNext = await run<{ id: number; company: string }>(
-      `SELECT DISTINCT c.id, c.company FROM customers c JOIN sales_documents q ON q.customer_id = c.id AND q.doc_type = 'QT' AND q.salesperson_id = ?1
-        WHERE NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.converted_from = q.id AND i.doc_type = 'INV')
-          AND (q.valid_until IS NULL OR substr(q.valid_until, 1, 10) >= ?2)
+      `SELECT DISTINCT c.id, c.company FROM customers c JOIN sales_documents q ON q.customer_id = c.id AND q.salesperson_id = ?1
+        WHERE ${openQuotationSql("q", "?2")}
           AND NOT EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
         LIMIT 20`, uid, today);
     const overdue = await run<{ id: number; customer_id: number; company: string | null; due_on: string; note: string }>(

@@ -28,6 +28,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, str, num } from "./shared";
 import { can } from "./permissions";
+import { INV_OUTCOMES, QT_OUTCOMES, openDocFollowup } from "./weekly-sales"; // v1.262.0 - one open follow-up per document, and its outcome codes
 import { personalApprove } from "./signing"; // v1.248.0 - a personal-signing company approves by signing
 import { glMonthFigures } from "./ledger"; // v1.222.0 - the ledger in the month-close snapshot (reads only)
 
@@ -1005,13 +1006,20 @@ export async function handleBusiness(
       ).bind(cid).all()).results ?? [];
       const tags = ((await env.DB.prepare(`SELECT tag FROM customer_tags WHERE customer_id = ?1 ORDER BY tag`).bind(cid).all<{ tag: string }>()).results ?? []).map((t) => t.tag);
       const terms = await env.DB.prepare(`SELECT terms_days FROM customer_terms WHERE customer_id = ?1`).bind(cid).first<{ terms_days: number }>();
-      const followups = (await env.DB.prepare(
-        `SELECT f.id, f.due_on, f.note, f.owner_id, f.created_at, f.done_at, f.done_note, f.cancelled_at,
+      const fuSql = (extra: string, join: string) =>
+        `SELECT f.id, f.due_on, f.note, f.owner_id, f.created_at, f.done_at, f.done_note, f.cancelled_at,${extra}
                 COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS owner_name,
                 COALESCE(NULLIF(TRIM(d.full_name), ''), d.name) AS done_by_name
-           FROM customer_followups f LEFT JOIN users u ON u.id = f.owner_id LEFT JOIN users d ON d.id = f.done_by
-          WHERE f.customer_id = ?1 ORDER BY (f.done_at IS NULL AND f.cancelled_at IS NULL) DESC, f.due_on DESC, f.id DESC LIMIT 60`,
-      ).bind(cid).all()).results ?? [];
+           FROM customer_followups f LEFT JOIN users u ON u.id = f.owner_id LEFT JOIN users d ON d.id = f.done_by${join}
+          WHERE f.customer_id = ?1 ORDER BY (f.done_at IS NULL AND f.cancelled_at IS NULL) DESC, f.due_on DESC, f.id DESC LIMIT 60`;
+      /* v1.262.0 - the document and the outcome (0172), when the database has them */
+      let followups: unknown[];
+      try {
+        followups = (await env.DB.prepare(fuSql(" f.doc_id, f.outcome, f.obstacle, sd.doc_number, sd.doc_type,", " LEFT JOIN sales_documents sd ON sd.id = f.doc_id")).bind(cid).all()).results ?? [];
+      } catch (e) {
+        if (!skew(e)) throw e;
+        followups = (await env.DB.prepare(fuSql("", "")).bind(cid).all()).results ?? [];
+      }
       const recurring = (await recurringList()).filter((r) => r.customer_id === cid);
       const invoices = (await env.DB.prepare(
         `SELECT id, doc_number, total_cents, created_at, payment_status FROM sales_documents WHERE customer_id = ?1 AND doc_type = 'INV' ORDER BY id DESC LIMIT 24`, // v1.242.0 - payment_status so a voided one is shown struck through
@@ -1107,11 +1115,20 @@ export async function handleBusiness(
     if (note.length < 3) return err("invalid_input", "Say what the follow-up is for.", 400);
     let owner = body?.owner_id == null ? user.id : num(body.owner_id);
     if (owner === null) owner = user.id;
+    /* v1.262.0 (0172) - a follow-up may name the quotation or invoice it is
+       about; one open follow-up per document, a second returns the first */
+    const docId = body?.doc_id == null ? null : num(body.doc_id);
+    if (body?.doc_id != null && (docId === null || !Number.isInteger(docId) || docId <= 0)) return err("invalid_input", "doc_id names a quotation or invoice.", 400);
     try {
       const ok = await env.DB.prepare(`SELECT id FROM customers WHERE id = ?1`).bind(cid).first();
       if (!ok) return err("not_found", "Customer not found", 404);
       const who = await env.DB.prepare(`SELECT role, is_active FROM users WHERE id = ?1`).bind(owner).first<{ role: string; is_active: number }>();
       if (!who || !who.is_active || !can(who.role, "sales")) return err("invalid_input", "The owner must be an active member of the sales team.", 400);
+      if (docId !== null) {
+        const r = await openDocFollowup(env, { customerId: cid, docId, ownerId: owner, dueOn: String(due), note, createdBy: user.id });
+        if (r instanceof Response) return r;
+        return json({ ok: true, id: r.id, existing: r.existing }, r.existing ? 200 : 201);
+      }
       const r = await env.DB.prepare(
         `INSERT INTO customer_followups (customer_id, due_on, owner_id, note, created_by) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
       ).bind(cid, due, owner, note, user.id).first<{ id: number }>();
@@ -1123,9 +1140,31 @@ export async function handleBusiness(
   if (mFuAct && method === "POST") {
     if (!CRM_WRITE) return err("forbidden", "Sales access required", 403);
     const id = Number(mFuAct[1]);
+    const doneNote = str(body?.note, 300) ? String(body!.note).trim() || null : null;
+    /* v1.262.0 (0172) - closing a follow-up on a document records what the
+       customer said: an outcome code (required), and the reason or obstacle
+       (required for lost). The document itself never changes here. */
+    let fu: { doc_id: number | null; doc_type: string | null } | null = null;
+    try {
+      fu = await env.DB.prepare(`SELECT f.doc_id, d.doc_type FROM customer_followups f LEFT JOIN sales_documents d ON d.id = f.doc_id WHERE f.id = ?1`).bind(id).first<{ doc_id: number | null; doc_type: string | null }>();
+    } catch (e) { if (!skew(e)) throw e; fu = null; }
+    const outcome = typeof body?.outcome === "string" && body.outcome ? body.outcome : null;
+    const obstacle = str(body?.obstacle, 300) ? String(body!.obstacle).trim() || null : null;
+    if (mFuAct[2] === "done" && (fu?.doc_id || outcome)) {
+      const codes: readonly string[] = fu?.doc_type === "INV" ? INV_OUTCOMES : QT_OUTCOMES;
+      if (!outcome) return err("invalid_input", "Choose what the customer said.", 400);
+      if (!codes.includes(outcome)) return err("invalid_input", `The outcome is one of ${codes.join(", ")}.`, 400);
+      if ((outcome === "lost" || outcome === "disputed") && (!obstacle || obstacle.length < 3)) return err("invalid_input", outcome === "lost" ? "Say why it was lost." : "Say what the customer disputes.", 400);
+      if (!fu) return err("migration_missing", "Run migration 0172 first (PUSH.bat)", 503);
+      const r = await env.DB.prepare(`UPDATE customer_followups SET done_at = datetime('now'), done_by = ?2, done_note = ?3, outcome = ?4, obstacle = ?5 WHERE id = ?1 AND done_at IS NULL AND cancelled_at IS NULL`)
+        .bind(id, user.id, doneNote, outcome, obstacle).run();
+      if (!r.meta?.changes) return err("invalid_input", "That follow-up is already closed.", 400);
+      await audit(env, user.id, "customer.followup_done", "customer_followups", String(id), { doc_id: fu.doc_id, outcome, obstacle });
+      return json({ ok: true, outcome, doc_id: fu.doc_id, next: outcome === "accepted" && fu.doc_type === "QT" ? "record_acceptance" : null });
+    }
     const r = mFuAct[2] === "done"
       ? await env.DB.prepare(`UPDATE customer_followups SET done_at = datetime('now'), done_by = ?2, done_note = ?3 WHERE id = ?1 AND done_at IS NULL AND cancelled_at IS NULL`)
-        .bind(id, user.id, str(body?.note, 300) ? String(body!.note).trim() || null : null).run()
+        .bind(id, user.id, doneNote).run()
       : await env.DB.prepare(`UPDATE customer_followups SET cancelled_at = datetime('now'), done_by = ?2 WHERE id = ?1 AND done_at IS NULL AND cancelled_at IS NULL`)
         .bind(id, user.id).run();
     if (!r.meta?.changes) return err("invalid_input", "That follow-up is already closed.", 400);

@@ -10,6 +10,22 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.262.0] - 2026-11-05 - Sales discipline (Phase 1 of the Sales Recovery plan)
+
+claude/SALES-RECOVERY-AUDIT.md revision 2 and the CEO's "Phase by Phase" (05-11-2026). Phase 1 only; Phase 2 (accountability and coaching) and Phase 3 (Cash Watch) wait for their own approval.
+
+- Migration 0172 (additive): customer_followups gains doc_id, outcome and obstacle, NULL on every existing row; a partial unique index allows one OPEN follow-up per quotation or invoice. No row is changed.
+- One open-quotation rule (weekly-sales.ts `openQuotationSql`) for the scorecard, the plan's facts, the advice and the list: not void, no live invoice (a voided invoice reopens its quotation, as Sales has done since 1.242.0), within its validity. Nothing marks a quotation lost or expired.
+- Management's command strip (Dashboard card and Sales -> the team's week), each figure apart: Invoiced (never "Sales booked"), Open quotations, the required pace (remaining gap / working days left, holidays counted, never reduced), the best finished week, forecast confidence ("Not enough data" until 8 weeks with a target and 20 decided quotations; then the record, never a prediction), sales recovery risk with its evidence (pipeline cover, follow-ups scheduled, quotations going cold, gap vs best week). The CEO's target is never changed by the system.
+- Week allocation (GET /sales/week/allocation; edits through the existing POST /sales/week/targets): every person, the kind of target held (revenue / contribution / operational) and why, a suggestion from the records, the reconciliation line company = revenue targets + Unallocated (management); over-allocation is warned, never blocked. Nothing is split equally or pre-filled.
+- Copy last week (POST /sales/week/targets/copy): a dry run lists the rows that differ (targets already carry forward); the copy writes only those, with a reason, audited; never into a finished week.
+- Sales advice (GET /sales/week/advisory): quotation going cold (no open follow-up, nothing heard within 14 days or the package's interval), very old quotation (over 60 days), unpaid invoice (past due, or 14 days after issue with no due date), low pipeline (open quotations under 1.5x the gap, per closer and for the company), no activity mid-week, delivery bottleneck. Low conversion and margin are listed as not active (no data). Management sees all; anyone else only their own. Settings (PUT /sales/week/advisory/settings): CEO, COO or super admin, with a reason, audited before and after.
+- Do it (POST /sales/week/advisory/act): the server works the card out again from its key and makes ONE follow-up (for the closer, due the next working day) or ONE task for the week; a second press returns the same record. No notification, no message to a customer.
+- What the customer said: closing a follow-up on a document needs an outcome (quotation: interested, negotiating, waiting, accepted, lost, no response; invoice: promised, paid, disputed, no response) and, for lost or disputed, the reason. Accepted points to the existing acceptance record. The document never changes. Shown on the client file and the open quotations list; Record acceptance reuses the existing sheet.
+- My week: the kind of target I hold and why it applies to my role, follow-ups due today or late. HOD and management rows carry the plan's state.
+- Commission, payroll, finance and the recovery-plan review are untouched.
+- Tests: tests/go-live-w.mjs (72 checks, 14 mutations); tests/weekly-dashboard.mjs accepts the plan's state on a team row (a word, never the plan); tests/browser/sales-discipline.py (41 checks, 1440 / 390 / 320 px, both themes).
+
 ## [1.261.0] - 2026-11-04 - Leave goes up the reporting line to the CEO
 
 The CEO, 04-11-2026, on Nursyazwani's request: "it is supposed to HR and Admin -> CCO -> CEO, refer to organisation"; his answer to the choice: "Up the chart to the CEO". This replaces D1 (c) of claude/LEAVE-ROUTING-AUDIT.md (the direct manager final).

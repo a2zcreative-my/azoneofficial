@@ -67,6 +67,7 @@ let manualPaid = null;
 let projectMade = false;
 const projectPosts = [];
 const taskPosts = []; // v1.246.0
+const salesPosts = []; // v1.262.0 - Sales discipline writes, for the probe at /__sales
 let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
 const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
@@ -76,6 +77,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
   }
+  if (url.pathname === "/__sales") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: salesPosts })); return; }
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
@@ -255,6 +257,20 @@ const server = http.createServer((req, res) => {
       }
       if (req.method === "GET" && p.startsWith("/staff/tasks/mail-preview")) {
         res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>preview</title><h1>New task assigned</h1><p>View Task in A2Z OS</p>"); return;
+      }
+      /* v1.262.0 - Sales discipline: Do it, an outcome, a linked follow-up, the
+         allocation, Copy last week and the advisory settings - answered as
+         weekly-sales.ts / business.ts would, recorded at /__sales */
+      if ((req.method === "POST" || req.method === "PUT") && (/^\/staff\/sales\/week\/(advisory\/act|advisory\/settings|targets|targets\/copy)$/.test(p) || /^\/staff\/followups\/\d+\/done$/.test(p) || /^\/staff\/customers\/\d+\/followups$/.test(p))) {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        salesPosts.push({ method: req.method, p, body: b });
+        const J = (code, o) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
+        if (p.endsWith("/advisory/act")) { const again = salesPosts.filter((x) => x.p === p && x.body.key === b.key).length > 1; return J(again ? 200 : 201, { ok: true, kind: String(b.key).startsWith("pipe:") ? "task" : "followup", id: 610, existing: again }); }
+        if (p.endsWith("/done")) { if (!b.outcome) return J(400, { error: { code: "invalid_input", message: "Choose what the customer said." } }); return J(200, { ok: true, outcome: b.outcome, doc_id: 41, next: b.outcome === "accepted" ? "record_acceptance" : null }); }
+        if (p.endsWith("/targets/copy")) return J(b.dry_run ? 200 : 201, { ok: true, dry_run: Boolean(b.dry_run), source_week: "2026-09-07", changes: [{ scope: "person", user_id: 9005, name: "Farid Zulkifli", metric: "revenue", from_value: null, to_value: 200000 }], written: b.dry_run ? [] : [77] });
+        if (p.endsWith("/advisory/settings")) return J(200, { ok: true, settings: { pipeline_multiple: 1.5, quote_age_days: 14, very_old_days: 60, invoice_fallback_days: 14, package_days: {}, ...b, updated_at: "2026-09-18 03:00:00", updated_by: "Fixture Person" } });
+        if (p.endsWith("/followups")) return J(201, { ok: true, id: 611, existing: false });
+        return J(201, { ok: true, id: 78 });
       }
       /* v1.246.3 - a staff-recorded quotation acceptance */
       if (req.method === "POST" && /^\/staff\/docs\/\d+\/acceptance$/.test(p)) {

@@ -988,6 +988,35 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     basis_cents: 120000, paid_invoices: 1, quotations: wkSum(1, 450000), open_quotations: wkSum(1, 450000), followups_done: 3, followups_overdue: 1, enquiries: 2, new_customers: 1,
     tasks: { open: 2, done: 1, overdue: 0 }, pct: 24, gap_cents: 380000, expected_cents: 400000, status: "at_risk", activity: 7 });
   const wkSetter = ["ceo", "coo", "super_admin"].includes(ROLE);
+  /* v1.262.0 - Sales discipline fixtures for the week of 14-09-2026 (Friday
+     18-09): invented customers and amounts, the shapes weekly-sales.ts sends */
+  const wkOutlook = { invoiced: { cents: 450000, n: 1 }, open_quotations: { cents: 780000, n: 3 }, followups_scheduled: 0, days_left: 1, required_per_day_cents: 1100000,
+    best_week: { from: "2026-08-31", cents: 520000 }, ageing_quotations: 2,
+    confidence: { level: "not_enough_data", target_weeks: 2, achieved_weeks: 0, decided_quotations: 4, needs: { target_weeks: 8, decided_quotations: 20 } },
+    risk: { level: "high", ratio: 0.71, reasons: ["pipeline_low", "no_followups", "ageing_quotations", "gap_above_best_week"] } };
+  const wkCards = [
+    { key: "pipe:company", rule: "low_pipeline", severity: "critical", owner: { id: null, name: null }, record: { kind: "company", id: null, label: null }, amount_cents: 1100000, due_on: "2026-09-20", action: "allocate", risk: "target_unreachable",
+      evidence: { pipeline_cents: 780000, gap_cents: 1100000, ratio: 0.71, multiple: 1.5, company: true } },
+    { key: "qt:41", rule: "qt_very_old", severity: "critical", owner: { id: 9010, name: "Hakim Rosli" }, record: { kind: "quotation", id: 41, label: "QT-AZOO060826-1" }, amount_cents: 330000, due_on: "2026-09-21", action: "followup", risk: "pipeline_overstated",
+      evidence: { doc_number: "QT-AZOO060826-1", company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", customer_id: 51, total_cents: 330000, age_days: 86, idle_days: 86, interval_days: 14, last_contact: null, last_outcome: null } },
+    { key: "qt:42", rule: "qt_ageing", severity: "warn", owner: { id: 9001, name: "Fixture Person" }, record: { kind: "quotation", id: 42, label: "QT-0042" }, amount_cents: 450000, due_on: "2026-09-21", action: "followup", risk: "going_cold",
+      evidence: { doc_number: "QT-0042", company: "Aina Boutique (Melaka)", customer_id: 52, total_cents: 450000, age_days: 19, idle_days: 19, interval_days: 14, last_contact: null, last_outcome: null } },
+    { key: "inv:61", rule: "invoice_unpaid", severity: "warn", owner: { id: 9002, name: "Nur Aisyah binti Rahman" }, record: { kind: "invoice", id: 61, label: "INV-0061" }, amount_cents: 15000, due_on: "2026-09-21", action: "followup", risk: "cash_not_collected",
+      evidence: { doc_number: "INV-0061", company: "Kedai Runcit Pak Ali", customer_id: 53, total_cents: 15000, issued_on: "2026-08-20", due_date: null, fallback: true, days_late: 15 } },
+    { key: "pipe:9010", rule: "low_pipeline", severity: "warn", owner: { id: 9010, name: "Hakim Rosli" }, record: { kind: "person", id: 9010, label: "Hakim Rosli" }, amount_cents: 300000, due_on: "2026-09-20", action: "task", risk: "target_unreachable",
+      evidence: { pipeline_cents: 330000, gap_cents: 300000, ratio: 1.1, multiple: 1.5 } },
+    { key: "late:9006", rule: "delivery_bottleneck", severity: "info", owner: { id: 9006, name: "Siti Nur Aisyah binti Abdullah" }, record: { kind: "tasks", id: 9006, label: null }, amount_cents: 0, due_on: null, action: "tasks", risk: "delivery_not_sales",
+      evidence: { overdue_tasks: 2, oldest_deadline: "2026-09-11" } },
+  ];
+  const wkInactive = [{ rule: "low_conversion", needs: "20 decided quotations in 90 days" }, { rule: "margin_risk", needs: "the cost of each service" }];
+  const wkOpps = [
+    { id: 41, doc_number: "QT-AZOO060826-1", customer_id: 51, company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", total_cents: 330000, created_on: "2026-06-24", age_days: 86, idle_days: 86, valid_until: null, revision: 0, issuer_code: "AZONE", shared_online: false,
+      owner: { id: 9010, name: "Hakim Rosli" }, next: null, last_contact: null, acceptance: null },
+    { id: 42, doc_number: "QT-0042", customer_id: 52, company: "Aina Boutique (Melaka)", total_cents: 450000, created_on: "2026-08-30", age_days: 19, idle_days: 19, valid_until: "2026-10-30", revision: 1, issuer_code: "A2Z", shared_online: true,
+      owner: { id: 9001, name: "Fixture Person" }, next: { id: 612, due_on: "2026-09-18", note: "Confirm the status of QT-0042 with the customer", owner: "Fixture Person", linked: true }, last_contact: null, acceptance: null },
+    { id: 43, doc_number: "QT-0043", customer_id: 54, company: "Klinik Gigi Senyum", total_cents: 0, created_on: "2026-09-10", age_days: 8, idle_days: 2, valid_until: null, revision: 0, issuer_code: "A2Z", shared_online: false,
+      owner: { id: 9010, name: "Hakim Rosli" }, next: null, last_contact: { at: "2026-09-16 03:00:00", by: "Hakim Rosli", outcome: "negotiating", obstacle: "Wants the price split over two months", note: "Call back Monday" }, acceptance: null },
+  ];
   const wkAll = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
   if (p === "/staff/sales/week") {
     const week = { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", checkpoint: "review", start_dow: 1 };
@@ -1046,8 +1075,31 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
         departments: [{ name: "Sales", target_cents: 1100000, basis_cents: 400000, people: 3, pct: 36 }, { name: "Live", target_cents: null, basis_cents: 0, people: 1, pct: null }],
       } : null,
       can_set: wkSetter, can_view_all: wkAll, can_assign: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(ROLE), can_sales: sellerRole, commission: { policy: false },
+      /* v1.262.0 - Sales discipline: the strip (management), the advice and the open quotations */
+      outlook: wkAll ? wkOutlook : null,
+      advisory: wkAll ? { cards: wkCards.slice(0, 5), total: wkCards.length, inactive: wkInactive } : sellerRole && !sys ? { cards: wkCards.filter((c) => c.owner.id === 9001), total: 1, inactive: wkInactive } : null,
+      opportunities: wkAll ? wkOpps : sellerRole && !sys ? wkOpps.filter((o) => o.owner.id === 9001) : null,
     };
+    if (data.me) data.me = { ...data.me, kind: data.me.target_cents !== null ? "revenue" : data.me.goals.length ? "contribution" : "operational", role: ROLE, followups_today: 1,
+      next_followups: data.me.target_cents !== null ? [{ id: 612, due_on: "2026-09-18", note: "Confirm the status of QT-0042 with the customer", company: "Aina Boutique (Melaka)" }] : [] };
+    if (data.team) data.team.rows = data.team.rows.map((r) => ({ ...r, kind: r.target_cents !== null ? "revenue" : "operational", plan: r.user_id === 9010 ? "submitted" : null }));
   }
+  if (p === "/staff/sales/week/advisory") data = { week: { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18" }, scope: wkAll ? "all" : "mine", cards: wkAll ? wkCards : wkCards.filter((c) => c.owner.id === 9001), inactive: wkInactive,
+    settings: { pipeline_multiple: 1.5, quote_age_days: 14, very_old_days: 60, invoice_fallback_days: 14, package_days: {}, updated_at: null, updated_by: null }, can_configure: wkSetter };
+  if (p === "/staff/sales/week/opportunities") data = { today: "2026-09-18", scope: wkAll ? "all" : "mine", rows: wkAll ? wkOpps : wkOpps.filter((o) => o.owner.id === 9001), outcomes: { quotation: ["interested", "negotiating", "waiting", "accepted", "lost", "no_response"], invoice: ["promised", "paid", "disputed", "no_response"] }, can_sales: true };
+  if (p === "/staff/sales/week/allocation") data = !wkAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    week: { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", start_dow: 1 }, can_set: wkSetter,
+    company: { target_cents: 1500000, from: "2026-09-07", set_by: "Fixture COO" },
+    people: [
+      { id: 9001, name: "Fixture Person", role: "sales_marketing", kind: "revenue", suggested: "revenue", holds_unallocated: false, deals_90d: 6, open_quotations: { n: 1, cents: 450000 }, target_cents: 500000, target_from: "2026-09-07", target_set_by: "Fixture COO", goals: { quotations: 5 } },
+      { id: 9010, name: "Hakim Rosli", role: "sales_marketing", kind: "revenue", suggested: "revenue", holds_unallocated: false, deals_90d: 3, open_quotations: { n: 2, cents: 330000 }, target_cents: 300000, target_from: "2026-09-07", target_set_by: "Fixture COO", goals: {} },
+      { id: 9002, name: "Nur Aisyah binti Rahman", role: "sales_marketing", kind: "revenue", suggested: "revenue", holds_unallocated: false, deals_90d: 2, open_quotations: { n: 0, cents: 0 }, target_cents: 300000, target_from: "2026-09-07", target_set_by: "Fixture COO", goals: {} },
+      { id: 9005, name: "Farid Zulkifli", role: "sales_marketing", kind: "operational", suggested: "contribution", holds_unallocated: false, deals_90d: 0, open_quotations: { n: 0, cents: 0 }, target_cents: null, target_from: null, target_set_by: null, goals: {} },
+      { id: 9006, name: "Siti Nur Aisyah binti Abdullah", role: "live_host", kind: "contribution", suggested: "operational", holds_unallocated: false, deals_90d: 0, open_quotations: { n: 0, cents: 0 }, target_cents: null, target_from: null, target_set_by: null, goals: { introductions: 2 } },
+      { id: 9020, name: "Fixture CEO", role: "ceo", kind: "operational", suggested: "operational", holds_unallocated: true, deals_90d: 0, open_quotations: { n: 0, cents: 0 }, target_cents: null, target_from: null, target_set_by: null, goals: {} },
+    ],
+    revenue_sum_cents: 1100000, unallocated_cents: 400000, over_allocated: false,
+  };
   if (p === "/staff/sales/week/targets") data = !wkAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     week: { from: "2026-09-14", to: "2026-09-20", start_dow: 1 }, can_set: wkSetter,
     people: [

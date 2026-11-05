@@ -315,7 +315,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     <button type="button" className={`${chipInfo} ${tk.projChip}`} title={L("Open the project", "Buka projek")}
       onClick={(e) => { e.stopPropagation(); setProjOpen(t.link_id ?? null); go("projects"); }}>{/* v1.247.1 - the project's name, not its number */}{t.link_label ? projName(t.link_label) : `${L("Project", "Projek")} #${t.link_id}`}</button>
   ) : t.link_kind && t.link_id ? (
-    <span className={chipInfo}>{({ customer: L("Customer", "Pelanggan"), enquiry: L("Enquiry", "Pertanyaan"), quotation: L("Quotation", "Sebut harga"), recovery: L("Recovery plan", "Pelan pemulihan") } as Record<string, string>)[t.link_kind] ?? t.link_kind} #{t.link_id}</span>
+    <span className={chipInfo}>{({ customer: L("Customer", "Pelanggan"), enquiry: L("Enquiry", "Pertanyaan"), quotation: L("Quotation", "Sebut harga"), recovery: L("Recovery plan", "Pelan pemulihan"), advisory: L("Sales advice", "Nasihat jualan") } as Record<string, string>)[t.link_kind] ?? t.link_kind}{t.link_kind === "advisory" ? "" : ` #${t.link_id}`}</span>
   ) : null;
   const scopeChip = (t: Task) => (t.item_count ?? 0) > 0 ? (
     <button

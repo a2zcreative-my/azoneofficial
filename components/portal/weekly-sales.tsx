@@ -20,6 +20,7 @@ import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
 import { WEEK_STATUS, GOAL_LABEL } from "@/lib/week-status";
+import { AdvisorySettingsDrawer, AllocationDrawer, CommandStrip, type Outlook } from "@/components/portal/sales-discipline";
 import css from "./weekly-sales.module.css";
 
 const api = makeApi("/staff");
@@ -41,7 +42,7 @@ export interface WeekRow {
   final: { status: string | null; basis_cents: number; target_cents: number | null; finalised_at: string; changed_cents: number } | null;
 }
 interface Week { from: string; to: string; today: string; checkpoint: "planning" | "early_warning" | "review" | "final"; start_dow: number }
-interface WeekResp { week: Week; scope: "mine" | "all"; can_set: boolean; can_view_all: boolean; me?: WeekRow; rows?: WeekRow[]; company?: { target_cents: number | null; target_from: string | null; basis_cents: number; confirmed_cents: number; pct: number | null; gap_cents: number | null } }
+interface WeekResp { week: Week; scope: "mine" | "all"; can_set: boolean; can_view_all: boolean; me?: WeekRow; rows?: WeekRow[]; company?: { target_cents: number | null; target_from: string | null; basis_cents: number; confirmed_cents: number; pct: number | null; gap_cents: number | null }; outlook?: Outlook }
 
 /* v1.239.0 - the words live in lib/week-status.ts, shared with the Dashboard */
 const TONE_CHIP = { neutral: chipNeutral, info: chipInfo, success: chipSuccess, warn: chipWarn, danger: chipDanger } as const;
@@ -390,6 +391,8 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
   const [person, setPerson] = useState<WeekRow | null>(null);
   const [targets, setTargets] = useState<false | { who?: number }>(false);
   const [assign, setAssign] = useState<{ id: number; name: string } | null>(null);
+  const [alloc, setAlloc] = useState(false);
+  const [advice, setAdvice] = useState(false);
   const { show: toast, node: toastNode } = useSaveToast();
   useEffect(() => {
     const c = new AbortController();
@@ -419,7 +422,9 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
         </div>
         <div className={css.tools}>
           {nav}
+          {d?.scope === "all" && <button type="button" className={btnSm} onClick={() => setAlloc(true)}><AppIcon name="users" />{L("Week allocation", "Agihan minggu")}</button>}
           {d?.scope === "all" && <button type="button" className={d.can_set ? btnSmPrimary : btnSm} onClick={() => setTargets({})}><AppIcon name="target" />{d.can_set ? L("Set targets", "Tetapkan sasaran") : L("Targets", "Sasaran")}</button>}
+          {d?.scope === "all" && d.can_set && <button type="button" className={btnSm} onClick={() => setAdvice(true)}><AppIcon name="idea" />{L("Advice settings", "Tetapan nasihat")}</button>}
         </div>
       </div>
       {mine?.e ? <p role="alert" className={css.error}>{mine.e}</p> : !d ? <SkelRows rows={6} /> : d.scope === "mine" && d.me ? (
@@ -444,6 +449,7 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
               <span className={css.facts}><span>{L("Confirmed by CEO/COO", "Disahkan CEO/COO")} <strong>{fmtRM(d.company.confirmed_cents)}</strong></span>{d.company.gap_cents !== null && <span>{L("Gap", "Baki")} <strong>{fmtRM(d.company.gap_cents)}</strong></span>}</span>
             </div>
           )}
+          {d.outlook && <CommandStrip o={d.outlook} gap={d.company?.gap_cents ?? null} />}
           {d.rows.length === 0 ? <p className={css.empty}>{L("No sales consultants yet.", "Belum ada perunding jualan.")}</p> : (
             <>
               <div className={`${css.desk} ${css.tableWrap}`}>
@@ -492,6 +498,8 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
       )}
       <PlanDrawer userId={plan} week={w?.from ?? ""} onClose={() => setPlan(null)} onSaved={reload} />
       {targets && w && <TargetsDrawer key={targets.who ?? 0} week={w.from} initialWho={targets.who} onClose={() => setTargets(false)} onSaved={reload} />}
+      {alloc && w && <AllocationDrawer week={w.from} onClose={() => setAlloc(false)} onSaved={reload} onGoals={(id) => { setAlloc(false); setTargets({ who: id }); }} />}
+      {advice && <AdvisorySettingsDrawer onClose={() => setAdvice(false)} onSaved={reload} />}
       {assign && w && <AssignTask person={assign} week={w.from} onClose={() => setAssign(null)} onSaved={(m) => { setAssign(null); toast(L("Sales task", "Tugasan jualan"), m); reload(); }} />}
     </section>
   );

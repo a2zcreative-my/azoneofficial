@@ -264,7 +264,7 @@ export interface Task {
   item_done?: number;
   acknowledged?: number;
   // v1.223.0 — the sales record a task is about (Weekly Sales), present post-0149
-  link_kind?: "customer" | "enquiry" | "quotation" | "recovery" | "project" | null; // v1.245.0 - project
+  link_kind?: "customer" | "enquiry" | "quotation" | "recovery" | "project" | "advisory" | null; // v1.245.0 - project; v1.262.0 - advisory (a Sales advice task, link_id = the week)
   link_id?: number | null;
   /* v1.246.0 - task progress: the stage inside a status, where the number
      comes from, the latest PROGRESS update (never a comment), the helpers and

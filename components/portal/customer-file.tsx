@@ -30,12 +30,15 @@ import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 
+import { OutcomeSheet, outcomeChip } from "@/components/portal/sales-discipline";
 import css from "./business.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 interface Contact { id: number; name: string; role: string | null; phone: string | null; email: string | null; note: string | null }
-interface Followup { id: number; due_on: string; note: string; owner_name: string | null; done_at: string | null; done_note: string | null; cancelled_at: string | null; done_by_name: string | null }
+interface Followup { id: number; due_on: string; note: string; owner_name: string | null; done_at: string | null; done_note: string | null; cancelled_at: string | null; done_by_name: string | null;
+  /* v1.262.0 (0172) - the document it is about, and what the customer said */
+  doc_id?: number | null; doc_number?: string | null; doc_type?: "QT" | "INV" | null; outcome?: string | null; obstacle?: string | null }
 interface Recurring { id: number; source_number: string | null; total_cents: number | null; day_of_month: number; note: string | null; due_on: string; raised: boolean; raised_number: string | null; due: boolean }
 interface Invoice { id: number; doc_number: string; total_cents: number; created_at: string; payment_status?: string | null }
 interface File {
@@ -59,6 +62,7 @@ export function CustomerFile({ customerId, onChanged }: { customerId: number; on
   const [fu, setFu] = useState({ due_on: "", note: "", owner: "" });
   const [rec, setRec] = useState({ source: "", day: "1" });
   const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<Followup | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -174,9 +178,10 @@ export function CustomerFile({ customerId, onChanged }: { customerId: number; on
             <li key={x.id} className={css.item}>
               <span className={css.when}>{dmy(x.due_on)}</span>
               <span className={css.what}><span className={css.whatTitle}>{x.note}</span>
-                <span className={css.whatDetail}>{x.owner_name ?? L("nobody", "tiada sesiapa")}</span></span>
+                <span className={css.whatDetail}>{x.owner_name ?? L("nobody", "tiada sesiapa")}{x.doc_number ? ` · ${x.doc_number}` : ""}</span></span>
               {x.due_on < f.today ? <span className={chipSmWarn}>{L("overdue", "lewat")}</span> : x.due_on === f.today ? <span className={chipSmNeutral}>{L("today", "hari ini")}</span> : null}
-              {w && <button type="button" className={rowBtn} disabled={busy} onClick={() => void send(`/staff/followups/${x.id}/done`, "POST", {}, L("Follow-up done", "Susulan selesai"))}>{L("Done", "Selesai")}</button>}
+              {w && x.doc_id ? <button type="button" className={rowBtn} disabled={busy} onClick={() => setSaid(x)}>{L("Record what they said", "Rekod jawapan")}</button>
+                : w && <button type="button" className={rowBtn} disabled={busy} onClick={() => void send(`/staff/followups/${x.id}/done`, "POST", {}, L("Follow-up done", "Susulan selesai"))}>{L("Done", "Selesai")}</button>}
               {w && <button type="button" className={rowBtn} disabled={busy} onClick={() => void send(`/staff/followups/${x.id}/cancel`, "POST", {}, L("Follow-up cancelled", "Susulan dibatalkan"))}>{L("Cancel", "Batal")}</button>}
             </li>
           ))}
@@ -188,7 +193,8 @@ export function CustomerFile({ customerId, onChanged }: { customerId: number; on
             <li key={x.id} className={`${css.item} ${css.voided}`}>
               <span className={css.when}>{dmy(x.due_on)}</span>
               <span className={css.what}><span className={css.whatTitle}>{x.note}</span>
-                <span className={css.whatDetail}>{x.done_at ? L(`done ${dmyMYT(x.done_at)}${x.done_by_name ? ` by ${x.done_by_name}` : ""}`, `selesai ${dmyMYT(x.done_at)}${x.done_by_name ? ` oleh ${x.done_by_name}` : ""}`) : L("cancelled", "dibatalkan")}</span></span>
+                <span className={css.whatDetail}>{x.done_at ? L(`done ${dmyMYT(x.done_at)}${x.done_by_name ? ` by ${x.done_by_name}` : ""}`, `selesai ${dmyMYT(x.done_at)}${x.done_by_name ? ` oleh ${x.done_by_name}` : ""}`) : L("cancelled", "dibatalkan")}{x.doc_number ? ` · ${x.doc_number}` : ""}{x.obstacle ? ` · ${x.obstacle}` : ""}{x.done_note ? ` · ${x.done_note}` : ""}</span></span>
+              {outcomeChip(x.outcome)}
             </li>
           ))}
         </ul>
@@ -209,6 +215,9 @@ export function CustomerFile({ customerId, onChanged }: { customerId: number; on
           </button>
         </div>
       )}
+
+      {said?.doc_id && <OutcomeSheet followupId={said.id} docType={said.doc_type === "INV" ? "INV" : "QT"} docNumber={said.doc_number ?? ""} company={f.customer.company} onClose={() => setSaid(null)}
+        onDone={(next) => { setSaid(null); toast(L("Recorded", "Direkod"), next === "record_acceptance" ? L("Now record the acceptance on the quotation (who agreed and how).", "Sekarang rekod penerimaan pada sebut harga.") : L("The follow-up is closed with what the customer said", "Susulan ditutup dengan jawapan pelanggan")); setTick((t) => t + 1); onChanged?.(); }} />}
 
       {/* ---- monthly invoice ---- */}
       <p className={css.sub}>{L("Monthly invoice", "Invois bulanan")}</p>

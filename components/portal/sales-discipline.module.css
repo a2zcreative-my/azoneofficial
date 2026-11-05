@@ -1,0 +1,365 @@
+/* v1.262.0 - Sales discipline (sales-discipline.tsx): the command strip, the
+   advice cards, the open quotations, the allocation drawer. The portal's own
+   tokens, both themes; severity colours only on the chips and the card edge.
+   Phone first: everything stacks, nothing scrolls sideways but the table. */
+.block {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.label {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.muted,
+.fine {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.muted svg {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-right: 0.25rem;
+  vertical-align: -2px;
+}
+.error {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--danger);
+}
+
+/* the command strip */
+.strip {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tiles li {
+  display: grid;
+  align-content: start;
+  gap: 0.125rem;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.tLabel {
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.tValue {
+  font-size: 1.0625rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--brand-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+:global(.dark) .tValue {
+  color: var(--foreground);
+}
+.tNote {
+  white-space: pre-line;
+  font-size: var(--type-caption-size);
+  line-height: 1.35;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* advice cards and open quotations */
+.cards,
+.opps,
+.changes {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.advice,
+.opp {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--card);
+}
+.advice[data-severity="critical"] {
+  border-left-color: var(--danger);
+}
+.advice[data-severity="warn"] {
+  border-left-color: var(--warning);
+}
+.advice[data-severity="info"] {
+  border-left-color: var(--border);
+}
+.opp {
+  border-left-color: var(--gold-solid);
+}
+.adviceTop,
+.oppTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
+  font-size: var(--type-body-sm-size);
+}
+.oppCo {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+}
+.amt {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.evidence {
+  font-size: var(--type-body-sm-size);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.adviceAct {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+}
+
+/* the week's rhythm and Cash Watch */
+.rhythm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rhythm li {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.rhythm li strong {
+  color: var(--foreground);
+}
+.rhythm li[aria-current="step"] {
+  border-style: solid;
+  border-color: var(--gold-solid);
+  background: color-mix(in srgb, var(--gold-solid) 8%, transparent);
+}
+.cash {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}
+.cash svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.125rem;
+}
+.cash strong {
+  color: var(--foreground);
+}
+
+/* drawers */
+.drawer,
+.form {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.form label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.375rem;
+}
+.form .choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.form .choice:has(input:checked) {
+  border-color: var(--gold-solid);
+  background: color-mix(in srgb, var(--gold-solid) 10%, transparent);
+}
+.recon {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold-solid) 6%, var(--card));
+}
+.recon[data-over] {
+  border-color: var(--warning);
+}
+.reconLine {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--warning);
+}
+.warn svg {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: 0.125rem;
+}
+.tableWrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-body-sm-size);
+  font-variant-numeric: tabular-nums;
+}
+.table th,
+.table td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.table th {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+.why {
+  display: block;
+  max-width: 22rem;
+  margin-top: 0.125rem;
+  font-size: var(--type-caption-size);
+  line-height: 1.35;
+  color: var(--muted-foreground);
+  white-space: normal;
+}
+.amount {
+  width: 7.5rem;
+  text-align: right;
+}
+.link {
+  display: block;
+  margin-top: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand-primary);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+:global(.dark) .link {
+  color: var(--gold-solid);
+}
+.copy {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+.changes li {
+  font-size: var(--type-body-sm-size);
+}
+.pkg {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+@media (max-width: 767px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .rhythm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 359px) {
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
