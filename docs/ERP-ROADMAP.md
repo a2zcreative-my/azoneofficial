@@ -389,3 +389,8 @@ doc_id, outcome and obstacle (NULL on every existing row), and a partial unique
 index allows one open follow-up per quotation or invoice. Closing a follow-up
 on a document records what the customer said; the document never changes and
 nothing is marked lost or expired by itself.
+1.264.0 adds `0173_auth_google_identity` (additive): an auth_assert table used
+only inside a batch (a step that changed no row makes the whole batch roll back,
+and it is emptied at the end of every batch), and twofa_challenges gains
+pending_google_sub and pending_change_id (NULL on every existing row), so a
+Google link or login email change is applied only after the second factor.

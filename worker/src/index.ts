@@ -4,7 +4,7 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
-import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges } from "./accounts"; // v1.238.0 - account identity
+import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
@@ -296,8 +296,13 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0172_followup_outcomes";
+const LATEST_MIGRATION = "0173_auth_google_identity";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
+/* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
+   /api/v1/auth/2fa, five minutes. The page's script never holds it. */
+const TWOFA_CH_COOKIE = "twofa_ch";
+/* v1.264.0 - where a Google sign-in lands while the owner has Google off */
+const GOOGLE_OFF = "/login?error=google_off";
 const MAX_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 
@@ -1503,18 +1508,70 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
  * payslip, every customer — waits until 2FA is ON. `/health` and the public
  * routes are exempt because they carry no session at all.
  *
- * Prefix matching, so /auth/2fa/setup, /verify, /enable and any future
- * sibling are covered by one entry rather than a list that rots.
+ * v1.264.0 (claude/AUTH-2.0-AUDIT.md rev 3 sec. 12, Phase 1a): EXACT paths,
+ * not prefixes. A prefix such as "/api/v1/auth/google" also let through any
+ * future route that merely starts with those letters. Every entry is one
+ * route that exists today; a new sibling must be added here on purpose.
  */
-const TWOFA_EXEMPT_PREFIXES = [
-  "/api/v1/auth/2fa",       // set up, verify, enable, disable
-  "/api/v1/auth/me",        // the client reads requires_2fa from here
+const TWOFA_EXEMPT_PATHS: ReadonlySet<string> = new Set([
+  "/api/v1/auth/2fa/setup",          // enrolment
+  "/api/v1/auth/2fa/verify",
+  "/api/v1/auth/2fa/enable",
+  "/api/v1/auth/2fa/disable",
+  "/api/v1/auth/2fa/status",
+  "/api/v1/auth/me",                 // the client reads requires_2fa from here
   "/api/v1/auth/logout",
   "/api/v1/auth/login",
-  "/api/v1/auth/google",    // the sign-in flow itself
+  "/api/v1/auth/methods",            // which sign-in buttons to show
+  "/api/v1/auth/google",             // the Google sign-in flow itself
+  "/api/v1/auth/google/callback",
   "/api/v1/health",
-  "/api/v1/setup",
-];
+  "/api/v1/health/detail",
+  "/api/v1/health/migrations",
+  /* "/api/v1/setup" was listed until 1.263.0 - no such route exists */
+]);
+
+/**
+ * v1.264.0 (claude/AUTH-2.0-AUDIT.md rev 3, G1) - apply what a Google sign-in
+ * left pending, once the person is proven: the restricted legacy link, or a
+ * login email change (with the Google identity that proved the new address).
+ * `before` rides in the same batch (the challenge consumption). Every write is
+ * asserted, so a step that changed nothing undoes the whole batch: a link or a
+ * change is applied completely, or not at all - never a zero-row "success".
+ */
+async function applyGooglePending(
+  env: Env, userId: number, pendSub: string | null, changeId: number | null, before: D1PreparedStatement[],
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const stmts: D1PreparedStatement[] = [...before];
+  let change: ChangeRow | null = null;
+  if (changeId) {
+    change = await env.DB.prepare(`SELECT * FROM email_changes WHERE id = ?1 AND user_id = ?2`).bind(changeId, userId).first<ChangeRow>();
+    if (!change || change.status !== "pending") return { ok: false, code: "change_not_pending" };
+    const clash = await env.DB.prepare(`SELECT 1 FROM users WHERE email = ?1 AND id != ?2`).bind(change.new_email, userId).first();
+    if (clash) {
+      await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE id = ?1 AND status = 'pending'`).bind(change.id).run();
+      return { ok: false, code: "email_taken" };
+    }
+    stmts.push(...emailChangeStatements(env, change, pendSub));
+  } else if (pendSub) {
+    /* the only link a sign-in makes on its own: the legacy customer one */
+    stmts.push(...linkGoogleStatements(env, userId, pendSub, { legacy: true }));
+  }
+  if (!stmts.length) return { ok: true };
+  stmts.push(clearAsserts(env));
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    if (/no such table: auth_assert/i.test(String(e))) return { ok: false, code: "migration_missing" };
+    return { ok: false, code: "changed_meanwhile" };
+  }
+  if (change) await afterEmailChange(env, change, "google_sign_in");
+  if (pendSub) {
+    await audit(env, userId, change ? "auth.google_linked" : "auth.google_legacy_linked", "users", String(userId),
+      change ? { via: "email_change", change_id: change.id } : { via: "legacy_customer_first_google_sign_in" });
+  }
+  return { ok: true };
+}
 
 /**
  * Refuse the request when the caller is a mandatory-2FA staff member who has
@@ -1528,7 +1585,7 @@ const TWOFA_EXEMPT_PREFIXES = [
  */
 async function enforce2fa(request: Request, env: Env, path: string): Promise<Response | null> {
   if (!getCookie(request, SESSION_COOKIE)) return null;              // nothing to judge
-  if (TWOFA_EXEMPT_PREFIXES.some((p) => path.startsWith(p))) return null;
+  if (TWOFA_EXEMPT_PATHS.has(path)) return null;
   const user = await getSessionUser(request, env);
   if (!user?.requires_2fa) return null;
   return errorResponse(
@@ -3747,6 +3804,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     });
   }
 
+  /* v1.264.0 - which sign-in methods the login page offers (public, no
+     session, nothing about any account). The worker enforces the same
+     switches on every route; this only spares the person a dead button. */
+  if (path === "/api/v1/auth/methods" && method === "GET") {
+    const g = await googleAuthSettings(env);
+    return json({ password: true, google: g.enabled, google_customer_signup: g.enabled && g.customer_signup, passkeys: false }, 200, { "Cache-Control": "no-store" });
+  }
+
   if (path === "/api/v1/auth/login" && method === "POST") {
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || !isNonEmptyString(body.email, 200) || !isNonEmptyString(body.password, 200)) {
@@ -3821,23 +3886,50 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
     }
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!body || !isNonEmptyString(body.challenge, 200) || !isNonEmptyString(body.code, 20)) {
+    /* v1.264.0 (G4) - a password sign-in hands the challenge to the page in
+       its JSON; a Google sign-in leaves it in the HttpOnly cookie scoped to
+       this path, which the page's script cannot read. Either is accepted. */
+    const fromCookie = getCookie(request, TWOFA_CH_COOKIE);
+    const challengeIn = body && isNonEmptyString(body.challenge, 200) ? body.challenge as string : fromCookie;
+    if (!body || !challengeIn || challengeIn.length > 200 || !isNonEmptyString(body.code, 20)) {
       return errorResponse("invalid_input", "challenge and code are required", 400);
     }
-    const id = await sha256Hex(body.challenge as string);
-    const ch = await env.DB.prepare(
-      `SELECT user_id, attempts FROM twofa_challenges
-       WHERE id = ?1 AND expires_at > datetime('now')`,
-    ).bind(id).first<{ user_id: number; attempts: number }>();
-    if (!ch) return errorResponse("challenge_expired", "This sign-in attempt expired — start again", 401);
+    const clearCh = { "Set-Cookie": `${TWOFA_CH_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth/2fa; Max-Age=0` };
+    const endCh = (code: string, message: string, status: number) => json({ error: { code, message } }, status, clearCh);
+    const id = await sha256Hex(challengeIn);
+    type Ch = { user_id: number; attempts: number; pending_google_sub: string | null; pending_change_id: number | null };
+    let ch: Ch | null;
+    try {
+      ch = await env.DB.prepare(
+        `SELECT user_id, attempts, pending_google_sub, pending_change_id FROM twofa_challenges
+         WHERE id = ?1 AND expires_at > datetime('now')`,
+      ).bind(id).first<Ch>();
+    } catch (e) {
+      if (!/no such column|has no column/.test(String(e))) throw e;
+      /* before migration 0173 no challenge can carry anything pending */
+      const c0 = await env.DB.prepare(`SELECT user_id, attempts FROM twofa_challenges WHERE id = ?1 AND expires_at > datetime('now')`)
+        .bind(id).first<{ user_id: number; attempts: number }>();
+      ch = c0 ? { ...c0, pending_google_sub: null, pending_change_id: null } : null;
+    }
+    if (!ch) return endCh("challenge_expired", "This sign-in attempt expired — start again", 401);
     if (ch.attempts >= 5) {
       await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
-      return errorResponse("too_many_attempts", "Too many incorrect codes — sign in again", 401);
+      return endCh("too_many_attempts", "Too many incorrect codes — sign in again", 401);
     }
+    /* v1.264.0 - the account is judged again here, by the same rule as
+       POST /auth/login: switched off, resigned or terminated in the five
+       minutes since the password / Google step means no session. The answer
+       is the expired one, so it says nothing about the account. */
     const row = await env.DB.prepare(
-      `SELECT id, email, name, role, totp_secret FROM users WHERE id = ?1 AND is_active = 1`,
+      `SELECT id, email, name, role, totp_secret FROM users
+       WHERE id = ?1 AND is_active = 1 AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
     ).bind(ch.user_id).first<SessionUser & { totp_secret: string }>();
-    if (!row?.totp_secret) return errorResponse("invalid_state", "Two-factor is not configured", 400);
+    if (!row) {
+      await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
+      await audit(env, ch.user_id, "auth.2fa_refused", "users", String(ch.user_id), { reason: "account_not_active" });
+      return endCh("challenge_expired", "This sign-in attempt expired — start again", 401);
+    }
+    if (!row.totp_secret) return errorResponse("invalid_state", "Two-factor is not configured", 400);
 
     const code = (body.code as string).trim();
     // v1.45.0 (audit C6): the sign-in path burns the code it accepts, so the
@@ -3870,15 +3962,28 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       await bumpRateLimit(env, key2fa, 900);
       return errorResponse("invalid_code", "That code is not correct", 401);
     }
-    await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
+    /* v1.264.0 (G1) - ONE guarded batch: the challenge is consumed (exactly
+       once - a replay or a second tab finds it gone and the whole batch is
+       undone) and whatever the Google step left pending - the link, the
+       login email change - is applied with it, or nothing is. */
+    const r = await applyGooglePending(env, row.id, ch.pending_google_sub, ch.pending_change_id, [
+      env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1 AND expires_at > datetime('now')`).bind(id),
+      assertOne(env),
+    ]);
+    if (!r.ok) {
+      const left = await env.DB.prepare(`SELECT 1 FROM twofa_challenges WHERE id = ?1`).bind(id).first();
+      if (!left) return endCh("challenge_expired", "This sign-in attempt expired — start again", 401);
+      await env.DB.prepare(`DELETE FROM twofa_challenges WHERE id = ?1`).bind(id).run();
+      await audit(env, row.id, "auth.google_pending_aborted", "users", String(row.id), { reason: r.code });
+      return endCh("changed_meanwhile", "Your account changed while you were signing in, so nothing was linked or changed. Sign in again.", 409);
+    }
     await resetRateLimit(env, key2fa);
+    const me = (ch.pending_change_id ? await env.DB.prepare(`SELECT id, email, name, role FROM users WHERE id = ?1`).bind(row.id).first<SessionUser>() : null) ?? row;
     const token = await createSession(env, row.id, request);
     await audit(env, row.id, "auth.login_2fa");
-    return json(
-      { user: { id: row.id, email: row.email, name: row.name, role: row.role } },
-      200,
-      sessionHeaders(token),
-    );
+    const hs = new Headers(sessionHeaders(token));
+    hs.append("Set-Cookie", clearCh["Set-Cookie"]);
+    return json({ user: { id: me.id, email: me.email, name: me.name, role: me.role } }, 200, hs);
   }
 
   if (path === "/api/v1/auth/2fa/status" && method === "GET") {
@@ -4157,6 +4262,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   const redirectUri = `${oauthBase}/api/v1/auth/google/callback`;
 
   if (path === "/api/v1/auth/google" && method === "GET") {
+    /* v1.264.0 - the kill switch (PUT /staff/auth/settings, the company
+       owner only): Google off, password + authenticator stay on */
+    if (!(await googleAuthSettings(env)).enabled) {
+      return new Response(null, { status: 302, headers: { Location: GOOGLE_OFF } });
+    }
     const state = randomHex(16);
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     authUrl.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
@@ -4188,13 +4298,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const state = url2.searchParams.get("state");
     const cookieState = getCookie(request, OAUTH_STATE_COOKIE);
     const clearState = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+    const failed = (to = OAUTH_FAILED) => new Response(null, { status: 302, headers: { Location: to, "Set-Cookie": clearState } });
 
-    if (!code || !state || !cookieState || state !== cookieState) {
-      return new Response(null, {
-        status: 302,
-        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
-      });
-    }
+    if (!code || !state || !cookieState || state !== cookieState) return failed();
+    /* the switch is read again here: a sign-in started before it was turned
+       off does not finish after */
+    const gset = await googleAuthSettings(env);
+    if (!gset.enabled) return failed(GOOGLE_OFF);
 
     // Exchange code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -4209,12 +4319,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       }),
     });
     const tokens = (await tokenRes.json().catch(() => null)) as { access_token?: string } | null;
-    if (!tokenRes.ok || !tokens?.access_token) {
-      return new Response(null, {
-        status: 302,
-        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
-      });
-    }
+    if (!tokenRes.ok || !tokens?.access_token) return failed();
 
     // Fetch verified profile
     const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
@@ -4223,103 +4328,102 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const profile = (await profileRes.json().catch(() => null)) as
       | { sub?: string; email?: string; email_verified?: boolean; name?: string }
       | null;
-    if (!profileRes.ok || !profile?.email || profile.email_verified !== true) {
-      return new Response(null, {
-        status: 302,
-        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
-      });
-    }
+    if (!profileRes.ok || !profile?.email || profile.email_verified !== true) return failed();
 
     const email = profile.email.toLowerCase().trim();
-    /* v1.238.0 - GOOGLE IDENTITY IS GOOGLE'S ACCOUNT ID, NOT AN EMAIL (the
-       owner, 31-10-2026, claude/ACCOUNT-RECOVERY-AUDIT.md: "Do not link a
-       different Google Account to an existing A2Z user solely because the
-       supplied email address matches"). Google's `sub` is permanent; an
-       address can be renamed, recycled or changed in A2Z OS. Order:
+    /* v1.264.0 - WHO A GOOGLE ACCOUNT IS (claude/AUTH-2.0-AUDIT.md rev 3
+       sec. 3.1, approved by the CEO "by phase"). Google's `sub` is the
+       identity; an email is only a hint. Order:
          1. the account already linked to this sub - the person, whatever
-            email either side now shows (and a pending Google-route change
-            to this address completes here);
-         2. no link yet: the account with this email, if it has no Google
-            link or the SAME one - linked now, once, audited. An account
-            linked to a DIFFERENT Google account is refused, never merged;
+            email either side now shows (a pending Google-route change of
+            THEIR login email to this address completes - after the code);
+         2. no link, an account with this email:
+            - linked to a DIFFERENT Google account: refused, never merged;
+            - an INTERNAL account (staff, admin, agent): refused. Linking
+              by email is gone for good - there is no setting that brings
+              it back. The person is told (once a day) and links Google
+              from Profile -> Security when that arrives (Phase 1b);
+            - a customer with a password: refused (they sign in with it);
+            - one of the Google-created customers from before 1.238.0
+              (password 'oauth$google', created before 31-10-2026, no sub):
+              the restricted one-time legacy link, guarded;
          3. no account with this email: a pending Google-route change TO
-            this address completes (the owner or super admin asked for it,
-            and Google has just proven the person owns the address);
-         4. otherwise a customer sign-up, as before (linked to this sub).
-       Before migration 0155 the column is absent and the old email match
-       stands. */
+            this address (the owner or super admin asked for it, Google has
+            just proven the address) - after the code;
+         4. otherwise a customer sign-up, only while customer sign-up is on.
+       Nothing is linked or changed before the second factor: with 2FA on,
+       the pending link / change rides on the challenge and is applied by
+       /auth/2fa/verify in ONE guarded batch, or never. */
     const sub = typeof profile.sub === "string" && profile.sub.length > 0 && profile.sub.length <= 255 ? profile.sub : null;
-    type GAcct = { id: number; is_active: number; employment_status: string | null; email?: string; google_sub?: string | null };
-    let account: GAcct | null = null;
-    let subReady = !!sub;
-    const refuseG = async (userId: number, why: string) => {
-      await audit(env, userId, "auth.google_refused", "users", String(userId), { reason: why });
+    if (!sub) return failed();
+    type GAcct = { id: number; is_active: number; employment_status: string | null; email: string; google_sub: string | null; role: string; password_hash: string | null; created_at: string | null };
+    const GCOLS = `id, is_active, employment_status, email, google_sub, role, password_hash, created_at`;
+    const refuseG = async (userId: number | null, why: string, notice?: string) => {
+      await audit(env, userId, "auth.google_refused", "users", userId ? String(userId) : undefined, { reason: why });
+      /* the person whose address was used is told - at most once a day, so
+         nobody can flood an inbox by pressing the button */
+      if (userId && notice && (await checkRateLimit(env, `gnotice:${userId}`, 1, 86400))) {
+        try { await notify(env, userId, "security", notice, `google_refused:${userId}:${new Date().toISOString().slice(0, 10)}`); } catch { /* a notice never decides */ }
+      }
       /* the same door as every other Google failure: the page never tells a
          visitor that an account exists - the audit row says why */
-      return new Response(null, { status: 302, headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState } });
+      return failed();
     };
-    if (subReady) {
-      try {
-        account = await env.DB.prepare(`SELECT id, is_active, employment_status, email, google_sub FROM users WHERE google_sub = ?1`).bind(sub).first<GAcct>();
-      } catch (e) {
-        if (!/no such column|has no column/.test(String(e))) throw e;
-        subReady = false;
-      }
+    let account: GAcct | null = null;
+    let pendSub: string | null = null;        // a Google identity to attach once proven
+    let pendChange: ChangeRow | null = null;  // a login email change to apply once proven
+    try {
+      account = await env.DB.prepare(`SELECT ${GCOLS} FROM users WHERE google_sub = ?1`).bind(sub).first<GAcct>();
+    } catch (e) {
+      if (/no such column|has no column/.test(String(e))) return await refuseG(null, "migration_missing");
+      throw e;
     }
-    if (account && account.email !== email) {
-      const pend = await pendingGoogleChange(env, email);
-      if (pend && pend.user_id === account.id) {
-        const r = await applyEmailChange(env, pend, { via: "google_sign_in" });
-        if (!r.ok) return await refuseG(account.id, r.code);
+    if (account) {
+      if (account.email !== email) {
+        const pend = await pendingGoogleChange(env, email);
+        if (pend && pend.user_id === account.id) pendChange = pend;
       }
-    }
-    if (!account) {
-      const byEmail = await env.DB.prepare(
-        // v1.5.0: also carry employment_status so an offboarded staff member
-        // cannot walk back in through Google.
-        subReady ? `SELECT id, is_active, employment_status, email, google_sub FROM users WHERE email = ?1`
-          : `SELECT id, is_active, employment_status, email FROM users WHERE email = ?1`,
-      ).bind(email).first<GAcct>();
+    } else {
+      const byEmail = await env.DB.prepare(`SELECT ${GCOLS} FROM users WHERE email = ?1`).bind(email).first<GAcct>();
       if (byEmail) {
-        if (subReady && byEmail.google_sub && byEmail.google_sub !== sub) return await refuseG(byEmail.id, "linked_to_a_different_google_account");
-        if (subReady && !byEmail.google_sub) {
-          await env.DB.prepare(`UPDATE users SET google_sub = ?1 WHERE id = ?2 AND google_sub IS NULL`).bind(sub, byEmail.id).run();
-          await audit(env, byEmail.id, "auth.google_linked", "users", String(byEmail.id), { via: "first_google_sign_in" });
+        if (byEmail.google_sub) return await refuseG(byEmail.id, "linked_to_a_different_google_account");
+        if (byEmail.role !== "customer") {
+          return await refuseG(byEmail.id, "internal_account_not_linked",
+            `Someone tried to sign in to your A2Z OS account with Google as ${email}. Google is not linked to your account, so nobody was let in. Sign in with your email, password and authenticator code. If this was not you, tell A2Z Creative Marketing.`);
+        }
+        const legacy = byEmail.password_hash === "oauth$google" && !!byEmail.created_at && byEmail.created_at < LEGACY_GOOGLE_BEFORE;
+        if (!legacy) {
+          return await refuseG(byEmail.id, byEmail.password_hash === "oauth$google" ? "not_a_legacy_google_customer" : "customer_has_password",
+            `Someone tried to sign in to your A2Z account with Google as ${email}. Your account signs in with its password, so nobody was let in. If this was not you, change your password.`);
         }
         account = byEmail;
-      } else if (subReady) {
+        pendSub = sub;
+      } else {
         const pend = await pendingGoogleChange(env, email);
         if (pend) {
-          const target = await env.DB.prepare(`SELECT id, is_active, employment_status, email, google_sub FROM users WHERE id = ?1`).bind(pend.user_id).first<GAcct>();
-          if (target) {
-            if (target.google_sub && target.google_sub !== sub) return await refuseG(target.id, "change_needs_the_linked_google_account");
-            const r = await applyEmailChange(env, pend, { googleSub: sub, via: "google_sign_in" });
-            if (!r.ok) return await refuseG(target.id, r.code);
-            account = target;
-          }
+          const target = await env.DB.prepare(`SELECT ${GCOLS} FROM users WHERE id = ?1`).bind(pend.user_id).first<GAcct>();
+          if (!target) return failed();
+          /* step 1 found no account on this sub, so any link is another one */
+          if (target.google_sub) return await refuseG(target.id, "change_needs_the_linked_google_account");
+          account = target;
+          pendChange = pend;
+          pendSub = sub;
         }
       }
     }
 
     if (!account) {
       // Every self-registration is a CUSTOMER — no exceptions (v1.4.35).
-      // Google sign-up previously auto-assigned the "marketing" staff role to
-      // company-domain emails; that was an unattended path into the staff
-      // side. Staff and admin roles are now granted ONLY by explicit
-      // assignment: /admin Users (admin tier) or HR staff creation. A staff
-      // member who signs in with Google on an email an admin already
-      // elevated keeps their assigned role — that path is unchanged.
+      // Staff and admin roles are granted ONLY by explicit assignment:
+      // /admin Users (admin tier) or HR staff creation.
+      // v1.264.0 - and only while the owner keeps customer sign-up on.
+      if (!gset.customer_signup) return await refuseG(null, "customer_signup_off");
       let res: GAcct | null = null;
       try {
-        res = subReady
-          ? await env.DB.prepare(
-            `INSERT INTO users (email, password_hash, name, role, is_active, google_sub, email_verified_at)
-             VALUES (?1, 'oauth$google', ?2, 'customer', 1, ?3, datetime('now')) RETURNING id, is_active, employment_status`,
-          ).bind(email, profile.name ?? email, sub).first<GAcct>()
-          : await env.DB.prepare(
-            `INSERT INTO users (email, password_hash, name, role, is_active)
-             VALUES (?1, 'oauth$google', ?2, 'customer', 1) RETURNING id, is_active, employment_status`,
-          ).bind(email, profile.name ?? email).first<GAcct>();
+        res = await env.DB.prepare(
+          `INSERT INTO users (email, password_hash, name, role, is_active, google_sub, email_verified_at)
+           VALUES (?1, 'oauth$google', ?2, 'customer', 1, ?3, datetime('now')) RETURNING ${GCOLS}`,
+        ).bind(email, profile.name ?? email, sub).first<GAcct>();
       } catch (e) {
         throw new Error(`customer signup insert: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -4329,43 +4433,51 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
     if (!account.is_active ||
         ["resigned", "terminated"].includes(account.employment_status ?? "")) {
-      return new Response(null, {
-        status: 302,
-        headers: { Location: OAUTH_FAILED, "Set-Cookie": clearState },
-      });
+      return failed();
     }
-
-    const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
-      .bind(account.id).first<{ role: Role }>();
 
     /* v1.23.1 (CEO: "when my staff login using Google, there is no 2FA appear
        which is incorrect flow … it is supposed to follow my existing staff
-       flow! this is something that you leak!"): Google used to mint a full
-       session even when the account has 2FA ENABLED — a bypass of the exact
-       control password sign-in enforces. Now: 2FA on → NO session; the same
-       short-lived challenge as password login, handed to /login via a 5-min
-       cookie, and the session is minted only by /auth/2fa/verify with a valid
-       code. (Mandatory-role accounts NOT yet enrolled are still caught after
-       sign-in by requires_2fa, which blocks the portal until setup — same as
-       before, any sign-in method.) */
+       flow! this is something that you leak!"): 2FA on → NO session; the
+       same short-lived challenge as password login, and the session is
+       minted only by /auth/2fa/verify with a valid code. (Mandatory-role
+       accounts NOT yet enrolled are still caught after sign-in by
+       requires_2fa.)
+       v1.264.0 (G1, G4): the challenge carries the pending link / change, so
+       an abandoned or failed code links and changes NOTHING; and it travels
+       in an HttpOnly cookie scoped to /api/v1/auth/2fa - the page's script
+       never sees it (it used to be a script-readable cookie). */
     const twofaG = await env.DB.prepare(`SELECT totp_enabled FROM users WHERE id = ?1`)
       .bind(account.id).first<{ totp_enabled: number }>();
     if (twofaG?.totp_enabled) {
       const challenge = crypto.randomUUID() + crypto.randomUUID();
-      await env.DB.prepare(
-        `INSERT INTO twofa_challenges (id, user_id, expires_at)
-         VALUES (?1, ?2, datetime('now', '+5 minutes'))`,
-      ).bind(await sha256Hex(challenge), account.id).run();
-      await audit(env, account.id, "auth.2fa_challenge");
+      try {
+        await env.DB.prepare(
+          `INSERT INTO twofa_challenges (id, user_id, expires_at, pending_google_sub, pending_change_id)
+           VALUES (?1, ?2, datetime('now', '+5 minutes'), ?3, ?4)`,
+        ).bind(await sha256Hex(challenge), account.id, pendSub, pendChange?.id ?? null).run();
+      } catch (e) {
+        if (/no column|no such column/.test(String(e))) return await refuseG(account.id, "migration_missing");
+        throw e;
+      }
+      await audit(env, account.id, "auth.2fa_challenge", undefined, undefined, { via: "google", ...(pendSub ? { pending_link: true } : {}), ...(pendChange ? { pending_change_id: pendChange.id } : {}) });
       const h2 = new Headers({ Location: "/login?2fa=1" });
-      h2.append("Set-Cookie", `twofa_challenge=${challenge}; Secure; SameSite=Lax; Path=/; Max-Age=300`);
+      h2.append("Set-Cookie", `${TWOFA_CH_COOKIE}=${challenge}; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth/2fa; Max-Age=300`);
+      h2.append("Set-Cookie", "twofa_challenge=; Secure; SameSite=Lax; Path=/; Max-Age=0"); // the pre-1.264.0 script-readable cookie
       h2.append("Set-Cookie", clearState);
       return new Response(null, { status: 302, headers: h2 });
     }
 
+    /* no second factor on this account: the pending link / change applies
+       now, in the same guarded batch, before any session */
+    if (pendSub || pendChange) {
+      const r = await applyGooglePending(env, account.id, pendSub, pendChange?.id ?? null, []);
+      if (!r.ok) return await refuseG(account.id, r.code);
+    }
+
     const dest =
-      roleRow?.role === "customer" ? "/account"
-      : ["super_admin", "admin"].includes(roleRow?.role ?? "")
+      account.role === "customer" ? "/account"
+      : ["super_admin", "admin"].includes(account.role)
         ? "/admin"
         : "/portal";
     const token = await createSession(env, account.id, request);
@@ -5157,6 +5269,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0171 (leave approval follows the Organisation chart)", `SELECT route_json, route_version, step_no, approver_id FROM leave_requests LIMIT 0`],
       ["0171 (leave decisions, append-only)", `SELECT id, kind, on_behalf_of FROM leave_decisions LIMIT 0`],
       ["0172 (a follow-up names its document and records the outcome)", `SELECT doc_id, outcome, obstacle FROM customer_followups LIMIT 0`],
+      ["0173 (Google identity: guarded batches, a 2FA challenge carries the pending link)", `SELECT ok FROM auth_assert LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5350,6 +5463,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0170_task_update_edits",
       "0171_leave_routing",
       "0172_followup_outcomes",
+      "0173_auth_google_identity",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

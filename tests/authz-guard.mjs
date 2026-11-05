@@ -94,14 +94,21 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
   }
   /* The exemptions must stay minimal: enrolment, identity, sign-in, health.
      Anything else on that list would be a hole big enough to drive through. */
-  const ex = index.match(/const TWOFA_EXEMPT_PREFIXES = \[([\s\S]*?)\];/);
-  if (ex) {
-    const list = [...ex[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-    const allowed = /^\/api\/v1\/(auth\/(2fa|me|logout|login|google)|health|setup)/;
+  /* v1.264.0 - exact paths now (TWOFA_EXEMPT_PATHS, a Set matched with
+     .has), never a prefix: a prefix let any future route that starts with
+     the same letters through. Each entry must be one of the allowed routes
+     EXACTLY, and the matcher must not fall back to startsWith. */
+  const ex = index.match(/const TWOFA_EXEMPT_PATHS[^=]*= new Set\(\[([\s\S]*?)\]\);/);
+  if (!ex) fail("TWOFA_EXEMPT_PATHS is gone from index.ts (AUDIT A2)");
+  else {
+    const list = [...ex[1].replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+    const allowed = /^\/api\/v1\/(auth\/(2fa\/(setup|verify|enable|disable|status)|me|logout|login|methods|google|google\/callback)|health|health\/(detail|migrations))$/;
     for (const p of list) {
-      if (!allowed.test(p)) fail(`TWOFA_EXEMPT_PREFIXES contains "${p}" — that is not an enrolment or sign-in route (AUDIT A2)`);
+      if (!allowed.test(p)) fail(`TWOFA_EXEMPT_PATHS contains "${p}" - that is not an enrolment, sign-in or health route (AUDIT A2)`);
     }
-    if (list.every((p) => allowed.test(p))) ok(`the 2FA exemption list stays minimal (${list.length} entries)`);
+    if (list.every((p) => allowed.test(p))) ok(`the 2FA exemption list stays minimal and exact (${list.length} entries)`);
+    if (!/TWOFA_EXEMPT_PATHS\.has\(path\)/.test(index) || /TWOFA_EXEMPT\w*\.some\(/.test(index)) fail("enforce2fa no longer matches the exemptions exactly (prefix matching is back)");
+    else ok("the 2FA exemptions match exact paths only");
   }
   if (!/MANDATORY_2FA_ROLES/.test(perms)) fail("MANDATORY_2FA_ROLES is gone from permissions.ts");
 }

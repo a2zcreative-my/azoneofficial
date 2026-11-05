@@ -10,6 +10,22 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.264.0] - 2026-11-05 - Secure Authentication 2.0, Phase 1a (Google identity)
+
+claude/AUTH-2.0-AUDIT.md revision 3 and the CEO's "approved by phase". Phase 1a only; 1b (OIDC, PKCE, Connect Google from Profile), 1c (the legacy notice and window, customer recovery) and the passkey phases wait for their own approval. No account, password, TOTP secret, backup code, session or role is changed by the release.
+
+- Migration 0173 (additive): auth_assert (a one-column table whose CHECK makes a guarded batch fail when a step changed nothing); twofa_challenges gains pending_google_sub and pending_change_id (NULL on every existing row).
+- Google sign-in finds the person by Google's `sub` only. An internal account (staff, admin, agent, the CEO) is never linked by its email any more, and a customer with a password is not either: refused with the one neutral sentence, audited, and the person is told (at most once a day). Only the Google-created customers from before 1.238.0 (password oauth$google, created before 31-10-2026, no Google id) get the restricted one-time legacy link, guarded in the write itself. A different Google account on a linked email is refused, as before.
+- G1: with 2FA on, the Google step links and changes nothing. The pending link or login email change rides on the 2FA challenge and is applied by /auth/2fa/verify in one guarded batch with the challenge itself - or not at all. An abandoned, failed or expired code links nothing; an account that moved meanwhile (linked, changed, cancelled) gets no session.
+- G4: the Google sign-in challenge is an HttpOnly, Secure cookie scoped to /api/v1/auth/2fa for five minutes (it was a script-readable cookie). The login page shows the code screen and sends only the code. A replay after success fails.
+- /auth/2fa/verify judges the account again (switched off, resigned or terminated in between: no session).
+- applyEmailChange is one guarded batch: if the account, the change or the address moved meanwhile, nothing is written (it used to mark the change applied and sign the person out first).
+- The Google kill switch and customer sign-up (business_settings auth_google; both on, as today): GET /staff/auth/settings (CEO, super admin), PUT only by the company owner with a fresh authenticator code and a reason, audited before and after. Password + authenticator always stay on; there is no switch that brings back email linking. The panel for it is not in this release - the API only.
+- GET /api/v1/auth/methods (public): password, Google, customer sign-up, passkeys (false). The login page hides Google when it is off; ?error=google_off says so.
+- The 2FA exemptions are exact paths (a prefix let any route starting with the same letters through).
+- Known in 1a: an internal account that has never linked Google cannot start using Google until Connect Google arrives in 1b (production: every Google-linked internal account already carries its id).
+- Tests: tests/go-live-x.mjs (new, 66 checks, 15 mutations); tests/account-identity.mjs follows the approved order (a Google-route change completes after the code; an internal email is refused); tests/authz-guard.mjs checks the exact exemptions; tests/login-ux.mjs (the one door, the HttpOnly challenge, /auth/methods); tests/browser/auth-1a.py (new).
+
 ## [1.263.0] - 2026-11-05 - Compact executive Dashboard
 
 claude/COMPACT-DASHBOARD-AUDIT.md revision 1 and the CEO's "approved" (05-11-2026), D1-D4 as recommended. Presentation only: no target, commission, payroll, finance, leave, task, role or schema change.

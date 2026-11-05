@@ -112,6 +112,15 @@ async function runtime(workerBundle) {
     const r = await worker.fetch(new Request(`https://api.a2z.test/api/v1/auth/google/callback?code=c&state=S1`, { headers: { cookie: "azone_oauth_state=S1" } }), env);
     return { status: r.status, loc: r.headers.get("location") ?? "", cookies: r.headers.get("set-cookie") ?? "" };
   };
+  /* v1.264.0 - the code step after a Google sign-in: the challenge is the
+     HttpOnly twofa_ch cookie the callback set, sent back the way a browser
+     would (the page's script never sees it) */
+  const verifyG = async (cookies, c) => {
+    const ch = /twofa_ch=([^;]+)/.exec(cookies)?.[1];
+    const r = await worker.fetch(new Request(`https://api.a2z.test/api/v1/auth/2fa/verify`, { method: "POST", headers: { "content-type": "application/json", origin: "https://portal.a2z.test", ...(ch ? { cookie: `twofa_ch=${ch}` } : {}) }, body: JSON.stringify({ code: c }) }), env);
+    const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch { /* */ }
+    return { status: r.status, j, text, cookies: r.headers.get("set-cookie") ?? "" };
+  };
   const user = (id) => db.prepare(`SELECT * FROM users WHERE id = ?`).get(id);
   const users = () => db.prepare(`SELECT COUNT(*) AS n FROM users`).get().n;
   const sessions = (id) => db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?`).get(id).n;
@@ -153,16 +162,23 @@ async function runtime(workerBundle) {
     ok(user(6).email === "mia@gmail.com" && sessions(6) >= 1, "the old login stays exactly as it was until the new address is proven");
     ok((await call("/staff/accounts/4/email", U.ceo, "POST", { new_email: "mia.new@gmail.com", route: "google", reason: R, totp: code() })).j?.error?.code === "email_taken", "a waiting change holds its address against another account");
     const gNew = await google("g-mia", "mia.new@gmail.com");
+    ok(gNew.loc.includes("2fa=1") && user(6).email === "mia@gmail.com" && !user(6).google_sub, "a Google sign-in as the new address waits for the second factor - nothing is changed or linked before the code (v1.264.0, G1)", JSON.stringify({ e: user(6).email, s: user(6).google_sub, loc: gNew.loc }));
+    const gV = await verifyG(gNew.cookies, code());
     const m = user(6);
-    ok(m.email === "mia.new@gmail.com" && m.google_sub === "g-mia" && m.email_verified_at, "a Google sign-in as the new address completes it on the SAME account and links Google's id", JSON.stringify({ e: m.email, s: m.google_sub, loc: gNew.loc }));
+    ok(gV.status === 200 && m.email === "mia.new@gmail.com" && m.google_sub === "g-mia" && m.email_verified_at, "...and with the code it completes on the SAME account and links Google's id", JSON.stringify({ st: gV.status, e: m.email, s: m.google_sub, t: gV.text.slice(0, 160) }));
     ok(users() === n0, "no account was created");
     ok(lastAudit("user.email_change")?.d?.from === "mia@gmail.com" && lastAudit("user.email_change").d.to === "mia.new@gmail.com" && lastAudit("user.email_change").d.via === "google_sign_in", "the change is audited with from, to and how it was proven");
     ok(db.prepare(`SELECT salesperson_id, created_by FROM sales_documents WHERE id = 100`).get().salesperson_id === 6, "the business records still point at the same person");
     ok(gNew.loc.includes("2fa=1"), "the person still passes two-factor sign-in", gNew.loc);
 
     /* ---- google: identity is the sub ---- */
+    /* v1.264.0 (claude/AUTH-2.0-AUDIT.md rev 3 sec. 3.1, approved): an
+       internal account is never linked by its email any more - it used to
+       be, here. It links Google from Profile -> Security (Phase 1b). */
     const l1 = await google("g-ed", "ed@a2z.test");
-    ok(user(10).google_sub === "g-ed" && lastAudit("auth.google_linked")?.entity_id === "10" && l1.loc.includes("2fa=1"), "a first Google sign-in links Google's id once, audited");
+    ok(l1.loc === "/login?error=oauth" && !user(10).google_sub && !l1.cookies.includes("azone_session=") && lastAudit("auth.google_refused")?.d?.reason === "internal_account_not_linked", "a first Google sign-in on an internal account's email is refused - never linked by email, audited", JSON.stringify([l1.loc, user(10).google_sub]));
+    ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 10 AND kind = 'security'`).get().n >= 1, "...and the person is told someone tried");
+    db.exec(`UPDATE users SET google_sub = 'g-ed' WHERE id = 10`); // as Profile -> Security will link it (1b)
     const evil = await google("g-evil", "ed@a2z.test");
     ok(evil.loc === "/login?error=oauth" && !evil.cookies.includes("azone_session=") && user(10).google_sub === "g-ed", "a DIFFERENT Google account with the same email is refused, never merged", evil.loc);
     ok(lastAudit("auth.google_refused")?.d?.reason === "linked_to_a_different_google_account", "...and the refusal is audited for the owner");
@@ -288,8 +304,8 @@ report(await runtime(join(dir, "worker.mjs")));
 const checks = n;
 
 const MUT = [
-  ["worker/src/accounts.ts", "an applied change keeps the old sessions", "    env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(c.user_id),\n  ]);", "  ]);"],
-  ["worker/src/index.ts", "a different Google account on the same email is merged", 'if (subReady && byEmail.google_sub && byEmail.google_sub !== sub) return await refuseG(byEmail.id, "linked_to_a_different_google_account");', ""],
+  ["worker/src/accounts.ts", "an applied change keeps the old sessions", "    env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(c.user_id),\n  );", "  );"],
+  ["worker/src/index.ts", "a different Google account on the same email is merged", 'if (byEmail.google_sub) return await refuseG(byEmail.id, "linked_to_a_different_google_account");', ""],
   ["worker/src/staff.ts", "in person without the person's own code", 'if (!/^\\d{6}$/.test(tc)) return err("target_totp_required"', 'if (false) return err("target_totp_required"'],
   ["worker/src/staff.ts", "privileged accounts skip the second approval", 'const needsSecond = route === "in_person" && privilegedTarget(t.role) ? 1 : 0;', "const needsSecond = 0;"],
   ["worker/src/staff.ts", "the requester approves their own change", "if (c.requested_by === user.id) return err(", "if (false) return err("],

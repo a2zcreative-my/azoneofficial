@@ -81,6 +81,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
+    signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
     punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0;
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
@@ -120,6 +121,12 @@ const server = http.createServer((req, res) => {
       res.end(readFileSync(join(dir, "icon-192.png")));
       return;
     }
+    /* v1.264.0 - which ways in are on (GOOGLE_OFF=1: the owner turned Google off) */
+    if (req.method === "GET" && p === "/auth/methods") {
+      const on = !process.env.GOOGLE_OFF;
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ password: true, google: on, google_customer_signup: on, passkeys: false })); return;
+    }
     if (req.method === "GET" && p === "/auth/me" && !signedIn) {
       res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return;
     }
@@ -138,7 +145,12 @@ const server = http.createServer((req, res) => {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
         if (p === "/auth/2fa/verify") {
           /* an authenticator code, or one of the backup codes exactly as issued (ABCDE-FGHIJ) */
-          const good = b.challenge === "ch-fixture" && (b.code === "123456" || b.code === "AAAA2-1111B");
+          /* v1.264.0 (G4) - a Google sign-in's challenge comes in the HttpOnly
+             twofa_ch cookie, with no challenge in the body; 999999 plays a
+             challenge that lapsed while the code was typed */
+          const viaCookie = !b.challenge && /(?:^|; )twofa_ch=ch-google(?:;|$)/.test(req.headers.cookie ?? "");
+          if (viaCookie && b.code === "999999") { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "challenge_expired", message: "This sign-in attempt expired - start again" } })); return; }
+          const good = (b.challenge === "ch-fixture" || viaCookie) && (b.code === "123456" || b.code === "AAAA2-1111B");
           if (good) signedIn = true;
           res.writeHead(good ? 200 : 401, { "content-type": "application/json" });
           res.end(JSON.stringify(good ? { user: { id: 9001, name: "Fixture Person", role: process.env.ROLE ?? "ceo", email: "fixture@example.test" } } : { error: { code: "invalid_code", message: "That code is not correct" } })); return;

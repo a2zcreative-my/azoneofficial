@@ -68,28 +68,62 @@ export async function emailTaken(env: Env, email: string, exceptChange = 0): Pro
   return !!p;
 }
 
-/** Apply a proven change: same users.id, every session out, audited, told. */
-export async function applyEmailChange(env: Env, c: ChangeRow, opts: { googleSub?: string | null; via: string }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
-  if (c.status !== "pending") return { ok: false, code: "not_pending", message: "This change is no longer waiting." };
-  if (c.needs_second && !c.approved_by) return { ok: false, code: "needs_approval", message: "This change still needs the second approval." };
-  const clash = await env.DB.prepare(`SELECT 1 FROM users WHERE email = ?1 AND id != ?2`).bind(c.new_email, c.user_id).first();
-  if (clash) {
-    await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE id = ?1`).bind(c.id).run();
-    return { ok: false, code: "email_taken", message: "That address now belongs to another account - the change was cancelled." };
-  }
-  const setUser = opts.googleSub
-    ? env.DB.prepare(`UPDATE users SET email = ?1, email_verified_at = datetime('now'), google_sub = ?2 WHERE id = ?3 AND email = ?4`).bind(c.new_email, opts.googleSub, c.user_id, c.old_email)
-    : env.DB.prepare(`UPDATE users SET email = ?1, email_verified_at = datetime('now') WHERE id = ?2 AND email = ?3`).bind(c.new_email, c.user_id, c.old_email);
-  await env.DB.batch([
-    setUser,
-    env.DB.prepare(`UPDATE email_changes SET status = 'applied', applied_at = datetime('now'), token_hash = NULL WHERE id = ?1 AND status = 'pending'`).bind(c.id),
+/* ---- v1.264.0 - GUARDED IDENTITY BATCHES (claude/AUTH-2.0-AUDIT.md rev 3
+   sec. 5; migration 0173). Tested on Cloudflare's own D1 engine: inside a
+   batch an UPDATE that matches no row COMMITS, and everything after it runs -
+   a change that did not happen would be recorded as done. So every step of an
+   identity change is followed by an ASSERTION: a row in auth_assert that can
+   only be written when the step changed exactly one row (and, for a link, the
+   row now holds the intended value). Otherwise NOT NULL / CHECK fail, D1 rolls
+   the WHOLE batch back and the caller gets an error - never a zero-row
+   "success". auth_assert is emptied at the end of every batch. ---- */
+type Stmt = ReturnType<Env["DB"]["prepare"]>;
+/** The assertion after a write: exactly one row changed. */
+export const assertOne = (env: Env): Stmt => env.DB.prepare(`INSERT INTO auth_assert (ok) SELECT CASE WHEN changes() = 1 THEN 1 END`);
+/** ...and the account now holds this Google identity. */
+export const assertLinked = (env: Env, userId: number, sub: string): Stmt =>
+  env.DB.prepare(`INSERT INTO auth_assert (ok) SELECT CASE WHEN changes() = 1 AND (SELECT google_sub FROM users WHERE id = ?1) = ?2 THEN 1 END`).bind(userId, sub);
+export const clearAsserts = (env: Env): Stmt => env.DB.prepare(`DELETE FROM auth_assert`);
+/** The account may still sign in (the same rule as POST /auth/login). */
+const STILL_OK = `is_active = 1 AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`;
+
+/** Attach a Google identity to an account that has none: guarded. `legacy`
+    restricts it to the Google-created customers from before 1.238.0. */
+export function linkGoogleStatements(env: Env, userId: number, sub: string, opts: { legacy?: boolean } = {}): Stmt[] {
+  const legacy = opts.legacy ? ` AND role = 'customer' AND password_hash = 'oauth$google' AND created_at < '${LEGACY_GOOGLE_BEFORE}'` : "";
+  return [
+    env.DB.prepare(`UPDATE users SET google_sub = ?2, email_verified_at = COALESCE(email_verified_at, datetime('now')) WHERE id = ?1 AND google_sub IS NULL AND ${STILL_OK}${legacy}`).bind(userId, sub),
+    assertLinked(env, userId, sub),
+  ];
+}
+/** Google-created customers from before migration 0155 (31-10-2026) carry no
+    Google id; only they may take the restricted one-time legacy link. */
+export const LEGACY_GOOGLE_BEFORE = "2026-10-31 00:00:00";
+
+/** The guarded statements of a proven login email change (and, when given, the
+    Google identity that proved it). The change must still be pending, unexpired
+    and approved where it needs a second approval; the account must still carry
+    the old address and still be allowed in. */
+export function emailChangeStatements(env: Env, c: ChangeRow, googleSub?: string | null): Stmt[] {
+  const out: Stmt[] = [
+    env.DB.prepare(`UPDATE users SET email = ?1, email_verified_at = datetime('now') WHERE id = ?2 AND email = ?3 AND ${STILL_OK}`).bind(c.new_email, c.user_id, c.old_email),
+    assertOne(env),
+  ];
+  if (googleSub) out.push(...linkGoogleStatements(env, c.user_id, googleSub));
+  out.push(
+    env.DB.prepare(`UPDATE email_changes SET status = 'applied', applied_at = datetime('now'), token_hash = NULL
+                     WHERE id = ?1 AND status = 'pending' AND expires_at > datetime('now') AND (needs_second = 0 OR approved_by IS NOT NULL)`).bind(c.id),
+    assertOne(env),
     env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE user_id = ?1 AND status = 'pending' AND id != ?2`).bind(c.user_id, c.id),
     env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(c.user_id),
-  ]);
-  const now = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`).bind(c.user_id).first<{ email: string }>();
-  if (now?.email !== c.new_email) return { ok: false, code: "changed_meanwhile", message: "The account changed while this was waiting - nothing was applied." };
+  );
+  return out;
+}
+
+/** What follows a change that really applied: the audit, the notices, the mail. */
+export async function afterEmailChange(env: Env, c: ChangeRow, via: string): Promise<void> {
   await auditAcct(env, c.requested_by, "user.email_change", String(c.user_id), {
-    from: c.old_email, to: c.new_email, route: c.route, via: opts.via, change_id: c.id, reason: c.reason,
+    from: c.old_email, to: c.new_email, route: c.route, via, change_id: c.id, reason: c.reason,
     ...(c.approved_by ? { approved_by: c.approved_by } : {}),
   });
   try {
@@ -99,7 +133,43 @@ export async function applyEmailChange(env: Env, c: ChangeRow, opts: { googleSub
   if (mailReady(env)) {
     await sendMail(env, { to: c.old_email, subject: "Your A2Z OS login email was changed", text: `The login email of your A2Z OS account is now ${c.new_email}.\n\nIf you did not expect this, tell A2Z Creative Marketing at once.` });
   }
+}
+
+/** Apply a proven change: same users.id, every session out, audited, told.
+    v1.264.0 - one GUARDED batch: if the account, the change or the address
+    moved meanwhile, nothing at all is written (it used to mark the change
+    applied and sign the person out before finding out). */
+export async function applyEmailChange(env: Env, c: ChangeRow, opts: { googleSub?: string | null; via: string }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+  if (c.status !== "pending") return { ok: false, code: "not_pending", message: "This change is no longer waiting." };
+  if (c.needs_second && !c.approved_by) return { ok: false, code: "needs_approval", message: "This change still needs the second approval." };
+  const clash = await env.DB.prepare(`SELECT 1 FROM users WHERE email = ?1 AND id != ?2`).bind(c.new_email, c.user_id).first();
+  if (clash) {
+    await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE id = ?1`).bind(c.id).run();
+    return { ok: false, code: "email_taken", message: "That address now belongs to another account - the change was cancelled." };
+  }
+  try {
+    await env.DB.batch([...emailChangeStatements(env, c, opts.googleSub), clearAsserts(env)]);
+  } catch (e) {
+    if (/no such table: auth_assert/i.test(String(e))) return { ok: false, code: "migration_missing", message: "Run migration 0173 first (PUSH.bat)." };
+    return { ok: false, code: "changed_meanwhile", message: "The account changed while this was waiting - nothing was applied." };
+  }
+  await afterEmailChange(env, c, opts.via);
   return { ok: true };
+}
+
+/* ---- v1.264.0 - GOOGLE SIGN-IN SETTINGS (rev 3 sec. 10), enforced by the
+   worker. `enabled` is the kill switch: Google off, every other method on.
+   `customer_signup` decides whether an unknown Google account may become a
+   customer (R10 - on, as today, until the CEO decides). There is NO setting
+   that brings back email-match linking for an internal account. ---- */
+export interface GoogleAuthSettings { enabled: boolean; customer_signup: boolean; updated_at?: string | null; updated_by?: string | null }
+export async function googleAuthSettings(env: Env): Promise<GoogleAuthSettings> {
+  try {
+    const r = await env.DB.prepare(`SELECT s.value, s.updated_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who FROM business_settings s LEFT JOIN users u ON u.id = s.updated_by WHERE s.key = 'auth_google'`)
+      .first<{ value: string | null; updated_at: string | null; who: string | null }>();
+    const v = r?.value ? JSON.parse(r.value) as Record<string, unknown> : {};
+    return { enabled: v.enabled !== false, customer_signup: v.customer_signup !== false, updated_at: r?.updated_at ?? null, updated_by: r?.who ?? null };
+  } catch { return { enabled: true, customer_signup: true }; }
 }
 
 /** The pending change a Google sign-in as `email` would complete, if any. */

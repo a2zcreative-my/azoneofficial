@@ -149,7 +149,10 @@ const i18n = read("lib/i18n.ts");
   ok("a backup code typed without its dash gets it back (the server compares the issued form)", /if \(\/\[A-Z\]\/\.test\(next\) && !next\.includes\("-"\) && next\.length > 5\) next = `\$\{next\.slice\(0, 5\)\}-\$\{next\.slice\(5, 10\)\}`;/.test(src));
   ok("the sixth DIGIT signs in by itself; a backup code waits for Verify", /if \(\/\^\\d\{6\}\$\/\.test\(next\) && !busy\) void verifyCode\(next\);/.test(src) && /const codeReady = \/\^\\d\{6\}\$\/\.test\(code\) \|\| code\.replace\(\/-\/g, ""\)\.length >= 6;/.test(src) && /disabled=\{busy \|\| !codeReady\}/.test(src) && /maxLength=\{11\}/.test(src) && !/pattern="\[0-9\]\*"/.test(src));
   ok("and it cannot fire twice", /if \(verifying\.current\) return;/.test(src));
-  ok("the code is verified with the value just typed, not with stale state", /const verifyCode = async \(value: string\)/.test(src) && /body: JSON\.stringify\(\{ challenge, code: value \}\)/.test(src));
+  ok("the code is verified with the value just typed, not with stale state", /const verifyCode = async \(value: string\)/.test(src) && /body: JSON\.stringify\(challenge === VIA_COOKIE \? \{ code: value \} : \{ challenge, code: value \}\)/.test(src));
+  /* v1.264.0 (G4) - a Google challenge stays in its HttpOnly cookie: the page never reads a challenge from document.cookie */
+  ok("the page never reads a 2FA challenge from a script-readable cookie", !/document\.cookie\.match\([^)]*twofa/.test(src) && /setChallenge\(VIA_COOKIE\)/.test(src));
+  ok("Google's button follows GET /auth/methods", /api<\{ google\?: boolean \}>\("\/auth\/methods"\)/.test(src) && /\{googleOn && \(/.test(src));
 }
 
 /* ---- 9 + 10. honest help, and still bilingual ---- */
@@ -172,12 +175,19 @@ const i18n = read("lib/i18n.ts");
   ok("the right side says Sign in / Securely access your account", /L\("Sign in", "Log masuk"\)/.test(src) && /Securely access your account\./.test(src) && /Akses akaun anda dengan selamat\./.test(src));
   ok("no Create account on the page, and no register call", !/auth\/register|Create account|Buat akaun/.test(code));
   ok("every failed sign-in says the one sentence", /const FAILED: \[string, string\] = \["Unable to sign in with the provided credentials\.", "Tidak dapat log masuk dengan maklumat yang diberikan\."\];/.test(src)
-     && /\} else \{\s*setError\(L\(\.\.\.FAILED\)\);/.test(code) && /if \(q\.get\("error"\) === "oauth"\) setError\(LE\(\.\.\.FAILED\)\);/.test(code)
+     && /\} else \{\s*setError\(L\(\.\.\.FAILED\)\);/.test(code) && /if \(why === "oauth" \|\| why === "google_off"\)/.test(code) && /setError\(LE\(\.\.\.\(why === "google_off" \? GOOGLE_OFF : FAILED\)\)\)/.test(code) /* v1.264.0 - after the first paint; Google off says so */
      && !/account is inactive|already exists|API Worker|not be deployed/i.test(code));
   ok("no company address in a placeholder", !/@a2zcreative/.test(code));
   const worker = read("worker/src/index.ts");
-  const cb = worker.slice(worker.indexOf('const OAUTH_FAILED = "/login?error=oauth";'), worker.indexOf('const roleRow = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)'));
-  ok("every Google failure lands on /login, one way", cb.length > 500 && (cb.match(/Location: OAUTH_FAILED/g) ?? []).length === 5 /* v1.238.0 - +1: a Google account other than the linked one */ && !/\/admin\?(error|pending)/.test(worker));
+  /* v1.264.0 - one door: every early return of the callback is failed() or
+     refuseG(), which ends in failed(), whose only Location is OAUTH_FAILED
+     (or the Google-off page). Only the two endings below the slice - the
+     code step and the session - go anywhere else. */
+  const cb = worker.slice(worker.indexOf('const OAUTH_FAILED = "/login?error=oauth";'), worker.indexOf('/* v1.23.1 (CEO: "when my staff login using Google'));
+  const rets = [...cb.matchAll(/\breturn\b[^;]*;/g)].map((m) => m[0]);
+  const bad = rets.filter((r) => !/^return (await refuseG\(|failed\(|new Response\(null, \{ status: 302, headers: \{ Location: to, "Set-Cookie": clearState \} \}\)|\{ ok: |await )/.test(r) && !/^return (await )?(refuseG|failed)\(/.test(r));
+  ok("every Google failure lands on /login, one way", cb.length > 500 && /const failed = \(to = OAUTH_FAILED\) => new Response\(null, \{ status: 302, headers: \{ Location: to, "Set-Cookie": clearState \} \}\);/.test(cb)
+     && (cb.match(/Location:/g) ?? []).length === 1 && rets.length >= 12 && bad.length === 0 && !/\/admin\?(error|pending)/.test(worker), JSON.stringify(bad));
   ok("the server still answers a bad password and a missing account the same", /return errorResponse\("invalid_credentials", "Email or password is incorrect", 401\);/.test(worker) && /DUMMY_PASSWORD_HASH/.test(worker));
 }
 

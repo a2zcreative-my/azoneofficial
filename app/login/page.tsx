@@ -67,6 +67,12 @@ const tr = (lang: Lang) => (en: string, ms: string) => (lang === "ms" ? ms : en)
     password or by Google: it never says which part was wrong, or whether
     the account exists. */
 const FAILED: [string, string] = ["Unable to sign in with the provided credentials.", "Tidak dapat log masuk dengan maklumat yang diberikan."];
+/* v1.264.0 - Google switched off by the owner: say so, and point at the way in that stays */
+const GOOGLE_OFF: [string, string] = ["Google sign-in is switched off for now. Sign in with your email and password.", "Log masuk Google dimatikan buat masa ini. Log masuk dengan e-mel dan kata laluan anda."];
+const EXPIRED: [string, string] = ["This sign-in attempt expired — please sign in again.", "Percubaan log masuk ini telah tamat tempoh — sila log masuk semula."];
+/* v1.264.0 (G4) - a Google sign-in leaves its challenge in an HttpOnly
+   cookie the worker reads itself; the page only knows that one is waiting */
+const VIA_COOKIE = "via-cookie";
 
 /* ── module-scope pieces (house rule #30) ──────────────────────────────── */
 
@@ -164,6 +170,9 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  /* v1.264.0 - the worker says which ways in are on (GET /auth/methods);
+     until it answers the Google button shows, as it always has */
+  const [googleOn, setGoogleOn] = useState(true);
   const [lang, setLangState] = useState<Lang>("en");
   const emailRef = useRef<HTMLInputElement>(null);
   const verifying = useRef(false);
@@ -184,12 +193,21 @@ export default function LoginPage() {
     setError("");
     const res = await api<{ user: User }>("/auth/2fa/verify", {
       method: "POST",
-      body: JSON.stringify({ challenge, code: value }),
+      body: JSON.stringify(challenge === VIA_COOKIE ? { code: value } : { challenge, code: value }),
     });
     setBusy(false);
     verifying.current = false;
+    const why = (res.data as { error?: { code?: string } } | null)?.error?.code;
     if (res.ok && res.data?.user) {
       window.location.replace(destinationFor(res.data.user.role));
+    } else if (why === "challenge_expired" || why === "too_many_attempts" || why === "changed_meanwhile") {
+      /* the attempt is over - back to the sign-in form, which says why */
+      setChallenge(""); setCode("");
+      setError(why === "too_many_attempts"
+        ? L("Too many incorrect codes — please sign in again.", "Terlalu banyak kod yang salah — sila log masuk semula.")
+        : why === "changed_meanwhile"
+          ? L("Your account changed while you were signing in, so nothing was linked or changed. Please sign in again.", "Akaun anda berubah semasa anda log masuk, jadi tiada apa-apa dipautkan atau diubah. Sila log masuk semula.")
+          : L(...EXPIRED));
     } else if (res.status === 429) {
       setError(L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit."));
     } else {
@@ -220,21 +238,24 @@ export default function LoginPage() {
 
   useEffect(() => {
     /* v1.23.1: Google sign-in with 2FA enabled no longer mints a session —
-       the callback drops a 5-minute challenge cookie and lands here with
-       ?2fa=1. Read it, clear it, and show the same code screen password
-       sign-in uses. The session is created only after a valid code. */
+       the callback keeps a 5-minute challenge and lands here with ?2fa=1, and
+       the same code screen as password sign-in shows. The session is created
+       only after a valid code.
+       v1.264.0 (G4): the challenge is in an HttpOnly cookie now, which this
+       script cannot read and never needs to - /auth/2fa/verify reads it. If
+       it has lapsed, the worker answers challenge_expired and the form says
+       so. The old script-readable cookie is cleared if one is left over. */
     /* This effect can fire before the `lang` state above has landed, so it
        reads the device language directly rather than closing over "en". */
     const LE = tr(getLang());
     const q = new URLSearchParams(window.location.search);
+    void api<{ google?: boolean }>("/auth/methods").then((r) => {
+      if (r.ok && r.data && r.data.google === false) setGoogleOn(false);
+    });
     if (q.get("2fa") === "1") {
-      const m = document.cookie.match(/(?:^|; )twofa_challenge=([^;]*)/);
-      if (m?.[1]) {
-        setChallenge(m[1]);
-        document.cookie = "twofa_challenge=; Secure; SameSite=Lax; Path=/; Max-Age=0";
-        return; // no /auth/me probe — there is deliberately no session yet
-      }
-      setError(LE("This sign-in attempt expired — please sign in again.", "Percubaan log masuk ini telah tamat tempoh — sila log masuk semula."));
+      if (document.cookie.includes("twofa_challenge=")) document.cookie = "twofa_challenge=; Secure; SameSite=Lax; Path=/; Max-Age=0";
+      requestAnimationFrame(() => setChallenge(VIA_COOKIE)); // after the first paint, like every other state this effect sets
+      return; // no /auth/me probe — there is deliberately no session yet
     }
     // Already signed in? Route straight to the right place.
     void api<{ user: User }>("/auth/me").then((r) => {
@@ -242,7 +263,11 @@ export default function LoginPage() {
     });
     /* v1.211.0 - every Google sign-in that did not end in a session comes
        back here (worker: OAUTH_FAILED), and says the one sentence */
-    if (q.get("error") === "oauth") setError(LE(...FAILED));
+    const why = q.get("error");
+    if (why === "oauth" || why === "google_off") requestAnimationFrame(() => {
+      if (why === "google_off") setGoogleOn(false);
+      setError(LE(...(why === "google_off" ? GOOGLE_OFF : FAILED)));
+    });
   }, []);
 
   const submit = async () => {
@@ -353,10 +378,12 @@ export default function LoginPage() {
             <h1 className={css.title}>{L("Sign in", "Log masuk")}</h1>
             <p className={css.lede}>{L("Securely access your account.", "Akses akaun anda dengan selamat.")}</p>
 
-            <a href={`${API}/auth/google`} className={css.google}>
-              <GoogleMark />
-              {L("Continue with Google", "Teruskan dengan Google")}
-            </a>
+            {googleOn && (
+              <a href={`${API}/auth/google`} className={css.google}>
+                <GoogleMark />
+                {L("Continue with Google", "Teruskan dengan Google")}
+              </a>
+            )}
 
             <hr className={css.divider} />
 

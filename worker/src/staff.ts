@@ -61,7 +61,7 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
 import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
-import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
+import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, googleAuthSettings, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
 import { mailReady, sendMail, sendMailResult } from "./mail"; // v1.238.0 - Cloudflare Email Sending; v1.247.0 - the provider answer for the log
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
@@ -6354,6 +6354,36 @@ async function handleStaffRoutes(
       .bind(JSON.stringify({ mode: to }), user.id).run();
     await audit(env, user.id, "leave.routing_mode", "business_settings", "leave_routing", { from, to });
     return json({ ok: true, mode: to });
+  }
+
+  /* v1.264.0 - SIGN-IN METHODS (claude/AUTH-2.0-AUDIT.md rev 3 sec. 10,
+     Phase 1a). GET: the CEO and the super admin read the switches. PUT: only
+     the company owner (the CEO with is_owner), with a fresh authenticator code
+     and a reason; audited with the before and the after. `enabled` is the
+     Google kill switch - password + authenticator always stay on; there is no
+     switch that links Google accounts by email. */
+  if (path === "/auth/settings" && method === "GET") {
+    if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO and the super admin see the sign-in settings", 403);
+    const g = await googleAuthSettings(env);
+    return json({ google: g, can_set: user.role === "ceo" && user.is_owner === true });
+  }
+  if (path === "/auth/settings" && method === "PUT") {
+    if (user.role !== "ceo" || user.is_owner !== true) return err("forbidden", "Only the company owner changes how people sign in", 403);
+    const g = (body?.google ?? null) as Record<string, unknown> | null;
+    if (!g || typeof g.enabled !== "boolean" || typeof g.customer_signup !== "boolean") return err("invalid_input", "google.enabled and google.customer_signup are true or false", 400);
+    const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
+    if (reason.length < 5 || reason.length > 300) return err("invalid_input", "Give a reason (5 to 300 characters)", 400);
+    const stepUp = await requireFreshTotp(env, user, body?.totp, err, "change how people sign in");
+    if (stepUp) return stepUp;
+    const before = await googleAuthSettings(env);
+    const after = { enabled: g.enabled, customer_signup: g.customer_signup };
+    await env.DB.prepare(`INSERT INTO business_settings (key, value, updated_by, updated_at) VALUES ('auth_google', ?1, ?2, datetime('now'))
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+      .bind(JSON.stringify(after), user.id).run();
+    await audit(env, user.id, "auth.settings_google", "business_settings", "auth_google", {
+      before: { enabled: before.enabled, customer_signup: before.customer_signup }, after, reason,
+    });
+    return json({ ok: true, google: await googleAuthSettings(env) });
   }
 
   /* v1.131.0 — WHICH DAYS ARE CLOSED, for the roster's pickers.
