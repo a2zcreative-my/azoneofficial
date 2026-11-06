@@ -94,12 +94,15 @@ const DECIDERS = ["super_admin", "ceo"]; // = PERMS.claims_decide
     accept (POST /claims/:id/review, /preapprove, /decide, /return,
     /resubmit, /paid). The endpoints still decide; this only lets the page
     draw the buttons the server would take. */
-export function claimActions(r: ClaimChainRow, actor: { id: number; role: string }): ClaimAction[] {
+export function claimActions(r: ClaimChainRow, actor: { id: number; role: string; is_owner?: boolean }): ClaimAction[] {
   const out: ClaimAction[] = [];
   const chain = claimChain(r.claimant_role ?? "");
   const own = r.user_id === actor.id;
   const payee = r.payee_user_id != null && r.payee_user_id === actor.id;
-  const decider = DECIDERS.includes(actor.role);
+  /* v1.271.0 (Phase 0, decision-policy.ts) - a decider never decides or pays
+     their own claim, or one paid to them; the company owner's own claim is
+     an executive record, so his buttons stay */
+  const decider = DECIDERS.includes(actor.role) && (!(own || payee) || (actor.role === "ceo" && actor.is_owner === true));
   if (r.status === "pending") {
     const open = claimReturnOpen(r);
     if (open) {
@@ -121,7 +124,7 @@ export function claimActions(r: ClaimChainRow, actor: { id: number; role: string
 /** True when the claim waits on THIS person's own stage - the "Waiting for
     my approval" filter. The CEO's override is an action, not a turn: a claim
     still waiting on the CCO is not the CEO's turn. */
-export function claimMyTurn(r: ClaimChainRow, actor: { id: number; role: string }): boolean {
+export function claimMyTurn(r: ClaimChainRow, actor: { id: number; role: string; is_owner?: boolean }): boolean {
   const w = claimWaitingOn(r);
   const acts = claimActions(r, actor);
   if (w === "applicant") return acts.includes("resubmit");

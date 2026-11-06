@@ -10,6 +10,9 @@
  * worker published.
  *
  * Checks (one per migration that needs one):
+ *   0179/0180 (v1.271.0)    web_orders.booked_cents / refund_flagged_at must
+ *                           not exist yet (each migration adds one; a column
+ *                           already there would fail the ALTER).
  *   0157_invoice_void_once  the partial unique index ux_inv_live_per_qt
  *                           allows one live invoice per quotation. Any
  *                           quotation that already has two or more invoices
@@ -66,6 +69,20 @@ const CHECKS = [
       "   The CEO decides which invoice of each pair stands. On the current worker an UNPAID duplicate can be deleted from Sales -> Documents (audited); a paid one needs a credit note. Then run PUSH.bat again.",
     ],
   },
+  /* v1.271.0 (Phase 0, P0-B) - 0179 and 0180 each add one ELFIA booking
+     column that production was found to lack (a database built fresh from
+     0081 already has both). SQLite has no ADD COLUMN IF NOT EXISTS, so a
+     column that is somehow there already would fail the apply half way.
+     Stop before anything is applied instead, and say how to settle it. */
+  ...[["0179_web_orders_booked_cents", "booked_cents"], ["0180_web_orders_refund_flag", "refund_flagged_at"]].map(([migration, col]) => ({
+    migration,
+    name: `web_orders.${col} is not there yet (the migration adds it)`,
+    sql: `SELECT name FROM pragma_table_info('web_orders') WHERE name = '${col}'`,
+    explain: () => [
+      `web_orders already has ${col}, so migration ${migration} (ALTER TABLE ... ADD COLUMN) would fail.`,
+      `   The column is already what the migration makes. Mark it applied - INSERT INTO d1_migrations (name) VALUES ('${migration}.sql') - after checking with the developer, then run PUSH.bat again.`,
+    ],
+  })),
 ];
 
 if (skip) {

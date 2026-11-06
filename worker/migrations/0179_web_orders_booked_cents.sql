@@ -1,0 +1,12 @@
+-- 1.271.0 Phase 0 B - repair of a schema drift found in the production backup of 06-11-2026
+-- claude/PHASE0-SAFETY-REVIEW.md - the CEO approved Phase 0 on 06-11-2026
+--
+-- Production web_orders was created before migration 0081 carried booked_cents, so
+-- CREATE TABLE IF NOT EXISTS skipped it and no later migration added it. The ELFIA poll
+-- writes booked_cents when an order is paid, so a paid ELFIA order could not be booked.
+--
+-- Additive only. The column starts empty. No existing row is changed or backfilled.
+-- One statement per file (rule B4 in 0075) so a half apply is a no apply.
+-- A database built from scratch already has this column from 0081 - mark this file
+-- applied there instead of running it.
+ALTER TABLE web_orders ADD COLUMN booked_cents INTEGER;

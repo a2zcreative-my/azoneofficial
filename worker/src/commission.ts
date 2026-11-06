@@ -47,6 +47,7 @@ import type { StaffUser } from "./staff";
 import { notify } from "./staff"; // v1.255.0 - review and payout notices
 import { audit, err, json, str } from "./shared";
 import { can } from "./permissions";
+import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0
 import { bookCash } from "./cashbook"; // v1.255.0 - the agent payout's one cash-book row, at settlement
 
 export const COMMISSION_START_DAY = "2026-11-01"; // = staff.ts COMMISSION_START_MONTH (the owner, 28-10-2026)
@@ -647,6 +648,9 @@ export async function handleCommission(env: Env, path: string, method: string, b
     }
     const row = await env.DB.prepare(`SELECT * FROM commission_ledger WHERE id = ?1`).bind(id).first<{ id: number; kind: string; status: string; invoice_id: number; parent_id: number | null; user_id: number | null; recipient_role?: string; attribution_id?: number | null; amount_cents: number }>().catch(() => null);
     if (!row) return err("not_found", "Commission entry not found", 404);
+    /* v1.271.0 (Phase 0) - never your own commission entry */
+    const selfCom = await refuseSelf(env, user, "commission.decide", [row.user_id], "commission_ledger", id);
+    if (selfCom) return selfCom;
     if (row.status !== "review") return err("conflict", "That entry is not under review.", 409);
     /* v1.255.0 - a HELD sale is decided on its attribution (partnership,
        direct or none, with the evidence) - never by applying its RM 0.00 hold */

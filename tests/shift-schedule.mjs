@@ -247,7 +247,9 @@ const ok = (label, cond, extra = "") => {
 {
   const i = staff.indexOf('if (path === "/attendance/pending/decide" && method === "POST")');
   ok("the decide route exists", i > 0);
-  const body = staff.slice(i, i + 3000);
+  /* v1.271.0 - the route body up to the next route (a fixed 3000-character
+     window stopped short once the Phase 0 self-decision check was added). */
+  const body = staff.slice(i, staff.indexOf("if (path ===", i + 10));
   ok("only the CEO decides", /can\(user\.role, "unpaid_leave"\)[\s\S]{0,120}?Only the CEO can approve a forgotten punch/.test(body),
      "approving one creates paid time out of a claim nobody can verify");
   ok("approving can set the real time",

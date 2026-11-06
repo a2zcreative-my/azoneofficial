@@ -416,7 +416,8 @@ async function runtime(workerBundle) {
     ok(/revokePasskeyStatements\(env, idOb, statusOb\)/.test(readFileSync(join(root, "worker/src/index.ts"), "utf8")), "offboarding revokes the leaver's passkeys");
     const idx = readFileSync(join(root, "worker/src/index.ts"), "utf8");
     ok(/"\/api\/v1\/auth\/passkey\/login\/options",/.test(idx) && /"\/api\/v1\/auth\/passkey\/login\/verify",/.test(idx) && !/"\/api\/v1\/auth\/passkey\/register/.test(idx) && !/"\/api\/v1\/auth\/passkey",/.test(idx), "the 2FA gate exempts exactly the two sign-in routes, no prefix and no registration");
-    ok(/const LATEST_MIGRATION = "0178_passkeys";/.test(idx) && /"0178_passkeys",/.test(idx), "migration 0178 is the newest and on the expected list");
+    /* v1.271.0 - 0179 and 0180 (Phase 0) came after it: 0178 stays on the list and LATEST_MIGRATION is never older */
+    ok(/"0178_passkeys",/.test(idx) && (/const LATEST_MIGRATION = "(\d{4})_/.exec(idx)?.[1] ?? "0") >= "0178", "migration 0178 is on the expected list and LATEST_MIGRATION is not older");
     const bg = readFileSync(join(root, "scripts/breakglass/reset-account.sql"));
     ok(/UPDATE webauthn_credentials SET revoked_at/.test(bg.toString()) && readFileSync(join(root, "docs/BREAKGLASS.md"), "utf8").includes(createHash("sha256").update(bg).digest("hex")), "the break-glass script revokes passkeys and its recorded SHA-256 matches");
   } catch (e) {

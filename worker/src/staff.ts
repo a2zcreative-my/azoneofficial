@@ -13,6 +13,7 @@ import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleRecovery } from "./recovery"; // v1.268.0 - Phase R
 import { passkeySettings, setPasskeyStage, revokePasskeyStatements, passkeysMigrated, passkeyRoster } from "./passkeys"; // v1.269.0 - Phase 2A; v1.270.0 - 2B / 2C
+import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0: no ordinary self-decision
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
@@ -7426,7 +7427,7 @@ async function handleStaffRoutes(
       for (const u of ur) names.set(u.id, u.n);
     }
     void ids;
-    const actor = { id: user.id, role: user.role };
+    const actor = { id: user.id, role: user.role, is_owner: user.is_owner === true }; // v1.271.0 - the owner's own claim is an executive record
     for (const r of rows) {
       const id = Number(r.id);
       const c = cash.get(id);
@@ -7533,7 +7534,7 @@ async function handleStaffRoutes(
     if (row.status !== "pending") return err("invalid_state", "Already decided", 400);
     const text = typeof body?.comment === "string" ? body.comment.trim() : "";
     if (claimRet[2] === "return") {
-      if (!claimActions(row, { id: user.id, role: user.role }).includes("return")) {
+      if (!claimActions(row, { id: user.id, role: user.role, is_owner: user.is_owner === true }).includes("return")) {
         return err("forbidden", claimReturnOpen(row) ? "This claim is already with the claimant" : "Only whoever decides the claim now asks for more information", 403);
       }
       if (text.length < 10 || text.length > 500) return err("invalid_input", "Write the question for the claimant (10 to 500 characters)", 400);
@@ -7960,6 +7961,9 @@ async function handleStaffRoutes(
     const cRow = await env.DB.prepare(`SELECT user_id, COALESCE(payee_user_id, user_id) AS recipient_id, status, amount_cents, paid_at, claim_type, payroll_month, decided_at FROM claims WHERE id = ?1`)
       .bind(claimPaid[1]).first<{ user_id: number; recipient_id: number; status: string; amount_cents: number; paid_at: string | null; claim_type: string; payroll_month: string | null; decided_at: string | null }>();
     if (!cRow) return err("not_found", "Claim not found", 404);
+    /* v1.271.0 (Phase 0) - never pay your own claim */
+    const selfPaid = await refuseSelf(env, user, "claim.paid", [cRow.user_id, cRow.recipient_id], "claims", claimPaid[1]!);
+    if (selfPaid) return selfPaid;
     if (cRow.status !== "approved") return err("invalid_input", "Only approved claims can be marked paid", 400);
     if (cRow.paid_at) return json({ ok: true, already_paid: true });
     /* v1.254.0 (the owner, D3) - THE BANK DATE: the day the money actually
@@ -8174,10 +8178,14 @@ async function handleStaffRoutes(
       if (stepUp) return stepUp;
     }
     const row = await env.DB.prepare(
-      `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role
+      `SELECT c.user_id, c.payee_user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role
        FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
-    ).bind(clMatch[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string }>();
+    ).bind(clMatch[1]).first<{ user_id: number; payee_user_id: number | null; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string }>();
     if (!row) return err("not_found", "Claim not found", 404);
+    /* v1.271.0 (Phase 0) - never on your own claim or a claim paid to you;
+       the company owner's own claim is an executive record */
+    const selfDec = await refuseSelf(env, user, "claim.decide", [row.user_id, row.payee_user_id], "claims", clMatch[1]!);
+    if (selfDec) return selfDec;
     if (row.status !== "pending") return err("invalid_state", "Already decided", 400);
     /* v1.254.0 (D1) - an approval waits while the claimant answers a
        question; a rejection may still be made */
@@ -12282,6 +12290,9 @@ async function handleStaffRoutes(
         !types.includes(body.type) || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(myt)) {
       return err("invalid_input", "user_id, type (clock_in|clock_out) and myt (YYYY-MM-DD HH:MM) are required", 400);
     }
+    /* v1.271.0 (Phase 0) - never a punch on your own record */
+    const selfManual = await refuseSelf(env, user, "attendance.manual", [body.user_id as number], "users", body.user_id as number);
+    if (selfManual) return selfManual;
     // Store UTC like every real punch: MYT − 8h.
     const utc = new Date(new Date(myt.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000);
     if (!Number.isFinite(utc.getTime()) || utc.getTime() > Date.now() + 5 * 60 * 1000) {
@@ -12374,6 +12385,9 @@ async function handleStaffRoutes(
         WHERE id = ?1 AND pending_approval = 1`,
     ).bind(idP).first<{ user_id: number; type: string; created_at: string }>().catch(() => null);
     if (!rowP) return err("not_found", "No punch waiting for approval with that id", 404);
+    /* v1.271.0 (Phase 0) - never your own forgotten punch: it stays pending for another approver */
+    const selfPunch = await refuseSelf(env, user, "punch.forgotten", [rowP.user_id], "attendance_records", idP);
+    if (selfPunch) return selfPunch;
 
     if (action === "reject") {
       await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1 AND pending_approval = 1`)
@@ -12774,6 +12788,9 @@ async function handleStaffRoutes(
     const beforeA = await env.DB.prepare(
       `SELECT user_id, date(created_at, '+8 hours') AS d FROM attendance_records WHERE id = ?1`,
     ).bind(attMatch[1]).first<{ user_id: number; d: string }>();
+    /* v1.271.0 (Phase 0) - never your own punch */
+    const selfAmend = await refuseSelf(env, user, "attendance.amend", [beforeA?.user_id], "attendance_records", attMatch[1]!);
+    if (selfAmend) return selfAmend;
     const res = await env.DB.prepare(
       `UPDATE attendance_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`,
     ).bind(createdAt, user.id, attMatch[1]).run();
@@ -12787,6 +12804,9 @@ async function handleStaffRoutes(
     const beforeD = await env.DB.prepare(
       `SELECT user_id, date(created_at, '+8 hours') AS d FROM attendance_records WHERE id = ?1`,
     ).bind(attMatch[1]).first<{ user_id: number; d: string }>();
+    /* v1.271.0 (Phase 0) - never your own punch */
+    const selfDel = await refuseSelf(env, user, "attendance.delete", [beforeD?.user_id], "attendance_records", attMatch[1]!);
+    if (selfDel) return selfDel;
     const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
     await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1], { day: beforeD?.d });
@@ -12858,6 +12878,9 @@ async function handleStaffRoutes(
     if (typeof body?.user_id !== "number" || !/^\d{4}-\d{2}-\d{2}$/.test(dateU)) {
       return err("invalid_input", "user_id and date (YYYY-MM-DD) are required", 400);
     }
+    /* v1.271.0 (Phase 0) - never on your own pay */
+    const selfUnpaid = await refuseSelf(env, user, "unpaid.record", [body.user_id as number], "users", body.user_id as number);
+    if (selfUnpaid) return selfUnpaid;
     /* A typo in the year is the one mistake here that would not look wrong
        on screen and would quietly sit in a payroll month nobody is reading. */
     const dayMs = Date.parse(`${dateU}T00:00:00Z`);
@@ -13000,6 +13023,8 @@ async function handleStaffRoutes(
        WHERE l.id = ?1 AND l.type = 'unpaid' AND l.recorded_direct = 1 AND l.status = 'approved'`,
     ).bind(idP).first<{ user_id: number; start_date: string; days: number; reason: string | null; name: string }>().catch(() => null);
     if (!rowP) return err("not_found", "No management-recorded unpaid day with that id - a leave the staff member applied for is changed on the Leave tab", 404);
+    const selfUnpaidP = await refuseSelf(env, user, "unpaid.change", [rowP.user_id], "leave_requests", idP); // v1.271.0 (Phase 0)
+    if (selfUnpaidP) return selfUnpaidP;
 
     const newDate = body?.date === undefined ? rowP.start_date : (str(body.date, 10) ? String(body.date) : "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate) || !Number.isFinite(Date.parse(`${newDate}T00:00:00Z`))) {
@@ -13081,6 +13106,8 @@ async function handleStaffRoutes(
        WHERE id = ?1 AND type = 'unpaid' AND recorded_direct = 1`,
     ).bind(idD2).first<{ user_id: number; start_date: string }>().catch(() => null);
     if (!rowD2) return err("not_found", "No management-recorded unpaid day with that id", 404);
+    const selfUnpaidD = await refuseSelf(env, user, "unpaid.remove", [rowD2.user_id], "leave_requests", idD2); // v1.271.0 (Phase 0)
+    if (selfUnpaidD) return selfUnpaidD;
     /* v1.148.0 - undoing an unpaid day GIVES pay back, and after a release
        that is just as much a change to a payslip already read as taking it
        away. Same guard, same override. */

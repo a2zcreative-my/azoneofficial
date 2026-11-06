@@ -412,3 +412,8 @@ exec_recovery_requests (the owner's recovery panel, two-person requests, the
 public key only - a removed one stays as history), webauthn_challenges (single
 use, five minutes) and sessions.auth_method / auth_credential_id (how a session
 began). Passkeys are built switched off.
+1.271.0 adds `0179_web_orders_booked_cents` and `0180_web_orders_refund_flag`
+(additive, one ALTER each): production web_orders was created without the two
+ELFIA booking columns that 0081 carries. A fresh database already has them, so
+there both are marked applied in d1_migrations instead of run; the PUSH.bat
+data pre-flight refuses to apply either one if its column already exists.

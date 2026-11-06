@@ -116,10 +116,12 @@ export const claimChain = (role: string): "staff" | "hr" | "exec" | "top" =>
  * the guard can run it against the decide routes' own rules.
  */
 export function claimStepFor(
-  viewer: { id: number; role: string },
+  viewer: { id: number; role: string; is_owner?: boolean },
   claim: { user_id: number; payee_user_id: number | null; claimant_role: string; hr_reviewed_at: string | null; pre_approved_at: string | null },
 ): "hr_review" | "pre_approve" | "decide" | null {
   if (claim.user_id === viewer.id) return null;              // never your own
+  /* v1.271.0 (Phase 0) - nor a claim paid to you (decision-policy.ts), the company owner apart */
+  if (claim.payee_user_id === viewer.id && !(viewer.role === "ceo" && viewer.is_owner === true)) return null;
   const chain = claimChain(claim.claimant_role);
   const adminTier = viewer.role === "admin" || viewer.role === "super_admin";
   if (can(viewer.role, "claims_decide")) {
