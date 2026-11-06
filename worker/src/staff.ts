@@ -12,7 +12,7 @@ import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remaining
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleRecovery } from "./recovery"; // v1.268.0 - Phase R
-import { passkeySettings, setPasskeyStage, revokePasskeyStatements, passkeysMigrated } from "./passkeys"; // v1.269.0 - Phase 2A
+import { passkeySettings, setPasskeyStage, revokePasskeyStatements, passkeysMigrated, passkeyRoster } from "./passkeys"; // v1.269.0 - Phase 2A; v1.270.0 - 2B / 2C
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
@@ -6394,7 +6394,7 @@ async function handleStaffRoutes(
   if (path === "/auth/settings" && method === "GET") {
     if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO and the super admin see the sign-in settings", 403);
     const g = await googleAuthSettings(env);
-    return json({ google: g, legacy: await legacyCounts(env, g), passkeys: await passkeySettings(env), can_set: user.role === "ceo" && user.is_owner === true });
+    return json({ google: g, legacy: await legacyCounts(env, g), passkeys: await passkeySettings(env), passkey_people: await passkeyRoster(env), can_set: user.role === "ceo" && user.is_owner === true });
   }
   /* v1.269.0 - Phase 2A: the passkey stage (off | A), its own door */
   if (path === "/auth/settings/passkeys" && method === "PUT") {
@@ -13442,9 +13442,14 @@ async function handleStaffRoutes(
          FROM email_changes c LEFT JOIN users r ON r.id = c.requested_by WHERE c.user_id = ?1 AND c.status = 'pending' ORDER BY c.id DESC`,
       ).bind(t.id).all()).results;
     } catch { /* pre-0155 */ }
-    let sessions: { id: string; created_at: string; expires_at: string; user_agent?: string | null; last_seen_at?: string | null }[] = [];
+    let sessions: { id: string; created_at: string; expires_at: string; user_agent?: string | null; last_seen_at?: string | null; auth_method?: string | null }[] = [];
     try {
-      sessions = (await env.DB.prepare(`SELECT id, created_at, expires_at, user_agent, last_seen_at FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now') ORDER BY COALESCE(last_seen_at, created_at) DESC`).bind(t.id).all<typeof sessions[number]>()).results;
+      try {
+        /* v1.270.0 - and how each began (a passkey or not; migration 0178) */
+        sessions = (await env.DB.prepare(`SELECT id, created_at, expires_at, user_agent, last_seen_at, auth_method FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now') ORDER BY COALESCE(last_seen_at, created_at) DESC`).bind(t.id).all<typeof sessions[number]>()).results;
+      } catch {
+        sessions = (await env.DB.prepare(`SELECT id, created_at, expires_at, user_agent, last_seen_at FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now') ORDER BY COALESCE(last_seen_at, created_at) DESC`).bind(t.id).all<typeof sessions[number]>()).results;
+      }
     } catch {
       sessions = (await env.DB.prepare(`SELECT id, created_at, expires_at FROM sessions WHERE user_id = ?1 AND expires_at > datetime('now') ORDER BY created_at DESC`).bind(t.id).all<typeof sessions[number]>()).results;
     }
@@ -13456,16 +13461,17 @@ async function handleStaffRoutes(
     ).bind(String(t.id), t.id).all()).results;
     const lastLogin = await env.DB.prepare(`SELECT created_at FROM audit_log WHERE user_id = ?1 AND action IN ('auth.login', 'auth.login_google', 'auth.2fa_verified', 'auth.login_2fa') ORDER BY id DESC LIMIT 1`).bind(t.id).first<{ created_at: string }>();
     const codes = await env.DB.prepare(`SELECT COUNT(*) AS n FROM twofa_backup_codes WHERE user_id = ?1 AND used_at IS NULL`).bind(t.id).first<{ n: number }>().catch(() => null);
+    const pks = await env.DB.prepare(`SELECT COUNT(*) AS n FROM webauthn_credentials WHERE user_id = ?1 AND revoked_at IS NULL`).bind(t.id).first<{ n: number }>().catch(() => null);
     const self = t.id === user.id;
     return json({
       account: {
         id: t.id, employee_id: t.employee_id, name: (t.full_name ?? "").trim() || t.name, email: t.email, role: t.role,
         is_active: t.is_active === 1, employment_status: t.employment_status, email_verified_at: t.email_verified_at ?? null,
         methods: { password: !t.password_hash.startsWith("oauth$"), google: !!t.google_sub, google_unlinked_signup: t.password_hash.startsWith("oauth$") && !t.google_sub },
-        totp_enabled: t.totp_enabled === 1, backup_codes_left: Number(codes?.n ?? 0), last_login: lastLogin?.created_at ?? null,
+        totp_enabled: t.totp_enabled === 1, backup_codes_left: Number(codes?.n ?? 0), passkeys: Number(pks?.n ?? 0), last_login: lastLogin?.created_at ?? null,
       },
       pending, history,
-      sessions: sessions.map((x) => ({ ref: x.id.slice(0, 12), created_at: x.created_at, expires_at: x.expires_at, last_seen_at: x.last_seen_at ?? null, user_agent: x.user_agent ?? null })),
+      sessions: sessions.map((x) => ({ ref: x.id.slice(0, 12), created_at: x.created_at, expires_at: x.expires_at, last_seen_at: x.last_seen_at ?? null, user_agent: x.user_agent ?? null, passkey: x.auth_method === "passkey" })),
       can: { email: !self && allows(user, "account_email"), recovery: !self && allows(user, "account_recovery") },
       /* v1.251.0 - the Account Management drawer's role picker: exactly the
          roles roleChangeRule would let THIS editor give THIS person now (the
@@ -13551,7 +13557,7 @@ async function handleStaffRoutes(
     }
     return json({ ok: true, applied: false });
   }
-  if (acctMatch && method === "POST" && ["/reset-2fa", "/password-link", "/google/unlink", "/sessions/revoke", "/suspend"].includes(acctMatch[2] ?? "")) {
+  if (acctMatch && method === "POST" && ["/reset-2fa", "/password-link", "/google/unlink", "/sessions/revoke", "/suspend", "/passkeys/revoke"].includes(acctMatch[2] ?? "")) {
     const g = await acctGate(Number(acctMatch[1]), "account_recovery", true);
     if ("r" in g) return g.r;
     const t = g.t;
@@ -13560,6 +13566,7 @@ async function handleStaffRoutes(
     if (action !== "/sessions/revoke" && reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
     const checked = typeof body?.identity_checked === "string" ? body.identity_checked.trim().slice(0, 120) : "";
     if (action === "/reset-2fa" && checked.length < 3) return err("invalid_input", "Say who checked the person's identity before resetting their 2FA", 400);
+    if (action === "/passkeys/revoke" && checked.length < 3) return err("invalid_input", "Say who checked the person's identity before removing their passkeys", 400);
     if (action === "/google/unlink" && !t.google_sub) return err("invalid_state", "No Google account is linked", 409);
     if (action === "/suspend" && typeof body?.suspend !== "boolean") return err("invalid_input", "suspend must be true or false", 400);
     if (action === "/suspend" && body!.suspend === true && await lastRecoveryAdmin(env, t.id)) return err("last_recovery_admin", "This is the last active super admin with 2FA - add another first", 409);
@@ -13579,6 +13586,20 @@ async function handleStaffRoutes(
       try { await notify(env, t.id, "security", `${user.name} reset your two-factor sign-in. Set it up again the next time you sign in.`, `2fa_reset:${Date.now()}`); } catch { /* never blocks */ }
       await sendMail(env, { to: t.email, subject: "Your A2Z OS two-factor sign-in was reset", text: `${user.name} reset the two-factor sign-in of your A2Z OS account. You will set it up again the next time you sign in.\n\nIf you did not ask for this, tell A2Z Creative Marketing at once.` });
       return json({ ok: true });
+    }
+    /* v1.270.0 (rev 3 sec. 6.3 rows 1, 2, 6; sec. 8) - a lost or stolen device:
+       every passkey of the account revoked (kept as history) and every session
+       a passkey opened ended, in one batch; password and authenticator untouched */
+    if (action === "/passkeys/revoke") {
+      if (!(await passkeysMigrated(env))) return err("migration_missing", "Run migration 0178 first (PUSH.bat).", 503);
+      const res = await env.DB.batch([
+        ...revokePasskeyStatements(env, t.id, "removed by an administrator"),
+        env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1 AND auth_method = 'passkey'`).bind(t.id),
+      ]);
+      const revoked = res[0]?.meta?.changes ?? 0, ended = res[2]?.meta?.changes ?? 0;
+      await auditAcct(env, user.id, "auth.passkeys_revoked_by_admin", String(t.id), { reason, identity_checked_by: checked, passkeys_revoked: revoked, sessions_ended: ended, by_owner: byOwner });
+      try { await notify(env, t.id, "security", `${user.name} removed the passkeys on your account${ended ? ` and signed out ${ended} device(s) they had signed in` : ""}. Sign in with your password and authenticator code; you can add a new passkey in Profile -> Security.`, `pk_revoked:${Date.now()}`); } catch { /* never blocks */ }
+      return json({ ok: true, passkeys_revoked: revoked, sessions_ended: ended });
     }
     if (action === "/password-link") {
       const { emailed, link } = await issueSetPasswordLink(env, user, t, false);

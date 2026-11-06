@@ -1299,7 +1299,7 @@ export default function AdminPage() {
             <div className={card}><AccountPanel /></div>
             <TwoFactorPanel />
             <GoogleConnectPanel />
-            {user.role === "ceo" && <PasskeysPanel />}
+            <PasskeysPanel />
             <RecoveryPanel />
           </div>
         )}

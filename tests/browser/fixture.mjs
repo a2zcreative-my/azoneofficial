@@ -682,10 +682,10 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     const may = ROLE === "super_admin" || (OWNER && ROLE === "ceo");
     data = !may ? { error: { code: "forbidden", message: "Only the company owner or the super admin manages staff sign-in" } } : {
       account: { id, employee_id: "A2Z-0042", name: "Nur Aisyah binti Rahman", email: "aisyah.rahman@example.test", role: "sales_marketing", is_active: true, employment_status: "permanent",
-        email_verified_at: null, methods: { password: true, google: true, google_unlinked_signup: false }, totp_enabled: true, backup_codes_left: 7, last_login: "2026-10-30 01:12:00" },
+        email_verified_at: null, methods: { password: true, google: true, google_unlinked_signup: false }, totp_enabled: true, backup_codes_left: 7, last_login: "2026-10-30 01:12:00", ...(process.env.PASSKEYS ? { passkeys: 2 } : {}) }, /* v1.270.0 PASSKEYS: two passkeys */
       pending: process.env.PENDING ? [{ id: 3, new_email: "aisyah@a2zcreative.test", route: "google", needs_second: 0, approved: 0, requested_by: 9001, requested_by_name: "Fixture Person", reason: "Moving to the company mailbox", created_at: "2026-10-31 01:00:00", expires_at: "2026-11-01 01:00:00" }] : [],
       sessions: [
-        { ref: "a1b2c3d4e5f6", created_at: "2026-10-30 01:12:00", expires_at: "2026-10-30 13:12:00", last_seen_at: "2026-10-30 04:40:00", user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1" },
+        { ref: "a1b2c3d4e5f6", created_at: "2026-10-30 01:12:00", expires_at: "2026-10-30 13:12:00", last_seen_at: "2026-10-30 04:40:00", user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1" , ...(process.env.PASSKEYS ? { passkey: true } : {}) },
         { ref: "0f9e8d7c6b5a", created_at: "2026-10-29 23:50:00", expires_at: "2026-10-30 11:50:00", last_seen_at: null, user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36" },
       ],
       history: [
@@ -849,7 +849,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/staff/auth/settings") data = ["ceo", "super_admin"].includes(ROLE) ? {
     google: { enabled: true, customer_signup: true, legacy_link_until: null, updated_at: null, updated_by: null },
     legacy: { remaining: 4, told: 0, window_open: false, legacy_link_until: null }, can_set: OWNER && ROLE === "ceo",
-    passkeys: { stage: process.env.PASSKEYS ? "A" : "off", updated_at: null, updated_by: null }, /* v1.269.0 */
+    passkeys: { stage: !process.env.PASSKEYS ? "off" : ["B", "C"].includes(process.env.PASSKEYS) ? process.env.PASSKEYS : "A", pilot_user_ids: process.env.PASSKEYS === "B" ? [9003] : [], updated_at: null, updated_by: null }, /* v1.269.0; v1.270.0 PASSKEYS=B|C */
+    passkey_people: [{ id: 9001, name: "Fixture Person", role: "ceo", two_factor: true, passkeys: 1 }, { id: 9003, name: "Hakim Rosli", role: "coo", two_factor: true, passkeys: 0 }, { id: 9006, name: "Farid Zulkifli", role: "cco", two_factor: true, passkeys: 0 }, { id: 9020, name: "Siti Ejen", role: "agent", two_factor: false, passkeys: 0 }],
   } : { error: { code: "forbidden", message: "Only the CEO and the super admin see the sign-in settings" } };
   {
     const cm = p.match(/^\/staff\/customer-accounts\/(\d+)$/);

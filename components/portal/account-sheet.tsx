@@ -36,17 +36,17 @@ interface Sheet {
   account: {
     id: number; employee_id: string | null; name: string; email: string; role: string; is_active: boolean; employment_status: string | null;
     email_verified_at: string | null; methods: { password: boolean; google: boolean; google_unlinked_signup: boolean };
-    totp_enabled: boolean; backup_codes_left: number; last_login: string | null;
+    totp_enabled: boolean; backup_codes_left: number; passkeys?: number; last_login: string | null;
   };
   pending: { id: number; new_email: string; route: "email" | "google" | "in_person"; needs_second: number; approved: number; requested_by: number; requested_by_name: string | null; reason: string; created_at: string; expires_at: string }[];
-  sessions: { ref: string; created_at: string; expires_at: string; last_seen_at: string | null; user_agent: string | null }[];
+  sessions: { ref: string; created_at: string; expires_at: string; last_seen_at: string | null; user_agent: string | null; passkey?: boolean }[];
   history: { id: number; action: string; created_at: string; detail: string | null; who: string | null }[];
   can: { email: boolean; recovery: boolean };
   roles_allowed?: string[];
   mail_ready: boolean; privileged: boolean; me: number;
 }
 type Route = "email" | "google" | "in_person";
-type Act = "reset-2fa" | "password-link" | "google/unlink" | "suspend" | "restore" | "signout-all";
+type Act = "reset-2fa" | "password-link" | "google/unlink" | "suspend" | "restore" | "signout-all" | "passkeys/revoke";
 
 const stamp = (s: string | null) => (s ? `${s.slice(8, 10)}-${s.slice(5, 7)}-${s.slice(0, 4)} ${s.slice(11, 16)} UTC` : "—");
 /** "Chrome · Windows" from a user-agent - a label, not a fingerprint */
@@ -67,6 +67,9 @@ const ACTION_LABEL: Record<string, [string, string]> = {
   "user.email_change_requested": ["Login email change requested", "Pertukaran e-mel diminta"], "user.email_change": ["Login email changed", "E-mel log masuk ditukar"],
   "user.email_change_approved": ["Email change approved", "Pertukaran e-mel diluluskan"], "user.email_change_cancelled": ["Email change cancelled", "Pertukaran e-mel dibatalkan"],
   "user.force_logout": ["Signed out by an admin", "Dilog keluar oleh admin"], "user.suspend": ["Access suspended", "Akses digantung"], "user.restore": ["Access restored", "Akses dipulihkan"],
+  "auth.login_passkey": ["Signed in (passkey)", "Log masuk (kunci laluan)"], "auth.passkey_added": ["Passkey added", "Kunci laluan ditambah"],
+  "auth.passkey_removed": ["Passkey removed", "Kunci laluan dibuang"], "auth.passkeys_revoked_by_admin": ["Passkeys removed by an admin", "Kunci laluan dibuang oleh admin"],
+  "auth.passkey_refused": ["A passkey sign-in was refused", "Log masuk kunci laluan ditolak"],
   "staff.role_change": ["Role changed", "Peranan ditukar"], "user.update": ["Account changed", "Akaun ditukar"], "staff.offboard": ["Offboarded", "Ditamatkan khidmat"],
 };
 
@@ -123,12 +126,13 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
     if (!act || !a) return;
     const k = act.kind;
     const path = k === "restore" || k === "suspend" ? `/staff/accounts/${a.id}/suspend` : k === "signout-all" ? `/staff/accounts/${a.id}/sessions/revoke` : `/staff/accounts/${a.id}/${k}`;
-    const body: Record<string, unknown> = { reason: act.reason.trim(), ...(k === "reset-2fa" ? { identity_checked: act.identity_checked.trim() } : {}), ...(k === "suspend" ? { suspend: true } : k === "restore" ? { suspend: false } : {}), ...(k === "signout-all" ? { all: true } : {}) };
+    const body: Record<string, unknown> = { reason: act.reason.trim(), ...(k === "reset-2fa" || k === "passkeys/revoke" ? { identity_checked: act.identity_checked.trim() } : {}), ...(k === "suspend" ? { suspend: true } : k === "restore" ? { suspend: false } : {}), ...(k === "signout-all" ? { all: true } : {}) };
     const word: Record<Act, [string, string]> = {
       "reset-2fa": ["2FA reset - they set it up again at the next sign-in", "2FA diset semula - mereka menetapkannya semula pada log masuk seterusnya"],
       "password-link": ["Set-password link issued", "Pautan kata laluan dikeluarkan"], "google/unlink": ["Google account unlinked", "Akaun Google dinyahpautkan"],
       suspend: ["Access suspended - signed out everywhere", "Akses digantung - dilog keluar di semua tempat"], restore: ["Access restored", "Akses dipulihkan"],
       "signout-all": ["Signed out on every device", "Dilog keluar di semua peranti"],
+      "passkeys/revoke": ["Passkeys removed - their passkey sign-ins ended", "Kunci laluan dibuang - log masuk kunci laluan mereka ditamatkan"],
     };
     const out = await send(path, body, L(word[k][0], word[k][1]), L(word[k][0].split(" - ")[0]!, word[k][1].split(" - ")[0]!));
     if (out) { setAct(null); if (k === "password-link" && out.link) setLink(out.link); }
@@ -183,6 +187,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
               <dt>{L("Sign-in methods", "Kaedah log masuk")}</dt><dd className={css.chips}>
                 {a.methods.password && <span className={chipSmNeutral}>{L("Email + password", "E-mel + kata laluan")}</span>}
                 {a.methods.google && <span className={chipSmNeutral}>{L("Google (linked)", "Google (dipautkan)")}</span>}
+                {(a.passkeys ?? 0) > 0 && <span className={chipSmNeutral}>{L(`Passkey (${a.passkeys})`, `Kunci laluan (${a.passkeys})`)}</span>}
                 {a.methods.google_unlinked_signup && <span className={chipSmWarn}>{L("Google only, not connected - they connect it from Profile -> Security once signed in", "Google sahaja, tidak disambungkan - mereka menyambungkannya dari Profil -> Keselamatan selepas log masuk")}</span>}
               </dd>
               <dt>{L("Two-factor", "Dua faktor")}</dt><dd>{a.totp_enabled ? L(`On · ${a.backup_codes_left} backup code(s) left`, `Hidup · ${a.backup_codes_left} kod sandaran berbaki`) : L("Off - set up at the next sign-in", "Mati - ditetapkan pada log masuk seterusnya")}</dd>
@@ -293,6 +298,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
                 <div className={css.actions}>
                   <button type="button" className={btnSm} onClick={() => setAct({ kind: "password-link", reason: "", identity_checked: "" })}><AppIcon name="link" />{L("Set-password link", "Pautan kata laluan")}</button>
                   <button type="button" className={btnSm} onClick={() => setAct({ kind: "reset-2fa", reason: "", identity_checked: "" })}><AppIcon name="lock" />{L("Reset 2FA (re-enrol)", "Set semula 2FA (daftar semula)")}</button>
+                  {(a.passkeys ?? 0) > 0 && <button type="button" className={btnSm} onClick={() => setAct({ kind: "passkeys/revoke", reason: "", identity_checked: "" })}><AppIcon name="lock" />{L(`Remove passkeys (${a.passkeys})`, `Buang kunci laluan (${a.passkeys})`)}</button>}
                   {a.methods.google && <button type="button" className={btnSm} onClick={() => setAct({ kind: "google/unlink", reason: "", identity_checked: "" })}><AppIcon name="connection" />{L("Unlink Google", "Nyahpaut Google")}</button>}
                   <button type="button" className={btnSm} onClick={() => setAct({ kind: "signout-all", reason: "", identity_checked: "" })}><AppIcon name="offboard" />{L("Sign out everywhere", "Log keluar di semua tempat")}</button>
                   {a.is_active
@@ -303,14 +309,15 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
                 <fieldset className={css.form} disabled={busy}>
                   <p className={css.muted}>{act.kind === "reset-2fa" ? L("Clears their authenticator and backup codes and signs them out; they set 2FA up again at the next sign-in. Check who they are first.", "Mengosongkan pengesah dan kod sandaran mereka serta melog keluar; mereka menetapkan 2FA semula pada log masuk seterusnya. Semak identiti mereka dahulu.")
                     : act.kind === "password-link" ? (d.mail_ready ? L("Emails them a single-use link to choose their own password (24 hours). Nobody else sees it.", "Menghantar e-mel pautan sekali guna untuk memilih kata laluan sendiri (24 jam).") : L("Email sending is not set up: the single-use link is shown to you once, to hand over in person.", "Penghantaran e-mel belum disediakan: pautan sekali guna dipaparkan kepada anda sekali, untuk diserahkan secara bersemuka."))
+                    : act.kind === "passkeys/revoke" ? L("For a lost or stolen phone or laptop: every passkey on this account is removed (kept in the history) and every device a passkey signed in is signed out. Their password and authenticator keep working. Check who they are first.", "Untuk telefon atau komputer riba yang hilang atau dicuri: setiap kunci laluan pada akaun ini dibuang (disimpan dalam sejarah) dan setiap peranti yang dilog masuk dengan kunci laluan dilog keluar. Kata laluan dan pengesah mereka terus berfungsi. Semak identiti mereka dahulu.")
                     : act.kind === "google/unlink" ? L("Their next Google sign-in links the Google account they use then.", "Log masuk Google seterusnya memautkan akaun Google yang mereka gunakan ketika itu.")
                     : act.kind === "suspend" ? L("Stops sign-in at once and signs them out - the same switch as Deactivate in /admin. A payroll run lists active accounts only, so restore them before the run if they are still paid. Ending employment is Offboard on the Staff tab.", "Menghentikan log masuk serta-merta dan melog keluar - suis yang sama dengan Nyahaktif di /admin. Larian gaji hanya menyenaraikan akaun aktif, jadi pulihkan sebelum larian jika mereka masih dibayar. Menamatkan pekerjaan ialah Tamat Khidmat di tab Kakitangan.")
                     : act.kind === "restore" ? L("They can sign in again.", "Mereka boleh log masuk semula.") : L("Every device is signed out.", "Setiap peranti dilog keluar.")}</p>
-                  {act.kind === "reset-2fa" && <label>{L("Who checked their identity", "Siapa menyemak identiti mereka")}<input className={inputClassSm} maxLength={120} value={act.identity_checked} onChange={(e) => setAct({ ...act, identity_checked: e.target.value })} /></label>}
+                  {(act.kind === "reset-2fa" || act.kind === "passkeys/revoke") && <label>{L("Who checked their identity", "Siapa menyemak identiti mereka")}<input className={inputClassSm} maxLength={120} value={act.identity_checked} onChange={(e) => setAct({ ...act, identity_checked: e.target.value })} /></label>}
                   <label>{L("Reason (kept in the audit history)", "Sebab (disimpan dalam sejarah audit)")}<input className={inputClassSm} maxLength={300} value={act.reason} onChange={(e) => setAct({ ...act, reason: e.target.value })} /></label>
                   {error && <p role="alert" className={css.error}>{error}</p>}
                   <div className={css.row}>
-                    <button type="button" className={btnClass} disabled={(act.kind !== "signout-all" && act.reason.trim().length < 10) || (act.kind === "reset-2fa" && act.identity_checked.trim().length < 3)} onClick={() => void runAct()}>{L("Continue", "Teruskan")}</button>
+                    <button type="button" className={btnClass} disabled={(act.kind !== "signout-all" && act.reason.trim().length < 10) || ((act.kind === "reset-2fa" || act.kind === "passkeys/revoke") && act.identity_checked.trim().length < 3)} onClick={() => void runAct()}>{L("Continue", "Teruskan")}</button>
                     <button type="button" className={btnSm} onClick={() => { setAct(null); setError(""); }}>{L("Cancel", "Batal")}</button>
                   </div>
                 </fieldset>
@@ -322,7 +329,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
             <p className={css.label}>{L(`Devices signed in (${d.sessions.length})`, `Peranti yang log masuk (${d.sessions.length})`)}</p>
             {d.sessions.length === 0 ? <p className={css.muted}>{L("Not signed in anywhere.", "Tidak log masuk di mana-mana.")}</p> : (
               <ul className={css.list}>{d.sessions.map((x) => (
-                <li key={x.ref}><span className={css.main}><strong>{deviceLabel(x.user_agent)}</strong><span>{L("signed in", "log masuk")} {stamp(x.created_at)}{x.last_seen_at ? ` · ${L("last seen", "terakhir dilihat")} ${stamp(x.last_seen_at)}` : ""}</span></span>
+                <li key={x.ref}><span className={css.main}><strong>{deviceLabel(x.user_agent)}{x.passkey ? L(" · passkey", " · kunci laluan") : ""}</strong><span>{L("signed in", "log masuk")} {stamp(x.created_at)}{x.last_seen_at ? ` · ${L("last seen", "terakhir dilihat")} ${stamp(x.last_seen_at)}` : ""}</span></span>
                   {d.can.recovery && <button type="button" className={btnSm} disabled={busy} onClick={() => void signOutOne(x.ref)}>{L("Sign out", "Log keluar")}</button>}</li>
               ))}</ul>
             )}

@@ -2,8 +2,10 @@
 
 /**
  * v1.269.0 - PASSKEYS (Secure Authentication 2.0, Phase 2A). Profile ->
- * Security. Stage A: the company owner's account only, and only after the
- * owner switches passkeys on (Sign-in settings). Adding one needs a fresh
+ * Security. Stage A: the company owner's account only; v1.270.0 stage B: the
+ * owner + the pilots the owner names; stage C: every staff and agent account
+ * with two-factor on - each only after the owner switches it on (Sign-in
+ * settings). Adding one needs a fresh
  * authenticator code; the device then asks for Face ID, a fingerprint or its
  * PIN. Removing one needs a fresh code too, ends the devices it signed in,
  * and is kept in the history. The worker (worker/src/passkeys.ts) decides
@@ -11,7 +13,7 @@
  */
 
 import { api } from "@/lib/api";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { card, btnClass, btnGhost, btnSmQuiet, btnSmDanger, inputClass, chipSuccess, chipNeutral } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelHead, SkelText } from "@/components/ui/skeleton";
@@ -21,11 +23,13 @@ import pk from "./passkeys-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 type Passkey = { id: number; name: string; created_at: string; last_used_at: string | null; synced: boolean; transports: string[] };
-type State = { stage: "off" | "A"; can_add: boolean; eligible: boolean; limit: number; this_session: number | null; passkeys: Passkey[]; removed: { id: number; name: string; revoked_at: string; revoked_reason: string | null }[] };
+type State = { stage: "off" | "A" | "B" | "C"; can_add: boolean; in_stage?: boolean; eligible: boolean; limit: number; this_session: number | null; passkeys: Passkey[]; removed: { id: number; name: string; revoked_at: string; revoked_reason: string | null }[] };
 const dmy = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}` : "");
 const errOf = (r: { data: unknown }) => (r.data as { error?: { message?: string } } | null)?.error?.message ?? L("That did not work - try again.", "Itu tidak berjaya - cuba lagi.");
 
-export function PasskeysPanel() {
+/** `wrap` puts the card in its page section (Profile's TabZone) - so a person
+    the current stage does not cover, who has no passkey, sees no empty section. */
+export function PasskeysPanel({ wrap = (n: ReactNode) => n }: { wrap?: (n: ReactNode) => ReactNode } = {}) {
   const [s, setS] = useState<State | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [tick, setTick] = useState(0);
@@ -47,7 +51,7 @@ export function PasskeysPanel() {
   }, [tick]);
 
   if (!loaded) {
-    return (
+    return wrap(
       <div className={`${card} ${css.panel}`} aria-hidden>
         <div className={css.head}><SkelHead sub={false} /></div>
         <SkelText lines={2} />
@@ -100,11 +104,11 @@ export function PasskeysPanel() {
     </label>
   );
 
-  return (
+  return wrap(
     <section className={`${card} ${css.panel}`} aria-label={L("Passkeys", "Kunci laluan")}>
       <div className={css.head}>
         <p className={css.title}>{L("Passkeys", "Kunci laluan")}</p>
-        <span className={s.stage === "A" ? chipSuccess : chipNeutral}>{s.stage === "A" ? L("On - owner only", "Hidup - pemilik sahaja") : L("Switched off", "Dimatikan")}</span>
+        <span className={s.in_stage ? chipSuccess : chipNeutral}>{!s.in_stage ? (s.stage === "off" ? L("Switched off", "Dimatikan") : L("Not on for your account", "Tidak hidup untuk akaun anda")) : s.stage === "A" ? L("On - owner only", "Hidup - pemilik sahaja") : s.stage === "B" ? L("On - pilot", "Hidup - perintis") : L("On", "Hidup")}</span>
       </div>
       <p className={css.line}>{L(
         "Sign in with Face ID, a fingerprint or your device PIN instead of typing a password and code. Your password and authenticator keep working.",
@@ -147,7 +151,8 @@ export function PasskeysPanel() {
         </ul>
       )}
 
-      {s.stage !== "A" && s.eligible && <p className={css.line}>{L("Passkeys are built but switched off. Turn them on in Sign-in settings once the recovery panel is ready.", "Kunci laluan telah dibina tetapi dimatikan. Hidupkannya dalam Tetapan log masuk apabila panel pemulihan sedia.")}</p>}
+      {s.stage !== "off" && !s.in_stage && s.passkeys.length > 0 && <p className={css.line}>{L("Passkey sign-in is not on for your account at the moment - sign in with your password and authenticator code. Your passkeys are kept.", "Log masuk kunci laluan tidak hidup untuk akaun anda buat masa ini - log masuk dengan kata laluan dan kod pengesah. Kunci laluan anda disimpan.")}</p>}
+      {s.stage === "off" && s.eligible && <p className={css.line}>{L("Passkeys are built but switched off. Turn them on in Sign-in settings once the recovery panel is ready.", "Kunci laluan telah dibina tetapi dimatikan. Hidupkannya dalam Tetapan log masuk apabila panel pemulihan sedia.")}</p>}
       {s.can_add && !supported && <p className={css.line}>{L("This browser does not offer passkeys.", "Pelayar ini tidak menawarkan kunci laluan.")}</p>}
       {s.can_add && supported && removing === null && (
         <div className={css.row}>

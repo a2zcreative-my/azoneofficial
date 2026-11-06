@@ -10,7 +10,14 @@
  *              company owner turns stage A on (reason + fresh code), and stage
  *              A needs the executive recovery panel ready (two members)
  *   who        stage A = the company owner only (not the Super Admin, not a
- *              second CEO-role account, not the COO)
+ *              second CEO-role account, not the COO); v1.270.0 stage B = the
+ *              owner + named pilots (staff or agents, never a customer, at
+ *              most 10); stage C = every staff and agent account with
+ *              two-factor on; never a customer; a narrowed stage refuses the
+ *              passkeys it no longer covers and keeps them
+ *   admin      v1.270.0: the owner or the Super Admin removes a person's
+ *              passkeys (identity check, reason, code) - kept as history,
+ *              the passkey sessions end, the password session stays
  *   add        a fresh authenticator code first (a session alone cannot add
  *              one), bound to that session, five minutes, single use; origin,
  *              challenge, rpId, user presence AND verification all checked;
@@ -102,13 +109,16 @@ async function runtime(workerBundle) {
     GOOGLE_CLIENT_ID: "cid", GOOGLE_CLIENT_SECRET: "csecret",
     MEDIA: { put: async () => {}, head: async () => null, get: async () => null, list: async () => ({ objects: [] }) },
   };
-  /* invented people: 1 the CEO (company owner), 2 the Super Admin, 3 COO, 6 CCO, 12 a second CEO-role account */
+  /* invented people: 1 the CEO (company owner), 2 the Super Admin, 3 COO, 6 CCO, 12 a second CEO-role account;
+     v1.270.0: 20 an agent, 21 a customer (with an authenticator, to prove the role alone keeps them out) */
   db.exec(`INSERT INTO users (id, name, full_name, email, role, is_active, password_hash, totp_enabled, totp_secret) VALUES
     (1,'Owner','Owner Person','owner@a2z.test','ceo',1,'x',1,'${SECRET}'),
     (2,'Super Admin','Root Person','root@a2z.test','super_admin',1,'x',1,'${SECRET}'),
     (3,'Coo','Coo Person','coo@a2z.test','coo',1,'x',1,'${SECRET}'),
     (6,'Cco','Cco Person','cco@a2z.test','cco',1,'x',1,'${SECRET}'),
-    (12,'Second','Second Ceo','ceo2@a2z.test','ceo',1,'x',1,'${SECRET}')`);
+    (12,'Second','Second Ceo','ceo2@a2z.test','ceo',1,'x',1,'${SECRET}'),
+    (20,'Agent','Agent Person','agent@a2z.test','agent',1,'x',1,'${SECRET}'),
+    (21,'Cust','Customer Person','cust@a2z.test','customer',1,'x',1,'${SECRET}')`);
   const OWNER = `'{"user_id":1,"set_by":2,"set_by_name":"Super Admin","set_at":"2026-11-02 06:00:54","reason":"test"}'`;
   db.exec(`INSERT INTO system_meta (key, value) VALUES ('company_owner', ${OWNER})`);
   const RealDate = globalThis.Date; let fixed = new RealDate("2026-11-05T02:00:00Z").getTime();
@@ -122,7 +132,7 @@ async function runtime(workerBundle) {
     tok[key] = `t-${key}-${Math.random()}`;
     db.prepare(`INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, datetime('now', '+12 hours'), datetime('now'))`).run(sha(tok[key]), id);
   };
-  for (const id of [1, 2, 3, 6, 12]) signIn(id, id);
+  for (const id of [1, 2, 3, 6, 12, 20, 21]) signIn(id, id);
   signIn("1b", 1); // the owner on a second device
   const call = async (path, who, method = "GET", body, cookie = "") => {
     const sess = who ? `azone_session=${tok[who]}; csrf_token=c1` : "";
@@ -330,6 +340,62 @@ async function runtime(workerBundle) {
     ok(creds(1).filter((c) => !c.revoked_at).length === 4, "...the passkeys themselves are kept for when it is back on");
     ok((await stage(1, "A")).status === 200, "switched back on");
 
+    /* ---------- v1.270.0 - stage B (named pilots) and stage C (all staff and agents) ---------- */
+    ok((await stage(1, "B")).j?.error?.code === "pilot_required", "stage B needs at least one named pilot");
+    ok((await stage(1, "B", { pilot_user_ids: [21] })).j?.error?.code === "invalid_pilot", "a customer can never be a pilot");
+    ok((await stage(1, "B", { pilot_user_ids: [3, 3, 6, 2, 12, 20, 7, 8, 9, 10, 11] })).j?.error?.code === "invalid_input", "eleven pilots is too many");
+    ok((await stage(2, "B", { pilot_user_ids: [3] })).status === 403, "only the company owner names the pilots");
+    const sB = await stage(1, "B", { pilot_user_ids: [3] });
+    ok(sB.status === 200 && lastAudit("auth.settings_passkeys")?.d?.after?.pilot_user_ids?.join() === "3", "the owner switches stage B on with the COO as pilot, audited", sB.text);
+    resetLimits();
+    const COO = authenticator("ec");
+    ok((await add(3, COO, {}, "Coo phone")).v.status === 200 && creds(3).length === 1, "stage B: the pilot (COO) adds a passkey");
+    ok((await P("/register/options", 6, { totp: code() })).status === 403, "stage B: the CCO (not a pilot) cannot");
+    ok((await P("/register/options", 20, { totp: code() })).status === 403, "stage B: an agent (not a pilot) cannot");
+    const vC = (await login(COO)).v;
+    ok(vC.status === 200 && vC.j?.user?.id === 3, "stage B: the pilot signs in with the passkey", vC.text);
+    const sC = await stage(1, "C");
+    ok(sC.status === 200 && sC.j?.passkeys?.stage === "C" && sC.j.passkeys.pilot_user_ids.join() === "3", "the owner switches stage C on (the pilot list is kept)", sC.text);
+    resetLimits();
+    const CCO = authenticator("ec"), AG = authenticator("ec");
+    ok((await add(6, CCO, {}, "Cco phone")).v.status === 200, "stage C: the CCO adds a passkey");
+    ok((await add(20, AG, {}, "Agent phone")).v.status === 200, "stage C: an agent adds a passkey");
+    const vA = (await login(AG)).v;
+    tok.ag = (vA.setCookie.match(/azone_session=([^;]+)/) ?? [])[1];
+    ok(vA.status === 200 && vA.j?.user?.role === "agent" && (await call("/auth/me", "ag")).status === 200, "stage C: the agent signs in with it; an ordinary session", vA.text);
+    ok((await P("/register/options", 21, { totp: code() })).status === 403 && creds(21).length === 0, "stage C: a customer still cannot add one");
+    ok((await call("/auth/passkeys", 6)).j?.in_stage === true, "the CCO is told passkeys are on for them");
+    db.exec(`UPDATE users SET totp_enabled = 0 WHERE id = 3`);
+    resetLimits();
+    ok((await login(COO)).v.status === 401, "stage C: with two-factor switched off the COO's passkey is refused");
+    db.exec(`UPDATE users SET totp_enabled = 1 WHERE id = 3`);
+    const people = (await call("/staff/auth/settings", 1)).j?.passkey_people ?? [];
+    ok(people.find((x) => x.id === 3)?.passkeys === 1 && people.find((x) => x.id === 20)?.passkeys === 1 && !people.some((x) => x.id === 21) && !JSON.stringify(people).includes(COO.id), "the owner's settings list staff and agents with their passkey counts - no customer, no key", JSON.stringify(people).slice(0, 200));
+    ok((await call("/staff/auth/settings", 3)).status === 403, "...which the COO does not see");
+    ok((await stage(1, "A")).status === 200, "the owner narrows it back to stage A");
+    resetLimits();
+    ok((await login(AG)).v.status === 401 && creds(20).every((c) => !c.revoked_at), "stage A again: the agent's passkey is refused, and kept");
+    ok((await stage(1, "C")).status === 200, "stage C again");
+
+    /* ---------- an administrator removes a person's passkeys (lost or stolen device) ---------- */
+    resetLimits();
+    const t3 = ((await login(COO)).v.setCookie.match(/azone_session=([^;]+)/) ?? [])[1];
+    ok(db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE user_id = 3 AND auth_method = 'passkey'`).get().n >= 1, "the COO has a passkey session");
+    const sheet = await call("/staff/accounts/3", 2);
+    ok(sheet.j?.account?.passkeys === 1 && sheet.j.sessions.some((x) => x.passkey === true) && !sheet.text.includes(COO.id), "the account sheet shows the passkey count and which devices a passkey signed in", sheet.text.slice(0, 200));
+    const RV = (who, extra = {}) => call("/staff/accounts/3/passkeys/revoke", who, "POST", { reason: "COO reported the phone stolen", identity_checked: "Root Person by video call", totp: code(), ...extra });
+    ok((await RV(2, { identity_checked: "" })).j?.error?.code === "invalid_input", "removing someone's passkeys needs who checked their identity");
+    ok((await RV(2, { totp: undefined })).status === 401, "...and a fresh code");
+    ok((await RV(6)).status === 403, "the CCO cannot remove the COO's passkeys");
+    ok((await call("/staff/accounts/3/passkeys/revoke", 3, "POST", { reason: "COO reported the phone stolen", identity_checked: "self", totp: code() })).status >= 400, "nobody uses the admin door on their own account");
+    const rv = await RV(2);
+    ok(rv.status === 200 && rv.j?.passkeys_revoked === 1 && creds(3).every((c) => c.revoked_at && c.revoked_reason === "removed by an administrator"), "the Super Admin removes the COO's passkeys - kept as history", rv.text);
+    ok(!db.prepare(`SELECT 1 FROM sessions WHERE id = ?`).get(sha(t3)) && db.prepare(`SELECT 1 FROM sessions WHERE id = ?`).get(sha(tok[3])), "...the passkey sessions end, the password session stays");
+    ok(lastAudit("auth.passkeys_revoked_by_admin")?.entity_id === "3", "...audited");
+    resetLimits();
+    ok((await login(COO)).v.status === 401, "...and the removed passkey never signs in again");
+    ok(creds(6).length === 1 && creds(6).every((c) => !c.revoked_at), "...nobody else's passkeys changed");
+
     /* ---------- executive recovery revokes every passkey ---------- */
     db.exec(`INSERT INTO exec_recovery_requests (target_id, requested_by, reason, identity_checked, identity_method, status, approve_by, approved_by, approved_at, execute_after)
       VALUES (1, 3, 'lost phone', 'seen in person', 'in_person', 'approved', datetime('now', '+1 day'), 6, datetime('now', '-13 hours'), datetime('now', '-1 hour'))`);
@@ -381,9 +447,16 @@ const MUT = [
   [W, "no signature check", [['    if (!good) return { ok: false, reason: "signature" };', ""]]],
   [W, "no counter check", [["    if ((ad.signCount !== 0 || cred.sign_count !== 0) && ad.signCount <= cred.sign_count)", "    if (false)"]]],
   [W, "no user handle check", [['r.userHandle !== cred.user_handle) return', 'false) return']]],
-  [K, "the account not judged at sign-in", [["    const acct = await ownerAccount(env, row.user_id);", "    const acct = await env.DB.prepare(`SELECT id, email, name, role FROM users WHERE id = ?1`).bind(row.user_id).first();"]]],
+  [K, "the account not judged at sign-in", [["    const acct = await passkeyAccount(env, row.user_id, st);", "    const acct = await env.DB.prepare(`SELECT id, email, name, role FROM users WHERE id = ?1`).bind(row.user_id).first();"]]],
   [K, "no fresh code to add", [['    const su = await freshCode("add a passkey");\n    if (su) return su;\n', ""]]],
-  [K, "any staff member adds one", [['  const canAdd = st.stage === "A" && me.is_owner === true && me.role === "ceo";', '  const canAdd = st.stage === "A";'], ["    const acct = await ownerAccount(env, me.id);\n    if (!acct) return", "    const acct = await env.DB.prepare(`SELECT id, email, name, role FROM users WHERE id = ?1`).bind(me.id).first();\n    if (!acct) return"], ["    if (!canAdd || !(await ownerAccount(env, me.id))) return", "    if (!canAdd) return"]]],
+  [K, "any account adds one", [["  const canAdd = !!inStage;", "  const canAdd = st.stage !== \"off\";"], ["    const acct = await passkeyAccount(env, me.id, st);\n    if (!acct) return", "    const acct = await env.DB.prepare(`SELECT id, email, name, role FROM users WHERE id = ?1`).bind(me.id).first();\n    if (!acct) return"]]],
+  [K, "pilots ignored in stage B", [["  if (st.stage === \"B\" && st.pilot_user_ids.includes(row.id))", "  if (st.stage === \"B\")"]]],
+  [K, "a customer at stage C", [["    `SELECT id, email, name, role FROM users WHERE id = ?1 AND role != 'customer' AND COALESCE(totp_enabled, 0) = 1 AND ${STILL_OK}`,", "    `SELECT id, email, name, role FROM users WHERE id = ?1 AND COALESCE(totp_enabled, 0) = 1 AND ${STILL_OK}`,"]]],
+  [K, "a passkey without two-factor", [["    `SELECT id, email, name, role FROM users WHERE id = ?1 AND role != 'customer' AND COALESCE(totp_enabled, 0) = 1 AND ${STILL_OK}`,", "    `SELECT id, email, name, role FROM users WHERE id = ?1 AND role != 'customer' AND ${STILL_OK}`,"]]],
+  [K, "a customer as pilot", [["SELECT 1 FROM users WHERE id = ?1 AND role != 'customer' AND ${STILL_OK}", "SELECT 1 FROM users WHERE id = ?1 AND ${STILL_OK}"]]],
+  [K, "stage B without pilots", [['  if (stage === "B" && pilots.length === 0) return e("pilot_required"', '  if (false) return e("pilot_required"']]],
+  ["worker/src/staff.ts", "an administrator's passkey removal keeps the passkey sessions", [["        env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1 AND auth_method = 'passkey'`).bind(t.id),\n", ""]]],
+  ["worker/src/staff.ts", "an administrator removes passkeys without an identity check", [['    if (action === "/passkeys/revoke" && checked.length < 3) return err(', '    if (false) return err(']]],
   [K, "sign-in works while off", [['    if (st.stage === "off") return e("passkeys_off", "Passkey sign-in is not switched on.", 409);\n', ""], ['    if (st.stage === "off") return e("passkeys_off", "Passkey sign-in is not switched on.", 409, clearPk);\n', ""]]],
   [K, "adding not bound to the session", [["AND user_id = ?1 AND session_hash = ?2 AND used_at IS NULL", "AND user_id = ?1 AND ?2 IS NOT NULL AND used_at IS NULL"]]],
   [K, "sign-in not bound to the browser", [["WHERE purpose = 'login' AND binding_hash = ?1 AND used_at IS NULL", "WHERE purpose = 'login' AND ?1 IS NOT NULL AND used_at IS NULL"]]],
@@ -414,4 +487,4 @@ for (const [file, name, reps] of NOMUT ? [] : MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`go-live-z: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`go-live-z: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - owner only, switched off until the owner says, every answer verified, every session judged`);
+console.log(`go-live-z: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - switched off until the owner says, stage by stage (owner, pilots, all staff and agents, never customers), every answer verified, every session judged`);

@@ -9,11 +9,16 @@
    so the one account with a passkey always has a tested way back in.
 
    Stage A = the company owner's account ONLY (role ceo, named owner, active,
-   two-factor on - the same four conditions as is_owner). Nobody else can add
-   or use a passkey. No second identity store: a passkey is one more row
-   pointing at users.id, and every session it opens is an ordinary session.
+   two-factor on - the same four conditions as is_owner).
+   v1.270.0 (Phase 2B / 2C; the CEO, 06-11-2026: "Build staff passkeys now",
+   staff AND agents): stage B = the owner + the pilot staff the owner names
+   (up to 10); stage C = every active staff and agent account with two-factor
+   on. Customers never (stage D is not built). Each person adds their own -
+   nobody can add one for someone else. No second identity store: a passkey is
+   one more row pointing at users.id, and every session it opens is an
+   ordinary session.
 
-     POST /api/v1/auth/passkey/register/options   signed in, owner, stage A, fresh authenticator code
+     POST /api/v1/auth/passkey/register/options   signed in, inside the stage, fresh authenticator code
      POST /api/v1/auth/passkey/register/verify    the same session, within five minutes
      POST /api/v1/auth/passkey/login/options      public; the challenge is bound to this browser (HttpOnly cookie)
      POST /api/v1/auth/passkey/login/verify       public; the account is judged again before any session
@@ -24,17 +29,20 @@
 
    Never: a passkey added without a fresh code (a long-lived session alone
    cannot add one); a passkey that signs in a suspended, resigned or
-   terminated account, or one that is no longer the owner; a passkey added to
-   an existing account by itself. Verification is worker/src/webauthn.ts. */
+   terminated account, a customer, an account without two-factor, or one the
+   stage no longer covers; a passkey added to an existing account by itself. Verification is worker/src/webauthn.ts. */
 import type { Env } from "./index";
 import { requireFreshTotp, notify } from "./staff";
 import { audit } from "./shared";
 import { assertOne, clearAsserts } from "./accounts";
 import { activePanelCount } from "./recovery";
+import { mailReady, sendMail } from "./mail";
 import { b64u, verifyRegistration, verifyAssertion, ALGS } from "./webauthn";
 
-export type PasskeyStage = "off" | "A";
-export type PasskeySettings = { stage: PasskeyStage; updated_at: string | null; updated_by: string | null };
+export type PasskeyStage = "off" | "A" | "B" | "C";
+export type PasskeySettings = { stage: PasskeyStage; pilot_user_ids: number[]; updated_at: string | null; updated_by: string | null };
+const STAGES: readonly PasskeyStage[] = ["off", "A", "B", "C"];
+export const MAX_PILOTS = 10;
 type Me = { id: number; email: string; name: string; role: string; is_owner?: boolean };
 export interface PasskeyDeps {
   getSessionUser: (req: Request, env: Env) => Promise<Me | null>;
@@ -67,14 +75,16 @@ const e = (code: string, message: string, status: number, headers: HeadersInit =
 const clearPk = { "Set-Cookie": `${PK_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=${PK_PATH}; Max-Age=0` };
 const NOT_VERIFIED = "That passkey could not be used. Sign in with your password and authenticator code.";
 
-/** The setting, default OFF (no row, an unreadable row, anything but "A"). */
+/** The setting, default OFF (no row, an unreadable row, an unknown stage). */
 export async function passkeySettings(env: Env): Promise<PasskeySettings> {
   try {
     const r = await env.DB.prepare(`SELECT s.value, s.updated_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS who FROM business_settings s LEFT JOIN users u ON u.id = s.updated_by WHERE s.key = 'auth_passkeys'`)
       .first<{ value: string | null; updated_at: string | null; who: string | null }>();
     const v = r?.value ? JSON.parse(r.value) as Record<string, unknown> : {};
-    return { stage: v.stage === "A" ? "A" : "off", updated_at: r?.updated_at ?? null, updated_by: r?.who ?? null };
-  } catch { return { stage: "off", updated_at: null, updated_by: null }; }
+    const stage = (STAGES as readonly unknown[]).includes(v.stage) ? v.stage as PasskeyStage : "off";
+    const pilots = Array.isArray(v.pilot_user_ids) ? [...new Set((v.pilot_user_ids as unknown[]).filter((x): x is number => Number.isInteger(x) && (x as number) > 0))].slice(0, MAX_PILOTS) : [];
+    return { stage, pilot_user_ids: pilots, updated_at: r?.updated_at ?? null, updated_by: r?.who ?? null };
+  } catch { return { stage: "off", pilot_user_ids: [], updated_at: null, updated_by: null }; }
 }
 
 /** The relying party: the primary origin's host without www. (a2zcreative.my),
@@ -90,17 +100,29 @@ async function userHandle(env: Env, userId: number): Promise<string> {
   return b64u(d);
 }
 
-/** Stage A eligibility, read from the database (never from the request). */
-async function ownerAccount(env: Env, userId: number): Promise<{ id: number; email: string; name: string; role: string } | null> {
-  const row = await env.DB.prepare(
-    `SELECT id, email, name, role FROM users WHERE id = ?1 AND role = 'ceo' AND COALESCE(totp_enabled, 0) = 1 AND ${STILL_OK}`,
-  ).bind(userId).first<{ id: number; email: string; name: string; role: string }>();
-  if (!row) return null;
+async function companyOwnerId(env: Env): Promise<number | null> {
   try {
     const m = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'company_owner'`).first<{ value: string }>();
     const v = m?.value ? JSON.parse(m.value) as { user_id?: unknown } : null;
-    return Number(v?.user_id) === row.id ? row : null;
+    const n = Number(v?.user_id);
+    return Number.isInteger(n) && n > 0 ? n : null;
   } catch { return null; }
+}
+/** Who may add and use a passkey at this stage - read from the database
+    (never from the request), every time: an active staff or agent account
+    (never a customer), not resigned or terminated, two-factor ON, and inside
+    the stage (A: the company owner; B: the owner or a named pilot; C: all). */
+export async function passkeyAccount(env: Env, userId: number, st: PasskeySettings): Promise<{ id: number; email: string; name: string; role: string; is_owner: boolean } | null> {
+  if (st.stage === "off") return null;
+  const row = await env.DB.prepare(
+    `SELECT id, email, name, role FROM users WHERE id = ?1 AND role != 'customer' AND COALESCE(totp_enabled, 0) = 1 AND ${STILL_OK}`,
+  ).bind(userId).first<{ id: number; email: string; name: string; role: string }>();
+  if (!row) return null;
+  const isOwner = row.role === "ceo" && (await companyOwnerId(env)) === row.id;
+  if (st.stage === "C") return { ...row, is_owner: isOwner };
+  if (isOwner) return { ...row, is_owner: true };
+  if (st.stage === "B" && st.pilot_user_ids.includes(row.id)) return { ...row, is_owner: false };
+  return null;
 }
 
 async function tableReady(env: Env): Promise<boolean> {
@@ -163,7 +185,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
     ).bind(cred.id).first<Cred>();
     if (!row) return fail("unknown_credential", null);
     /* the account is judged here, by the database, every time */
-    const acct = await ownerAccount(env, row.user_id);
+    const acct = await passkeyAccount(env, row.user_id, st);
     if (!acct) return fail("not_eligible", row.user_id);
     const v = await verifyAssertion(cred as Parameters<typeof verifyAssertion>[0],
       { ...row, user_handle: await userHandle(env, row.user_id) }, { challenge: ch.challenge, origins: rp.origins, rpId: rp.rpId });
@@ -197,7 +219,8 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
   const me = await d.getSessionUser(request, env);
   if (!me) return e("unauthorized", "Sign in required", 401);
   const sessHash = await d.sha256Hex(d.getCookie(request, d.sessionCookie) ?? "");
-  const canAdd = st.stage === "A" && me.is_owner === true && me.role === "ceo";
+  const inStage = await passkeyAccount(env, me.id, st);
+  const canAdd = !!inStage;
   const activeCount = async () => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM webauthn_credentials WHERE user_id = ?1 AND revoked_at IS NULL`).bind(me.id).first<{ n: number }>())?.n ?? 0;
   const freshCode = async (what: string) => {
     const t = await env.DB.prepare(`SELECT COALESCE(totp_enabled, 0) AS t FROM users WHERE id = ?1`).bind(me.id).first<{ t: number }>();
@@ -215,7 +238,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
     let current: number | null = null;
     try { current = (await env.DB.prepare(`SELECT auth_credential_id AS c FROM sessions WHERE id = ?1`).bind(sessHash).first<{ c: number | null }>())?.c ?? null; } catch { current = null; }
     return j({
-      stage: st.stage, can_add: canAdd && active.length < MAX_PASSKEYS, eligible: me.is_owner === true, limit: MAX_PASSKEYS, this_session: current,
+      stage: st.stage, can_add: canAdd && active.length < MAX_PASSKEYS, in_stage: canAdd, eligible: canAdd || me.is_owner === true, limit: MAX_PASSKEYS, this_session: current,
       passkeys: active.map((p) => ({ id: p.id, name: p.name, created_at: p.created_at, last_used_at: p.last_used_at, synced: p.backup_eligible === 1, transports: p.transports ? p.transports.split(",") : [] })),
       removed,
     });
@@ -223,13 +246,13 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
 
   if (path === `${PK_PATH}/register/options` && method === "POST") {
     if (st.stage === "off") return e("passkeys_off", "Passkeys are not switched on.", 409);
-    if (!canAdd) return e("forbidden", "Passkeys are available only for the company owner's account for now.", 403);
+    if (!canAdd) return e("forbidden", "Passkeys are not available for your account at this stage.", 403);
     if (!(await d.checkRateLimit(env, `pkreg:${me.id}`, 10, 3600))) return e("rate_limited", "Too many attempts - try again in an hour", 429);
     if (await activeCount() >= MAX_PASSKEYS) return e("limit_reached", `You already have ${MAX_PASSKEYS} passkeys - remove one first.`, 409);
     const su = await freshCode("add a passkey");
     if (su) return su;
-    const acct = await ownerAccount(env, me.id);
-    if (!acct) return e("forbidden", "Passkeys are available only for the company owner's account for now.", 403);
+    const acct = await passkeyAccount(env, me.id, st);
+    if (!acct) return e("forbidden", "Passkeys are not available for your account at this stage.", 403);
     const challenge = b64u(crypto.getRandomValues(new Uint8Array(32)));
     await env.DB.batch([
       env.DB.prepare(`UPDATE webauthn_challenges SET used_at = datetime('now') WHERE purpose = 'register' AND user_id = ?1 AND used_at IS NULL`).bind(me.id),
@@ -249,7 +272,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
 
   if (path === `${PK_PATH}/register/verify` && method === "POST") {
     if (st.stage === "off") return e("passkeys_off", "Passkeys are not switched on.", 409);
-    if (!canAdd || !(await ownerAccount(env, me.id))) return e("forbidden", "Passkeys are available only for the company owner's account for now.", 403);
+    if (!canAdd) return e("forbidden", "Passkeys are not available for your account at this stage.", 403);
     const ch = await env.DB.prepare(
       `SELECT id, challenge FROM webauthn_challenges WHERE purpose = 'register' AND user_id = ?1 AND session_hash = ?2 AND used_at IS NULL AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1`,
     ).bind(me.id, sessHash).first<{ id: string; challenge: string }>();
@@ -278,7 +301,10 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
     }
     const id = (await env.DB.prepare(`SELECT id FROM webauthn_credentials WHERE credential_id = ?1`).bind(v.credentialId).first<{ id: number }>())?.id;
     await audit(env, me.id, "auth.passkey_added", "webauthn_credentials", String(id), { name, synced: v.backupEligible, alg: v.alg });
-    try { await notify(env, me.id, "security", `A passkey "${name}" was added to your account. If this was not you, remove it in Profile -> Security and tell the COO.`, `passkey_added:${id}`); } catch { /* a notice never decides */ }
+    const tellWho = inStage?.is_owner ? "the COO" : "the CEO";
+    const notice = `A passkey "${name}" was added to your A2Z OS account. If this was not you, remove it in Profile -> Security and tell ${tellWho} at once.`;
+    try { await notify(env, me.id, "security", notice, `passkey_added:${id}`); } catch { /* a notice never decides */ }
+    if (mailReady(env)) { try { await sendMail(env, { to: me.email, subject: "A2Z OS: a passkey was added to your account", text: notice }); } catch { /* a notice never decides */ } }
     return j({ ok: true, id, name });
   }
 
@@ -316,27 +342,53 @@ export async function handlePasskeys(request: Request, env: Env, path: string, m
   return e("not_found", "Not found", 404);
 }
 
-/** PUT /staff/auth/settings/passkeys - the company owner alone, a reason and a fresh code. */
+/** PUT /staff/auth/settings/passkeys - the company owner alone, a reason and a fresh code.
+    body: { stage: off | A | B | C, pilot_user_ids?: number[] (stage B: 1 to 10 staff or agents), reason, totp } */
 export async function setPasskeyStage(env: Env, user: Me, body: Record<string, unknown> | null): Promise<Response> {
   if (user.role !== "ceo" || user.is_owner !== true) return e("forbidden", "Only the company owner changes how people sign in", 403);
   const stage = body?.stage;
-  if (stage !== "off" && stage !== "A") return e("invalid_input", "stage is \"off\" or \"A\"", 400);
+  if (!(STAGES as readonly unknown[]).includes(stage)) return e("invalid_input", "stage is \"off\", \"A\", \"B\" or \"C\"", 400);
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   if (reason.length < 5 || reason.length > 300) return e("invalid_input", "Give a reason (5 to 300 characters)", 400);
   if (!(await tableReady(env))) return e("migration_missing", "Run migration 0178 first (PUSH.bat).", 503);
+  const before = await passkeySettings(env);
+  /* the pilot list: named for stage B, kept as it was otherwise */
+  let pilots = before.pilot_user_ids;
+  if (body && "pilot_user_ids" in body) {
+    const raw = body.pilot_user_ids;
+    if (!Array.isArray(raw) || raw.length > MAX_PILOTS || !raw.every((x) => Number.isInteger(x) && x > 0)) return e("invalid_input", `pilot_user_ids is a list of up to ${MAX_PILOTS} account ids`, 400);
+    pilots = [...new Set(raw as number[])];
+    for (const id of pilots) {
+      const ok = await env.DB.prepare(`SELECT 1 FROM users WHERE id = ?1 AND role != 'customer' AND ${STILL_OK}`).bind(id).first();
+      if (!ok) return e("invalid_pilot", `Account ${id} cannot be a passkey pilot: only active staff and agents.`, 400);
+    }
+  }
+  if (stage === "B" && pilots.length === 0) return e("pilot_required", "Name at least one pilot for stage B.", 400);
   const t = await env.DB.prepare(`SELECT COALESCE(totp_enabled, 0) AS t FROM users WHERE id = ?1`).bind(user.id).first<{ t: number }>();
   if (!t?.t) return e("twofa_required", "Two-factor must be on for this.", 403);
   const stepUp = await requireFreshTotp(env, user, body?.totp, e, "change how people sign in");
   if (stepUp) return stepUp;
-  const before = await passkeySettings(env);
   /* Phase R first: passkeys only while the executive recovery panel can act */
-  if (stage === "A" && before.stage !== "A") {
+  if (stage !== "off" && before.stage === "off") {
     const n = await activePanelCount(env);
     if (n < 2) return e("recovery_panel_not_ready", `Passkeys need the executive recovery panel ready first: two members who can act (now ${n}).`, 409);
   }
+  const after = { stage, pilot_user_ids: pilots };
   await env.DB.prepare(`INSERT INTO business_settings (key, value, updated_by, updated_at) VALUES ('auth_passkeys', ?1, ?2, datetime('now'))
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-    .bind(JSON.stringify({ stage }), user.id).run();
-  await audit(env, user.id, "auth.settings_passkeys", "business_settings", "auth_passkeys", { before: { stage: before.stage }, after: { stage }, reason });
+    .bind(JSON.stringify(after), user.id).run();
+  await audit(env, user.id, "auth.settings_passkeys", "business_settings", "auth_passkeys", { before: { stage: before.stage, pilot_user_ids: before.pilot_user_ids }, after, reason });
   return j({ ok: true, passkeys: await passkeySettings(env) });
+}
+
+/** Sign-in settings (CEO, Super Admin): who could use passkeys, and who has one -
+    names, roles and counts only, never a key. */
+export async function passkeyRoster(env: Env): Promise<{ id: number; name: string; role: string; two_factor: boolean; passkeys: number }[]> {
+  if (!(await tableReady(env))) return [];
+  return (await env.DB.prepare(
+    `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, COALESCE(u.totp_enabled, 0) AS two_factor,
+            (SELECT COUNT(*) FROM webauthn_credentials w WHERE w.user_id = u.id AND w.revoked_at IS NULL) AS passkeys
+     FROM users u WHERE u.role != 'customer' AND u.is_active = 1 AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated') ORDER BY u.id`,
+  ).all<{ id: number; name: string; role: string; two_factor: number; passkeys: number }>()).results
+    .map((r) => ({ id: r.id, name: r.name, role: r.role, two_factor: r.two_factor === 1, passkeys: Number(r.passkeys) }));
 }

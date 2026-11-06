@@ -187,8 +187,11 @@ const server = http.createServer((req, res) => {
         const b = jb();
         const ch = () => { const c = Buffer.from(`fixture-challenge-${++pk.n}-0123456789abcdef`).toString("base64url"); pk.issued.push({ path: p, challenge: c }); return c; };
         if (req.method === "GET" && p === "/auth/passkeys") {
-          const on = !!process.env.PASSKEYS, owner = !!process.env.OWNER && (process.env.ROLE ?? "ceo") === "ceo";
-          return send(200, { stage: on ? "A" : "off", can_add: on && owner && pk.creds.length < 5, eligible: owner, limit: 5, this_session: null, passkeys: pk.creds, removed: [] });
+          /* PASSKEYS=1 stage A (owner), =B (owner + PILOT=1), =C (every staff and agent role) */
+          const st = !process.env.PASSKEYS ? "off" : ["B", "C"].includes(process.env.PASSKEYS) ? process.env.PASSKEYS : "A";
+          const role = process.env.ROLE ?? "ceo", owner = !!process.env.OWNER && role === "ceo";
+          const inStage = st === "C" ? role !== "customer" : st === "B" ? owner || !!process.env.PILOT : st === "A" ? owner : false;
+          return send(200, { stage: st, can_add: inStage && pk.creds.length < 5, in_stage: inStage, eligible: inStage || owner, limit: 5, this_session: null, passkeys: pk.creds, removed: [] });
         }
         if (req.method !== "POST") return send(404, { error: { code: "not_found", message: "Not found" } });
         pk.posts.push({ path: p, body: b });

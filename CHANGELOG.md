@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.270.0] - 2026-11-06 - Secure Authentication 2.0, Phases 2B / 2C (passkeys for staff and agents) - BUILT, STAGE UNCHANGED
+
+The CEO, 06-11-2026: "Build staff passkeys now" (stage C covers staff AND agents). Nothing changes for anyone until the owner chooses stage B or C in Sign-in settings; whatever stage is saved today (off or A) stays. No migration; no account, role, permission, payroll or finance record changes; password, Google and TOTP sign-in exactly as they were.
+
+- worker/src/passkeys.ts: business_settings.auth_passkeys gains stages B and C and pilot_user_ids. One rule, read from the database on every add and every sign-in (passkeyAccount): an active staff or agent account (never a customer), not resigned or terminated, two-factor ON, and inside the stage - A the company owner; B the owner or a named pilot (1 to 10 staff or agents); C every staff and agent account. A narrowed stage refuses the passkeys it no longer covers and keeps them.
+- PUT /staff/auth/settings/passkeys: stage off | A | B | C and the pilot list; still the company owner only with a reason and a fresh code, audited before and after; any stage needs the executive recovery panel ready when it is switched on from off. GET /staff/auth/settings adds passkey_people (staff and agents: name, role, two-factor, passkey count - never a key).
+- POST /staff/accounts/:id/passkeys/revoke (rev 3 sec. 6.3 rows 1, 2, 6): the owner or the Super Admin (the same account door as Reset 2FA - CEO and Super Admin accounts by the Super Admin only, never your own), who checked the identity, a reason, a fresh code: every passkey of the account revoked (kept as history) and every session a passkey opened ended; password and authenticator untouched; audited (auth.passkeys_revoked_by_admin), the person told.
+- The account sheet: a Passkey (n) sign-in chip, "Remove passkeys", the devices a passkey signed in marked, the passkey audit lines named.
+- A passkey added notifies the person (and emails them once email sending is set up); the owner is told to warn the COO, everyone else the CEO.
+- UI: the Passkeys card in Profile -> Security for every staff and agent account the stage covers (no empty section for anyone it does not); the owner's Sign-in settings choose Off / A / B / C and, for B, the pilots.
+- Tests: tests/go-live-z.mjs 129 checks, 31 mutations; tests/browser/auth-2a.py 35/35.
+
 ## [1.269.0] - 2026-11-05 - Secure Authentication 2.0, Phase 2A (passkeys for the company owner) - BUILT SWITCHED OFF
 
 claude/AUTH-2.0-AUDIT.md revision 3 sec. 4, 9, 10 and the CEO's choice "Build 2A now, enable later" (05-11-2026: an exception to Phase R rule 9 - built now, switched on only after Phase R passes its staging security tests and the CEO approves). Nothing changes for anyone until the owner switches stage A on. No account, role, permission, payroll or finance record changes; no second identity store; password, Google and TOTP sign-in exactly as they were.

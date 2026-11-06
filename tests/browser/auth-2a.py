@@ -11,7 +11,11 @@ security key) - that stays open until done by hand.
     needs the authenticator code; the device makes the passkey; it is listed;
     Remove asks for a code first; the owner's Sign-in settings show the stage
   - the login page: "Continue with passkey" signs in (twice: the counter moves)
-  - stage off: no passkey button; an editor sees no Passkeys card
+  - stage off: no passkey button; at stage A an editor sees no Passkeys card
+  - v1.270.0: at stage C an editor and an agent each see the card and can add
+    one; the owner's Sign-in settings choose the stage (off / A / B / C) and,
+    for B, the pilots; the account sheet removes a person's passkeys (identity
+    check + reason) and marks the devices a passkey signed in
   - what the browser posted verifies in the worker's verifier; the same answer
     for another origin or another challenge does not
 Nothing is wider than the screen at 390 / 320 px.
@@ -20,6 +24,8 @@ Nothing is wider than the screen at 390 / 320 px.
     ROLE=ceo PASSKEYS=1 LOGIN_FIRST=1 node tests/browser/serve.mjs out 4253
     ROLE=ceo LOGIN_FIRST=1 node tests/browser/serve.mjs out 4254
     ROLE=editor PASSKEYS=1 node tests/browser/serve.mjs out 4255
+    ROLE=editor PASSKEYS=C node tests/browser/serve.mjs out 4256
+    ROLE=agent PASSKEYS=C node tests/browser/serve.mjs out 4257
     python3 tests/browser/auth-2a.py
 """
 from playwright.sync_api import sync_playwright
@@ -29,7 +35,7 @@ results = []
 def check(name, cond, detail=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{str(detail)[:300]}]"))
-OWNER, LOGIN, OFF, ED = 4252, 4253, 4254, 4255
+OWNER, LOGIN, OFF, ED, EDC, AGC = 4252, 4253, 4254, 4255, 4256, 4257
 FITS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def fx(port, path): return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}{path}").read())
@@ -37,6 +43,8 @@ def fx(port, path): return json.loads(urllib.request.urlopen(f"http://127.0.0.1:
 def security(pg, port):
     pg.goto(f"http://localhost:{port}/portal?tab=Profile"); pg.wait_for_timeout(2800)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
+    if pg.get_by_role("tab", name="Security & Account").count() == 0 and pg.get_by_role("button", name="Security & Account").count() == 0:
+        pg.get_by_role("button", name="Profile").first.click(); pg.wait_for_timeout(1500)  # an agent reaches Profile from their menu
     t = pg.get_by_role("tab", name="Security & Account")
     (t if t.count() else pg.get_by_role("button", name="Security & Account")).first.click(); pg.wait_for_timeout(900)
 def card(pg): return pg.locator("section[aria-label='Passkeys']")
@@ -74,7 +82,7 @@ with sync_playwright() as p:
     check("Remove asks for the code first (button off until then) and says what it does", c.get_by_role("button", name="Remove passkey").is_disabled() and "signs out every device it signed in" in c.inner_text())
     c.get_by_role("button", name="Keep it").click(); pg.wait_for_timeout(200)
     s = pg.locator("section[aria-label='Sign-in settings']"); stx = s.inner_text() if s.count() else ""
-    check("the owner's Sign-in settings show the passkey stage and the off switch", "Stage A - owner only" in stx and s.get_by_role("button", name="Switch passkeys off").count() == 1, stx[-400:])
+    check("the owner's Sign-in settings show the passkey stage and every stage to choose (off, A, B, C)", "Stage A - company owner only" in stx and all(s.get_by_label(x).count() == 1 for x in ("Off", "A - company owner only", "B - owner and named pilots", "C - all staff and agents")), stx[-400:])
     check("no page error (owner)", not errs, errs)
 
     # ---- the login page, same browser and authenticator ----
@@ -121,7 +129,62 @@ with sync_playwright() as p:
     # ---- an editor ----
     ctx = b.new_context(viewport={"width": 1440, "height": 1000}); pg = ctx.new_page()
     security(pg, ED)
-    check("an editor sees no Passkeys card", card(pg).count() == 0)
+    check("an editor sees no Passkeys card at stage A (and no empty section)", card(pg).count() == 0 and pg.get_by_text("Passkeys", exact=True).count() == 0)
+    ctx.close()
+
+    # ---- v1.270.0 stage C: an editor and an agent ----
+    for port, who in ((EDC, "an editor"), (AGC, "an agent")):
+        ctx = b.new_context(viewport={"width": 1440, "height": 1000}); pg = ctx.new_page(); errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        cdp = ctx.new_cdp_session(pg); cdp.send("WebAuthn.enable")
+        cdp.send("WebAuthn.addVirtualAuthenticator", {"options": {"protocol": "ctap2", "transport": "internal", "hasResidentKey": True, "hasUserVerification": True, "isUserVerified": True, "automaticPresenceSimulation": True}})
+        fx(port, "/__reset"); security(pg, port)
+        c = card(pg); t = c.inner_text() if c.count() else ""
+        check(f"stage C: {who} sees the Passkeys card, on", c.count() == 1 and "On" in t, t[:200])
+        if c.count():
+            c.get_by_label("Authenticator code").fill("123456"); pg.wait_for_timeout(150)
+            c.get_by_role("button", name="Add a passkey").click(); pg.wait_for_timeout(2000)
+            check(f"...and {who} adds their own passkey", "added." in c.inner_text(), c.inner_text()[:200])
+        check(f"no page error ({who})", not errs, errs)
+        ctx.close()
+
+    # ---- v1.270.0 the owner chooses the stage and the pilots ----
+    ctx = b.new_context(viewport={"width": 1440, "height": 1000}); pg = ctx.new_page(); reqs = []
+    pg.on("request", lambda r: reqs.append((r.method, r.url, r.post_data)))
+    security(pg, OWNER)
+    s = pg.locator("section[aria-label='Sign-in settings']")
+    s.get_by_label("B - owner and named pilots").check(); pg.wait_for_timeout(200)
+    grp = s.get_by_role("group", name="Pilots"); gt = grp.inner_text() if grp.count() else ""
+    check("choosing stage B lists the staff and agents to pick as pilots, with who lacks two-factor", "Hakim Rosli" in gt and "Siti Ejen" in gt and "no two-factor yet" in gt, gt[:300])
+    save = s.get_by_role("button", name="Save passkey stage")
+    check("...Save waits for a pilot, the reason and the code", save.is_disabled())
+    grp.get_by_label("Hakim Rosli", exact=False).check()
+    s.get_by_label("Reason (kept in the audit history)").fill("Passkey pilot with the COO")
+    s.get_by_label("Authenticator code").fill("123456"); pg.wait_for_timeout(150)
+    save.click(); pg.wait_for_timeout(900)
+    put = [json.loads(x[2] or "{}") for x in reqs if x[0] == "PUT" and x[1].endswith("/staff/auth/settings/passkeys")]
+    check("...and sends the stage, the pilots, the reason and the code", put and put[-1] == {"stage": "B", "pilot_user_ids": [9003], "reason": "Passkey pilot with the COO", "totp": "123456"}, put)
+    ctx.close()
+
+    # ---- v1.270.0 the account sheet: a lost phone ----
+    ctx = b.new_context(viewport={"width": 1440, "height": 1000}); pg = ctx.new_page(); reqs = []
+    pg.on("request", lambda r: reqs.append((r.method, r.url, r.post_data)))
+    pg.goto(f"http://localhost:{OWNER}/portal?tab=Users"); pg.wait_for_timeout(2600)
+    pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
+    st_tab = pg.get_by_role("tab", name="Staff Accounts", exact=True)
+    if st_tab.count(): st_tab.first.click(); pg.wait_for_timeout(1200)
+    pg.get_by_test_id("manage-9002").click(); pg.wait_for_timeout(1200)
+    sheet = pg.locator("[role=dialog]").filter(has=pg.get_by_test_id("sheet-role")).first
+    st_txt = sheet.inner_text() if sheet.count() else ""
+    check("the account sheet shows the passkeys and which device a passkey signed in", "Passkey (2)" in st_txt and "· passkey" in st_txt, st_txt[:400])
+    sheet.get_by_role("button", name="Remove passkeys (2)").click(); pg.wait_for_timeout(300)
+    go = sheet.get_by_role("button", name="Continue")
+    check("removing them asks who checked the identity and why (Continue off until both)", go.is_disabled() and "lost or stolen" in sheet.inner_text())
+    sheet.get_by_label("Who checked their identity").fill("Fixture Person, video call")
+    sheet.get_by_label("Reason (kept in the audit history)").fill("Phone stolen on the way home")
+    go.click(); pg.wait_for_timeout(1200)
+    rv = [json.loads(x[2] or "{}") for x in reqs if x[0] == "POST" and x[1].endswith("/staff/accounts/9002/passkeys/revoke")]
+    check("...and sends them to the account's passkey door", rv and rv[-1].get("identity_checked") == "Fixture Person, video call" and rv[-1].get("reason") == "Phone stolen on the way home", rv)
     ctx.close()
 
     # ---- phone widths, both themes ----

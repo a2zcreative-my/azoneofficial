@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import { card, btnClass, btnGhost, inputClass, chipSuccess, chipNeutral, chipWarn } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelHead, SkelText } from "@/components/ui/skeleton";
+import { roleLabel } from "@/components/portal/users-shared";
 import css from "./google-connect-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -26,10 +27,18 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 type Settings = {
   google: { enabled: boolean; customer_signup: boolean; legacy_link_until: string | null; updated_at?: string | null; updated_by?: string | null };
   legacy: { remaining: number; told: number; window_open: boolean; legacy_link_until: string | null };
-  passkeys?: { stage: "off" | "A"; updated_at: string | null; updated_by: string | null };
+  passkeys?: { stage: PkStage; pilot_user_ids?: number[]; updated_at: string | null; updated_by: string | null };
+  passkey_people?: { id: number; name: string; role: string; two_factor: boolean; passkeys: number }[];
   can_set: boolean;
 };
 type Notice = { remaining: number; not_yet_told: number; window_open: boolean; subject: string; text: string; can_send: boolean };
+type PkStage = "off" | "A" | "B" | "C";
+const PK_STAGES: { v: PkStage; en: string; ms: string }[] = [
+  { v: "off", en: "Off", ms: "Mati" },
+  { v: "A", en: "A - company owner only", ms: "A - pemilik syarikat sahaja" },
+  { v: "B", en: "B - owner and named pilots", ms: "B - pemilik dan perintis yang dinamakan" },
+  { v: "C", en: "C - all staff and agents", ms: "C - semua kakitangan dan ejen" },
+];
 const dmy = (d: string | null) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}-${d.slice(5, 7)}-${d.slice(0, 4)}` : "");
 
 export function SignInSettingsPanel() {
@@ -44,6 +53,8 @@ export function SignInSettingsPanel() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [sending, setSending] = useState(false);
   const [pkBusy, setPkBusy] = useState(false);
+  /* v1.270.0 - the stage and pilots being chosen (null: as saved) */
+  const [pkDraft, setPkDraft] = useState<{ stage: PkStage; pilots: number[] } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -92,14 +103,25 @@ export function SignInSettingsPanel() {
     else setMsg({ tone: "bad", text: err(r) });
   };
   const proofOk = reason.trim().length >= 5 && /^\d{6}$/.test(totp);
-  /* v1.269.0 - Phase 2A: the passkey stage, its own save (PUT /staff/auth/settings/passkeys) */
-  const pkStage = s.passkeys?.stage ?? "off";
-  const setStage = async (stage: "off" | "A") => {
+  /* v1.269.0 - Phase 2A: the passkey stage, its own save (PUT /staff/auth/settings/passkeys);
+     v1.270.0 - stages B (named pilots) and C (all staff and agents) */
+  const pkStage: PkStage = s.passkeys?.stage ?? "off";
+  const pkSaved = { stage: pkStage, pilots: s.passkeys?.pilot_user_ids ?? [] };
+  const pk = pkDraft ?? pkSaved;
+  const people = s.passkey_people ?? [];
+  const pkChanged = pk.stage !== pkSaved.stage || pk.pilots.join() !== pkSaved.pilots.join();
+  const saveStage = async () => {
     setPkBusy(true); setMsg(null);
-    const r = await api("/staff/auth/settings/passkeys", { method: "PUT", body: JSON.stringify({ stage, reason, totp }) });
+    const r = await api("/staff/auth/settings/passkeys", { method: "PUT", body: JSON.stringify({ stage: pk.stage, pilot_user_ids: pk.pilots, reason, totp }) });
     setPkBusy(false); setTotp("");
-    if (r.ok) { setReason(""); setMsg({ tone: "good", text: stage === "A" ? L("Passkeys switched on for the company owner.", "Kunci laluan dihidupkan untuk pemilik syarikat.") : L("Passkeys switched off.", "Kunci laluan dimatikan.") }); setTick((t) => t + 1); }
-    else setMsg({ tone: "bad", text: err(r) });
+    if (r.ok) {
+      setReason(""); setPkDraft(null);
+      const words: Record<PkStage, [string, string]> = {
+        off: ["Passkeys switched off.", "Kunci laluan dimatikan."], A: ["Passkeys on for the company owner.", "Kunci laluan hidup untuk pemilik syarikat."],
+        B: ["Passkeys on for the owner and the pilots.", "Kunci laluan hidup untuk pemilik dan perintis."], C: ["Passkeys on for all staff and agents.", "Kunci laluan hidup untuk semua kakitangan dan ejen."],
+      };
+      setMsg({ tone: "good", text: L(...words[pk.stage]) }); setTick((t) => t + 1);
+    } else setMsg({ tone: "bad", text: err(r) });
   };
 
   return (
@@ -148,17 +170,35 @@ export function SignInSettingsPanel() {
 
       <div className={css.head}>
         <p className={css.title}>{L("Passkeys", "Kunci laluan")}</p>
-        <span className={pkStage === "A" ? chipSuccess : chipNeutral}>{pkStage === "A" ? L("Stage A - owner only", "Peringkat A - pemilik sahaja") : L("Off", "Mati")}</span>
+        <span className={pkStage !== "off" ? chipSuccess : chipNeutral}>{L(`Stage ${PK_STAGES.find((x) => x.v === pkStage)!.en}`, `Peringkat ${PK_STAGES.find((x) => x.v === pkStage)!.ms}`)}</span>
+        <span className={chipNeutral}>{L(`${people.filter((p) => p.passkeys > 0).length} of ${people.length} with a passkey`, `${people.filter((p) => p.passkeys > 0).length} daripada ${people.length} ada kunci laluan`)}</span>
       </div>
       <p className={css.line}>{L(
-        "Stage A lets only the company owner add and use a passkey. It can be switched on only while the executive recovery panel has two members who can act. Switching it off stops every passkey sign-in at once; password and authenticator keep working.",
-        "Peringkat A membenarkan hanya pemilik syarikat menambah dan menggunakan kunci laluan. Ia hanya boleh dihidupkan semasa panel pemulihan eksekutif mempunyai dua ahli yang boleh bertindak. Mematikannya menghentikan setiap log masuk kunci laluan serta-merta; kata laluan dan pengesah terus berfungsi.",
+        "Each person adds their own passkey in Profile -> Security - with two-factor on, and their authenticator code. Customers are never included. Passkeys can be switched on only while the executive recovery panel has two members who can act. Off stops every passkey sign-in at once; password and authenticator keep working and passkeys are kept.",
+        "Setiap orang menambah kunci laluan sendiri dalam Profil -> Keselamatan - dengan dua faktor hidup dan kod pengesah mereka. Pelanggan tidak pernah termasuk. Kunci laluan hanya boleh dihidupkan semasa panel pemulihan eksekutif mempunyai dua ahli yang boleh bertindak. Mati menghentikan setiap log masuk kunci laluan serta-merta; kata laluan dan pengesah terus berfungsi dan kunci laluan disimpan.",
       )}{s.passkeys?.updated_by ? L(` Last changed by ${s.passkeys.updated_by}.`, ` Terakhir diubah oleh ${s.passkeys.updated_by}.`) : ""}</p>
+      <fieldset className={css.panel} disabled={!s.can_set || pkBusy}>
+        <legend className={css.line}>{L("Who can use passkeys", "Siapa boleh menggunakan kunci laluan")}</legend>
+        {PK_STAGES.map((o) => (
+          <label key={o.v} className={css.check}><input type="radio" name="pk-stage" checked={pk.stage === o.v} onChange={() => setPkDraft({ ...pk, stage: o.v })} />{L(o.en, o.ms)}</label>
+        ))}
+        {pk.stage === "B" && (
+          <div className={css.panel} role="group" aria-label={L("Pilots", "Perintis")}>
+            <p className={css.line}>{L(`Pilots (up to 10): ${pk.pilots.length} chosen. People without two-factor cannot add one until they set it up.`, `Perintis (sehingga 10): ${pk.pilots.length} dipilih. Mereka yang tiada dua faktor tidak boleh menambah sehingga menetapkannya.`)}</p>
+            {people.map((p) => (
+              <label key={p.id} className={css.check}>
+                <input type="checkbox" checked={pk.pilots.includes(p.id)} disabled={!pk.pilots.includes(p.id) && pk.pilots.length >= 10}
+                  onChange={(e) => setPkDraft({ ...pk, pilots: e.target.checked ? [...pk.pilots, p.id] : pk.pilots.filter((x) => x !== p.id) })} />
+                {p.name} · {roleLabel(p.role)}{!p.two_factor ? L(" · no two-factor yet", " · belum ada dua faktor") : ""}{p.passkeys ? L(` · ${p.passkeys} passkey(s)`, ` · ${p.passkeys} kunci laluan`) : ""}
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
       {s.can_set && (
         <div className={css.row}>
-          {pkStage === "A"
-            ? <button type="button" className={btnGhost} disabled={pkBusy || !proofOk} onClick={() => void setStage("off")}>{pkBusy ? L("Saving…", "Menyimpan…") : L("Switch passkeys off", "Matikan kunci laluan")}</button>
-            : <button type="button" className={btnClass} disabled={pkBusy || !proofOk} onClick={() => void setStage("A")}>{pkBusy ? L("Saving…", "Menyimpan…") : L("Switch on stage A (owner only)", "Hidupkan peringkat A (pemilik sahaja)")}</button>}
+          <button type="button" className={btnClass} disabled={pkBusy || !pkChanged || !proofOk || (pk.stage === "B" && pk.pilots.length === 0)} onClick={() => void saveStage()}>{pkBusy ? L("Saving…", "Menyimpan…") : L("Save passkey stage", "Simpan peringkat kunci laluan")}</button>
+          {pkChanged && <button type="button" className={btnGhost} onClick={() => setPkDraft(null)}>{L("Undo", "Batal")}</button>}
           <p className={css.line}>{L("Uses the reason and authenticator code above.", "Menggunakan sebab dan kod pengesah di atas.")}</p>
         </div>
       )}

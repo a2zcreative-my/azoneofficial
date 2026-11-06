@@ -224,12 +224,9 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
           <GoogleConnectPanel />
           {["ceo", "super_admin"].includes(profile.role ?? "") && <SignInSettingsPanel />}
         </TabZone>
-        {/* v1.269.0 - Phase 2A: passkeys (the company owner only; the panel hides itself otherwise) */}
-        {profile.role === "ceo" && (
-          <TabZone label={L("Passkeys", "Kunci laluan")}>
-            <PasskeysPanel />
-          </TabZone>
-        )}
+        {/* v1.269.0 - Phase 2A: passkeys; v1.270.0 - staff and agents too (2B / 2C). The panel
+            hides itself for anyone the current stage does not cover who has none. */}
+        {profile.role !== "customer" && <PasskeysPanel wrap={(n) => <TabZone label={L("Passkeys", "Kunci laluan")}>{n}</TabZone>} />}
         {/* v1.268.0 - Phase R: executive recovery (the owner, the panel, the Super Admin) */}
         {["ceo", "super_admin", "coo", "cco"].includes(profile.role ?? "") && (
           <TabZone label={L("Executive recovery", "Pemulihan eksekutif")}>
