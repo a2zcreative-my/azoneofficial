@@ -17,6 +17,7 @@ import { notify, requireFreshTotp } from "./staff";
 import { audit, err, json, logError } from "./shared";
 import { assertOne, clearAsserts } from "./accounts";
 import { mailReady, sendMail } from "./mail";
+import { revokePasskeyStatements, passkeysMigrated } from "./passkeys"; // v1.269.0 - Phase 2A
 
 const PANEL_ROLES = ["coo", "cco"] as const;       // the CEO's choice, 05-11-2026
 const MAX_MEMBERS = 3;
@@ -56,6 +57,13 @@ function memberBlock(m: Member, now: string): string | null {
   if (!m.totp_enabled) return "no_two_factor";
   if (!(PANEL_ROLES as readonly string[]).includes(m.role)) return "role_changed";
   return null;
+}
+/** v1.269.0 - how many panel members can act now (passkeys need two: passkeys.ts). */
+export async function activePanelCount(env: Env): Promise<number> {
+  try {
+    const now = await dbNow(env);
+    return (await liveMembers(env)).filter((m) => !memberBlock(m, now)).length;
+  } catch { return 0; } // before migration 0177
 }
 /** The accounts the panel may recover: the company owner and every active Super Admin. */
 async function targets(env: Env): Promise<{ id: number; name: string; role: string }[]> {
@@ -119,6 +127,8 @@ export async function runDueRecoveries(env: Env): Promise<number> {
         env.DB.prepare(`UPDATE account_tokens SET used_at = datetime('now') WHERE user_id = ?1 AND used_at IS NULL`).bind(r.target_id),
         env.DB.prepare(`UPDATE oauth_requests SET used_at = datetime('now') WHERE user_id = ?1 AND used_at IS NULL`).bind(r.target_id),
         env.DB.prepare(`UPDATE email_codes SET used_at = datetime('now') WHERE user_id = ?1 AND used_at IS NULL`).bind(r.target_id),
+        /* v1.269.0 - every passkey of the account is revoked (kept as history) */
+        ...(await passkeysMigrated(env) ? revokePasskeyStatements(env, r.target_id, "executive recovery") : []),
         clearAsserts(env),
       ]);
     } catch (e) {
@@ -127,9 +137,9 @@ export async function runDueRecoveries(env: Env): Promise<number> {
     }
     done++;
     await audit(env, r.approved_by!, "auth.exec_recovery_executed", "users", String(r.target_id), { request_id: r.id, requested_by: r.requested_by, approved_by: r.approved_by, unlink_google: !!r.unlink_google });
-    await tell(env, r.target_id, "Executive recovery was carried out on your account: two-factor was reset and every device was signed out. Sign in with your password and set up two-factor again.", `exec_rec_done:${r.id}`);
+    await tell(env, r.target_id, "Executive recovery was carried out on your account: two-factor was reset, every passkey was removed and every device was signed out. Sign in with your password and set up two-factor again.", `exec_rec_done:${r.id}`);
     const t = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`).bind(r.target_id).first<{ email: string }>();
-    if (t && mailReady(env)) await sendMail(env, { to: t.email, subject: "A2Z OS: your account was recovered", text: "Executive recovery was carried out on your A2Z OS account: two-factor was reset and every device was signed out. Sign in with your password and set up two-factor again.\n\nIf you did not expect this, tell the CEO and the COO at once." });
+    if (t && mailReady(env)) await sendMail(env, { to: t.email, subject: "A2Z OS: your account was recovered", text: "Executive recovery was carried out on your A2Z OS account: two-factor was reset, every passkey was removed and every device was signed out. Sign in with your password and set up two-factor again.\n\nIf you did not expect this, tell the CEO and the COO at once." });
   }
   return done;
 }

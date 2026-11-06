@@ -35,6 +35,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { inputClassLg, btnClassBlock } from "@/lib/ui-styles";
+import { getPasskey, passkeysSupported, cancelled, type GetOptionsJSON } from "@/lib/passkey"; // v1.269.0 - Phase 2A
 import css from "./login.module.css";
 
 const API = "/api/v1";
@@ -173,6 +174,8 @@ export default function LoginPage() {
   /* v1.264.0 - the worker says which ways in are on (GET /auth/methods);
      until it answers the Google button shows, as it always has */
   const [googleOn, setGoogleOn] = useState(true);
+  /* v1.269.0 - Phase 2A: shown only when the worker says passkeys are on AND this browser offers them */
+  const [passkeyOn, setPasskeyOn] = useState(false);
   /* v1.266.0 (R11) - after a failed Google sign-in, one line for everybody (it
      says nothing about any account): the old Google customers are helped in person */
   const [oauthHint, setOauthHint] = useState(false);
@@ -256,8 +259,9 @@ export default function LoginPage() {
        reads the device language directly rather than closing over "en". */
     const LE = tr(getLang());
     const q = new URLSearchParams(window.location.search);
-    void api<{ google?: boolean }>("/auth/methods").then((r) => {
+    void api<{ google?: boolean; passkeys?: boolean }>("/auth/methods").then((r) => {
       if (r.ok && r.data && r.data.google === false) setGoogleOn(false);
+      if (r.ok && r.data?.passkeys === true && passkeysSupported()) setPasskeyOn(true);
     });
     if (q.get("2fa") === "1") {
       if (document.cookie.includes("twofa_challenge=")) document.cookie = "twofa_challenge=; Secure; SameSite=Lax; Path=/; Max-Age=0";
@@ -320,6 +324,29 @@ export default function LoginPage() {
       /* v1.211.0 - one sentence, whatever the reason */
       setError(L(...FAILED));
     }
+  };
+
+  /* v1.269.0 - sign in with a passkey: the worker binds the challenge to this
+     browser (an HttpOnly cookie), the device asks for Face ID, a fingerprint
+     or its PIN, and the worker decides. Any refusal is the same one sentence. */
+  const passkeySignIn = async () => {
+    setBusy(true); setError("");
+    const o = await api<{ publicKey: GetOptionsJSON }>("/auth/passkey/login/options", { method: "POST", body: "{}" });
+    if (!o.ok || !o.data) {
+      setBusy(false);
+      setError(o.status === 429 ? L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit.") : L(...FAILED));
+      return;
+    }
+    let credential: Record<string, unknown>;
+    try { credential = await getPasskey(o.data.publicKey); } catch (e) {
+      setBusy(false);
+      if (!cancelled(e)) setError(L(...FAILED));
+      return;
+    }
+    const res = await api<{ user: User }>("/auth/passkey/login/verify", { method: "POST", body: JSON.stringify({ credential }) });
+    setBusy(false);
+    if (res.ok && res.data?.user) window.location.replace(destinationFor(res.data.user.role));
+    else setError(res.status === 429 ? L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit.") : L(...FAILED));
   };
 
   /* skeleton: none — the mount-time /auth/me probe only redirects a user who is already signed in; the sign-in form draws nothing from it and renders in full from the first frame (v1.77.0) */
@@ -395,6 +422,11 @@ export default function LoginPage() {
                 <GoogleMark />
                 {L("Continue with Google", "Teruskan dengan Google")}
               </a>
+            )}
+            {passkeyOn && (
+              <button type="button" className={`${css.google} ${css.passkey}`} disabled={busy} onClick={() => void passkeySignIn()}>
+                {L("Continue with passkey", "Teruskan dengan kunci laluan")}
+              </button>
             )}
 
             <hr className={css.divider} />

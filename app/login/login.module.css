@@ -156,6 +156,18 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* v1.269.0 - "Continue with passkey", under the Google button when both show */
+.google + .passkey {
+  margin-top: 0.75rem;
+}
+.passkey {
+  cursor: pointer;
+  font-family: inherit;
+}
+.passkey:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .divider {
   height: 1px;
   margin: 1.5rem 0;

@@ -26,6 +26,7 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 type Settings = {
   google: { enabled: boolean; customer_signup: boolean; legacy_link_until: string | null; updated_at?: string | null; updated_by?: string | null };
   legacy: { remaining: number; told: number; window_open: boolean; legacy_link_until: string | null };
+  passkeys?: { stage: "off" | "A"; updated_at: string | null; updated_by: string | null };
   can_set: boolean;
 };
 type Notice = { remaining: number; not_yet_told: number; window_open: boolean; subject: string; text: string; can_send: boolean };
@@ -42,6 +43,7 @@ export function SignInSettingsPanel() {
   const [msg, setMsg] = useState<{ tone: "good" | "bad"; text: string } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [sending, setSending] = useState(false);
+  const [pkBusy, setPkBusy] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -90,6 +92,15 @@ export function SignInSettingsPanel() {
     else setMsg({ tone: "bad", text: err(r) });
   };
   const proofOk = reason.trim().length >= 5 && /^\d{6}$/.test(totp);
+  /* v1.269.0 - Phase 2A: the passkey stage, its own save (PUT /staff/auth/settings/passkeys) */
+  const pkStage = s.passkeys?.stage ?? "off";
+  const setStage = async (stage: "off" | "A") => {
+    setPkBusy(true); setMsg(null);
+    const r = await api("/staff/auth/settings/passkeys", { method: "PUT", body: JSON.stringify({ stage, reason, totp }) });
+    setPkBusy(false); setTotp("");
+    if (r.ok) { setReason(""); setMsg({ tone: "good", text: stage === "A" ? L("Passkeys switched on for the company owner.", "Kunci laluan dihidupkan untuk pemilik syarikat.") : L("Passkeys switched off.", "Kunci laluan dimatikan.") }); setTick((t) => t + 1); }
+    else setMsg({ tone: "bad", text: err(r) });
+  };
 
   return (
     <section className={`${card} ${css.panel}`} aria-label={L("Sign-in settings", "Tetapan log masuk")}>
@@ -134,6 +145,23 @@ export function SignInSettingsPanel() {
         </div>
       )}
       {!s.can_set && <p className={css.line}>{L("Only the company owner changes these.", "Hanya pemilik syarikat yang mengubah tetapan ini.")}</p>}
+
+      <div className={css.head}>
+        <p className={css.title}>{L("Passkeys", "Kunci laluan")}</p>
+        <span className={pkStage === "A" ? chipSuccess : chipNeutral}>{pkStage === "A" ? L("Stage A - owner only", "Peringkat A - pemilik sahaja") : L("Off", "Mati")}</span>
+      </div>
+      <p className={css.line}>{L(
+        "Stage A lets only the company owner add and use a passkey. It can be switched on only while the executive recovery panel has two members who can act. Switching it off stops every passkey sign-in at once; password and authenticator keep working.",
+        "Peringkat A membenarkan hanya pemilik syarikat menambah dan menggunakan kunci laluan. Ia hanya boleh dihidupkan semasa panel pemulihan eksekutif mempunyai dua ahli yang boleh bertindak. Mematikannya menghentikan setiap log masuk kunci laluan serta-merta; kata laluan dan pengesah terus berfungsi.",
+      )}{s.passkeys?.updated_by ? L(` Last changed by ${s.passkeys.updated_by}.`, ` Terakhir diubah oleh ${s.passkeys.updated_by}.`) : ""}</p>
+      {s.can_set && (
+        <div className={css.row}>
+          {pkStage === "A"
+            ? <button type="button" className={btnGhost} disabled={pkBusy || !proofOk} onClick={() => void setStage("off")}>{pkBusy ? L("Saving…", "Menyimpan…") : L("Switch passkeys off", "Matikan kunci laluan")}</button>
+            : <button type="button" className={btnClass} disabled={pkBusy || !proofOk} onClick={() => void setStage("A")}>{pkBusy ? L("Saving…", "Menyimpan…") : L("Switch on stage A (owner only)", "Hidupkan peringkat A (pemilik sahaja)")}</button>}
+          <p className={css.line}>{L("Uses the reason and authenticator code above.", "Menggunakan sebab dan kod pengesah di atas.")}</p>
+        </div>
+      )}
 
       <div className={css.row}>
         <button type="button" className={btnGhost} onClick={() => void preview()}>{L("Read the legacy notice", "Baca notis legasi")}</button>

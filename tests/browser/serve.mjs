@@ -68,6 +68,8 @@ let projectMade = false;
 const projectPosts = [];
 const taskPosts = []; // v1.246.0
 const salesPosts = []; // v1.262.0 - Sales discipline writes, for the probe at /__sales
+/* v1.269.0 - Phase 2A: PASSKEYS=1 means stage A; what the browser posted is kept for /__passkeys */
+const pk = { creds: [], posts: [], issued: [], n: 0 };
 let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
 const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
@@ -77,12 +79,13 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
   }
+  if (url.pathname === "/__passkeys") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pk)); return; }
   if (url.pathname === "/__sales") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: salesPosts })); return; }
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
     signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
-    punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0;
+    punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0; pk.creds = []; pk.posts = []; pk.issued = [];
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (url.pathname === "/__mediabk") {
@@ -125,7 +128,7 @@ const server = http.createServer((req, res) => {
     if (req.method === "GET" && p === "/auth/methods") {
       const on = !process.env.GOOGLE_OFF;
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(JSON.stringify({ password: true, google: on, google_customer_signup: on, passkeys: false })); return;
+      res.end(JSON.stringify({ password: true, google: on, google_customer_signup: on, passkeys: !!process.env.PASSKEYS })); return;
     }
     if (req.method === "GET" && p === "/auth/me" && !signedIn) {
       res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return;
@@ -178,6 +181,35 @@ const server = http.createServer((req, res) => {
       if (req.method === "POST" && p.startsWith("/staff/recovery")) {
         const b = jb();
         return b.totp === "123456" ? send(200, { ok: true }) : send(401, { error: { code: "totp_invalid", message: "That code is not valid" } });
+      }
+      /* v1.269.0 - Phase 2A passkeys: options for rp "localhost", every posted answer kept */
+      if (p.startsWith("/auth/passkey")) {
+        const b = jb();
+        const ch = () => { const c = Buffer.from(`fixture-challenge-${++pk.n}-0123456789abcdef`).toString("base64url"); pk.issued.push({ path: p, challenge: c }); return c; };
+        if (req.method === "GET" && p === "/auth/passkeys") {
+          const on = !!process.env.PASSKEYS, owner = !!process.env.OWNER && (process.env.ROLE ?? "ceo") === "ceo";
+          return send(200, { stage: on ? "A" : "off", can_add: on && owner && pk.creds.length < 5, eligible: owner, limit: 5, this_session: null, passkeys: pk.creds, removed: [] });
+        }
+        if (req.method !== "POST") return send(404, { error: { code: "not_found", message: "Not found" } });
+        pk.posts.push({ path: p, body: b });
+        if (p === "/auth/passkey/register/options") {
+          if (b.totp !== "123456") return send(401, { error: { code: "totp_invalid", message: "That code is not valid (or has already been used) - open your authenticator and try the current one" } });
+          return send(200, { publicKey: { challenge: ch(), rp: { id: "localhost", name: "A2Z OS" }, user: { id: Buffer.alloc(32, 9).toString("base64url"), name: "fixture@example.test", displayName: "Fixture Person" }, pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }], timeout: 300000, attestation: "none", authenticatorSelection: { residentKey: "required", requireResidentKey: true, userVerification: "required" }, excludeCredentials: [] } });
+        }
+        if (p === "/auth/passkey/register/verify") {
+          const name = (b.name || "Passkey").slice(0, 60);
+          pk.creds.push({ id: pk.creds.length + 1, name, created_at: "2026-11-05 03:00:00", last_used_at: null, synced: false, transports: ["internal"] });
+          return send(200, { ok: true, id: pk.creds.length, name });
+        }
+        if (p === "/auth/passkey/login/options") return send(200, { publicKey: { challenge: ch(), rpId: "localhost", timeout: 300000, userVerification: "required", allowCredentials: [] } });
+        if (p === "/auth/passkey/login/verify") { signedIn = true; return send(200, { user: { id: 9001, name: "Fixture Person", role: process.env.ROLE ?? "ceo", email: "fixture@example.test" } }); }
+        const rm = p.match(/^\/auth\/passkeys\/(\d+)\/(rename|remove)$/);
+        if (rm && rm[2] === "remove") { if (b.totp !== "123456") return send(401, { error: { code: "totp_invalid", message: "That code is not valid" } }); pk.creds = pk.creds.filter((c) => c.id !== Number(rm[1])); return send(200, { ok: true, sessions_ended: 0 }); }
+        if (rm) { const c = pk.creds.find((x) => x.id === Number(rm[1])); if (c) c.name = b.name; return send(200, { ok: true }); }
+      }
+      if (req.method === "PUT" && p === "/staff/auth/settings/passkeys") {
+        const b = jb();
+        return /^\d{6}$/.test(b.totp ?? "") && (b.reason ?? "").length >= 5 ? send(200, { ok: true }) : send(400, { error: { code: "invalid_input", message: "Give a reason" } });
       }
       if (req.method === "PUT" && p === "/staff/auth/settings") {
         const b = jb();

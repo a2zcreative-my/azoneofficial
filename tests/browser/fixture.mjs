@@ -849,6 +849,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/staff/auth/settings") data = ["ceo", "super_admin"].includes(ROLE) ? {
     google: { enabled: true, customer_signup: true, legacy_link_until: null, updated_at: null, updated_by: null },
     legacy: { remaining: 4, told: 0, window_open: false, legacy_link_until: null }, can_set: OWNER && ROLE === "ceo",
+    passkeys: { stage: process.env.PASSKEYS ? "A" : "off", updated_at: null, updated_by: null }, /* v1.269.0 */
   } : { error: { code: "forbidden", message: "Only the CEO and the super admin see the sign-in settings" } };
   {
     const cm = p.match(/^\/staff\/customer-accounts\/(\d+)$/);

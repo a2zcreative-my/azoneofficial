@@ -152,7 +152,10 @@ const i18n = read("lib/i18n.ts");
   ok("the code is verified with the value just typed, not with stale state", /const verifyCode = async \(value: string\)/.test(src) && /body: JSON\.stringify\(challenge === VIA_COOKIE \? \{ code: value \} : \{ challenge, code: value \}\)/.test(src));
   /* v1.264.0 (G4) - a Google challenge stays in its HttpOnly cookie: the page never reads a challenge from document.cookie */
   ok("the page never reads a 2FA challenge from a script-readable cookie", !/document\.cookie\.match\([^)]*twofa/.test(src) && /setChallenge\(VIA_COOKIE\)/.test(src));
-  ok("Google's button follows GET /auth/methods", /api<\{ google\?: boolean \}>\("\/auth\/methods"\)/.test(src) && /\{googleOn && \(/.test(src));
+  ok("Google's button follows GET /auth/methods", /api<\{ google\?: boolean; passkeys\?: boolean \}>\("\/auth\/methods"\)/.test(src) && /\{googleOn && \(/.test(src));
+  /* v1.269.0 - Phase 2A: the passkey button only when the worker says on AND the browser offers passkeys; a refusal is the one sentence */
+  ok("the passkey button follows GET /auth/methods and the browser", /if \(r\.ok && r\.data\?\.passkeys === true && passkeysSupported\(\)\) setPasskeyOn\(true\);/.test(src) && /\{passkeyOn && \(/.test(src) && /useState\(false\);\n/.test(src.slice(src.indexOf("const [passkeyOn"), src.indexOf("const [passkeyOn") + 60)));
+  ok("a refused passkey sign-in says the same one sentence", /else setError\(res\.status === 429 \? L\("Too many attempts[^"]*", "[^"]*"\) : L\(\.\.\.FAILED\)\);/.test(src));
 }
 
 /* ---- 9 + 10. honest help, and still bilingual ---- */

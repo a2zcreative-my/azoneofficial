@@ -12,6 +12,7 @@ import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remaining
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
 import { handleRecovery } from "./recovery"; // v1.268.0 - Phase R
+import { passkeySettings, setPasskeyStage, revokePasskeyStatements, passkeysMigrated } from "./passkeys"; // v1.269.0 - Phase 2A
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
@@ -6393,7 +6394,11 @@ async function handleStaffRoutes(
   if (path === "/auth/settings" && method === "GET") {
     if (user.role !== "ceo" && user.role !== "super_admin") return err("forbidden", "Only the CEO and the super admin see the sign-in settings", 403);
     const g = await googleAuthSettings(env);
-    return json({ google: g, legacy: await legacyCounts(env, g), can_set: user.role === "ceo" && user.is_owner === true });
+    return json({ google: g, legacy: await legacyCounts(env, g), passkeys: await passkeySettings(env), can_set: user.role === "ceo" && user.is_owner === true });
+  }
+  /* v1.269.0 - Phase 2A: the passkey stage (off | A), its own door */
+  if (path === "/auth/settings/passkeys" && method === "PUT") {
+    return setPasskeyStage(env, user, body);
   }
   if (path === "/auth/settings" && method === "PUT") {
     if (user.role !== "ceo" || user.is_owner !== true) return err("forbidden", "Only the company owner changes how people sign in", 403);
@@ -13567,6 +13572,8 @@ async function handleStaffRoutes(
         env.DB.prepare(`UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE id = ?1`).bind(t.id),
         env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(t.id),
         env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(t.id),
+        /* v1.269.0 - rev 3 sec. 6.3 row 5: a reset also revokes every passkey (kept as history) */
+        ...(await passkeysMigrated(env) ? revokePasskeyStatements(env, t.id, "two-factor reset by an administrator") : []),
       ]);
       await auditAcct(env, user.id, "auth.2fa_reset_by_admin", String(t.id), { reason, identity_checked_by: checked, by_owner: byOwner });
       try { await notify(env, t.id, "security", `${user.name} reset your two-factor sign-in. Set it up again the next time you sign in.`, `2fa_reset:${Date.now()}`); } catch { /* never blocks */ }

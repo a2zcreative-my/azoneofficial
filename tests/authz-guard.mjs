@@ -102,7 +102,8 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
   if (!ex) fail("TWOFA_EXEMPT_PATHS is gone from index.ts (AUDIT A2)");
   else {
     const list = [...ex[1].replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-    const allowed = /^\/api\/v1\/(auth\/(2fa\/(setup|verify|enable|disable|status)|me|logout|login|methods|google|google\/callback)|health|health\/(detail|migrations))$/;
+    /* v1.269.0 - Phase 2A: the two passkey SIGN-IN routes (no session yet), never registration */
+    const allowed = /^\/api\/v1\/(auth\/(2fa\/(setup|verify|enable|disable|status)|me|logout|login|methods|google|google\/callback|passkey\/login\/(options|verify))|health|health\/(detail|migrations))$/;
     for (const p of list) {
       if (!allowed.test(p)) fail(`TWOFA_EXEMPT_PATHS contains "${p}" - that is not an enrolment, sign-in or health route (AUDIT A2)`);
     }

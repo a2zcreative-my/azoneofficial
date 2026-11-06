@@ -11,6 +11,7 @@ import { signOutRequest } from "@/lib/push-client"; // v1.226.0: signing out unb
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
 import { RecoveryPanel } from "@/components/security/recovery-panel"; // v1.268.0 - Phase R
+import { PasskeysPanel } from "@/components/security/passkeys-panel"; // v1.269.0 - Phase 2A
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
 import { AuditPanel } from "@/components/admin/audit-panel";
@@ -1298,6 +1299,7 @@ export default function AdminPage() {
             <div className={card}><AccountPanel /></div>
             <TwoFactorPanel />
             <GoogleConnectPanel />
+            {user.role === "ceo" && <PasskeysPanel />}
             <RecoveryPanel />
           </div>
         )}

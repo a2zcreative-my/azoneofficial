@@ -408,3 +408,7 @@ customer connects Google with their password while email sending is not set up.
 1.268.0 adds `0177_exec_recovery` (additive): exec_recovery_panel and
 exec_recovery_requests (the owner's recovery panel, two-person requests, the
 12-hour wait - nothing deleted) and users.recovery_rotation_required.
+1.269.0 adds `0178_passkeys` (additive): webauthn_credentials (a passkey's
+public key only - a removed one stays as history), webauthn_challenges (single
+use, five minutes) and sessions.auth_method / auth_credential_id (how a session
+began). Passkeys are built switched off.

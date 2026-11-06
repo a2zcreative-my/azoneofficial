@@ -9,13 +9,13 @@ Secure Authentication 2.0, Phase R (claude/PHASE-R-GOVERNANCE.md revision 2, sec
 
 ## What it may do
 
-Only, for ONE account (the CEO or the Super Admin): turn off two-factor, delete its backup codes and pending 2FA challenges, end every session, void outstanding set-password and Google requests, mark forced rotation, and write an `auth.breakglass` audit row naming both people. It never changes a role, an email, the owner designation, a permission, payroll, finance or any other account.
+Only, for ONE account (the CEO or the Super Admin): turn off two-factor, remove its passkeys (kept as history), delete its backup codes and pending 2FA challenges, end every session, void outstanding set-password and Google requests, mark forced rotation, and write an `auth.breakglass` audit row naming both people. It never changes a role, an email, the owner designation, a permission, payroll, finance or any other account.
 
 ## Steps
 
 1. Write down, on paper, date, time, both full names, the account id, and why the in-app recovery cannot be used.
 2. Check the script: `scripts/breakglass/reset-account.sql`. Its SHA-256 must be exactly
-   `ef3e64994fdce269fd3ff9e064c488d34b4d99e660b36114b60a61e5ac4fcc2b`
+   `b3dc6a9f47b28bc3e388e4c594701ac72a05726ca5e7f9fd37251a8c5aba9924`
    (PowerShell: `Get-FileHash scripts\breakglass\reset-account.sql -Algorithm SHA256`). If it differs, STOP.
 3. Copy it to a temporary file; replace every `__TARGET_ID__` with the account id and `__WITNESSED_BY__` with both full names. Read the copy aloud; the witness checks it.
 4. In `worker/`: `npx wrangler d1 execute azoneofficial --remote --file <the copy>`.

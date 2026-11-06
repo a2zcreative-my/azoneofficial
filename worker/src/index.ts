@@ -5,6 +5,7 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // feature never fired once.
 import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
 import { runDueRecoveries } from "./recovery"; // v1.268.0 - Phase R
+import { handlePasskeys, passkeySettings, revokePasskeyStatements, passkeysMigrated } from "./passkeys"; // v1.269.0 - Phase 2A
 import { googleDiscovery, pkcePair, verifyGoogleIdToken } from "./google-oidc"; // v1.265.0 - Google OpenID Connect
 import { mailReady, sendMail } from "./mail"; // v1.266.0 - the customer's emailed code
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, legacyWindowOpen, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
@@ -299,7 +300,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0177_exec_recovery";
+const LATEST_MIGRATION = "0178_passkeys";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -1531,6 +1532,8 @@ const TWOFA_EXEMPT_PATHS: ReadonlySet<string> = new Set([
   "/api/v1/auth/methods",            // which sign-in buttons to show
   "/api/v1/auth/google",             // the Google sign-in flow itself
   "/api/v1/auth/google/callback",
+  "/api/v1/auth/passkey/login/options", // v1.269.0 - passkey sign-in (no session yet)
+  "/api/v1/auth/passkey/login/verify",
   "/api/v1/health",
   "/api/v1/health/detail",
   "/api/v1/health/migrations",
@@ -3896,7 +3899,18 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      switches on every route; this only spares the person a dead button. */
   if (path === "/api/v1/auth/methods" && method === "GET") {
     const g = await googleAuthSettings(env);
-    return json({ password: true, google: g.enabled, google_customer_signup: g.enabled && g.customer_signup, passkeys: false }, 200, { "Cache-Control": "no-store" });
+    const pk = await passkeySettings(env);
+    return json({ password: true, google: g.enabled, google_customer_signup: g.enabled && g.customer_signup, passkeys: pk.stage !== "off" }, 200, { "Cache-Control": "no-store" });
+  }
+
+  /* v1.269.0 - SECURE AUTHENTICATION 2.0, PHASE 2A: passkeys, the company
+     owner only, switched off until the owner turns stage A on (passkeys.ts) */
+  if (path.startsWith("/api/v1/auth/passkey")) {
+    return handlePasskeys(request, env, path, method, {
+      getSessionUser, createSession, sessionHeaders, getCookie, sha256Hex, clientIp,
+      isRateLimited, bumpRateLimit, checkRateLimit,
+      origins: allowedOrigins(env), primaryOrigin: primaryOrigin(env), sessionCookie: SESSION_COOKIE,
+    });
   }
 
   if (path === "/api/v1/auth/login" && method === "POST") {
@@ -5641,6 +5655,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0175 (a customer proves their mailbox with an emailed code before Google is connected or disconnected)", `SELECT id, user_id, purpose, code_hash, session_hash, attempts, expires_at, used_at FROM email_codes LIMIT 0`],
       ["0176 (a Connect Google request may name the address the Google account must prove)", `SELECT require_email FROM oauth_requests LIMIT 0`],
       ["0177 (executive recovery: the panel, two-person requests, the 12-hour wait)", `SELECT id, target_id, requested_by, approved_by, status, execute_after FROM exec_recovery_requests LIMIT 0`],
+      ["0178 (passkeys: credentials, single-use challenges, how a session began)", `SELECT w.id, w.credential_id, w.revoked_at, c.purpose, c.binding_hash, s.auth_method, s.auth_credential_id FROM webauthn_credentials w, webauthn_challenges c, sessions s LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5839,6 +5854,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0175_email_codes",
       "0176_oauth_require_email",
       "0177_exec_recovery",
+      "0178_passkeys",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -5904,6 +5920,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     ).bind(statusOb, leftOn, idOb).run();
     const sess = await env.DB.prepare(`DELETE FROM sessions WHERE user_id = ?1`).bind(idOb).run();
     try { await env.DB.prepare(`DELETE FROM twofa_backup_codes WHERE user_id = ?1`).bind(idOb).run(); } catch { /* pre-0018 */ }
+    /* v1.269.0 - rev 3 sec. 6.3 row 9: a leaver's passkeys are revoked (kept as history) */
+    if (await passkeysMigrated(env)) { try { await env.DB.batch(revokePasskeyStatements(env, idOb, statusOb)); } catch { /* the status check blocks them anyway */ } }
     /* v1.244.0 (go-live audit F5) - the leaver's phones stop receiving the
        company's bells: their push subscriptions go with their sessions */
     let pushRemoved = 0;

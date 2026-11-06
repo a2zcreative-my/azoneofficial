@@ -32,6 +32,7 @@ import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
 import { SignInSettingsPanel } from "@/components/security/signin-settings-panel"; // v1.266.0
 import { RecoveryPanel } from "@/components/security/recovery-panel"; // v1.268.0 - Phase R
+import { PasskeysPanel } from "@/components/security/passkeys-panel"; // v1.269.0 - Phase 2A
 import { ResponsibilitiesView } from "@/components/staff/responsibilities"; // v1.174.0
 import { ShiftReminderPrefs } from "@/components/portal/shift-reminder-prefs"; // v1.226.0
 import { AppIcon } from "@/components/ui/app-icon";
@@ -223,6 +224,12 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
           <GoogleConnectPanel />
           {["ceo", "super_admin"].includes(profile.role ?? "") && <SignInSettingsPanel />}
         </TabZone>
+        {/* v1.269.0 - Phase 2A: passkeys (the company owner only; the panel hides itself otherwise) */}
+        {profile.role === "ceo" && (
+          <TabZone label={L("Passkeys", "Kunci laluan")}>
+            <PasskeysPanel />
+          </TabZone>
+        )}
         {/* v1.268.0 - Phase R: executive recovery (the owner, the panel, the Super Admin) */}
         {["ceo", "super_admin", "coo", "cco"].includes(profile.role ?? "") && (
           <TabZone label={L("Executive recovery", "Pemulihan eksekutif")}>
