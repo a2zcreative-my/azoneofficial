@@ -52,17 +52,20 @@ const rp = read("components/portal/role-panels.tsx");
 
 /* ---- 1 + 2. one quotation, one invoice ---- */
 {
-  const conv = staff.slice(staff.indexOf("const docConv = path.match"), staff.indexOf("const docConv = path.match") + 6500); // v1.227.0: the closer check sits before the number too; v1.242.0: the conditional insert and the stock check sit before it as well
+  const conv = staff.slice(staff.indexOf("const docConv = path.match"), staff.indexOf("reversal button for the Quotation", staff.indexOf("const docConv = path.match"))); // v1.273.0 - the whole route, up to the next one (deposit billing made it longer than 6500 characters) // v1.227.0: the closer check sits before the number too; v1.242.0: the conditional insert and the stock check sit before it as well
   /* v1.242.0 (go-live audit B2, decision D-2): the read looks for a LIVE
      invoice (a voided one does not count), and the write itself is
      conditional - one live invoice per quotation even when two clicks cross */
-  ok("convert refuses a quotation that already has a live invoice", /SELECT id, doc_number FROM sales_documents WHERE converted_from = \?1 AND doc_type = 'INV' AND COALESCE\(payment_status, ''\) != 'void'/.test(conv) && /if \(already\) return err\("already_invoiced"/.test(conv));
-  ok("and refuses BEFORE a number is minted or stock moves", conv.indexOf("if (already) return err") < conv.indexOf('await docNumber(env, "INV")') && conv.indexOf("if (already) return err") < conv.indexOf("deductForInvoice"));
-  ok("and the INSERT itself lands only when no live invoice exists at that instant", /WHERE NOT EXISTS \(SELECT 1 FROM sales_documents x WHERE x\.converted_from = \?11 AND x\.doc_type = 'INV' AND COALESCE\(x\.payment_status, ''\) != 'void'\)/.test(conv) && /if \(!resC\?\.id\) \{/.test(conv));
+  /* v1.273.0 (the CEO, 10-11-2026: deposit billing for SERVICE quotations) -
+     a PRODUCT quotation still has one live invoice; a service quotation is
+     billed in parts, never past its total (tests/deposit-billing.mjs) */
+  ok("convert refuses a PRODUCT quotation that already has a live invoice", /SELECT id, doc_number FROM sales_documents WHERE converted_from = \?1 AND doc_type = 'INV' AND COALESCE\(payment_status, ''\) != 'void'/.test(conv) && /if \(already && !splitQ\) return err\("already_invoiced"/.test(conv));
+  ok("and refuses BEFORE a number is minted or stock moves", conv.indexOf("if (already && !splitQ) return err") < conv.indexOf('await docNumber(env, "INV")') && conv.indexOf("if (already && !splitQ) return err") < conv.indexOf("deductForInvoice"));
+  ok("and the INSERT itself lands only when no live invoice exists at that instant (product) or within the total (service)", /: `NOT EXISTS \(SELECT 1 FROM sales_documents x WHERE x\.converted_from = \?11 AND x\.doc_type = 'INV' AND COALESCE\(x\.payment_status, ''\) != 'void'\)`/.test(conv) && /\+ \?7 <= \$\{qtTotalC\}/.test(conv) && /if \(!resC\?\.id\) \{/.test(conv));
   const docs = staff.slice(staff.indexOf('if (path === "/docs" && method === "GET")'), staff.indexOf('if (path === "/docs" && method === "GET")') + 1800);
   ok("the list says which invoice a quotation became", /i\.converted_from = d\.id AND i\.doc_type = 'INV'[\s\S]*?AS invoiced_as/.test(docs));
   ok("the open count is computed from the invoice side (live invoices only)", /doc_type = 'QT'\s*AND NOT EXISTS \(SELECT 1 FROM sales_documents i WHERE i\.converted_from = q\.id AND i\.doc_type = 'INV' AND COALESCE\(i\.payment_status, ''\) != 'void'\)/.test(staff) && !/doc_type = 'QT' AND converted_from IS NULL/.test(staff));
-  ok("a converted quotation's row says Invoiced and offers no second click", /d\.doc_type === "QT" && d\.invoiced_as && \([\s\S]*?\{L\("Invoiced", "Diinvois"\)\} · \{d\.invoiced_as\}/.test(sales) && /d\.doc_type === "QT" && !d\.invoiced_as && canInvoice && \(/.test(sales));
+  ok("a converted quotation's row says Invoiced and offers no second click (a part-billed service quotation says Partly invoiced and offers the balance)", /d\.doc_type === "QT" && d\.invoiced_as && !partly\(d\) && \([\s\S]*?\{L\("Invoiced", "Diinvois"\)\} · \{d\.invoiced_as\}/.test(sales) && /d\.doc_type === "QT" && !d\.invoiced_as && canInvoice && \(/.test(sales) && /partly\(d\) && canInvoice && \(/.test(sales));
   ok("the Quotations open list leaves converted quotations out", /!\(kind === "QT" && d\.invoiced_as\)/.test(dash));
 }
 

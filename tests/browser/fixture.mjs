@@ -968,7 +968,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   /* v1.215.0 - the CEO/COO paid confirmation (0145). CONFIRMED=1 serves
      INV-AZO100926-2 as confirmed; otherwise it awaits confirmation. */
   if (p === "/staff/docs") data = {
-    docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d) : docs,
+    docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d)
+      /* v1.273.0 - DEPOSIT=1: the service quotation QT 1 is half invoiced (a 50% deposit) */
+      : process.env.DEPOSIT ? docs.map((d) => d.id === 1 ? { ...d, invoiced_as: "INV-AZOO311026-8", invoiced_as_id: 9099, invoiced_cents: 225000, invoice_count: 1 } : d) : docs,
     can_confirm_paid: ["ceo", "coo", "super_admin"].includes(ROLE),
     can_confirm_own: ROLE === "ceo", // v1.216.2
   };

@@ -41,10 +41,11 @@ async function runtime(workerBundle, opts = {}) {
   for (const f of readdirSync(join(root, "worker/migrations")).filter((x) => x.endsWith(".sql")).sort()) {
     for (const st of readFileSync(join(root, "worker/migrations", f), "utf8").split(/;\s*\n/)) { try { db.exec(st); } catch { /* a statement SQLite reads differently */ } }
   }
-  ok(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'ux_inv_live_per_qt'`).get() !== undefined, "0157 creates the one-live-invoice-per-quotation index");
+  /* v1.273.0 - 0182 keeps the rule for PRODUCT quotations (a service quotation may be billed in parts, held by the worker) */
+  ok(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'ux_inv_live_per_product_qt'`).get() !== undefined, "0157/0182 keep one live invoice per product quotation (index)");
   /* opts.dropIndex: the database WITHOUT 0157's index - the conditional
      insert alone must still allow one live invoice per quotation */
-  if (opts.dropIndex) db.exec(`DROP INDEX ux_inv_live_per_qt`);
+  if (opts.dropIndex) db.exec(`DROP INDEX ux_inv_live_per_product_qt`);
   /* raceStock: another movement lands between an invoice's stock check and
      its write - the write must be conditional, or the shelf goes wrong */
   let raceStock = false;
@@ -322,7 +323,7 @@ if (!given) report(clientChecks());
 const checks = n;
 
 const MUT = [
-  ["worker/src/staff.ts", "B2 reverted: the convert insert is unconditional (and the database has no 0157 index yet)", "        WHERE NOT EXISTS (SELECT 1 FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void')\n       RETURNING id`;", "       RETURNING id`;", { dropIndex: true }],
+  ["worker/src/staff.ts", "B2 reverted: the convert insert is unconditional (and the database has no 0157/0182 index yet)", "          : `NOT EXISTS (SELECT 1 FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void')`}", "          : `1 = 1`}", { dropIndex: true }],
   ["worker/src/business.ts", "B3 reverted: the part payment insert is unconditional", "            WHERE (SELECT total_cents FROM sales_documents WHERE id = ?1)\n                  - COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL), 0) >= ?2\n           RETURNING id`,", "           RETURNING id`,"],
   ["worker/src/staff.ts", "B1 reverted: no refund room check", "      if (cn.amount_cents > roomR.room_cents) {", "      if (false) {"],
   ["worker/src/staff.ts", "B5 reverted: void ignores live parts", "    if (liveParts > 0) return err(\"has_payments\"", "    if (false) return err(\"has_payments\""],

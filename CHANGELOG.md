@@ -10,6 +10,19 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.273.0] - 2026-11-10 - Deposit billing: a service quotation invoiced in parts - BUILT, NOT DEPLOYED
+
+The CEO, 10-11-2026, on QT-AZOO091126-1 (RM 75.00): its only invoice was edited to RM 37.50 ("Pembayaran 50%") and paid, so the other RM 37.50 was tracked nowhere - one live invoice per quotation (0157) left no way to invoice a balance. His answers: "Build deposit billing"; any percent or amount; service quotations only; commission per paid invoice; the RM 37.50 invoice counts as the 50% deposit.
+
+- Migration 0182 (index only, no row changed): ux_inv_live_per_product_qt keeps ONE live invoice per PRODUCT quotation (its stock moves with the invoice); the 0157 index that held it for every quotation is dropped, after the new one exists. The 0157 health probe no longer names the dropped index.
+- POST /staff/docs/:id/convert on a SERVICE quotation takes share_bp (50% = 5000) or amount_cents, or nothing (the whole quotation, or what is left). The INSERT itself refuses a part that would take the live invoices past the quotation's total (two at once: one is made). A part keeps the quotation's line names (packages and commission rules match them) at its share, its lines add up to exactly what it bills (tax kept; the discount spread over the lines), and its reference says "Deposit 50% of QT-...", "Progress billing ..." or "Balance ...". A product quotation is unchanged: one invoice, a part refused (400).
+- Invoice edit: an invoice billed alongside others cannot be edited past its quotation (over_quotation); the server re-stamps a part's share on every edit.
+- GET /staff/docs: each quotation carries invoiced_cents and invoice_count. GET /staff/docs/summary: to_invoice {n, cents} - service quotations billed in part, what is still to invoice.
+- Commission (commission.ts commissionOf): each paid, confirmed part earns on its own share - a percent on its own basis as before; a FIXED amount (policy or package rule) only the part's share, rounded down, so the parts of one sale never earn more than the whole.
+- The existing INV-AZOO091126-1 needs no data change: it already points at QT-AZOO091126-1, so the quotation shows RM 37.50 of RM 75.00 invoiced and "Invoice balance RM 37.50".
+- UI (Sales -> Quotations & Invoices, the quotation page): "Partly invoiced · 50% · RM 37.50 left"; Invoice part (a percent like 50% or an amount like 37.50); Invoice balance; the Unpaid Invoices tile adds what is not yet invoiced.
+- Tests: tests/deposit-billing.mjs (new, whole worker: 29 checks, 10 mutations); tests/browser/deposit-billing.py (new, desktop and phone: 18/18); tests/qt-once.mjs and tests/go-live-b.mjs follow the rule to product quotations (the one-invoice checks are kept for them, none removed).
+
 ## [1.272.0] - 2026-11-10 - Sales payment verification: report, then the CEO verifies - BUILT, SWITCHED OFF
 
 claude/PAYMENT-VERIFICATION-AUDIT.md and the CEO, 10-11-2026: "build it", every answer as recommended (P1 the CEO alone verifies; P2 sales report on their own invoices, the COO and CCO on all; P3 the COO checks the bank evidence of a payment the CEO reported; P4 Collected keeps its meaning; P5 overpayment accepted and flagged; P6 accounts assigned to a company first; P7 agent 7% / closer 3%; P8 migration 0181; P9 switched off at deploy, tested in production, then on). Nothing changes for anyone until the owner switches it on.

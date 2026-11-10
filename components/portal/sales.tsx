@@ -33,7 +33,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, chipSmWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { ReactNode, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
@@ -81,6 +81,9 @@ export interface SalesDoc {
   replaces_number?: string | null;
   invoiced_as?: string | null; // v1.154.0 — on a QT: the INV it already became
   invoiced_as_id?: number | null;
+  /* v1.273.0 - on a QT: what its live invoices add up to, and how many (a service quotation may be billed in parts) */
+  invoiced_cents?: number | null;
+  invoice_count?: number | null;
   /* v1.181.11 - a revised quotation (0139); 0 = the original */
   revision?: number | null;
   revised_at?: string | null;
@@ -1494,7 +1497,28 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      they differ in what saving it does (see saveDoc). */
   /* v1.245.0 - the one Quotation -> Invoice press, shared by the row and the
      quotation page (unchanged behaviour, moved out of the row) */
-  const convertQt = async (d: SalesDoc) => {
+  /* v1.273.0 - a SERVICE quotation can be billed in parts: a deposit, progress,
+     the balance. `part` = what the server bills (a share or an amount); none =
+     the whole quotation, or what is left of it. */
+  const leftToInvoice = (d: SalesDoc) => Math.max(0, d.total_cents - Number(d.invoiced_cents ?? 0));
+  const partly = (d: SalesDoc) => d.doc_type === "QT" && d.kind === "service" && !!d.invoiced_as && leftToInvoice(d) > 0;
+  const askPart = async (d: SalesDoc) => {
+    const left = leftToInvoice(d);
+    const got = await askText({
+      title: L(`Invoice part of ${d.doc_number}`, `Invois sebahagian ${d.doc_number}`),
+      message: L(`The quotation is ${fmtRM(d.total_cents)}; ${fmtRM(left)} is left to invoice. Enter a percent of the quotation (e.g. 50%) or an amount in RM (e.g. 37.50).`,
+        `Sebut harga ${fmtRM(d.total_cents)}; ${fmtRM(left)} belum diinvois. Masukkan peratus sebut harga (cth. 50%) atau amaun RM (cth. 37.50).`),
+      label: L("Percent or amount", "Peratus atau amaun"), placeholder: "50%", required: true, confirmLabel: L("Create invoice", "Cipta invois"),
+    });
+    if (!got) return;
+    const v = got.value.trim().replace(/^rm\s*/i, "").replace(/,/g, "");
+    const pct = /^(\d+(?:\.\d+)?)\s*%$/.exec(v);
+    const num = Number(v);
+    if (pct) await convertQt(d, { share_bp: Math.round(Number(pct[1]) * 100) });
+    else if (Number.isFinite(num) && num > 0) await convertQt(d, { amount_cents: Math.round(num * 100) });
+    else showToast(L("No changes", "Tiada perubahan"), L("Enter a percent like 50% or an amount like 37.50.", "Masukkan peratus seperti 50% atau amaun seperti 37.50."), "notice");
+  };
+  const convertQt = async (d: SalesDoc, part?: { share_bp: number } | { amount_cents: number }) => {
     /* v1.242.0 (go-live audit B2) - one press at a time: the
        button is busy until the answer, and the server itself
        allows one live invoice per quotation */
@@ -1506,12 +1530,13 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       stock?: Parameters<typeof stockToastLine>[0];
       replaces_doc_id?: number | null;
       invoice_number?: string;
+      billed_cents?: number; left_cents?: number; // v1.273.0 - a part of a service quotation
       error?: { code?: string; message?: string };
     }>>>;
     try {
       res = await api(`/staff/docs/${d.id}/convert`, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify(part ?? {}),
       });
     } finally {
       setBusyDoc(null);
@@ -1531,7 +1556,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     }
     showToast(
       L("Saved", "Disimpan"),
-      `${d.doc_number} → ${res.data.doc_number}${res.data.replaces_doc_id ? L(" (replaces the voided invoice)", " (menggantikan invois yang dibatalkan)") : ""}${stockToastLine(res.data.stock)}`
+      `${d.doc_number} → ${res.data.doc_number}${res.data.replaces_doc_id ? L(" (replaces the voided invoice)", " (menggantikan invois yang dibatalkan)") : ""}${stockToastLine(res.data.stock)}${res.data.left_cents ? L(` · ${fmtRM(res.data.left_cents)} left to invoice`, ` · ${fmtRM(res.data.left_cents)} belum diinvois`) : ""}`
     );
     await load();
     void printDoc(res.data.id);
@@ -2264,7 +2289,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               onClick={() => { setWorkTab("documents"); setDocType("INV"); setDocPage(1); jump("sales-work"); }} title={L("Open the invoices", "Buka invois")} />
             {sm ? (
               <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={fmtRM(sm.outstanding.balance_cents)} busy={!loaded}
-                sub={L(`Still owed · ${sm.outstanding.n} invoice${sm.outstanding.n === 1 ? "" : "s"} · ${fmtRM(sm.outstanding.total_cents)} invoiced · any month`, `Masih terhutang · ${sm.outstanding.n} invois · ${fmtRM(sm.outstanding.total_cents)} diinvois · mana-mana bulan`)}
+                sub={L(`Still owed · ${sm.outstanding.n} invoice${sm.outstanding.n === 1 ? "" : "s"} · ${fmtRM(sm.outstanding.total_cents)} invoiced · any month${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} not yet invoiced on ${sm.to_invoice.n} quotation${sm.to_invoice.n === 1 ? "" : "s"}` : ""}`, `Masih terhutang · ${sm.outstanding.n} invois · ${fmtRM(sm.outstanding.total_cents)} diinvois · mana-mana bulan${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} belum diinvois pada ${sm.to_invoice.n} sebut harga` : ""}`)}
                 onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
             ) : (
               <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={unpaidInv.length} busy={!loaded}
@@ -3203,6 +3228,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 onEdit={() => { const q = docs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, false); } }}
                 onRevise={() => { const q = docs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, true); } }}
                 onConvert={() => { const q = docs.find((x) => x.id === qtPage); return q ? convertQt(q) : undefined; }}
+                billing={(() => { const q = docs.find((x) => x.id === qtPage); return q && q.kind === "service" ? { total_cents: q.total_cents, invoiced_cents: Number(q.invoiced_cents ?? 0) } : null; })()}
+                onConvertPart={() => { const q = docs.find((x) => x.id === qtPage); return q ? askPart(q) : undefined; }}
                 onPdf={() => void printDoc(qtPage)} />
             </div>
           )}
@@ -3414,7 +3441,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       should be updated as a sales! then Quotation should not
                       allowed twice Invoice generate!"): a quotation that has
                       become an invoice says so and offers no second click. */}
-                  {d.doc_type === "QT" && d.invoiced_as && (
+                  {/* v1.273.0 - a service quotation billed in part says how much is left to invoice */}
+                  {partly(d) && (
+                    <span className={chipSmWarn} data-testid="qt-partly"
+                      title={L(`${d.invoice_count ?? 1} invoice(s) so far, latest ${d.invoiced_as}. ${fmtRM(leftToInvoice(d))} of ${fmtRM(d.total_cents)} is not invoiced yet.`, `${d.invoice_count ?? 1} invois setakat ini, terkini ${d.invoiced_as}. ${fmtRM(leftToInvoice(d))} daripada ${fmtRM(d.total_cents)} belum diinvois.`)}>
+                      {L("Partly invoiced", "Diinvois sebahagian")} · {Math.round((Number(d.invoiced_cents ?? 0) / Math.max(1, d.total_cents)) * 100)}% · {fmtRM(leftToInvoice(d))} {L("left", "baki")}
+                    </span>
+                  )}
+                  {d.doc_type === "QT" && d.invoiced_as && !partly(d) && (
                     <span className="inline-flex h-7 items-center rounded-full bg-success-soft px-2.5 text-xs font-medium text-success"
                       title={L(`Invoiced as ${d.invoiced_as} — this quotation is a sale now. Undo on the invoice reopens it.`, `Diinvois sebagai ${d.invoiced_as} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
                       <AppIcon name="success" className="mr-1 h-3.5 w-3.5" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
@@ -3448,6 +3482,19 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       onClick={() => void convertQt(d)}
                     >
                       → {busyDoc === d.id ? L("Invoicing…", "Menginvois…") : L("Invoice", "Invois")}
+                    </button>
+                  )}
+                  {/* v1.273.0 - a service quotation: invoice a part (a deposit), then the balance */}
+                  {d.doc_type === "QT" && d.kind === "service" && canInvoice && (!d.invoiced_as || partly(d)) && (
+                    <button type="button" className={rowBtn} disabled={busyDoc === d.id} onClick={() => void askPart(d)}
+                      title={L("Invoice a deposit or progress payment: a percent or an amount of this quotation", "Invois deposit atau bayaran berperingkat: peratus atau amaun sebut harga ini")}>
+                      {L("Invoice part", "Invois sebahagian")}
+                    </button>
+                  )}
+                  {partly(d) && canInvoice && (
+                    <button type="button" className={rowBtnPrimary} disabled={busyDoc === d.id} onClick={() => void convertQt(d)}
+                      title={L(`Invoice the ${fmtRM(leftToInvoice(d))} left on this quotation`, `Invois baki ${fmtRM(leftToInvoice(d))} sebut harga ini`)}>
+                      → {L("Invoice balance", "Invois baki")} {fmtRM(leftToInvoice(d))}
                     </button>
                   )}
                   {/* v1.242.0 (go-live audit B2/B5, the owner's decision D-2):

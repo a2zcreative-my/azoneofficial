@@ -2741,6 +2741,46 @@ const COMMISSION_START_MONTH = "2026-11";
 /** v1.215.0 - take back a live paid confirmation when the invoice it vouched
     for changes under it (marked unpaid, or a new total). Stamped and audited,
     never deleted; a database from before 0145 simply has nothing to revoke. */
+/* v1.273.0 - DEPOSIT BILLING: the lines of a part invoice of a service
+   quotation. Each line keeps its name (packages and commission rules match
+   names) and carries its share of the money, so the invoice's own sum - lines,
+   no discount, the quotation's tax - comes to exactly `amount`. The
+   quotation's discount is spread over its lines. null = that amount cannot be
+   reached exactly under this tax rate (a sen of rounding). */
+export function partInvoice(itemsJson: string, discountCents: number, taxPercent: number, amount: number, quotationTotal: number): { items: string; total: number; reference: string } | null {
+  let raw: Record<string, unknown>[] = [];
+  try { const v = JSON.parse(itemsJson); if (Array.isArray(v)) raw = v as Record<string, unknown>[]; } catch { raw = []; }
+  if (!raw.length || amount <= 0) return null;
+  const totalOf = (pre: number) => Math.max(0, Math.round(pre * (1 + taxPercent / 100)));
+  /* the pre-tax figure whose total is exactly `amount` */
+  let pre = taxPercent > 0 ? Math.round(amount / (1 + taxPercent / 100)) : amount;
+  if (totalOf(pre) !== amount) {
+    const near = [pre - 1, pre + 1, pre - 2, pre + 2].find((p) => p > 0 && totalOf(p) === amount);
+    if (near === undefined) return null;
+    pre = near;
+  }
+  const nets = raw.map((l) => Math.max(0, Number(l.qty ?? 0) * Number(l.unit_price_cents ?? 0) - Number(l.disc_cents ?? 0)));
+  const sumNet = nets.reduce((a, b) => a + b, 0);
+  /* largest remainder: the parts add up to `pre` exactly */
+  const exact = nets.map((n, i) => (sumNet > 0 ? (pre * n) / sumNet : i === 0 ? pre : 0));
+  const parts = exact.map((x) => Math.floor(x));
+  let short = pre - parts.reduce((a, b) => a + b, 0);
+  const order = exact.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; short > 0 && order.length; k = (k + 1) % order.length, short--) parts[order[k]![1]]! += 1;
+  void discountCents; // spread over the lines through `pre`; the part invoice carries no discount of its own
+  const items = raw.map((l, i) => {
+    const out: Record<string, unknown> = { ...l };
+    delete out.disc_cents;
+    const qty = Math.max(1, Math.round(Number(l.qty ?? 1)));
+    if (parts[i]! % qty === 0) { out.qty = qty; out.unit_price_cents = parts[i]! / qty; } else { out.qty = 1; out.unit_price_cents = parts[i]!; }
+    /* what share of the quotation this invoice bills - a FIXED commission
+       rule pays only that share of its amount (commission.ts commissionOf) */
+    out.orig_qty = Math.max(0, Number(l.qty ?? 1)); out.part_cents = amount; out.part_of_cents = quotationTotal;
+    return out;
+  });
+  return { items: JSON.stringify(items), total: totalOf(pre), reference: "" };
+}
+
 export async function revokePaidConfirmation(env: Env, invoiceId: number, userId: number, reason: string, onlyIfAmountNot?: number): Promise<number> {
   try {
     const r = await env.DB.prepare(
@@ -10579,6 +10619,13 @@ async function handleStaffRoutes(
       invoiced: await raised("INV", mFrom, mTo), invoiced_last: await raised("INV", lFrom, lTo),
       quotations: await raised("QT", mFrom, mTo), quotations_spark: spark,
       outstanding: { n: out?.n ?? 0, total_cents: out?.total ?? 0, balance_cents: out?.balance ?? 0 },
+      /* v1.273.0 - service quotations billed in part: what is still to be INVOICED (not yet owed on an invoice) */
+      to_invoice: await one<{ n: number; cents: number }>(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(q.total_cents - b.billed), 0) AS cents
+           FROM sales_documents q
+           JOIN (SELECT converted_from AS qid, SUM(total_cents) AS billed FROM sales_documents
+                  WHERE doc_type = 'INV' AND converted_from IS NOT NULL AND COALESCE(payment_status, '') != 'void' GROUP BY converted_from) b ON b.qid = q.id
+          WHERE q.doc_type = 'QT' AND q.kind = 'service' AND b.billed < q.total_cents${mine ? ` AND q.salesperson_id = ${Number(user.id)}` : ""}`).then((r) => ({ n: Number(r?.n ?? 0), cents: Number(r?.cents ?? 0) })).catch(() => ({ n: 0, cents: 0 })),
       cash_cents: await cash(mFrom, mTo), cash_last_cents: await cash(lFrom, lTo), parts_known: hasParts,
       daily, funnel: await funnel(mFrom, mTo),
       week: {
@@ -10602,7 +10649,10 @@ async function handleStaffRoutes(
                  which one; the row offers no second click and the open count
                  leaves it out. NULL on everything but a converted QT. */
               (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as,
-              (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id
+              (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id,
+              /* v1.273.0 - a service quotation billed in parts: how much of it is invoiced, in how many invoices */
+              (SELECT COALESCE(SUM(i.total_cents), 0) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoiced_cents,
+              (SELECT COUNT(*) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoice_count
        FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
        JOIN customers c ON c.id = d.customer_id ${typed ? "WHERE d.doc_type = ?1" : ""}
@@ -11119,7 +11169,48 @@ async function handleStaffRoutes(
       `SELECT id, doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' ORDER BY id DESC LIMIT 1`,
     ).bind(qt.id).first<{ id: number; doc_number: string }>();
     const already = await liveInv();
-    if (already) return err("already_invoiced", `${String(qt.doc_number)} was already invoiced as ${already.doc_number}. Void that invoice first (with a reason) if it was a mistake.`, 409, { invoice_id: already.id, invoice_number: already.doc_number });
+    /* v1.273.0 - DEPOSIT BILLING (the CEO, 10-11-2026: "Build deposit
+       billing" - any % or amount, service quotations only, commission per
+       paid invoice). A SERVICE quotation may be invoiced in parts - a
+       deposit, progress, the balance - as long as its live invoices never
+       add up to more than the quotation; the INSERT below holds that rule
+       at the instant it writes. A PRODUCT quotation stays one invoice (its
+       stock moves with it), exactly as before. */
+    const splitQ = ((qt as { kind?: string | null }).kind ?? "product") === "service";
+    const qtTotalC = Number(qt.total_cents ?? 0);
+    const billedQ = splitQ ? Number((await env.DB.prepare(
+      `SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, '') != 'void'`,
+    ).bind(qt.id).first<{ c: number }>())?.c ?? 0) : 0;
+    const leftQ = qtTotalC - billedQ;
+    const askShare = body?.share_bp, askAmount = body?.amount_cents;
+    if (!splitQ && (askShare !== undefined || askAmount !== undefined)) {
+      return err("invalid_input", `${String(qt.doc_number)} is a product quotation: it is invoiced whole (its stock moves with the invoice). Only a service quotation is billed in parts.`, 400);
+    }
+    if (splitQ && already && leftQ <= 0) return err("already_invoiced", `${String(qt.doc_number)} is fully invoiced (latest ${already.doc_number}). Void an invoice first (with a reason) if one was a mistake.`, 409, { invoice_id: already.id, invoice_number: already.doc_number });
+    if (already && !splitQ) return err("already_invoiced", `${String(qt.doc_number)} was already invoiced as ${already.doc_number}. Void that invoice first (with a reason) if it was a mistake.`, 409, { invoice_id: already.id, invoice_number: already.doc_number });
+    /* how much this invoice bills: a share in basis points, an amount in sen, or what is left */
+    let billC = leftQ;
+    if (splitQ && askShare !== undefined) {
+      if (typeof askShare !== "number" || !Number.isInteger(askShare) || askShare < 1 || askShare > 10000) return err("invalid_input", "share_bp is a whole number from 1 to 10000 (50% = 5000).", 400);
+      billC = Math.round((qtTotalC * askShare) / 10000);
+    } else if (splitQ && askAmount !== undefined) {
+      if (typeof askAmount !== "number" || !Number.isInteger(askAmount)) return err("invalid_input", "amount_cents is a whole number of sen.", 400);
+      billC = askAmount;
+    }
+    if (splitQ && billC <= 0) return err("invalid_input", "The amount to invoice must be more than RM 0.00.", 400);
+    if (splitQ && billC > leftQ) {
+      return err("over_quotation", `Only RM ${(leftQ / 100).toFixed(2)} of ${String(qt.doc_number)} (RM ${(qtTotalC / 100).toFixed(2)}) is left to invoice.`, 400, { left_cents: leftQ });
+    }
+    /* a part invoice carries the quotation's own lines at their share of the
+       money (names kept, so packages and commission rules still match it) */
+    const wholeQ = !splitQ || (billedQ === 0 && billC === qtTotalC);
+    let partQ: { items: string; total: number; reference: string } | null = null;
+    if (!wholeQ) {
+      partQ = partInvoice(String(qt.items ?? "[]"), Number(qt.discount_cents ?? 0), Number(qt.tax_percent ?? 0), billC, qtTotalC);
+      if (!partQ) return err("invalid_input", `RM ${(billC / 100).toFixed(2)} cannot be billed exactly with ${Number(qt.tax_percent ?? 0)}% tax. Try RM ${((billC + 1) / 100).toFixed(2)} or RM ${((billC - 1) / 100).toFixed(2)}.`, 400);
+      const pct = Math.round((billC / qtTotalC) * 10000) / 100;
+      partQ.reference = `${billedQ === 0 ? "Deposit" : billC === leftQ ? "Balance" : "Progress billing"} ${pct}% of ${String(qt.doc_number)}`;
+    }
     /* v1.242.0 (B6) - an expired quotation is revised (new validity) before it is invoiced */
     const validC = (qt as { valid_until?: string | null }).valid_until;
     if (typeof validC === "string" && /^\d{4}-\d{2}-\d{2}/.test(validC) && validC.slice(0, 10) < new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)) {
@@ -11141,16 +11232,20 @@ async function handleStaffRoutes(
       replacesC = (await env.DB.prepare(`SELECT id FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND payment_status = 'void' ORDER BY id DESC LIMIT 1`)
         .bind(qt.id).first<{ id: number }>())?.id ?? null;
     } catch { replacesC = null; }
+    if (billedQ > 0) replacesC = null; // v1.273.0 - a later part invoice replaces nothing; the first one does, as before
     const numberC = await docNumber(env, "INV");
     const convertSql = (withReplaces: boolean) => `INSERT INTO sales_documents
        (doc_type, doc_number, customer_id, items, discount_cents, tax_percent, delivery_cents, total_cents,
         notes, payment_status, salesperson_id, created_by, converted_from, kind${withReplaces ? ", replaces_doc_id" : ""})
        SELECT 'INV', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'unpaid', ?9, ?10, ?11, ?12${withReplaces ? ", ?13" : ""}
-        WHERE NOT EXISTS (SELECT 1 FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void')
+        WHERE ${splitQ
+          /* v1.273.0 - a service quotation: never more than its total across its live invoices, at this instant */
+          ? `(SELECT COALESCE(SUM(x.total_cents), 0) FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void') + ?7 <= ${qtTotalC}`
+          : `NOT EXISTS (SELECT 1 FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void')`}
        RETURNING id`;
     const convertArgs = [
-      numberC, qt.customer_id, qt.items, qt.discount_cents ?? 0, qt.tax_percent ?? 0,
-      (qt as { delivery_cents?: number }).delivery_cents ?? 0, qt.total_cents ?? 0,
+      numberC, qt.customer_id, partQ ? partQ.items : qt.items, partQ ? 0 : qt.discount_cents ?? 0, qt.tax_percent ?? 0,
+      partQ ? 0 : (qt as { delivery_cents?: number }).delivery_cents ?? 0, partQ ? partQ.total : qt.total_cents ?? 0,
       qt.notes ?? null, qt.salesperson_id, user.id, qt.id,
       kindQ, // v1.4.234: the invoice inherits the quotation's line
     ];
@@ -11165,6 +11260,7 @@ async function handleStaffRoutes(
     }
     if (!resC?.id) {
       const won = await liveInv();
+      if (splitQ) return err("over_quotation", `Another invoice of ${String(qt.doc_number)} was raised a moment ago and together they would pass its total. Nothing was created - reload and check what is left.`, 409);
       return err("already_invoiced", `${String(qt.doc_number)} was invoiced${won ? ` as ${won.doc_number}` : ""} a moment ago. Nothing was created twice.`, 409, won ? { invoice_id: won.id, invoice_number: won.doc_number } : undefined);
     }
     // v1.4.263: the invoice born from a quotation deducts stock too — the QT
@@ -11192,8 +11288,12 @@ async function handleStaffRoutes(
        was made from (history only; its lines are the quotation's, copied above) */
     const qtPkg = qt as { package_id?: number | null; package_version?: number | null; package_customized?: number | null };
     if (qtPkg.package_id) await stampPackage(env, resC?.id, { id: qtPkg.package_id, version: Number(qtPkg.package_version ?? 1), customized: Boolean(qtPkg.package_customized) });
-    await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC.id), { from: qt.doc_number, ...(replacesC ? { replaces_doc_id: replacesC } : {}) });
-    return json({ id: resC.id, doc_number: numberC, stock: stockMoveC, replaces_doc_id: replacesC }, 201);
+    if (partQ) await env.DB.prepare(`UPDATE sales_documents SET reference = ?1 WHERE id = ?2`).bind(partQ.reference, resC.id).run();
+    await audit(env, user.id, "doc.convert_qt_inv", "sales_documents", String(resC.id), {
+      from: qt.doc_number, ...(replacesC ? { replaces_doc_id: replacesC } : {}),
+      ...(partQ ? { part: true, billed_cents: partQ.total, quotation_cents: qtTotalC, left_after_cents: leftQ - partQ.total } : {}),
+    });
+    return json({ id: resC.id, doc_number: numberC, stock: stockMoveC, replaces_doc_id: replacesC, ...(splitQ ? { billed_cents: partQ ? partQ.total : qtTotalC, left_cents: leftQ - (partQ ? partQ.total : qtTotalC) } : {}) }, 201);
   }
 
   /* v1.4.233 (CEO: "reversal button for the Quotation if accidentally click
@@ -11444,6 +11544,21 @@ async function handleStaffRoutes(
         if (partsE > 0 && totalE < partsE) {
           return err("below_received", `RM ${(partsE / 100).toFixed(2)} has already been received on this invoice; its total cannot go below that. Void a part payment first (with a reason) if the money was not received.`, 400);
         }
+      }
+      /* v1.273.0 - an invoice billed alongside others from one quotation is
+         never edited so they add up to more than the quotation */
+      const sibE = await env.DB.prepare(
+        `SELECT q.total_cents AS qt_total, q.doc_number AS qt_number, q.kind AS qt_kind,
+                (SELECT COALESCE(SUM(x.total_cents), 0) FROM sales_documents x WHERE x.converted_from = q.id AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void' AND x.id != ?1) AS others,
+                (SELECT COUNT(*) FROM sales_documents x WHERE x.converted_from = q.id AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void' AND x.id != ?1) AS n
+           FROM sales_documents i JOIN sales_documents q ON q.id = i.converted_from WHERE i.id = ?1`,
+      ).bind(idE).first<{ qt_total: number; qt_number: string; qt_kind: string | null; others: number; n: number }>().catch(() => null);
+      if (sibE && Number(sibE.n) > 0 && Number(sibE.others) + totalE > Number(sibE.qt_total)) {
+        return err("over_quotation", `${sibE.qt_number} (RM ${(Number(sibE.qt_total) / 100).toFixed(2)}) is billed in parts; with this edit its invoices would add up to RM ${((Number(sibE.others) + totalE) / 100).toFixed(2)}. At most RM ${((Number(sibE.qt_total) - Number(sibE.others)) / 100).toFixed(2)} fits on this invoice.`, 400);
+      }
+      /* the share a part invoice bills is the SERVER's, re-stamped on every edit (never the form's) */
+      if (sibE && sibE.qt_kind === "service" && totalE > 0 && totalE < Number(sibE.qt_total)) {
+        for (const l of itemsE as Array<Record<string, unknown>>) { l.orig_qty = l.qty; l.part_cents = totalE; l.part_of_cents = Number(sibE.qt_total); }
       }
       /* v1.242.0 (C2 / D-1) - a product invoice edit that needs more stock than the shelf has is refused before any write */
       if ((docE.kind ?? "product") !== "service") {

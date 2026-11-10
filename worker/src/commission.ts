@@ -121,6 +121,15 @@ export function commissionOf(inv: Inv, p: Pick<Policy, "basis" | "rate_kind" | "
   try { const v = JSON.parse(inv.items ?? "[]"); if (Array.isArray(v)) raw = v; } catch { raw = []; }
   const listedOnly = (p.product_rule ?? "listed_only") === "listed_only";
   const isProduct = (l: { sku?: unknown }) => Boolean(String(l.sku ?? "").trim()) || inv.doc_kind === "product";
+  /* v1.273.0 - a part invoice of a service quotation (a deposit, the
+     balance) bills part_cents of part_of_cents. A percent earns on its own
+     basis already; a FIXED amount earns only that share, rounded down, so the
+     parts of one sale never add up to more than the whole. */
+  const part = raw[0] as { part_cents?: unknown; part_of_cents?: unknown } | undefined;
+  const partC = Number(part?.part_cents), partOf = Number(part?.part_of_cents);
+  const isPart = Number.isInteger(partC) && Number.isInteger(partOf) && partC > 0 && partOf > partC;
+  const fixedShare = (x: number) => (isPart ? Math.floor((x * partC) / partOf) : x);
+  if (isPart && p.rate_kind === "fixed" && (!raw.length || (!pkgs.length && !(listedOnly && raw.some(isProduct))))) return { basis, amount: fixedShare(amountOf(basis, p)), lines: null };
   if (!raw.length || (!pkgs.length && !(listedOnly && raw.some(isProduct)))) return { basis, amount: amountOf(basis, p), lines: null };
   const nets = raw.map((l) => Math.max(0, Number(l.qty ?? 0) * Number(l.unit_price_cents ?? 0) - Number(l.disc_cents ?? 0)));
   const sumNet = nets.reduce((a, b) => a + b, 0);
@@ -132,17 +141,18 @@ export function commissionOf(inv: Inv, p: Pick<Policy, "basis" | "rate_kind" | "
     const share = sumNet > 0 ? nets[i]! / sumNet : (i === 0 ? 1 : 0);
     const lb = Math.round(basis * share);
     const qty = Math.max(0, Number(l.qty ?? 0));
+    const qtyFixed = Math.max(0, Number((l as { orig_qty?: unknown }).orig_qty ?? l.qty ?? 0)); // v1.273.0 - a part line keeps the quotation's quantity for a per-unit amount
     const r = whole ?? byKey.get(matchKey(l.name));
     let a = 0;
     let out: LineCalc;
     if (r) {
-      a = r.rule === "none" ? 0 : r.rule === "fixed" ? Math.max(0, Math.round(Number(r.fixed_cents ?? 0) * qty)) : Math.floor((lb * Number(r.rate_bp ?? 0) + 5000) / 10000);
+      a = r.rule === "none" ? 0 : r.rule === "fixed" ? fixedShare(Math.max(0, Math.round(Number(r.fixed_cents ?? 0) * qtyFixed))) : Math.floor((lb * Number(r.rate_bp ?? 0) + 5000) / 10000);
       out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: r.package_name, rule: r.rule, rate_bp: r.rule === "percent" ? r.rate_bp : null, fixed_cents: r.rule === "fixed" ? r.fixed_cents : null, amount_cents: a };
     } else if (listedOnly && isProduct(l)) {
       out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: null, rule: "not_listed", rate_bp: null, fixed_cents: null, amount_cents: 0 };
     } else if (p.rate_kind === "fixed") {
       /* the version's fixed amount is per invoice: once, on the first unmatched line */
-      a = defaultFixedUsed ? 0 : Math.max(0, Math.round(Number(p.fixed_cents ?? 0)));
+      a = defaultFixedUsed ? 0 : fixedShare(Math.max(0, Math.round(Number(p.fixed_cents ?? 0))));
       defaultFixedUsed = true;
       out = { name: String(l.name ?? ""), qty, basis_cents: lb, package: null, rule: "default", rate_bp: null, fixed_cents: p.fixed_cents, amount_cents: a };
     } else {

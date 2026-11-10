@@ -300,7 +300,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0181_payment_verification";
+const LATEST_MIGRATION = "0182_quotation_billing";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5633,7 +5633,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0154 (commission product rule per policy version)", `SELECT product_rule FROM commission_policies LIMIT 1`],
       ["0155 (account identity: Google sub, email changes, set-password links, session devices)", `SELECT u.google_sub, u.email_verified_at, s.user_agent, s.last_seen_at, c.route, t.kind FROM users u LEFT JOIN sessions s ON 1 = 0 LEFT JOIN email_changes c ON 1 = 0 LEFT JOIN account_tokens t ON 1 = 0 LIMIT 1`],
       ["0156 (weekly goals: target metric, lead introductions, qualified date)", `SELECT t.metric, t.target_count, e.referred_by, e.qualified_at, e.qualified_by FROM sales_week_targets t LEFT JOIN enquiries e ON 1 = 0 LIMIT 1`],
-      ["0157 (invoice void lifecycle: one live invoice per quotation)", `SELECT voided_at, voided_by, void_reason, replaces_doc_id FROM sales_documents INDEXED BY ux_inv_live_per_qt WHERE doc_type = 'INV' AND converted_from = 0 AND voided_at IS NULL LIMIT 1`],
+      ["0157 (invoice void lifecycle: one live invoice per quotation)", `SELECT voided_at, voided_by, void_reason, replaces_doc_id FROM sales_documents INDEXED BY idx_sales_documents_voided WHERE doc_type = 'INV' AND converted_from = 0 AND voided_at IS NULL LIMIT 1`],
       ["0158 (payroll population: exceptions, the release a bank run paid)", `SELECT x.kind, x.resolution, p.release_id, p.file_total_cents, p.manual_total_cents FROM payroll_exceptions x LEFT JOIN payroll_payments p ON 1 = 0 LIMIT 1`],
       ["0159 (project workspace and task progress: one brief per quotation, append-only task updates)", `SELECT p.quotation_id, p.owner_id, p.scope_snapshot, u.kind, u.client_key, f.level, a.removed_at, t.stage, t.progress_source, c.client_key FROM projects p LEFT JOIN task_updates u ON 1 = 0 LEFT JOIN task_files f ON 1 = 0 LEFT JOIN task_assistants a ON 1 = 0 LEFT JOIN tasks t ON 1 = 0 LEFT JOIN task_comments c ON 1 = 0 LIMIT 1`], // v1.246.3 - probed the re-cut 0159 (task_updates, not project_updates)
       ["0160 (a quotation acceptance recorded by staff)", `SELECT channel, recorded_by, note FROM quotation_acceptances LIMIT 1`],
@@ -5657,6 +5657,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0177 (executive recovery: the panel, two-person requests, the 12-hour wait)", `SELECT id, target_id, requested_by, approved_by, status, execute_after FROM exec_recovery_requests LIMIT 0`],
       ["0178 (passkeys: credentials, single-use challenges, how a session began)", `SELECT w.id, w.credential_id, w.revoked_at, c.purpose, c.binding_hash, s.auth_method, s.auth_credential_id FROM webauthn_credentials w, webauthn_challenges c, sessions s LIMIT 0`],
       ["0179-0180 (web_orders.booked_cents and refund_flagged_at: the ELFIA booking columns)", `SELECT booked_cents, refund_flagged_at FROM web_orders LIMIT 0`],
+      ["0182 (deposit billing: one live invoice per PRODUCT quotation; a service quotation billed in parts)", `SELECT id FROM sales_documents INDEXED BY ux_inv_live_per_product_qt WHERE converted_from = 0 AND doc_type = 'INV' AND voided_at IS NULL AND COALESCE(kind, 'product') != 'service' LIMIT 0`],
       ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
@@ -5860,6 +5861,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0179_web_orders_booked_cents",
       "0180_web_orders_refund_flag",
       "0181_payment_verification",
+      "0182_quotation_billing",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -57,6 +57,8 @@ export interface SalesSummary {
   month: string; scope: WsScope; today: string;
   collected: WsSum; collected_last: WsSum; invoiced: WsSum; invoiced_last: WsSum; quotations: WsSum; quotations_spark: number[];
   outstanding: { n: number; total_cents: number; balance_cents: number };
+  /** v1.273.0 - service quotations billed in part: what is still to be invoiced */
+  to_invoice?: { n: number; cents: number };
   cash_cents: number; cash_last_cents: number; parts_known: boolean;
   daily: { day: string; cents: number }[]; funnel: WsFunnel;
   week: {

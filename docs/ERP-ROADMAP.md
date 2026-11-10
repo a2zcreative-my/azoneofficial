@@ -422,3 +422,7 @@ invoice_payment_reports (a reported payment and its proof, not money until the
 CEO verifies it) and invoice_payment_events (the payment timeline, append
 only). Verification writes the existing invoice_payments row; nothing else
 changes until the owner switches payment verification on.
+1.273.0 adds `0182_quotation_billing` (an index only): one live invoice per
+PRODUCT quotation (ux_inv_live_per_product_qt) replaces 0157's one per every
+quotation; a service quotation may be billed in parts, never past its total
+(held by the worker in the statement that writes the invoice).

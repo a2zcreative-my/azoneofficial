@@ -38,9 +38,12 @@ type ByQt = {
   can_create: boolean;
 };
 
-export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, onRevise, onConvert, onPdf }: {
+export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, onRevise, onConvert, onPdf, billing = null, onConvertPart }: {
   docId: number; canInvoice: boolean; invoicing: boolean;
   onBack: () => void; onEdit: () => void; onRevise: () => void; onConvert: () => Promise<void> | void; onPdf: () => void;
+  /** v1.273.0 - a SERVICE quotation billed in parts: its total and what its live invoices add up to */
+  billing?: { total_cents: number; invoiced_cents: number } | null;
+  onConvertPart?: () => Promise<void> | void;
 }) {
   const [tab, setTab] = useState<Tab>("project");
   const [d, setD] = useState<Full | null>(null);
@@ -107,6 +110,17 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
               → {invoicing ? L("Invoicing…", "Menginvois…") : L("Convert to Invoice", "Tukar ke Invois")}
             </button>
           )}
+          {/* v1.273.0 - deposit billing: a part now, the balance later (service quotations) */}
+          {billing && canInvoice && onConvertPart && billing.invoiced_cents < billing.total_cents && (
+            <button type="button" className={btnSm} disabled={invoicing} onClick={() => { void Promise.resolve(onConvertPart()).then(reload); }}>
+              {L("Invoice part", "Invois sebahagian")}
+            </button>
+          )}
+          {billing && canInvoice && invoiced && billing.invoiced_cents < billing.total_cents && (
+            <button type="button" className={btnSmPrimary} disabled={invoicing} onClick={() => { void Promise.resolve(onConvert()).then(reload); }}>
+              → {L("Invoice balance", "Invois baki")} {fmtRM(billing.total_cents - billing.invoiced_cents)}
+            </button>
+          )}
           <button type="button" className={btnSmPrimary} onClick={() => setTab("project")}><AppIcon name="assignment" className="erp-icon" />{L("Project & Tasks", "Projek & Tugasan")}</button>
           <button type="button" className={btnSm} onClick={onPdf} aria-label={L("Open the PDF", "Buka PDF")}>PDF</button>
         </div>
@@ -126,6 +140,9 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
         {st?.accepted_at && <p className={pw.note}>{L(`Accepted by ${st.accepted_name ?? "the client"} on ${fmtDay(st.accepted_at)}.`, `Diterima oleh ${st.accepted_name ?? "pelanggan"} pada ${fmtDay(st.accepted_at)}.`)}</p>}
         <DocSigningCard docId={docId} />{/* v1.248.0 - who signs it, and Approve and sign */}
         {st?.invoice && <p className={pw.note}>{L(`Invoiced as ${st.invoice} - this quotation is a sale now.`, `Diinvois sebagai ${st.invoice} - sebut harga ini kini jualan.`)}</p>}
+        {billing && invoiced && billing.invoiced_cents < billing.total_cents && (
+          <p className={pw.note} data-testid="qt-left-to-invoice">{L(`Billed in parts: ${fmtRM(billing.invoiced_cents)} of ${fmtRM(billing.total_cents)} invoiced; ${fmtRM(billing.total_cents - billing.invoiced_cents)} is still to be invoiced.`, `Dibil berperingkat: ${fmtRM(billing.invoiced_cents)} daripada ${fmtRM(billing.total_cents)} diinvois; ${fmtRM(billing.total_cents - billing.invoiced_cents)} belum diinvois.`)}</p>
+        )}
       </div>
 
       <div hidden={tab !== "client"}>{tab === "client" && <CustomerFile customerId={d.customer_id} />}</div>

@@ -386,6 +386,12 @@ const server = http.createServer((req, res) => {
         }
         const mc = /^\/staff\/docs\/(\d+)\/convert$/.exec(p);
         if (mc && req.method === "POST") {
+          /* v1.273.0 - DEPOSIT=1: every convert body is kept (/__payments posts) and a part answers with what is left */
+          if (process.env.DEPOSIT) {
+            let bd = {}; try { bd = JSON.parse(body || "{}"); } catch { /* empty */ }
+            pay.posts.push({ path: p, method: "POST", body: bd });
+            res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 9101, doc_number: "INV-AZOO311026-9", stock: null, replaces_doc_id: null, billed_cents: 225000, left_cents: 0 })); return;
+          }
           const answer = () => {
             if (converted.has(mc[1])) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "already_invoiced", message: "QT-AZO150926-1 was already invoiced as INV-AZOO311026-9. Void that invoice first (with a reason) if it was a mistake." }, invoice_id: 9100, invoice_number: "INV-AZOO311026-9" })); return; }
             converted.add(mc[1]);
