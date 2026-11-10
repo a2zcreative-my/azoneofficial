@@ -1043,11 +1043,20 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       owner: { id: 9010, name: "Hakim Rosli" }, next: null, last_contact: { at: "2026-09-16 03:00:00", by: "Hakim Rosli", outcome: "negotiating", obstacle: "Wants the price split over two months", note: "Call back Monday" }, acceptance: null },
   ];
   const wkAll = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
+  /* v1.275.0 - CHANNELS=1: a week measured on every channel (the company
+     target counts TikTok, other shipments and manual sales); the parts go to
+     revenue readers only, as the worker does. Invented amounts. */
+  const chOn = process.env.CHANNELS === "1";
+  const revReader = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(ROLE);
+  const chCo = (c) => !chOn ? c : { ...c, basis_cents: c.basis_cents + 86500, basis_kind: "all_channels",
+    channels: revReader ? { invoices_cents: c.basis_cents, tiktok_cents: 70000, other_cents: 12000, manual_cents: 4500 } : null,
+    pct: c.target_cents ? Math.round(((c.basis_cents + 86500) / c.target_cents) * 100) : null,
+    gap_cents: c.target_cents === null ? null : Math.max(0, c.target_cents - c.basis_cents - 86500) };
   if (p === "/staff/sales/week") {
     const week = { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", checkpoint: "review", start_dow: 1 };
     data = q.get("scope") === "all" && wkAll ? {
       week, scope: "all", can_set: wkSetter, can_view_all: true, commission: { policy: false },
-      company: { target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, confirmed_cents: 280000, pct: 27, gap_cents: 1100000 },
+      company: chCo({ target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, confirmed_cents: 280000, pct: 27, gap_cents: 1100000 }),
       outlook: wkOutlook, // v1.262.0 - the strip beside the team's week
       rows: [
         wkRow({ user_id: 9010, name: "Hakim Rosli", target_cents: 300000, target_from: "2026-09-07", target_set_by: "Fixture COO", target_reason: "September push on live packages",
@@ -1071,7 +1080,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     const slimRow = (o) => ({ department: "Sales", target_cents: null, basis_cents: 0, pct: null, gap_cents: null, status: "no_target", ...o });
     data = {
       week: { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", checkpoint: "review", start_dow: 1 },
-      company: none ? { target_cents: null, target_from: null, basis_cents: 400000, pct: null, gap_cents: null } : { target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, pct: 27, gap_cents: 1100000 },
+      company: chCo(none ? { target_cents: null, target_from: null, basis_cents: 400000, pct: null, gap_cents: null } : { target_cents: 1500000, target_from: "2026-09-07", basis_cents: 400000, pct: 27, gap_cents: 1100000 }),
       other_channels_cents: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(ROLE) ? 86500 : null,
       me: sys ? null : (none || ROLE === "live_host") ? { name: "Fixture Person", has_target: false, target_cents: null, basis_cents: 0, paid_invoices: 0, pct: null, gap_cents: null, expected_cents: null, status: "no_target", working_days: 5, goals: [],
         open_quotations: wkSum(0, 0), followups_overdue: 0, tasks: { open: 0, done: 0, overdue: 0 }, top_tasks: [], enquiries_waiting: null, introductions: { pending: 0, verified_week: 0 }, plan: null }

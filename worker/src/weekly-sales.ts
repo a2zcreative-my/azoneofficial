@@ -306,15 +306,17 @@ async function weekFor(env: Env, uid: number, name: string, from: string, to: st
 }
 
 /** Write a finished week down once (the first read after it ends). */
-async function finalise(env: Env, from: string, rows: Awaited<ReturnType<typeof weekFor>>[], company: { target: number | null; basis: number; confirmed: number }) {
+async function finalise(env: Env, from: string, rows: Awaited<ReturnType<typeof weekFor>>[], company: { target: number | null; basis: number; confirmed: number; basis_kind?: string; channels?: Record<string, number> | null }) {
   try {
     const stmts = rows.map((r) => env.DB.prepare(
       `INSERT OR IGNORE INTO sales_week_results (week_from, user_id, target_cents, basis_cents, confirmed_cents, status, figures) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
     ).bind(from, r.user_id, r.target_cents, r.basis_cents, r.confirmed_cents, r.status,
       JSON.stringify({ paid_invoices: r.paid_invoices, quotations: r.quotations, won: r.won, followups_done: r.followups_done, enquiries: r.enquiries, new_customers: r.new_customers, tasks: r.tasks, working_days: r.working_days })));
     stmts.push(env.DB.prepare(
-      `INSERT OR IGNORE INTO sales_week_results (week_from, user_id, target_cents, basis_cents, confirmed_cents, status, figures) VALUES (?1, 0, ?2, ?3, ?4, ?5, '{}')`,
-    ).bind(from, company.target, company.basis, company.confirmed, company.target === null ? "no_target" : company.basis >= company.target ? "achieved" : "missed"));
+      `INSERT OR IGNORE INTO sales_week_results (week_from, user_id, target_cents, basis_cents, confirmed_cents, status, figures) VALUES (?1, 0, ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(from, company.target, company.basis, company.confirmed, company.target === null ? "no_target" : company.basis >= company.target ? "achieved" : "missed",
+      /* v1.275.0 - the company row says what its basis counted, so a later reader never mistakes it */
+      company.basis_kind === "all_channels" ? JSON.stringify({ basis_kind: "all_channels", ...(company.channels ?? {}) }) : "{}"));
     await env.DB.batch(stmts);
   } catch { /* pre-0149 - nothing to write to */ }
 }
@@ -360,9 +362,33 @@ export async function taskLink(env: Env, body: Record<string, unknown>, assigned
   return { kind, id };
 }
 
-/** The company's week: its approved target and the Collected total (every
-    closer), the same rule as each person's basis. One place, read by the
-    Sales scorecard and the Dashboard alike. */
+/** v1.275.0 - THE COMPANY TARGET COUNTS EVERY CHANNEL (the CEO, 10-11-2026,
+    "option 2": company only, this week onward, every channel the Dashboard
+    counts). A week whose last day is on or after ALL_CHANNELS_FROM counts the
+    paid invoices AND the TikTok orders, other shipped orders and manual sales;
+    an earlier week keeps the invoice-only rule it was measured on (and a
+    finished week keeps the result written down then - finalise never
+    rewrites). Each PERSON's basis stays the invoices they closed: an order
+    has no closer. Commission never reads a target. */
+export const ALL_CHANNELS_FROM = "2026-11-10";
+export const countsAllChannels = (to: string) => to >= ALL_CHANNELS_FROM;
+
+/** The other channels of a week, by part - the same filters as the
+    Dashboard's "Sales this month" (staff.ts /revenue): an order counts on the
+    day it was recorded, a returned one never; a manual sale on its out date. */
+async function channelsWeek(env: Env, from: string, to: string): Promise<{ tiktok_cents: number; other_cents: number; manual_cents: number }> {
+  const one = async (sql: string) => { try { return Number((await env.DB.prepare(sql).bind(from, to).first<{ c: number }>())?.c ?? 0); } catch { return 0; } };
+  const tiktok = await one(`SELECT COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2`);
+  const other = await one(`SELECT COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2`);
+  const manual = await one(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM manual_sales WHERE COALESCE(substr(out_date, 1, 10), date(created_at, '+8 hours')) BETWEEN ?1 AND ?2`);
+  return { tiktok_cents: tiktok, other_cents: other, manual_cents: manual };
+}
+
+/** The company's week: its approved target and its basis - the Collected
+    total (every closer), plus, from ALL_CHANNELS_FROM, every other channel.
+    One place, read by the Sales scorecard, the Dashboard, the outlook and
+    the advisory alike. `channels` is the breakdown; callers hand it only to
+    revenue readers. */
 async function companyWeek(env: Env, from: string, to: string) {
   const company = await targetFor(env, "company", null, from);
   const PAID_DAY = `date(COALESCE(d.paid_at, d.created_at), '+8 hours')`;
@@ -373,21 +399,23 @@ async function companyWeek(env: Env, from: string, to: string) {
   ).bind(from, to).first<{ c: number; n: number; k: number }>().catch(async () => await env.DB.prepare(
     `SELECT COALESCE(SUM(d.total_cents), 0) AS c, COUNT(*) AS n, 0 AS k FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2`,
   ).bind(from, to).first<{ c: number; n: number; k: number }>());
-  const basis = Number(tot?.c ?? 0);
+  const invoices = Number(tot?.c ?? 0);
+  const all = countsAllChannels(to);
+  const ch = all ? await channelsWeek(env, from, to) : null;
+  const basis = invoices + (ch ? ch.tiktok_cents + ch.other_cents + ch.manual_cents : 0);
   return { target_cents: company.target_cents, target_from: company.from, basis_cents: basis, paid_invoices: Number(tot?.n ?? 0), confirmed_cents: Number(tot?.k ?? 0),
+    basis_kind: all ? "all_channels" as const : "invoices" as const,
+    channels: ch ? { invoices_cents: invoices, ...ch } : null,
     pct: company.target_cents ? Math.round((basis / company.target_cents) * 100) : null,
     gap_cents: company.target_cents === null ? null : Math.max(0, company.target_cents - basis) };
 }
 
-/** v1.239.0 - what else was sold in the week and is NOT in the target (the
-    owner's answer "Invoices collected": shown beside it, never added): TikTok
-    and other shipped orders and manual sales, with the same filters as the
-    Dashboard's "Sales this month" (staff.ts /revenue), by the week's days. */
+/** v1.239.0 - what else was sold in the week. Until v1.275.0 it was shown
+    beside the company figure and never added; from ALL_CHANNELS_FROM it is
+    INSIDE the company figure (companyWeek.channels says how much). */
 async function otherChannelsWeek(env: Env, from: string, to: string): Promise<number> {
-  const one = async (sql: string) => { try { return Number((await env.DB.prepare(sql).bind(from, to).first<{ c: number }>())?.c ?? 0); } catch { return 0; } };
-  const postage = await one(`SELECT COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records WHERE status != 'returned' AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2`);
-  const manual = await one(`SELECT COALESCE(SUM(total_cents), 0) AS c FROM manual_sales WHERE COALESCE(substr(out_date, 1, 10), date(created_at, '+8 hours')) BETWEEN ?1 AND ?2`);
-  return postage + manual;
+  const c = await channelsWeek(env, from, to);
+  return c.tiktok_cents + c.other_cents + c.manual_cents;
 }
 
 /** v1.239.0 - the people an HOD leads, from the Organisation chart's own
@@ -544,7 +572,10 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
   }
   return json({
     week: { from, to, today, checkpoint, start_dow: startDow },
-    company: { target_cents: company.target_cents, target_from: company.target_from, basis_cents: company.basis_cents, pct: company.pct, gap_cents: company.gap_cents },
+    /* v1.275.0 - basis_kind tells every reader what the figure counts; the
+       channel breakdown is revenue, so only a revenue reader gets it */
+    company: { target_cents: company.target_cents, target_from: company.target_from, basis_cents: company.basis_cents, pct: company.pct, gap_cents: company.gap_cents,
+      basis_kind: company.basis_kind, channels: can(user.role, "revenue_view") ? company.channels : null },
     outlook, advisory, opportunities,
     other_channels_cents: other, me, team, all,
     can_set: can(user.role, "sales_week_target"), can_view_all: allowAll, can_assign: can(user.role, "team_manage"), can_sales: can(user.role, "sales"),
@@ -699,6 +730,21 @@ async function companyOutlook(env: Env, from: string, to: string, today: string,
          FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' GROUP BY wk`,
     ).all<{ wk: string; c: number }>()).results ?? [];
   } catch { weeks = []; }
+  /* v1.275.0 - a week measured on every channel (its last day on or after
+     ALL_CHANNELS_FROM) is remembered on every channel too, so the best week
+     and the confidence compare like with like; an earlier week stays
+     invoice-only, as it was measured */
+  const byWk = new Map(weeks.map((w) => [w.wk, Number(w.c)]));
+  const addCh = async (sql: string) => {
+    try {
+      for (const r of (await env.DB.prepare(sql).all<{ wk: string; c: number }>()).results ?? []) {
+        if (countsAllChannels(addDays(r.wk, 6))) byWk.set(r.wk, (byWk.get(r.wk) ?? 0) + Number(r.c));
+      }
+    } catch { /* that channel's table is not there */ }
+  };
+  await addCh(`SELECT date(date(created_at, '+8 hours'), '-6 days', 'weekday ${Number(startDow)}') AS wk, SUM(order_amount_cents) AS c FROM postage_records WHERE status != 'returned' AND order_amount_cents IS NOT NULL GROUP BY wk`);
+  await addCh(`SELECT date(COALESCE(substr(out_date, 1, 10), date(created_at, '+8 hours')), '-6 days', 'weekday ${Number(startDow)}') AS wk, SUM(total_cents) AS c FROM manual_sales GROUP BY wk`);
+  weeks = [...byWk].map(([wk, c]) => ({ wk, c }));
   const done = weeks.filter((w) => w.wk < from);
   const best = done.reduce<{ wk: string; c: number } | null>((b, w) => (!b || Number(w.c) > Number(b.c) ? { wk: w.wk, c: Number(w.c) } : b), null);
   /* confidence: finished weeks that HAD a company target, and decided quotations */
@@ -997,10 +1043,10 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     const rows = [];
     for (const p of people) rows.push(await weekFor(env, p.id, p.name, from, to, today, startDow));
     const companyRow = await companyWeek(env, from, to);
-    if (ended) await finalise(env, from, rows, { target: companyRow.target_cents, basis: companyRow.basis_cents, confirmed: companyRow.confirmed_cents });
+    if (ended) await finalise(env, from, rows, { target: companyRow.target_cents, basis: companyRow.basis_cents, confirmed: companyRow.confirmed_cents, basis_kind: companyRow.basis_kind, channels: companyRow.channels });
     /* v1.262.0 - pace, best week, confidence and risk beside the target, never instead */
     const outlook = await companyOutlook(env, from, to, today, startDow, companyRow, await advisorySettings(env));
-    return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "all", can_set: isSetter, can_view_all: true, company: companyRow, outlook, rows, commission: { policy: false } });
+    return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "all", can_set: isSetter, can_view_all: true, company: { ...companyRow, channels: can(user.role, "revenue_view") ? companyRow.channels : null }, outlook, rows, commission: { policy: false } });
   }
 
   /* ---- targets: read (management, or your own) and set (CEO, COO, super admin) ---- */

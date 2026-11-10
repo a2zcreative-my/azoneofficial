@@ -10,6 +10,19 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.275.0] - 2026-11-10 - The company weekly target counts every channel - BUILT, NOT DEPLOYED
+
+The CEO, 10-11-2026: "for sales, why ecommerce sales doesnt count as a Sales?" - then "option 2" (count it toward the target), with his answers: the company target only; this week onward; every channel the Dashboard counts. This reverses the 31-10-2026 basis for the COMPANY target only.
+
+- worker/src/weekly-sales.ts companyWeek: a week whose last day is on or after 10-11-2026 (ALL_CHANNELS_FROM) counts paid invoices + TikTok orders + other shipped orders + manual sales - the same four channels and filters as the Dashboard's "Sales this month" (an order on the day it was recorded, a returned one never; a manual sale on its out date). The %, the remaining gap, the required pace, the risk and the advisory all read the new figure.
+- A week that ended earlier keeps the invoice-only rule it was measured on; a finished week keeps the result written then (finalise never rewrites; a new company row now records basis_kind and its parts).
+- Best week and confidence compare like with like: a week from 10-11-2026 is remembered on every channel, earlier weeks on invoices.
+- Unchanged: each person's target (the invoices they closed - an order has no closer), the HOD and department rows, commission (never reads a target), the Sales "Collected" month tile (invoices).
+- Who sees what: every staff member sees the company figure and what it counts; the TikTok / other amounts (company.channels) only a revenue reader.
+- Screens: Dashboard tile "Company sales" (was "Collected") with "n% of target · all channels", "sales per working day"; the Dashboard's Sales target & pace card says "· all channels" on its dates line (its height kept; the parts in its title); Sales -> Weekly scorecard says "This week · invoices RM x · TikTok RM y · other RM z" and "the company target counts every channel" (lib/company-basis.ts); the Collected note says the company weekly target adds TikTok. A week measured on invoices keeps the old words.
+- No migration, no table, no record changed.
+- Tests: tests/weekly-dashboard.mjs follows the decision (the old "invoices only, nothing else" company check now reads every channel; new checks for the parts, the non-revenue reader, a returned order, a week before 10-11-2026; 10 -> 15 mutations, each caught); every other weekly check kept. tests/browser/company-channels.py (new, desktop and phone, 32 checks; fixture CHANNELS=1).
+
 ## [1.274.0] - 2026-11-10 - One page frame on every tab - BUILT, NOT DEPLOYED
 
 The CEO, 10-11-2026, with the Ecommerce Overview: "do ensure that everything is standardize for all the tabs to ensure it follow the Globally css". His answers: Pass 1, the page frame (every tab's top part the same, one release); the period said once, in the sub-line. Layout only - no request, permission, figure or record changed.

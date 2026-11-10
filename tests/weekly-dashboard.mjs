@@ -20,12 +20,15 @@
  *   12 tasks stay in the Tasks module (linked, once)
  *   13 a resigned employee drops out from their last day
  *   14 the Dashboard equals the Sales scorecard
- * plus: no other person's figures by direct API, other channels never added.
+ * plus: no other person's figures by direct API. v1.275.0 (the CEO, 10-11-2026,
+ * "option 2"): the COMPANY week counts every channel from 10-11-2026 - paid
+ * invoices + TikTok + other shipments + manual sales, its parts for revenue
+ * readers only; an earlier week stays invoices only; a person stays invoices.
  * Then mutated copies must each fail a check.
  *
  *   node tests/weekly-dashboard.mjs
  */
-import { readFileSync, readdirSync, mkdtempSync, writeFileSync, cpSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -90,7 +93,10 @@ async function runtime(workerBundle) {
   doc.run(104, "QT", "QT-104", 2, 500000, null, null, `${from} 01:00:00`, 5, "2099-12-31");                       // an open quotation
   doc.run(105, "INV", "INV-105", 1, 120000, "paid", `${from} 03:00:00`, `${from} 01:00:00`, 4, null);           // Hakim
   doc.run(106, "INV", "INV-106", 1, 50000, "paid", `${from} 03:00:00`, `${from} 01:00:00`, 10, null);           // the resigned seller's old account
-  db.exec(`INSERT INTO postage_records (order_ref, order_amount_cents, status, created_at) VALUES ('TT-1', 40000, 'shipped', '${from} 02:00:00')`);
+  db.exec(`INSERT INTO postage_records (order_ref, order_amount_cents, status, created_at) VALUES ('TT-1', 40000, 'shipped', '${from} 02:00:00'), ('TT-3', 99900, 'returned', '${from} 04:00:00')`);
+  /* v1.275.0 - a week that ended before 10-11-2026 keeps the invoice-only rule it was measured on */
+  doc.run(107, "INV", "INV-107", 1, 100000, "paid", "2026-10-27 03:00:00", "2026-10-27 01:00:00", 5, null);
+  db.exec(`INSERT INTO postage_records (order_ref, order_amount_cents, status, created_at) VALUES ('TT-2', 50000, 'shipped', '2026-10-28 02:00:00')`);
   db.exec(`INSERT INTO commission_ledger (source_key, kind, invoice_id, user_id, basis_cents, amount_cents, status, paid_day) VALUES ('earn:102', 'earn', 102, 5, 70000, 3500, 'eligible', '${lastWeek}')`);
 
   const worker = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`)).default;
@@ -138,8 +144,10 @@ async function runtime(workerBundle) {
     ok(d.me.basis_cents === 300000, "8 the unpaid invoice is not collected");
     const sales = (await call("/staff/sales/week", U.aina)).j?.me;
     ok(sales && ["target_cents", "basis_cents", "pct", "gap_cents", "status", "expected_cents"].every((k) => sales[k] === d.me[k]), "14 the Dashboard equals the Sales scorecard for her", JSON.stringify([sales?.status, d.me.status]));
-    ok(d.company.target_cents === 1000000 && d.company.basis_cents === 300000 + 120000 + 50000, "the company figure: every closer's collected invoices, nothing else", String(d.company.basis_cents));
-    ok(d.other_channels_cents === 40000, "other channels are shown beside it to revenue readers, never added", String(d.other_channels_cents));
+    /* v1.275.0 (the CEO, 10-11-2026, "option 2": company only, this week onward, every channel the Dashboard counts) */
+    ok(d.company.target_cents === 1000000 && d.company.basis_cents === 300000 + 120000 + 50000 + 40000 && d.company.basis_kind === "all_channels", "the company figure: every closer's collected invoices AND the week's TikTok order - every channel, this week onward", String(d.company.basis_cents));
+    ok(JSON.stringify(d.company.channels) === JSON.stringify({ invoices_cents: 470000, tiktok_cents: 40000, other_cents: 0, manual_cents: 0 }) && d.other_channels_cents === 40000, "a revenue reader sees its parts: invoices, TikTok, other, manual", JSON.stringify(d.company.channels));
+    ok(d.company.pct === 51 && d.company.gap_cents === 1000000 - 510000, "the % and what is left are on the whole figure", JSON.stringify([d.company.pct, d.company.gap_cents]));
     ok(d.team === null && d.all === null, "3 a salesperson gets no team and no everyone");
     ok(d.me.open_quotations?.n === 1 && d.can_sales === true, "her actions: one open quotation to revisit");
     ok(!/commission_cents|rate_bp|amount_cents/.test(JSON.stringify(d)) && d.commission?.policy === false, "no commission figure on the card");
@@ -168,6 +176,9 @@ async function runtime(workerBundle) {
     ok(sAll.company.basis_cents === d.company.basis_cents && sAll.company.target_cents === d.company.target_cents
       && d.all.rows.every((r) => { const s = sAll.rows.find((x) => x.user_id === r.user_id); return s && s.basis_cents === r.basis_cents && s.status === r.status && s.target_cents === r.target_cents; }),
       "14 every Dashboard row equals the Sales scorecard's");
+    ok(JSON.stringify(sAll.company.channels) === JSON.stringify(d.company.channels) && sAll.company.basis_kind === "all_channels", "14 ...and its company parts equal the Dashboard's", JSON.stringify(sAll.company.channels));
+    const preRule = (await call("/staff/sales/week?scope=all&week=2026-10-26", U.ceo)).j?.company;
+    ok(preRule && preRule.basis_cents === 100000 && preRule.basis_kind === "invoices" && preRule.channels === null, "a week that ended before 10-11-2026 stays invoices only - its TikTok order is not added", JSON.stringify(preRule));
     ok((await dash(U.cco)).j?.all && (await dash(U.coo)).j?.all, "the COO and CCO monitor everyone too");
 
     /* 5 a non-sales employee: introduce a lead, Sales qualifies it */
@@ -175,6 +186,7 @@ async function runtime(workerBundle) {
     d = (await dash(U.mia)).j;
     ok(d?.me?.has_target && d.me.goals?.[0]?.metric === "introductions" && d.me.goals[0].target === 2 && d.me.goals[0].actual === 0, "5 Mia sees her goal: 0 of 2 introductions", JSON.stringify(d?.me?.goals));
     ok(d.company.target_cents === 1000000 && d.other_channels_cents === null, "every staff member sees the company target; other channels only for revenue readers");
+    ok(d.company.basis_cents === 510000 && d.company.basis_kind === "all_channels" && d.company.channels === null, "...the whole company figure and what it counts, never its TikTok amount", JSON.stringify(d.company));
     ok(!/Aina|Hakim/.test(JSON.stringify(d).replace(/"name":"Mia Editor"/, "")), "no other person's figures reach a staff member", "");
     const lead = { name: "Puan Rosnah", company: "Butik Rosnah", phone: "+60 12-555 0101", note: "Wants live selling for her boutique opening" };
     const intro = await call("/enquiries/introduce", U.mia, "POST", lead);
@@ -248,6 +260,12 @@ const MUT = [
   ["worker/src/weekly-sales.ts", "a team row carries everything", "user_id: r.user_id, name: r.name, department, target_cents: r.target_cents, basis_cents: r.basis_cents, pct: r.pct, gap_cents: r.gap_cents, status: r.status,", "...r, department,"],
   ["worker/src/enquiries.ts", "qualifying stamps nothing", "try { await env.DB.prepare(`UPDATE enquiries SET qualified_at = COALESCE(qualified_at, datetime('now')), qualified_by = COALESCE(qualified_by, ?2) WHERE id = ?1`).bind(id, user.id).run(); } catch { /* pre-0156 */ }", "/* nothing */"],
   ["worker/src/enquiries.ts", "the same contact twice", 'if (dup) return err("duplicate"', 'if (false) return err("duplicate"'],
+  /* v1.275.0 - the company target counts every channel from 10-11-2026 */
+  ["worker/src/weekly-sales.ts", "the company leaves the other channels out", "  const all = countsAllChannels(to);", "  const all = false;"],
+  ["worker/src/weekly-sales.ts", "every week counts every channel, the earlier ones too", "export const countsAllChannels = (to: string) => to >= ALL_CHANNELS_FROM;", "export const countsAllChannels = (to: string) => to.length > 0;"],
+  ["worker/src/weekly-sales.ts", "the TikTok amount reaches a non-revenue reader", 'basis_kind: company.basis_kind, channels: can(user.role, "revenue_view") ? company.channels : null },', "basis_kind: company.basis_kind, channels: company.channels },"],
+  ["worker/src/weekly-sales.ts", "a TikTok order counted twice (as an other shipment too)", "WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' AND date(created_at", "WHERE status != 'returned' AND date(created_at"],
+  ["worker/src/weekly-sales.ts", "a returned TikTok order counts", "WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND date(created_at", "WHERE order_ref LIKE 'TT-%' AND date(created_at"],
   ["worker/src/weekly-sales.ts", "other channels for everyone", 'const other = can(user.role, "revenue_view") ? await otherChannelsWeek(env, from, to) : null;', "const other = await otherChannelsWeek(env, from, to);"],
 ];
 for (const [file, name, from, to] of NOMUT ? [] : MUT) {
@@ -261,7 +279,8 @@ for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   writeFileSync(join(mdir, file), src.replace(from, to));
   try { bundle(mdir, "worker/src/index.ts", join(mdir, "worker.mjs")); } catch { fail++; console.error(`FAIL mutation did not build: ${name}`); continue; }
   const res = await runtime(join(mdir, "worker.mjs"));
+  rmSync(mdir, { recursive: true, force: true });
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`weekly-dashboard: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`weekly-dashboard: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - one weekly engine on the Dashboard: the company's week for everyone, my target and goals, my team for an HOD, everyone for management; collected invoices only, once; commission untouched`);
+console.log(`weekly-dashboard: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - one weekly engine on the Dashboard: the company's week for everyone, my target and goals, my team for an HOD, everyone for management; the company counts every channel from 10-11-2026 (a person, invoices only, once); commission untouched`);

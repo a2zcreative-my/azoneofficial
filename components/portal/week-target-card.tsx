@@ -24,6 +24,7 @@ import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import type { TabName } from "@/lib/portal-tabs";
 import { dmy, fmtRM } from "@/lib/format";
+import { companyBasisLine, type Channels } from "@/lib/company-basis";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, textareaClass } from "@/lib/ui-styles";
 import { GOAL_LABEL, WEEK_STATUS, type WeekStatus, type WeekTone } from "@/lib/week-status";
@@ -39,7 +40,9 @@ interface Slim { user_id: number; name: string; department: string | null; targe
 interface Goal { metric: string; target: number; actual: number; pct?: number }
 export interface WeekDash {
   week: { from: string; to: string; today: string; checkpoint: string; start_dow: number };
-  company: { target_cents: number | null; target_from: string | null; basis_cents: number; pct: number | null; gap_cents: number | null };
+  /* v1.275.0 - basis_kind: what the company figure counts ("all_channels" from
+     the week holding 10-11-2026); channels: its parts, for revenue readers only */
+  company: { target_cents: number | null; target_from: string | null; basis_cents: number; pct: number | null; gap_cents: number | null; basis_kind?: "invoices" | "all_channels"; channels?: Channels | null };
   other_channels_cents: number | null;
   me: null | {
     name: string; has_target: boolean; target_cents: number | null; basis_cents: number; paid_invoices: number; pct: number | null; gap_cents: number | null;
@@ -171,7 +174,8 @@ export function SalesPaceCard({ d, go, canSales, refresh }: { d: WeekDash; go: (
     return (
       <Box title={L("Sales target & pace", "Sasaran & rentak jualan")} label={L("Weekly sales target", "Sasaran jualan mingguan")} testid="sales-pace"
         action={d.can_set ? <Pill onClick={() => setAlloc(true)}>{L("Manage targets", "Urus sasaran")}</Pill> : undefined}>
-        <p className={css.dates}>{dmy(d.week.from)} – {dmy(d.week.to)}</p>
+        {/* v1.275.0 - what the company figure counts, on the dates line (the card keeps its height); the parts are on Sales and in the title */}
+        <p className={css.dates} data-testid="company-basis" title={c.basis_kind === "all_channels" ? companyBasisLine(c, L) : undefined}>{dmy(d.week.from)} – {dmy(d.week.to)}{c.basis_kind === "all_channels" ? L(" · all channels", " · semua saluran") : ""}</p>
         {c.target_cents === null ? <p className={css.notSet}>{L("Target Not Set", "Sasaran Belum Ditetapkan")}</p> : (
           <>
             <p className={css.split}><span><strong className={css.big}>{fmtRM(c.basis_cents)}</strong> / {fmtRM(c.target_cents)}</span>{r && <span className={r[2]}>{L(r[0], r[1])}</span>}</p>

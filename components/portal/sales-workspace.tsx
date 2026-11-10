@@ -138,7 +138,7 @@ function CollectedTrend({ docs, monthKey, today, daily }: { docs: WsDoc[]; month
         <PanelTitle icon="paid">{L("Collected this month", "Dikutip bulan ini")}</PanelTitle>
         <strong className={css.big}>{fmtRM(total)}</strong>
       </div>
-      <p className={css.meta}>{L("Invoices marked paid, by the day the money landed. Part payments are not counted until the invoice is paid. Invoices only - the Dashboard adds TikTok and other channels.", "Invois ditanda dibayar, ikut hari wang diterima. Bayaran separa tidak dikira sehingga invois dibayar. Invois sahaja - Papan Pemuka menambah TikTok dan saluran lain.")}</p>
+      <p className={css.meta}>{L("Invoices marked paid, by the day the money landed. Part payments are not counted until the invoice is paid. Invoices only - the Dashboard and the company weekly target add TikTok and other channels.", "Invois ditanda dibayar, ikut hari wang diterima. Bayaran separa tidak dikira sehingga invois dibayar. Invois sahaja - Papan Pemuka dan sasaran mingguan syarikat menambah TikTok dan saluran lain.")}</p>
       {total === 0 ? <p className={css.empty}>{L("Nothing collected yet this month.", "Belum ada kutipan bulan ini.")}</p> : (
         <svg className={css.chart} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={L(`Running total, ${fmtRM(total)} by day ${lastDay}`, `Jumlah berjalan, ${fmtRM(total)} pada hari ${lastDay}`)}>
           <line x1={P} x2={W - P} y1={H - P} y2={H - P} className={css.axis} />

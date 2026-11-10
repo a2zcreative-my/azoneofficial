@@ -16,6 +16,7 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { makeApi, type ApiResult } from "@/lib/api";
+import { companyBasisLine, type Channels } from "@/lib/company-basis";
 import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
@@ -43,7 +44,7 @@ export interface WeekRow {
   final: { status: string | null; basis_cents: number; target_cents: number | null; finalised_at: string; changed_cents: number } | null;
 }
 interface Week { from: string; to: string; today: string; checkpoint: "planning" | "early_warning" | "review" | "final"; start_dow: number }
-interface WeekResp { week: Week; scope: "mine" | "all"; can_set: boolean; can_view_all: boolean; me?: WeekRow; rows?: WeekRow[]; company?: { target_cents: number | null; target_from: string | null; basis_cents: number; confirmed_cents: number; pct: number | null; gap_cents: number | null }; outlook?: Outlook }
+interface WeekResp { week: Week; scope: "mine" | "all"; can_set: boolean; can_view_all: boolean; me?: WeekRow; rows?: WeekRow[]; company?: { target_cents: number | null; target_from: string | null; basis_cents: number; confirmed_cents: number; pct: number | null; gap_cents: number | null; basis_kind?: "invoices" | "all_channels"; channels?: Channels | null }; outlook?: Outlook }
 
 /* v1.239.0 - the words live in lib/week-status.ts, shared with the Dashboard */
 const TONE_CHIP = { neutral: chipNeutral, info: chipInfo, success: chipSuccess, warn: chipWarn, danger: chipDanger } as const;
@@ -436,7 +437,7 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
       <div className={css.head}>
         <div>
           <PanelTitle icon="target">{d?.scope === "all" ? L("Weekly sales - the team", "Jualan mingguan - pasukan") : L("My weekly target", "Sasaran mingguan saya")}</PanelTitle>
-          {w && <p className={css.sub}>{L(CHECKPOINT[w.checkpoint][0], CHECKPOINT[w.checkpoint][1])} · {L("Collected = invoices paid in full, by closer", "Dikutip = invois dibayar penuh, mengikut penutup")}</p>}
+          {w && <p className={css.sub}>{L(CHECKPOINT[w.checkpoint][0], CHECKPOINT[w.checkpoint][1])} · {L("Collected = invoices paid in full, by closer", "Dikutip = invois dibayar penuh, mengikut penutup")}{d?.company?.basis_kind === "all_channels" ? L(" · the company target counts every channel", " · sasaran syarikat mengira semua saluran") : ""}</p>}
         </div>
         <div className={css.tools}>
           {nav}
@@ -464,7 +465,8 @@ export function WeeklySales({ scope, fallback }: { scope: "mine" | "all"; fallba
                 {d.company.pct !== null && <strong>{d.company.pct}%</strong>}
               </div>
               {d.company.target_cents !== null && <span className={css.bar} role="img" aria-label={L(`${d.company.pct}% of the company target`, `${d.company.pct}% daripada sasaran syarikat`)}><span style={{ width: `${Math.min(100, d.company.pct ?? 0)}%` }} /></span>}
-              <span className={css.facts}><span>{L("Confirmed by CEO/COO", "Disahkan CEO/COO")} <strong>{fmtRM(d.company.confirmed_cents)}</strong></span>{d.company.gap_cents !== null && <span>{L("Gap", "Baki")} <strong>{fmtRM(d.company.gap_cents)}</strong></span>}</span>
+              <span className={css.sub} data-testid="company-basis">{companyBasisLine(d.company, L)}</span>
+              <span className={css.facts}><span>{d.company.basis_kind === "all_channels" ? L("Invoices confirmed by CEO/COO", "Invois disahkan CEO/COO") : L("Confirmed by CEO/COO", "Disahkan CEO/COO")} <strong>{fmtRM(d.company.confirmed_cents)}</strong></span>{d.company.gap_cents !== null && <span>{L("Gap", "Baki")} <strong>{fmtRM(d.company.gap_cents)}</strong></span>}</span>
             </div>
           )}
           {d.outlook && <CommandStrip o={d.outlook} gap={d.company?.gap_cents ?? null} />}
