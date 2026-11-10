@@ -417,3 +417,8 @@ began). Passkeys are built switched off.
 ELFIA booking columns that 0081 carries. A fresh database already has them, so
 there both are marked applied in d1_migrations instead of run; the PUSH.bat
 data pre-flight refuses to apply either one if its column already exists.
+1.272.0 adds `0181_payment_verification` (additive, idempotent):
+invoice_payment_reports (a reported payment and its proof, not money until the
+CEO verifies it) and invoice_payment_events (the payment timeline, append
+only). Verification writes the existing invoice_payments row; nothing else
+changes until the owner switches payment verification on.

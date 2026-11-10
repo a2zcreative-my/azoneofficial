@@ -70,6 +70,19 @@ const taskPosts = []; // v1.246.0
 const salesPosts = []; // v1.262.0 - Sales discipline writes, for the probe at /__sales
 /* v1.269.0 - Phase 2A: PASSKEYS=1 means stage A; what the browser posted is kept for /__passkeys */
 const pk = { creds: [], posts: [], issued: [], n: 0 };
+/* v1.272.0 - PAYV=1: payment verification is on; two open invoices (A2Z and
+   AZ ONE), one payment already reported by Aina with its proof (for the CEO's
+   review). Every write is kept for /__payments. 123456 is the code. */
+const payInit = () => ({
+  on: !!process.env.PAYV, n: 2, posts: [],
+  invoices: [
+    { id: 501, doc_number: "INV-A2Z-501", total_cents: 120000, customer: "Maju Engineering", salesperson: "Fixture Person", company: "a2z", verified: 0, paid: false },
+    { id: 502, doc_number: "INV-AZOO-502", total_cents: 30000, customer: "Putra Hotel", salesperson: "Fixture Person", company: "azoo", verified: 0, paid: false },
+  ],
+  reports: [{ id: 1, invoice_id: 501, issuer_code: "a2z", amount_cents: 60000, received_on: "2026-11-04", method: "bank_transfer", reference: "MBB 0001", note: null, over_cents: 0, dup_of: null, state: "reported", reported_by: 77, reporter: "Aina Seller", reporter_role: "sales_marketing", reported_at: "2026-11-04 02:00:00", has_proof: true, evidence_by: null, decided_at: null, verified_cents: null, question: null }],
+  events: [{ id: 1, invoice_id: 501, report_id: 1, event: "reported", amount_cents: 60000, detail: null, created_at: "2026-11-04 02:00:00", actor: "Aina Seller" }, { id: 2, invoice_id: 501, report_id: 1, event: "proof_uploaded", amount_cents: null, detail: null, created_at: "2026-11-04 02:01:00", actor: "Aina Seller" }],
+});
+let pay = payInit();
 let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
 const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
@@ -79,12 +92,14 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
   }
+  if (url.pathname === "/__payments") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pay)); return; }
   if (url.pathname === "/__passkeys") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pk)); return; }
   if (url.pathname === "/__sales") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: salesPosts })); return; }
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
     signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
+    pay = payInit(); // v1.272.0
     punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0; pk.creds = []; pk.posts = []; pk.issued = [];
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
@@ -177,6 +192,68 @@ const server = http.createServer((req, res) => {
         return b.password === "correct horse" ? send(200, { sent: true, to: "fi***@example.test" }) : send(401, { error: { code: "invalid_password", message: "That password is not correct." } });
       }
       if (req.method === "POST" && p === "/auth/google/disconnect") return send(200, { ok: true });
+      /* v1.272.0 - Sales -> Payments (PAYV=1), stateful, the server's rules in small */
+      if (p === "/staff/payments" || p.startsWith("/staff/payments/") || /^\/staff\/docs\/\d+\/payment-reports$/.test(p) || p.startsWith("/staff/payment-reports/")) {
+        const role = process.env.ROLE ?? "ceo";
+        const caps = { report: ["ceo", "coo", "cco", "sales_marketing"].includes(role), verify: role === "ceo", evidence: role === "coo", switch: role === "ceo" && !!process.env.OWNER, all: ["ceo", "coo", "cco"].includes(role) };
+        const pend = (i) => pay.reports.filter((r) => r.invoice_id === i.id && ["reported", "evidence_checked", "clarify"].includes(r.state)).reduce((a, r) => a + r.amount_cents, 0);
+        const statusOf = (i) => i.paid ? "paid" : i.verified === 0 ? (pend(i) ? "reported" : "unpaid") : i.verified + pend(i) >= i.total_cents ? "fully_reported" : "partial";
+        const deco = (r) => ({ ...r, mine: r.reported_by === 9001, needs_evidence: r.reporter_role === "ceo", doc_number: pay.invoices.find((i) => i.id === r.invoice_id)?.doc_number, customer: pay.invoices.find((i) => i.id === r.invoice_id)?.customer });
+        const ev = (i, rid, event, amount, detail = null) => pay.events.push({ id: pay.events.length + 1, invoice_id: i, report_id: rid, event, amount_cents: amount, detail: detail ? JSON.stringify(detail) : null, created_at: "2026-11-05 02:00:00", actor: "Fixture Person" });
+        const picture = (i) => ({ invoice: { id: i.id, doc_number: i.doc_number, customer: i.customer, total_cents: i.total_cents, payment_status: i.paid ? "paid" : "unpaid", company: i.company, company_name: i.company === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL" },
+          verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.paid ? 0 : i.total_cents - i.verified, status: statusOf(i), reports: pay.reports.filter((r) => r.invoice_id === i.id).map(deco).reverse(), events: pay.events.filter((e) => e.invoice_id === i.id), can_report: caps.report && !i.paid });
+        const b = jb();
+        if (req.method !== "GET") pay.posts.push({ path: p, method: req.method, body: p.endsWith("/proof") ? "(file)" : b });
+        if (req.method === "GET" && p === "/staff/payments") {
+          const open = pay.invoices.filter((i) => !i.paid);
+          const reps = pay.reports.map(deco);
+          return send(200, { on: pay.on, ready: true, can: caps,
+            banks: caps.verify ? [{ id: 1, name: "A2Z account", bank: "Maybank", number_masked: "****1111", company: "a2z" }, { id: 2, name: "AZ ONE account", bank: "Maybank", number_masked: "****2222", company: "azoo" }] : [],
+            reports: reps, invoices: open.map((i) => ({ id: i.id, doc_number: i.doc_number, total_cents: i.total_cents, customer: i.customer, salesperson: i.salesperson, company: i.company, salesperson_id: 9001, verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.total_cents - i.verified, status: statusOf(i), can_report: caps.report })),
+            tiles: { pending_cents: reps.filter((r) => ["reported", "evidence_checked", "clarify"].includes(r.state)).reduce((a, r) => a + r.amount_cents, 0), pending_count: reps.filter((r) => ["reported", "evidence_checked", "clarify"].includes(r.state)).length, verified_month_cents: reps.filter((r) => r.state === "verified").reduce((a, r) => a + (r.verified_cents ?? 0), 0), outstanding_cents: open.reduce((a, i) => a + i.total_cents - i.verified, 0), outstanding_invoices: open.length, partial_invoices: open.filter((i) => ["partial", "fully_reported"].includes(statusOf(i))).length } });
+        }
+        if (req.method === "PUT" && p === "/staff/payments/settings") {
+          if (!caps.switch) return send(403, { error: { code: "forbidden", message: "Only the company owner switches payment verification on or off" } });
+          if (b.totp !== "123456") return send(401, { error: { code: "totp_invalid", message: "That code is not valid" } });
+          pay.on = b.on === true; return send(200, { ok: true, on: pay.on });
+        }
+        const md = p.match(/^\/staff\/docs\/(\d+)\/payment-reports$/);
+        if (md) {
+          const i = pay.invoices.find((x) => x.id === Number(md[1]));
+          if (!i) return send(404, { error: { code: "not_found", message: "Invoice not found" } });
+          if (req.method === "GET") return send(200, picture(i));
+          if (!pay.on) return send(409, { error: { code: "payment_verification_off", message: "Payment verification is switched off" } });
+          if (!caps.report) return send(403, { error: { code: "forbidden", message: "You cannot report payments" } });
+          if (b.method !== "cash" && !/^[A-Za-z0-9][A-Za-z0-9 ./#_-]{2,59}$/.test(b.reference ?? "")) return send(400, { error: { code: "invalid_reference", message: "Enter the bank or payment reference" } });
+          const id = ++pay.n;
+          pay.reports.push({ id, invoice_id: i.id, issuer_code: i.company, amount_cents: b.amount_cents, received_on: b.received_on, method: b.method, reference: b.reference, note: b.note ?? null, over_cents: Math.max(0, b.amount_cents - (i.total_cents - i.verified - pend(i))), dup_of: null, state: "reported", reported_by: 9001, reporter: "Fixture Person", reporter_role: role, reported_at: "2026-11-05 02:00:00", has_proof: false, evidence_by: null, decided_at: null, verified_cents: null, question: null });
+          ev(i.id, id, "reported", b.amount_cents);
+          return send(201, { ok: true, id, over_cents: 0, possible_duplicate: false, ...picture(i) });
+        }
+        const mr = p.match(/^\/staff\/payment-reports\/(\d+)\/([a-z]+)$/);
+        const r = mr ? pay.reports.find((x) => x.id === Number(mr[1])) : null;
+        if (!r) return send(404, { error: { code: "not_found", message: "Payment report not found" } });
+        const i = pay.invoices.find((x) => x.id === r.invoice_id);
+        const a = mr[2];
+        if (a === "proof" && req.method === "GET") { res.writeHead(200, { "content-type": "image/png" }); res.end(readFileSync(join(dir, "icon-192.png"))); return; }
+        if (a === "proof") { if (r.reported_by !== 9001) return send(403, { error: { code: "forbidden", message: "Only the reporter attaches its proof" } }); r.has_proof = true; ev(i.id, r.id, "proof_uploaded", null); return send(200, { ok: true }); }
+        if (["verify", "reject", "reverse", "evidence"].includes(a) && b.totp !== "123456") return send(401, { error: { code: "totp_invalid", message: "That code is not valid" } });
+        if (["verify", "reject", "reverse", "clarify"].includes(a) && !caps.verify) return send(403, { error: { code: "forbidden", message: "Only the CEO verifies payments" } });
+        if (a === "verify") {
+          if (r.reported_by === 9001 && r.state !== "evidence_checked") return send(403, { error: { code: "self_approval", message: "You reported this payment - its bank evidence is checked by the COO first." } });
+          if (b.bank_id !== 1 && i.company === "a2z") return send(409, { error: { code: "company_mismatch", message: "Company money is never combined." } });
+          r.state = "verified"; r.verified_cents = b.amount_cents; r.decided_at = "2026-11-05 02:00:00"; r.decided_name = "Fixture Person"; r.bank_name = "A2Z account"; r.verify_method = b.verify_method;
+          i.verified += b.amount_cents; ev(i.id, r.id, "verified", b.amount_cents);
+          if (i.verified >= i.total_cents) { i.paid = true; ev(i.id, null, "invoice_paid", i.total_cents); } else ev(i.id, r.id, "outstanding_updated", i.total_cents - i.verified);
+          return send(200, { ok: true, ...picture(i) });
+        }
+        if (a === "reject") { if ((b.reason ?? "").length < 10) return send(400, { error: { code: "invalid_input", message: "Give the reason" } }); r.state = "rejected"; r.reason = b.reason; ev(i.id, r.id, "rejected", r.amount_cents, { reason: b.reason }); return send(200, { ok: true, ...picture(i) }); }
+        if (a === "clarify") { r.state = "clarify"; r.question = b.question; ev(i.id, r.id, "clarification_requested", null, { question: b.question }); return send(200, { ok: true, ...picture(i) }); }
+        if (a === "answer") { r.state = "reported"; r.answer = b.answer; ev(i.id, r.id, "clarification_answered", null, { answer: b.answer }); return send(200, { ok: true, ...picture(i) }); }
+        if (a === "evidence") { if (!caps.evidence) return send(403, { error: { code: "forbidden", message: "You do not check payment evidence" } }); r.state = "evidence_checked"; ev(i.id, r.id, "evidence_checked", r.amount_cents, { note: b.note }); return send(200, { ok: true, ...picture(i) }); }
+        if (a === "reverse") { r.state = "reversed"; r.reverse_reason = b.reason; i.verified -= r.verified_cents ?? 0; i.paid = false; ev(i.id, r.id, "reversed", r.verified_cents, { reason: b.reason }); return send(200, { ok: true, ...picture(i) }); }
+        return send(404, { error: { code: "not_found", message: "Not found" } });
+      }
       /* v1.268.0 - Phase R: every panel step needs a code (123456) */
       if (req.method === "POST" && p.startsWith("/staff/recovery")) {
         const b = jb();

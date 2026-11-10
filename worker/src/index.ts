@@ -300,7 +300,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0180_web_orders_refund_flag";
+const LATEST_MIGRATION = "0181_payment_verification";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5657,6 +5657,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0177 (executive recovery: the panel, two-person requests, the 12-hour wait)", `SELECT id, target_id, requested_by, approved_by, status, execute_after FROM exec_recovery_requests LIMIT 0`],
       ["0178 (passkeys: credentials, single-use challenges, how a session began)", `SELECT w.id, w.credential_id, w.revoked_at, c.purpose, c.binding_hash, s.auth_method, s.auth_credential_id FROM webauthn_credentials w, webauthn_challenges c, sessions s LIMIT 0`],
       ["0179-0180 (web_orders.booked_cents and refund_flagged_at: the ELFIA booking columns)", `SELECT booked_cents, refund_flagged_at FROM web_orders LIMIT 0`],
+      ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
       ["0140 (part payments on an invoice)", `SELECT id, invoice_id, amount_cents, received_on, voided_at FROM invoice_payments INDEXED BY idx_invoice_payments_invoice WHERE invoice_id = 0 LIMIT 1`],
     ];
@@ -5858,6 +5859,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0178_passkeys",
       "0179_web_orders_booked_cents",
       "0180_web_orders_refund_flag",
+      "0181_payment_verification",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -20,7 +20,7 @@
  *
  *   node tests/self-approval.mjs
  */
-import { readFileSync, readdirSync, mkdtempSync, writeFileSync, cpSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -235,7 +235,9 @@ for (const [file, name, reps] of NOMUT ? [] : MUT) {
   writeFileSync(join(mdir, file), src);
   try { bundle(mdir, "worker/src/index.ts", join(mdir, "worker.mjs")); } catch { fail++; console.error(`FAIL mutation did not build: ${name}`); continue; }
   const res = await runtime(join(mdir, "worker.mjs"));
+  rmSync(mdir, { recursive: true, force: true }); // v1.272.0 - leave no copy behind
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
+rmSync(dir, { recursive: true, force: true });
 if (fail) { console.error(`self-approval: ${fail} of ${n} failed`); process.exit(1); }
 console.log(`self-approval: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - nobody decides their own record; the owner's own is an executive record`);

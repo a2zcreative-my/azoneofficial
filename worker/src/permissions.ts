@@ -272,6 +272,19 @@ export const PERMS: Record<string, readonly Role[]> = {
      the super admin edits a cell. */
   /** confirm that a paid invoice's money arrived (never on your own sale - a rule in the route) */
   confirm_paid: ["ceo", "coo"],
+  /* === v1.272.0 - SALES PAYMENT VERIFICATION (the CEO, 10-11-2026,
+     claude/PAYMENT-VERIFICATION-AUDIT.md P1-P3, all as recommended). Live only
+     while the owner's switch (business_settings.payment_verification) is on.
+     Report: the COO and CCO on every invoice, any other role given it only
+     on invoices where they are the salesperson (a rule in the route).
+     Verify: the CEO alone, never a report of their own until another person
+     has checked its bank evidence (evidence). */
+  /** report a payment received, with its proof */
+  payment_report: ["ceo", "coo", "cco", "sales_marketing"],
+  /** verify, reject or reverse a reported payment - the only step that makes it money */
+  payment_verify: ["ceo"],
+  /** check the bank evidence of a payment the verifier reported themselves */
+  payment_evidence: ["coo"],
   /** view and process payroll (was PAYROLL_PROC) */
   payroll_process: ["super_admin", "admin", "ceo", "coo"],
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
@@ -479,6 +492,9 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "week_target", en: "Set weekly sales targets and goals; review recovery plans", ms: "Tetapkan sasaran dan matlamat jualan mingguan; semak pelan pemulihan", cap: "sales_week_target", note_en: "A reason for every change; history kept", note_ms: "Sebab bagi setiap perubahan; sejarah disimpan" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
   { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", cap: "confirm_paid", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },
+  { module: "Sales", key: "payment_report", en: "Report a payment received (with proof)", ms: "Lapor bayaran diterima (dengan bukti)", cap: "payment_report", note_en: "Own invoices only, except COO and CCO", note_ms: "Invois sendiri sahaja, kecuali COO dan CCO" },
+  { module: "Sales", key: "payment_verify", en: "Verify a reported payment", ms: "Sahkan bayaran yang dilaporkan", cap: "payment_verify", note_en: "Never their own report until its evidence is checked", note_ms: "Bukan laporan sendiri sehingga buktinya disemak" },
+  { module: "Sales", key: "payment_evidence", en: "Check the bank evidence of the verifier's own report", ms: "Semak bukti bank laporan pengesah sendiri", cap: "payment_evidence" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },

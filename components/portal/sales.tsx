@@ -11,6 +11,7 @@ import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL, withStepUp }
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
 import { ClosedSales, FollowUps, SalesOverviewCards, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
+import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
 import { SalesEnquiries, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -1189,7 +1190,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      so a half-written quotation survives a look at another tab. "Mine" is
      the screen's filter over records every sales role may already read: a
      consultant opens on their own sales, management on everyone's. */
-  const [wsView, setWsView] = useState<"overview" | "documents" | "closed" | "customers" | "reports">(initialView === "create" ? "documents" : "overview");
+  const [wsView, setWsView] = useState<"overview" | "documents" | "payments" | "closed" | "customers" | "reports">(initialView === "create" ? "documents" : "overview");
   const [scope, setScope] = useState<WsScope>(MANAGE_ROLES.includes(user.role) ? "all" : "mine");
   /* v1.216.0 - the figures over the whole table (GET /staff/docs/summary),
      for the scope on screen; refreshed with every load */
@@ -2220,6 +2221,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       <LineTabs value={wsView} onChange={(k) => setWsView(k)} label={L("Sales", "Jualan")} tabs={[
         ["overview", L("Overview", "Gambaran")],
         ["documents", L("Quotations & Invoices", "Sebut Harga & Invois")],
+        ["payments", L("Payments", "Bayaran")], // v1.272.0 - report, then the CEO verifies
         ["closed", L("Closed Sales", "Jualan Ditutup")],
         ["customers", L("Customers & Follow-ups", "Pelanggan & Susulan")],
         ...(reports ? ([["reports", L("Reports", "Laporan")]] as const) : []),
@@ -2295,6 +2297,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         </>
       )}
       {wsView === "reports" && reports}
+      {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
+      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the

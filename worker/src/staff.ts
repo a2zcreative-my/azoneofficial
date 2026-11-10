@@ -33,6 +33,7 @@ import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActA
 import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
+import { handlePayments, paymentVerificationOn } from "./payment-verify"; // v1.272.0 - report, then the CEO verifies
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { claimScope } from "./claims-scope"; // v1.205.0 - one claims scope for the list and the search
@@ -1803,6 +1804,7 @@ const PUSH_TAB: Record<string, string> = {
      v1.216.0 - new enquiries are listed on Sales again (the owner, 28-10-2026) */
   enquiry: "Sales",
   agent: "Agents", // v1.250.0 - an agent request changed
+  payment: "Sales", // v1.272.0 - a payment reported, verified, questioned or reversed
   /* v1.220.0 - a request to update someone's responsibilities lands on the
      Staff tab, where the CEO and HR write them */
   profile_request: "Staff Details",
@@ -2739,7 +2741,7 @@ const COMMISSION_START_MONTH = "2026-11";
 /** v1.215.0 - take back a live paid confirmation when the invoice it vouched
     for changes under it (marked unpaid, or a new total). Stamped and audited,
     never deleted; a database from before 0145 simply has nothing to revoke. */
-async function revokePaidConfirmation(env: Env, invoiceId: number, userId: number, reason: string, onlyIfAmountNot?: number): Promise<number> {
+export async function revokePaidConfirmation(env: Env, invoiceId: number, userId: number, reason: string, onlyIfAmountNot?: number): Promise<number> {
   try {
     const r = await env.DB.prepare(
       `UPDATE invoice_paid_confirmations SET revoked_at = datetime('now'), revoked_by = ?2, revoke_reason = ?3
@@ -2876,7 +2878,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) // v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) // v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -2925,6 +2927,14 @@ async function handleStaffRoutes(
      customer's state, paid web orders by the shipping state. ---- */
   if (path === "/sales/map" && method === "GET") {
     return handleSalesMap(env, user, new URL(request.url).searchParams);
+  }
+
+  /* ---- v1.272.0 Sales payment verification (payment-verify.ts): a payment
+     is REPORTED with its proof and becomes money only when the CEO verifies
+     it; the owner's switch decides whether this is how payments arrive. ---- */
+  if (path === "/payments" || path.startsWith("/payments/") || /^\/docs\/\d+\/payment-reports$/.test(path) || path.startsWith("/payment-reports/")) {
+    const pv = await handlePayments(env, path, method, body, user, new URL(request.url).searchParams, request);
+    if (pv) return pv;
   }
 
   /* ---- Business joins (v1.181.13) — see business.ts. The ERP roadmap,
@@ -10687,6 +10697,11 @@ async function handleStaffRoutes(
     if (docType === "INV" && body.paid_received === true && !can(user.role, "invoice_payment")) {
       return err("forbidden", "Only the CEO, COO or an admin creates an invoice already paid. Create it unpaid; they record the payment.", 403);
     }
+    /* v1.272.0 - with payment verification on, no invoice is born paid:
+       create it unpaid and report the payment for the CEO to verify */
+    if (docType === "INV" && body.paid_received === true && await paymentVerificationOn(env)) {
+      return err("payment_verification_on", "Payments are verified by the CEO now: create the invoice unpaid, then report the payment in Sales -> Payments.", 409);
+    }
     /* v1.4.234 (CEO: two business lines — "details just filled by one
        details"): every document is for ONE line, product or service.
        Delivery Orders are product-only — a service delivers nothing
@@ -10993,6 +11008,16 @@ async function handleStaffRoutes(
       /* v1.242.0 (B2) - a voided invoice is history: no payment can be recorded on it */
       const curV = await env.DB.prepare(`SELECT payment_status FROM sales_documents WHERE id = ?1`).bind(id).first<{ payment_status: string | null }>();
       if (curV?.payment_status === "void") return err("voided", `${doc.doc_number} is void. Raise a new invoice from its quotation instead.`, 409);
+      /* v1.272.0 - with payment verification on, nobody marks an invoice paid:
+         it becomes paid when the CEO has verified payments up to its total.
+         Undoing a verified invoice is reversing its payment, with a reason. */
+      if (await paymentVerificationOn(env)) {
+        if (body!.payment_status === "paid") return err("payment_verification_on", `${doc.doc_number} becomes paid when the CEO verifies its payments. Report the payment in Sales -> Payments.`, 409);
+        const verifiedHere = await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE invoice_id = ?1 AND state = 'verified'`).bind(id).first<{ n: number }>().catch(() => null);
+        if (curV?.payment_status === "paid" && Number(verifiedHere?.n ?? 0) > 0) {
+          return err("payment_verification_on", `${doc.doc_number} was paid through verified payments. Reverse the payment in Sales -> Payments instead, with a reason.`, 409);
+        }
+      }
       // v1.4.90: paid = payment received — record method (bank transfer),
       // optional reference, and the moment. Revenue counts from paid_at.
       if (body!.payment_status === "paid") {
@@ -11756,6 +11781,8 @@ async function handleStaffRoutes(
   const confirmPaid = path.match(/^\/docs\/(\d+)\/confirm-paid$/);
   if (confirmPaid && method === "POST") {
     if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO confirms that an invoice is paid", 403);
+    /* v1.272.0 - with payment verification on, the CEO alone (P1) */
+    if (!can(user.role, "payment_verify") && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO confirms that an invoice is paid.", 403);
     const invId = Number(confirmPaid[1]);
     const inv = await env.DB.prepare(
       `SELECT id, doc_number, doc_type, total_cents, payment_status, payment_ref, paid_at, salesperson_id FROM sales_documents WHERE id = ?1`,
@@ -11797,6 +11824,8 @@ async function handleStaffRoutes(
   const confirmRevoke = path.match(/^\/docs\/(\d+)\/confirm-paid\/revoke$/);
   if (confirmRevoke && method === "POST") {
     if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO takes back a paid confirmation", 403);
+    /* v1.272.0 - with payment verification on, the CEO alone (P1) */
+    if (!can(user.role, "payment_verify") && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO takes back a paid confirmation.", 403);
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
     let n = 0;

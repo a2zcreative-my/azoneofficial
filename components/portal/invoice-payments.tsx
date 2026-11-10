@@ -34,6 +34,8 @@ interface Part {
 interface PayData {
   invoice: { id: number; doc_number: string; total_cents: number; payment_status: string | null };
   payments: Part[]; received_cents: number; balance_cents: number; can_record: boolean; pending_migration?: boolean;
+  /** v1.272.0 - payments are reported in Sales -> Payments and verified by the CEO */
+  verification_on?: boolean;
 }
 
 /** The chip on a document row: an unpaid invoice that has parts recorded. */
@@ -147,7 +149,7 @@ export function InvoicePayments({ docId, onChanged }: { docId: number; onChanged
           ))}
         </ul>
       )}
-      {!paid && data.balance_cents === 0 && live.length > 0 && last && (
+      {!paid && !data.verification_on && data.balance_cents === 0 && live.length > 0 && last && (
         <p className="erp-note erp-note-success">
           {L(`The parts cover the whole invoice. Mark it paid with the status picker, and pick ${dmy(last.received_on)} - the day the last part was received.`,
             `Bayaran separa meliputi seluruh invois. Tandakan dibayar dengan pemilih status, dan pilih ${dmy(last.received_on)} - hari bahagian terakhir diterima.`)}
@@ -169,7 +171,13 @@ export function InvoicePayments({ docId, onChanged }: { docId: number; onChanged
           </button>
         </div>
       )}
-      {!paid && (
+      {!paid && data.verification_on && (
+        <p className="erp-note">
+          {L("Payments are reported in Sales -> Payments with their proof, and count only once the CEO verifies them. The invoice becomes paid when verified payments reach its total.",
+            "Bayaran dilapor dalam Jualan -> Bayaran bersama buktinya, dan hanya dikira setelah CEO mengesahkannya. Invois dibayar apabila bayaran disahkan mencapai jumlahnya.")}
+        </p>
+      )}
+      {!paid && !data.verification_on && (
         <span className={css.hiddenNote}>
           {L("A part payment does not mark the invoice paid or count in revenue - marking it paid does, as before.",
             "Bayaran separa tidak menanda invois dibayar atau dikira dalam hasil - menanda dibayar yang berbuat demikian, seperti sebelum ini.")}

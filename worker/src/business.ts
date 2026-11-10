@@ -31,6 +31,7 @@ import { can } from "./permissions";
 import { INV_OUTCOMES, QT_OUTCOMES, openDocFollowup } from "./weekly-sales"; // v1.262.0 - one open follow-up per document, and its outcome codes
 import { personalApprove } from "./signing"; // v1.248.0 - a personal-signing company approves by signing
 import { glMonthFigures } from "./ledger"; // v1.222.0 - the ledger in the month-close snapshot (reads only)
+import { paymentVerificationOn } from "./payment-verify"; // v1.272.0 - the owner's switch (reads only)
 
 /* ── time ──────────────────────────────────────────────────────────────── */
 const mytNow = () => new Date(Date.now() + 8 * 3600 * 1000);
@@ -119,10 +120,13 @@ export async function handleBusiness(
             ORDER BY p.received_on, p.id`,
         ).bind(invId).all<{ amount_cents: number; voided_at: string | null }>();
         const received = (results ?? []).filter((p) => !p.voided_at).reduce((a, p) => a + p.amount_cents, 0);
+        /* v1.272.0 - with payment verification on, payments are reported and
+           verified in Sales -> Payments; this list still shows what was verified */
+        const verifying = await paymentVerificationOn(env);
         return json({
           invoice: inv, payments: results ?? [],
           received_cents: received, balance_cents: Math.max(0, inv.total_cents - received),
-          can_record: canInvoiceMoney(user),
+          can_record: canInvoiceMoney(user) && !verifying, verification_on: verifying,
         });
       } catch (e) {
         if (skew(e)) return json({ invoice: inv, payments: [], received_cents: 0, balance_cents: inv.total_cents, can_record: false, pending_migration: true });
@@ -131,6 +135,9 @@ export async function handleBusiness(
     }
     if (method === "POST") {
       if (!canInvoiceMoney(user)) return err("forbidden", "Finance access required", 403);
+      /* v1.272.0 - with payment verification on, a payment is REPORTED and
+         the CEO's verification records it (payment-verify.ts) */
+      if (await paymentVerificationOn(env)) return err("payment_verification_on", "Payments are verified by the CEO now: report it in Sales -> Payments.", 409);
       const inv = await env.DB.prepare(
         `SELECT id, doc_number, total_cents, payment_status FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`,
       ).bind(invId).first<{ id: number; doc_number: string; total_cents: number; payment_status: string | null }>();
@@ -201,6 +208,9 @@ export async function handleBusiness(
       ).bind(Number(mVoid[2]), Number(mVoid[1])).first<{ id: number; amount_cents: number; voided_at: string | null; doc_number: string }>();
       if (!row) return err("not_found", "Part payment not found", 404);
       if (row.voided_at) return err("invalid_input", "That part payment is already voided.", 400);
+      /* v1.272.0 - a payment the CEO verified is reversed there, not voided here */
+      const fromReport = await env.DB.prepare(`SELECT id FROM invoice_payment_reports WHERE payment_id = ?1`).bind(row.id).first<{ id: number }>().catch(() => null);
+      if (fromReport) return err("payment_verification_on", "This payment was verified by the CEO. Reverse it in Sales -> Payments, with a reason.", 409);
       await env.DB.prepare(
         `UPDATE invoice_payments SET voided_at = datetime('now'), voided_by = ?2, void_reason = ?3 WHERE id = ?1 AND voided_at IS NULL`,
       ).bind(row.id, user.id, reason).run();

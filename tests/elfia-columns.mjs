@@ -89,7 +89,8 @@ function check(src) {
   ok(!!probe, "System health has a probe for 0179-0180");
   try { prod.prepare(probe ?? "SELECT nope FROM web_orders").all(); ok(true, "the probe reads both columns on the repaired database"); } catch (e) { ok(false, "the probe reads both columns on the repaired database", String(e)); }
   ok(COLS.every((c) => (probe ?? "").includes(c)), "the probe names both columns");
-  ok(/LATEST_MIGRATION = "0180_web_orders_refund_flag"/.test(idx), "LATEST_MIGRATION is 0180");
+  /* v1.272.0 - 0181 came after it: LATEST_MIGRATION is 0180 or later */
+  ok((/LATEST_MIGRATION = "(\d{4})_/.exec(idx)?.[1] ?? "0") >= "0180", "LATEST_MIGRATION is 0180 or later");
   ok(NEW.every((f) => idx.includes(`"${f.replace(".sql", "")}"`)), "both migrations are in the expected list");
 
   /* a fresh database already has the columns */
@@ -115,7 +116,7 @@ if (!process.env.NOMUT) {
     ["a migration comment carries a quote", { "worker/migrations/0179_web_orders_booked_cents.sql": "-- the order's money\n" + read("worker/migrations/0179_web_orders_booked_cents.sql") }],
     ["the pre-flight pairs the wrong column", { "scripts/migration-preflight.mjs": read("scripts/migration-preflight.mjs").replace('["0180_web_orders_refund_flag", "refund_flagged_at"]', '["0180_web_orders_refund_flag", "booked_cents"]') }],
     ["the probe drops a column", { "worker/src/index.ts": read("worker/src/index.ts").replace("SELECT booked_cents, refund_flagged_at FROM web_orders LIMIT 0", "SELECT booked_cents FROM web_orders LIMIT 0") }],
-    ["LATEST_MIGRATION stays at 0178", { "worker/src/index.ts": read("worker/src/index.ts").replace('LATEST_MIGRATION = "0180_web_orders_refund_flag"', 'LATEST_MIGRATION = "0178_passkeys"') }],
+    ["LATEST_MIGRATION stays at 0178", { "worker/src/index.ts": read("worker/src/index.ts").replace(/LATEST_MIGRATION = "\d{4}_[a-z_]+"/, 'LATEST_MIGRATION = "0178_passkeys"') }],
   ];
   let caught = 0;
   for (const [name, src] of MUTS) { if (report(check(src)).length) caught++; else console.log(`MUTATION NOT CAUGHT: ${name}`); }
