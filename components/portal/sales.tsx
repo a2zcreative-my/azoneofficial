@@ -33,7 +33,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, chipSmWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, fieldRow, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, chipSmSuccess, chipSmWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { ReactNode, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
@@ -3449,9 +3449,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     </span>
                   )}
                   {d.doc_type === "QT" && d.invoiced_as && !partly(d) && (
-                    <span className="inline-flex h-7 items-center rounded-full bg-success-soft px-2.5 text-xs font-medium text-success"
+                    <span className={chipSmSuccess}
                       title={L(`Invoiced as ${d.invoiced_as} — this quotation is a sale now. Undo on the invoice reopens it.`, `Diinvois sebagai ${d.invoiced_as} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
-                      <AppIcon name="success" className="mr-1 h-3.5 w-3.5" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
+                      <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
                     </span>
                   )}
                   {d.doc_type === "QT" && !d.invoiced_as && (
@@ -3765,7 +3765,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                           ""
                         ) : d.payment_status === "paid" ? (
                           <span className="flex flex-wrap items-center gap-2">
-                            <span className="inline-flex items-center rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-success">
+                            <span className={chipSmSuccess}>
                               {L(
                                 "PAID · bank transfer",
                                 "DIBAYAR · pindahan bank"

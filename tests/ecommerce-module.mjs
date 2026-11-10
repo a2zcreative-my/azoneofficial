@@ -146,7 +146,9 @@ ok("recorded is not paid, and says so", /When the portal stored the order - not 
 ok("the order total is TikTok's payment total, and returned is out of revenue", /<dt>\{L\("Order total", "Jumlah pesanan"\)\}<\/dt>/.test(orders) && /Returned or cancelled - not counted in revenue\./.test(orders));
 ok("returned is named with what it covers", /\["returned", "Returned \/ cancelled"/.test(orders));
 ok("on hand is after orders, and nothing is reserved", /On hand is after orders/.test(stock) && /Nothing is reserved separately/.test(stock));
-ok("the tiles say what they count", /Order totals · returned & cancelled excluded/.test(panel) && /TikTok, by date recorded/.test(panel));
+ok("the tiles say what they count", /order totals, returned & cancelled excluded/.test(panel) && /TikTok, by date recorded/.test(panel));
+/* v1.274.0 - the period is said once, in words in the sub-line, never as a chip on each tile */
+ok("the tiles say the period in the sub-line, with no period chip", !/\bperiod=\{/.test(panel) && (panel.match(/["`]This month · /g) ?? []).length >= 4);
 ok("the fulfilment card says TikTok", /TikTok orders recorded in/.test(read("components/portal/fulfilment-card.tsx")));
 
 /* ---- 8. the phone ---- */

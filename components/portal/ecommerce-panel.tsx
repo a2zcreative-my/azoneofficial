@@ -123,39 +123,37 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
   const revDelta = r ? delta(r.tiktok.this_cents, r.tiktok.last_cents) : null;
   const ordDelta = r ? delta(r.tiktok.this_orders, r.tiktok.last_orders) : null;
 
-  /* the month's four figures, each with its period and what it counts */
+  /* the month's four figures. v1.274.0 - the period is said once (the month
+     picker) and in each sub-line, as on every tab - no chip on each tile */
   const period = L("This month", "Bulan ini");
   const tiles = canRevenue && (
-    <div className={css.tiles}>
-      <p className={css.tilesPeriod}>{r ? `${period} · ${monthLabel(r.month, lang)}` : period}</p>
-      <KpiRow label={period}>
-        <KpiTile icon="money" tone="gold" period={period}
+      <KpiRow label={r ? `${period} · ${monthLabel(r.month, lang)}` : period}>
+        <KpiTile icon="money" tone="gold"
           label={L("TikTok sales", "Jualan TikTok")}
           value={r ? fmtRM(r.tiktok.this_cents) : 0} busy={!r}
           delta={revDelta}
-          sub={L("Order totals · returned & cancelled excluded", "Jumlah pesanan · dipulang & dibatal dikecualikan")} />
-        <KpiTile icon="documents" tone="navy" period={period}
+          sub={L("This month · order totals, returned & cancelled excluded", "Bulan ini · jumlah pesanan, dipulang & dibatal dikecualikan")} />
+        <KpiTile icon="documents" tone="navy"
           label={L("Orders", "Pesanan")}
           value={r ? r.tiktok.this_orders : 0} busy={!r}
           delta={ordDelta}
-          sub={r && ordDelta?.pct == null ? L(`${r.tiktok.last_orders} last month`, `${r.tiktok.last_orders} bulan lepas`) : L("TikTok, by date recorded", "TikTok, ikut tarikh direkod")}
+          sub={r && ordDelta?.pct == null ? L(`This month · ${r.tiktok.last_orders} last month`, `Bulan ini · ${r.tiktok.last_orders} bulan lepas`) : L("This month · TikTok, by date recorded", "Bulan ini · TikTok, ikut tarikh direkod")}
           onClick={() => openOrders()} title={L("See the orders", "Lihat pesanan")} />
-        <KpiTile icon="shipped" tone="blue" period={period}
+        <KpiTile icon="shipped" tone="blue"
           label={L("Delivered", "Telah Sampai")}
           value={<>{delivered} {f && monthOrders > 0 && <span className={`erp-chip erp-chip-sm erp-chip-success ${css.inline}`}>{Math.round((delivered / monthOrders) * 100)}%</span>}</>}
           busy={!f}
-          sub={f ? L(`of ${monthOrders} TikTok orders this month`, `daripada ${monthOrders} pesanan TikTok bulan ini`) : undefined}
+          sub={f ? L(`This month · of ${monthOrders} TikTok orders`, `Bulan ini · daripada ${monthOrders} pesanan TikTok`) : undefined}
           onClick={() => { setLane("delivered"); setView("fulfilment"); }} title={L("See the fulfilment", "Lihat pemenuhan")} />
-        <KpiTile icon="package" tone="gold" period={period}
+        <KpiTile icon="package" tone="gold"
           label={L("To ship", "Untuk dihantar")}
           value={<>{toShip} {f && <span className={`erp-chip erp-chip-sm ${toShip > 0 ? "erp-chip-warning" : "erp-chip-success"} ${css.inline}`}>{toShip > 0
             ? (f.oldest_preparing?.days != null ? L(`oldest ${f.oldest_preparing.days} d`, `tertua ${f.oldest_preparing.days} h`) : L("Needs action", "Perlu tindakan"))
             : L("All shipped", "Semua dihantar")}</span>}</>}
           busy={!f}
-          sub={f ? L("still preparing", "masih disediakan") : undefined}
+          sub={f ? L("Now · still preparing", "Sekarang · masih disediakan") : undefined}
           onClick={() => { setLane("preparing"); setView("fulfilment"); }} title={L("See what is waiting", "Lihat yang menunggu")} />
       </KpiRow>
-    </div>
   );
 
   /* what needs a person: each line says what it is and opens where it is */

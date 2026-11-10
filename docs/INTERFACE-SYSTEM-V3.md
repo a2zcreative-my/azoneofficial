@@ -148,3 +148,14 @@ The CEO, 21-09-2026: *"All the tabs should responsive with PWA and also Web view
 **Verification (v1.173.0, offline, fixtures).** typecheck clean; lint 0 errors / 147 warnings (unchanged set); guard 94/94; `next build` 31 routes; Chromium at 375 / 390 / 430 / 768 / 1280 / 1440, light and dark, every live tab with populated fixtures: no horizontal overflow, no page errors beyond the harness's pre-existing Ecommerce fixture gap, bottom nav cleared, v3check and the regression probe green. `PUSH.bat` not run.
 
 **What did not change.** No business rule, request, permission or record: the concept is layout. Every pinned order (tests/tab-zones.mjs, desk-tabs, inventory-category, card-vocabulary, users-ui, sales-performance, unpaid-leave …) still holds; where a guard read the old spelling of the same fact, it now reads the new one. Retired tabs stay retired.
+
+## 9. The page frame (v1.274.0) - the top of every tab is the same
+
+The CEO, 10-11-2026: *"do ensure that everything is standardize for all the tabs to ensure it follow the Globally css"* - Pass 1, the page frame; the period said once, in the sub-line. Guard `tests/page-frame.mjs`.
+
+- **The tab bar.** A tab with several pages uses `LineTabs` (underline). A pill row (`SectionTabs`, `tabPill` / `tabPillOn`) is only for choices INSIDE a card (Threads' topics, Sales' document kinds). A tab with one view has no bar.
+- **The figures.** One figure tile: `KpiTile` in a `KpiRow` (icon well, label, figure, one sub-line, optional delta / bar / spark). `SummaryStat` is kept only where the figures are a filter strip (Content's stages). `StatTile` remains on the older money tabs until the full sweep.
+- **The period.** Said once - by the page's month picker - and in each tile's sub-line in words (`This month · ...`, `Now · ...`, `November 2026 · ...`). A tile never carries its own period chip; `KpiTile` has no `period` prop.
+- **Status banners** are `erp-note-*`; **chips** are the `chip*` / `chipSm*` tokens in `lib/ui-styles.ts` (`chipAction` for a chip that is pressable). No hand-rolled chip spans.
+- **Later (the full sweep, not in 1.274.0):** the legacy utility classes still used inside large panels (role-panels, roster-board, sales, elfia-store, staff-directory) and the literal colours in a few files.
+

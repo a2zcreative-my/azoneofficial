@@ -603,8 +603,8 @@ export function AccountingPanel() {
         <TabZone label={L("At a glance", "Sepintas lalu")}>
           <KpiRow label={L("Accounting at a glance", "Perakaunan sepintas lalu")}>
             <KpiTile icon="balance" tone={!o ? "navy" : o.trial.balanced ? "green" : "red"} busy={!o} label={L("Trial balance", "Imbangan duga")} value={!o ? "" : o.trial.balanced ? L("Balanced", "Seimbang") : L("Out of balance", "Tidak seimbang")} sub={o ? (o.trial.balanced ? `Dr ${fmtRM(o.trial.debit_cents)} = Cr ${fmtRM(o.trial.credit_cents)}` : L(`Out by ${fmtRM(Math.abs(o.trial.difference_cents))}`, `Beza ${fmtRM(Math.abs(o.trial.difference_cents))}`)) : undefined} />
-            <KpiTile icon="up" tone="green" busy={!o} label={L("Money in", "Wang masuk")} period={monthWord(month)} value={o ? fmtRM(o.money.in_cents) : ""} sub={L("income accounts", "akaun pendapatan")} />
-            <KpiTile icon="down" tone="red" busy={!o} label={L("Money out", "Wang keluar")} period={monthWord(month)} value={o ? fmtRM(o.money.out_cents) : ""} sub={o ? L(`net ${fmtRM(o.money.net_cents)}`, `bersih ${fmtRM(o.money.net_cents)}`) : undefined} />
+            <KpiTile icon="up" tone="green" busy={!o} label={L("Money in", "Wang masuk")} value={o ? fmtRM(o.money.in_cents) : ""} sub={L(`${monthWord(month)} · income accounts`, `${monthWord(month)} · akaun pendapatan`)} />
+            <KpiTile icon="down" tone="red" busy={!o} label={L("Money out", "Wang keluar")} value={o ? fmtRM(o.money.out_cents) : ""} sub={o ? L(`${monthWord(month)} · net ${fmtRM(o.money.net_cents)}`, `${monthWord(month)} · bersih ${fmtRM(o.money.net_cents)}`) : monthWord(month)} />
             <KpiTile icon="warning" tone={exceptions ? "gold" : "blue"} busy={!o} label={L("Posting exceptions", "Pengecualian pengeposan")} value={o ? exceptions : 0} sub={o ? L(`${o.accounts.used} of ${o.accounts.total} accounts in use · ${o.entries} entries`, `${o.accounts.used} daripada ${o.accounts.total} akaun digunakan · ${o.entries} catatan`) : undefined} onClick={() => document.getElementById("acc-exceptions")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
           </KpiRow>
         </TabZone>

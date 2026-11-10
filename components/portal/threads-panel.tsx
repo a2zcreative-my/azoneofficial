@@ -36,6 +36,7 @@ import { Skel } from "@/components/ui/skeleton";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
 import { card, inputClassSm, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { LineTabs } from "@/components/ui/line-tabs"; // v1.274.0 - the page's sections are the shared tab bar, as on every tab
 import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -336,6 +337,10 @@ export function ThreadsPanel() {
     <TabPage>
       {toastNode}
       {confirmNode}
+      <LineTabs value={section} onChange={setSection} label="Threads" tabs={[
+        ["study", L("Study", "Kajian")],
+        ...(canManage ? [["connection", L("Connection", "Sambungan")] as [Section, string]] : []),
+      ] as [Section, string][]} />
       <TabZone label="Threads">
       <div className={card}>
         {/* header: title, account chips, section chooser */}
@@ -346,19 +351,6 @@ export function ThreadsPanel() {
               {L("Study cases from public Threads posts: what people in a niche ask for and offer, kept for seven days.", "Kajian kes daripada hantaran Threads awam: apa yang orang dalam sesuatu niche cari dan tawarkan, disimpan tujuh hari.")}
             </p>
           </div>
-        </div>
-        <div className="erp-pill-row erp-mt-3" role="tablist">
-          {([
-            ["study", L("Study", "Kajian")],
-            ...(canManage ? [["connection", L("Connection", "Sambungan")] as [Section, string]] : []),
-          ] as [Section, string][]).map(([key, lbl]) => (
-            <button key={key} type="button" role="tab"
-              className={section === key ? tabPillOn : tabPill}
-              aria-selected={section === key}
-              onClick={() => setSection(key)}>
-              {lbl}
-            </button>
-          ))}
         </div>
 
         {/* the one-line states that need no section */}

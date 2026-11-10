@@ -86,15 +86,6 @@
   font-weight: 600;
   line-height: var(--type-card-lh);
 }
-.period {
-  flex: 0 0 auto;
-  padding: 0.125rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  font-size: var(--type-caption-size);
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
 .mid {
   display: flex;
   align-items: flex-end;

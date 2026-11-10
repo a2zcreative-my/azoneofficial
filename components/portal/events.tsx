@@ -13,7 +13,7 @@ import { openCalendarDialog } from "@/components/ui/calendar-dialog";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
+import { btnClass, btnGhost, card, chipSmDanger, inputClass } from "@/lib/ui-styles";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 
@@ -915,10 +915,10 @@ export function EventsCalendar({
         <div className="border-border mt-3 rounded-lg border p-3">
           <p className="text-sm font-semibold">
             {dmy(selected)}
-            {holidayOf(selected) && (
-              <span className="ml-2 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger">
-                <AppIcon name="holiday" className="mr-1 -mt-0.5 h-3 w-3" />{holidayOf(selected)!.name}
-              </span>
+            {holidayOf(selected) && (<>{" "}
+              <span className={chipSmDanger}>
+                <AppIcon name="holiday" className="erp-icon-sm" />{holidayOf(selected)!.name}
+              </span></>
             )}
             {bdaysOf(selected).map((b) => (
               <span

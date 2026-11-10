@@ -46,7 +46,7 @@ import { properName, displayName, givenNames } from "@/lib/names";
 import { compressImage } from "@/lib/compress-image";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { PasswordInput } from "@/components/ui/password-input";
-import { btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, selectClassSm } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, chipSmWarn, chipSmDanger, chipSmSuccess, inputClass, selectClassSm } from "@/lib/ui-styles";
 import { TabZone } from "@/components/portal/tab-concept";
 import { ResponsibilitiesBlock, ResponsibilitiesView, responsibilityLines } from "@/components/staff/responsibilities"; // v1.174.0
 import { Skel, SkelRows } from "@/components/ui/skeleton";
@@ -2005,25 +2005,26 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                       only the short name hid whose record was incomplete. */}
                   {displayName(u)}
                 </RecordToggle>
-                {!u.full_name?.trim() && (
-                  <span className="ml-1.5 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning"
+                {/* v1.274.0 - the shared chips, not hand-made ones */}
+                {!u.full_name?.trim() && (<>{" "}
+                  <span className={chipSmWarn}
                     title={L(
                       "No full name on file — the payslip, claim form, leave form, ID badge and the Maybank2E salary file all fall back to the short name, and a bank can reject a transfer whose name does not match the account",
                       "Tiada nama penuh dalam rekod — slip gaji, borang tuntutan, borang cuti, lencana ID dan fail gaji Maybank2E semuanya kembali kepada nama pendek, dan bank boleh menolak pindahan yang namanya tidak sepadan dengan akaun",
                     )}>
-                    <AppIcon name="warning" className="mr-1 -mt-0.5 h-3 w-3" />{L("no full name", "tiada nama penuh")}
+                    <AppIcon name="warning" className="erp-icon-sm" />{L("no full name", "tiada nama penuh")}
                   </span>
-                )}
-                {["resigned", "terminated"].includes(u.employment_status ?? "") && (
-                  <span className="ml-1.5 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-medium text-danger capitalize">
-                    {L(u.employment_status ?? "", STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
+                </>)}
+                {["resigned", "terminated"].includes(u.employment_status ?? "") && (<>{" "}
+                  <span className={chipSmDanger}>
+                    {L((u.employment_status ?? "").replace(/^./, (c) => c.toUpperCase()), STATUS_MS[u.employment_status ?? ""] ?? (u.employment_status ?? ""))}{u.left_on ? ` · ${dmy(u.left_on)}` : ""}
                   </span>
-                )}
-                {u.rejoined_on && !["resigned", "terminated"].includes(u.employment_status ?? "") && (
-                  <span className="ml-1.5 rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
+                </>)}
+                {u.rejoined_on && !["resigned", "terminated"].includes(u.employment_status ?? "") && (<>{" "}
+                  <span className={chipSmSuccess}>
                     {L("re-joined", "kembali bekerja")} {dmy(u.rejoined_on)}
                   </span>
-                )}
+                </>)}
                 {" "}<span className="text-muted-foreground">· {L(u.role.replace(/_/g, " "), ROLE_MS[u.role] ?? u.role.replace(/_/g, " "))}</span>
                 {/* v1.93.0 — the birthday on the card, not in a card of its own. */}
                 {(() => {

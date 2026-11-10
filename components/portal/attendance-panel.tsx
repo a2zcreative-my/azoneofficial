@@ -34,7 +34,8 @@ import type { DashSummary } from "@/components/portal/dashboard";
 import { AttendanceAdminPanel, RosterBoard, VerificationCard } from "@/components/portal/lazy-panels";
 import { OtApprovalsCard } from "@/components/portal/live-cards";
 import { L, MANAGE_ROLES, revealAnchor, type User } from "@/components/portal/page-shared";
-import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // v1.274.0 - the shared figure tile, as on every tab
 import { PermissionPlaceholder } from "@/components/ui/permission-placeholder";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
 import { mytToday } from "@/lib/format";
@@ -107,13 +108,13 @@ export function AttendancePanel({ user, go }: { user: User; go: (t: TabName) => 
 
       <div hidden={view !== "mine"} className={css.body}>
         <TabZone label={L("This month", "Bulan ini")} hint={monthLabel ? L(`Your ${monthLabel} - each shift from its clock-in to its clock-out, Malaysia time.`, `${monthLabel} anda - setiap syif dari daftar masuk hingga daftar keluarnya, waktu Malaysia.`) : undefined}>
-          <SummaryStrip cols={4} ariaLabel={L("My month", "Bulan saya")}>
-            <SummaryStat icon="date" tone="brand" label={L("Days worked", "Hari bekerja")} value={mine?.days ?? 0} busy={mineBusy} />
-            <SummaryStat icon="time" tone="success" label={L("Hours", "Jam")} value={mine ? hm(mine.totalMs) : "—"} busy={mineBusy} />
-            <SummaryStat icon="success" tone="neutral" label={L("Average per day", "Purata sehari")} value={mine && mine.days > 0 ? hm(avgMs) : "—"} busy={mineBusy} />
-            <SummaryStat icon="warning" tone={mine?.missingOut ? "warning" : "neutral"} label={L("Missing clock-out", "Tiada daftar keluar")} value={mine?.missingOut ?? 0} busy={mineBusy}
-              hint={mine?.missingOut ? L("Days before today with no clock-out", "Hari sebelum hari ini tanpa daftar keluar") : undefined} />
-          </SummaryStrip>
+          <KpiRow label={L("My month", "Bulan saya")}>
+            <KpiTile icon="date" tone="gold" label={L("Days worked", "Hari bekerja")} value={mine?.days ?? 0} busy={mineBusy} sub={L("This month", "Bulan ini")} />
+            <KpiTile icon="time" tone="green" label={L("Hours", "Jam")} value={mine ? hm(mine.totalMs) : "—"} busy={mineBusy} sub={L("This month · clocked in", "Bulan ini · didaftar masuk")} />
+            <KpiTile icon="success" tone="navy" label={L("Average per day", "Purata sehari")} value={mine && mine.days > 0 ? hm(avgMs) : "—"} busy={mineBusy} sub={L("This month · per day worked", "Bulan ini · setiap hari bekerja")} />
+            <KpiTile icon="warning" tone={mine?.missingOut ? "red" : "navy"} label={L("Missing clock-out", "Tiada daftar keluar")} value={mine?.missingOut ?? 0} busy={mineBusy}
+              sub={mine?.missingOut ? L("Days before today with no clock-out", "Hari sebelum hari ini tanpa daftar keluar") : L("This month · none", "Bulan ini · tiada")} />
+          </KpiRow>
         </TabZone>
         <TabZone label={L("My records", "Rekod saya")} hint={L("Your punches, hours and timesheet by month.", "Punch, jam dan lembaran masa anda mengikut bulan.")}>
           <Attendance user={user} view="mine" onMine={onMine} />

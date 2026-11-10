@@ -2,7 +2,7 @@
 
 /* v1.191.0 - THE REFERENCE FIGURE TILE (the owner's photos for Ecommerce,
    Sales and Attendance, 22-10-2026): a tinted icon well on the left, then the
-   label (with an optional period chip at the right), the figure, one line
+   label, the figure, one line
    under it - a delta with its arrow, or a plain sentence - and, where the
    photo draws one, a share bar or a small bar run. One component so the three
    pages cannot drift apart. Everything it shows is handed in: it fetches
@@ -18,15 +18,15 @@ export function KpiRow({ children, label }: { children: ReactNode; label?: strin
   return <div className={css.row} role={label ? "group" : undefined} aria-label={label}>{children}</div>;
 }
 
-export function KpiTile({ icon, tone, label, value, busy = false, period, sub, delta, bar, spark, link, onClick, title }: {
+export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title }: {
   icon: AppIconName;
   tone: KpiTone;
   label: ReactNode;
   value: ReactNode;
   /** the figure is not known yet: a placeholder, never a false zero */
   busy?: boolean;
-  /** a static period word at the top right ("This month") */
-  period?: string;
+  /* v1.274.0 - no period chip: the page's month picker says the period once,
+     and the sub-line says it in words ("This month · ...") - the same on every tab */
   /** a plain line under the figure */
   sub?: ReactNode;
   /** a change against a previous period; null pct = nothing to compare */
@@ -48,7 +48,6 @@ export function KpiTile({ icon, tone, label, value, busy = false, period, sub, d
       <span className={css.body}>
         <span className={css.top}>
           <span className={css.label}>{label}</span>
-          {period && <span className={css.period}>{period}</span>}
         </span>
         <span className={css.mid}>
           <span className={css.value} aria-busy={busy}>{busy ? "···" : value}</span>

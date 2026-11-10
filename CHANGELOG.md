@@ -10,6 +10,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.274.0] - 2026-11-10 - One page frame on every tab - BUILT, NOT DEPLOYED
+
+The CEO, 10-11-2026, with the Ecommerce Overview: "do ensure that everything is standardize for all the tabs to ensure it follow the Globally css". His answers: Pass 1, the page frame (every tab's top part the same, one release); the period said once, in the sub-line. Layout only - no request, permission, figure or record changed.
+
+- Figure tiles (components/ui/kpi-tile.tsx): no period chip on each tile any more. The month picker says the period once and the tile's sub-line says it in words ("This month · order totals, returned & cancelled excluded", "Now · still preparing"). Ecommerce and Accounting were the two tabs that drew the chip; their phone-only tile overrides are gone with it.
+- Attendance (my month) and Stokis draw the shared KpiTile (icon, figure, sub-line) instead of their own figure strip. SummaryStat stays where it is a filter (Content's stages).
+- Threads: Study | Connection is the shared tab bar (LineTabs), as on every other tab; the topics stay a pill row inside the card (by design).
+- Chips: Staff Details' status chips, the Events holiday chip, the Sales Invoiced and PAID chips and Payroll's "differs from base" chip are the shared chip tokens.
+- Tests: tests/page-frame.mjs (new, 16 checks, 4 mutations caught) holds all four; tests/ecommerce-module.mjs reads the new sub-line wording and adds a no-period-chip check (none removed). docs/INTERFACE-SYSTEM-V3.md section 9 states the standard.
+- Not in this pass: the older utility classes still inside some large panels (role panels, roster board, parts of Sales, ELFIA Store, Staff Details) and a few literal colours - a later full sweep, if wanted.
+
 ## [1.273.0] - 2026-11-10 - Deposit billing: a service quotation invoiced in parts - BUILT, NOT DEPLOYED
 
 The CEO, 10-11-2026, on QT-AZOO091126-1 (RM 75.00): its only invoice was edited to RM 37.50 ("Pembayaran 50%") and paid, so the other RM 37.50 was tracked nowhere - one live invoice per quotation (0157) left no way to invoice a balance. His answers: "Build deposit billing"; any percent or amount; service quotations only; commission per paid invoice; the RM 37.50 invoice counts as the 50% deposit.

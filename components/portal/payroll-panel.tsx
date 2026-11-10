@@ -31,7 +31,7 @@ import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.243.0 (E1) - the manual payment's method and reference
 import { incompleteCents } from "@/lib/payroll-days";
-import { btnSm, btnSmPrimary, card, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClassSm } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipAction, chipInfo, chipNeutral, chipSmWarn, chipSuccess, chipWarn, inputClassSm } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 /* v1.198.0 - the five-tab page */
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -1745,7 +1745,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                              by a 10px link. The button puts the base in the
                              draft; Save writes it. */
                           <button type="button"
-                            className="ml-1 inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold text-warning underline-offset-2 hover:underline"
+                            className={`${chipSmWarn} ${chipAction}`}
                             title={L(`Basic here is ${fmtRM(e.basic_cents)} but the base salary is ${fmtRM(base[u.id] ?? 0)}. Press to put the base in this row, then Save.`,
                                      `Gaji pokok di sini ${fmtRM(e.basic_cents)} tetapi gaji asas ialah ${fmtRM(base[u.id] ?? 0)}. Tekan untuk meletakkan asas dalam baris ini, kemudian Simpan.`)}
                             onClick={() => setEntries((m) => ({ ...m, [u.id]: { ...e, basic_cents: base[u.id] || 0 } }))}>
