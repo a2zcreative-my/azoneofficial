@@ -53,19 +53,26 @@ with sync_playwright() as p:
         # ---------- the salesperson reports a payment ----------
         ctx, pg, errs = open_page(b, SALES, w, h)
         body = pg.inner_text("body")
-        check(f"{tag}: the Payments tab shows the switch On and the four tiles", "Payment verification" in body and "Pending CEO verification" in body and "Verified this month" in body and "Verified outstanding" in body and "Partially paid" in body, body[:400])
-        check(f"{tag}: a salesperson has no switch button", pg.get_by_role("button", name="Switch off").count() == 0)
-        check(f"{tag}: the open invoices list the A2Z and AZ ONE invoices", "INV-A2Z-501" in body and "INV-AZOO-502" in body)
+        check(f"{tag}: the Payments tab shows the policy and the four tiles", "Payment Verification" in body and "Verification: Required" in body and "Pending CEO verification" in body and "Verified this month" in body and "Verified outstanding" in body and "Partially paid" in body, body[:400])
+        check(f"{tag}: a salesperson has no policy Settings", pg.get_by_role("button", name="Settings").count() == 0)
+        # v1.282.0 - the open invoices are the Invoice Balances tab; a part already reported -> Report remaining payment
+        pg.get_by_test_id("pay-tab-balances").click(); pg.wait_for_timeout(400)
+        body = pg.inner_text("body")
+        check(f"{tag}: the invoice balances list the A2Z and AZ ONE invoices", "INV-A2Z-501" in body and "INV-AZOO-502" in body)
         check(f"{tag}: no sideways page", no_sideways(pg))
-        pg.get_by_role("button", name="Record payment").first.click(); pg.wait_for_timeout(700)
+        pg.get_by_test_id("inv-row").filter(has_text="INV-A2Z-501").get_by_test_id("inv-action").click(); pg.wait_for_timeout(700)
         sheet = pg.get_by_role("dialog").last
-        check(f"{tag}: the sheet says the report is not counted until the CEO verifies it", "not counted as received until the CEO verifies it" in sheet.inner_text())
-        send_btn = sheet.get_by_role("button", name="Report payment")
-        check(f"{tag}: Report payment waits for a reference and the proof", send_btn.is_disabled())
+        nxt = sheet.get_by_role("button", name="Next: proof")
         sheet.get_by_label("Amount received (RM)").fill("300.00")
+        check(f"{tag}: step 1 waits for the bank reference", nxt.is_disabled())
         sheet.get_by_label("Bank or payment reference").fill("MBB 241104 7788")
+        nxt.click(); pg.wait_for_timeout(200)
+        nxt2 = sheet.get_by_role("button", name="Next: review")
+        check(f"{tag}: step 2 waits for the proof", nxt2.is_disabled())
         sheet.locator("input[type=file]").set_input_files(png)
-        pg.wait_for_timeout(300)
+        nxt2.click(); pg.wait_for_timeout(300)
+        check(f"{tag}: the review step says the report is not counted until the CEO verifies it", "not counted as received" in sheet.inner_text())
+        send_btn = sheet.get_by_role("button", name="Report payment")
         check(f"{tag}: Report payment is on screen in the sheet", on_screen(pg, send_btn), send_btn.bounding_box())
         send_btn.click(); pg.wait_for_timeout(1500)
         posts = state(SALES)["posts"]
@@ -73,20 +80,21 @@ with sync_playwright() as p:
         check(f"{tag}: the report is posted in sen with the method and reference", rep and rep[-1]["body"].get("amount_cents") == 30000 and rep[-1]["body"].get("reference") == "MBB 241104 7788" and rep[-1]["body"].get("method") == "bank_transfer", posts)
         check(f"{tag}: ...then its proof", any(x["path"].endswith("/proof") for x in posts), posts)
         body = pg.inner_text("body")
-        check(f"{tag}: the toast says it waits for the CEO", "waiting for the CEO" in body, body[-300:])
-        pg.get_by_role("button", name="View").first.click(); pg.wait_for_timeout(900)
+        check(f"{tag}: the toast says it waits for verification", "waiting for verification" in body, body[-300:])
+        pg.get_by_test_id("pay-tab-needs").click(); pg.wait_for_timeout(300)
+        pg.get_by_test_id("payment-row").first.get_by_role("button").click(); pg.wait_for_timeout(900)
         dlg = pg.get_by_role("dialog").last
         check(f"{tag}: a salesperson is never offered Verify", dlg.get_by_role("button", name="Verify payment").count() == 0)
-        # v1.282.0 - the photo's words: Verified, Reported · waiting, Outstanding (after verify)
-        check(f"{tag}: the drawer shows verified, reported-and-waiting and outstanding", all(x in dlg.inner_text() for x in ["Verified", "Reported · waiting", "Outstanding"]))
+        # v1.282.0 - Payment Verification 3.0: verified, pending and VERIFIED outstanding
+        check(f"{tag}: the drawer shows verified, pending and verified outstanding", all(x in dlg.inner_text() for x in ["Verified", "Pending", "Verified outstanding"]))
         check(f"{tag}: no page errors (sales)", not errs, errs)
         ctx.close()
 
         # ---------- the CEO verifies ----------
         ctx, pg, errs = open_page(b, CEO, w, h)
-        check(f"{tag}: the owner sees Switch off", pg.get_by_role("button", name="Switch off").count() == 1)
+        check(f"{tag}: the owner has the policy Settings (no Switch off on the daily page)", pg.get_by_role("button", name="Settings").count() == 1 and pg.get_by_role("button", name="Switch off").count() == 0)
         row = pg.get_by_test_id("payment-row").first
-        check(f"{tag}: the reported payment waits for review", "Awaiting CEO verification" in row.inner_text() and "Review" in row.inner_text(), row.inner_text())
+        check(f"{tag}: the reported payment waits for review", "Pending CEO verification" in row.inner_text() and "Review" in row.inner_text(), row.inner_text())
         row.get_by_role("button", name="Review").click(); pg.wait_for_timeout(900)
         dlg = pg.get_by_role("dialog").last
         check(f"{tag}: the drawer offers the proof", dlg.get_by_role("button", name="View proof").count() >= 1)
@@ -105,7 +113,7 @@ with sync_playwright() as p:
         check(f"{tag}: verify posts the account, method, amount and code", v and v[-1]["body"].get("bank_id") == 1 and v[-1]["body"].get("verify_method") == "bank_statement" and v[-1]["body"].get("amount_cents") == 60000 and v[-1]["body"].get("totp") == "123456", v)
         dlg = pg.get_by_role("dialog").last
         txt = dlg.inner_text()
-        check(f"{tag}: the payment shows Verified by CEO and the invoice Partially paid", "Verified by CEO" in txt and "Partially paid" in txt, txt[:500])
+        check(f"{tag}: the payment shows Verified and the invoice Partially paid", dlg.get_by_test_id("drawer-settlement").inner_text() == "Partially paid" and "Verified 600.00" in txt.replace("RM ", "").replace("RM\u00a0", ""), txt[:500])
         tl = dlg.get_by_test_id("payment-timeline")
         check(f"{tag}: the timeline shows reported, proof, verified, outstanding", all(x in tl.inner_text() for x in ["Payment reported", "Proof uploaded", "CEO verified payment", "Outstanding updated"]), tl.inner_text()[:400])
         check(f"{tag}: Reverse is offered on a verified payment", dlg.get_by_role("button", name="Reverse").count() == 1)

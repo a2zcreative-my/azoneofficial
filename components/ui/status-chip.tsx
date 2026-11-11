@@ -25,6 +25,23 @@ export const STATUS_MAP = {
     rejected: ["danger", "Rejected", "Ditolak"],
     reversed: ["danger", "Reversed", "Dibatalkan"],
   },
+  /* v1.282.0 (Payment Verification 3.0) - two separate words on every
+     payment surface: the invoice's SETTLEMENT (verified money only) and the
+     report's REVIEW (where the claim stands). Never mixed into one. */
+  settlement: {
+    unpaid: ["neutral", "Unpaid", "Belum dibayar"],
+    partial: ["info", "Partially paid", "Dibayar separa"],
+    paid: ["success", "Paid", "Dibayar"],
+    void: ["neutral", "Void", "Batal"],
+  },
+  review: {
+    awaiting_independent: ["warning", "Awaiting independent evidence review", "Menunggu semakan bukti bebas"],
+    pending_ceo: ["warning", "Pending CEO verification", "Menunggu pengesahan CEO"],
+    clarify: ["info", "Clarification required", "Penjelasan diperlukan"],
+    verified: ["success", "Verified", "Disahkan"],
+    rejected: ["danger", "Rejected", "Ditolak"],
+    reversed: ["neutral", "Reversed", "Dibatalkan"],
+  },
   invoice: {
     unpaid: ["warning", "Unpaid", "Belum dibayar"],
     partially_paid: ["warning", "Partially paid", "Dibayar sebahagian"],

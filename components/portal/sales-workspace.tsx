@@ -31,6 +31,7 @@ import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import { WeeklySales } from "@/components/portal/weekly-sales";
 import { CommissionCard } from "@/components/portal/commission-card";
+import { actionFor } from "@/components/portal/payment-parts"; // v1.282.0
 import css from "./sales-workspace.module.css";
 import { Chip, ExecCard, type Tone } from "@/components/portal/executive-cards";
 import xc from "./executive.module.css";
@@ -596,14 +597,16 @@ export interface NeedRow {
   action: { label: string; on: () => void } | null;
   open: () => void;
 }
-type NeedData<D> = Omit<Parameters<typeof needRowsFor<D & WsDoc>>[0], "onRecord" | "onOpenDoc" | "onFollow">;
-export function NeedsActionCard<D extends WsDoc>({ data, loaded, onRecord, onOpenDoc, onFollow }: {
+type NeedData<D> = Omit<Parameters<typeof needRowsFor<D & WsDoc>>[0], "onRecord" | "onOpenDoc" | "onFollow" | "onView">;
+export function NeedsActionCard<D extends WsDoc>({ data, loaded, onRecord, onOpenDoc, onFollow, onView }: {
   data: NeedData<D>; loaded: boolean;
   onRecord: (d: D) => void; onOpenDoc: (d: D) => void; onFollow: (f: WsFollowUp) => void;
+  /** v1.282.0 - View pending payment: that invoice's sheet in Payments */
+  onView?: (d: D) => void;
 }) {
   /* the rows are made here, from the data and the three handlers the page
      hands in - the page decides what each action does, this card when */
-  const all = needRowsFor<D & WsDoc>({ ...data, onRecord, onOpenDoc, onFollow });
+  const all = needRowsFor<D & WsDoc>({ ...data, onRecord, onOpenDoc, onFollow, onView });
   const rows = all.slice(0, 6), total = all.length;
   return (
     <ExecCard icon="orders" title={L("Needs action", "Perlu tindakan")} count={loaded ? total : undefined} testId="needs-action">
@@ -647,18 +650,24 @@ export function NeedsActionCard<D extends WsDoc>({ data, loaded, onRecord, onOpe
 export function needRowsFor<D extends WsDoc & { payment_status: string | null; salesperson_name?: string | null }>(p: {
   unpaid: D[]; followups: WsFollowUp[]; today: string; canPay: boolean; partPaid: Record<number, number>;
   pv: { on: boolean; inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }> } | null;
-  onRecord: (d: D) => void; onOpenDoc: (d: D) => void; onFollow: (f: WsFollowUp) => void;
+  onRecord: (d: D) => void; onOpenDoc: (d: D) => void; onFollow: (f: WsFollowUp) => void; onView?: (d: D) => void;
 }): NeedRow[] {
   const { pv, partPaid, today } = p;
   const inv = p.unpaid.filter((d) => d.payment_status !== "void").map((d) => {
     const v = pv?.inv[d.id];
     const paidSoFar = v?.verified_cents ?? partPaid[d.id] ?? 0;
-    const status: NeedRow["status"] = v && v.pending_cents > 0 ? { tone: "warn", label: L("Reported · waiting", "Dilaporkan · menunggu") }
+    const status: NeedRow["status"] = v && v.pending_cents > 0 ? { tone: "warn", label: L("Pending verification", "Menunggu pengesahan") }
       : paidSoFar > 0 ? { tone: "warn", label: L("Partially paid", "Dibayar separa") }
         : d.payment_status === "overdue" ? { tone: "bad", label: L("Overdue", "Lewat") } : { tone: "neutral", label: L("Unpaid", "Belum dibayar") };
     const canRecord = p.canPay && pv?.on && v?.can_report === true; // the list's own rule (1.278.0): only where the server says a payment may be reported
     return { key: `inv-${d.id}`, doc: d.doc_number, who: [d.company, d.salesperson_name].filter(Boolean).join(" · "), status, balance: Math.max(0, d.total_cents - paidSoFar),
-      action: canRecord ? { label: L("Record payment", "Rekod bayaran"), on: () => p.onRecord(d) } : { label: L("Open", "Buka"), on: () => p.onOpenDoc(d) },
+      /* v1.282.0 - the invoice's one action (actionFor): never a second report on a fully pending invoice */
+      action: (() => {
+        const a = v && pv?.on && p.canPay ? actionFor({ total_cents: d.total_cents, verified_cents: v.verified_cents, pending_cents: v.pending_cents, can_report: canRecord === true }) : null;
+        if (a && (a.kind === "report" || a.kind === "report_remaining")) return { label: a.label, on: () => p.onRecord(d) };
+        if (a && a.kind === "view_pending" && p.onView) return { label: a.label, on: () => p.onView!(d) };
+        return { label: L("Open", "Buka"), on: () => p.onOpenDoc(d) };
+      })(),
       open: () => p.onOpenDoc(d), rank: `${d.payment_status === "overdue" ? "0" : "2"}${d.created_at}` };
   });
   const fu = p.followups.map((f) => ({ key: `fu-${f.id}`, doc: f.company, who: [f.note, f.owner_name].filter(Boolean).join(" · "),

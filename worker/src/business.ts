@@ -138,6 +138,9 @@ export async function handleBusiness(
       /* v1.272.0 - with payment verification on, a payment is REPORTED and
          the CEO's verification records it (payment-verify.ts) */
       if (await paymentVerificationOn(env)) return err("payment_verification_on", "Payments are verified by the CEO now: report it in Sales -> Payments.", 409);
+      /* v1.283.0 (B3) - switched off, a reported payment still waiting for its decision is never bypassed */
+      const waitingRep = await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE invoice_id = ?1 AND state IN ('reported', 'evidence_checked', 'clarify')`).bind(invId).first<{ n: number }>().catch(() => null);
+      if (Number(waitingRep?.n ?? 0) > 0) return err("payment_report_pending", "This invoice has a reported payment waiting for the CEO's decision. Decide it in Sales -> Payments first.", 409);
       const inv = await env.DB.prepare(
         `SELECT id, doc_number, total_cents, payment_status FROM sales_documents WHERE id = ?1 AND doc_type = 'INV'`,
       ).bind(invId).first<{ id: number; doc_number: string; total_cents: number; payment_status: string | null }>();

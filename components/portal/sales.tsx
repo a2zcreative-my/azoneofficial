@@ -14,6 +14,7 @@ import { ClosedSales, FollowUps, NeedsActionCard, SalesOverviewCards, ScopeSwitc
 import { SalesPerformanceCard } from "@/components/portal/executive-cards"; // v1.281.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
+import { InvoicePayAction } from "@/components/portal/payment-parts"; // v1.282.0 - one action per invoice
 import { SalesEnquiries, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -1392,6 +1393,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      Record payment button into Payments instead of the dropdown. */
   const [pv, setPv] = useState<{ on: boolean; inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }>; pend?: { cents: number; n: number } } | null>(null);
   const [recordInv, setRecordInv] = useState<number | null>(null);
+  /* v1.282.0 - View pending payment / Review payment open that invoice's sheet in Payments; the header's Report payment */
+  const [viewInv, setViewInv] = useState<number | null>(null);
+  const [payReport, setPayReport] = useState(0);
+  const clearViewInv = useCallback(() => setViewInv(null), []);
   const [loaded, setLoaded] = useState(false);
   /* v1.205.0 - a search hit opens the document (the list narrowed to its
      number, its panel open) or the customer (its record open on the
@@ -2297,9 +2302,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       ]} aside={
         <TabAside>
           <TabPeriod>{(() => { const [y, m] = monthKey.split("-").map(Number) as [number, number]; return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" }); })()}</TabPeriod>
-          <TabAction icon="add" onClick={() => { setWorkTab("create"); jump("sales-work"); }}>
-            <span className="erp-desktop-only">{L("Create document", "Buat dokumen")}</span><span className="erp-phone-only">{L("Create", "Cipta")}</span>
-          </TabAction>
+          {/* v1.282.0 (Payment Verification 3.0) - on Payments the gold action is Report payment */}
+          {wsView === "payments" && pv?.on && Object.values(pv.inv).some((v) => v.can_report) ? (
+            <TabAction icon="add" onClick={() => setPayReport((n) => n + 1)}>{L("Report payment", "Lapor bayaran")}</TabAction>
+          ) : (
+            <TabAction icon="add" onClick={() => { setWorkTab("create"); jump("sales-work"); }}>
+              <span className="erp-desktop-only">{L("Create document", "Buat dokumen")}</span><span className="erp-phone-only">{L("Create", "Cipta")}</span>
+            </TabAction>
+          )}
         </TabAside>
       } />
       {wsView === "overview" && (
@@ -2349,7 +2359,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             `Bulan ini: ${sm ? sm.quotations.n : monthQt.length} sebut harga (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invois dikeluarkan (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`)}</p>
           <div className={companyView ? sc.needGrid : undefined}>
             <NeedsActionCard loaded={loaded} data={{ unpaid: unpaidInv, followups: dueFollow, pv, partPaid, canPay, today }}
-              onRecord={(d) => { setRecordInv(d.id); setWsView("payments"); }} onOpenDoc={(d) => openDocRow(d as SalesDoc)} onFollow={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
+              onRecord={(d) => { setRecordInv(d.id); setWsView("payments"); }} onView={(d) => { setViewInv(d.id); setWsView("payments"); }} onOpenDoc={(d) => openDocRow(d as SalesDoc)} onFollow={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
             {companyView && <SalesPerformanceCard onOpen={() => setWsView("closed")} pace={weekDash?.outlook ? { cents: weekDash.outlook.required_per_day_cents, allChannels: weekDash.company.basis_kind === "all_channels" } : undefined} />}
           </div>
           <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()} summary={sm} scope={scope}
@@ -2374,7 +2384,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       )}
       {wsView === "reports" && reports}
       {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
-      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} />}
+      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} reportTick={payReport} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the
@@ -3431,13 +3441,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                             {fmtRM(pending)} {L("waiting for the CEO", "menunggu CEO")}
                           </span>
                         )}
-                        {!paid && v?.can_report && (
-                          <button type="button" className={rowBtn} data-testid="pv-record"
-                            title={L("Payments are verified by the CEO: report this payment with its proof", "Bayaran disahkan oleh CEO: lapor bayaran ini dengan buktinya")}
-                            onClick={() => { setRecordInv(d.id); setWsView("payments"); }}>
-                            {L("Record payment", "Rekod bayaran")}
-                          </button>
-                        )}
+                        {/* v1.282.0 - the invoice's one action (actionFor): never a second report on a fully pending invoice */}
+                        {!paid && v && <InvoicePayAction className={rowBtn} inv={{ total_cents: d.total_cents, verified_cents: verified, pending_cents: pending, can_report: v.can_report }}
+                          onReport={() => { setRecordInv(d.id); setWsView("payments"); }} onView={() => { setViewInv(d.id); setWsView("payments"); }} />}
                       </span>
                     );
                   })()}

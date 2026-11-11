@@ -81,8 +81,19 @@ const payInit = () => ({
     /* v1.278.0 - PAYDOCS=1: the documents list's own unpaid invoice (id 3) is
        open in Payments too, RM 3,000 of it verified - the Sales list's money state */
     ...(process.env.PAYDOCS ? [{ id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, customer: "Casa del Rio Sdn Bhd", salesperson: "Fixture Person", company: "azoo", verified: 300000, paid: false }] : []),
+    /* v1.282.0 - PAYOWN=1 (Payment Verification 3.0): an invoice the signed-in person
+       reported themselves (the live RM 37.50 case, invented names) and one part-paid invoice */
+    ...(process.env.PAYOWN ? [
+      { id: 503, doc_number: "INV-AZOO-503", total_cents: 3750, customer: "Kedai Contoh", salesperson: "Fixture Person", company: "azoo", verified: 0, paid: false },
+      { id: 504, doc_number: "INV-A2Z-504", total_cents: 120000, customer: "Syarikat Contoh", salesperson: "Fixture Person", company: "a2z", verified: 60000, paid: false },
+    ] : []),
   ],
   reports: [{ id: 1, invoice_id: 501, issuer_code: "a2z", amount_cents: 60000, received_on: "2026-11-04", method: "bank_transfer", reference: "MBB 0001", note: null, over_cents: 0, dup_of: null, state: "reported", reported_by: 77, reporter: "Aina Seller", reporter_role: "sales_marketing", reported_at: "2026-11-04 02:00:00", has_proof: true, evidence_by: null, decided_at: null, verified_cents: null, question: null }],
+  ...(process.env.PAYOWN ? { n: 3, reports: [
+    { id: 1, invoice_id: 501, issuer_code: "a2z", amount_cents: 60000, received_on: "2026-11-04", method: "bank_transfer", reference: "MBB 0001", note: null, over_cents: 0, dup_of: null, state: "reported", reported_by: 77, reporter: "Aina Seller", reporter_role: "sales_marketing", reported_at: "2026-11-04 02:00:00", has_proof: true, evidence_by: null, decided_at: null, verified_cents: null, question: null },
+    { id: 2, invoice_id: 503, issuer_code: "azoo", amount_cents: 3750, received_on: "2026-11-11", method: "bank_transfer", reference: "8632221420", note: null, over_cents: 0, dup_of: null, state: "reported", reported_by: (process.env.ROLE ?? "ceo") === "ceo" ? 9001 : 1, reporter: (process.env.ROLE ?? "ceo") === "ceo" ? "Fixture Person" : "Owner Person", reporter_role: "ceo", reported_at: "2026-11-11 02:24:00", has_proof: true, evidence_by: null, decided_at: null, verified_cents: null, question: null },
+    { id: 3, invoice_id: 504, issuer_code: "a2z", amount_cents: 60000, received_on: "2026-11-02", method: "bank_transfer", reference: "MBB 0003", note: null, over_cents: 0, dup_of: null, state: "verified", reported_by: 77, reporter: "Aina Seller", reporter_role: "sales_marketing", reported_at: "2026-11-02 02:00:00", has_proof: true, evidence_by: null, decided_at: "2026-11-03 03:00:00", decided_name: "Fixture Person", bank_name: "A2Z account", verify_method: "bank_statement", verified_cents: 60000, question: null },
+  ] } : {}),
   events: [{ id: 1, invoice_id: 501, report_id: 1, event: "reported", amount_cents: 60000, detail: null, created_at: "2026-11-04 02:00:00", actor: "Aina Seller" }, { id: 2, invoice_id: 501, report_id: 1, event: "proof_uploaded", amount_cents: null, detail: null, created_at: "2026-11-04 02:01:00", actor: "Aina Seller" }],
 });
 let pay = payInit();
@@ -207,7 +218,7 @@ const server = http.createServer((req, res) => {
         const caps = { report: ["ceo", "coo", "cco", "sales_marketing"].includes(role), verify: role === "ceo", evidence: role === "coo", switch: role === "ceo" && !!process.env.OWNER, all: ["ceo", "coo", "cco"].includes(role) };
         const pend = (i) => pay.reports.filter((r) => r.invoice_id === i.id && ["reported", "evidence_checked", "clarify"].includes(r.state)).reduce((a, r) => a + r.amount_cents, 0);
         const statusOf = (i) => i.paid ? "paid" : i.verified === 0 ? (pend(i) ? "reported" : "unpaid") : i.verified + pend(i) >= i.total_cents ? "fully_reported" : "partial";
-        const deco = (r) => ({ ...r, mine: r.reported_by === 9001, needs_evidence: r.reporter_role === "ceo", doc_number: pay.invoices.find((i) => i.id === r.invoice_id)?.doc_number, customer: pay.invoices.find((i) => i.id === r.invoice_id)?.customer });
+        const deco = (r) => ({ ...r, mine: r.reported_by === 9001, needs_evidence: r.reporter_role === "ceo", doc_number: pay.invoices.find((i) => i.id === r.invoice_id)?.doc_number, customer: pay.invoices.find((i) => i.id === r.invoice_id)?.customer, total_cents: pay.invoices.find((i) => i.id === r.invoice_id)?.total_cents });
         const ev = (i, rid, event, amount, detail = null) => pay.events.push({ id: pay.events.length + 1, invoice_id: i, report_id: rid, event, amount_cents: amount, detail: detail ? JSON.stringify(detail) : null, created_at: "2026-11-05 02:00:00", actor: "Fixture Person" });
         const picture = (i) => ({ invoice: { id: i.id, doc_number: i.doc_number, customer: i.customer, total_cents: i.total_cents, payment_status: i.paid ? "paid" : "unpaid", company: i.company, company_name: i.company === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL" },
           verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.paid ? 0 : i.total_cents - i.verified, status: statusOf(i), reports: pay.reports.filter((r) => r.invoice_id === i.id).map(deco).reverse(), events: pay.events.filter((e) => e.invoice_id === i.id), can_report: caps.report && !i.paid });
@@ -220,6 +231,11 @@ const server = http.createServer((req, res) => {
             banks: caps.verify ? [{ id: 1, name: "A2Z account", bank: "Maybank", number_masked: "****1111", company: "a2z" }, { id: 2, name: "AZ ONE account", bank: "Maybank", number_masked: "****2222", company: "azoo" }] : [],
             reports: reps, invoices: open.map((i) => ({ id: i.id, doc_number: i.doc_number, total_cents: i.total_cents, customer: i.customer, salesperson: i.salesperson, company: i.company, salesperson_id: 9001, verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.total_cents - i.verified, status: statusOf(i), can_report: caps.report })),
             tiles: { pending_cents: reps.filter((r) => ["reported", "evidence_checked", "clarify"].includes(r.state)).reduce((a, r) => a + r.amount_cents, 0), pending_count: reps.filter((r) => ["reported", "evidence_checked", "clarify"].includes(r.state)).length, verified_month_cents: reps.filter((r) => r.state === "verified").reduce((a, r) => a + (r.verified_cents ?? 0), 0), outstanding_cents: open.reduce((a, i) => a + i.total_cents - i.verified, 0), outstanding_invoices: open.length, partial_invoices: open.filter((i) => ["partial", "fully_reported"].includes(statusOf(i))).length } });
+        }
+        /* v1.283.0 (B6) - the cross-invoice audit trail, newest first, read only */
+        if (req.method === "GET" && p === "/staff/payments/events") {
+          if (!["ceo", "coo", "cco"].includes(role)) return send(403, { error: { code: "forbidden", message: "Only the CEO, COO and CCO read the payment audit trail" } });
+          return send(200, { events: [...pay.events].reverse().map((e) => ({ ...e, doc_number: pay.invoices.find((i) => i.id === e.invoice_id)?.doc_number ?? null })) });
         }
         if (req.method === "PUT" && p === "/staff/payments/settings") {
           if (!caps.switch) return send(403, { error: { code: "forbidden", message: "Only the company owner switches payment verification on or off" } });

@@ -5,25 +5,48 @@
    paid status. Every payment requires CEO verification.";
    claude/PAYMENT-VERIFICATION-AUDIT.md, answers P1-P9 as recommended).
 
-   One tab: what is waiting, the open invoices with what is verified, pending
-   and outstanding, the Record Payment sheet (amount, day, method, reference,
-   the proof) and one drawer per invoice with its payments, the proof, the
-   actions this person may take and the timeline. Every rule is the server's
-   (worker/src/payment-verify.ts); this screen only offers what it allows. */
+   v1.282.0 - SALES PAYMENT VERIFICATION 3.0 (the CEO, 11-11-2026, "Proceed"
+   on claude/PAYMENT-VERIFICATION-3.0-BLUEPRINT.md, P1-P9 as recommended;
+   the two design references). The same server, the same rules - a new
+   workspace on top of them:
+
+     title row   Payment Verification, "Verification: Required", and the
+                 owner's Settings (P2: the switch left the daily page; its
+                 sheet warns how many reports are still waiting)
+     four tiles  Pending CEO verification (and how many of those wait for an
+                 independent evidence check), Verified this month, Verified
+                 outstanding (pending never deducted), Partially paid
+     four tabs   Needs My Verification, Invoice Balances, Payment History,
+                 Audit Trail - one dataset each, a table on a desktop and
+                 cards on a phone (one DOM, no sideways scroll)
+     one action  per invoice (payment-parts.tsx actionFor): Report payment,
+                 Report remaining payment, View pending payment, Review
+                 payment - never a second report as the main button (D1)
+     the sheet   amounts, the reported facts, the receipt, the evidence
+                 review, the timeline and the decision at its foot. The
+                 CEO's own report shows "Awaiting independent evidence
+                 review" and NO Verify button until another person checked
+                 the bank (D2; the API refuses it either way)
+     reporting   three steps in one sheet: Details, Proof, Review
+
+   Every rule is the server's (worker/src/payment-verify.ts); this screen
+   only offers what it allows and shows success only after the server says so. */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, csrfFetch } from "@/lib/api";
 import { compressImage } from "@/lib/compress-image";
 import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnSm, btnSmDanger, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
+import { csvStampMyt, downloadCsv } from "@/lib/csv";
+import { A2Z_CREATIVE, AZ_ONE } from "@/lib/issuers";
+import { btnSm, btnSmDanger, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { AppIcon } from "@/components/ui/app-icon";
 import { StageTimeline, type Stage } from "@/components/ui/stage-timeline";
-import { openAttachment } from "@/components/ui/document-preview";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
+import { AmountSummary, Cell, ReceiptPreview, ReviewChip, SettlementChip, actionFor, isPendingState, reviewOf, settlementOf, type MainAction } from "@/components/portal/payment-parts";
 import css from "./payments-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -34,52 +57,42 @@ interface Rep {
   id: number; invoice_id: number; issuer_code: string; amount_cents: number; received_on: string; method: string; reference: string | null;
   over_cents: number; dup_of: number | null; state: string; reported_by: number; reported_at: string; evidence_by: number | null;
   decided_at: string | null; verified_cents: number | null; question: string | null; has_proof: boolean; mine: boolean; needs_evidence: boolean;
-  doc_number?: string; customer?: string | null; reporter?: string | null; salesperson?: string | null;
-  note?: string | null; answer?: string | null; reason?: string | null; evidence_note?: string | null; evidence_name?: string | null;
+  doc_number?: string; customer?: string | null; reporter?: string | null; reporter_role?: string | null; salesperson?: string | null; total_cents?: number;
+  note?: string | null; answer?: string | null; reason?: string | null; evidence_note?: string | null; evidence_name?: string | null; evidence_at?: string | null;
   decided_name?: string | null; bank_name?: string | null; verify_method?: string | null; dup_reason?: string | null; reverse_reason?: string | null;
 }
 interface OpenInv {
-  id: number; doc_number: string; total_cents: number; customer: string | null; salesperson: string | null; company: string;
+  id: number; doc_number: string; total_cents: number; customer: string | null; salesperson: string | null; company: string; created_at?: string;
   verified_cents: number; pending_cents: number; outstanding_cents: number; status: string; can_report: boolean;
 }
 interface Data {
   on: boolean; ready: boolean; can: Caps; banks: Bank[]; reports: Rep[]; invoices: OpenInv[];
   tiles: { pending_cents: number; pending_count: number; verified_month_cents: number; outstanding_cents: number; outstanding_invoices: number; partial_invoices: number };
 }
-interface Ev { id: number; report_id: number | null; event: string; amount_cents: number | null; detail: string | null; created_at: string; actor: string | null }
+interface Ev { id: number; invoice_id?: number; report_id: number | null; event: string; amount_cents: number | null; detail: string | null; created_at: string; actor: string | null; doc_number?: string | null }
 interface Picture {
   invoice: { id: number; doc_number: string; customer: string | null; total_cents: number; payment_status: string | null; company: string; company_name: string };
   verified_cents: number; pending_cents: number; outstanding_cents: number; status: string; reports: Rep[]; events: Ev[]; can_report: boolean;
 }
 type Err = { error?: { message?: string; code?: string } };
+type Tab = "needs" | "balances" | "history" | "audit";
 
 const COMPANY: Record<string, string> = { a2z: "A2Z", azoo: "AZ ONE" };
-const STATE_WORDS: Record<string, [string, string, string]> = {
-  reported: ["Awaiting CEO verification", "Menunggu pengesahan CEO", chipSmWarn],
-  evidence_checked: ["Evidence checked - awaiting CEO", "Bukti disemak - menunggu CEO", chipSmInfo],
-  clarify: ["Clarification required", "Penjelasan diperlukan", chipSmWarn],
-  verified: ["Verified by CEO", "Disahkan CEO", chipSmSuccess],
-  rejected: ["Rejected", "Ditolak", chipSmDanger],
-  reversed: ["Reversed", "Dibatalkan", chipSmNeutral],
-};
-const STATUS_WORDS: Record<string, [string, string, string]> = {
-  unpaid: ["Unpaid", "Belum dibayar", chipSmNeutral],
-  reported: ["Reported - awaiting CEO", "Dilapor - menunggu CEO", chipSmWarn],
-  partial: ["Partially paid", "Dibayar separa", chipSmInfo],
-  fully_reported: ["Fully reported - awaiting CEO", "Dilapor penuh - menunggu CEO", chipSmWarn],
-  paid: ["Paid - CEO verified", "Dibayar - disahkan CEO", chipSmSuccess],
-};
+const ROLE_WORD: Record<string, string> = { ceo: "CEO", coo: "COO", cco: "CCO", sales_marketing: "Sales" };
 const EVENT_WORDS: Record<string, [string, string]> = {
   reported: ["Payment reported", "Bayaran dilapor"], proof_uploaded: ["Proof uploaded", "Bukti dimuat naik"],
-  evidence_checked: ["Bank evidence checked", "Bukti bank disemak"], clarification_requested: ["Clarification requested", "Penjelasan diminta"],
+  evidence_checked: ["Independent evidence review done", "Semakan bukti bebas selesai"], clarification_requested: ["Clarification requested", "Penjelasan diminta"],
   clarification_answered: ["Clarification answered", "Penjelasan dijawab"], verified: ["CEO verified payment", "CEO mengesahkan bayaran"],
   rejected: ["CEO rejected payment", "CEO menolak bayaran"], outstanding_updated: ["Outstanding updated", "Baki dikemas kini"],
   invoice_paid: ["Invoice paid - all payments verified", "Invois dibayar - semua bayaran disahkan"], reversed: ["Payment reversed", "Bayaran dibatalkan"],
 };
 const METHODS: [string, string, string][] = [["bank_transfer", "Bank transfer", "Pindahan bank"], ["online", "Online / DuitNow", "Dalam talian / DuitNow"], ["cheque", "Cheque", "Cek"], ["cash", "Cash", "Tunai"], ["other", "Other", "Lain-lain"]];
-const words = (m: Record<string, [string, string, string]>, k: string) => m[k] ?? [k, k, chipSmNeutral];
+const methodWord = (m: string) => { const f = METHODS.find((x) => x[0] === m); return f ? L(f[1], f[2]) : m; };
 const toCents = (s: string) => { const n = Number(s.replace(/,/g, "")); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0; };
 const msg = (r: { data: unknown }, fallback: string) => (r.data as Err | null)?.error?.message ?? fallback;
+/** the account printed on the invoice's letterhead - what the customer was told to pay into (lib/issuers.ts) */
+const letterhead = (company: string) => { const i = company === "a2z" ? A2Z_CREATIVE : AZ_ONE; return `${i.bank} (${i.bankHolder})`; };
+const whoWord = (r: Rep) => `${r.reporter ?? "-"}${r.reporter_role && ROLE_WORD[r.reporter_role] ? ` · ${ROLE_WORD[r.reporter_role]}` : ""}${r.mine ? ` ${L("(you)", "(anda)")}` : ""}`;
 
 async function uploadProof(reportId: number, f: File): Promise<string | null> {
   let blob: Blob = f;
@@ -92,18 +105,24 @@ async function uploadProof(reportId: number, f: File): Promise<string | null> {
   return j?.error?.message ?? L("The proof was not attached.", "Bukti tidak dilampirkan.");
 }
 
-export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened }: {
+export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened, viewInvoiceId, onViewOpened, reportTick = 0 }: {
   userId: number; onChanged?: () => void;
-  /** v1.278.0 - opened from an invoice's Record payment in the documents list: its sheet opens at once */
+  /** v1.278.0 - opened from an invoice's Report payment in the documents list: its sheet opens at once */
   recordInvoiceId?: number | null; onRecordOpened?: () => void;
+  /** v1.282.0 - opened from View pending payment / Review payment elsewhere in Sales: that invoice's sheet */
+  viewInvoiceId?: number | null; onViewOpened?: () => void;
+  /** v1.282.0 - the header's gold Report payment: each press opens the report sheet with its invoice picker */
+  reportTick?: number;
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState(false);
   const [tick, setTick] = useState(0);
-  const [filter, setFilter] = useState<"waiting" | "all" | "verified" | "closed">("waiting");
+  const [tab, setTab] = useState<Tab>("needs");
   const [q, setQ] = useState("");
+  const [bal, setBal] = useState<"all" | "unpaid" | "partial" | "waiting">("all");
   const [openInv, setOpenInv] = useState<number | null>(null);
-  const [recordFor, setRecordFor] = useState<OpenInv | null>(null);
+  const [recordFor, setRecordFor] = useState<OpenInv | "pick" | null>(null);
+  const [policy, setPolicy] = useState(false);
   const { show: toast, node: toastNode } = useSaveToast();
 
   useEffect(() => {
@@ -115,132 +134,285 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
     return () => { live = false; };
   }, [tick]);
   const reload = () => { setTick((t) => t + 1); onChanged?.(); };
+  /* the header's Report payment - the first render's 0 opens nothing */
+  const firstTick = useRef(reportTick);
+  useEffect(() => { if (reportTick !== firstTick.current) setRecordFor("pick"); }, [reportTick]);
 
-  const shown = useMemo(() => {
-    if (!data) return [];
-    const s = q.trim().toLowerCase();
-    return data.reports.filter((r) => {
-      if (filter === "waiting" && !["reported", "evidence_checked", "clarify"].includes(r.state)) return false;
-      if (filter === "verified" && r.state !== "verified") return false;
-      if (filter === "closed" && !["rejected", "reversed"].includes(r.state)) return false;
-      return !s || `${r.doc_number ?? ""} ${r.customer ?? ""} ${r.reference ?? ""} ${r.reporter ?? ""}`.toLowerCase().includes(s);
-    });
-  }, [data, filter, q]);
+  const invById = useMemo(() => new Map((data?.invoices ?? []).map((i) => [i.id, i])), [data]);
+  const pendingReps = useMemo(() => (data?.reports ?? []).filter((r) => isPendingState(r.state)), [data]);
+  const decided = useMemo(() => (data?.reports ?? []).filter((r) => !isPendingState(r.state)), [data]);
 
   if (failed) return <div className={card}><p className={css.empty}>{L("Payments could not be loaded.", "Bayaran tidak dapat dimuatkan.")}</p></div>;
   if (!data) return <div className={card}><SkelRows rows={4} /></div>;
 
-  /* v1.278.0 - opened from an invoice's Record payment in the documents
+  /* v1.278.0 - opened from an invoice's Report payment in the documents
      list: that invoice's sheet is open until it is closed or saved */
   const sheetFor = recordFor ?? (recordInvoiceId != null ? data.invoices.find((i) => i.id === recordInvoiceId && i.can_report) ?? null : null);
+  /* v1.282.0 - opened from View pending payment elsewhere in Sales: that invoice's sheet, until it is closed */
+  const drawerInv = openInv ?? viewInvoiceId ?? null;
 
   /* what is waiting for THIS person */
   const mineToAct = (r: Rep) =>
     (data.can.verify && ((r.state === "reported" && !r.mine) || r.state === "evidence_checked"))
     || (data.can.evidence && r.state === "reported" && !r.mine && r.needs_evidence)
     || (r.mine && r.state === "clarify");
+  const reviewableInv = (invId: number) => pendingReps.some((r) => r.invoice_id === invId && mineToAct(r));
+  const awaitingIndep = pendingReps.filter((r) => reviewOf(r) === "awaiting_independent").length;
+  const canReportNow = data.on && data.can.report;
+  const act = (i: OpenInv): MainAction => actionFor({ ...i, can_report: canReportNow && i.can_report }, reviewableInv(i.id));
+  const runAct = (i: OpenInv, a: MainAction) => (a.kind === "report" || a.kind === "report_remaining" ? setRecordFor(i) : setOpenInv(i.id));
+
+  const needsLabel = data.can.verify ? L("Needs My Verification", "Perlu Pengesahan Saya") : L("Waiting for review", "Menunggu semakan");
+  const tabs: [Tab, string, string, number | null][] = [
+    ["needs", needsLabel, L("Pending", "Tertunda"), pendingReps.length || null],
+    ["balances", L("Invoice Balances", "Baki Invois"), L("Balances", "Baki"), data.invoices.length || null],
+    ["history", L("Payment History", "Sejarah Bayaran"), L("History", "Sejarah"), null],
+    ["audit", L("Audit Trail", "Jejak Audit"), L("Audit", "Audit"), null],
+  ];
+
+  const shownInv = data.invoices.filter((i) => {
+    if (bal === "unpaid" && i.verified_cents > 0) return false;
+    if (bal === "partial" && !(i.verified_cents > 0)) return false;
+    if (bal === "waiting" && !(i.pending_cents > 0)) return false;
+    const s = q.trim().toLowerCase();
+    return !s || `${i.doc_number} ${i.customer ?? ""} ${i.salesperson ?? ""}`.toLowerCase().includes(s);
+  });
+  const lastUpdate = (i: OpenInv) => {
+    const r = data.reports.filter((x) => x.invoice_id === i.id).map((x) => x.reported_at).sort().at(-1);
+    const at = r ?? i.created_at;
+    return at ? dmyMYT(at).slice(0, 10) : "—";
+  };
+  const invReview = (invId: number) => { const r = pendingReps.find((x) => x.invoice_id === invId); return r ? reviewOf(r) : null; };
+  const exportCsv = () => downloadCsv(`invoice-balances-${mytToday()}`, [
+    [`Invoice balances - exported ${csvStampMyt()}`],
+    ["Invoice", "Customer", "Company", "Total (RM)", "Verified (RM)", "Pending (RM)", "Verified outstanding (RM)", "Settlement", "Review"],
+    ...shownInv.map((i) => [i.doc_number, i.customer ?? "", COMPANY[i.company] ?? i.company, (i.total_cents / 100).toFixed(2), (i.verified_cents / 100).toFixed(2), (i.pending_cents / 100).toFixed(2), (i.outstanding_cents / 100).toFixed(2),
+      settlementOf(i.total_cents, i.verified_cents), invReview(i.id) ?? ""]),
+  ]);
 
   return (
     <div className={css.stack}>
       {toastNode}
-      <SwitchCard data={data} onDone={(m) => { toast(L("Saved", "Disimpan"), m); reload(); }} onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />
+      <section className={`${card} ${css.head}`} aria-label={L("Payment verification", "Pengesahan bayaran")} data-testid="pay-head">
+        <span className={css.well} aria-hidden="true"><AppIcon name="verify" /></span>
+        <div className={css.headText}>
+          <h2 className={css.h2}>{L("Payment Verification", "Pengesahan Bayaran")}</h2>
+          <p className={css.meta}>{data.on
+            ? L("Report customer payments with proof. A payment counts as money only after the CEO verifies it.", "Lapor bayaran pelanggan dengan bukti. Bayaran dikira wang hanya selepas CEO mengesahkannya.")
+            : L("Off: payments are recorded the existing way (Mark paid, Confirm Paid).", "Mati: bayaran direkod seperti sedia ada (Tanda dibayar, Sahkan Dibayar).")}</p>
+        </div>
+        <span className={css.headRight}>
+          <span className={`${data.on ? chipSmSuccess : chipSmNeutral} ${css.chip}`} data-testid="pay-policy">{data.on ? L("Verification: Required", "Pengesahan: Wajib") : L("Verification: Off", "Pengesahan: Mati")}</span>
+          {data.can.switch && <button type="button" className={btnSm} onClick={() => setPolicy(true)}><AppIcon name="lock" />{L("Settings", "Tetapan")}</button>}
+        </span>
+      </section>
 
       <KpiRow label={L("Payments", "Bayaran")}>
         <KpiTile icon="pending" tone="gold" label={L("Pending CEO verification", "Menunggu pengesahan CEO")} value={fmtRM(data.tiles.pending_cents)}
-          sub={L(`${data.tiles.pending_count} payment${data.tiles.pending_count === 1 ? "" : "s"} reported`, `${data.tiles.pending_count} bayaran dilapor`)} onClick={() => setFilter("waiting")} />
+          sub={L(`${data.tiles.pending_count} payment${data.tiles.pending_count === 1 ? "" : "s"}${awaitingIndep ? ` · ${awaitingIndep} awaiting independent review` : ""}`, `${data.tiles.pending_count} bayaran${awaitingIndep ? ` · ${awaitingIndep} menunggu semakan bebas` : ""}`)}
+          onClick={() => setTab("needs")} />
         <KpiTile icon="verify" tone="green" label={L("Verified this month", "Disahkan bulan ini")} value={fmtRM(data.tiles.verified_month_cents)}
-          sub={L("CEO-verified payments only", "Bayaran disahkan CEO sahaja")} onClick={() => setFilter("verified")} />
+          sub={L("CEO-verified payments only", "Bayaran disahkan CEO sahaja")} onClick={() => setTab("history")} />
         <KpiTile icon="balance" tone="red" label={L("Verified outstanding", "Baki disahkan")} value={fmtRM(data.tiles.outstanding_cents)}
-          sub={L(`${data.tiles.outstanding_invoices} open invoice${data.tiles.outstanding_invoices === 1 ? "" : "s"} · pending not deducted`, `${data.tiles.outstanding_invoices} invois terbuka · belum ditolak bayaran tertunda`)} />
+          sub={L(`${data.tiles.outstanding_invoices} invoice${data.tiles.outstanding_invoices === 1 ? "" : "s"} · pending not deducted`, `${data.tiles.outstanding_invoices} invois · tertunda tidak ditolak`)}
+          onClick={() => { setBal("all"); setTab("balances"); }} />
         <KpiTile icon="money" tone="blue" label={L("Partially paid", "Dibayar separa")} value={data.tiles.partial_invoices}
-          sub={L("Invoices with some money verified", "Invois dengan sebahagian wang disahkan")} />
+          sub={L("Invoices with a verified part", "Invois dengan bahagian disahkan")} onClick={() => { setBal("partial"); setTab("balances"); }} />
       </KpiRow>
 
-      {data.can.report && data.on && (
-        <section className={card} aria-label={L("Open invoices", "Invois terbuka")}>
-          <h3 className={css.h}>{L("Open invoices", "Invois terbuka")}</h3>
-          <p className={css.meta}>{data.can.all ? L("Every unpaid invoice.", "Setiap invois belum dibayar.") : L("Your unpaid invoices.", "Invois anda yang belum dibayar.")}</p>
-          {data.invoices.length === 0 ? <p className={css.empty}>{L("No unpaid invoices.", "Tiada invois belum dibayar.")}</p> : (
-            <ul className={css.list}>
-              {data.invoices.map((i) => {
-                const [en, ms, cls] = words(STATUS_WORDS, i.status);
+      <div className={`${card} ${css.tabs}`} role="tablist" aria-label={L("Payments", "Bayaran")}>
+        {tabs.map(([k, word, short, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} data-testid={`pay-tab-${k}`} className={css.tab} onClick={() => setTab(k)}>
+            <span className="erp-desktop-only">{word}</span><span className="erp-phone-only">{short}</span>
+            {n ? <span className={css.tabN} aria-hidden="true">{n}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {!data.ready && <p className="erp-note erp-note-warning">{L("Run migration 0181 (PUSH.bat) to start payment verification.", "Jalankan migrasi 0181 (PUSH.bat) untuk memulakan pengesahan bayaran.")}</p>}
+
+      {tab === "needs" && (
+        <section className={`${card} ${css.sec}`} aria-label={needsLabel}>
+          <div className={css.bar}>
+            <div>
+              <h3 className={css.h}>{L("Payments waiting for verification", "Bayaran menunggu pengesahan")}</h3>
+              <p className={css.meta}>{data.can.verify
+                ? L("Reported by Sales, the COO, the CCO or you. Your own reports need another person's evidence check first.", "Dilapor oleh Jualan, COO, CCO atau anda. Laporan anda sendiri perlu semakan bukti orang lain dahulu.")
+                : L("Reported payments are not money until the CEO verifies them.", "Bayaran dilapor bukan wang sehingga CEO mengesahkannya.")}</p>
+            </div>
+            {pendingReps.length > 0 && <span className={css.sumPill}>{L(`${pendingReps.length} payment${pendingReps.length === 1 ? "" : "s"}`, `${pendingReps.length} bayaran`)} · {fmtRM(pendingReps.reduce((a, r) => a + r.amount_cents, 0))}</span>}
+          </div>
+          {pendingReps.length === 0 ? <p className={css.empty}>{L("Nothing is waiting for verification.", "Tiada apa menunggu pengesahan.")}</p> : (
+            <div className={`${css.table} ${css.tNeeds}`} role="table" aria-label={L("Payments waiting for verification", "Bayaran menunggu pengesahan")}>
+              <div className={css.thead} role="row">
+                {[L("Invoice & customer", "Invois & pelanggan"), L("Reported", "Dilapor"), L("Invoice total", "Jumlah invois"), L("Verified", "Disahkan"), L("Outstanding", "Baki"), L("Submitted by", "Dihantar oleh"), L("Proof", "Bukti"), L("Review status", "Status semakan"), ""].map((h, n) => <span key={n} role="columnheader" className={n >= 1 && n <= 4 ? css.num : undefined}>{h}</span>)}
+              </div>
+              {pendingReps.map((r) => {
+                const inv = invById.get(r.invoice_id);
+                const mine = mineToAct(r);
                 return (
-                  <li key={i.id} className={`${css.row} ${css.invRow}`}>
-                    <button type="button" className={css.rowMain} onClick={() => setOpenInv(i.id)}>
-                      <span className={css.title}>{i.doc_number} <span className={css.co}>{COMPANY[i.company] ?? i.company}</span></span>
-                      <span className={css.sub}>{i.customer ?? "-"}{i.salesperson ? ` · ${i.salesperson}` : ""}</span>
-                    </button>
-                    <span className={css.figs}>
-                      <span><span className={css.k}>{L("Total", "Jumlah")}</span>{fmtRM(i.total_cents)}</span>
-                      <span><span className={css.k}>{L("Verified", "Disahkan")}</span>{fmtRM(i.verified_cents)}</span>
-                      <span><span className={css.k}>{L("Pending", "Tertunda")}</span>{fmtRM(i.pending_cents)}</span>
-                      <span><span className={css.k}>{L("Outstanding", "Baki")}</span><b>{fmtRM(i.outstanding_cents)}</b></span>
+                  <div key={r.id} role="row" className={`${css.tr} ${mine ? css.act : ""}`} data-testid="payment-row">
+                    <Cell k={L("Invoice", "Invois")} className={css.cMain}>
+                      <span className={css.title}>{r.doc_number} <span className={css.co}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span>
+                      <span className={css.sub}>{r.customer ?? "-"}{r.reference ? ` · ${L("ref", "ruj")} ${r.reference}` : ""}</span>
+                    </Cell>
+                    <Cell k={L("Reported", "Dilapor")} num><b>{fmtRM(r.amount_cents)}</b></Cell>
+                    <Cell k={L("Invoice total", "Jumlah invois")} num className={css.dOnly}>{fmtRM(r.total_cents ?? inv?.total_cents ?? 0)}</Cell>
+                    <Cell k={L("Verified", "Disahkan")} num className={css.dOnly}>{fmtRM(inv?.verified_cents ?? 0)}</Cell>
+                    <Cell k={L("Outstanding", "Baki")} num className={css.dOnly}>{fmtRM(inv?.outstanding_cents ?? 0)}</Cell>
+                    <Cell k={L("Submitted by", "Dihantar oleh")}><span>{whoWord(r)}</span><span className={css.sub}>{dmy(r.received_on)}</span></Cell>
+                    <Cell k={L("Proof", "Bukti")}>{r.has_proof ? <span className={css.proofTag}><AppIcon name="attach" />{L("Receipt", "Resit")}</span> : <span className={chipSmNeutral}>{L("No proof", "Tiada bukti")}</span>}</Cell>
+                    <Cell k={L("Review status", "Status semakan")} className={css.cWide}>
+                      <span className={css.flags}>
+                        <ReviewChip r={reviewOf(r)} />
+                        {r.dup_of !== null && <span className={chipSmDanger}>{L("Possible duplicate", "Mungkin pendua")}</span>}
+                        {r.over_cents > 0 && <span className={chipSmWarn}>{L(`${fmtRM(r.over_cents)} over`, `${fmtRM(r.over_cents)} lebih`)}</span>}
+                      </span>
+                    </Cell>
+                    <span role="cell" className={css.cAct}>
+                      <button type="button" className={mine ? btnSmPrimary : btnSm} onClick={() => setOpenInv(r.invoice_id)}>
+                        {mine ? (r.state === "clarify" ? L("Answer", "Jawab") : data.can.verify ? L("Review", "Semak") : L("Check evidence", "Semak bukti")) : L("Review", "Semak")}
+                      </button>
                     </span>
-                    <span className={`${cls} ${css.chip}`}>{L(en, ms)}</span>
-                    {i.can_report && <button type="button" className={btnSmPrimary} onClick={() => setRecordFor(i)}>{L("Record payment", "Rekod bayaran")}</button>}
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
+          )}
+          {data.can.verify && awaitingIndep > 0 && <p className={css.note}><AppIcon name="info" />{L("Verify unlocks on your own report after the COO confirms the money in the bank. Pending amounts are never deducted from verified outstanding.", "Sahkan dibuka pada laporan anda selepas COO mengesahkan wang dalam bank. Amaun tertunda tidak ditolak daripada baki disahkan.")}</p>}
+        </section>
+      )}
+
+      {tab === "balances" && (
+        <section className={`${card} ${css.sec}`} aria-label={L("Invoice Balances", "Baki Invois")}>
+          <div className={css.bar}>
+            <div>
+              <h3 className={css.h}>{L("Invoice Balances", "Baki Invois")}</h3>
+              <p className={css.meta}>{data.can.all ? L("Every unpaid invoice, with verified and pending money kept apart.", "Setiap invois belum dibayar, wang disahkan dan tertunda diasingkan.") : L("Your unpaid invoices, with verified and pending money kept apart.", "Invois anda yang belum dibayar, wang disahkan dan tertunda diasingkan.")}</p>
+            </div>
+            <div className={css.filters}>
+              <input className={inputClassSm} value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search invoice or customer…", "Cari invois atau pelanggan…")} aria-label={L("Search invoices", "Cari invois")} />
+              <select className={selectClassSm} value={bal} onChange={(e) => setBal(e.target.value as typeof bal)} aria-label={L("Show", "Tunjuk")}>
+                <option value="all">{L("All status", "Semua status")}</option>
+                <option value="unpaid">{L("Unpaid", "Belum dibayar")}</option>
+                <option value="partial">{L("Partially paid", "Dibayar separa")}</option>
+                <option value="waiting">{L("Waiting for review", "Menunggu semakan")}</option>
+              </select>
+              <button type="button" className={btnSm} onClick={exportCsv} disabled={!shownInv.length}><AppIcon name="download" />{L("Export", "Eksport")}</button>
+            </div>
+          </div>
+          {shownInv.length === 0 ? <p className={css.empty}>{L("No unpaid invoices here.", "Tiada invois belum dibayar di sini.")}</p> : (
+            <div className={`${css.table} ${css.tBal}`} role="table" aria-label={L("Invoice Balances", "Baki Invois")}>
+              <div className={css.thead} role="row">
+                {[L("Invoice & customer", "Invois & pelanggan"), L("Total", "Jumlah"), L("Verified", "Disahkan"), L("Pending", "Tertunda"), L("Outstanding", "Baki"), L("Settlement", "Penyelesaian"), L("Review", "Semakan"), L("Last update", "Kemas kini"), ""].map((h, n) => <span key={n} role="columnheader" className={n >= 1 && n <= 4 ? css.num : undefined}>{h}</span>)}
+              </div>
+              {shownInv.map((i) => {
+                const a = act(i);
+                const rv = invReview(i.id);
+                return (
+                  <div key={i.id} role="row" className={css.tr} data-testid="inv-row">
+                    <Cell k={L("Invoice", "Invois")} className={css.cMain}>
+                      <span className={css.title}><button type="button" className={css.link} onClick={() => setOpenInv(i.id)}>{i.doc_number}</button><span className={css.co}>{COMPANY[i.company] ?? i.company}</span></span>
+                      <span className={css.sub}>{i.customer ?? "-"}{i.salesperson ? ` · ${i.salesperson}` : ""}</span>
+                    </Cell>
+                    <Cell k={L("Total", "Jumlah")} num>{fmtRM(i.total_cents)}</Cell>
+                    <Cell k={L("Verified", "Disahkan")} num>{fmtRM(i.verified_cents)}</Cell>
+                    <Cell k={L("Pending", "Tertunda")} num>{fmtRM(i.pending_cents)}</Cell>
+                    <Cell k={L("Outstanding", "Baki")} num><b>{fmtRM(i.outstanding_cents)}</b></Cell>
+                    <Cell k={L("Settlement", "Penyelesaian")}><SettlementChip s={settlementOf(i.total_cents, i.verified_cents)} testId="inv-settlement" /></Cell>
+                    <Cell k={L("Review", "Semakan")}>{rv ? <ReviewChip r={rv} testId="inv-review" /> : <span className={css.sub}>—</span>}</Cell>
+                    <Cell k={L("Last update", "Kemas kini")}>{lastUpdate(i)}</Cell>
+                    <span role="cell" className={css.cAct}>
+                      {a.kind !== "none" && <button type="button" className={a.kind === "report" || a.kind === "report_remaining" || a.kind === "review" ? btnSmPrimary : btnSm} data-testid="inv-action" data-kind={a.kind} onClick={() => runAct(i, a)}>{a.label}</button>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </section>
       )}
 
-      <section className={card} aria-label={L("Payment records", "Rekod bayaran")}>
-        <div className={css.bar}>
-          <h3 className={css.h}>{L("Payment records", "Rekod bayaran")}</h3>
-          <div className={css.filters}>
-            <input className={inputClassSm} value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search invoice, customer, reference", "Cari invois, pelanggan, rujukan")} aria-label={L("Search payments", "Cari bayaran")} />
-            <select className={selectClassSm} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} aria-label={L("Show", "Tunjuk")}>
-              <option value="waiting">{L("Waiting for review", "Menunggu semakan")}</option>
-              <option value="verified">{L("Verified", "Disahkan")}</option>
-              <option value="closed">{L("Rejected or reversed", "Ditolak atau dibatalkan")}</option>
-              <option value="all">{L("All", "Semua")}</option>
-            </select>
-          </div>
-        </div>
-        {!data.ready && <p className="erp-note erp-note-warning">{L("Run migration 0181 (PUSH.bat) to start payment verification.", "Jalankan migrasi 0181 (PUSH.bat) untuk memulakan pengesahan bayaran.")}</p>}
-        {shown.length === 0 ? <p className={css.empty}>{L("Nothing here.", "Tiada apa-apa.")}</p> : (
-          <ul className={css.list}>
-            {shown.map((r) => {
-              const [en, ms, cls] = words(STATE_WORDS, r.state);
-              const act = mineToAct(r);
-              return (
-                <li key={r.id} className={`${css.row} ${act ? css.act : ""}`} data-testid="payment-row">
-                  <button type="button" className={css.rowMain} onClick={() => setOpenInv(r.invoice_id)}>
-                    <span className={css.title}>{r.doc_number} <span className={css.co}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span>
-                    <span className={css.sub}>{r.customer ?? "-"} · {L("by", "oleh")} {r.reporter ?? "-"} · {dmy(r.received_on)}{r.reference ? ` · ${r.reference}` : ""}</span>
-                  </button>
-                  <span className={css.amount}>{fmtRM(r.amount_cents)}</span>
-                  <span className={css.flags}>
-                    <span className={`${cls} ${css.chip}`}>{L(en, ms)}</span>
-                    {r.dup_of !== null && <span className={chipSmDanger}>{L("Possible duplicate", "Mungkin pendua")}</span>}
-                    {r.over_cents > 0 && <span className={chipSmWarn}>{L(`${fmtRM(r.over_cents)} over`, `${fmtRM(r.over_cents)} lebih`)}</span>}
-                    {!r.has_proof && <span className={chipSmNeutral}>{L("No proof", "Tiada bukti")}</span>}
-                  </span>
-                  <button type="button" className={act ? btnSmPrimary : btnSm} onClick={() => setOpenInv(r.invoice_id)}>
-                    {act ? (data.can.verify && r.state !== "clarify" ? L("Review", "Semak") : L("Act", "Ambil tindakan")) : L("View", "Lihat")}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      {tab === "history" && (
+        <section className={`${card} ${css.sec}`} aria-label={L("Payment History", "Sejarah Bayaran")}>
+          <h3 className={css.h}>{L("Payment History", "Sejarah Bayaran")}</h3>
+          <p className={css.meta}>{L("Decided payments: verified, rejected and reversed. Nothing is deleted.", "Bayaran yang diputuskan: disahkan, ditolak dan dibatalkan. Tiada apa dipadam.")}</p>
+          {decided.length === 0 ? <p className={css.empty}>{L("No decided payments yet.", "Belum ada bayaran diputuskan.")}</p> : (
+            <div className={`${css.table} ${css.tHist}`} role="table" aria-label={L("Payment History", "Sejarah Bayaran")}>
+              <div className={css.thead} role="row">
+                {[L("Invoice & customer", "Invois & pelanggan"), L("Amount", "Amaun"), L("Status", "Status"), L("Submitted by", "Dihantar oleh"), L("Decided", "Diputuskan"), ""].map((h, n) => <span key={n} role="columnheader" className={n === 1 ? css.num : undefined}>{h}</span>)}
+              </div>
+              {decided.map((r) => (
+                <div key={r.id} role="row" className={css.tr} data-testid="payment-row">
+                  <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{r.doc_number} <span className={css.co}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span><span className={css.sub}>{r.customer ?? "-"}</span></Cell>
+                  <Cell k={L("Amount", "Amaun")} num><b>{fmtRM(r.state === "verified" ? r.verified_cents ?? r.amount_cents : r.amount_cents)}</b></Cell>
+                  <Cell k={L("Status", "Status")}><ReviewChip r={reviewOf(r)} /></Cell>
+                  <Cell k={L("Submitted by", "Dihantar oleh")}>{whoWord(r)}</Cell>
+                  <Cell k={L("Decided", "Diputuskan")}>{r.decided_at ? dmyMYT(r.decided_at) : "—"}</Cell>
+                  <span role="cell" className={css.cAct}><button type="button" className={btnSm} onClick={() => setOpenInv(r.invoice_id)}>{L("View", "Lihat")}</button></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-      {sheetFor && <RecordSheet inv={sheetFor} onClose={() => { setRecordFor(null); onRecordOpened?.(); }}
+      {tab === "audit" && <AuditTrail onOpen={(id) => setOpenInv(id)} />}
+
+      {sheetFor && <RecordSheet inv={sheetFor === "pick" ? null : sheetFor} invoices={data.invoices.filter((i) => i.can_report && canReportNow)}
+        onClose={() => { setRecordFor(null); onRecordOpened?.(); }}
         onDone={(m) => { setRecordFor(null); onRecordOpened?.(); toast(L("Saved", "Disimpan"), m); reload(); }}
         onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
-      {openInv !== null && <InvoiceDrawer invId={openInv} data={data} userId={userId} onClose={() => setOpenInv(null)}
+      {drawerInv !== null && <InvoiceDrawer key={drawerInv} invId={drawerInv} data={data} userId={userId} onClose={() => { setOpenInv(null); onViewOpened?.(); }}
+        onReport={(i) => { setOpenInv(null); onViewOpened?.(); setRecordFor(i); }}
         onDone={(m) => { toast(L("Saved", "Disimpan"), m); reload(); }}
+        onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
+      {policy && <PolicySheet data={data} pending={pendingReps.length} onClose={() => setPolicy(false)}
+        onDone={(m) => { setPolicy(false); toast(L("Saved", "Disimpan"), m); reload(); }}
         onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
     </div>
   );
 }
 
-/** The owner's switch, and what it means for everyone else. */
-function SwitchCard({ data, onDone, onFail }: { data: Data; onDone: (m: string) => void; onFail: (m: string) => void }) {
-  const [open, setOpen] = useState(false);
+/** v1.282.0 - every payment event across invoices, newest first (read-only, GET /staff/payments/events). */
+function AuditTrail({ onOpen }: { onOpen: (invoiceId: number) => void }) {
+  const [rows, setRows] = useState<Ev[] | null>(null);
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api<{ events: Ev[] }>("/staff/payments/events?limit=100").then((r) => {
+      if (!live) return;
+      if (r.ok && r.data) setRows(r.data.events ?? []); else setGone(true);
+    });
+    return () => { live = false; };
+  }, []);
+  return (
+    <section className={`${card} ${css.sec}`} aria-label={L("Audit Trail", "Jejak Audit")} data-testid="pay-audit">
+      <h3 className={css.h}>{L("Audit Trail", "Jejak Audit")}</h3>
+      <p className={css.meta}>{L("Every payment event, newest first. The history is append-only: nothing here can be changed or removed.", "Setiap peristiwa bayaran, terbaru dahulu. Sejarah hanya ditambah: tiada apa boleh diubah atau dibuang.")}</p>
+      {gone ? <p className={css.empty}>{L("The audit list is not available yet - open an invoice to read its full timeline.", "Senarai audit belum tersedia - buka invois untuk membaca garis masanya.")}</p>
+        : !rows ? <SkelRows rows={4} />
+          : rows.length === 0 ? <p className={css.empty}>{L("No payment events yet.", "Belum ada peristiwa bayaran.")}</p> : (
+            <ol className={css.audit}>
+              {rows.map((e) => {
+                const w = EVENT_WORDS[e.event] ?? [e.event, e.event];
+                return (
+                  <li key={e.id} className={css.auditRow}>
+                    <span className={css.sub}>{dmyMYT(e.created_at)}</span>
+                    <span><b>{L(...w)}</b>{e.amount_cents ? ` · ${fmtRM(e.amount_cents)}` : ""}</span>
+                    <span className={css.sub}>{e.actor ?? L("System", "Sistem")}</span>
+                    {e.invoice_id ? <button type="button" className={css.link} onClick={() => onOpen(e.invoice_id!)}>{e.doc_number ?? `#${e.invoice_id}`}</button> : <span />}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+    </section>
+  );
+}
+
+/** v1.282.0 (P2) - the owner's verification policy, off the daily page. The rule is unchanged: owner, reason, code. */
+function PolicySheet({ data, pending, onClose, onDone, onFail }: { data: Data; pending: number; onClose: () => void; onDone: (m: string) => void; onFail: (m: string) => void }) {
   const [reason, setReason] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -249,44 +421,49 @@ function SwitchCard({ data, onDone, onFail }: { data: Data; onDone: (m: string) 
     const r = await api<Err>("/staff/payments/settings", { method: "PUT", body: JSON.stringify({ on: !data.on, reason: reason.trim(), totp: code }) });
     setBusy(false); setCode("");
     if (!r.ok) { onFail(msg(r, L("Not changed", "Tidak diubah"))); return; }
-    setOpen(false); setReason("");
     onDone(!data.on ? L("Payment verification is on", "Pengesahan bayaran dihidupkan") : L("Payment verification is off", "Pengesahan bayaran dimatikan"));
   };
+  const word = data.on ? L("Switch off", "Matikan") : L("Switch on", "Hidupkan");
   return (
-    <section className={`${card} ${css.switch}`} aria-label={L("Payment verification", "Pengesahan bayaran")}>
-      <div className={css.bar}>
-        <div>
-          <h3 className={css.h}>{L("Payment verification", "Pengesahan bayaran")} <span className={data.on ? chipSmSuccess : chipSmNeutral}>{data.on ? L("On", "Hidup") : L("Off", "Mati")}</span></h3>
-          <p className={css.meta}>{data.on
-            ? L("Sales, the COO and CCO report payments with proof. Only the CEO's verification makes a payment real money; the invoice becomes paid when verified payments reach its total.", "Jualan, COO dan CCO melaporkan bayaran dengan bukti. Hanya pengesahan CEO menjadikan bayaran wang sebenar; invois dibayar apabila bayaran disahkan mencapai jumlahnya.")
-            : L("Off: payments are recorded the existing way (Mark paid, Confirm Paid). Nothing here changes anything until the owner switches it on.", "Mati: bayaran direkod seperti sedia ada (Tanda dibayar, Sahkan Dibayar). Tiada apa berubah sehingga pemilik menghidupkannya.")}</p>
-        </div>
-        {data.can.switch && !open && <button type="button" className={data.on ? btnSmQuiet : btnSmPrimary} onClick={() => setOpen(true)}>{data.on ? L("Switch off", "Matikan") : L("Switch on", "Hidupkan")}</button>}
+    <SideDrawer open onClose={onClose} title={L("Verification policy", "Dasar pengesahan")} subtitle={L("Owner only · reason and authenticator code · audited", "Pemilik sahaja · sebab dan kod pengesah · diaudit")}
+      dirty={reason.trim().length > 0}
+      footer={<div className={css.foot}>
+        <button type="button" className={btnSmQuiet} onClick={onClose}>{L("Cancel", "Batal")}</button>
+        <button type="button" className={data.on ? btnSmDanger : btnSmPrimary} disabled={busy || reason.trim().length < 5 || code.length !== 6} onClick={() => void save()}>{word}</button>
+      </div>}>
+      <div className={css.formCol} data-testid="policy-sheet">
+        <p>{L("Payment verification is", "Pengesahan bayaran")} <b>{data.on ? L("on", "hidup") : L("off", "mati")}</b>.</p>
+        {data.on && <p className="erp-note erp-note-danger">{L("Switching off lets invoices be marked paid without the CEO's verification. It does not verify anything that is waiting.", "Mematikan membolehkan invois ditanda dibayar tanpa pengesahan CEO. Ia tidak mengesahkan apa-apa yang menunggu.")}
+          {pending > 0 ? ` ${L(`${pending} reported payment${pending === 1 ? " is" : "s are"} still waiting for a decision.`, `${pending} bayaran dilapor masih menunggu keputusan.`)}` : ""}</p>}
+        <label className={css.field}>{L("Reason", "Sebab")}<input className={inputClassSm} value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} /></label>
+        <label className={css.field}>{L("Authenticator code", "Kod pengesah")}<input className={inputClassSm} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label>
       </div>
-      {open && (
-        <div className={css.form}>
-          <label className={css.field}>{L("Reason", "Sebab")}<input className={inputClassSm} value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} /></label>
-          <label className={css.field}>{L("Authenticator code", "Kod pengesah")}<input className={inputClassSm} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label>
-          <button type="button" className={btnSmPrimary} disabled={busy || reason.trim().length < 5 || code.length !== 6} onClick={() => void save()}>{data.on ? L("Switch off", "Matikan") : L("Switch on", "Hidupkan")}</button>
-          <button type="button" className={btnSmQuiet} onClick={() => setOpen(false)}>{L("Cancel", "Batal")}</button>
-        </div>
-      )}
-    </section>
+    </SideDrawer>
   );
 }
 
-/** Record Payment: the report and its proof, one sheet. */
-function RecordSheet({ inv, onClose, onDone, onFail }: { inv: OpenInv; onClose: () => void; onDone: (m: string) => void; onFail: (m: string) => void }) {
-  const left = Math.max(0, inv.outstanding_cents - inv.pending_cents);
+/** Report payment: Details, Proof, Review - one sheet, three steps. */
+function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone, onFail }: {
+  inv: OpenInv | null; invoices: OpenInv[]; additional?: boolean;
+  onClose: () => void; onDone: (m: string) => void; onFail: (m: string) => void;
+}) {
+  const [pick, setPick] = useState<number | "">(fixed?.id ?? "");
+  const inv = fixed ?? invoices.find((i) => i.id === pick) ?? null;
+  const left = inv ? Math.max(0, inv.outstanding_cents - inv.pending_cents) : 0;
+  const extra = additional || (!!inv && inv.pending_cents > 0 && left === 0);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [amount, setAmount] = useState(left ? (left / 100).toFixed(2) : "");
   const [on, setOn] = useState(mytToday());
   const [method, setMethod] = useState("bank_transfer");
   const [ref, setRef] = useState("");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   const cents = toCents(amount);
+  const detailsOk = !!inv && cents > 0 && !!on && (method === "cash" || ref.trim().length >= 3) && (!extra || sure);
   const send = async () => {
+    if (!inv) return;
     setBusy(true);
     const r = await api<{ id?: number; over_cents?: number; possible_duplicate?: boolean } & Err>(`/staff/docs/${inv.id}/payment-reports`, {
       method: "POST", body: JSON.stringify({ amount_cents: cents, received_on: on, method, reference: ref.trim(), note: note.trim() || undefined }),
@@ -297,25 +474,68 @@ function RecordSheet({ inv, onClose, onDone, onFail }: { inv: OpenInv; onClose: 
     if (bad) { onFail(L(`Reported, but the proof failed: ${bad} Open the invoice to attach it again.`, `Dilapor, tetapi bukti gagal: ${bad} Buka invois untuk melampirkannya semula.`)); onDone(L("Payment reported", "Bayaran dilapor")); return; }
     onDone(r.data.possible_duplicate
       ? L("Reported - this reference was used before, the CEO will check it", "Dilapor - rujukan ini pernah digunakan, CEO akan menyemaknya")
-      : L("Payment reported - waiting for the CEO's verification", "Bayaran dilapor - menunggu pengesahan CEO"));
+      : L("Payment reported - waiting for verification", "Bayaran dilapor - menunggu pengesahan"));
   };
+  const STEPS: [1 | 2 | 3, string][] = [[1, L("Details", "Butiran")], [2, L("Proof", "Bukti")], [3, L("Review", "Semak")]];
   return (
-    <SideDrawer open onClose={onClose} full title={L(`Record payment - ${inv.doc_number}`, `Rekod bayaran - ${inv.doc_number}`)}
-      subtitle={L(`${inv.customer ?? ""} · outstanding ${fmtRM(inv.outstanding_cents)}${inv.pending_cents ? ` · ${fmtRM(inv.pending_cents)} pending` : ""}`, `${inv.customer ?? ""} · baki ${fmtRM(inv.outstanding_cents)}${inv.pending_cents ? ` · ${fmtRM(inv.pending_cents)} tertunda` : ""}`)}
+    <SideDrawer open onClose={onClose} full dirty={!!ref.trim() || !!file || !!note.trim()}
+      title={inv ? L(`Report payment - ${inv.doc_number}`, `Lapor bayaran - ${inv.doc_number}`) : L("Report payment", "Lapor bayaran")}
+      subtitle={inv ? L(`${inv.customer ?? ""} · outstanding ${fmtRM(inv.outstanding_cents)}${inv.pending_cents ? ` · ${fmtRM(inv.pending_cents)} pending` : ""}`, `${inv.customer ?? ""} · baki ${fmtRM(inv.outstanding_cents)}${inv.pending_cents ? ` · ${fmtRM(inv.pending_cents)} tertunda` : ""}`) : undefined}
       footer={<div className={css.foot}>
-        <button type="button" className={btnSmQuiet} onClick={onClose}>{L("Cancel", "Batal")}</button>
-        <button type="button" className={btnSmPrimary} disabled={busy || !cents || !file || (method !== "cash" && ref.trim().length < 3)} onClick={() => void send()}>{busy ? L("Sending…", "Menghantar…") : L("Report payment", "Lapor bayaran")}</button>
+        {step === 1 ? <button type="button" className={btnSmQuiet} onClick={onClose}>{L("Cancel", "Batal")}</button>
+          : <button type="button" className={btnSmQuiet} onClick={() => setStep((s) => (s - 1) as 1 | 2)}>{L("Back", "Kembali")}</button>}
+        {step === 1 && <button type="button" className={css.btnGold} disabled={!detailsOk} onClick={() => setStep(2)}>{L("Next: proof", "Seterusnya: bukti")}</button>}
+        {step === 2 && <button type="button" className={css.btnGold} disabled={!file} onClick={() => setStep(3)}>{L("Next: review", "Seterusnya: semak")}</button>}
+        {step === 3 && <button type="button" className={css.btnGold} disabled={busy || !detailsOk || !file} onClick={() => void send()}>{busy ? L("Sending…", "Menghantar…") : L("Report payment", "Lapor bayaran")}</button>}
       </div>}>
-      <div className={css.formCol}>
-        <p className="erp-note">{L("This reports the payment to the CEO. It is not counted as received until the CEO verifies it.", "Ini melaporkan bayaran kepada CEO. Ia tidak dikira diterima sehingga CEO mengesahkannya.")}</p>
-        <label className={css.field}>{L("Amount received (RM)", "Amaun diterima (RM)")}<input className={inputClassSm} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" /></label>
-        {cents > left && left > 0 && <p className="erp-note erp-note-warning">{L(`More than the ${fmtRM(left)} left - it will be flagged for review.`, `Melebihi baki ${fmtRM(left)} - ia akan ditanda untuk semakan.`)}</p>}
-        <label className={css.field}>{L("Received on", "Diterima pada")}<input className={inputClassSm} type="date" value={on} max={mytToday()} onChange={(e) => setOn(e.target.value)} /></label>
-        <label className={css.field}>{L("Method", "Kaedah")}<select className={selectClassSm} value={method} onChange={(e) => setMethod(e.target.value)}>{METHODS.map(([k, en, ms]) => <option key={k} value={k}>{L(en, ms)}</option>)}</select></label>
-        <label className={css.field}>{method === "cash" ? L("Receipt number (optional)", "Nombor resit (pilihan)") : L("Bank or payment reference", "Rujukan bank atau bayaran")}<input className={inputClassSm} value={ref} maxLength={60} onChange={(e) => setRef(e.target.value)} placeholder="MBB241104-8891" /></label>
-        <label className={css.field}>{L("Proof (transfer slip, receipt) - PDF, JPEG or PNG", "Bukti (slip pindahan, resit) - PDF, JPEG atau PNG")}<input className={inputClassSm} type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
-        <label className={css.field}>{L("Remarks (optional)", "Catatan (pilihan)")}<textarea className={textareaClass} rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} /></label>
-      </div>
+      <ol className={css.steps} aria-label={L("Steps", "Langkah")}>
+        {STEPS.map(([n, w]) => <li key={n} className={step === n ? css.stepOn : step > n ? css.stepDone : undefined} aria-current={step === n ? "step" : undefined}><span>{n}</span>{w}</li>)}
+      </ol>
+      {step === 1 && (
+        <div className={css.formCol}>
+          {!fixed && (
+            <label className={css.field}>{L("Invoice", "Invois")}
+              <select className={selectClassSm} value={pick} onChange={(e) => { const id = e.target.value ? Number(e.target.value) : ""; setPick(id); const i = invoices.find((x) => x.id === id); const l = i ? Math.max(0, i.outstanding_cents - i.pending_cents) : 0; setAmount(l ? (l / 100).toFixed(2) : ""); }}>
+                <option value="">{L("Choose the invoice", "Pilih invois")}</option>
+                {invoices.map((i) => <option key={i.id} value={i.id}>{i.doc_number} · {i.customer ?? ""} · {fmtRM(i.outstanding_cents)}</option>)}
+              </select>
+            </label>
+          )}
+          {inv && <p className={css.sub}>{L(`Outstanding ${fmtRM(inv.outstanding_cents)}`, `Baki ${fmtRM(inv.outstanding_cents)}`)} · {inv.pending_cents ? L(`${fmtRM(inv.pending_cents)} already reported, waiting`, `${fmtRM(inv.pending_cents)} sudah dilapor, menunggu`) : L("nothing pending", "tiada tertunda")}</p>}
+          {extra && inv && (
+            <div className="erp-note erp-note-warning" data-testid="additional-warning">
+              {L(`The whole outstanding ${fmtRM(inv.outstanding_cents)} is already reported and waiting. Report another payment only if the customer really paid again (a second transfer, with its own reference).`, `Seluruh baki ${fmtRM(inv.outstanding_cents)} sudah dilapor dan menunggu. Lapor bayaran lain hanya jika pelanggan benar-benar membayar lagi (pindahan kedua, dengan rujukannya sendiri).`)}
+              <label className={css.check}><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> {L("This is a different payment, with its own reference", "Ini bayaran berlainan, dengan rujukannya sendiri")}</label>
+            </div>
+          )}
+          <label className={css.field}>{L("Amount received (RM)", "Amaun diterima (RM)")}<input className={inputClassSm} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" /></label>
+          {cents > left && left > 0 && <p className="erp-note erp-note-warning">{L(`More than the ${fmtRM(left)} left - it will be flagged for review.`, `Melebihi baki ${fmtRM(left)} - ia akan ditanda untuk semakan.`)}</p>}
+          <label className={css.field}>{L("Received on", "Diterima pada")}<input className={inputClassSm} type="date" value={on} max={mytToday()} onChange={(e) => setOn(e.target.value)} /></label>
+          <label className={css.field}>{L("Method", "Kaedah")}<select className={selectClassSm} value={method} onChange={(e) => setMethod(e.target.value)}>{METHODS.map(([k, en, ms]) => <option key={k} value={k}>{L(en, ms)}</option>)}</select></label>
+          <label className={css.field}>{method === "cash" ? L("Receipt number (optional)", "Nombor resit (pilihan)") : L("Bank or payment reference", "Rujukan bank atau bayaran")}<input className={inputClassSm} value={ref} maxLength={60} onChange={(e) => setRef(e.target.value)} placeholder={L("As printed on the bank slip", "Seperti dicetak pada slip bank")} /></label>
+          {inv && <p className={css.note}><AppIcon name="info" />{L("Customer was told to pay into", "Pelanggan diminta membayar ke")} {letterhead(inv.company)}.</p>}
+        </div>
+      )}
+      {step === 2 && (
+        <div className={css.formCol}>
+          <label className={css.field}>{L("Proof (transfer slip, receipt) - PDF, JPEG or PNG", "Bukti (slip pindahan, resit) - PDF, JPEG atau PNG")}<input className={inputClassSm} type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
+          {file && <p className={css.sub}>{file.name}</p>}
+          <label className={css.field}>{L("Remarks (optional)", "Catatan (pilihan)")}<textarea className={textareaClass} rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+        </div>
+      )}
+      {step === 3 && inv && (
+        <div className={css.formCol} data-testid="report-review">
+          <dl className={css.facts}>
+            <div><dt>{L("Invoice", "Invois")}</dt><dd>{inv.doc_number}</dd></div>
+            <div><dt>{L("Amount", "Amaun")}</dt><dd>{fmtRM(cents)}</dd></div>
+            <div><dt>{L("Received on", "Diterima pada")}</dt><dd>{dmy(on)}</dd></div>
+            <div><dt>{L("Method", "Kaedah")}</dt><dd>{methodWord(method)}</dd></div>
+            {ref.trim() && <div><dt>{L("Reference", "Rujukan")}</dt><dd>{ref.trim()}</dd></div>}
+            <div><dt>{L("Proof", "Bukti")}</dt><dd>{file?.name ?? "-"}</dd></div>
+          </dl>
+          <p className="erp-note">{L("This reports the payment. It is not counted as received, and the invoice stays unpaid, until the CEO verifies it.", "Ini melaporkan bayaran. Ia tidak dikira diterima, dan invois kekal belum dibayar, sehingga CEO mengesahkannya.")}</p>
+        </div>
+      )}
     </SideDrawer>
   );
 }
@@ -323,7 +543,7 @@ function RecordSheet({ inv, onClose, onDone, onFail }: { inv: OpenInv; onClose: 
 type Mode = "verify" | "reject" | "clarify" | "evidence" | "reverse" | "answer" | "proof";
 
 /** One invoice: its figures, its payments, the actions this person may take, the timeline. */
-function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId: number; data: Data; userId: number; onClose: () => void; onDone: (m: string) => void; onFail: (m: string) => void }) {
+function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail }: { invId: number; data: Data; userId: number; onClose: () => void; onReport: (i: OpenInv) => void; onDone: (m: string) => void; onFail: (m: string) => void }) {
   const [pic, setPic] = useState<Picture | null>(null);
   const [tick, setTick] = useState(0);
   const [act, setAct] = useState<{ rid: number; mode: Mode } | null>(null);
@@ -336,8 +556,8 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
   const [checked, setChecked] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  /* v1.282.0 - the sticky actions open the form inside the payment's card:
-     bring it into view so the person sees what they are about to confirm */
+  /* the sticky actions open the form inside the payment's card: bring it
+     into view so the person sees what they are about to confirm */
   const formRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => { if (act) requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })); }, [act]);
 
@@ -391,6 +611,14 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
     : act.mode === "answer" ? text.trim().length >= 3
     : text.trim().length >= 10);
 
+  /* the decision for the first payment that waits, pinned at the foot -
+     Verify (gold) only where the 1.272 rule allows it; on the reporter's
+     own report the foot says what it waits for instead (D2) */
+  const isPending = (r: Rep) => ["reported", "evidence_checked"].includes(r.state);
+  const mayVerify = (r: Rep) => data.can.verify && isPending(r) && (r.reported_by !== userId || (r.state === "evidence_checked" && r.evidence_by !== userId));
+  const lead = pic && data.can.verify ? pic.reports.find((r) => isPending(r)) ?? null : null;
+  const evLead = pic && data.can.evidence && !lead ? pic.reports.find((r) => r.state === "reported" && r.reported_by !== userId && r.needs_evidence) ?? null : null;
+
   const timeline: Stage[] = (pic?.events ?? []).map((e) => {
     const w = EVENT_WORDS[e.event] ?? [e.event, e.event];
     let d: Record<string, unknown> = {};
@@ -403,80 +631,102 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
       note: note ? String(note) : undefined,
     };
   });
-  const [sen, sms, scls] = words(STATUS_WORDS, pic?.status ?? "unpaid");
+  /* what still has to happen - the steps ahead, never written as history */
+  const waiting = pic?.reports.find((r) => isPendingState(r.state)) ?? null;
+  if (pic && waiting && pic.invoice.payment_status !== "paid") {
+    const rv = reviewOf(waiting);
+    if (rv === "awaiting_independent") timeline.push({ key: "next-ev", state: "now", title: L("Independent evidence review", "Semakan bukti bebas"), sub: L("Waiting for the COO", "Menunggu COO") });
+    if (rv === "clarify") timeline.push({ key: "next-q", state: "now", title: L("Clarification required", "Penjelasan diperlukan"), sub: L("Waiting for the reporter's answer", "Menunggu jawapan pelapor") });
+    timeline.push({ key: "next-ceo", state: rv === "pending_ceo" ? "now" : "todo", title: L("CEO verification", "Pengesahan CEO"), sub: rv === "pending_ceo" ? L("Waiting for the CEO", "Menunggu CEO") : L("After the evidence check", "Selepas semakan bukti") });
+    timeline.push({ key: "next-paid", state: "todo", title: L("Invoice settlement", "Penyelesaian invois"), sub: L(`Paid when verified money reaches ${fmtRM(pic.invoice.total_cents)}`, `Dibayar apabila wang disahkan mencapai ${fmtRM(pic.invoice.total_cents)}`) });
+  }
 
-  /* v1.282.0 - MINIMAL EXECUTIVE WORKSPACE, E4 (the photo's Payment
-     Verification, claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md 5.7): the
-     money first, the reported payment as facts, the timeline, and the
-     decision for the first payment that waits pinned at the foot - Verify
-     (gold), Ask a question, Reject. Same rules as 1.272.0: Verify asks for
-     the authenticator code, Reject for a reason; opening changes nothing. */
-  const isPending = (r: Rep) => ["reported", "evidence_checked"].includes(r.state);
-  const mayVerify = (r: Rep) => data.can.verify && isPending(r) && (r.reported_by !== userId || (r.state === "evidence_checked" && r.evidence_by !== userId));
-  const lead = pic && data.can.verify ? pic.reports.find((r) => isPending(r)) ?? null : null;
-  const afterVerify = pic ? Math.max(0, pic.outstanding_cents - pic.pending_cents) : 0;
+  const openRow = data.invoices.find((i) => i.id === invId) ?? null;
+  const left = pic ? Math.max(0, pic.outstanding_cents - pic.pending_cents) : 0;
+  const reportable = !!pic && !!openRow && data.on && pic.can_report && pic.outstanding_cents > 0;
+  const lockWords = L("Verify after the COO's check", "Sahkan selepas semakan COO");
+
   return (
     <SideDrawer open onClose={onClose} wide full title={L("Payment verification", "Pengesahan bayaran")}
       subtitle={pic ? `${pic.invoice.doc_number} · ${pic.invoice.customer ?? ""} · ${pic.invoice.company_name}` : undefined}
-      footer={lead && !act ? (
+      footer={act ? undefined : lead ? (
         <div className={css.footActs} data-testid="payment-decide">
-          {mayVerify(lead) && <button type="button" className={css.btnVerify} onClick={() => start(lead.id, "verify", lead)}><AppIcon name="verify" />{L("Verify payment", "Sahkan bayaran")}</button>}
+          {mayVerify(lead)
+            ? <button type="button" className={css.btnVerify} onClick={() => start(lead.id, "verify", lead)}><AppIcon name="verify" />{L("Verify payment", "Sahkan bayaran")}</button>
+            : <p className={css.lock} data-testid="verify-locked"><AppIcon name="lock" />{lockWords}</p>}
           <span className={css.footPair}>
             <button type="button" className={btnSm} onClick={() => start(lead.id, "clarify")}>{L("Ask a question", "Tanya soalan")}</button>
             <button type="button" className={btnSmDanger} onClick={() => start(lead.id, "reject")}>{L("Reject", "Tolak")}</button>
           </span>
         </div>
+      ) : evLead ? (
+        <div className={css.footActs} data-testid="payment-decide">
+          <button type="button" className={css.btnVerify} onClick={() => start(evLead.id, "evidence")}><AppIcon name="verify" />{L("Check bank evidence", "Semak bukti bank")}</button>
+        </div>
       ) : undefined}>
       {!pic ? <SkelRows rows={4} /> : (
         <div className={css.stack}>
-          <dl className={css.money} data-testid="payment-money">
-            <div><dt>{L("Invoice total", "Jumlah invois")}</dt><dd>{fmtRM(pic.invoice.total_cents)}</dd></div>
-            <div><dt><span className={`${chipSmSuccess} ${css.chip}`}>{L("Verified", "Disahkan")}</span></dt><dd>{fmtRM(pic.verified_cents)}</dd></div>
-            <div><dt><span className={`${chipSmWarn} ${css.chip}`}>{L("Reported · waiting", "Dilapor · menunggu")}</span></dt><dd>{fmtRM(pic.pending_cents)}</dd></div>
-            <div className={css.moneyTotal}><dt>{pic.pending_cents > 0 ? L("Outstanding after verify", "Baki selepas disahkan") : L("Outstanding", "Baki")}</dt><dd>{fmtRM(pic.pending_cents > 0 ? afterVerify : pic.outstanding_cents)}</dd></div>
-          </dl>
-          <span className={`${scls} ${css.chip}`}>{L(sen, sms)}</span>
+          <span className={css.flags}>
+            <SettlementChip s={settlementOf(pic.invoice.total_cents, pic.verified_cents, pic.invoice.payment_status === "paid", pic.invoice.payment_status === "void")} testId="drawer-settlement" />
+            {waiting && <ReviewChip r={reviewOf(waiting)} testId="drawer-review" />}
+          </span>
+          <AmountSummary total={pic.invoice.total_cents} verified={pic.verified_cents} pending={pic.pending_cents} paid={pic.invoice.payment_status === "paid"} />
+          {reportable && (
+            <div className={css.more}>
+              {left > 0
+                ? <button type="button" className={btnSm} onClick={() => onReport(openRow!)}>{pic.verified_cents > 0 || pic.pending_cents > 0 ? L("Report remaining payment", "Lapor baki bayaran") : L("Report payment", "Lapor bayaran")}</button>
+                : <button type="button" className={btnSmQuiet} data-testid="report-additional" onClick={() => onReport(openRow!)}>{L("Report an additional payment", "Lapor bayaran tambahan")}</button>}
+            </div>
+          )}
           {pic.reports.length === 0 && <p className={css.empty}>{L("No payment reported yet.", "Belum ada bayaran dilapor.")}</p>}
           {pic.reports.map((r) => {
-            const [en, ms, cls] = words(STATE_WORDS, r.state);
             const pending = ["reported", "evidence_checked"].includes(r.state);
             const canVerify = data.can.verify && pending && (r.reported_by !== userId || (r.state === "evidence_checked" && r.evidence_by !== userId));
             const canEvidence = data.can.evidence && r.state === "reported" && r.reported_by !== userId && r.needs_evidence;
+            const rv = reviewOf(r);
             return (
               <article key={r.id} className={css.pay} data-testid="payment-item">
                 <div className={css.bar}>
-                  <span className={css.title}><AppIcon name="pay" />{L("Reported payment", "Bayaran dilapor")} · {fmtRM(r.amount_cents)} · {dmy(r.received_on)}</span>
-                  <span className={`${cls} ${css.chip}`}>{L(en, ms)}</span>
+                  <span className={css.title}><AppIcon name="pay" />{L("Reported payment", "Bayaran dilapor")} · {fmtRM(r.amount_cents)}</span>
+                  <ReviewChip r={rv} />
                 </div>
                 <dl className={css.facts}>
-                  <div><dt>{L("By", "Oleh")}</dt><dd>{r.reporter ?? "-"} · {dmyMYT(r.reported_at)}</dd></div>
-                  <div><dt>{L("Method", "Kaedah")}</dt><dd>{(METHODS.find((m) => m[0] === r.method)?.[1]) ?? r.method}</dd></div>
-                  {r.reference && <div><dt>{L("Reference", "Rujukan")}</dt><dd>{r.reference}</dd></div>}
-                  <div><dt>{L("Company", "Syarikat")}</dt><dd>{pic.invoice.company_name}</dd></div>
+                  <div><dt>{L("Submitted by", "Dihantar oleh")}</dt><dd>{whoWord(r)} · {dmyMYT(r.reported_at)}</dd></div>
+                  <div><dt>{L("Received on", "Diterima pada")}</dt><dd>{dmy(r.received_on)}</dd></div>
+                  <div><dt>{L("Method", "Kaedah")}</dt><dd>{methodWord(r.method)}</dd></div>
+                  {r.reference && <div><dt>{L("Bank reference", "Rujukan bank")}</dt><dd>{r.reference}</dd></div>}
+                  <div><dt>{L("Issuing company", "Syarikat pengeluar")}</dt><dd>{pic.invoice.company_name}</dd></div>
+                  <div><dt>{L("Told to pay into", "Diminta bayar ke")}</dt><dd>{letterhead(pic.invoice.company)}</dd></div>
                   {r.bank_name && <div><dt>{L("Received in", "Diterima dalam")}</dt><dd>{r.bank_name}</dd></div>}
                 </dl>
                 {r.note && <p className={`${css.sub} ${css.lines}`}>{r.note}</p>}
+                {r.has_proof ? <ReceiptPreview reportId={r.id} /> : <p className="erp-note erp-note-warning">{L("No proof attached yet - it cannot be verified without one.", "Tiada bukti dilampirkan - ia tidak boleh disahkan tanpanya.")}</p>}
+                {rv === "awaiting_independent" && (
+                  <div className={css.evid} data-testid="evidence-waiting">
+                    <AppIcon name="verify" />
+                    <div><b>{L("Independent evidence review - waiting for the COO", "Semakan bukti bebas - menunggu COO")}</b>
+                      <p>{r.mine
+                        ? L("You reported this payment, so the COO checks the money in the company's bank first (authenticator code and a note). Your Verify unlocks after that.", "Anda melaporkan bayaran ini, jadi COO menyemak wang dalam bank syarikat dahulu (kod pengesah dan catatan). Sahkan anda dibuka selepas itu.")
+                        : L("The CEO reported this payment: another person checks the bank evidence before the CEO can verify it.", "CEO melaporkan bayaran ini: orang lain menyemak bukti bank sebelum CEO boleh mengesahkannya.")}</p></div>
+                  </div>
+                )}
+                {r.evidence_name && <p className={css.sub}>{L("Bank evidence checked by", "Bukti bank disemak oleh")} {r.evidence_name}{r.evidence_at ? ` · ${dmyMYT(r.evidence_at)}` : ""}{r.evidence_note ? `: ${r.evidence_note}` : ""}</p>}
                 {r.dup_of !== null && <p className="erp-note erp-note-danger">{L("Possible duplicate: this reference was already used in this company.", "Mungkin pendua: rujukan ini telah digunakan dalam syarikat ini.")}{r.dup_reason ? ` ${L("Verified because:", "Disahkan kerana:")} ${r.dup_reason}` : ""}</p>}
                 {r.over_cents > 0 && <p className="erp-note erp-note-warning">{L(`Reported ${fmtRM(r.over_cents)} above the balance. At most the balance is verified; the rest is never applied to another invoice.`, `Dilapor ${fmtRM(r.over_cents)} melebihi baki. Paling banyak baki disahkan; selebihnya tidak digunakan untuk invois lain.`)}</p>}
-                {r.evidence_name && <p className={css.sub}>{L("Bank evidence checked by", "Bukti bank disemak oleh")} {r.evidence_name}{r.evidence_note ? `: ${r.evidence_note}` : ""}</p>}
                 {r.question && <p className="erp-note">{L("CEO's question:", "Soalan CEO:")} {r.question}{r.answer ? ` - ${L("Answer:", "Jawapan:")} ${r.answer}` : ""}</p>}
                 {r.state === "verified" && <p className={css.sub}>{L("Verified", "Disahkan")} {fmtRM(r.verified_cents ?? 0)} {L("by", "oleh")} {r.decided_name ?? "-"} · {r.bank_name ?? ""} · {r.verify_method === "receipt_only" ? L("checked on the receipt only", "disemak pada resit sahaja") : r.verify_method === "bank_app" ? L("checked in the bank app", "disemak dalam aplikasi bank") : L("checked on the bank statement", "disemak pada penyata bank")}</p>}
                 {r.reason && <p className="erp-note erp-note-danger">{L("Reason:", "Sebab:")} {r.reason}</p>}
                 {r.reverse_reason && <p className="erp-note erp-note-warning">{L("Reversed:", "Dibatalkan:")} {r.reverse_reason}</p>}
                 <div className={css.actions}>
-                  {r.has_proof && <button type="button" className={`${btnSm} ${css.proof}`} onClick={() => openAttachment(`/api/v1/staff/payment-reports/${r.id}/proof`, L("Payment proof", "Bukti bayaran"))}><AppIcon name="attach" />{L("View proof", "Lihat bukti")}</button>}
                   {r.mine && ["reported", "clarify"].includes(r.state) && <button type="button" className={btnSm} onClick={() => start(r.id, "proof")}>{r.has_proof ? L("Replace proof", "Ganti bukti") : L("Attach proof", "Lampir bukti")}</button>}
                   {r.mine && r.state === "clarify" && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "answer")}>{L("Answer", "Jawab")}</button>}
-                  {canEvidence && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "evidence")}>{L("Check bank evidence", "Semak bukti bank")}</button>}
+                  {canEvidence && r.id !== evLead?.id && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "evidence")}>{L("Check bank evidence", "Semak bukti bank")}</button>}
                   {/* the first payment that waits carries its decision in the sheet's foot */}
                   {canVerify && r.id !== lead?.id && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "verify", r)}>{L("Verify payment", "Sahkan bayaran")}</button>}
                   {data.can.verify && pending && r.id !== lead?.id && <button type="button" className={btnSm} onClick={() => start(r.id, "clarify")}>{L("Ask a question", "Tanya soalan")}</button>}
                   {data.can.verify && (pending || r.state === "clarify") && r.id !== lead?.id && <button type="button" className={btnSmDanger} onClick={() => start(r.id, "reject")}>{L("Reject", "Tolak")}</button>}
                   {data.can.verify && r.state === "verified" && <button type="button" className={btnSmDanger} onClick={() => start(r.id, "reverse")}>{L("Reverse", "Batalkan")}</button>}
                 </div>
-                {data.can.verify && r.reported_by === userId && r.state === "reported" && (
-                  <p className={css.sub}>{L("You reported this payment: the COO checks its bank evidence before you can verify it.", "Anda melaporkan bayaran ini: COO menyemak bukti banknya sebelum anda boleh mengesahkannya.")}</p>
-                )}
                 {act?.rid === r.id && (
                   <div className={css.formCol} data-testid="payment-action" ref={formRef}>
                     {act.mode === "verify" && (<>
@@ -490,10 +740,9 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
                         <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
                           <option value="bank_statement">{L("Bank statement", "Penyata bank")}</option>
                           <option value="bank_app">{L("Bank app / online banking", "Aplikasi bank / perbankan dalam talian")}</option>
-                          <option value="receipt_only">{L("Receipt only (not seen in the bank)", "Resit sahaja (tidak dilihat dalam bank)")}</option>
                         </select>
                       </label>
-                      {vm === "receipt_only" && <p className="erp-note erp-note-warning">{L("A receipt alone does not prove the money settled. This is recorded as checked on the receipt only.", "Resit sahaja tidak membuktikan wang telah masuk. Ini direkod sebagai disemak pada resit sahaja.")}</p>}
+                      <p className={css.sub}>{L("A receipt alone does not prove the money settled: check the money in the bank.", "Resit sahaja tidak membuktikan wang telah masuk: semak wang dalam bank.")}</p>
                       <label className={css.field}>{L("Amount verified (RM)", "Amaun disahkan (RM)")}<input className={inputClassSm} inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} /></label>
                       {r.dup_of !== null && <label className={css.field}>{L("Why this is a different payment", "Mengapa ini bayaran berlainan")}<input className={inputClassSm} value={dup} maxLength={300} onChange={(e) => setDup(e.target.value)} /></label>}
                     </>)}

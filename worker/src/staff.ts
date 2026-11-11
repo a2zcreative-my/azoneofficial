@@ -11067,6 +11067,11 @@ async function handleStaffRoutes(
         if (curV?.payment_status === "paid" && Number(verifiedHere?.n ?? 0) > 0) {
           return err("payment_verification_on", `${doc.doc_number} was paid through verified payments. Reverse the payment in Sales -> Payments instead, with a reason.`, 409);
         }
+      } else if (body!.payment_status === "paid") {
+        /* v1.283.0 (B3) - even switched off, a reported payment still waiting
+           for its decision is never bypassed by marking the invoice paid */
+        const waiting = await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE invoice_id = ?1 AND state IN ('reported', 'evidence_checked', 'clarify')`).bind(id).first<{ n: number }>().catch(() => null);
+        if (Number(waiting?.n ?? 0) > 0) return err("payment_report_pending", `${doc.doc_number} has a reported payment waiting for the CEO's decision. Decide it in Sales -> Payments first.`, 409);
       }
       // v1.4.90: paid = payment received — record method (bank transfer),
       // optional reference, and the moment. Revenue counts from paid_at.

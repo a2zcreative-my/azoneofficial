@@ -1,5 +1,9 @@
-/* v1.272.0 - Sales -> Payments (payments-panel.tsx). Tokens only; phone
-   first: every row is a card that wraps, no wide table, no sideways scroll. */
+/* v1.272.0 - Sales -> Payments (payments-panel.tsx). Tokens only.
+   v1.282.0 - Payment Verification 3.0: the title row, the navy pill tabs,
+   one table per tab that is a grid on a desktop and cards on a phone (one
+   DOM: the header row hides and every cell shows its own label), the
+   review sheet's amounts, receipt, evidence state and pinned decision. No
+   sideways scroll at any width. */
 .stack {
   display: flex;
   flex-direction: column;
@@ -15,6 +19,12 @@
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+.h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
 .meta {
   margin: 0.25rem 0 0;
   color: var(--muted-foreground);
@@ -25,10 +35,137 @@
   margin: 0.75rem 0 0;
   padding: 1rem;
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   color: var(--muted-foreground);
   font-size: var(--type-body-sm-size);
   text-align: center;
+}
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin: 0.75rem 0 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: 1.5;
+}
+.note svg {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: 0.15rem;
+}
+
+/* ---- title row ---- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.875rem 1.125rem;
+}
+.well {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.625rem;
+  height: 2.625rem;
+  border-radius: var(--radius-panel);
+  background: var(--secondary);
+  color: var(--brand-primary);
+}
+.headText {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.headRight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ---- the four tabs: navy pills; a phone's segmented row ---- */
+.tabs {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover {
+  background: var(--surface-hover);
+}
+.tab[aria-selected="true"] {
+  background: var(--brand-primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+.tab:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.tabN {
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.25rem;
+  text-align: center;
+}
+.tab[aria-selected="true"] .tabN {
+  background: var(--card);
+  color: var(--brand-primary);
+}
+@media (max-width: 767px) {
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.25rem;
+    padding: 0.25rem;
+    background: var(--secondary);
+  }
+  .tab {
+    min-height: 2.75rem;
+    padding: 0 0.25rem;
+    border-radius: var(--radius-control);
+    gap: 0.25rem;
+  }
+  .tab[aria-selected="true"] {
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-primary) 14%, transparent);
+  }
+  .tab[aria-selected="true"] .tabN {
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+}
+
+/* ---- a section and its bar ---- */
+.sec {
+  padding: 1rem 1.125rem;
+  min-width: 0;
 }
 .bar {
   display: flex;
@@ -45,77 +182,194 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  flex: 1 1 18rem;
+  flex: 1 1 22rem;
   justify-content: flex-end;
 }
 .filters > input {
   flex: 1 1 12rem;
   min-width: 0;
 }
-.switch {
-  border-left: 3px solid var(--primary);
+.sumPill {
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--gold-solid) 14%, var(--card));
+  color: var(--brand-accent-ink);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  white-space: nowrap;
 }
-.list {
-  list-style: none;
-  margin: 0.75rem 0 0;
-  padding: 0;
+
+/* ---- one table per tab: a grid on a wide container, cards on a narrow one ---- */
+.table {
+  container-type: inline-size;
+  margin-top: 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  min-width: 0;
 }
-.row {
+.thead {
+  display: none;
+}
+.tr {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem 1rem;
+  align-items: start;
+  padding: 0.875rem;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   background: var(--card);
-}
-.row button {
-  min-height: 40px;
-}
-@media (min-width: 1024px) {
-  .row {
-    grid-template-columns: minmax(0, 2fr) auto minmax(0, 1.4fr) auto;
-  }
-  .invRow {
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 2.4fr) minmax(0, 1fr) auto;
-  }
+  min-width: 0;
 }
 .act {
-  border-color: var(--primary);
-  box-shadow: inset 3px 0 0 var(--primary);
+  border-color: color-mix(in srgb, var(--gold-solid) 55%, var(--border));
+  box-shadow: inset 3px 0 0 var(--gold-solid);
 }
-.rowMain {
+.cell {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 0.125rem;
   min-width: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  text-align: left;
-  color: inherit;
-  cursor: pointer;
 }
-.rowMain:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-  border-radius: 6px;
+.k {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
 }
+.v {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.num .v {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cMain,
+.cWide,
+.cAct {
+  grid-column: 1 / -1;
+}
+/* a phone's card keeps what decides the row; the invoice's figures are in its sheet */
+.dOnly {
+  display: none;
+}
+.cAct {
+  display: flex;
+}
+.cAct button {
+  flex: 1 1 auto;
+  min-height: 2.75rem;
+}
+@container (min-width: 900px) {
+  .thead {
+    display: grid;
+    gap: 0 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-subtle);
+    border-radius: var(--radius-control) var(--radius-control) 0 0;
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .table {
+    gap: 0;
+  }
+  .tr {
+    gap: 0 0.75rem;
+    align-items: center;
+    padding: 0.75rem;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: 0;
+    font-size: 0.8125rem;
+  }
+  .act {
+    box-shadow: inset 3px 0 0 var(--gold-solid);
+  }
+  .k {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .num,
+  .thead .num {
+    text-align: right;
+  }
+  .num .v {
+    align-items: flex-end;
+  }
+  .cMain,
+  .cWide,
+  .cAct {
+    grid-column: auto;
+  }
+  .dOnly {
+    display: flex;
+  }
+  .cAct {
+    justify-content: flex-end;
+  }
+  .cAct button {
+    flex: none;
+    min-height: 2.25rem;
+  }
+  .tNeeds .thead,
+  .tNeeds .tr {
+    grid-template-columns: minmax(0, 2.2fr) repeat(4, minmax(0, 1fr)) minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 1.7fr) 7rem;
+  }
+  .tBal .thead,
+  .tBal .tr {
+    grid-template-columns: minmax(0, 1.7fr) repeat(4, minmax(0, 1fr)) minmax(0, 0.9fr) minmax(0, 1.4fr) minmax(0, 0.8fr) 10rem;
+    column-gap: 0.625rem;
+  }
+  .tHist .thead,
+  .tHist .tr {
+    grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, 1.2fr) 5.5rem;
+  }
+}
+
 .title {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 .co {
-  margin-left: 0.25rem;
-  color: var(--muted-foreground);
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  padding: 0.0625rem 0.375rem;
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
 }
 .sub {
   margin: 0;
@@ -127,55 +381,237 @@
 .lines {
   white-space: pre-line;
 }
-.amount {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
 .flags {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
+  align-items: center;
 }
 .chip {
-  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   max-width: 100%;
   white-space: normal;
   text-align: left;
 }
-.figs,
-.sum {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem 1rem;
-  font-variant-numeric: tabular-nums;
+.chip svg {
+  flex: none;
+  width: 0.8125rem;
+  height: 0.8125rem;
 }
-.figs > span,
-.sum > span {
+.proofTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  align-self: flex-start;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+.proofTag svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* ---- the audit trail ---- */
+.audit {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
 }
-@media (min-width: 640px) {
-  .figs,
-  .sum {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+.auditRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8125rem;
+}
+@media (min-width: 768px) {
+  .auditRow {
+    grid-template-columns: 9rem minmax(0, 2fr) minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    align-items: center;
   }
 }
-.sum > .chip {
-  grid-column: 1 / -1;
+
+/* ---- the review sheet ---- */
+.amounts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
 }
-.k {
+.amounts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.amounts dt {
   color: var(--muted-foreground);
-  font-size: var(--type-caption-size);
+  font-size: 0.6875rem;
+}
+.amounts dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.amountsKey {
+  background: var(--surface-subtle);
+}
+.amountsKey dt {
+  color: var(--foreground);
+  font-weight: 600;
+}
+@media (min-width: 640px) {
+  .amounts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .amounts > div {
+    border-bottom: 0;
+  }
+  .amounts > div:last-child {
+    border-right: 0;
+  }
+}
+.more {
+  display: flex;
+  justify-content: flex-end;
+}
+.more button {
+  min-height: 2.5rem;
 }
 .pay {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
+  gap: 0.5rem;
   padding: 0.875rem;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-panel);
   background: var(--card);
+}
+.facts {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+}
+.facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+}
+.facts dt {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.receipt {
+  container-type: inline-size;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.receipt:hover {
+  background: var(--surface-hover);
+}
+.receipt:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.thumb {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 3.25rem;
+  height: 4rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.receiptText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.receiptGo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+/* a 320 px phone keeps the receipt's name whole: the action is its icon (the button still reads "View proof") */
+@container (max-width: 300px) {
+  .receiptGoWord {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+.evid {
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--gold-solid) 40%, var(--border));
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--gold-solid) 8%, var(--card));
+  color: var(--brand-accent-ink);
+}
+.evid > svg {
+  flex: none;
+  margin-top: 0.125rem;
+}
+.evid b {
+  color: var(--foreground);
+  font-size: 0.8125rem;
+}
+.evid p {
+  margin: 0.125rem 0 0;
+  color: var(--text-secondary);
+  font-size: var(--type-caption-size);
+  line-height: 1.5;
 }
 .actions {
   display: flex;
@@ -185,16 +621,6 @@
 }
 .actions button {
   min-height: 40px;
-}
-.form .field {
-  flex: 1 1 12rem;
-}
-.form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
 }
 .formCol {
   display: flex;
@@ -212,10 +638,20 @@
   font-size: var(--type-caption-size);
   font-weight: 600;
 }
+/* 16 px in every field on a phone: iOS does not zoom into it */
+@media (max-width: 767px) {
+  .field input,
+  .field select,
+  .field textarea {
+    min-height: 2.75rem;
+    font-size: 1rem;
+  }
+}
 .check {
   display: flex;
   gap: 0.5rem;
   align-items: flex-start;
+  margin-top: 0.5rem;
   font-size: var(--type-body-sm-size);
 }
 .foot {
@@ -223,75 +659,57 @@
   justify-content: flex-end;
   gap: 0.5rem;
   flex-wrap: wrap;
+  width: 100%;
 }
 .foot button {
   min-height: 44px;
 }
+@media (max-width: 767px) {
+  .foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+}
 
-/* ---- v1.282.0 - the photo's Payment Verification (E4): the money as a
-   short list with its words as pills, the reported payment as facts, the
-   decision pinned at the sheet's foot ---- */
-.money {
-  display: grid;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 1rem 1.125rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card-v2);
-  background: var(--card);
-  font-variant-numeric: tabular-nums;
-}
-.money > div,
-.facts > div {
+/* the report sheet's three steps */
+.steps {
+  list-style: none;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-width: 0;
-}
-.money dt {
-  color: var(--muted-foreground);
-  font-size: 0.875rem;
-}
-.money dd {
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
   margin: 0;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.moneyTotal {
-  margin-top: 0.25rem;
-  padding-top: 0.625rem;
-  border-top: 1px solid var(--border);
-}
-.moneyTotal dt {
-  color: var(--foreground);
+  padding: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
   font-weight: 600;
 }
-.facts {
-  display: grid;
-  gap: 0.375rem;
-  margin: 0.25rem 0 0;
-  font-size: 0.875rem;
-}
-.facts dt {
-  color: var(--muted-foreground);
-}
-.facts dd {
-  margin: 0;
-  min-width: 0;
-  font-weight: 600;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-.title {
+.steps li {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
-.proof {
-  flex: 1 1 100%;
-  justify-content: center;
+.steps li > span {
+  display: inline-grid;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 50%;
+  background: var(--secondary);
+  font-size: 0.6875rem;
 }
+.stepOn {
+  color: var(--foreground);
+}
+.stepOn > span {
+  background: var(--gold-solid) !important;
+  color: var(--brand-primary);
+}
+.stepDone > span {
+  background: var(--brand-primary) !important;
+  color: var(--primary-foreground);
+}
+
+/* the decision pinned at the sheet's foot */
 .footActs {
   display: grid;
   gap: 0.5rem;
@@ -305,12 +723,14 @@
 .footPair button {
   min-height: 2.75rem;
 }
-.btnVerify {
+.btnVerify,
+.btnGold {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   min-height: 3rem;
+  padding: 0 1rem;
   border: 1px solid var(--gold-solid);
   border-radius: var(--radius-control);
   background: var(--gold-solid);
@@ -320,7 +740,33 @@
   font-weight: 700;
   cursor: pointer;
 }
-.btnVerify:focus-visible {
+.btnGold {
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+}
+.btnVerify:disabled,
+.btnGold:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btnVerify:focus-visible,
+.btnGold:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+.lock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0 1rem;
+  border: 1px dashed color-mix(in srgb, var(--gold-solid) 70%, var(--border));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--gold-solid) 8%, var(--card));
+  color: var(--brand-accent-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
 }

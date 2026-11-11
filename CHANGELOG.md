@@ -10,6 +10,54 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.283.0] - 2026-11-11 - Payment Verification 3.0, Track B: the server fixes B1-B6 - BUILT, NOT DEPLOYED
+
+Approved by the CEO on 11-11-2026 ("Proceed" on claude/PAYMENT-VERIFICATION-3.0-BLUEPRINT.md, decisions P3-P5 as recommended). Worker only (payment-verify.ts, staff.ts, business.ts). No migration, no schema change, no permission change, no commission rate change.
+
+- **B1 Verify is one atomic batch.** The claim, the payment row and their link commit together or not at all (D1 `DB.batch`). The claim also re-checks the balance. A failure in between can no longer leave a "verified" report without its money. A retry or a second click answers `repeated`.
+- **B2 Settlement resumes.** Each settlement step is idempotent: the cash-book row (one live `INV-<id>`), the bank mark, the Confirm Paid row, the audit, commission (`ensureLedger`) and the event. A verify that finds its report already verified finishes whatever is missing, and never doubles anything.
+- **B3 Switching off never bypasses a pending approval.**
+    - The owner cannot switch verification off while reports wait (409 `pending_reports`).
+    - Even when it is off, Mark Paid and direct part payments are refused on an invoice whose reported payment still waits (409 `payment_report_pending`).
+- **B4 A receipt alone is not proof.** New verifications are checked on the bank statement or in the bank app. Old "receipt only" verifications stay readable.
+- **B5 "Verified this month" is the Malaysian month,** summed in SQL with no 300-row cap. Before, a verification between 00:00 and 07:59 MYT on the 1st fell in the previous month.
+- **B6 Audit trail.** New read-only `GET /staff/payments/events` (CEO, COO and CCO; paged with `limit` and `before`) for the Payments Audit Trail tab.
+- **Tests:** `tests/payment-verify.mjs`: 102 checks and 25 mutations, all caught. New checks use failure injection for B1 and B2, plus the B3 to B6 rules by direct request.
+
+## [1.282.0] - 2026-11-11 - Payment Verification 3.0, Track A: the Sales -> Payments workspace - BUILT, NOT DEPLOYED
+
+Approved by the CEO on 11-11-2026 ("Proceed" on the blueprint, P1, P2, P8 and P9; both design references). Pages only. The rules are unchanged; the server still decides everything.
+
+- **Title row:**
+    - "Payment Verification", with the chip "Verification: Required".
+    - The owner's Settings sheet replaces the Switch off banner (P2). It warns how many reports still wait.
+- **Four tiles:**
+    - Pending CEO verification, with how many of those await an independent review;
+    - Verified this month;
+    - Verified outstanding (pending is never deducted);
+    - Partially paid.
+- **Four tabs, one dataset each:** Needs My Verification, Invoice Balances (search, status filter, CSV export), Payment History and Audit Trail. Each is a table on a desktop and cards on a phone, in one DOM, with no sideways scroll.
+- **One main action per invoice** (`payment-parts.tsx` `actionFor`): Report payment, Report remaining payment, View pending payment or Review payment. A fully pending invoice never offers a second report as its main button (D1). The Sales documents list and the Overview's Needs action use the same rule.
+    - A genuine extra payment is behind "Report an additional payment", with a warning and a tick.
+- **Two words, never mixed (D3):**
+    - the invoice's settlement: Unpaid, Partially paid or Paid;
+    - the report's review: Awaiting independent evidence review, Pending CEO verification, Clarification required, Verified, Rejected or Reversed (`status-chip.tsx` domains).
+- **The review sheet:**
+    - the amounts summary (verified outstanding);
+    - the reported facts (who and when, received, method, bank reference, issuing company, the account on the letterhead);
+    - the receipt preview through the authorized proof URL;
+    - the evidence-review state;
+    - the timeline, including the steps still ahead;
+    - the decision at the foot.
+- **Your own report (D2):** it reads "Awaiting independent evidence review". The sheet has no Verify button and says "Verify after the COO's check". The COO's sheet offers Check bank evidence.
+- **The report sheet** has three steps: Details, Proof and Review. It has an invoice picker when opened from the gold header "Report payment" on the Payments tab.
+- **Removed:** "Receipt only" is no longer offered (B4).
+- **Tests:**
+    - `tests/payment-ui.mjs` (new): 32 checks.
+    - `tests/browser/payments-3.py` (new): 188 checks across the 4 roles and 7 widths.
+    - Wording updated in payments-verify.py, paid-status.py, sales-e3.py, sheets-e4.py and executive-workspace.mjs. No threshold was lowered.
+    - New fixture servers with `PAYOWN=1`.
+
 ## [1.281.0] - 2026-11-11 - Minimal Executive Workspace, E3 + E4: the Sales Overview, the task sheet and the payment verification sheet in the photo's layout - BUILT, NOT DEPLOYED
 
 The third phase of the approved Minimal Executive Workspace (the CEO, "Approve for all", 11-11-2026; blueprint sections 5.4-5.5, decision 6). No figure, route, permission or record changed.

@@ -77,11 +77,12 @@ with sync_playwright() as p:
         txt = dlg.inner_text()
         check(f"{tag}: titled Payment verification, the invoice under it", txt.startswith("Payment verification") and "INV-" in [l for l in txt.split("\n") if l.strip()][1], txt[:120])
         money = dlg.get_by_test_id("payment-money").inner_text()
-        check(f"{tag}: the money: Invoice total, Verified, Reported · waiting, Outstanding after verify", all(x in money for x in ["Invoice total", "Verified", "Reported · waiting", "Outstanding after verify"]), money)
+        # v1.282.0 (Payment Verification 3.0, brief section 6) - verified outstanding; pending beside it, never deducted
+        check(f"{tag}: the money: Invoice total, Verified, Pending, Verified outstanding", all(x in money for x in ["Invoice total", "Verified", "Pending", "Verified outstanding"]), money)
         nums = [float(x.replace("RM", "").replace(",", "").strip()) for x in money.split("\n") if x.strip().startswith("RM")]
-        check(f"{tag}: ...Outstanding after verify = total - verified - waiting", len(nums) == 4 and abs(nums[3] - max(0, nums[0] - nums[1] - nums[2])) < 0.01, nums)
+        check(f"{tag}: ...Verified outstanding = total - verified (pending not deducted)", len(nums) == 4 and nums[2] > 0 and abs(nums[3] - max(0, nums[0] - nums[1])) < 0.01, nums)
         facts = dlg.locator("article").first.inner_text()
-        check(f"{tag}: the reported payment reads as facts (By, Method, Reference, Company)", all(x in facts for x in ["Reported payment", "By", "Method", "Reference", "Company"]), facts[:300])
+        check(f"{tag}: the reported payment reads as facts (Submitted by, Method, Bank reference, Issuing company, the receipt)", all(x in facts for x in ["Reported payment", "Submitted by", "Method", "Bank reference", "Issuing company", "View proof"]), facts[:300])
         foot = dlg.get_by_test_id("payment-decide")
         check(f"{tag}: the decision sits at the foot: Verify, Ask a question, Reject", foot.count() == 1 and [x.strip() for x in foot.locator("button").all_inner_texts()] == ["Verify payment", "Ask a question", "Reject"], foot.inner_text() if foot.count() else "none")
         check(f"{tag}: ...on screen without scrolling", foot.bounding_box() and foot.bounding_box()["y"] + foot.bounding_box()["height"] <= h + 1, foot.bounding_box())

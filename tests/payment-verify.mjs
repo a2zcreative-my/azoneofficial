@@ -51,10 +51,13 @@ async function runtime(workerBundle) {
   for (const f of readdirSync(join(root, "worker/migrations")).filter((x) => x.endsWith(".sql")).sort()) {
     for (const st of readFileSync(join(root, "worker/migrations", f), "utf8").split(/;\s*\n/)) { try { db.exec(st); } catch { /* a statement SQLite reads differently, or a column 0081 already made */ } }
   }
+  /* v1.283.0 - failure injection: the next write whose SQL matches throws, as a Worker failing mid-request would */
+  let inject = null;
+  const boom = (sql) => { if (inject && inject.test(sql)) { inject = null; throw new Error("injected failure"); } };
   const shim = (sql) => { const st = db.prepare(sql); let b = []; const o = {
     bind: (...a) => { b = a.map((x) => (x === undefined ? null : x)); return o; },
-    first: async () => st.get(...b) ?? null, all: async () => ({ results: st.all(...b) }),
-    run: async () => ({ meta: { changes: Number(st.run(...b).changes) } }), _run: () => ({ meta: { changes: Number(st.run(...b).changes) } }) }; return o; };
+    first: async () => { boom(sql); return st.get(...b) ?? null; }, all: async () => ({ results: st.all(...b) }),
+    run: async () => { boom(sql); return { meta: { changes: Number(st.run(...b).changes) } }; }, _run: () => { boom(sql); return { meta: { changes: Number(st.run(...b).changes) } }; } }; return o; };
   const store = new Map();
   const env = {
     DB: { prepare: shim, batch: async (list) => { db.exec("BEGIN"); try { const r = list.map((s) => s._run()); db.exec("COMMIT"); return r; } catch (e) { db.exec("ROLLBACK"); throw e; } } },
@@ -90,6 +93,7 @@ async function runtime(workerBundle) {
   ).run(id, type, `${type}-T-${id}`, cust, ITEMS(cents), cents, type === "INV" ? status : null, sp, issuer, from);
   doc(101, "INV", 120000, 9); doc(102, "INV", 50000, 9); doc(103, "INV", 80000, 15); doc(104, "INV", 30000, 6, "azoo");
   doc(105, "INV", 100000, 1); doc(107, "INV", 20000, 9); doc(108, "INV", 10000, 9); doc(109, "INV", 40000, 9); doc(110, "INV", 50000, 9);
+  doc(111, "INV", 20000, 9); doc(112, "INV", 10000, 9); // v1.283.0 - B1 and B2 (failure injection)
   /* an agent deal: quotation 206, the agent's won request assigned to Aina, the client's acceptance, invoice 106 */
   doc(206, "QT", 100000, 9, "a2z", null, null, 6); doc(106, "INV", 100000, 9, "a2z", 206, "unpaid", 6);
   db.prepare(`INSERT INTO agent_requests (id, agent_id, client_name, status, assigned_to, quotation_id, published_doc_id, published_revision, created_at, submitted_at) VALUES (1, 21, 'Client 6', 'won', 9, 206, 206, 0, '2026-11-01 01:00:00', '2026-11-01 01:00:00')`).run();
@@ -300,11 +304,65 @@ async function runtime(workerBundle) {
     const pic = await call("/docs/104/payment-reports", 6, "GET");
     ok(pic.j?.verified_cents === parts(104) && pic.j?.outstanding_cents === 30000 - parts(104), "the drawer's figures are the payment record's");
 
+    /* ---------- v1.283.0 Track B (Payment Verification 3.0) ---------- */
+    /* B4 - a receipt alone is not proof */
+    const b4 = await report(111, 9, 20000, "MBB 1110");
+    await proof(b4.j.id, 9);
+    const rcpt = await verify(b4.j.id, { verify_method: "receipt_only" });
+    ok(rcpt.status === 400 && state(b4.j.id) === "reported" && parts(111) === 0, "B4: 'receipt only' is not accepted as a verification method", rcpt.text.slice(0, 160));
+    /* B1 - the verification is one atomic step: a failure between the claim and the money changes nothing */
+    inject = /INSERT INTO invoice_payments/;
+    const crash1 = await verify(b4.j.id).catch((e) => ({ status: 0, text: String(e) }));
+    inject = null;
+    ok(crash1.status !== 200 && state(b4.j.id) === "reported" && parts(111) === 0 && n(`SELECT COUNT(*) AS n FROM invoice_payment_events WHERE event = 'verified' AND report_id = ?`, b4.j.id) === 0, "B1: a failure mid-verify leaves the report waiting and no money - never verified without its payment", `${crash1.status} ${state(b4.j.id)} ${parts(111)}`);
+    const v111 = await verify(b4.j.id);
+    ok(v111.status === 200 && parts(111) === 20000 && inv(111).payment_status === "paid" && cashRows(111) === 1 && confs(111) === 1 && db.prepare(`SELECT payment_id FROM invoice_payment_reports WHERE id = ?`).get(b4.j.id)?.payment_id > 0, "B1: verified again, it is recorded once, linked to its payment, and settles", v111.text.slice(0, 160));
+    /* B2 - a settlement that stopped half way is finished by the retry, never doubled */
+    const b2 = await report(112, 9, 10000, "MBB 1120");
+    await proof(b2.j.id, 9);
+    inject = /INSERT OR IGNORE INTO invoice_paid_confirmations/;
+    const crash2 = await verify(b2.j.id).catch((e) => ({ status: 0, text: String(e) }));
+    inject = null;
+    ok(crash2.status !== 200 && inv(112).payment_status === "paid" && confs(112) === 0 && earn(112).length === 0, "B2 (setup): the settlement stopped after 'paid' - no confirmation, no commission yet", `${crash2.status} ${inv(112).payment_status} ${confs(112)}`);
+    const again2 = await verify(b2.j.id);
+    ok(again2.status === 200 && again2.j?.repeated === true && confs(112) === 1 && cashRows(112) === 1 && parts(112) === 10000 && n(`SELECT COUNT(*) AS n FROM invoice_payment_events WHERE event = 'invoice_paid' AND invoice_id = 112`) === 1, "B2: the retry finishes the settlement - one confirmation, one cash row, one payment", again2.text.slice(0, 160));
+    const again3 = await verify(b2.j.id);
+    ok(again3.status === 200 && confs(112) === 1 && cashRows(112) === 1 && n(`SELECT COUNT(*) AS n FROM invoice_payment_events WHERE event = 'invoice_paid' AND invoice_id = 112`) === 1 && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'invoice.paid_confirm' AND entity_id = '112'`) === 1, "B2: a further retry changes nothing");
+    /* B5 - Verified this month is the Malaysian month */
+    const vr = db.prepare(`SELECT id FROM invoice_payment_reports WHERE state = 'verified' ORDER BY id`).all().map((r) => r.id);
+    db.prepare(`UPDATE invoice_payment_reports SET decided_at = '2026-10-31 17:30:00' WHERE id = ?`).run(vr[0]); // 01:30 MYT on 1 November: November
+    db.prepare(`UPDATE invoice_payment_reports SET decided_at = '2026-11-30 16:30:00' WHERE id = ?`).run(vr[1]); // 00:30 MYT on 1 December: not November
+    for (const id of vr.slice(2)) db.prepare(`UPDATE invoice_payment_reports SET decided_at = '2026-11-05 02:00:00' WHERE id = ?`).run(id);
+    const want = db.prepare(`SELECT verified_cents, decided_at FROM invoice_payment_reports WHERE state = 'verified'`).all()
+      .filter((r) => new RealDate(new RealDate(`${r.decided_at.replace(" ", "T")}Z`).getTime() + 8 * 3600e3).toISOString().slice(0, 7) === "2026-11").reduce((a, r) => a + r.verified_cents, 0);
+    const tiles = (await call("/payments", 1, "GET")).j?.tiles;
+    ok(vr.length >= 3 && tiles?.verified_month_cents === want, "B5: Verified this month counts the Malaysian month (1 Nov 01:30 MYT in, 1 Dec 00:30 MYT out)", `${tiles?.verified_month_cents} vs ${want}`);
+    /* B6 - the cross-invoice audit trail, read only */
+    const au = await call("/payments/events?limit=5", 1, "GET");
+    const ids = (au.j?.events ?? []).map((e) => e.id);
+    ok(au.status === 200 && ids.length === 5 && ids.every((x, i) => i === 0 || x < ids[i - 1]) && au.j.events.every((e) => "doc_number" in e && "actor" in e), "B6: the CEO reads the payment audit trail, newest first", au.text.slice(0, 160));
+    ok((await call("/payments/events", 3, "GET")).status === 200 && (await call("/payments/events", 6, "GET")).status === 200, "B6: the COO and the CCO read it too");
+    ok((await call("/payments/events", 9, "GET")).status === 403 && (await call("/payments/events", 7, "GET")).status === 403, "B6: a salesperson and HR cannot (by direct request)");
+    ok((await call("/payments/events", 1, "POST", {})).status !== 200 && n(`SELECT COUNT(*) AS n FROM invoice_payment_events`) > 0, "B6: it writes nothing");
+    /* B3 - switching off never bypasses a pending verification */
+    const waitingNow = n(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE state IN ('reported', 'evidence_checked', 'clarify')`);
+    const offTry = await call("/payments/settings", 1, "PUT", { on: false, reason: "Back to the old flow for a test", totp: code() });
+    ok(waitingNow > 0 && offTry.status === 409 && offTry.j?.error?.code === "pending_reports", "B3: the owner cannot switch off while reported payments wait", `${waitingNow} ${offTry.text.slice(0, 160)}`);
+    for (const r of db.prepare(`SELECT id FROM invoice_payment_reports WHERE state IN ('reported', 'evidence_checked', 'clarify')`).all()) {
+      await call(`/payment-reports/${r.id}/reject`, 1, "POST", { reason: "Closing the test queue before switching off", totp: code() });
+    }
+
     /* ---------- off again: today's flow, unchanged ---------- */
     await call("/payments/settings", 1, "PUT", { on: false, reason: "Back to the old flow for a test", totp: code() });
     const old = await call("/docs/109", 3, "PATCH", { payment_status: "paid", payment_method: "bank_transfer" });
     ok(old.status === 200 && inv(109).payment_status === "paid" && cashRows(109) === 1, "switched off, the COO marks a legacy invoice paid as before", old.text);
     ok((await report(109, 9, 100, "MBB 1")).status === 409, "...and reports are refused");
+    /* B3 - even switched off, a report still waiting (from before) is never bypassed by Mark Paid or a part payment */
+    db.prepare(`INSERT INTO invoice_payment_reports (invoice_id, issuer_code, amount_cents, received_on, method, reference, reported_by, state) VALUES (110, 'a2z', 5000, '2026-11-04', 'bank_transfer', 'MBB 9110', 9, 'reported')`).run();
+    const mp110 = await call("/docs/110", 3, "PATCH", { payment_status: "paid", payment_method: "bank_transfer" });
+    ok(mp110.status === 409 && inv(110).payment_status !== "paid" && cashRows(110) === 0, "B3: switched off, Mark Paid is refused on an invoice whose reported payment still waits", mp110.text.slice(0, 160));
+    const pp110 = await call("/docs/110/payments", 3, "POST", { amount_cents: 5000, received_on: "2026-11-04", method: "bank_transfer", reference: "MBB 9110" });
+    ok(pp110.status === 409 && parts(110) === 0, "B3: ...and so is a direct part payment", pp110.text.slice(0, 160));
   } catch (e) {
     out.push([false, `runtime: ${e?.stack ?? e}`]);
   } finally {
@@ -332,12 +390,22 @@ const MUT = [
   [V, "duplicates are not flagged", [["      if (refKey) {\n        const d1", "      if (false) {\n        const d1"]]],
   [V, "no proof needed", [["if (!rep.proof_key) return err(\"proof_required\"", "if (false) return err(\"proof_required\""]]],
   [V, "verify needs no fresh code", [["    const stepUp = await requireFreshTotp(env, user, body?.totp, err, \"verify this payment\");\n    if (stepUp) return stepUp;\n", ""]]],
-  [V, "a retried verify pays again", [["        WHERE id = ?6 AND state = ?7 AND payment_id IS NULL`,", "        WHERE id = ?6 AND ?7 IS NOT NULL`,"]]],
+  [V, "a retried verify pays again", [["          WHERE id = ?6 AND state = ?7 AND payment_id IS NULL\n", "          WHERE id = ?6 AND ?7 IS NOT NULL\n"], ["SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM invoice_payment_reports WHERE id = ?8 AND state = 'verified' AND payment_id IS NULL)", "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ?8 IS NOT NULL"]]],
+  /* v1.283.0 - Track B */
+  [V, "B1: verify runs as separate writes", [["    const done = await env.DB.batch(steps);", "    const done = []; for (const st of steps) done.push(await st.run());"]]],
+  [V, "B2: a retry does not finish a stopped settlement", [["        const paidNow = rep.payment_id ? await settle(env, user, inv, rep.bank_id, rep.reference) : false;", "        const paidNow = false;"]]],
+  [V, "B2: an already-paid invoice is never resumed", [["    if (cur?.payment_status !== \"paid\") return false;\n  }", "    return false;\n  }"]]],
+  [V, "B3: the switch goes off over pending reports", [["      if (nWait > 0) return err(\"pending_reports\"", "      if (false) return err(\"pending_reports\""]]],
+  [S, "B3: switched off, Mark Paid bypasses a pending report", [["        if (Number(waiting?.n ?? 0) > 0) return err(\"payment_report_pending\"", "        if (false) return err(\"payment_report_pending\""]]],
+  ["worker/src/business.ts", "B3: switched off, a part payment bypasses a pending report", [["      if (Number(waitingRep?.n ?? 0) > 0) return err(\"payment_report_pending\"", "      if (false) return err(\"payment_report_pending\""]]],
+  [V, "B4: a receipt alone verifies", [["const VERIFY_METHODS = [\"bank_statement\", \"bank_app\"] as const;", "const VERIFY_METHODS = [\"bank_statement\", \"bank_app\", \"receipt_only\"] as const;"]]],
+  [V, "B5: the month is the UTC month", [["substr(datetime(r.decided_at, '+8 hours'), 1, 7) = ?1", "substr(r.decided_at, 1, 7) = ?1"]]],
+  [V, "B6: anyone reads the audit trail", [["      return err(\"forbidden\", \"Only the CEO, COO and CCO read the payment audit trail\", 403);", "      void 0;"]]],
   [V, "anyone reports on any invoice", [["  return REPORT_ALL_ROLES.includes(user.role) || inv.salesperson_id === user.id;", "  return true;"]]],
   [V, "the reporter checks their own evidence", [["    if (rep.reported_by === user.id) return err(\"self_approval\", \"You reported this payment - someone else checks its evidence.\", 403);\n", ""], ["WHERE id = ?3 AND state = 'reported' AND reported_by != ?1`", "WHERE id = ?3 AND state = 'reported' AND ?1 IS NOT NULL`"]]],
   [V, "a reversal leaves the invoice paid", [["if (inv.payment_status === \"paid\" && (await verifiedOf(env, inv.id)) < inv.total_cents) {", "if (false) {"]]],
   [V, "anyone may verify", [["  if (!can(user.role, \"payment_verify\")) return err(\"forbidden\", \"Only the CEO verifies payments\", 403);\n", ""]]],
-  [V, "more than the balance is verified", [["    if (asked > balance) return err(\"over_balance\"", "    if (false) return err(\"over_balance\""], ["- COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL), 0) >= ?2\n       RETURNING id`,\n    ).bind(inv.id, asked", "- COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL), 0) >= 0 - ?2\n       RETURNING id`,\n    ).bind(inv.id, asked"]]],
+  [V, "more than the balance is verified", [["    if (asked > balance) return err(\"over_balance\"", "    if (false) return err(\"over_balance\""], ["WHERE invoice_id = ?8 AND voided_at IS NULL), 0) >= ?3`,", "WHERE invoice_id = ?8 AND voided_at IS NULL), 0) >= 0 - ?3`,"]]],
   [S, "Mark Paid still works with verification on", [["        if (body!.payment_status === \"paid\") return err(\"payment_verification_on\"", "        if (false) return err(\"payment_verification_on\""]]],
   ["worker/src/permissions.ts", "the COO may verify", [['  payment_verify: ["ceo"],', '  payment_verify: ["ceo", "coo"],']]],
 ];

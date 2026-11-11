@@ -39,7 +39,22 @@
                company (Companies review); a flagged duplicate needs a reason;
                at most the balance; a retry changes nothing
      reject / clarify / answer / reverse - each kept, never deleted; the
-               timeline (invoice_payment_events) is append only */
+               timeline (invoice_payment_events) is append only
+
+   v1.283.0 - PAYMENT VERIFICATION 3.0, TRACK B (the CEO, 11-11-2026,
+   "Proceed" on claude/PAYMENT-VERIFICATION-3.0-BLUEPRINT.md, P3-P5):
+     B1 verify is ONE atomic batch - the claim, the payment row and their
+        link commit together or not at all, so a failure in between can
+        never leave a "verified" report without its money
+     B2 settlement resumes: every step is idempotent, and a verify that
+        finds its report already verified finishes whatever is missing
+     B3 the switch cannot go off while reports wait (it never bypasses a
+        pending approval); staff.ts / business.ts refuse Mark Paid and part
+        payments on an invoice with a pending report even when it is off
+     B4 a receipt alone is not proof: new verifications are checked on the
+        bank statement or in the bank app ("receipt only" stays readable)
+     B5 "Verified this month" is the Malaysian month, summed in SQL
+     B6 GET /payments/events - the cross-invoice audit trail, read only */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, requireFreshTotp, revokePaidConfirmation, currentStaffSql } from "./staff";
@@ -52,7 +67,8 @@ const SETTING = "payment_verification";
 /** who reports on every invoice (P2); anyone else holding payment_report reports only on their own invoices */
 const REPORT_ALL_ROLES = ["ceo", "coo", "cco"];
 const METHODS = ["bank_transfer", "online", "cash", "cheque", "other"] as const;
-const VERIFY_METHODS = ["bank_statement", "bank_app", "receipt_only"] as const;
+/* v1.283.0 (B4) - "receipt_only" is no longer accepted for a new verification */
+const VERIFY_METHODS = ["bank_statement", "bank_app"] as const;
 const PENDING = ["reported", "evidence_checked", "clarify"];
 const PROOF_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 const PROOF_MAX = 8 * 1024 * 1024;
@@ -157,6 +173,7 @@ async function bankCompany(env: Env, bankId: number): Promise<{ ok: boolean; act
 async function settle(env: Env, user: StaffUser, inv: Inv, bankId: number | null, ref: string | null): Promise<boolean> {
   const verified = await verifiedOf(env, inv.id);
   if (verified < inv.total_cents) return false;
+  if (inv.payment_status === "void") return false;
   const last = await env.DB.prepare(`SELECT MAX(received_on) AS d, (SELECT method FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL ORDER BY received_on DESC, id DESC LIMIT 1) AS m FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL`)
     .bind(inv.id).first<{ d: string | null; m: string | null }>();
   const paidOn = last?.d && validDay(last.d) ? last.d : mytToday();
@@ -166,8 +183,14 @@ async function settle(env: Env, user: StaffUser, inv: Inv, bankId: number | null
     `UPDATE sales_documents SET payment_status = 'paid', payment_method = ?1, payment_ref = ?2, paid_at = ?3
       WHERE id = ?4 AND doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') NOT IN ('paid', 'void')`,
   ).bind(method, ref ? ref.slice(0, 120) : null, `${paidOn} 04:00:00`, inv.id).run();
-  if (!Number(r.meta?.changes ?? 0)) return false;
-  /* the one finance integration: the same booking Mark Paid makes (INV-<id>) */
+  if (!Number(r.meta?.changes ?? 0)) {
+    /* v1.283.0 (B2) - already paid: when verified payments paid it, the
+       steps below are each idempotent, so a settlement that stopped half
+       way (a Worker failure after "paid") is finished here, never doubled */
+    const cur = await env.DB.prepare(`SELECT payment_status FROM sales_documents WHERE id = ?1`).bind(inv.id).first<{ payment_status: string | null }>();
+    if (cur?.payment_status !== "paid") return false;
+  }
+  /* the one finance integration: the same booking Mark Paid makes (INV-<id>; never a second live row) */
   await bookCash(env, user.id, `INV-${inv.id}`, inv.total_cents, "sales", `Invoice ${inv.doc_number} paid`, "in", paidOn);
   if (bankId) {
     await env.DB.prepare(
@@ -181,12 +204,16 @@ async function settle(env: Env, user: StaffUser, inv: Inv, bankId: number | null
      SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM sales_documents WHERE id = ?1 AND doc_type = 'INV' AND payment_status = 'paid' AND total_cents = ?2)
      RETURNING id`,
   ).bind(inv.id, inv.total_cents, ref, `${paidOn} 04:00:00`, user.id).first<{ id: number }>();
-  await audit(env, user.id, "invoice.paid_confirm", "sales_documents", String(inv.id), {
-    invoice: inv.doc_number, amount_cents: inv.total_cents, payment_ref: ref, paid_at: `${paidOn} 04:00:00`, via: "payment_verification",
-  });
+  if (conf?.id) {
+    await audit(env, user.id, "invoice.paid_confirm", "sales_documents", String(inv.id), {
+      invoice: inv.doc_number, amount_cents: inv.total_cents, payment_ref: ref, paid_at: `${paidOn} 04:00:00`, via: "payment_verification",
+    });
+  }
   await ensureLedger(env, inv.id);
-  await event(env, inv.id, null, "invoice_paid", user.id, inv.total_cents, { paid_on: paidOn }, `paid:${inv.id}:${conf?.id ?? "x"}`);
-  if (inv.salesperson_id) await notify(env, inv.salesperson_id, "payment", `${inv.doc_number} is paid in full - every payment verified by the CEO.`, `pay_paid:${inv.id}:${conf?.id ?? "x"}`, { once: true });
+  if (conf?.id) {
+    await event(env, inv.id, null, "invoice_paid", user.id, inv.total_cents, { paid_on: paidOn }, `paid:${inv.id}:${conf.id}`);
+    if (inv.salesperson_id) await notify(env, inv.salesperson_id, "payment", `${inv.doc_number} is paid in full - every payment verified by the CEO.`, `pay_paid:${inv.id}:${conf.id}`, { once: true });
+  }
   return true;
 }
 
@@ -232,6 +259,12 @@ export async function handlePayments(
       if (skew(e)) return err("migration_missing", "Run migration 0181 first (PUSH.bat).", 503);
       throw e;
     }
+    /* v1.283.0 (B3) - switching off never bypasses a pending approval */
+    if (body!.on === false) {
+      const waiting = await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE state IN ('reported', 'evidence_checked', 'clarify')`).first<{ n: number }>();
+      const nWait = Number(waiting?.n ?? 0);
+      if (nWait > 0) return err("pending_reports", `${nWait} reported payment${nWait === 1 ? " still waits" : "s still wait"} for a decision. Verify, reject or ask about ${nWait === 1 ? "it" : "them"} first - switching off never bypasses a pending verification.`, 409);
+    }
     const stepUp = await requireFreshTotp(env, user, body?.totp, err, "switch payment verification");
     if (stepUp) return stepUp;
     const before = await paymentVerificationOn(env);
@@ -240,6 +273,27 @@ export async function handlePayments(
       .bind(SETTING, JSON.stringify({ on: body!.on }), user.id).run();
     await audit(env, user.id, "payment.settings", "business_settings", SETTING, { before: { on: before }, after: { on: body!.on }, reason });
     return json({ ok: true, on: body!.on });
+  }
+
+  /* ---- v1.283.0 (B6) - the audit trail across invoices, newest first, read only ---- */
+  if (path === "/payments/events" && method === "GET") {
+    if (!can(user.role, "payment_verify") && !can(user.role, "payment_evidence") && !REPORT_ALL_ROLES.includes(user.role)) {
+      return err("forbidden", "Only the CEO, COO and CCO read the payment audit trail", 403);
+    }
+    const limit = Math.min(200, Math.max(1, Number(params.get("limit") ?? 100) || 100));
+    const before = Number(params.get("before") ?? 0);
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT ev.id, ev.invoice_id, ev.report_id, ev.event, ev.amount_cents, ev.detail, ev.created_at, d.doc_number,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS actor
+           FROM invoice_payment_events ev LEFT JOIN users u ON u.id = ev.actor_id LEFT JOIN sales_documents d ON d.id = ev.invoice_id
+          WHERE (?1 = 0 OR ev.id < ?1) ORDER BY ev.id DESC LIMIT ?2`,
+      ).bind(before > 0 ? before : 0, limit).all();
+      return json({ events: results ?? [] });
+    } catch (e) {
+      if (skew(e)) return err("migration_missing", "Run migration 0181 first (PUSH.bat).", 503);
+      throw e;
+    }
   }
 
   /* ---- the Payments tab: the queue, the open invoices, the tiles ---- */
@@ -289,8 +343,16 @@ export async function handlePayments(
     });
     const month = mytToday().slice(0, 7);
     const pend = (reports as Array<{ state: string; amount_cents: number }>).filter((r) => PENDING.includes(r.state));
-    const verifiedMonth = (reports as Array<{ state: string; verified_cents: number | null; decided_at: string | null }>)
-      .filter((r) => r.state === "verified" && String(r.decided_at ?? "").slice(0, 7) === month).reduce((a, r) => a + Number(r.verified_cents ?? 0), 0);
+    /* v1.283.0 (B5) - the Malaysian month (decided_at is UTC), every verified report, summed in SQL */
+    let verifiedMonth = 0;
+    if (ready) {
+      const scopeM = all ? "" : " AND (d.salesperson_id = ?2 OR r.reported_by = ?2)";
+      const vm = await env.DB.prepare(
+        `SELECT COALESCE(SUM(r.verified_cents), 0) AS c FROM invoice_payment_reports r JOIN sales_documents d ON d.id = r.invoice_id
+          WHERE r.state = 'verified' AND substr(datetime(r.decided_at, '+8 hours'), 1, 7) = ?1${scopeM}`,
+      ).bind(...(all ? [month] : [month, user.id])).first<{ c: number }>();
+      verifiedMonth = Number(vm?.c ?? 0);
+    }
     let banks: unknown[] = [];
     if (caps.verify) {
       banks = ((await env.DB.prepare(`SELECT id, name, bank, number_masked FROM bank_accounts WHERE active = 1 ORDER BY name`).all<{ id: number; name: string; bank: string; number_masked: string }>()).results ?? []);
@@ -501,7 +563,12 @@ export async function handlePayments(
       return err("self_approval", "You reported this payment - its bank evidence is checked by the COO first.", 403);
     }
     if (!["reported", "evidence_checked"].includes(rep.state)) {
-      if (rep.state === "verified") return json({ ok: true, repeated: true, ...(await picture(env, inv, user)) });
+      if (rep.state === "verified") {
+        /* v1.283.0 (B2) - a retry finishes a settlement that stopped half way */
+        const paidNow = rep.payment_id ? await settle(env, user, inv, rep.bank_id, rep.reference) : false;
+        const fresh = (await invoiceOf(env, inv.id)) ?? inv;
+        return json({ ok: true, repeated: true, invoice_paid: paidNow, ...(await picture(env, fresh, user)) });
+      }
       return err("invalid_state", "Only a payment waiting for review can be verified.", 409);
     }
     if (inv.payment_status === "void") return err("voided", `${inv.doc_number} is void.`, 409);
@@ -530,26 +597,42 @@ export async function handlePayments(
     const stepUp = await requireFreshTotp(env, user, body?.totp, err, "verify this payment");
     if (stepUp) return stepUp;
     const dupReason = rep.dup_of !== null ? String(body!.dup_reason).trim() : null;
-    /* claim the report first: a second verify finds it taken and changes nothing */
-    const claim = await env.DB.prepare(
-      `UPDATE invoice_payment_reports SET state = 'verified', decided_by = ?1, decided_at = datetime('now'), verify_method = ?2, verified_cents = ?3, bank_id = ?4, dup_reason = ?5, updated_at = datetime('now')
-        WHERE id = ?6 AND state = ?7 AND payment_id IS NULL`,
-    ).bind(user.id, vm, asked, bankId, dupReason, rid, rep.state).run();
-    if (!Number(claim.meta?.changes ?? 0)) return json({ ok: true, repeated: true, ...(await picture(env, inv, user)) });
-    /* then the money, through the one payment record's own rule: never past the total */
-    const pay = await env.DB.prepare(
-      `INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, method, reference, note, created_by)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-        WHERE (SELECT total_cents FROM sales_documents WHERE id = ?1)
-              - COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL), 0) >= ?2
-       RETURNING id`,
-    ).bind(inv.id, asked, rep.received_on, rep.method === "online" ? "bank_transfer" : rep.method, rep.reference, `Verified payment report #${rid}`, user.id).first<{ id: number }>();
-    if (!pay?.id) {
-      await env.DB.prepare(`UPDATE invoice_payment_reports SET state = ?1, decided_by = NULL, decided_at = NULL, verify_method = NULL, verified_cents = NULL, bank_id = NULL, dup_reason = NULL WHERE id = ?2 AND payment_id IS NULL`)
-        .bind(rep.state, rid).run();
-      return err("over_balance", `Another payment on ${inv.doc_number} was verified at the same moment and together they would pass its total. Nothing was verified - reload and check.`, 409);
+    /* v1.283.0 (B1) - ONE atomic batch. The claim (only while the report
+       waits and the balance still holds it), the payment row (only for a
+       claimed report with no payment yet) and their link commit together
+       or not at all: a second verify, a retry or a failure in between can
+       never pay twice or leave a "verified" report without its money. */
+    const payNote = `Verified payment report #${rid}`;
+    const steps = [
+      env.DB.prepare(
+        `UPDATE invoice_payment_reports SET state = 'verified', decided_by = ?1, decided_at = datetime('now'), verify_method = ?2, verified_cents = ?3, bank_id = ?4, dup_reason = ?5, updated_at = datetime('now')
+          WHERE id = ?6 AND state = ?7 AND payment_id IS NULL
+            AND (SELECT total_cents FROM sales_documents WHERE id = ?8) - COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?8 AND voided_at IS NULL), 0) >= ?3`,
+      ).bind(user.id, vm, asked, bankId, dupReason, rid, rep.state, inv.id),
+      env.DB.prepare(
+        `INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, method, reference, note, created_by)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM invoice_payment_reports WHERE id = ?8 AND state = 'verified' AND payment_id IS NULL)`,
+      ).bind(inv.id, asked, rep.received_on, rep.method === "online" ? "bank_transfer" : rep.method, rep.reference, payNote, user.id, rid),
+      env.DB.prepare(
+        `UPDATE invoice_payment_reports SET payment_id = (SELECT MAX(id) FROM invoice_payments WHERE invoice_id = ?1 AND note = ?2 AND voided_at IS NULL)
+          WHERE id = ?3 AND state = 'verified' AND payment_id IS NULL`,
+      ).bind(inv.id, payNote, rid),
+    ];
+    const done = await env.DB.batch(steps);
+    if (!Number(done[0]?.meta?.changes ?? 0)) {
+      /* nothing was written - say why, from the record as it is now */
+      const now = await reportOf(env, rid);
+      if (now?.state === "verified") {
+        const paidNow = now.payment_id ? await settle(env, user, inv, now.bank_id, now.reference) : false;
+        const fresh = (await invoiceOf(env, inv.id)) ?? inv;
+        return json({ ok: true, repeated: true, invoice_paid: paidNow, ...(await picture(env, fresh, user)) });
+      }
+      if (now && now.state === rep.state) {
+        return err("over_balance", `Another payment on ${inv.doc_number} was verified at the same moment and together they would pass its total. Nothing was verified - reload and check.`, 409);
+      }
+      return err("conflict", "This payment changed - reload it.", 409);
     }
-    await env.DB.prepare(`UPDATE invoice_payment_reports SET payment_id = ?1 WHERE id = ?2`).bind(pay.id, rid).run();
+    const pay = { id: Number((await reportOf(env, rid))?.payment_id ?? 0) };
     await env.DB.prepare(
       `INSERT INTO cashbook_marks (item_key, bank_id, bank_note, bank_by, bank_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
        ON CONFLICT(item_key) DO UPDATE SET bank_id = excluded.bank_id, bank_note = excluded.bank_note, bank_by = excluded.bank_by, bank_at = excluded.bank_at`,
