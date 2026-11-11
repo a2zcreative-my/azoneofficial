@@ -1,0 +1,249 @@
+/* v1.276.0 - A2Z OS 3.0 shared components (claude/UIUX-3.0-BLUEPRINT.md,
+   approved by the CEO 10-11-2026): WorkRow, TableCard, ErrorState,
+   FormField, Switch and the drawer's discard question. Tokens only. */
+
+/* ---- WorkRow: lead, what it is, its status, the one thing to do ---- */
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-h);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.row:first-child {
+  border-top: 0;
+}
+.rowNoLead {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.main {
+  display: grid;
+  gap: var(--space-half);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+button.main {
+  cursor: pointer;
+}
+button.main:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.title {
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.meta {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.status,
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+@media (max-width: 639px) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .rowNoLead {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .action {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+  .row:not(.rowNoLead) .action {
+    grid-column: 2 / -1;
+  }
+}
+
+/* ---- TableCard: head, filters, the table scrolling inside, states ---- */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.headText {
+  display: grid;
+  gap: var(--space-half);
+  min-width: 0;
+  flex: 1 1 14rem;
+}
+.headTitle {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-card-size);
+  font-weight: 600;
+}
+.count {
+  display: inline-block;
+  min-width: 1.25rem;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--gold-solid) 18%, transparent);
+  color: var(--brand-accent-deep);
+  font-size: var(--type-label-size);
+  line-height: 1.125rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.headSub {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.headActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.filters > * {
+  min-width: 0;
+}
+.scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+
+/* ---- FormField: one label, one hint, one error, tied to the control ---- */
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.required {
+  margin-left: var(--space-half);
+  color: var(--danger);
+}
+.hint {
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.error {
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* ---- Switch: a real switch, a 44px target on a phone ---- */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-h);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.track {
+  position: relative;
+  flex: none;
+  width: 2.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+  transition: background var(--dur-fast, 0.15s) ease;
+}
+.thumb {
+  position: absolute;
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: var(--radius-full);
+  background: var(--card);
+  box-shadow: var(--elev-subtle);
+  transition: transform var(--dur-fast, 0.15s) ease;
+}
+.switch[aria-checked="true"] .track {
+  background: var(--success);
+}
+.switch[aria-checked="true"] .thumb {
+  transform: translateX(1rem);
+}
+.switch:focus-visible .track {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .switch {
+    min-height: var(--control-h-touch);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .track,
+  .thumb {
+    transition: none;
+  }
+}
+
+/* ---- the drawer's discard question ---- */
+.discard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--warning-soft);
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+}
+.discardActions {
+  display: flex;
+  gap: var(--space-2);
+}

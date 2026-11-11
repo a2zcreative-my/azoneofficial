@@ -11,6 +11,17 @@
     gap: 1rem;
   }
 }
+/* v1.276.0 - A2Z OS 3.0: two tiles a row on every phone (Tasks and Users
+   fell to one tall tile a row), an odd last tile across the row */
+@media (max-width: 639px) {
+  .row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .row > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
 .tile {
   container-type: inline-size;
   display: grid;
@@ -38,12 +49,15 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* v1.276.0 - A2Z OS 3.0: one tile size on every tab - a 40px well and a
+   22px figure (--type-kpi-tile-size), never the 48px well and 30px hero
+   that made Sales and Tasks tiles twice the Dashboard's */
 .well {
   display: grid;
   place-items: center;
-  width: 3rem;
-  height: 3rem;
-  border-radius: 14px;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 12px;
 }
 .gold {
   background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
@@ -104,7 +118,7 @@
    break at its space rather than spill. */
 .value {
   min-width: 0;
-  font-size: clamp(1.125rem, 9cqi, var(--type-kpi-lg-size));
+  font-size: clamp(1.125rem, 9cqi, var(--type-kpi-tile-size));
   font-weight: var(--type-kpi-lg-weight);
   line-height: var(--type-kpi-lg-lh);
   letter-spacing: var(--type-kpi-lg-tracking);
@@ -198,6 +212,6 @@
     grid-column: 1 / -1;
   }
   .value {
-    font-size: clamp(1.125rem, 12.5cqi, var(--type-kpi-lg-size));
+    font-size: clamp(1.125rem, 12.5cqi, var(--type-kpi-tile-size));
   }
 }

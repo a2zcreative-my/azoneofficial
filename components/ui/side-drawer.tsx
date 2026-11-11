@@ -18,10 +18,12 @@
  * NOT the place for business rules: the children decide what may be done.
  */
 
-import { useEffect, useId, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X } from "lucide-react";
 import { getLang } from "@/lib/i18n";
+import { btnSm } from "@/lib/ui-styles";
+import css from "./ui3.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -39,7 +41,7 @@ const readSide = () => window.matchMedia(SIDE_QUERY).matches;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function SideDrawer({
-  open, onClose, title, subtitle, children, footer, wide = false, full = false,
+  open, onClose, title, subtitle, children, footer, wide = false, full = false, dirty = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +55,10 @@ export function SideDrawer({
   /** v1.212.0 - on a phone, the whole screen rather than a sheet (a record
       read on the move: the Ecommerce order). The desktop panel is unchanged. */
   full?: boolean;
+  /** v1.276.0 (A2Z OS 3.0) - the form inside holds unsaved typing: closing
+      (the X, Escape, the backdrop) first asks "Discard your changes?" in the
+      drawer itself, so a slip of the hand never loses the work. */
+  dirty?: boolean;
 }) {
   const reduceMotion = useReducedMotion();
   const fromSide = useSyncExternalStore(subscribeSide, readSide, () => true);
@@ -60,6 +66,14 @@ export function SideDrawer({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const opener = useRef<Element | null>(null);
   const titleId = useId();
+  const [asking, setAsking] = useState(false);
+  /* a fresh open, or the form saved (no longer dirty), drops the question */
+  const [seen, setSeen] = useState({ open, dirty });
+  if (seen.open !== open || seen.dirty !== dirty) {
+    setSeen({ open, dirty });
+    if (!open || !dirty) setAsking(false);
+  }
+  const requestClose = () => { if (dirty) setAsking(true); else onClose(); };
 
   /* Focus in on open, back out on close; lock the page's scroll meanwhile. */
   useEffect(() => {
@@ -83,7 +97,7 @@ export function SideDrawer({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); return; }
+      if (e.key === "Escape") { e.preventDefault(); if (dirty) setAsking(true); else onClose(); return; }
       if (e.key !== "Tab" || !panelRef.current) return;
       const nodes = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null);
       if (nodes.length === 0) return;
@@ -95,7 +109,7 @@ export function SideDrawer({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, dirty]);
 
   return (
     <AnimatePresence>
@@ -108,7 +122,7 @@ export function SideDrawer({
           exit={reduceMotion ? undefined : { opacity: 0 }}
           transition={{ duration: 0.15 }}
         >
-          <button type="button" aria-label={L("Close", "Tutup")} tabIndex={-1} onClick={onClose}
+          <button type="button" aria-label={L("Close", "Tutup")} tabIndex={-1} onClick={requestClose}
             className="erp-drawer-scrim" />
           <motion.div
             ref={panelRef}
@@ -127,13 +141,23 @@ export function SideDrawer({
                 <h2 id={titleId} className="erp-drawer-title">{title}</h2>
                 {subtitle && <p className="erp-drawer-sub">{subtitle}</p>}
               </div>
-              <button type="button" data-drawer-close onClick={onClose} aria-label={L("Close", "Tutup")}
+              <button type="button" data-drawer-close onClick={requestClose} aria-label={L("Close", "Tutup")}
                 className="erp-icon-button erp-drawer-close">
                 <X aria-hidden className="erp-icon" strokeWidth={1.75} />
               </button>
             </div>
             <div className="erp-drawer-body">{children}</div>
-            {footer && <div className="erp-drawer-foot">{footer}</div>}
+            {asking ? (
+              <div className="erp-drawer-foot">
+                <div className={css.discard} role="alertdialog" aria-label={L("Discard your changes?", "Buang perubahan anda?")} data-testid="drawer-discard">
+                  <span>{L("Discard your changes?", "Buang perubahan anda?")}</span>
+                  <span className={css.discardActions}>
+                    <button type="button" className={btnSm} autoFocus onClick={() => setAsking(false)}>{L("Keep editing", "Terus mengedit")}</button>
+                    <button type="button" className="erp-button erp-button-danger erp-button-compact" onClick={() => { setAsking(false); onClose(); }}>{L("Discard", "Buang")}</button>
+                  </span>
+                </div>
+              </div>
+            ) : footer && <div className="erp-drawer-foot">{footer}</div>}
           </motion.div>
         </motion.div>
       )}

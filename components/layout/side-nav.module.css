@@ -1,0 +1,45 @@
+/* v1.277.0 - A2Z OS 3.0 rail (side-nav.tsx): the group label as its fold
+   button, and the Account pair at the foot. The label keeps the shared
+   .erp-rail-group-label look; this only makes it a full-width button. */
+.groupToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.groupToggle:disabled {
+  cursor: default;
+}
+.groupToggle:hover:not(:disabled) {
+  color: var(--foreground);
+}
+.groupToggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+.chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  transition: transform var(--dur-fast) ease;
+}
+.chevronShut {
+  transform: rotate(-90deg);
+}
+.footItems {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

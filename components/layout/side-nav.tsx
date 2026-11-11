@@ -18,7 +18,9 @@
  * Phones never render this — they keep the v1.11.1 bottom nav.
  */
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { ChevronDown } from "lucide-react";
+import css from "./side-nav.module.css";
 import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { getLang } from "@/lib/i18n";
@@ -59,22 +61,52 @@ interface NavItem { name: string; label: string }
  * Stokis, Content and Threads are absent because they are PARKED, and a parked
  * tab never reaches this component: it is filtered out of `items` upstream.
  */
+/* v1.277.0 - A2Z OS 3.0 NAVIGATION (the CEO approved it 10-11-2026,
+   claude/UIUX-3.0-BLUEPRINT.md section 5): HOME, REVENUE, OPERATIONS, ELFIA,
+   PEOPLE, FINANCE, SYSTEM. Overview is "Home", Sales is "Revenue" (so the
+   group is never mistaken for the Sales tab), Tasks joins Operations, and
+   the Account pair (Cards, Profile) is drawn at the rail's foot beside the
+   person's name instead of as a group (FOOT_SECTION) - still a section, so
+   the More sheet and the access review keep listing it. Same tabs, same
+   access, same URLs. */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
-  { title: "Overview", tabs: ["Dashboard", "Desk"] },
-  { title: "Sales", tabs: ["Ecommerce", "Sales", "Agents"] },
-  { title: "Operations", tabs: ["Inventory", "Assets", "Hotels"] },
+  { title: "Home", tabs: ["Dashboard", "Desk"] },
+  { title: "Revenue", tabs: ["Ecommerce", "Sales", "Agents"] },
+  { title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
-  { title: "People", tabs: ["HR", "Attendance", "On Shift", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
+  { title: "People", tabs: ["HR", "Attendance", "On Shift", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
   { title: "Finance", tabs: ["Finance", "Accounting", "Commission", "Companies"] },
   { title: "Account", tabs: ["Cards", "Profile"] },
   { title: "System", tabs: ["Users"] },
 ];
+/** v1.277.0 - the section the portal rail draws at its foot, with the name */
+export const FOOT_SECTION = "Account";
+/** v1.277.0 - which groups this device folded (titles); the group holding
+    the open tab is always unfolded */
+export const NAV_GROUPS_KEY = "azone-nav-folded";
+/* read as an external store: the server and the first client paint agree
+   (nothing folded), then the device's choice applies; a blocked storage
+   means every group stays open, never an error */
+let foldedMemory = "[]";
+const foldedListeners = new Set<() => void>();
+const subscribeFolded = (cb: () => void) => {
+  foldedListeners.add(cb);
+  const onStorage = (e: StorageEvent) => { if (e.key === NAV_GROUPS_KEY) cb(); };
+  window.addEventListener("storage", onStorage);
+  return () => { foldedListeners.delete(cb); window.removeEventListener("storage", onStorage); };
+};
+const readFolded = () => { try { return window.localStorage.getItem(NAV_GROUPS_KEY) ?? foldedMemory; } catch { return foldedMemory; } };
+const writeFolded = (v: string) => {
+  foldedMemory = v;
+  try { window.localStorage.setItem(NAV_GROUPS_KEY, v); } catch { /* the fold lasts this visit */ }
+  foldedListeners.forEach((cb) => cb());
+};
 
 /** BM display names for the section headings - ONE map, read by this rail
     and by the phone's More sheet (app/portal/page.tsx), so the two surfaces
     cannot name a group differently. */
 export const SECTION_LABEL_MS: Record<string, string> = {
-  Overview: "Ringkasan", Sales: "Jualan", Operations: "Operasi", ELFIA: "ELFIA", People: "Kakitangan",
+  Overview: "Ringkasan", Sales: "Jualan", Home: "Utama", Revenue: "Hasil", Operations: "Operasi", ELFIA: "ELFIA", People: "Kakitangan",
   Finance: "Kewangan", Account: "Akaun", System: "Sistem", Other: "Lain-lain",
   /* v1.228.0 - the /admin and /account rails (console-shell.tsx) */
   Content: "Kandungan", Leads: "Prospek", Client: "Klien",
@@ -133,6 +165,16 @@ export function SideNav({
     e.preventDefault();
     nodes[next]?.focus();
   };
+  /* v1.277.0 - folded groups, remembered on this device (never required:
+     a private window simply starts with every group open) */
+  const portalRail = sections === SECTIONS;
+  const foldedRaw = useSyncExternalStore(subscribeFolded, readFolded, () => "[]");
+  let folded: string[] = [];
+  if (portalRail) { try { const v = JSON.parse(foldedRaw); if (Array.isArray(v)) folded = v.filter((x): x is string => typeof x === "string"); } catch { folded = []; } }
+  const toggleGroup = (title: string) => {
+    const next = folded.includes(title) ? folded.filter((t) => t !== title) : [...folded, title];
+    writeFolded(JSON.stringify(next));
+  };
   const grouped = sections
     .map((s) => ({ title: s.title, items: s.tabs.map((t) => byName.get(t)).filter((x): x is NavItem => !!x) }))
     .filter((s) => s.items.length > 0);
@@ -141,6 +183,33 @@ export function SideNav({
   const placed = new Set(sections.flatMap((s) => s.tabs));
   const orphans = items.filter((i) => !placed.has(i.name));
   if (orphans.length) grouped.push({ title: "Other", items: orphans });
+  /* the portal's Account pair goes to the foot, beside the name */
+  const foot = portalRail ? grouped.find((g) => g.title === FOOT_SECTION) : undefined;
+  const railGroups = foot ? grouped.filter((g) => g !== foot) : grouped;
+  const itemButton = (it: NavItem) => {
+    const on = it.name === active;
+    return (
+      <li key={it.name}>
+        <button
+          type="button"
+          data-nav-item
+          onClick={() => onSelect(it.name)}
+          onMouseEnter={(e) => showTip(e.currentTarget, it.label)}
+          onFocus={(e) => showTip(e.currentTarget, it.label)}
+          onMouseLeave={() => setTip(null)}
+          onBlur={() => setTip(null)}
+          aria-current={on ? "page" : undefined}
+          title={collapsed ? it.label : undefined}
+          aria-label={it.label}
+          className="erp-rail-item"
+        >
+          {/* the gold active marker is drawn by .erp-rail-item[aria-current] */}
+          <span className="erp-rail-icon"><TabIcon name={it.name} className="erp-icon" /></span>
+          {!collapsed && <span className="erp-rail-item-label">{it.label}</span>}
+        </button>
+      </li>
+    );
+  };
 
   return (
     <aside
@@ -173,46 +242,38 @@ export function SideNav({
       </div>
 
       <nav ref={navRef} onKeyDown={onNavKey} className="erp-rail-nav">
-        {grouped.map((section) => (
-          <div key={section.title} className="erp-rail-group">
-            {/* The section header is decorative; the list below is what is
-                announced. Collapsed mode replaces it with a hairline so the
-                grouping is still legible without text. */}
+        {railGroups.map((section) => {
+          /* v1.277.0 - a group folds (the chevron), except the one holding the
+             open tab and the icon-only rail, which always show their items */
+          const holdsActive = section.items.some((i) => i.name === active);
+          const open = collapsed || !portalRail || holdsActive || !folded.includes(section.title);
+          const listId = `rail-${section.title.replace(/\W+/g, "-").toLowerCase()}`;
+          return (
+          <div key={section.title} className="erp-rail-group" data-group={section.title}>
+            {/* The section header names the group; on the portal rail it is
+                the fold button. Collapsed mode replaces it with a hairline so
+                the grouping is still legible without text. */}
             {collapsed ? (
               <div className="erp-rail-group-rule" aria-hidden />
+            ) : portalRail ? (
+              <button type="button" className={`erp-rail-group-label ${css.groupToggle}`}
+                aria-expanded={open} aria-controls={listId} disabled={holdsActive}
+                /* named "Finance group", never just "Finance": the Finance TAB keeps its name to itself */
+                aria-label={ms ? `Kumpulan ${sectionTitle(section.title, lang)}` : `${sectionTitle(section.title, lang)} group`}
+                title={holdsActive ? undefined : open ? (ms ? "Lipat kumpulan" : "Fold the group") : (ms ? "Buka kumpulan" : "Open the group")}
+                onClick={() => toggleGroup(section.title)}>
+                <span>{sectionTitle(section.title, lang)}</span>
+                {!holdsActive && <ChevronDown aria-hidden className={`${css.chevron} ${open ? "" : css.chevronShut}`} />}
+              </button>
             ) : (
               <p className="erp-rail-group-label">
                 {sectionTitle(section.title, lang)}
               </p>
             )}
-            <ul>
-              {section.items.map((it) => {
-                const on = it.name === active;
-                return (
-                  <li key={it.name}>
-                    <button
-                      type="button"
-                      data-nav-item
-                      onClick={() => onSelect(it.name)}
-                      onMouseEnter={(e) => showTip(e.currentTarget, it.label)}
-                      onFocus={(e) => showTip(e.currentTarget, it.label)}
-                      onMouseLeave={() => setTip(null)}
-                      onBlur={() => setTip(null)}
-                      aria-current={on ? "page" : undefined}
-                      title={collapsed ? it.label : undefined}
-                      aria-label={it.label}
-                      className="erp-rail-item"
-                    >
-                      {/* the gold active marker is drawn by .erp-rail-item[aria-current] */}
-                      <span className="erp-rail-icon"><TabIcon name={it.name} className="erp-icon" /></span>
-                      {!collapsed && <span className="erp-rail-item-label">{it.label}</span>}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            {open && <ul id={listId}>{section.items.map(itemButton)}</ul>}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {tip && collapsed && (
@@ -223,6 +284,7 @@ export function SideNav({
 
       {/* Signed-in identity + sign out */}
       <div className="erp-rail-foot">
+        {foot && <ul className={css.footItems} aria-label={sectionTitle(FOOT_SECTION, lang)}>{foot.items.map(itemButton)}</ul>}
         {!collapsed && (
           <div className="erp-rail-user">
             <p className="erp-rail-user-name">{userName}</p>

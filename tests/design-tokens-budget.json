@@ -1,0 +1,337 @@
+{
+  "app/layout.tsx": {
+    "hex": 2
+  },
+  "app/login/login.module.css": {
+    "hex": 2,
+    "radius": 9
+  },
+  "app/login/page.tsx": {
+    "hex": 4
+  },
+  "app/portal/portal.module.css": {
+    "radius": 9
+  },
+  "components/admin/hr-admin-panel.module.css": {
+    "bp": 3,
+    "radius": 5
+  },
+  "components/admin/hr-admin-panel.tsx": {
+    "hex": 1
+  },
+  "components/admin/signatures-panel.tsx": {
+    "dialog": 1
+  },
+  "components/auth/link-page.module.css": {
+    "radius": 3
+  },
+  "components/cards/card-view.module.css": {
+    "hex": 5,
+    "radius": 9
+  },
+  "components/home/home.module.css": {
+    "hex": 39,
+    "bp": 6,
+    "radius": 28
+  },
+  "components/home/showcase.tsx": {
+    "hex": 1
+  },
+  "components/layout/command-palette.tsx": {
+    "dialog": 1
+  },
+  "components/layout/console-shell.module.css": {
+    "radius": 4
+  },
+  "components/layout/console-shell.tsx": {
+    "dialog": 1
+  },
+  "components/layout/navbar.module.css": {
+    "bp": 4,
+    "radius": 8
+  },
+  "components/portal/access-policy.module.css": {
+    "bp": 3,
+    "radius": 10
+  },
+  "components/portal/account-sheet.module.css": {
+    "radius": 4
+  },
+  "components/portal/accounting.module.css": {
+    "bp": 1,
+    "radius": 10
+  },
+  "components/portal/agents-panel.module.css": {
+    "radius": 18
+  },
+  "components/portal/announcements.module.css": {
+    "bp": 2,
+    "radius": 7
+  },
+  "components/portal/assets-page.module.css": {
+    "bp": 5,
+    "radius": 19
+  },
+  "components/portal/attendance-chart.module.css": {
+    "radius": 4
+  },
+  "components/portal/attendance-panel.module.css": {
+    "bp": 1,
+    "radius": 7
+  },
+  "components/portal/attendance-today.module.css": {
+    "radius": 2
+  },
+  "components/portal/business.module.css": {
+    "radius": 1
+  },
+  "components/portal/cards-panel.module.css": {
+    "hex": 3,
+    "radius": 15
+  },
+  "components/portal/cards-panel.tsx": {
+    "dialog": 1
+  },
+  "components/portal/claims-overview.module.css": {
+    "bp": 1,
+    "radius": 7
+  },
+  "components/portal/claims.module.css": {
+    "radius": 1
+  },
+  "components/portal/commission.module.css": {
+    "bp": 5,
+    "radius": 7
+  },
+  "components/portal/companies.module.css": {
+    "radius": 5
+  },
+  "components/portal/corrections.module.css": {
+    "radius": 1
+  },
+  "components/portal/dashboard-overview.module.css": {
+    "bp": 2,
+    "radius": 12
+  },
+  "components/portal/dashboard.module.css": {
+    "bp": 2,
+    "radius": 3
+  },
+  "components/portal/desk-page.module.css": {
+    "bp": 2,
+    "radius": 5
+  },
+  "components/portal/ecommerce-panel.module.css": {
+    "radius": 5
+  },
+  "components/portal/elfia-store.module.css": {
+    "bp": 2,
+    "radius": 7
+  },
+  "components/portal/elfia-traffic-panel.tsx": {
+    "hex": 1
+  },
+  "components/portal/finance.module.css": {
+    "bp": 1,
+    "radius": 12
+  },
+  "components/portal/fulfilment-card.module.css": {
+    "bp": 1,
+    "radius": 2
+  },
+  "components/portal/global-search.module.css": {
+    "bp": 1,
+    "radius": 8
+  },
+  "components/portal/hotels-page.module.css": {
+    "bp": 3,
+    "radius": 18
+  },
+  "components/portal/hotels-panel.tsx": {
+    "hex": 1
+  },
+  "components/portal/hr-page.module.css": {
+    "bp": 3,
+    "radius": 10
+  },
+  "components/portal/inventory-overview.module.css": {
+    "bp": 2,
+    "radius": 6
+  },
+  "components/portal/leave-month-card.module.css": {
+    "radius": 1
+  },
+  "components/portal/leave-page.module.css": {
+    "bp": 4,
+    "radius": 26
+  },
+  "components/portal/leave.tsx": {
+    "hex": 5
+  },
+  "components/portal/my-payslips.module.css": {
+    "hex": 1,
+    "bp": 1,
+    "radius": 2
+  },
+  "components/portal/notifications.module.css": {
+    "radius": 5
+  },
+  "components/portal/on-shift.module.css": {
+    "bp": 3,
+    "radius": 9
+  },
+  "components/portal/ops-map.tsx": {
+    "hex": 1
+  },
+  "components/portal/packages.module.css": {
+    "bp": 1,
+    "radius": 7
+  },
+  "components/portal/payments-panel.module.css": {
+    "radius": 4
+  },
+  "components/portal/payroll-page.module.css": {
+    "hex": 4,
+    "bp": 3,
+    "radius": 17
+  },
+  "components/portal/payroll-panel.tsx": {
+    "hex": 11
+  },
+  "components/portal/portal-shell.tsx": {
+    "dialog": 1
+  },
+  "components/portal/profile-page.module.css": {
+    "hex": 1,
+    "radius": 3
+  },
+  "components/portal/project-workspace.module.css": {
+    "bp": 3,
+    "radius": 25
+  },
+  "components/portal/reporting-line.module.css": {
+    "bp": 2,
+    "radius": 4
+  },
+  "components/portal/role-panels.tsx": {
+    "hex": 14
+  },
+  "components/portal/sales-discipline.module.css": {
+    "bp": 1,
+    "radius": 8
+  },
+  "components/portal/sales-docs.module.css": {
+    "bp": 1,
+    "radius": 3
+  },
+  "components/portal/sales-enquiries.module.css": {
+    "radius": 3
+  },
+  "components/portal/sales-map.tsx": {
+    "hex": 1
+  },
+  "components/portal/sales-workspace.module.css": {
+    "hex": 1,
+    "radius": 8
+  },
+  "components/portal/sales.tsx": {
+    "hex": 5
+  },
+  "components/portal/shift-reminder-prefs.module.css": {
+    "hex": 1,
+    "radius": 4
+  },
+  "components/portal/signing-panel.module.css": {
+    "hex": 1,
+    "radius": 6
+  },
+  "components/portal/support-card.module.css": {
+    "radius": 1
+  },
+  "components/portal/task-mail.module.css": {
+    "hex": 1,
+    "bp": 1,
+    "radius": 8
+  },
+  "components/portal/task-progress.module.css": {
+    "bp": 1,
+    "radius": 21
+  },
+  "components/portal/tasks-page.module.css": {
+    "bp": 6,
+    "radius": 23
+  },
+  "components/portal/tiktok-orders.module.css": {
+    "radius": 4
+  },
+  "components/portal/top-states-card.module.css": {
+    "bp": 1,
+    "radius": 4
+  },
+  "components/portal/users-panel.module.css": {
+    "bp": 1,
+    "radius": 16
+  },
+  "components/portal/users-panel.tsx": {
+    "dialog": 1
+  },
+  "components/portal/watchers-card.module.css": {
+    "bp": 1,
+    "radius": 2
+  },
+  "components/portal/week-target-card.module.css": {
+    "bp": 1,
+    "radius": 11
+  },
+  "components/portal/weekly-sales.module.css": {
+    "bp": 2,
+    "radius": 7
+  },
+  "components/public/doc-accept.module.css": {
+    "hex": 4,
+    "bp": 1,
+    "radius": 3
+  },
+  "components/security/google-connect-panel.module.css": {
+    "radius": 4
+  },
+  "components/security/passkeys-panel.module.css": {
+    "radius": 1
+  },
+  "components/security/recovery-panel.module.css": {
+    "radius": 2
+  },
+  "components/staff/offboard-sheet.module.css": {
+    "bp": 1,
+    "radius": 1
+  },
+  "components/staff/responsibilities.module.css": {
+    "radius": 1
+  },
+  "components/staff/staff-directory.tsx": {
+    "hex": 4
+  },
+  "components/staff/staff-page.module.css": {
+    "bp": 8,
+    "radius": 24
+  },
+  "components/ui/data-table.module.css": {
+    "radius": 1
+  },
+  "components/ui/kpi-tile.module.css": {
+    "radius": 5
+  },
+  "components/ui/line-tabs.module.css": {
+    "radius": 4
+  },
+  "components/ui/skeleton.module.css": {
+    "radius": 1
+  },
+  "components/ui/stage-timeline.module.css": {
+    "bp": 1,
+    "radius": 2
+  },
+  "components/ui/whatsapp-fab.tsx": {
+    "hex": 2
+  }
+}

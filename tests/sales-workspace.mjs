@@ -111,7 +111,7 @@ const salesCode = strip(sales);
   const kt = read("components/ui/kpi-tile.module.css");
   const value = kt.slice(kt.indexOf(".value {"), kt.indexOf("}", kt.indexOf(".value {")));
   ok("the tile is a size container and the figure scales with it, never clipped and never forced onto one line",
-     /\.tile \{\s*container-type: inline-size;/.test(kt) && /font-size: clamp\(1\.125rem, 9cqi, var\(--type-kpi-lg-size\)\);/.test(value)
+     /\.tile \{\s*container-type: inline-size;/.test(kt) && /font-size: clamp\(1\.125rem, 9cqi, var\(--type-kpi-(?:lg|tile)-size\)\);/.test(value)
      && !/white-space: nowrap/.test(value) && /overflow-wrap: anywhere;/.test(value)
      && /@container \(max-width: 18rem\) \{[\s\S]{0,300}?\.body \{\s*grid-column: 1 \/ -1;[\s\S]{0,200}?12\.5cqi/.test(kt));
   ok("no page pins the tile figure to a fixed size again",

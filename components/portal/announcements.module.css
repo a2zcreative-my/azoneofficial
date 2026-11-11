@@ -4,7 +4,7 @@
   display: none;
 }
 .kpis {
-  --type-kpi-lg-size: 1.5rem;
+  /* v1.276.0 - A2Z OS 3.0: the shared tile figure size (--type-kpi-tile-size), one size on every tab */
 }
 .split {
   display: grid;

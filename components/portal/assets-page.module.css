@@ -7,7 +7,7 @@
 
 /* ---- six figures in one row on a wide screen ---- */
 .kpis {
-  --type-kpi-lg-size: 1.625rem;
+  /* v1.276.0 - A2Z OS 3.0: the shared tile figure size (--type-kpi-tile-size), one size on every tab */
 }
 @media (min-width: 1440px) {
   .kpis6 > div {

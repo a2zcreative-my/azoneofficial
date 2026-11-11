@@ -505,6 +505,20 @@ body:has(.erp-workspace) {
   --space-8: 2rem;          /* 32px - between major page regions            */
   --space-12: 3rem;         /* 48px - page top/bottom on a wide screen      */
 
+  /* ---- v1.276.0 - A2Z OS 3.0 LAYOUT TOKENS (claude/UIUX-3.0-BLUEPRINT.md,
+     approved by the CEO 10-11-2026). The measures every screen shares, named
+     once so a module never invents its own: a control's height (40 on a
+     desk, 44 under a thumb - the touch target), a list row, the page's side
+     padding, a card's padding, the gap between cards, and the one figure
+     size of a KPI tile (one size on every tab, never the 30px hero). */
+  --control-h: 2.25rem;       /* 36px - button, input, select on a desk     */
+  --control-h-touch: 2.75rem; /* 44px - the same under a thumb               */
+  --row-h: 2.75rem;           /* 44px - one row of a list or table           */
+  --page-pad-x: var(--space-6);
+  --card-pad: var(--space-4);
+  --grid-gap: var(--space-4);
+  --type-kpi-tile-size: 1.375rem; /* 22px - the KPI tile figure, every tab   */
+
   /* ---- §3 SEMANTIC SURFACE, TEXT AND BORDER --------------------------
      Aliases onto the V1 palette. Two names for one colour is deliberate:
      `--card` says what it IS, `--surface` says what it is FOR, and new work
@@ -1091,5 +1105,13 @@ html.ms-pending body { visibility: hidden; }
   select,
   textarea {
     font-size: max(1rem, 16px);
+  }
+}
+
+/* v1.276.0 - A2Z OS 3.0: the page and the card gap tighten under a thumb */
+@media (max-width: 767px) {
+  :root {
+    --page-pad-x: var(--space-4);
+    --grid-gap: var(--space-3);
   }
 }

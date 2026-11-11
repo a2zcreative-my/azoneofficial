@@ -10,6 +10,28 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.277.0] - 2026-11-11 - A2Z OS 3.0, C2: the shell - grouped navigation, folding groups, one phone bar - BUILT, NOT DEPLOYED
+
+The CEO approved the 3.0 blueprint ("approved", 10-11-2026): the navigation regrouping and the five-stop phone bar, C1-C2 first. Layout only: no route, permission, deep link or record changed.
+
+- Sidebar (components/layout/side-nav.tsx SECTIONS):
+    - the groups are Home (was Overview), Revenue (was Sales), Operations (Tasks joins Inventory, Assets and Hotels), ELFIA, People, Finance and System;
+    - Cards and Profile are drawn at the rail's foot beside the name (FOOT_SECTION), still a section for the More sheet and the access review.
+- Folding groups: the group label is a button with a chevron (aria-expanded). The fold is remembered on this device (`azone-nav-folded`, an external store, so the server and the first paint agree). The group holding the open tab never folds, and the icon-only rail shows every item.
+- Registry (lib/portal-tabs.ts ALL_TABS): Tasks moves after Agents, so Operations is one contiguous run (tests/registry-parity.mjs). The access check, the server's TAB_ACCESS and `/portal?tab=` links are unchanged.
+- Phone bar (mobileNavStops): Dashboard · Desk · On Shift · Tasks · More for every staff role. This was the CEO's answer of 1 Nov 2026. The role-aware slot (Sales for sellers, Profile for others, Desk for managers) is gone; Sales and Profile are in More. Pins still override. Agents keep their workspace bar.
+
+## [1.276.0] - 2026-11-11 - A2Z OS 3.0, C1: the foundation - tokens, one KPI tile size, shared components, the design-tokens ratchet - BUILT, NOT DEPLOYED
+
+- Tokens (styles/globals.css): `--control-h`, `--control-h-touch`, `--row-h`, `--page-pad-x`, `--card-pad`, `--grid-gap` (phone values under 768 px) and `--type-kpi-tile-size` (22 px).
+- KPI tiles: one size on every tab. The well is 40 px (was 48 px) and the figure at most 22 px (was 30 px). The Assets, Payroll, News and Hotels rows no longer enlarge their figures; the Dashboard's phone and compact rows step the same token down.
+- New shared components (components/ui, ui3.module.css, tokens only): StatusChip (statusOf, STATUS_MAP for payment, invoice, quotation, task, approval, commission, account), WorkRow, TableCard, ErrorState, FormField, Switch.
+- SideDrawer `dirty`: closing a drawer with unsaved typing (X, Escape, backdrop) asks "Discard your changes?" inside the drawer (Keep editing / Discard). Drawers that do not pass it behave as before.
+- LineTabs: a tab may carry a count (`[key, label, count]`).
+- Guard tests/design-tokens.mjs (new; budget tests/design-tokens-budget.json). Per file, literal colours (116), odd breakpoints (94), raw radii in CSS Modules (562) and hand-made dialogs (6) may only fall. It also holds the foundation itself. 4 mutations were tried and each was caught.
+- tests/sales-workspace.mjs reads the tile token by either name; its check is unchanged.
+- Fix before release (11-11-2026): the first PUSH.bat run refused the release because design-tokens built its file paths with path.join. On Windows that wrote back-slashes (components\ui\...), which matched no budget key, so every file looked new. Paths are now written with forward slashes on every system, and a new check holds that. No count or budget changed.
+
 ## [1.275.0] - 2026-11-10 - The company weekly target counts every channel - BUILT, NOT DEPLOYED
 
 The CEO, 10-11-2026: "for sales, why ecommerce sales doesnt count as a Sales?" - then "option 2" (count it toward the target), with his answers: the company target only; this week onward; every channel the Dashboard counts. This reverses the 31-10-2026 basis for the COMPANY target only.

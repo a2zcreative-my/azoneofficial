@@ -35,7 +35,7 @@
 
 /* ---- the five figures: the net and the date get the room they need ---- */
 .kpis {
-  --type-kpi-lg-size: 1.5rem;
+  /* v1.276.0 - A2Z OS 3.0: the shared tile figure size (--type-kpi-tile-size), one size on every tab */
 }
 /* v1.216.1 (the owner, 28-10-2026: "why Total Payroll (Net) card was not
    same the other") - five EQUAL columns. The uneven ones (the Net tile 1.35x)

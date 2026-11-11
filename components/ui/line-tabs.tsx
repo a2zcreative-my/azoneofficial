@@ -14,7 +14,9 @@ import css from "./line-tabs.module.css";
 export function LineTabs<T extends string>({ value, onChange, tabs, label, aside }: {
   value: T;
   onChange: (v: T) => void;
-  tabs: readonly (readonly [T, string])[];
+  /** [key, label] or, v1.276.0 (A2Z OS 3.0), [key, label, count]: a count
+      says how much waits behind the tab (Payments 2); 0 or null draws none */
+  tabs: readonly (readonly [T, string] | readonly [T, string, number | null | undefined])[];
   /** the tablist's accessible name */
   label: string;
   /** something that sits at the right end of the row (a filter, a period) */
@@ -23,10 +25,11 @@ export function LineTabs<T extends string>({ value, onChange, tabs, label, aside
   return (
     <div className={css.bar}>
       <div role="tablist" aria-label={label} className={css.tabs}>
-        {tabs.map(([k, text]) => (
+        {tabs.map(([k, text, n]) => (
           <button key={k} type="button" role="tab" aria-selected={value === k}
             className={css.tab} onClick={() => onChange(k)}>
             {text}
+            {n ? <span className={css.count} aria-label={`, ${n}`}>{n}</span> : null}
           </button>
         ))}
       </div>

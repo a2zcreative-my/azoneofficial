@@ -159,3 +159,34 @@ The CEO, 10-11-2026: *"do ensure that everything is standardize for all the tabs
 - **Status banners** are `erp-note-*`; **chips** are the `chip*` / `chipSm*` tokens in `lib/ui-styles.ts` (`chipAction` for a chip that is pressable). No hand-rolled chip spans.
 - **Later (the full sweep, not in 1.274.0):** the legacy utility classes still used inside large panels (role-panels, roster-board, sales, elfia-store, staff-directory) and the literal colours in a few files.
 
+## 10. A2Z OS 3.0 foundation and shell (v1.276.0 / v1.277.0)
+
+The CEO approved the 3.0 blueprint on 10-11-2026 (`claude/UIUX-3.0-BLUEPRINT.md`; the Claude Doc "A2Z OS - Global UI/UX Transformation 3.0"). C1 and C2 are built. C3 onward each wait for approval. The guards are `tests/design-tokens.mjs` (ratchet budget `tests/design-tokens-budget.json`) and `tests/registry-parity.mjs`.
+
+**Tokens** (`styles/globals.css`):
+- `--control-h` 36 / `--control-h-touch` 44;
+- `--row-h` 44;
+- `--page-pad-x` (24, 16 on a phone);
+- `--card-pad` 16;
+- `--grid-gap` (16, 12 on a phone);
+- `--type-kpi-tile-size` 22. This is the ONE KPI figure size. No page re-sizes it through `--type-kpi-lg-size` any more; the Dashboard's phone and compact rows step it down.
+
+**The ratchet.** Per file, these counts may only fall: literal colours, media queries on widths other than 640/768/1024/1280 (and 639/767/1023/1279), raw `border-radius` lengths in CSS Modules, and hand-made `role="dialog"` outside `components/ui`. Migrate a screen, then run `node tests/design-tokens.mjs --write-budget`.
+
+**Shared components** (`components/ui`, styles in `ui3.module.css`, tokens only):
+- `StatusChip` / `statusOf`: one word and tone per status, per domain: payment, invoice, quotation, task, approval, commission (estimated, pending, review, eligible, in payroll, paid, reversed), account. An unknown status shows in neutral with its own words. A reported payment is never green.
+- `WorkRow`: lead, title, meta, status, ONE action; the title opens the record.
+- `TableCard`: head with count, filters, the table scrolling inside the card, a skeleton while loading, `ErrorState` with Retry, `EmptyState` with the next valid action.
+- `ErrorState`: safe words and Retry.
+- `FormField`: label, required mark, hint and error tied by `aria-describedby`; the error is words with `role="alert"`.
+- `Switch`: `role="switch"`, says On / Off, 44 px on a phone.
+- `SideDrawer dirty`: closing with unsaved typing (X, Escape, backdrop) asks "Discard your changes?" inside the drawer.
+- `LineTabs`: a tab can carry the count of what waits behind it, as `[key, label, count]`.
+
+**Navigation (v1.277.0):**
+- Sidebar groups are Home · Revenue · Operations (Tasks moved here) · ELFIA · People · Finance · System.
+- The Account pair (Cards, Profile) sits at the rail's foot beside the name.
+- Groups fold on the portal rail. The fold is remembered per device; the group holding the open tab never folds; the icon-only rail shows everything.
+- The phone bar is the same five for every staff role: Dashboard · Desk · On Shift · Tasks · More. Pins still override. Agents keep their workspace bar.
+- Registry order (`ALL_TABS`) moved Tasks after Agents, so every group stays one run. Access, routes and deep links are unchanged.
+

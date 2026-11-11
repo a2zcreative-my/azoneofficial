@@ -30,6 +30,25 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.count {
+  /* v1.276.0 - A2Z OS 3.0: what waits behind the tab, beside its name */
+  display: inline-block;
+  min-width: 1.25rem;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  line-height: 1.125rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tab[aria-selected="true"] .count {
+  background: color-mix(in srgb, var(--gold-solid) 18%, transparent);
+  color: var(--brand-accent-deep);
+}
 .tab:hover {
   color: var(--foreground);
 }

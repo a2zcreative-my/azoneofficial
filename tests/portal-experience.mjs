@@ -35,22 +35,20 @@ for (const role of [...tabs.ASSIGNABLE_ROLES.map(([role]) => role), "super_admin
      && stops.every((s) => visible.includes(s.tab))
      && new Set(keys).size === keys.length);
   ok(`${role}: the clock stays one tap away`, keys.includes("On Shift"));
-  if (MANAGERS.includes(role)) {
-    /* v1.176.0 - the Desk is a PAGE now, so the stop is a plain tab and the
-       header names the place the person is looking at. It was a Dashboard
-       anchor, which is why the header said the wrong thing. */
-    const desk = stops.find((s) => s.key === "Desk");
-    ok(`${role}: pending decisions open the Desk page, and the header matches`,
-       Boolean(desk) && desk.tab === "Desk" && desk.anchor === undefined);
-  } else if (visible.includes("Sales")) {
-    ok(`${role}: Sales is a stop`, keys.includes("Sales"));
-  } else {
-    ok(`${role}: the staff bar is unchanged`, JSON.stringify(keys) === JSON.stringify(["Dashboard", "On Shift", "Tasks", "Profile"]));
-  }
+  /* v1.277.0 - A2Z OS 3.0 (the CEO, 1 Nov in the 4.0 plan, confirmed with the
+     3.0 blueprint 10 Nov): THE SAME FIVE FOR EVERY STAFF ROLE - Dashboard,
+     Desk, On Shift, Tasks (+ More). The Desk stop is the Desk PAGE (v1.176.0:
+     a plain tab, so the header names the place). No role gets Sales or
+     Profile on the bar any more; both are in More. */
+  const desk = stops.find((s) => s.key === "Desk");
+  ok(`${role}: the same four stops as everyone - Dashboard, Desk, On Shift, Tasks`,
+     JSON.stringify(keys) === JSON.stringify(["Dashboard", "Desk", "On Shift", "Tasks"]), keys.join());
+  ok(`${role}: the Desk stop opens the Desk page, and the header matches`, Boolean(desk) && desk.tab === "Desk" && desk.anchor === undefined);
+  if (MANAGERS.includes(role)) ok(`${role}: a manager's bar is no longer a different bar`, !keys.includes("Sales") && !keys.includes("Profile"));
 }
-/* A caller with no role must not be guessed at — it gets the staff bar. */
-ok("no role means the staff bar, never a guess",
-   JSON.stringify(tabs.mobilePrimaryTabs(tabs.ALL_TABS.filter((t) => tabs.canSeeTab("live_host", t)))) === JSON.stringify(["Dashboard", "On Shift", "Tasks", "Profile"]));
+/* A caller with no role must not be guessed at - it gets the same bar. */
+ok("no role means the same bar, never a guess",
+   JSON.stringify(tabs.mobilePrimaryTabs(tabs.ALL_TABS.filter((t) => tabs.canSeeTab("live_host", t)))) === JSON.stringify(["Dashboard", "Desk", "On Shift", "Tasks"]));
 
 /* ---- pins: the person's own six, and they cannot outrank permission ---- */
 {

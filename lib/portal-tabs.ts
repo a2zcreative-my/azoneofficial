@@ -66,6 +66,12 @@ export const ALL_TABS = [
   /* v1.249.0 - the agent desk: for agents their whole job (packages to promote,
      their requests); for Sales and management the list of agents' requests */
   "Agents",
+  /* v1.277.0 - A2Z OS 3.0 (the CEO approved the 3.0 navigation, 10-11-2026,
+     claude/UIUX-3.0-BLUEPRINT.md): Tasks moves from People to OPERATIONS -
+     projects live inside Tasks, and the work the company does sits with what
+     it holds. One move, so Operations stays one contiguous run of this list
+     (tests/registry-parity.mjs). Access, routes and deep links are unchanged. */
+  "Tasks",
   /* v1.183.0 - Enquiries (v1.112.0), Sales Performance (v1.155.0) and
      Hankei's (v1.163.0) are RETIRED by the owner, 22-10-2026, the v1.172.0
      way: names, panels, role defaults, hints, icons, strings and guard checks
@@ -83,7 +89,6 @@ export const ALL_TABS = [
   "HR",
   "Attendance",
   "On Shift",
-  "Tasks",
   "Announcements",
   "Staff Details",
   "Leave",
@@ -154,10 +159,9 @@ export interface MobileStop {
   view?: string;
 }
 
-/* Who gets which third and fourth stop. The three names are the dashboard's
-   own (components/portal/dashboard.tsx, DASHBOARD_ZONES) so the bar and the
-   dashboard cannot disagree about who is a manager. */
-const MANAGER_ROLES: readonly string[] = ["ceo", "coo", "cco", "super_admin", "admin"];
+/* v1.277.0 - the role-aware second stop (Desk for managers, Sales for
+   sellers, Profile for the rest) is gone: every staff role has the same five
+   (mobileNavStops below), so no manager list is needed here any more. */
 
 /**
  * The phone bar, in order, for this person.
@@ -193,25 +197,16 @@ export function mobileNavStops(
     /* the person has chosen: their pins fill the rest of the bar, in order */
     for (const tab of pinned) push({ key: tab, tab });
   } else {
-    const role = opts.role ?? "";
-    const manager = MANAGER_ROLES.includes(role);
-    /* sales-led: they can open Sales and are not already on the manager bar.
-       Driven by the permission, not by a second role list. */
-    /* No role given (a preview, a test, the pre-auth skeleton) is NOT a
-       reason to guess: fall back to the staff bar, which is the one every
-       role could always read. */
-    const salesLed = role !== "" && !manager && can("Sales");
-    /* v1.176.0 - a real page, so the header matches the stop */
-    if (manager && can("Desk")) push({ key: "Desk", tab: "Desk" });
-    if (salesLed) push({ key: "Sales", tab: "Sales" });
-    /* On Shift before Tasks for everyone: that is the order the bar has had
-       since v1.168.0 and it is muscle memory. The role slot is inserted
-       before them, never between them. */
+    /* v1.277.0 - A2Z OS 3.0: THE SAME FIVE FOR EVERY STAFF ROLE - Dashboard,
+       Desk, On Shift, Tasks, More (the CEO's answer of 1 Nov 2026 in the 4.0
+       plan, confirmed with the 3.0 blueprint on 10 Nov). Desk is open to every
+       staff member and shows only what that person can act on; Sales and
+       Profile, which some roles had on the bar, are one tap away in More.
+       On Shift before Tasks, as since v1.168.0 (muscle memory). Access is
+       unchanged: a stop is only ever a tab the person may already open. */
+    if (can("Desk")) push({ key: "Desk", tab: "Desk" });
     if (can("On Shift")) push({ key: "On Shift", tab: "On Shift" });
     if (can("Tasks")) push({ key: "Tasks", tab: "Tasks" });
-    /* Profile keeps its stop only on the staff bar; for a manager or a
-       salesperson it moves into More, where the account already lives. */
-    if (!manager && !salesLed && can("Profile")) push({ key: "Profile", tab: "Profile" });
   }
 
   /* back-fill: the defaults first, then anything else they can see */
