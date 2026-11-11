@@ -60,7 +60,10 @@ with sync_playwright() as p:
 
     # ---- an agent, desktop ----
     ctx, pg, errs, reqs = page(b, 4222)
+    # v1.279.0 - Profile is on the name card's menu at the rail's foot (the photo's rail, approved 11-11-2026)
+    pg.locator(".erp-rail-foot button[aria-controls=rail-account-menu]").click(); pg.wait_for_timeout(300)
     names = set(rail(pg))
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(200)
     check("an agent's menu is their workspace and Profile - no Tasks, Dashboard, On Shift, HR, Staff, Users",
           {"Agents", "Profile"} <= names and not ({"Tasks", "Dashboard", "Desk", "Sales", "HR", "Payroll", "Users", "Finance", "On Shift", "Staff Details"} & names), sorted(names))
     panel = pg.get_by_test_id("agents-panel")

@@ -5,6 +5,10 @@ What the registry decides is proven by tests/registry-parity.mjs and
 tests/portal-experience.mjs. Here, in a browser:
   the rail's groups read Home, Revenue, Operations, ELFIA, People, Finance,
   System; Tasks sits under Operations; Cards and Profile are at the foot;
+  (v1.279.0 - the Minimal Executive Workspace rail, approved 11-11-2026:
+  the photo's groups Home, Revenue, Operations, People, Finance and then
+  More, which holds ELFIA and System; Cards and Profile are on the name
+  card's menu at the foot - tests/browser/shell-e1.py holds the rest);
   a group folds and stays folded after a reload; the group holding the open
   tab cannot fold; the icon-only rail still lists every tab;
   the phone bar is Dashboard, Desk, On Shift, Tasks, More for a CEO, a
@@ -37,11 +41,13 @@ with sync_playwright() as p:
     # ---------- desktop rail (CEO) ----------
     ctx, pg, errs = page(b, 4177, 1440, 900)
     groups = pg.evaluate(GROUPS_JS)
-    check("the rail's groups are Home, Revenue, Operations, ELFIA, People, Finance, System", groups == ["Home", "Revenue", "Operations", "ELFIA", "People", "Finance", "System"], groups)
+    check("the rail's groups are the photo's: Home, Revenue, Operations, People, Finance, then More", groups == ["Home", "Revenue", "Operations", "People", "Finance", "More"], groups)
     ops = pg.locator(".erp-rail-group[data-group=Operations]")
     check("Tasks sits under Operations", ops.get_by_role("button", name="Tasks", exact=True).count() == 1)
     foot = pg.locator(".erp-rail-foot")
-    check("Cards and Profile are at the rail's foot", foot.get_by_role("button", name="Profile", exact=True).count() == 1 and foot.get_by_role("button", name="Cards", exact=True).count() == 1)
+    foot.get_by_role("button", name="Your account: Fixture Person").click(); pg.wait_for_timeout(300)
+    check("Cards and Profile are at the rail's foot (on the name card's menu)", foot.get_by_role("button", name="Profile", exact=True).count() == 1 and foot.get_by_role("button", name="Cards", exact=True).count() == 1)
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(200)
     home = pg.locator(".erp-rail-group[data-group=Home] > button")
     check("the group holding the open tab cannot fold", home.is_disabled())
     check("a group's fold button is named as a group, so the Finance TAB keeps the name Finance to itself",

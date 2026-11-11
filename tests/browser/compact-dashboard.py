@@ -11,6 +11,12 @@ below - behind More on a phone. No duplicated sales buttons; the full lists
 live in Sales. A seller sees only their own. Nothing is wider than the
 screen at 1440 / 390 / 320 px.
 
+v1.280.0 - the Minimal Executive Workspace (the CEO's "Approve for all",
+11-11-2026) puts the photo's five figures and work cards on top
+(tests/browser/dashboard-e2.py) and keeps every compact card below ONE
+click deeper, behind More, on every width. These checks open More first
+and hold those cards to the same rules; the top row is the photo's five.
+
 The answers are the fixture's (tests/browser/fixture.mjs, the shapes
 weekly-sales.ts sends; who may see what is proven by direct request in
 tests/go-live-w.mjs). Invented people and amounts only.
@@ -47,16 +53,20 @@ with sync_playwright() as p:
     kp = pg.locator("[aria-label='At a glance']").first
     tiles = kp.locator(":scope > *")
     labels = kp.inner_text()
-    check("row 1: six KPI tiles - weekly target, collected, remaining gap, required pace, open quotations, open tasks",
-          tiles.count() == 6 and all(x in labels for x in ["Weekly target", "Collected", "Remaining gap", "Required pace", "Open quotations", "Open tasks"]), labels[:300])
+    check("row 1: the photo's five figures - Weekly Target, Collected, Invoices, Outstanding, Open Quotations",
+          tiles.count() == 5 and all(x in labels for x in ["Weekly Target", "Collected", "Invoices", "Outstanding", "Open Quotations"]), labels[:300])
     tops = {round(tiles.nth(i).bounding_box()["y"]) for i in range(tiles.count())}
     check("...on one line at 1440 px", len(tops) == 1, tops)
-    check("...the pace is the engine's (RM 11,000.00 per working day, 1 day left), and collected shows its %", "RM 11,000.00" in labels and "1 working day(s) left" in labels and "27% of target" in labels, labels)
+    check("...the target says how far it is and the days left (the engine's: 27%, 1 working day)", "27% of target" in labels and "1 working day(s) left" in labels, labels)
+    sched = pg.evaluate(BOX, "[data-testid=schedule]")
+    k0 = pg.evaluate(BOX, "[aria-label='At a glance']")
+    check("the photo's rows - the figures to the day's schedule - end within 900 px of the figures", sched and k0 and sched["bottom"] - k0["top"] <= 900, [k0, sched])
+    pg.get_by_role("button", name="More: sales pace").click(); pg.wait_for_timeout(500)
     sp = pg.evaluate(BOX, "[data-testid=sales-pace]")
     check("row 2: the sales summary is 220-300 px tall", sp and 220 <= sp["h"] <= 300, sp)
     act = pg.evaluate(BOX, "[data-row=actions]")
-    k0 = pg.evaluate(BOX, "[aria-label='At a glance']")
-    check("rows 1-3 end within 720 px of the KPI strip (was 2,000 px for the sales card alone)", act and k0 and act["bottom"] - k0["top"] <= 720, [k0, act])
+    cmd = pg.evaluate(BOX, "[data-row=command]")
+    check("behind More, the command and actions rows stay compact (720 px together, as before)", act and cmd and act["bottom"] - cmd["top"] <= 720, [cmd, act])
     pace = pg.get_by_test_id("sales-pace").inner_text()
     check("Sales target & pace: one bar, the risk chip, invoiced, best week, confidence, pipeline cover", all(x in pace for x in ["Risk: High", "Invoiced this week", "Best week", "Not enough data", "0.71× the gap", "View sales details", "Manage targets"]), pace)
     pipe = pg.get_by_test_id("pipeline")
@@ -76,7 +86,7 @@ with sync_playwright() as p:
     whole = pg.locator("main").first.inner_text() if pg.locator("main").count() else pg.inner_text("body")
     check("no duplicated sales actions on the Dashboard: no Follow up customers, Sales pipeline, Record acceptance, Record what they said",
           not any(x in whole for x in ["Follow up customers", "Sales pipeline (", "Record acceptance", "Record what they said", "Schedule follow-up"]), [x for x in ["Follow up customers", "Sales pipeline (", "Record acceptance", "Record what they said", "Schedule follow-up"] if x in whole])
-    check("...Create quotation once (Quick actions)", pg.get_by_role("button", name="Create quotation").count() == 1, pg.get_by_role("button", name="Create quotation").count())
+    check("...New Quotation once (the Quick Actions strip)", pg.get_by_role("button", name="New Quotation").count() == 1, pg.get_by_role("button", name="New Quotation").count())
     before = len(get(CEO, "/__sales")["posts"])
     adv.locator("li").filter(has_text="Very old quotation").get_by_role("button", name="Follow up").click(); pg.wait_for_timeout(900)
     posts = [x for x in get(CEO, "/__sales")["posts"][before:] if x["p"].endswith("/advisory/act")]
@@ -89,6 +99,7 @@ with sync_playwright() as p:
 
     # Sales advice View all -> Sales, where the full list lives
     ctx, pg, errs = page(b, CEO)
+    pg.get_by_role("button", name="More: sales pace").click(); pg.wait_for_timeout(500)
     pg.get_by_test_id("advice").get_by_role("button", name="View all").click(); pg.wait_for_timeout(2600)
     full = pg.locator("#sales-week-advice li[data-severity]")
     check("Sales advice View all lands on Sales, with all six cards in full (evidence, risk, owner, due)", full.count() == 6 and "Risk" in full.first.inner_text(), full.count())
@@ -100,6 +111,7 @@ with sync_playwright() as p:
     ctx, pg, errs = page(b, SELLER)
     labels = pg.locator("[aria-label='At a glance']").first.inner_text()
     check("a seller's KPI strip is their own: my weekly target, follow-ups due, my open tasks, waiting on me, my leave", all(x in labels for x in ["My weekly target", "Follow-ups due", "My open tasks", "Waiting on me", "My leave"]) and "Remaining gap" not in labels, labels)
+    pg.get_by_role("button", name="More: sales pace").click(); pg.wait_for_timeout(500)
     mw = pg.get_by_test_id("sales-pace").inner_text()
     check("...My week: my target, why it applies to my role", "My week" in mw and "You close deals" in mw, mw)
     check("...no Financial health, no Team performance, no company pace", pg.get_by_test_id("finance-health").count() == 0 and pg.get_by_test_id("team-performance").count() == 0 and "Required pace" not in labels)
@@ -115,18 +127,22 @@ with sync_playwright() as p:
         check(f"{w}px {'dark' if dark else 'light'} ({who}): no sideways page", pg.evaluate(FITS), pg.evaluate("[document.documentElement.scrollWidth, document.documentElement.clientWidth]"))
         if w < 500:
             kp = pg.locator("[aria-label='At a glance']").first
-            xs = {round(kp.locator(":scope > *").nth(i).bounding_box()["x"]) for i in range(kp.locator(":scope > *").count())}
+            # v1.280.0 - the target tile leads above the row on a phone (its copy in the row is hidden)
+            xs = {round(bb["x"]) for bb in (kp.locator(":scope > *").nth(i).bounding_box() for i in range(kp.locator(":scope > *").count())) if bb}
             check(f"{w}px: the KPI tiles are two columns", len(xs) == 2, xs)
-            more = pg.get_by_role("button", name="More: activities, team on shift, leave, quick actions, summary")
-            check(f"{w}px: the lower cards are behind More (touch-sized)", more.count() == 1 and more.bounding_box()["height"] >= 40 and not pg.locator("section[aria-label='Quick actions']").is_visible())
+            more = pg.get_by_role("button", name="More: sales pace")
+            check(f"{w}px: the cards of before are behind More (touch-sized)", more.count() == 1 and more.bounding_box()["height"] >= 40 and not pg.locator("section[aria-label='Upcoming and pending']").is_visible())
             more.click(); pg.wait_for_timeout(400)
-            check(f"{w}px: More opens them", pg.locator("section[aria-label='Quick actions']").is_visible())
+            check(f"{w}px: More opens them", pg.locator("section[aria-label='Upcoming and pending']").is_visible())
             btns = [x for x in pg.locator("[data-row] button").all() if x.is_visible()]
             small = [x.inner_text()[:20] for x in btns if x.bounding_box() and x.bounding_box()["height"] < 32]
             check(f"{w}px: the row buttons are touch-friendly (32 px or more)", not small, small)
             pg.screenshot(path=f"/tmp/cd-{w}-{'dark' if dark else 'light'}-{who}.png", full_page=True)
         else:
-            check(f"{w}px: no More button on a wide screen; the lower cards show", pg.get_by_role("button", name="More: activities, team on shift, leave, quick actions, summary").is_hidden() and pg.locator("section[aria-label='Quick actions']").is_visible())
+            more = pg.get_by_role("button", name="More: sales pace")
+            check(f"{w}px: on a wide screen too the cards of before are one click deeper, behind More (the approved photo)", more.is_visible() and not pg.locator("section[aria-label='Upcoming and pending']").is_visible())
+            more.click(); pg.wait_for_timeout(400)
+            check(f"{w}px: ...and More opens them", pg.locator("section[aria-label='Upcoming and pending']").is_visible())
         ctx.close()
         check(f"{w}px: no page error", not errs, errs)
     b.close()

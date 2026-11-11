@@ -32,6 +32,9 @@ import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import { WeeklySales } from "@/components/portal/weekly-sales";
 import { CommissionCard } from "@/components/portal/commission-card";
 import css from "./sales-workspace.module.css";
+import { Chip, ExecCard, type Tone } from "@/components/portal/executive-cards";
+import xc from "./executive.module.css";
+import { SkelRows } from "@/components/ui/skeleton";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -574,4 +577,92 @@ function ConfirmPaid({ job, own = false, onClose, onDone }: { job: { doc: WsDoc;
       )}
     </SideDrawer>
   );
+}
+
+/* ---- v1.281.0 - MINIMAL EXECUTIVE WORKSPACE, E3: NEEDS ACTION (the
+   photo's Sales Overview, claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md
+   section 5.4-5.5). What is waiting on this scope's money and customers, the
+   most urgent first, each with the ONE thing to do now - the same actions the
+   lists already offer (Record payment opens Payments with that invoice's
+   sheet; Follow up opens the customer's file). It draws; the caller decides
+   which action a row may carry. A table on a wide screen, cards on a phone. */
+export interface NeedRow {
+  key: string;
+  doc: string;
+  who: string;
+  status: { tone: Tone; label: string };
+  /** what is still owed, null when it is not about money */
+  balance: number | null;
+  action: { label: string; on: () => void } | null;
+  open: () => void;
+}
+type NeedData<D> = Omit<Parameters<typeof needRowsFor<D & WsDoc>>[0], "onRecord" | "onOpenDoc" | "onFollow">;
+export function NeedsActionCard<D extends WsDoc>({ data, loaded, onRecord, onOpenDoc, onFollow }: {
+  data: NeedData<D>; loaded: boolean;
+  onRecord: (d: D) => void; onOpenDoc: (d: D) => void; onFollow: (f: WsFollowUp) => void;
+}) {
+  /* the rows are made here, from the data and the three handlers the page
+     hands in - the page decides what each action does, this card when */
+  const all = needRowsFor<D & WsDoc>({ ...data, onRecord, onOpenDoc, onFollow });
+  const rows = all.slice(0, 6), total = all.length;
+  return (
+    <ExecCard icon="orders" title={L("Needs action", "Perlu tindakan")} count={loaded ? total : undefined} testId="needs-action">
+      {!loaded ? <SkelRows rows={3} /> : rows.length === 0 ? (
+        <p className={xc.empty}><AppIcon name="success" />{L("Nothing is waiting: every invoice is paid and no follow-up is due.", "Tiada yang menunggu: setiap invois dibayar dan tiada susulan perlu.")}</p>
+      ) : (
+        <div className={css.needWrap}>
+          <table className={css.need}>
+            <thead><tr>
+              <th scope="col">{L("Document · customer", "Dokumen · pelanggan")}</th>
+              <th scope="col">{L("Status", "Status")}</th>
+              <th scope="col" className={css.num}>{L("Balance", "Baki")}</th>
+              <th scope="col"><span className="erp-sr-only">{L("Action", "Tindakan")}</span></th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key}>
+                  <td>
+                    <button type="button" className={css.needOpen} onClick={r.open}>
+                      <strong>{r.doc}</strong><span>{r.who}</span>
+                    </button>
+                  </td>
+                  <td><Chip tone={r.status.tone}>{r.status.label}</Chip></td>
+                  <td className={css.num}>{r.balance === null ? "—" : fmtRM(r.balance)}</td>
+                  <td className={css.needAct}>{r.action && <button type="button" className={btnSm} onClick={r.action.on}>{r.action.label}</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ExecCard>
+  );
+}
+
+/** The rows Needs action draws, from what Sales already holds: each unpaid
+    invoice (what is still owed, where its money stands) and each follow-up
+    due, the overdue first. Record payment only where the server says a
+    payment may be reported (the list's own 1.278.0 rule); everything else
+    offers Open or Follow up. */
+export function needRowsFor<D extends WsDoc & { payment_status: string | null; salesperson_name?: string | null }>(p: {
+  unpaid: D[]; followups: WsFollowUp[]; today: string; canPay: boolean; partPaid: Record<number, number>;
+  pv: { on: boolean; inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }> } | null;
+  onRecord: (d: D) => void; onOpenDoc: (d: D) => void; onFollow: (f: WsFollowUp) => void;
+}): NeedRow[] {
+  const { pv, partPaid, today } = p;
+  const inv = p.unpaid.filter((d) => d.payment_status !== "void").map((d) => {
+    const v = pv?.inv[d.id];
+    const paidSoFar = v?.verified_cents ?? partPaid[d.id] ?? 0;
+    const status: NeedRow["status"] = v && v.pending_cents > 0 ? { tone: "warn", label: L("Reported · waiting", "Dilaporkan · menunggu") }
+      : paidSoFar > 0 ? { tone: "warn", label: L("Partially paid", "Dibayar separa") }
+        : d.payment_status === "overdue" ? { tone: "bad", label: L("Overdue", "Lewat") } : { tone: "neutral", label: L("Unpaid", "Belum dibayar") };
+    const canRecord = p.canPay && pv?.on && v?.can_report === true; // the list's own rule (1.278.0): only where the server says a payment may be reported
+    return { key: `inv-${d.id}`, doc: d.doc_number, who: [d.company, d.salesperson_name].filter(Boolean).join(" · "), status, balance: Math.max(0, d.total_cents - paidSoFar),
+      action: canRecord ? { label: L("Record payment", "Rekod bayaran"), on: () => p.onRecord(d) } : { label: L("Open", "Buka"), on: () => p.onOpenDoc(d) },
+      open: () => p.onOpenDoc(d), rank: `${d.payment_status === "overdue" ? "0" : "2"}${d.created_at}` };
+  });
+  const fu = p.followups.map((f) => ({ key: `fu-${f.id}`, doc: f.company, who: [f.note, f.owner_name].filter(Boolean).join(" · "),
+    status: f.due_on < today ? { tone: "bad" as const, label: L("Follow-up overdue", "Susulan lewat") } : { tone: "bad" as const, label: L("Follow-up today", "Susulan hari ini") },
+    balance: null, action: { label: L("Follow up", "Susuli"), on: () => p.onFollow(f) }, open: () => p.onFollow(f), rank: `${f.due_on < today ? "0" : "1"}${f.due_on}` }));
+  return [...inv, ...fu].sort((a, b) => a.rank.localeCompare(b.rank)).map(({ rank: _rank, ...r }) => r);
 }

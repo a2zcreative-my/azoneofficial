@@ -1119,6 +1119,25 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       next_followups: data.me.target_cents !== null ? [{ id: 612, due_on: "2026-09-18", note: "Confirm the status of QT-0042 with the customer", company: "Aina Boutique (Melaka)" }] : [] };
     if (data.team) data.team.rows = data.team.rows.map((r) => ({ ...r, kind: r.target_cents !== null ? "revenue" : "operational", plan: r.user_id === 9010 ? "submitted" : null }));
   }
+  /* v1.280.0 - the Dashboard's Sales Performance (GET /staff/sales/week/performance,
+     exec_view): the company figure by day / week / month. The week's days add up
+     to the dashboard's company figure (400,000), as the worker guarantees
+     (tests/company-performance.mjs); PERF=fail makes it fail, to show Retry. */
+  if (p === "/staff/sales/week/performance") {
+    const per = q.get("period") ?? "week";
+    if (!wkAll) data = { error: { code: "forbidden", message: "Company sales are for management" } };
+    else if (process.env.PERF === "fail") data = { error: { code: "server_error", message: "Down" } };
+    else if (per === "week") data = { period: "week", from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", start_dow: 1, basis_kind: "invoices",
+      buckets: [["Mon", "2026-09-14", 60000], ["Tue", "2026-09-15", 80000], ["Wed", "2026-09-16", 50000], ["Thu", "2026-09-17", 90000], ["Fri", "2026-09-18", 120000], ["Sat", "2026-09-19", null], ["Sun", "2026-09-20", null]].map(([label, d, cents]) => ({ label, from: d, to: d, cents })),
+      total_cents: 400000, previous: { from: "2026-09-07", to: "2026-09-11", cents: 320000 }, change_pct: 25, target_cents: process.env.WEEK === "none" ? null : 1500000, outstanding: { cents: 1110000, invoices: 2 } };
+    else if (per === "month") data = { period: "month", from: "2026-09-01", to: "2026-09-30", today: "2026-09-18", start_dow: 1, basis_kind: "invoices",
+      buckets: [["1-6", "2026-09-01", "2026-09-06", 210000], ["7-13", "2026-09-07", "2026-09-13", 320000], ["14-20", "2026-09-14", "2026-09-20", 400000], ["21-27", "2026-09-21", "2026-09-27", null], ["28-30", "2026-09-28", "2026-09-30", null]].map(([label, a, b, cents]) => ({ label, from: a, to: b, cents })),
+      total_cents: 930000, previous: { from: "2026-08-01", to: "2026-08-18", cents: 1000000 }, change_pct: -7, target_cents: null, outstanding: { cents: 1110000, invoices: 2 } };
+    else if (per === "ytd") data = { period: "ytd", from: "2026-01-01", to: "2026-12-31", today: "2026-09-18", start_dow: 1, basis_kind: "invoices",
+      buckets: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((label, i) => ({ label, from: `2026-${String(i + 1).padStart(2, "0")}-01`, to: `2026-${String(i + 1).padStart(2, "0")}-28`, cents: i < 8 ? 900000 + i * 50000 : i === 8 ? 930000 : null })),
+      total_cents: 9330000, previous: { from: "2025-01-01", to: "2025-09-18", cents: 0 }, change_pct: null, target_cents: null, outstanding: { cents: 1110000, invoices: 2 } };
+    else data = { error: { code: "invalid_input", message: "period must be week, month or ytd" } };
+  }
   if (p === "/staff/sales/week/advisory") data = { week: { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18" }, scope: wkAll ? "all" : "mine", cards: wkAll ? wkCards : wkCards.filter((c) => c.owner.id === 9001), inactive: wkInactive,
     settings: { pipeline_multiple: 1.5, quote_age_days: 14, very_old_days: 60, invoice_fallback_days: 14, package_days: {}, updated_at: null, updated_by: null }, can_configure: wkSetter };
   if (p === "/staff/sales/week/opportunities") data = { today: "2026-09-18", scope: wkAll ? "all" : "mine", rows: wkAll ? wkOpps : wkOpps.filter((o) => o.owner.id === 9001), outcomes: { quotation: ["interested", "negotiating", "waiting", "accepted", "lost", "no_response"], invoice: ["promised", "paid", "disputed", "no_response"] }, can_sales: true };

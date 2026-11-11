@@ -55,7 +55,6 @@ export const ALL_TABS = [
      summary of it instead of a copy of it. Always visible: what is waiting on
      you is not a permission, and the page shows only what you may act on. */
   "Desk",
-  "Ecommerce",
   /* v1.172.0 (Portal UI V2 - the CEO's target navigation: OVERVIEW, SALES,
      OPERATIONS, PEOPLE, FINANCE, ACCOUNT, SYSTEM): Inventory moved from third
      to eighth, behind Hankei's, so the SALES cut (what is sold and to whom)
@@ -63,6 +62,12 @@ export const ALL_TABS = [
      holds) are each one contiguous run of this list. The one move the new
      grouping needed; the phone thumb row (MOBILE_PRIMARY_TABS) is untouched. */
   "Sales",
+  /* v1.279.0 - Minimal Executive Workspace (the CEO approved the photo's
+     sidebar, 11-11-2026, claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md):
+     Revenue reads Sales, Ecommerce, Agents, so Ecommerce follows Sales here,
+     the one sequence the rail cuts (tests/registry-parity.mjs). Access,
+     routes and deep links are unchanged. */
+  "Ecommerce",
   /* v1.249.0 - the agent desk: for agents their whole job (packages to promote,
      their requests); for Sales and management the list of agents' requests */
   "Agents",

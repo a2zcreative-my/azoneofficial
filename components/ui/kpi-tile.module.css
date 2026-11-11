@@ -52,12 +52,21 @@
 /* v1.276.0 - A2Z OS 3.0: one tile size on every tab - a 40px well and a
    22px figure (--type-kpi-tile-size), never the 48px well and 30px hero
    that made Sales and Tasks tiles twice the Dashboard's */
+/* v1.279.0 - MINIMAL EXECUTIVE WORKSPACE (the photo, approved 11-11-2026):
+   a 52px tinted well with a 28px line icon, a 13px label, the 22px bold
+   figure, a 9px progress bar and the change as a small pill - one tile on
+   every tab still. */
 .well {
   display: grid;
   place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 12px;
+  width: 3.25rem;
+  height: 3.25rem;
+  flex: none;
+  border-radius: var(--radius-card-v2);
+}
+.well :global(.erp-icon) {
+  width: 1.75rem;
+  height: 1.75rem;
 }
 .gold {
   background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
@@ -96,9 +105,9 @@
   gap: 0.5rem;
 }
 .label {
-  font-size: var(--type-card-size);
-  font-weight: 600;
-  line-height: var(--type-card-lh);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25rem;
 }
 .mid {
   display: flex;
@@ -119,7 +128,7 @@
 .value {
   min-width: 0;
   font-size: clamp(1.125rem, 9cqi, var(--type-kpi-tile-size));
-  font-weight: var(--type-kpi-lg-weight);
+  font-weight: 700;
   line-height: var(--type-kpi-lg-lh);
   letter-spacing: var(--type-kpi-lg-tracking);
   font-variant-numeric: tabular-nums;
@@ -143,15 +152,31 @@
 .sparkLast {
   background: var(--gold-solid);
 }
+.change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
 .up,
 .down {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.0625rem 0.5rem;
+  border-radius: var(--radius-full);
   font-size: var(--type-caption-size);
   font-weight: 600;
+  white-space: nowrap;
 }
 .up {
+  background: var(--success-soft);
   color: var(--success);
 }
 .down {
+  background: var(--danger-soft);
   color: var(--danger);
 }
 .sub {
@@ -161,7 +186,7 @@
 }
 .bar {
   display: block;
-  height: 6px;
+  height: 0.5625rem;
   margin-top: 0.25rem;
   border-radius: 9999px;
   background: var(--secondary);
@@ -202,11 +227,31 @@
 
 /* a narrow tile (a row of five beside the sidebar, two across on a phone):
    the icon above the words, the words the tile's full width */
-@container (max-width: 18rem) {
+/* v1.279.0 - the photo keeps the well beside the words in a row of five;
+   a mid-width tile only shrinks the well and lets the figure scale.
+   v1.280.0 - measured on the tile's CONTENT box (the five-across Dashboard
+   row at 1440px leaves about 11rem): the well stays beside the words down to
+   10rem, which only a phone's two-across reaches */
+@container (max-width: 15rem) {
+  .tile {
+    gap: 0.75rem;
+  }
   .well {
-    width: 2.25rem;
-    height: 2.25rem;
-    border-radius: 10px;
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .well :global(.erp-icon) {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+  .value {
+    font-size: clamp(1rem, 8.5cqi, var(--type-kpi-tile-size));
+  }
+}
+@container (max-width: 10rem) {
+  .well {
+    width: 2.625rem;
+    height: 2.625rem;
   }
   .body {
     grid-column: 1 / -1;

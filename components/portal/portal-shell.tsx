@@ -27,8 +27,11 @@ import { api } from "@/lib/api";
 import { enablePush, disablePush, signOutRequest } from "@/lib/push-client";
 import { AppIcon } from "@/components/ui/app-icon";
 import { AppShell } from "@/components/layout/app-shell";
-import { SideNav, sectionTitle } from "@/components/layout/side-nav";
-import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis } from "@/components/layout/nav-icons";
+import { SideNav, sectionTitle, type AccountAction } from "@/components/layout/side-nav";
+import { HelpSheet } from "@/components/portal/help-sheet";
+import { canViewProjects } from "@/lib/caps";
+import { useState } from "react";
+import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, CircleHelp, ChevronDown, CalendarDays } from "@/components/layout/nav-icons";
 import { setLang as persistLang, t as tr } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -44,6 +47,7 @@ import { usePortal } from "@/components/portal/portal-provider";
 import { NotificationsPanel } from "@/components/portal/notifications-panel";
 import { GlobalSearch } from "@/components/portal/global-search";
 import { TAB_OF_KIND } from "@/lib/record-focus";
+import { mytToday } from "@/lib/format";
 import css from "@/app/portal/portal.module.css";
 
 /* v1.205.0 - the bell's list (and NOTIF_WHERE, where a kind is read) moved to
@@ -55,7 +59,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
     user, setUser, navCollapsed, toggleNavCollapsed,
     tab, setTab, activeTab, canOpen, deskStop, setDeskStop, openRecord, searchQ, setSearchQ, tabStart, setTabStart,
     setSalesStart, setSalesCreateRequest,
-    dark, setDark, theme, setTheme, lang, setLangState,
+    dark, setDark, theme, setTheme, lang, setLangState, dashDate, setDashDate,
     unread, showNotifs, setShowNotifs,
     moreOpen, setMoreOpen, paletteOpen, setPaletteOpen,
     sound, setSound, pushState, setPushState, chime,
@@ -104,6 +108,65 @@ export function PortalShell({ children }: { children: ReactNode }) {
     );
   };
 
+  /* v1.279.0 - MINIMAL EXECUTIVE WORKSPACE (approved 11-11-2026): the
+     photo's header keeps search, the bell, Help and dark mode. Sound, push
+     alerts, language, colour theme and Sign out move to the name card at the
+     foot of the rail - the same handlers the phone's More sheet uses. */
+  const [helpOpen, setHelpOpen] = useState(false);
+  const toggleSound = () => {
+    const next = !sound;
+    setSound(next);
+    localStorage.setItem("azone-notif-sound", next ? "on" : "off");
+    if (next) void chime(); // audible confirmation (gesture context — always plays now)
+  };
+  const togglePush = async () => {
+    if (pushState === "granted") {
+      await disablePush();
+      setPushState("default");
+    } else {
+      const r = await enablePush();
+      if (r === "ok") {
+        setPushState("granted");
+      } else if (r === "unconfigured")
+        window.alert(
+          L(
+            "Push isn't set up on the server yet — run PUSH.bat on the office PC once; it asks for the push keys and sets them.",
+            "Push belum disediakan di pelayan — jalankan PUSH.bat di PC pejabat sekali; ia meminta kunci push dan menetapkannya."
+          )
+        );
+      else if (r === "denied")
+        window.alert(
+          L(
+            "Notifications are blocked for this site in your browser settings.",
+            "Pemberitahuan disekat untuk laman ini dalam tetapan pelayar anda."
+          )
+        );
+    }
+  };
+  const toggleLang = () => {
+    const next = lang === "ms" ? "en" : "ms";
+    setLangState(next);
+    persistLang(next);
+  };
+  const signOut = () =>
+    void signOutRequest().then(() => {
+      clearApiCache();
+      setUser(null);
+      setMoreOpen(false);
+    });
+  const accountActions: AccountAction[] = [
+    { key: "sound", icon: sound ? <Volume2 aria-hidden className="erp-icon" strokeWidth={1.75} /> : <VolumeX aria-hidden className="erp-icon" strokeWidth={1.75} />,
+      label: L("Notification sound", "Bunyi pemberitahuan"), pressed: sound, onSelect: toggleSound },
+    ...(pushState !== "unsupported" ? [{ key: "push", icon: pushState === "granted" ? <BellRing aria-hidden className="erp-icon" strokeWidth={1.75} /> : <BellOff aria-hidden className="erp-icon" strokeWidth={1.75} />,
+      label: L("Push alerts on this device", "Makluman push pada peranti ini"), pressed: pushState === "granted", onSelect: () => void togglePush() }] : []),
+    { key: "lang", icon: <span aria-hidden className={css.menuLang}>{lang === "ms" ? "BM" : "EN"}</span>,
+      label: "Bahasa Melayu", pressed: lang === "ms", onSelect: toggleLang },
+    { key: "theme", icon: <Palette aria-hidden className="erp-icon" strokeWidth={1.75} />,
+      label: L("Plum & Rose colours", "Warna Plum & Rose"), pressed: theme === "plum", onSelect: () => setTheme(theme === "plum" ? "navy" : "plum") },
+    { key: "signout", icon: <LogOut aria-hidden className="erp-icon" strokeWidth={1.75} />, label: tr("Sign out", lang), danger: true, onSelect: signOut },
+  ];
+  const showProjects = canOpen("Tasks") && canViewProjects(user.role);
+
   return (
     /* Navigation receives the already permission-filtered registry. */
     <AppShell
@@ -116,12 +179,10 @@ export function PortalShell({ children }: { children: ReactNode }) {
           userName={user.name}
           userRole={user.role}
           onSelect={(t) => setTab(t as TabName)}
-          onSignOut={() =>
-            void signOutRequest().then(() => {
-              clearApiCache();
-              setUser(null);
-            })
-          }
+          onSignOut={signOut}
+          accountMenu={accountActions}
+          userPhoto={user.photo_key ? `/api/v1/media/file/${encodeURIComponent(user.photo_key)}` : null}
+          onProjects={showProjects ? () => { setTabStart({ tab: "Tasks", view: "projects" }); setTab("Tasks"); } : undefined}
         />
       }
     >
@@ -206,23 +267,9 @@ export function PortalShell({ children }: { children: ReactNode }) {
         <header className="erp-topbar"
           style={{ paddingTop: "calc(var(--hdr-pt) + env(safe-area-inset-top, 0px))" }}>
           <div className={css.identity}>
-            {/* v1.4.141: the badge-card photo as an app-style avatar — circular,
-              gold-ringed, next to the welcome on desktop and the screen title
-              on mobile. Falls back to the initial when no photo is set. */}
-            {user.photo_key ? (
-              <img
-                src={`/api/v1/media/file/${encodeURIComponent(user.photo_key)}`}
-                alt=""
-                className={css.avatar}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = "none";
-                }}
-              />
-            ) : (
-              <span className={`${css.avatar} ${css.avatarInitial}`}>
-                {user.name.trim().charAt(0).toUpperCase()}
-              </span>
-            )}
+            {/* v1.279.0 - the photo's header carries no avatar: the person's
+                photo and name are on the name card at the foot of the rail
+                (desktop), and on the phone the title stands alone */}
             <div className="erp-min0">
               {/* v1.254.1 (the owner, 02-11-2026: "I want to have a agent
                   name publish on the top there instead of Agent tagging") -
@@ -264,7 +311,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
             >
               <span className={css.searchPillInner}>
                 <Search aria-hidden className="erp-icon" strokeWidth={1.75} />{" "}
-                {tr("Search…", lang)}
+                {L("Search anything…", "Cari apa sahaja…")}
               </span>
               <kbd className={css.kbd}>
                 Ctrl K
@@ -279,100 +326,9 @@ export function PortalShell({ children }: { children: ReactNode }) {
               <Search aria-hidden className="erp-icon" strokeWidth={1.75} />
             </button>
             {/* v1.10.0: sound, push and EN/BM are set-once switches, not daily
-              taps — on phones they live in the More sheet's Preferences row
-              so the phone app bar keeps just search and notifications. */}
-            <button
-              type="button"
-              className={btnHdrDesktop}
-              title={
-                sound
-                  ? L(
-                      "Notification sound ON — tap to mute",
-                      "Bunyi pemberitahuan HIDUP — tekan untuk senyapkan"
-                    )
-                  : L(
-                      "Notification sound OFF — tap to unmute",
-                      "Bunyi pemberitahuan MATI — tekan untuk hidupkan"
-                    )
-              }
-              aria-label={
-                sound
-                  ? L(
-                      "Mute notification sound",
-                      "Senyapkan bunyi pemberitahuan"
-                    )
-                  : L(
-                      "Unmute notification sound",
-                      "Hidupkan bunyi pemberitahuan"
-                    )
-              }
-              onClick={() => {
-                const next = !sound;
-                setSound(next);
-                localStorage.setItem("azone-notif-sound", next ? "on" : "off");
-                if (next) void chime(); // audible confirmation (gesture context — always plays now)
-              }}
-            >
-              {sound ? (
-                <Volume2 aria-hidden className="erp-icon" strokeWidth={1.75} />
-              ) : (
-                <VolumeX aria-hidden className="erp-icon" strokeWidth={1.75} />
-              )}
-            </button>
-            {/* v1.6.0: push alerts to this device (works even with the tab
-              closed). Hidden where the browser can't do web push. */}
-            {pushState !== "unsupported" && (
-              <button
-                type="button"
-                className={btnHdrDesktop}
-                title={
-                  pushState === "granted"
-                    ? L(
-                        "Push alerts ON for this device — tap to turn off",
-                        "Makluman push HIDUP untuk peranti ini — tekan untuk matikan"
-                      )
-                    : L(
-                        "Get push alerts on this device",
-                        "Dapatkan makluman push pada peranti ini"
-                      )
-                }
-                aria-label={L("Toggle push alerts", "Togol makluman push")}
-                onClick={async () => {
-                  if (pushState === "granted") {
-                    await disablePush();
-                    setPushState("default");
-                  } else {
-                    const r = await enablePush();
-                    if (r === "ok") {
-                      setPushState("granted");
-                    } else if (r === "unconfigured")
-                      window.alert(
-                        L(
-                          "Push isn't set up on the server yet — run PUSH.bat on the office PC once; it asks for the push keys and sets them.",
-                          "Push belum disediakan di pelayan — jalankan PUSH.bat di PC pejabat sekali; ia meminta kunci push dan menetapkannya."
-                        )
-                      );
-                    else if (r === "denied")
-                      window.alert(
-                        L(
-                          "Notifications are blocked for this site in your browser settings.",
-                          "Pemberitahuan disekat untuk laman ini dalam tetapan pelayar anda."
-                        )
-                      );
-                  }
-                }}
-              >
-                {pushState === "granted" ? (
-                  <BellRing
-                    aria-hidden
-                    className="erp-icon"
-                    strokeWidth={1.75}
-                  />
-                ) : (
-                  <BellOff aria-hidden className="erp-icon" strokeWidth={1.75} />
-                )}
-              </button>
-            )}
+              taps — on phones they live in the More sheet's Preferences row.
+              v1.279.0 - on desktop they live on the rail's name card menu
+              with the colour theme and Sign out (the photo's header). */}
             <button
               type="button"
               className={`${btnHdr} ${css.bellAnchor}`}
@@ -405,42 +361,17 @@ export function PortalShell({ children }: { children: ReactNode }) {
                 </span>
               )}
             </button>
-            {/* v1.9.0: theme preset + chrome language */}
+            {/* v1.279.0 - Help: what this page is for, how to get around,
+                where the settings went (components/portal/help-sheet.tsx) */}
             <button
               type="button"
               className={btnHdrDesktop}
-              title={
-                theme === "plum"
-                  ? L(
-                      "Theme: Plum & Rose — switch to Navy & Gold",
-                      "Tema: Plum & Rose — tukar ke Navy & Gold"
-                    )
-                  : L(
-                      "Theme: Navy & Gold — switch to Plum & Rose",
-                      "Tema: Navy & Gold — tukar ke Plum & Rose"
-                    )
-              }
-              aria-label={L("Switch colour theme", "Tukar tema warna")}
-              onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}
+              aria-label={L("Help", "Bantuan")}
+              title={L("Help", "Bantuan")}
+              aria-expanded={helpOpen}
+              onClick={() => setHelpOpen(true)}
             >
-              <Palette aria-hidden className="erp-icon" strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              className={`${btnHdrDesktop} ${css.langButton}`}
-              title={
-                lang === "ms"
-                  ? "Bahasa: BM — tukar ke English"
-                  : "Language: EN — switch to Bahasa Melayu"
-              }
-              aria-label={L("Toggle language", "Togol bahasa")}
-              onClick={() => {
-                const next = lang === "ms" ? "en" : "ms";
-                setLangState(next);
-                persistLang(next);
-              }}
-            >
-              {lang === "ms" ? "BM" : "EN"}
+              <CircleHelp aria-hidden className="erp-icon" strokeWidth={1.75} />
             </button>
             <button
               type="button"
@@ -454,29 +385,32 @@ export function PortalShell({ children }: { children: ReactNode }) {
                 <Moon aria-hidden className="erp-icon" strokeWidth={1.75} />
               )}
             </button>
-            {/* v1.16.0 (CEO): icon-only — the text label cost ~70px in a row
-              that was already squeezing the greeting. title + aria-label keep
-              it discoverable and announced. */}
-            <button
-              type="button"
-              className={btnHdrDesktop}
-              title={tr("Sign out", lang)}
-              aria-label={tr("Sign out", lang)}
-              onClick={() =>
-                void signOutRequest().then(() => {
-                  clearApiCache();
-                  setUser(null);
-                })
-              }
-            >
-              <LogOut aria-hidden className="erp-icon" strokeWidth={1.75} />
-            </button>
+            {/* v1.280.0 - the photo's date pill (decision 4), on the Dashboard:
+                the day Today's Schedule shows. A native date input under the
+                words, so the keyboard and the phone's own picker both work. */}
+            {activeTab === "Dashboard" && !isAgent && (() => {
+              const today = mytToday();
+              const day = dashDate ?? today;
+              const words = new Date(`${day}T00:00:00Z`).toLocaleDateString(lang === "ms" ? "ms-MY" : "en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+              return (
+                <span className={`${css.datePill} erp-desktop-only`} data-testid="date-pill">
+                  <CalendarDays aria-hidden className="erp-icon" strokeWidth={1.75} />
+                  <span>{words}</span>
+                  <ChevronDown aria-hidden className="erp-icon" strokeWidth={1.75} />
+                  <input type="date" className={css.dateInput} value={day}
+                    aria-label={L("Choose the day Today's Schedule shows", "Pilih hari yang ditunjukkan Jadual Hari Ini")}
+                    onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* the field still takes typing */ } }}
+                    onChange={(e) => setDashDate(e.target.value && e.target.value !== today ? e.target.value : null)} />
+                </span>
+              );
+            })()}
           </div>
         </header>
 
         {showNotifs && (
           <NotificationsPanel variant="drop" onDone={() => setShowNotifs(false)} />
         )}
+        <HelpSheet open={helpOpen} onClose={() => setHelpOpen(false)} tab={activeTab} lang={lang} />
 
         {/* v1.8.0: the desktop tab-pill grid is replaced by the icon sidebar
           (SidebarNav). Phones keep the bottom navigation below. */}
@@ -622,15 +556,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   className={css.morePref}
-                  onClick={() => {
-                    const next = !sound;
-                    setSound(next);
-                    localStorage.setItem(
-                      "azone-notif-sound",
-                      next ? "on" : "off"
-                    );
-                    if (next) void chime();
-                  }}
+                  onClick={toggleSound}
                 >
                   <span aria-hidden className="erp-center">
                     {sound ? (
@@ -657,30 +583,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
                   <button
                     type="button"
                     className={css.morePref}
-                    onClick={async () => {
-                      if (pushState === "granted") {
-                        await disablePush();
-                        setPushState("default");
-                      } else {
-                        const r = await enablePush();
-                        if (r === "ok") {
-                          setPushState("granted");
-                        } else if (r === "unconfigured")
-                          window.alert(
-                            L(
-                              "Push isn't set up on the server yet — run PUSH.bat on the office PC once; it asks for the push keys and sets them.",
-                              "Push belum disediakan di pelayan — jalankan PUSH.bat di PC pejabat sekali; ia meminta kunci push dan menetapkannya."
-                            )
-                          );
-                        else if (r === "denied")
-                          window.alert(
-                            L(
-                              "Notifications are blocked for this site in your browser settings.",
-                              "Pemberitahuan disekat untuk laman ini dalam tetapan pelayar anda."
-                            )
-                          );
-                      }
-                    }}
+                    onClick={() => void togglePush()}
                   >
                     <span aria-hidden className="erp-center">
                       {pushState === "granted" ? (
@@ -707,11 +610,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   className={css.morePref}
-                  onClick={() => {
-                    const next = lang === "ms" ? "en" : "ms";
-                    setLangState(next);
-                    persistLang(next);
-                  }}
+                  onClick={toggleLang}
                 >
                   <span aria-hidden className={css.moreLang}>
                     {lang === "ms" ? "BM" : "EN"}
@@ -748,10 +647,10 @@ export function PortalShell({ children }: { children: ReactNode }) {
                   {dark ? <Sun aria-hidden className="erp-icon" /> : <Moon aria-hidden className="erp-icon" />}
                   {dark ? L("Light mode", "Mod cerah") : L("Dark mode", "Mod gelap")}
                 </button>
-                <button type="button" className="erp-button erp-button-danger" onClick={() =>
-                  void signOutRequest().then(() => {
-                    clearApiCache(); setUser(null); setMoreOpen(false);
-                  })}>
+                <button type="button" className={btnGhost} onClick={() => { setMoreOpen(false); setHelpOpen(true); }}>
+                  <CircleHelp aria-hidden className="erp-icon" strokeWidth={1.75} />{L("Help", "Bantuan")}
+                </button>
+                <button type="button" className="erp-button erp-button-danger" onClick={signOut}>
                   <LogOut aria-hidden className="erp-icon" />{tr("Sign out", lang)}
                 </button>
               </div>

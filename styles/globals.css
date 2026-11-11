@@ -458,8 +458,9 @@ body:has(.erp-workspace) {
   --type-display-size: 1.75rem;   --type-display-weight: 650;
   --type-display-lh: 2.125rem;    --type-display-tracking: -0.02em;
 
-  --type-page-size: 1.25rem;      --type-page-weight: 600;
-  --type-page-lh: 1.75rem;        --type-page-tracking: -0.01em;
+  /* v1.279.0 - Minimal Executive Workspace: the photo's 27px page title */
+  --type-page-size: 1.6875rem;    --type-page-weight: 700;
+  --type-page-lh: 2.125rem;       --type-page-tracking: -0.01em;
 
   --type-section-size: 1rem;      --type-section-weight: 600;
   --type-section-lh: 1.5rem;      --type-section-tracking: -0.005em;

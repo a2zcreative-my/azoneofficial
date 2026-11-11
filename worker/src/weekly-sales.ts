@@ -410,6 +410,95 @@ async function companyWeek(env: Env, from: string, to: string) {
     gap_cents: company.target_cents === null ? null : Math.max(0, company.target_cents - basis) };
 }
 
+/** v1.280.0 - MINIMAL EXECUTIVE WORKSPACE, decision 2 (the CEO, "Approve
+    for all", 11-11-2026): THE COMPANY FIGURE BY DAY, read-only, for the
+    Dashboard's Sales Performance chart. NOT a second sales engine: each day
+    is counted by the rule of the business week it falls in - paid invoices on
+    the day the payment landed, plus, in a week that counts every channel
+    (countsAllChannels), the TikTok orders, other shipments and manual sales of
+    that day - the same filters as companyWeek and channelsWeek, so the days of
+    this week add up to the company figure exactly. Four grouped reads for any
+    range. Nothing is written. */
+async function companyBasisByDay(env: Env, from: string, to: string, startDow: number): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const add = (d: string, c: number) => out.set(d, (out.get(d) ?? 0) + c);
+  const rows = async (sql: string) => { try { return ((await env.DB.prepare(sql).bind(from, to).all<{ day: string; c: number }>()).results ?? []); } catch { return []; } };
+  const PAID_DAY = `date(COALESCE(d.paid_at, d.created_at), '+8 hours')`;
+  for (const r of await rows(`SELECT ${PAID_DAY} AS day, COALESCE(SUM(d.total_cents), 0) AS c FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2 GROUP BY day`)) add(r.day, Number(r.c));
+  const allCh = (d: string) => countsAllChannels(addDays(weekStartOf(d, startDow), 6));
+  for (const r of await rows(`SELECT date(created_at, '+8 hours') AS day, COALESCE(SUM(order_amount_cents), 0) AS c FROM postage_records WHERE status != 'returned' AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2 GROUP BY day`)) if (allCh(r.day)) add(r.day, Number(r.c));
+  for (const r of await rows(`SELECT COALESCE(substr(out_date, 1, 10), date(created_at, '+8 hours')) AS day, COALESCE(SUM(total_cents), 0) AS c FROM manual_sales WHERE COALESCE(substr(out_date, 1, 10), date(created_at, '+8 hours')) BETWEEN ?1 AND ?2 GROUP BY day`)) if (allCh(r.day)) add(r.day, Number(r.c));
+  return out;
+}
+
+const PERIODS = ["week", "month", "ytd"] as const;
+const monthEnd = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).toISOString().slice(0, 10);
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** GET /staff/sales/week/performance?period=week|month|ytd - the company
+    figure for this week (by day), this month (by business week) or this year
+    (by month), the same point of the previous period for the change, the
+    week's approved target, and what is still owed on unpaid invoices (their
+    total less the payments already verified). Management only (exec_view), as
+    the outlook it sits beside. The period's total is the engine's own range
+    (the whole week, month or year, as companyWeek sums it), so the bars always
+    add up to it; a day after today with nothing recorded is null, never a
+    zero. */
+async function companyPerformance(env: Env, user: StaffUser, params: URLSearchParams): Promise<Response> {
+  if (!VIEW_ALL(user)) return err("forbidden", "Company sales are for management", 403);
+  const period = (params.get("period") ?? "week") as (typeof PERIODS)[number];
+  if (!PERIODS.includes(period)) return err("invalid_input", "period must be week, month or ytd", 400);
+  const today = mytToday();
+  const startDow = await weekStartDow(env);
+  let from: string, to: string, prevFrom: string, prevTo: string;
+  const buckets: { label: string; from: string; to: string }[] = [];
+  if (period === "week") {
+    from = weekStartOf(today, startDow); to = addDays(from, 6);
+    for (let i = 0; i < 7; i++) { const d = addDays(from, i); buckets.push({ label: DOW3[dow(d)]!, from: d, to: d }); }
+    prevFrom = addDays(from, -7); prevTo = addDays(today, -7);
+  } else if (period === "month") {
+    from = `${today.slice(0, 7)}-01`; to = monthEnd(today.slice(0, 7));
+    for (let wk = weekStartOf(from, startDow); wk <= to; wk = addDays(wk, 7)) {
+      const a = wk < from ? from : wk, b = addDays(wk, 6) > to ? to : addDays(wk, 6);
+      buckets.push({ label: `${Number(a.slice(8))}-${Number(b.slice(8))}`, from: a, to: b });
+    }
+    const pm = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+    prevFrom = `${pm}-01`;
+    const pEnd = monthEnd(pm);
+    prevTo = `${pm}-${today.slice(8)}` > pEnd ? pEnd : `${pm}-${today.slice(8)}`;
+  } else {
+    from = `${today.slice(0, 4)}-01-01`; to = `${today.slice(0, 4)}-12-31`;
+    for (let m = 1; m <= 12; m++) { const ym = `${today.slice(0, 4)}-${String(m).padStart(2, "0")}`; buckets.push({ label: MON3[m - 1]!, from: `${ym}-01`, to: monthEnd(ym) }); }
+    prevFrom = `${Number(today.slice(0, 4)) - 1}-01-01`;
+    prevTo = `${Number(today.slice(0, 4)) - 1}${today.slice(4)}` === `${Number(today.slice(0, 4)) - 1}-02-29` ? `${Number(today.slice(0, 4)) - 1}-02-28` : `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`;
+  }
+  const byDay = await companyBasisByDay(env, prevFrom < from ? prevFrom : from, to, startDow);
+  const sum = (a: string, b: string) => { let c = 0; for (const [d, v] of byDay) if (d >= a && d <= b) c += v; return c; };
+  const total = sum(from, to);
+  const previous = sum(prevFrom, prevTo);
+  const target = period === "week" ? (await targetFor(env, "company", null, from)).target_cents : null;
+  let owed = { c: 0, n: 0 };
+  try {
+    owed = (await env.DB.prepare(
+      `SELECT COALESCE(SUM(MAX(0, d.total_cents - COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = d.id AND p.voided_at IS NULL), 0))), 0) AS c, COUNT(*) AS n
+         FROM sales_documents d WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') NOT IN ('paid', 'void')`,
+    ).first<{ c: number; n: number }>()) ?? owed;
+  } catch {
+    owed = (await env.DB.prepare(`SELECT COALESCE(SUM(total_cents), 0) AS c, COUNT(*) AS n FROM sales_documents WHERE doc_type = 'INV' AND COALESCE(payment_status, 'unpaid') NOT IN ('paid', 'void')`).first<{ c: number; n: number }>()) ?? owed;
+  }
+  return json({
+    period, from, to, today, start_dow: startDow,
+    basis_kind: countsAllChannels(addDays(weekStartOf(today, startDow), 6)) ? "all_channels" : "invoices",
+    buckets: buckets.map((b) => { const c = sum(b.from, b.to); return { label: b.label, from: b.from, to: b.to, cents: b.from > today && c === 0 ? null : c }; }),
+    total_cents: total,
+    previous: { from: prevFrom, to: prevTo, cents: previous },
+    change_pct: previous > 0 ? Math.round(((total - previous) / previous) * 100) : null,
+    target_cents: target,
+    outstanding: { cents: Number(owed.c ?? 0), invoices: Number(owed.n ?? 0) },
+  });
+}
+
 /** v1.239.0 - what else was sold in the week. Until v1.275.0 it was shown
     beside the company figure and never added; from ALL_CHANNELS_FROM it is
     INSIDE the company figure (companyWeek.channels says how much). */
@@ -1020,6 +1109,7 @@ async function advisoryAct(env: Env, user: StaffUser, key: string, from: string,
 export async function handleWeeklySales(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (!path.startsWith("/sales/week")) return null;
   if (path === "/sales/week/dashboard" && method === "GET") return weekDashboard(env, user);
+  if (path === "/sales/week/performance" && method === "GET") return companyPerformance(env, user, params); // v1.280.0 - read-only, exec_view
   if (!can(user.role, "sales") && !can(user.role, "exec_view")) return err("forbidden", "Sales access required", 403);
   const today = mytToday();
   const startDow = await weekStartDow(env);

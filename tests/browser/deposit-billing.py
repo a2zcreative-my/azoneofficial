@@ -12,6 +12,7 @@ Servers (servers):
     ROLE=ceo DEPOSIT=1 node tests/browser/serve.mjs out 4263
 Invented people only."""
 import json, urllib.request
+import re
 from playwright.sync_api import sync_playwright
 
 PORT = 4263
@@ -32,7 +33,7 @@ with sync_playwright() as p:
         pg.on("pageerror", lambda e: errs.append(str(e)))
         pg.goto(f"http://127.0.0.1:{PORT}/portal?tab=Sales"); pg.wait_for_timeout(2600)
         pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-        pg.get_by_role("tab", name="Quotations & Invoices", exact=True).first.click(); pg.wait_for_timeout(1200)
+        pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1200)
         chip = pg.get_by_test_id("qt-partly").first
         check(f"{tag}: the half-invoiced quotation says Partly invoiced, 50%, RM 2,250.00 left", chip.count() == 1 and "Partly invoiced" in chip.inner_text() and "50%" in chip.inner_text() and "2,250.00" in chip.inner_text(), chip.inner_text() if chip.count() else "no chip")
         bal = pg.get_by_role("button", name="Invoice balance RM 2,250.00").first

@@ -106,6 +106,10 @@ export interface PortalContextValue {
   setSalesStart: Dispatch<SetStateAction<"documents" | "create">>;
   salesCreateRequest: number;
   setSalesCreateRequest: Dispatch<SetStateAction<number>>;
+  /** v1.280.0 - the day the Dashboard's header date picker chose (YYYY-MM-DD);
+      null = today. It only changes which day Today's Schedule shows. */
+  dashDate: string | null;
+  setDashDate: Dispatch<SetStateAction<string | null>>;
   /** v1.203.0 - the view a tab opens on when a quick action sent you there */
   tabStart: { tab: TabName; view: string } | null;
   setTabStart: Dispatch<SetStateAction<{ tab: TabName; view: string } | null>>;
@@ -212,6 +216,8 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      open and is dropped the moment another tab is chosen - the same rule as
      salesStart above - so a later visit opens on the tab's own default. */
   const [tabStart, setTabStart] = useState<{ tab: TabName; view: string } | null>(null);
+  /* v1.280.0 - the header date picker (Minimal Executive Workspace decision 4) */
+  const [dashDate, setDashDate] = useState<string | null>(null);
   /* adjusted while rendering (React's pattern for state that follows a
      changing value), not in an effect: no second render with a stale view */
   const [startSeenTab, setStartSeenTab] = useState(tab);
@@ -941,7 +947,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         user, setUser, checked, entryReady, navCollapsed, toggleNavCollapsed,
   tab, setTab, activeTab, tabs, canOpen, deskStop, setDeskStop,
   salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
-  tabStart, setTabStart, focus, openRecord, searchQ, setSearchQ,
+  tabStart, setTabStart, dashDate, setDashDate, focus, openRecord, searchQ, setSearchQ,
   dark, setDark, theme, setTheme, lang, setLangState,
   notifs, setNotifs, unread, showNotifs, setShowNotifs,
   moreOpen, setMoreOpen, paletteOpen, setPaletteOpen,

@@ -77,7 +77,8 @@ with sync_playwright() as p:
         pg.get_by_role("button", name="View").first.click(); pg.wait_for_timeout(900)
         dlg = pg.get_by_role("dialog").last
         check(f"{tag}: a salesperson is never offered Verify", dlg.get_by_role("button", name="Verify payment").count() == 0)
-        check(f"{tag}: the drawer shows verified, pending and outstanding", all(x in dlg.inner_text() for x in ["Verified", "Pending", "Outstanding"]))
+        # v1.282.0 - the photo's words: Verified, Reported · waiting, Outstanding (after verify)
+        check(f"{tag}: the drawer shows verified, reported-and-waiting and outstanding", all(x in dlg.inner_text() for x in ["Verified", "Reported · waiting", "Outstanding"]))
         check(f"{tag}: no page errors (sales)", not errs, errs)
         ctx.close()
 

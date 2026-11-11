@@ -65,10 +65,11 @@ const monthLabel = (ym: string, lang: Lang) => {
   return Number.isFinite(m) && names[m] ? `${names[m]} ${ym.slice(0, 4)}` : ym;
 };
 /* "76% vs last month" with its arrow, or nothing when there is no last month */
-const delta = (now: number, before: number): { pct: number | null; text: string } => {
+/* v1.279.0 - the photo's change pill: the signed percentage, then the comparison */
+const delta = (now: number, before: number): { pct: number | null; text: string; vs?: string } => {
   if (!before) return { pct: null, text: "" };
   const pct = Math.round(((now - before) / before) * 100);
-  return { pct, text: L(`${Math.abs(pct)}% vs last month`, `${Math.abs(pct)}% berbanding bulan lepas`) };
+  return { pct, text: `${pct >= 0 ? "+" : "−"}${Math.abs(pct)}%`, vs: L("vs last month", "berbanding bulan lepas") };
 };
 const timeMYT = (ms: number) => dmyMYT(new Date(ms).toISOString());
 

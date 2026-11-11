@@ -78,6 +78,9 @@ const payInit = () => ({
   invoices: [
     { id: 501, doc_number: "INV-A2Z-501", total_cents: 120000, customer: "Maju Engineering", salesperson: "Fixture Person", company: "a2z", verified: 0, paid: false },
     { id: 502, doc_number: "INV-AZOO-502", total_cents: 30000, customer: "Putra Hotel", salesperson: "Fixture Person", company: "azoo", verified: 0, paid: false },
+    /* v1.278.0 - PAYDOCS=1: the documents list's own unpaid invoice (id 3) is
+       open in Payments too, RM 3,000 of it verified - the Sales list's money state */
+    ...(process.env.PAYDOCS ? [{ id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, customer: "Casa del Rio Sdn Bhd", salesperson: "Fixture Person", company: "azoo", verified: 300000, paid: false }] : []),
   ],
   reports: [{ id: 1, invoice_id: 501, issuer_code: "a2z", amount_cents: 60000, received_on: "2026-11-04", method: "bank_transfer", reference: "MBB 0001", note: null, over_cents: 0, dup_of: null, state: "reported", reported_by: 77, reporter: "Aina Seller", reporter_role: "sales_marketing", reported_at: "2026-11-04 02:00:00", has_proof: true, evidence_by: null, decided_at: null, verified_cents: null, question: null }],
   events: [{ id: 1, invoice_id: 501, report_id: 1, event: "reported", amount_cents: 60000, detail: null, created_at: "2026-11-04 02:00:00", actor: "Aina Seller" }, { id: 2, invoice_id: 501, report_id: 1, event: "proof_uploaded", amount_cents: null, detail: null, created_at: "2026-11-04 02:01:00", actor: "Aina Seller" }],
@@ -192,6 +195,12 @@ const server = http.createServer((req, res) => {
         return b.password === "correct horse" ? send(200, { sent: true, to: "fi***@example.test" }) : send(401, { error: { code: "invalid_password", message: "That password is not correct." } });
       }
       if (req.method === "POST" && p === "/auth/google/disconnect") return send(200, { ok: true });
+      /* v1.278.0 - with verification on, nobody marks an invoice paid (staff.ts PATCH /docs/:id, 409) */
+      if (req.method === "PATCH" && /^\/staff\/docs\/\d+$/.test(p) && pay.on) {
+        const b = jb();
+        pay.posts.push({ path: p, method: "PATCH", body: b });
+        if (b.payment_status === "paid") return send(409, { error: { code: "payment_verification_on", message: "INV-AZO050926-3 becomes paid when the CEO verifies its payments. Report the payment in Sales -> Payments." } });
+      }
       /* v1.272.0 - Sales -> Payments (PAYV=1), stateful, the server's rules in small */
       if (p === "/staff/payments" || p.startsWith("/staff/payments/") || /^\/staff\/docs\/\d+\/payment-reports$/.test(p) || p.startsWith("/staff/payment-reports/")) {
         const role = process.env.ROLE ?? "ceo";
@@ -510,7 +519,7 @@ const server = http.createServer((req, res) => {
       }
       /* v1.199.0 - a fixture that answers { error: { code: "forbidden" } } is a
          refusal, sent with the worker's 403, so a role-gated read can be walked */
-      res.writeHead(data?.error?.code === "forbidden" ? 403 : 200, { "content-type": "application/json" }); res.end(JSON.stringify(data));
+      res.writeHead(data?.error?.code === "forbidden" ? 403 : data?.error?.code === "server_error" ? 500 : 200, { "content-type": "application/json" }); res.end(JSON.stringify(data)); /* v1.280.0 - a fixture "server_error" is a 500 (PERF=fail) */
     });
     return;
   }

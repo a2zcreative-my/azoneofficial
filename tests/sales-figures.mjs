@@ -133,7 +133,9 @@ try {
 /* ---- 4: the screen ---- */
 ok("the tiles read the summary first, their own sums only as the fallback",
    /const sm = summary && summary\.month === monthKey && summary\.scope === scope \? summary : null;/.test(sales)
-   && /value=\{fmtRM\(sm \? sm\.collected\.cents : cents\(paidThisMonth\)\)\}/.test(sales) && /value=\{fmtRM\(sm\.outstanding\.balance_cents\)\}/.test(sales)
+   && /value=\{fmtRM\(sm \? sm\.collected\.cents : cents\(paidThisMonth\)\)\}/.test(sales)
+   /* v1.281.0 - the photo's Outstanding tile: the summary's balance first, the screen's own sum only as the fallback */
+   && /value=\{fmtRM\(sm \? sm\.outstanding\.balance_cents : cents\(unpaidInv\)\)\}/.test(sales)
    && /\$\{fmtRM\(sm\.outstanding\.total_cents\)\} invoiced/.test(sales));
 ok("cash received is its own tile; Collected keeps its rule", /label=\{L\("Cash received", "Wang diterima"\)\} value=\{fmtRM\(sm\.cash_cents\)\}/.test(sales)
    && /const paidThisMonth = sDocs\.filter\(\(d\) => d\.doc_type === "INV" && d\.payment_status === "paid"/.test(sales));

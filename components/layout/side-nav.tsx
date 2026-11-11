@@ -18,14 +18,27 @@
  * Phones never render this — they keep the v1.11.1 bottom nav.
  */
 
-import { useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { ChevronDown, ChevronsUpDown, Ellipsis, FolderKanban } from "lucide-react";
 import css from "./side-nav.module.css";
 import { TabIcon, LogOut } from "@/components/layout/nav-icons";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { getLang } from "@/lib/i18n";
 
 interface NavItem { name: string; label: string }
+/** v1.279.0 - one row of the name card's menu (side-nav draws it; the
+    portal hands in what it does - the same handlers as the phone's More
+    sheet). A setting stays open after a press so its new state shows. */
+export interface AccountAction {
+  key: string;
+  icon: ReactNode;
+  label: string;
+  onSelect: () => void;
+  /** a setting: aria-pressed, and the menu stays open */
+  pressed?: boolean;
+  /** the one consequential row (Sign out) - drawn in the danger ink, set apart */
+  danger?: boolean;
+}
 
 /**
  * Presentation grouping only — see the note above. Order defines display order.
@@ -71,7 +84,7 @@ interface NavItem { name: string; label: string }
    access, same URLs. */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Home", tabs: ["Dashboard", "Desk"] },
-  { title: "Revenue", tabs: ["Ecommerce", "Sales", "Agents"] },
+  { title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents"] },
   { title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
   { title: "People", tabs: ["HR", "Attendance", "On Shift", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
@@ -81,6 +94,22 @@ export const SECTIONS: { title: string; tabs: string[] }[] = [
 ];
 /** v1.277.0 - the section the portal rail draws at its foot, with the name */
 export const FOOT_SECTION = "Account";
+/* v1.279.0 - MINIMAL EXECUTIVE WORKSPACE (the CEO approved the photo's
+   sidebar, 11-11-2026, claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md
+   decision 3): the portal rail draws the photo's modules under their
+   groups and puts every other tab the person may open under More, in the
+   registry's order. Presentation only, like SECTIONS: the same `items`, the
+   same access; the icon-only rail, the phone's More sheet and search still
+   list every tab. */
+export const RAIL_PRIMARY: ReadonlySet<string> = new Set([
+  "Dashboard", "Desk",
+  "Sales", "Ecommerce", "Agents",
+  "Tasks", "Inventory",
+  "HR", "Attendance", "Leave", "Claims", "Payroll",
+  "Finance", "Accounting", "Commission",
+]);
+/** the group the photo draws without a heading (its first two rows) */
+const UNTITLED_GROUP = "Home";
 /** v1.277.0 - which groups this device folded (titles); the group holding
     the open tab is always unfolded */
 export const NAV_GROUPS_KEY = "azone-nav-folded";
@@ -120,6 +149,7 @@ export const NAV_COLLAPSED_KEY = "azone-nav-collapsed";
 
 export function SideNav({
   items, active, onSelect, onSignOut, collapsed, onToggleCollapsed, userName, userRole, sections = SECTIONS,
+  accountMenu, userPhoto, onProjects,
 }: {
   items: NavItem[];
   active: string;
@@ -133,6 +163,15 @@ export function SideNav({
       /account: components/layout/console-shell.tsx). The portal passes
       nothing and keeps SECTIONS. */
   sections?: { title: string; tabs: string[] }[];
+  /** v1.279.0 - the portal's name card opens this menu (profile, cards,
+      sound, push, language, colour theme, sign out - the settings that left
+      the header). Without it the foot keeps its plain Sign out row. */
+  accountMenu?: AccountAction[];
+  /** v1.279.0 - the photo on the person's badge card, if any */
+  userPhoto?: string | null;
+  /** v1.279.0 - the Projects shortcut (Tasks > Projects); drawn only when
+      the portal passes it, i.e. the person may open Tasks and its projects */
+  onProjects?: () => void;
 }) {
   const lang = getLang();
   const ms = lang === "ms";
@@ -186,6 +225,29 @@ export function SideNav({
   /* the portal's Account pair goes to the foot, beside the name */
   const foot = portalRail ? grouped.find((g) => g.title === FOOT_SECTION) : undefined;
   const railGroups = foot ? grouped.filter((g) => g !== foot) : grouped;
+  /* v1.279.0 - the photo's rail: the primary modules under their groups,
+     the rest of what this person may open under More. The icon-only rail
+     keeps every tab (a column of icons has room, and hides nothing). */
+  const photoRail = portalRail && !collapsed;
+  const moreItems = photoRail ? railGroups.flatMap((g) => g.items.filter((i) => !RAIL_PRIMARY.has(i.name))) : [];
+  const moreHoldsActive = moreItems.some((i) => i.name === active);
+  const [moreOpenState, setMoreOpen] = useState(false);
+  const moreOpen = moreOpenState || moreHoldsActive;
+  /* the name card's menu: closes on Escape, on a click outside, on a choice */
+  const [menuOpen, setMenuOpen] = useState(false);
+  const footRef = useRef<HTMLDivElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => { if (footRef.current && !footRef.current.contains(e.target as Node)) setMenuOpen(false); };
+    const onKey = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") { setMenuOpen(false); menuButtonRef.current?.focus(); } };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [menuOpen]);
+  const closeMenu = () => setMenuOpen(false);
+  const initials = userName.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
+
   const itemButton = (it: NavItem) => {
     const on = it.name === active;
     return (
@@ -193,7 +255,7 @@ export function SideNav({
         <button
           type="button"
           data-nav-item
-          onClick={() => onSelect(it.name)}
+          onClick={() => { onSelect(it.name); setMenuOpen(false); }}
           onMouseEnter={(e) => showTip(e.currentTarget, it.label)}
           onFocus={(e) => showTip(e.currentTarget, it.label)}
           onMouseLeave={() => setTip(null)}
@@ -210,6 +272,17 @@ export function SideNav({
       </li>
     );
   };
+  /* v1.279.0 - Projects is a way into Tasks > Projects, not a tab of its
+     own: it never carries aria-current (Tasks does, whichever Tasks view is
+     open), and it is not a registry entry, so access stays the Tasks tab's */
+  const projectsButton = onProjects ? (
+    <li key="__projects">
+      <button type="button" data-nav-item className="erp-rail-item" onClick={onProjects}>
+        <span className="erp-rail-icon"><FolderKanban aria-hidden className="erp-icon" strokeWidth={1.75} /></span>
+        <span className="erp-rail-item-label">{ms ? "Projek" : "Projects"}</span>
+      </button>
+    </li>
+  ) : null;
 
   return (
     <aside
@@ -222,12 +295,25 @@ export function SideNav({
           nothing here spells a look out by hand any more. */}
       {/* Brand + collapse toggle */}
       <div className="erp-rail-brand">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {!collapsed && <img src="/logo.png" alt="" className="erp-rail-logo" />}
-        {!collapsed && (
-          <span className="erp-rail-brand-name">
-            A2Z CREATIVE MARKETING
-          </span>
+        {portalRail ? (
+          /* v1.279.0 - the photo's wordmark; the image logo stays on the
+             /admin and /account rails */
+          !collapsed && (
+            <span className={css.wordmark}>
+              <span className={css.wordmarkName}>A2Z <span className={css.wordmarkOs}>OS</span></span>
+              <span className={css.wordmarkSub}>A2Z CREATIVE MARKETING</span>
+            </span>
+          )
+        ) : (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {!collapsed && <img src="/logo.png" alt="" className="erp-rail-logo" />}
+            {!collapsed && (
+              <span className="erp-rail-brand-name">
+                A2Z CREATIVE MARKETING
+              </span>
+            )}
+          </>
         )}
         <button
           type="button"
@@ -241,22 +327,28 @@ export function SideNav({
         </button>
       </div>
 
-      <nav ref={navRef} onKeyDown={onNavKey} className="erp-rail-nav">
+      <nav ref={navRef} onKeyDown={onNavKey} className="erp-rail-nav" data-style={photoRail ? "photo" : undefined}>
         {railGroups.map((section) => {
+          const shown = photoRail ? section.items.filter((i) => RAIL_PRIMARY.has(i.name)) : section.items;
+          const withProjects = photoRail && section.title === "Operations" && projectsButton;
+          if (shown.length === 0 && !withProjects) return null;
           /* v1.277.0 - a group folds (the chevron), except the one holding the
              open tab and the icon-only rail, which always show their items */
-          const holdsActive = section.items.some((i) => i.name === active);
+          const holdsActive = shown.some((i) => i.name === active);
           const open = collapsed || !portalRail || holdsActive || !folded.includes(section.title);
           const listId = `rail-${section.title.replace(/\W+/g, "-").toLowerCase()}`;
+          const untitled = photoRail && section.title === UNTITLED_GROUP;
           return (
           <div key={section.title} className="erp-rail-group" data-group={section.title}>
             {/* The section header names the group; on the portal rail it is
                 the fold button. Collapsed mode replaces it with a hairline so
-                the grouping is still legible without text. */}
+                the grouping is still legible without text. v1.279.0 - the
+                photo draws Dashboard and Desk with no heading: the Home
+                button keeps its name for a screen reader, drawn as nothing. */}
             {collapsed ? (
               <div className="erp-rail-group-rule" aria-hidden />
             ) : portalRail ? (
-              <button type="button" className={`erp-rail-group-label ${css.groupToggle}`}
+              <button type="button" className={`erp-rail-group-label ${css.groupToggle} ${untitled ? "erp-sr-only" : ""}`}
                 aria-expanded={open} aria-controls={listId} disabled={holdsActive}
                 /* named "Finance group", never just "Finance": the Finance TAB keeps its name to itself */
                 aria-label={ms ? `Kumpulan ${sectionTitle(section.title, lang)}` : `${sectionTitle(section.title, lang)} group`}
@@ -270,10 +362,27 @@ export function SideNav({
                 {sectionTitle(section.title, lang)}
               </p>
             )}
-            {open && <ul id={listId}>{section.items.map(itemButton)}</ul>}
+            {open && <ul id={listId}>{withProjects}{shown.map(itemButton)}</ul>}
           </div>
           );
         })}
+        {/* v1.279.0 - More: every other tab this person may open, in the
+            registry's order. Open while it holds the open tab. */}
+        {moreItems.length > 0 && (
+          <div className="erp-rail-group" data-group="More">
+            <ul>
+              <li>
+                <button type="button" data-nav-item className="erp-rail-item" aria-expanded={moreOpen} aria-controls="rail-more"
+                  onClick={() => { if (!moreHoldsActive) setMoreOpen((v) => !v); }}>
+                  <span className="erp-rail-icon"><Ellipsis aria-hidden className="erp-icon" strokeWidth={1.75} /></span>
+                  <span className="erp-rail-item-label">{ms ? "Lagi" : "More"}</span>
+                  <ChevronDown aria-hidden className={`${css.chevron} ${moreOpen ? "" : css.chevronShut}`} />
+                </button>
+              </li>
+            </ul>
+            {moreOpen && <ul id="rail-more" className={css.moreList} aria-label={ms ? "Modul lain" : "More modules"}>{moreItems.map(itemButton)}</ul>}
+          </div>
+        )}
       </nav>
 
       {tip && collapsed && (
@@ -283,6 +392,54 @@ export function SideNav({
       )}
 
       {/* Signed-in identity + sign out */}
+      {accountMenu ? (
+        /* v1.279.0 - the photo's name card: avatar, name, role. It opens the
+           account menu - profile, cards and the set-once settings that left
+           the header, and Sign out */
+        <div className={`erp-rail-foot ${css.foot}`} ref={footRef}>
+          {menuOpen && (
+            <div id="rail-account-menu" className={css.menu} role="group" aria-label={ms ? "Akaun anda" : "Your account"}>
+              {foot && <ul className={css.menuItems}>{foot.items.map((it) => (
+                <li key={it.name}>
+                  <button type="button" className={css.menuItem} aria-current={it.name === active ? "page" : undefined}
+                    onClick={() => { onSelect(it.name); closeMenu(); }}>
+                    <TabIcon name={it.name} className="erp-icon" />{it.label}
+                  </button>
+                </li>
+              ))}</ul>}
+              <ul className={css.menuItems}>{accountMenu.filter((a) => !a.danger).map((a) => (
+                <li key={a.key}>
+                  <button type="button" className={css.menuItem} aria-pressed={a.pressed}
+                    onClick={() => { a.onSelect(); if (a.pressed === undefined) closeMenu(); }}>
+                    {a.icon}<span className={css.menuLabel}>{a.label}</span>
+                    {a.pressed !== undefined && <span aria-hidden className={a.pressed ? css.menuOn : css.menuOff}>{a.pressed ? (ms ? "Hidup" : "On") : (ms ? "Mati" : "Off")}</span>}
+                  </button>
+                </li>
+              ))}</ul>
+              {accountMenu.filter((a) => a.danger).map((a) => (
+                <button key={a.key} type="button" className={`${css.menuItem} ${css.menuDanger}`} onClick={() => { closeMenu(); a.onSelect(); }}>
+                  {a.icon}{a.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button type="button" ref={menuButtonRef} className={css.me} aria-expanded={menuOpen} aria-controls="rail-account-menu"
+            aria-label={ms ? `Akaun anda: ${userName}` : `Your account: ${userName}`} title={collapsed ? userName : undefined}
+            onClick={() => setMenuOpen((v) => !v)}>
+            {userPhoto
+              /* eslint-disable-next-line @next/next/no-img-element */
+              ? <img src={userPhoto} alt="" className={css.avatar} />
+              : <span aria-hidden className={css.avatar}>{initials}</span>}
+            {!collapsed && (
+              <span className={css.meText}>
+                <span className={css.meName}>{userName}</span>
+                <span className={css.meRole}>{userRole.replace(/_/g, " ")}</span>
+              </span>
+            )}
+            {!collapsed && <ChevronsUpDown aria-hidden className={css.meChevron} />}
+          </button>
+        </div>
+      ) : (
       <div className="erp-rail-foot">
         {foot && <ul className={css.footItems} aria-label={sectionTitle(FOOT_SECTION, lang)}>{foot.items.map(itemButton)}</ul>}
         {!collapsed && (
@@ -302,6 +459,7 @@ export function SideNav({
           {!collapsed && <span className="erp-rail-item-label">{ms ? "Log keluar" : "Sign out"}</span>}
         </button>
       </div>
+      )}
     </aside>
   );
 }

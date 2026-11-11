@@ -42,7 +42,7 @@
  */
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
@@ -50,7 +50,7 @@ import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { splitDesk, useDeskData } from "@/components/portal/one-desk";
 import type { Announcement, LeaveReq, Task, User } from "@/components/portal/page-shared";
-import { MANAGE_ROLES, annCatL, leaveTypeL, mytTodayLine } from "@/components/portal/page-shared";
+import { MANAGE_ROLES, annCatL, leaveTypeL, priorityL } from "@/components/portal/page-shared";
 import type { DashSummary, RevenueData } from "@/components/portal/dashboard";
 import { useCachedApi } from "@/lib/cached-api";
 import { api } from "@/lib/api";
@@ -65,6 +65,8 @@ import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
 import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
 import ov from "./dashboard-overview.module.css";
+import x from "./executive.module.css";
+import { ApprovalsCard, FollowUpsCard, MyTasksCard, NextBestActionCard, QuickActionsStrip, SalesPerformanceCard, ScheduleCard, basisWord, usePerformance, vsWord, type FollowLite, type NextAction, type QuickAction, type ScheduleLite } from "@/components/portal/executive-cards";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -181,7 +183,13 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   /* v1.263.0 - the week (Sales' own engine), one shared request for the KPI strip and rows 2-4 */
   const weekView = useWeekDash();
   const wk = weekView.data;
-  const { openRecord } = usePortal();
+  const { openRecord, dashDate, setDashDate } = usePortal();
+  /* v1.280.0 - MINIMAL EXECUTIVE WORKSPACE (E2): management - the people the
+     week engine gives the company outlook (exec_view) - reads the photo's
+     dashboard; the same people may read the company figure by day */
+  const exec = Boolean(wk?.outlook);
+  const perfWeek = usePerformance("week", exec);
+  const pw = perfWeek.data && perfWeek.data.period === "week" ? perfWeek.data : null;
   const [moreOpen, setMoreOpen] = useState(false);
   const [audit, setAudit] = useState<AuditRow[] | null | "denied">(adminTier ? null : "denied");
   const [events, setEvents] = useState<CompanyEvent[] | null>(null);
@@ -262,7 +270,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     tiles.push({ key: "sales", node: (
       <KpiTile icon="money" tone="green" label={L("Sales this month", "Jualan bulan ini")} busy={!rev}
         value={sales ? fmtRM(sales.total) : "—"}
-        delta={sales && sales.delta !== null ? { pct: sales.delta, text: L(`${Math.abs(sales.delta)}% vs last month`, `${Math.abs(sales.delta)}% berbanding bulan lalu`) } : undefined}
+        delta={sales && sales.delta !== null ? { pct: sales.delta, text: `${sales.delta >= 0 ? "+" : "−"}${Math.abs(sales.delta)}%`, vs: L("vs last month", "berbanding bulan lalu") } : undefined}
         sub={sales && sales.delta === null ? L("Nothing last month to compare", "Tiada jualan bulan lalu untuk dibandingkan") : undefined}
         onClick={() => go(can("Ecommerce") ? "Ecommerce" : "Sales")} title={L("Every channel this month — open the sales figures", "Setiap saluran bulan ini — buka angka jualan")} />
     ) });
@@ -542,33 +550,9 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     </section>
   );
 
-  /* ---- E1. quick actions: each opens an existing workflow, only where this person may go ---- */
-  const actions: { key: string; icon: AppIconName; label: string; on: () => void; show: boolean }[] = [
-    { key: "quote", icon: "document", label: L("Create quotation", "Cipta sebut harga"), on: () => (onCreateQuotation ? onCreateQuotation() : go("Sales")), show: can("Sales") },
-    { key: "task", icon: "orders", label: L("Create task", "Cipta tugasan"), on: () => (openAt ? openAt("Tasks", "create") : go("Tasks")), show: can("Tasks") },
-    { key: "leave", icon: "holiday", label: L("Apply leave", "Mohon cuti"), on: () => (openAt ? openAt("Leave", "apply") : go("Leave")), show: can("Leave") },
-    { key: "claim", icon: "receipt", label: L("Submit claim", "Hantar tuntutan"), on: () => (openAt ? openAt("Claims", "submit") : go("Claims")), show: can("Claims") },
-    /* v1.229.0 - the punch lives on On Shift; the shortcut goes there */
-    { key: "clock", icon: "time", label: myShift.open ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: onOpenShift ?? onOpenDay, show: true },
-    { key: "desk", icon: "pending", label: L("Open the Desk", "Buka Meja"), on: () => go("Desk"), show: can("Desk") },
-    { key: "hotels", icon: "store", label: L("Hotel outreach", "Jangkauan hotel"), on: () => go("Hotels"), show: can("Hotels") },
-    { key: "staff", icon: "users", label: L("Staff directory", "Direktori kakitangan"), on: () => go("Staff Details"), show: can("Staff Details") },
-  ];
-  const quickCard = (
-    <section className={`${card} ${ov.card}`} aria-label={L("Quick actions", "Tindakan pantas")}>
-      {head(L("Quick Actions", "Tindakan Pantas"))}
-      <ul className={ov.actions}>
-        {actions.filter((a) => a.show).slice(0, 8).map((a) => (
-          <li key={a.key}>
-            <button type="button" className={ov.action} onClick={a.on}>
-              <AppIcon name={a.icon} />
-              <span>{a.label}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+  /* ---- E1. quick actions - v1.280.0: the photo's Quick Actions strip
+     (executive-cards.tsx QuickActionsStrip, built below), one strip, not a
+     card here and a strip there ---- */
 
   /* ---- E2. the business summary (in place of "module usage", which the
      portal does not measure): the counts the worker gives this person ---- */
@@ -655,46 +639,177 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   const teamCard = wk && (wk.all || wk.team) ? <TeamPerformanceCard d={wk} openTeam={toSalesWeek} /> : null;
   const shownTiles = wkTiles.length ? wkTiles : tiles.slice(0, 5);
 
+  /* ================================================================
+     v1.280.0 - THE PHOTO'S DASHBOARD (Minimal Executive Workspace E2,
+     claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md section 5.1-5.3).
+     Row 1 the figures; then the work: Sales Performance and My Tasks,
+     Follow-ups, Approvals and the day's schedule; Quick Actions; and every
+     card the Dashboard had before, one click deeper under More - nothing
+     is lost. Each card is drawn only where this person may see its data.
+     ================================================================ */
+  const fmtPct = (p: number) => `${p >= 0 ? "+" : "−"}${Math.abs(p)}%`;
+  const execTiles: Tile[] = [];
+  if (exec && wk?.outlook) {
+    const c = wk.company, o = wk.outlook;
+    execTiles.push(
+      { key: "x-target", node: <KpiTile icon="target" tone="gold" label={L("Weekly Target", "Sasaran Mingguan")} value={c.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(c.target_cents)}
+        sub={c.pct === null ? `${dmy(wk.week.from)} – ${dmy(wk.week.to)}` : c.basis_kind === "all_channels"
+          ? L(`${c.pct}% of target · all channels · ${o.days_left} working day(s) left`, `${c.pct}% daripada sasaran · semua saluran · ${o.days_left} hari bekerja lagi`)
+          : L(`${c.pct}% of target · ${o.days_left} working day(s) left`, `${c.pct}% daripada sasaran · ${o.days_left} hari bekerja lagi`)}
+        bar={c.pct === null ? undefined : { pct: c.pct, tone: "gold" }} onClick={() => go("Sales")} /> },
+      { key: "x-basis", node: <KpiTile icon="money" tone="green" label={basisWord(c.basis_kind)} value={fmtRM(c.basis_cents)}
+        delta={pw && pw.change_pct !== null ? { pct: pw.change_pct, text: fmtPct(pw.change_pct), vs: vsWord("week") } : undefined}
+        sub={pw && pw.change_pct !== null ? undefined : c.basis_kind === "all_channels" ? L("This week · every channel", "Minggu ini · setiap saluran") : L("Paid in full this week", "Dibayar penuh minggu ini")}
+        onClick={() => go("Sales")} /> },
+      { key: "x-invoices", node: <KpiTile icon="document" tone="blue" label={L("Invoices", "Invois")} value={o.invoiced.n}
+        sub={L(`${fmtRM(o.invoiced.cents)} raised this week`, `${fmtRM(o.invoiced.cents)} dikeluarkan minggu ini`)} onClick={() => go("Sales")} /> },
+      { key: "x-owed", node: <KpiTile icon="pending" tone="gold" label={L("Outstanding", "Tertunggak")} busy={!pw && !perfWeek.failed} value={pw ? fmtRM(pw.outstanding.cents) : "—"}
+        sub={pw ? L(`${pw.outstanding.invoices} unpaid invoice(s), less verified payments`, `${pw.outstanding.invoices} invois belum dibayar, tolak bayaran disahkan`) : perfWeek.failed ? L("Could not be loaded - open Sales", "Tidak dapat dimuatkan - buka Jualan") : undefined}
+        onClick={() => (openAt ? openAt("Sales", "payments") : go("Sales"))} /> },
+      { key: "x-quotes", node: <KpiTile icon="documents" tone="purple" label={L("Open Quotations", "Sebut Harga Terbuka")} value={o.open_quotations.n}
+        sub={`${fmtRM(o.open_quotations.cents)}${o.ageing_quotations ? L(` · ${o.ageing_quotations} going cold`, ` · ${o.ageing_quotations} semakin sejuk`) : ""}`}
+        onClick={() => (openAt ? openAt("Sales", "open_quotations") : go("Sales"))} /> },
+    );
+  }
+  const rowTiles = exec ? execTiles : shownTiles;
+  /* the target tile leads on a phone (the photo), so the row hides its copy there */
+  const hero = exec ? execTiles[0] : wk?.me ? wkTiles[0] : undefined;
+
+  /* My Tasks: my own open work, the most urgent first; the tick opens the update sheet */
+  const openTask = (id: number) => { openRecord("Tasks", "task", id); go("Tasks"); };
+  const mine = tf.openTasks.filter((t) => t.stage !== "cancelled" && (t.assigned_to === undefined || t.assigned_to === user.id))
+    .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"));
+  const myTasks = mine.slice(0, 3).map((t) => ({ id: t.id, title: t.title, deadline: t.deadline, sub: t.link_label ?? (t.priority ? L(`Priority: ${priorityL(t.priority)}`, `Keutamaan: ${priorityL(t.priority)}`) : undefined) }));
+
+  /* Follow-ups: management - the open quotations with a follow-up booked;
+     a salesperson - their own next follow-ups (the week engine's lists) */
+  let follow: FollowLite[] | null = null;
+  if (exec && wk?.opportunities && can("Sales")) {
+    follow = wk.opportunities.filter((q) => q.next).sort((a, b) => a.next!.due_on.localeCompare(b.next!.due_on)).map((q) => ({
+      key: `q-${q.id}`, title: q.company ?? q.doc_number, due: q.next!.due_on,
+      sub: [L(`Quotation ${q.doc_number}`, `Sebut harga ${q.doc_number}`), q.next!.note].filter(Boolean).join(" · "),
+      open: () => { openRecord("Sales", "document", q.id); go("Sales"); },
+    }));
+  } else if (wk?.me?.next_followups && can("Sales")) {
+    follow = wk.me.next_followups.map((f) => ({
+      key: `f-${f.id}`, title: f.company ?? L("Follow-up", "Susulan"), sub: f.note, due: f.due_on,
+      open: () => (openAt ? openAt("Sales", "followups") : go("Sales")),
+    }));
+  }
+
+  /* Approvals: what waits for this person's decision (the Desk's own list) */
+  const approvals = decide.map((d) => ({ id: d.id, title: d.title, sub: d.sub, bucket: d.bucket, overdue: d.overdue, tab: d.tab }));
+  const showApprovals = manage || approvals.length > 0;
+
+  /* the day's schedule: company events, live sessions, my follow-ups due -
+     on the day the header's date pill chose (today by default) */
+  const day = dashDate ?? today;
+  const sched: ScheduleLite[] = [
+    ...(events ?? []).filter((e) => e.event_date === day).map((e) => ({ key: `e-${e.id}`, time: e.start_time ?? null, title: e.title, sub: e.location ?? undefined })),
+    ...(sessions ?? []).filter((s) => s.session_date === day && s.status !== "cancelled").map((s) => ({ key: `s-${s.id}`, time: s.start_time, title: s.client_company ?? s.client_name ?? L("Live session", "Sesi live"), sub: [s.platform, s.host_name].filter(Boolean).join(" · ") })),
+    ...(wk?.me?.next_followups ?? []).filter((f) => f.due_on === day).map((f) => ({ key: `f-${f.id}`, time: null, title: L(`Follow up ${f.company ?? ""}`.trim(), `Susuli ${f.company ?? ""}`.trim()), sub: f.note })),
+  ].sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99"));
+  const schedLoaded = events !== null && sessions !== null;
+
+  /* Quick Actions: each opens a workflow that exists, only where this person may go */
+  const quick: QuickAction[] = ([
+    { key: "q-quote", icon: "add", label: L("New Quotation", "Sebut Harga Baharu"), on: () => (onCreateQuotation ? onCreateQuotation() : go("Sales")), show: can("Sales") },
+    { key: "q-invoice", icon: "document", label: L("Create Invoice", "Cipta Invois"), on: () => (openAt ? openAt("Sales", "create_invoice") : go("Sales")), show: can("Sales") },
+    { key: "q-payment", icon: "pay", label: L("Record Payment", "Rekod Bayaran"), on: () => (openAt ? openAt("Sales", "payments") : go("Sales")), show: can("Sales") },
+    { key: "q-task", icon: "orders", label: L("New Task", "Tugasan Baharu"), on: () => (openAt ? openAt("Tasks", "create") : go("Tasks")), show: can("Tasks") },
+    { key: "q-leave", icon: "holiday", label: L("Apply Leave", "Mohon Cuti"), on: () => (openAt ? openAt("Leave", "apply") : go("Leave")), show: can("Leave") },
+    { key: "q-claim", icon: "receipt", label: L("Submit Claim", "Hantar Tuntutan"), on: () => (openAt ? openAt("Claims", "submit") : go("Claims")), show: can("Claims") },
+    { key: "q-client", icon: "clients", label: L("Add Client", "Tambah Pelanggan"), on: () => (openAt ? openAt("Sales", "add_customer") : go("Sales")), show: can("Sales") },
+    { key: "q-clock", icon: "time", label: myShift.open ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: onOpenShift ?? onOpenDay, show: !exec },
+  ] as (QuickAction & { show: boolean })[]).filter((a) => a.show);
+
+  /* Next best action (a salesperson's My Day): the most urgent of their own
+     follow-ups and tasks - overdue first, then due today */
+  const nba: NextAction[] = [];
+  if (!exec && wk?.me) {
+    const fu = (wk.me.next_followups ?? []).filter((f) => f.due_on <= today && can("Sales")).map((f) => ({ due: f.due_on, a: {
+      key: `f-${f.id}`, icon: "chat" as const, title: L(`Follow up ${f.company ?? ""}`.trim(), `Susuli ${f.company ?? ""}`.trim()),
+      sub: [f.note, f.due_on < today ? L("overdue", "lewat") : L("due today", "perlu hari ini")].filter(Boolean).join(" · "),
+      actLabel: L("Open follow-up", "Buka susulan"), onAct: () => (openAt ? openAt("Sales", "followups") : go("Sales")) } }));
+    const tk = mine.filter((t) => t.deadline && t.deadline <= today).map((t) => ({ due: t.deadline!, a: {
+      key: `t-${t.id}`, icon: "orders" as const, title: t.title, sub: t.deadline! < today ? L("Task · overdue", "Tugasan · lewat") : L("Task · due today", "Tugasan · perlu hari ini"),
+      actLabel: L("Add an update", "Tambah kemas kini"), onAct: () => openTask(t.id) } }));
+    nba.push(...[...fu, ...tk].sort((p, q) => p.due.localeCompare(q.due)).map((v) => v.a));
+  }
+
+  const o = (n: number) => ({ "--o": n }) as CSSProperties;
+  const kpiRow = (
+    /* v1.280.0 - the photo's tile for everyone (52px well, 22px figure);
+       the v1.263.0 compact strip is retired with the six-across row */
+    <div className={ov.kpis}>
+      <KpiRow label={L("At a glance", "Sepintas lalu")}>
+        {rowTiles.map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
+      </KpiRow>
+    </div>
+  );
+  const tasksCard = <MyTasksCard tasks={myTasks} total={mine.length} loaded={tasksLoaded} today={today} onOpen={openTask} onViewAll={() => go("Tasks")} />;
+  const followCard = follow ? <FollowUpsCard rows={follow.slice(0, 2)} total={follow.length} loaded={!!wk} today={today} onViewAll={() => (openAt ? openAt("Sales", "followups") : go("Sales"))} /> : null;
+  const approvalsCard = showApprovals ? <ApprovalsCard items={approvals} loaded={desk.data !== null} go={(t) => go(t as TabName)} /> : null;
+  const schedCard = <ScheduleCard date={day} today={today} items={sched} loaded={schedLoaded} onViewAll={onOpenDay} onToday={() => setDashDate(null)} />;
+
   return (
-    <div className={ov.page}>
-      {/* ROW 1 - the executive KPI strip: six compact figures, each a way in */}
-      <div className={`${ov.kpis} ${ov.kpisCompact} ${shownTiles.length === 6 ? ov.kpis6 : ""}`}>
-        <KpiRow label={L("At a glance", "Sepintas lalu")}>
-          {shownTiles.map((t) => <Fragment key={t.key}>{t.node}</Fragment>)}
-        </KpiRow>
-      </div>
+    <div className={`${ov.page} ${x.page}`} data-layout={exec ? "executive" : wk?.me ? "my-day" : "basic"}>
+      {/* the phone leads with the target (the photo); the row keeps it on a wide screen */}
+      {hero && <div className={x.phoneOnly} style={o(0)} data-testid="hero-target">{hero.node}</div>}
+      {/* ROW 1 - the figures */}
+      <div className={`${x.span3} ${hero ? x.withHero : ""}`} style={o(exec ? 2 : wk?.me ? 4 : 0)} data-row="figures">{kpiRow}</div>
+      {exec ? (
+        <>
+          <div className={x.span2} style={o(5)}><SalesPerformanceCard onOpen={() => go("Sales")} pace={wk?.outlook ? { cents: wk.outlook.required_per_day_cents, allChannels: wk.company.basis_kind === "all_channels" } : undefined} /></div>
+          <div style={o(3)}>{tasksCard}</div>
+          {followCard && <div style={o(4)}>{followCard}</div>}
+          {approvalsCard && <div style={o(1)}>{approvalsCard}</div>}
+          <div style={o(6)}>{schedCard}</div>
+        </>
+      ) : (
+        <>
+          {nba.length > 0 && <div style={o(1)}><NextBestActionCard candidates={nba} today={today} /></div>}
+          <div style={o(2)}>{tasksCard}</div>
+          {followCard && <div style={o(3)}>{followCard}</div>}
+          {approvalsCard && <div style={o(5)}>{approvalsCard}</div>}
+          <div style={o(6)}>{schedCard}</div>
+        </>
+      )}
+      <div className={x.span3} style={o(7)}><QuickActionsStrip actions={quick} /></div>
       {/* v1.233.0 / v1.239.0 - the reporting line, one line (none for the
           CEO); the full card is on Staff -> Organisation */}
-      <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
-      {/* ROWS 2-3 - the sales command centre and what needs acting on (a
-          summary and three items each; the detail is in its module) */}
-      {!wk && weekView.loading && <div className={ov.grid}><section className={`${card} ${ov.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}><SkelRows rows={3} /></section></div>}
-      {rowsAB.map((r, i) => <div key={i} className={`${ov.grid} ${ov.gridTop}`} data-row={i === 0 ? "command" : "actions"}>{r}</div>)}
-      {/* ROW 4 - the business overview */}
-      <div className={`${ov.grid} ${ov.gridTop}`} data-row="overview">
-        {taskCard}
-        {teamCard}
-        {salesCard}
+      <div className={x.span3} style={o(8)}>
+        <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
       </div>
-      {/* the rest, unchanged - on a phone behind More (decision D1) */}
-      <button type="button" className={ov.moreBtn} aria-expanded={moreOpen} onClick={() => setMoreOpen((v) => !v)}>
-        {moreOpen ? L("Show less", "Kurangkan") : L("More: activities, team on shift, leave, quick actions, summary", "Lagi: aktiviti, pasukan syif, cuti, tindakan pantas, ringkasan")}
-        <AppIcon name={moreOpen ? "up" : "down"} />
-      </button>
-      <div className={`${ov.rest} ${moreOpen ? ov.restOpen : ""}`} data-row="more">
-        <div className={`${ov.grid} ${ov.gridTop}`}>
-          {activityCard}
-          <div className={ov.column}>
-            {livesCard}
-            {shiftCard}
+      {/* MORE - every card the Dashboard had before, one click deeper: the
+          sales pace, pipeline, finance health, advice, team, tasks overview,
+          month figures, activities, shifts, leave, summary and system status */}
+      <div className={`${x.span3} ${x.more}`} style={o(9)}>
+        <button type="button" className={x.moreBtn} aria-expanded={moreOpen} aria-controls="dash-more" onClick={() => setMoreOpen((v) => !v)}>
+          {moreOpen ? L("Show less", "Kurangkan") : L("More: sales pace, pipeline, finance, advice, team, activities and more", "Lagi: rentak jualan, saluran, kewangan, nasihat, pasukan, aktiviti dan lain-lain")}
+          <AppIcon name={moreOpen ? "up" : "down"} />
+        </button>
+        <div id="dash-more" className={`${x.rest} ${moreOpen ? x.restOpen : ""}`} data-row="more">
+          {!wk && weekView.loading && <div className={ov.grid}><section className={`${card} ${ov.card}`} aria-label={L("Weekly sales target", "Sasaran jualan mingguan")}><SkelRows rows={3} /></section></div>}
+          {rowsAB.map((r, i) => <div key={i} className={`${ov.grid} ${ov.gridTop}`} data-row={i === 0 ? "command" : "actions"}>{r}</div>)}
+          <div className={`${ov.grid} ${ov.gridTop}`} data-row="overview">
+            {taskCard}
+            {teamCard}
+            {salesCard}
           </div>
-          {/* v1.213.0 - the month's leave applications (one place, on the Overview) */}
-          <LeaveMonthCard go={go} />
-        </div>
-        <div className={ov.grid}>
-          {quickCard}
-          {summaryCard}
-          {statusCard}
+          <div className={`${ov.grid} ${ov.gridTop}`}>
+            {activityCard}
+            <div className={ov.column}>
+              {livesCard}
+              {shiftCard}
+            </div>
+            {/* v1.213.0 - the month's leave applications (one place, on the Overview) */}
+            <LeaveMonthCard go={go} />
+          </div>
+          <div className={ov.grid}>
+            {summaryCard}
+            {statusCard}
+          </div>
         </div>
       </div>
     </div>
@@ -709,7 +824,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     later today says when. */
 export type HeaderShift = { kind: TodayShiftKind; next: string | null };
 
-export function WelcomeHeader({ user, lang, myShift, shift, onOpenDay }: { user: User; lang: Lang; myShift: MyShift; shift?: HeaderShift; onOpenDay: () => void }) {
+export function WelcomeHeader({ user, lang: _lang, myShift, shift, onOpenDay }: { user: User; lang: Lang; myShift: MyShift; shift?: HeaderShift; onOpenDay: () => void }) {
   const first = (user.name ?? "").trim().split(/\s+/)[0] ?? "";
   const k = shift?.kind;
   const word = myShift.open ? L(`On shift since ${myShift.since}`, `Sedang syif sejak ${myShift.since}`)
@@ -727,11 +842,12 @@ export function WelcomeHeader({ user, lang, myShift, shift, onOpenDay }: { user:
     <header className={ov.welcome}>
       <div className={ov.welcomeText}>
         <h2 className={ov.welcomeTitle}>{L(`Welcome back, ${first}`, `Selamat kembali, ${first}`)}</h2>
-        <p className={ov.welcomeSub}>{L("Here's what's happening across A2Z Creative Marketing.", "Inilah yang berlaku di A2Z Creative Marketing.")}</p>
+        {/* v1.280.0 - the photo's line; the phone keeps to the name */}
+        <p className={`${ov.welcomeSub} erp-desktop-only`}>{L("Here's what's happening at A2Z Creative today.", "Inilah yang berlaku di A2Z Creative hari ini.")}</p>
       </div>
       <div className={ov.welcomeSide}>
-        {/* the phone's header already says the date (portal-shell.tsx): once */}
-        <p className={`${ov.welcomeDate} erp-desktop-only`}><AppIcon name="date" />{mytTodayLine(lang)}</p>
+        {/* v1.280.0 - the date is said once: the header's date pill on a
+            wide screen, the line under the title on a phone (portal-shell.tsx) */}
         {myShift.known && (
           <button type="button" className={`${ov.shiftChip} ${myShift.open ? ov.shiftOn : ""} ${!calm ? ov.shiftDue : ""}`} onClick={onOpenDay}
             title={L("Open On Shift to check in or out", "Buka Syif Saya untuk daftar masuk atau keluar")}>

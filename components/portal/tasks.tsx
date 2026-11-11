@@ -14,7 +14,7 @@
    statuses the dropdown already has), what needs attention, the team's
    tallies from the rows already loaded, and the archive searchable. Every
    zone stays mounted and hides with tk.off. */
-import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
+import { holds, canViewProjects } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, Task, TaskItem, User, priorityL } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
@@ -236,7 +236,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      is the reversible act, this one is not. */
   const canDelete = holds("task_delete", ["ceo", "super_admin"].includes(user.role));
   /* v1.245.0 - Tasks > Projects: the project briefs (one per quotation) and their tasks */
-  const canProjects = holds("project_view", ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor", "live_host"].includes(user.role));
+  const canProjects = canViewProjects(user.role); // v1.279.0 - one rule with the rail's Projects shortcut (lib/caps.ts)
   const remove = async (t: Task) => {
     if (
       !(await askDelete({
@@ -1370,7 +1370,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           if (await update(t.id, patch)) setEditing(null);
         };
         return (
-          <SideDrawer open onClose={closeDetail} wide title={t.title}
+          <SideDrawer open onClose={closeDetail} wide full title={t.title}
             subtitle={<span className={tk.badges}>
               <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
               <StateChip status={t.status} stage={t.stage ?? null} />{/* v1.246.0 - status and stage together */}

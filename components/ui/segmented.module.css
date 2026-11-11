@@ -1,0 +1,47 @@
+/* v1.280.0 - the segmented control (segmented.tsx). Tokens only. */
+.group {
+  display: inline-flex;
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+}
+.option {
+  min-height: 2rem;
+  padding: 0 0.875rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.78125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease;
+}
+@media (pointer: coarse) {
+  .option {
+    min-height: 2.5rem;
+  }
+}
+.option:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+/* the chosen period: the gold pill with navy ink, as the rail's current item */
+.on {
+  background: var(--gold-solid);
+  color: var(--brand-primary);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--gold-solid) 30%, transparent);
+}
+:global(.dark) .on {
+  background: var(--tint-gold);
+  color: var(--brand-accent-deep);
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .option {
+    transition: none;
+  }
+}

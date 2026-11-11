@@ -44,7 +44,7 @@ def tab(pg, name):
 
 def open_quotation(pg):
     tab(pg, "Sales")
-    pg.get_by_role("tab", name="Quotations & Invoices", exact=True).first.click(); pg.wait_for_timeout(1500)
+    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
     row = pg.locator("[role='row']:has-text('QT-AZO150926-1')").first
     btn = row.get_by_test_id("open-quotation")
     ok = btn.count() == 1
@@ -222,7 +222,12 @@ with sync_playwright() as p:
     ptab = pg.get_by_role("tab", name="Projects", exact=True)
     check("Tasks has a Projects tab", ptab.count() == 1)
     ptab.click(); pg.wait_for_timeout(1500)
-    check("no new sidebar item called Projects", pg.locator("nav").get_by_role("button", name="Projects", exact=True).count() == 0)
+    # v1.279.0 - the CEO approved the photo's Projects row (Minimal Executive Workspace decision 4,
+    # 11-11-2026): it is a way INTO Tasks > Projects, never a module of its own - no tab, no aria-current
+    sp = pg.locator(".erp-rail-nav").get_by_role("button", name="Projects", exact=True)
+    check("the sidebar's Projects is a shortcut into Tasks > Projects, not a tab of its own",
+          sp.count() == 1 and sp.get_attribute("aria-current") is None
+          and pg.locator(".erp-rail-nav .erp-rail-item[aria-current=page]").inner_text().strip() == "Tasks")
     rowb = pg.get_by_role("button", name=re.compile("Social Media Management")).first
     check("the project is listed", rowb.count() == 1)
     rowb.click(); pg.wait_for_timeout(1800)

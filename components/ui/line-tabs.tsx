@@ -7,29 +7,38 @@
    Bodies are the caller's: render every one and hide the closed ones, so a
    search typed or a form half filled survives a look at another tab. */
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import css from "./line-tabs.module.css";
+import { getLang } from "@/lib/i18n";
 
 export function LineTabs<T extends string>({ value, onChange, tabs, label, aside }: {
   value: T;
   onChange: (v: T) => void;
   /** [key, label] or, v1.276.0 (A2Z OS 3.0), [key, label, count]: a count
-      says how much waits behind the tab (Payments 2); 0 or null draws none */
-  tabs: readonly (readonly [T, string] | readonly [T, string, number | null | undefined])[];
+      says how much waits behind the tab (Payments 2); 0 or null draws none.
+      v1.281.0 - a fourth item is the phone's shorter word for the tab */
+  tabs: readonly (readonly [T, string] | readonly [T, string, number | null | undefined] | readonly [T, string, number | null | undefined, string])[];
   /** the tablist's accessible name */
   label: string;
   /** something that sits at the right end of the row (a filter, a period) */
   aside?: ReactNode;
 }) {
+  const uid = useId();
   return (
     <div className={css.bar}>
       <div role="tablist" aria-label={label} className={css.tabs}>
-        {tabs.map(([k, text, n]) => (
+        {tabs.map(([k, text, n, short]) => (
+          /* v1.281.0 - the tab's NAME is the word it shows ("Payments", or
+             "Documents" on a phone), so "click Payments" works by voice and
+             by script whatever waits behind it; the count is its
+             description ("1 waiting"), read from the hidden badge */
           <button key={k} type="button" role="tab" aria-selected={value === k}
+            aria-describedby={n ? `${uid}-${k}-n` : undefined}
             className={css.tab} onClick={() => onChange(k)}>
-            {text}
-            {n ? <span className={css.count} aria-label={`, ${n}`}>{n}</span> : null}
+            {/* v1.281.0 - a shorter word on a phone (Sales: "Documents") */}
+            {short ? <><span className="erp-desktop-only">{text}</span><span className="erp-phone-only">{short}</span></> : text}
+            {n ? <span className={css.count} id={`${uid}-${k}-n`} aria-hidden="true">{n}<span className="erp-sr-only"> {getLang() === "ms" ? "menunggu" : "waiting"}</span></span> : null}
           </button>
         ))}
       </div>

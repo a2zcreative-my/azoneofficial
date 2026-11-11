@@ -108,5 +108,5 @@ export { LogOut };
 export {
   Bell, BellOff, BellRing, Check, Clock3, Languages, MapPin, Moon, Palette,
   Search, ShieldCheck as ShieldOk, Sun, Volume2, VolumeX, X as CloseX,
-  Ellipsis,
+  Ellipsis, CircleHelp, ChevronDown, CalendarDays,
 } from "lucide-react";

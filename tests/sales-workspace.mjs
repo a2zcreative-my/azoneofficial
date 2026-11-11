@@ -113,7 +113,12 @@ const salesCode = strip(sales);
   ok("the tile is a size container and the figure scales with it, never clipped and never forced onto one line",
      /\.tile \{\s*container-type: inline-size;/.test(kt) && /font-size: clamp\(1\.125rem, 9cqi, var\(--type-kpi-(?:lg|tile)-size\)\);/.test(value)
      && !/white-space: nowrap/.test(value) && /overflow-wrap: anywhere;/.test(value)
-     && /@container \(max-width: 18rem\) \{[\s\S]{0,300}?\.body \{\s*grid-column: 1 \/ -1;[\s\S]{0,200}?12\.5cqi/.test(kt));
+     /* v1.279.0 / v1.280.0 - the photo keeps the well beside the words in a row of five
+        (Minimal Executive Workspace, approved 11-11-2026): a mid tile shrinks
+        the well and scales the figure; only a narrow tile (a phone's two
+        across) puts the icon above the words */
+     && /@container \(max-width: 15rem\) \{[\s\S]{0,400}?8\.5cqi/.test(kt)
+     && /@container \(max-width: 10rem\) \{[\s\S]{0,300}?\.body \{\s*grid-column: 1 \/ -1;[\s\S]{0,200}?12\.5cqi/.test(kt));
   ok("no page pins the tile figure to a fixed size again",
      !/span:nth-child\(2\) > span:first-child \{[^}]*font-size/.test(read("components/portal/sales-docs.module.css") + read("components/portal/ecommerce-panel.module.css")));
 }

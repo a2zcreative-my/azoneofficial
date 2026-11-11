@@ -29,7 +29,12 @@ def check(n, c, x=""): res.append(("PASS " if c else "FAIL ") + n + (f" — {x}"
 def status(): return json.loads(urllib.request.urlopen(f"{BASE}/__fixture-status").read())
 def punch(code): urllib.request.urlopen(f"{BASE}/__punch?status={code}").read()
 def onshift(pg):
-    pg.get_by_role("button", name="On Shift", exact=True).first.click(); pg.wait_for_timeout(1500)
+    # v1.279.0 - on the desktop rail On Shift sits under More (the photo's rail, approved 11-11-2026)
+    btn = pg.get_by_role("button", name="On Shift", exact=True).filter(visible=True)
+    if btn.count() == 0:
+        pg.locator("button[aria-controls=rail-more]").click(); pg.wait_for_timeout(400)
+        btn = pg.get_by_role("button", name="On Shift", exact=True).filter(visible=True)
+    btn.first.click(); pg.wait_for_timeout(1500)
 
 SEED = """async (entries) => {
   const db = await new Promise((ok, bad) => {

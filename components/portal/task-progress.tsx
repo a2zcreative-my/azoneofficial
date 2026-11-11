@@ -159,10 +159,11 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
   if (error) return <p className={tp.warn} role="alert">{error}</p>;
   if (!d) return <SkelRows rows={4} />;
   const n = d.task.counts.updates + (d.task.counts.comments ?? 0);
+  /* v1.282.0 - the photo's tabs: the count as the tab's own badge */
   const tabs = [
     ["details", L("Details", "Butiran")],
-    ["updates", L(`Updates & Comments (${n})`, `Kemas Kini & Komen (${n})`)],
-    ["files", L(`Files (${d.task.counts.files})`, `Fail (${d.task.counts.files})`)],
+    ["updates", L("Updates & Comments", "Kemas Kini & Komen"), n, L("Updates", "Kemas kini")],
+    ["files", L("Files", "Fail"), d.task.counts.files],
     ["activity", L("Activity", "Aktiviti")],
   ] as const;
   if (sheet) {
@@ -178,8 +179,10 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
       {toastNode}
       <LineTabs value={tab} onChange={setTab} tabs={tabs} label={L("Task sections", "Bahagian tugasan")} />
       <div hidden={tab !== "details"} className={tp.tabsGap}>
-        <ReviewBar d={d} onChanged={changed} onUpdate={() => setSheet(true)} onClose={() => setSheet("close")} />
+        {/* v1.282.0 - the photo's order: the latest update first, then the
+            stages and the next step with the decisions this person may take */}
         {tab === "details" && <StatusSummary d={d} tick={tick} onSeeAll={() => setTab("updates")} />}
+        <ReviewBar d={d} onChanged={changed} onUpdate={() => setSheet(true)} onClose={() => setSheet("close")} />
         <ExtraFacts d={d} onChanged={changed} />
         {details ?? <DefaultDetails d={d} onChanged={changed} />}
       </div>
@@ -194,7 +197,7 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
       </div>
       {(d.can.update || d.can.close) && d.task.status !== "completed" && (
         <div className={tp.sticky}>
-          <button type="button" className={`${btnClass} ${tp.submit}`} onClick={() => setSheet(true)} data-testid="add-update"><AppIcon name="add" className="erp-icon" />{L("Update status", "Kemas kini status")}</button>
+          <button type="button" className={`${btnClass} ${tp.submit}`} onClick={() => setSheet(true)} data-testid="add-update"><AppIcon name="chat" className="erp-icon" />{L("Add update", "Tambah kemas kini")}</button>
         </div>
       )}
     </div>
@@ -361,10 +364,11 @@ function StatusSummary({ d, tick, onSeeAll }: { d: TaskDetail; tick: number; onS
         {latest && <span className={tp.barSub}>{L(`Last update ${ago}`, `Kemas kini terakhir ${ago}`)}{open && days !== null && days >= 3 ? <> · <span className={chipSmWarn} data-testid="summary-quiet">{L(`No update for ${days} days`, `Tiada kemas kini ${days} hari`)}</span></> : null}</span>}
       </div>
       {!latest ? (
-        <p className={tp.empty} data-testid="summary-empty">{open && d.can.update ? L("No status update yet. Use Update status to post the first one - what was done, what is next.", "Belum ada kemas kini status. Guna Kemas kini status untuk yang pertama - apa yang siap, apa seterusnya.") : L("No status update recorded.", "Tiada kemas kini status direkod.")}</p>
+        <p className={tp.empty} data-testid="summary-empty">{open && d.can.update ? L("No status update yet. Use Add update to post the first one - what was done, what is next.", "Belum ada kemas kini status. Guna Tambah kemas kini untuk yang pertama - apa yang siap, apa seterusnya.") : L("No status update recorded.", "Tiada kemas kini status direkod.")}</p>
       ) : (
         <>
           <div className={tp.sumLatest} data-testid="summary-latest">
+            <span className={tp.sumLabel}>{L("LATEST UPDATE", "KEMAS KINI TERKINI")}</span>
             <span className={tp.sumMeta}>
               <KindChip kind={latest.kind} />
               <span>{who(latest)}</span>

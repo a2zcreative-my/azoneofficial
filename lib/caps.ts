@@ -17,3 +17,12 @@ export function setCaps(list: readonly string[] | null | undefined): void {
 export function holds(cap: string, fallback: boolean): boolean {
   return CAPS ? CAPS.has(cap) : fallback;
 }
+
+/* v1.279.0 - Tasks > Projects, asked by the Tasks page and by the rail's
+   Projects shortcut (claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md), one
+   rule so the shortcut is never drawn for someone the page would show
+   nothing. The routes check project_view on every request. */
+export const PROJECT_VIEW_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor", "live_host"] as const;
+export function canViewProjects(role: string | null | undefined): boolean {
+  return holds("project_view", (PROJECT_VIEW_ROLES as readonly string[]).includes(role ?? ""));
+}

@@ -1,0 +1,619 @@
+/* v1.280.0 - MINIMAL EXECUTIVE WORKSPACE, E2: the Dashboard's cards in the
+   photo's language (executive-cards.tsx). Tokens only: 18px cards (the
+   shared .erp-card), 17px / 700 card titles with a 22px line icon and a gold
+   count, 26px status pills that say their word, 40px icon wells. */
+
+/* ---------- the page grid (dashboard-overview.tsx) ---------- */
+.page {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.span3 {
+  grid-column: 1 / -1;
+}
+.span2 {
+  grid-column: span 2;
+}
+.phoneOnly {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .page {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .span2 {
+    grid-column: 1 / -1;
+  }
+}
+/* the phone: one column, the photo's order (data-order), the target first */
+@media (max-width: 767px) {
+  .page {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .page > * {
+    grid-column: 1 / -1;
+    order: var(--o, 50);
+  }
+  .phoneOnly {
+    display: block;
+  }
+}
+
+/* ---------- the card ---------- */
+.card {
+  container-type: inline-size;
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 1.125rem 1.25rem;
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+.title {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.5rem;
+}
+.titleIcon {
+  display: inline-grid;
+  place-items: center;
+  color: var(--foreground);
+}
+.titleIcon :global(.erp-icon) {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+.count {
+  color: var(--brand-accent-deep);
+  font-weight: 700;
+}
+.viewAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2rem;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.78125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .viewAll {
+    min-height: 2.75rem;
+  }
+}
+.viewAll:hover {
+  text-decoration: underline;
+}
+.viewAll:focus-visible,
+.linkBtn:focus-visible,
+.rowMain:focus-visible,
+.tick:focus-visible,
+.quickTile:focus-visible,
+.btnGold:focus-visible,
+.btnPlain:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.linkBtn {
+  justify-self: start;
+  min-height: 2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--info);
+  font: inherit;
+  font-size: 0.78125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: var(--space-2) 0;
+  font-size: var(--type-body-size);
+  color: var(--muted-foreground);
+}
+
+/* ---------- rows ---------- */
+.rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.625rem 0;
+}
+.row + .row {
+  border-top: 1px solid var(--border);
+}
+.rowMain {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+span.rowMain {
+  cursor: default;
+}
+.rowText {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rowText strong {
+  overflow: hidden;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowText span {
+  overflow: hidden;
+  font-size: 0.78125rem;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowChip {
+  flex: none;
+}
+.well {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.w_gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: color-mix(in srgb, var(--gold-solid) 82%, var(--foreground));
+}
+.w_neutral {
+  background: var(--secondary);
+}
+/* the tick: a square that opens the task's update sheet */
+.tick {
+  width: 1.375rem;
+  height: 1.375rem;
+  flex: none;
+  border: 1.5px solid color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .tick {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+}
+.tick:hover {
+  border-color: var(--gold-solid);
+}
+
+/* ---------- the status pill: its word, then its colour ---------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.625rem;
+  padding: 0 0.625rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.c_bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.c_warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.c_info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.c_ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.c_neutral {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.c_gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: var(--brand-accent-deep);
+}
+
+/* ---------- Sales Performance ---------- */
+.perfBody {
+  display: grid;
+  grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: center;
+}
+@media (max-width: 767px) {
+  .perfBody {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+}
+.perfSide {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.perfBig {
+  font-size: clamp(1.5rem, 3.2vw, 2.125rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.perfChange {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.78125rem;
+  color: var(--muted-foreground);
+}
+.perfChangeNone {
+  font-size: 0.78125rem;
+  color: var(--muted-foreground);
+}
+.legend {
+  display: grid;
+  gap: 0.375rem;
+  margin: var(--space-2) 0 0;
+}
+.legend div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.8125rem;
+}
+.legend dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--foreground);
+}
+.legend dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dotGold,
+.dotGrey,
+.dotLine {
+  width: 0.625rem;
+  height: 0.625rem;
+  flex: none;
+  border-radius: var(--radius-full);
+}
+.dotGold {
+  background: var(--gold-solid);
+}
+.dotGrey {
+  background: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+}
+.dotLine {
+  background: var(--secondary);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+}
+.chartWrap {
+  min-width: 0;
+}
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 15rem;
+}
+.grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.axis {
+  fill: var(--muted-foreground);
+  font-size: 11px;
+  font-family: inherit;
+}
+.track {
+  fill: var(--secondary);
+}
+.bar {
+  fill: var(--gold-solid);
+}
+
+/* ---------- Today's Schedule ---------- */
+.sched {
+  display: grid;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sched li {
+  display: grid;
+  grid-template-columns: 4.5rem 0.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.625rem;
+}
+.schedTime {
+  font-size: 0.78125rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.schedDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--gold-solid);
+}
+
+/* ---------- Quick Actions ---------- */
+.quick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: 1rem 1.25rem;
+}
+.quickLead {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--border);
+}
+.quickLead strong {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.quickLead small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.quickIcon {
+  color: var(--gold-solid);
+}
+.quickIcon :global(.erp-icon) {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+.quickList {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.quickTile {
+  display: flex;
+  width: 100%;
+  min-height: 4.875rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card-v2);
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+@media (hover: hover) {
+  .quickTile:hover {
+    border-color: var(--gold-solid);
+    transform: translateY(-1px);
+  }
+}
+.quickGlyph :global(.erp-icon) {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+.quickPlus {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background: var(--gold-solid);
+  color: var(--brand-primary);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--gold-solid) 35%, transparent);
+}
+@media (max-width: 1023px) {
+  .quick {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .quickLead {
+    padding-right: 0;
+    border-right: 0;
+  }
+}
+@media (max-width: 767px) {
+  .quickList {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    scroll-snap-type: x mandatory;
+  }
+  .quickList li {
+    flex: 0 0 6.5rem;
+    scroll-snap-align: start;
+  }
+}
+
+/* ---------- Next best action ---------- */
+.nba {
+  display: grid;
+  gap: var(--space-3);
+  padding: 1rem 1.25rem;
+  border: 1.5px solid var(--gold-solid);
+}
+.nbaLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--brand-accent-deep);
+}
+.nbaBody {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.nbaActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.btnGold,
+.btnPlain {
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btnGold {
+  border: 1px solid var(--gold-solid);
+  background: var(--gold-solid);
+  color: var(--brand-primary);
+}
+.btnPlain {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+/* ---------- the hero target (phones) ---------- */
+.more {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickTile {
+    transition: none;
+  }
+}
+
+/* ---------- More: the rest of the Dashboard, one click deeper ---------- */
+.moreBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+.moreBtn:hover {
+  color: var(--foreground);
+}
+.moreBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.rest {
+  display: none;
+}
+.rest.restOpen {
+  display: grid;
+  gap: var(--space-4);
+}
+/* the row's first tile is the target: on a phone the hero above shows it */
+@media (max-width: 767px) {
+  .withHero :global([role="group"]) > :first-child {
+    display: none;
+  }
+}
+/* with the target leading above, the row's four other tiles are two by two:
+   the hidden copy still counts as a child, so the odd-last rule stands down */
+@media (max-width: 767px) {
+  .withHero :global([role="group"]) > :last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+}
+.perfPace {
+  font-size: 0.78125rem;
+  color: var(--muted-foreground);
+}
+
+/* v1.281.0 - Sales Performance in a narrow column (Sales Overview, beside
+   Needs action): the figures above the chart, the chart the card's width */
+@container (max-width: 40rem) {
+  .perfBody {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+}

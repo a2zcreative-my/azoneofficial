@@ -95,7 +95,8 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
 /* ---- 5. no sample data, no invented figures ---- */
 {
   ok("none of the reference's sample figures", !/128,?450|1,?238|99\.[89]|Shopee Live Campaign|TikTok Content Series|Prepare LIVE rundown/.test(ov));
-  const statusCard = code.slice(code.indexOf("const statusCard"), code.indexOf("return (", code.indexOf("const statusCard")));
+  /* v1.280.0 - the card ends where rows 2 and 3 begin (the photo's layout code now sits before the return) */
+  const statusCard = code.slice(code.indexOf("const statusCard"), code.indexOf("const refreshWeek", code.indexOf("const statusCard")));
   ok("no percentage anywhere in the status card, and it says uptime is not measured", statusCard.length > 500 && !/%/.test(statusCard) && /Uptime is not measured here/.test(ov));
   ok("no enquiries tile and no module-usage figures", !/Total Enquiries|Module Usage|enquir/i.test(code));
 }
@@ -110,7 +111,14 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
 
 /* ---- 7. quick actions open existing workflows ---- */
 {
-  ok("each action is gated by the tab strip, except the clock (everyone's)", [...code.matchAll(/\{ key: "([a-z]+)", icon: [^}]*show: ([^}]+) \}/g)].every(([, k, show]) => k === "clock" ? /true/.test(show) : /can\("/.test(show)));
+  /* v1.280.0 - the photo's strip (keys "q-..."): every action gated by the
+     tab strip; the clock is the staff layout's (management has the On Shift
+     chip in the welcome line). At least the seven photo actions must match,
+     so the check can never pass on an empty list. */
+  const acts = [...code.matchAll(/\{ key: "(q-[a-z]+)", icon: [^}]*show: ([^}]+) \}/g)];
+  ok("each action is gated by the tab strip, except the clock (the staff layout's)", acts.length >= 8 && acts.every(([, k, show]) => k === "q-clock" ? /^!exec$/.test(show.trim()) : /^can\("[A-Za-z ]+"\)$/.test(show.trim())), acts.map((a) => `${a[1]}=${a[2]}`).join("; "));
+  ok("the Sales actions open Sales where the work is done (create as an invoice, Payments, Add customer)", /openAt\("Sales", "create_invoice"\)/.test(code) && /openAt\("Sales", "payments"\)/.test(code) && /openAt\("Sales", "add_customer"\)/.test(code)
+     && /\["create_invoice", "payments", "add_customer", "followups"\]\.includes\(startView\)/.test(read("components/portal/sales.tsx")));
   ok("create quotation is the Sales tab's own entry", /onCreateQuotation \? onCreateQuotation\(\) : go\("Sales"\)/.test(code));
   ok("task, leave and claim open their own forms", /openAt\("Tasks", "create"\)/.test(code) && /openAt\("Leave", "apply"\)/.test(code) && /openAt\("Claims", "submit"\)/.test(code));
   const provider = read("components/portal/portal-provider.tsx");
@@ -126,14 +134,16 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
   ok("Apply leave and Create quotation are the Overview's Quick Actions only, not under the clock",
      !/tr\("Apply leave", lang\)\}\s*<\/button>[\s\S]{0,900}?\{otButtons\}/.test(dashCode) && !/tr\("Create quotation", lang\)/.test(dashCode)
      && /\{otButtons && <div className=\{shiftCss\.quick\}>\{otButtons\}<\/div>\}/.test(dashCode)
-     && /key: "leave", icon: "holiday", label: L\("Apply leave"/.test(code) && /key: "quote", icon: "document", label: L\("Create quotation"/.test(code));
+     /* v1.280.0 - the photo's Quick Actions strip: Apply Leave and New Quotation */
+     && /key: "q-leave", icon: "holiday", label: L\("Apply Leave"/.test(code) && /key: "q-quote", icon: "add", label: L\("New Quotation"/.test(code));
   /* v1.263.0 (claude/COMPACT-DASHBOARD-AUDIT.md, approved 05-11-2026) -
      Upcoming & Pending moved up into the actions row with three items; the
      month's leave stays ONE card on the Overview (never on My Day), with the
      other cards below - on a phone behind More */
   ok("the month's leave applications are one card, on the Overview (not My Day), with the cards below the overview rows",
      !/LeaveMonthCard/.test(dashCode) && (code.match(/<LeaveMonthCard /g) ?? []).length === 1
-     && /data-row="more"[\s\S]{0,600}?<LeaveMonthCard go=\{go\} \/>/.test(code)
+     /* v1.280.0 - inside the Dashboard's More (id="dash-more"), with the other cards of before */
+     && /id="dash-more"[^>]*data-row="more"[\s\S]{0,2400}?<LeaveMonthCard go=\{go\} \/>/.test(code)
      && /row3\.push\(<Fragment key="up">\{upcomingCard\}<\/Fragment>\)/.test(code));
   ok("The Company card stays on My Day (the owner kept it)", /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(dash));
 }

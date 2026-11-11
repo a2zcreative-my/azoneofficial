@@ -45,7 +45,7 @@ with sync_playwright() as p:
     # ---------------- B2: Sales -> Quotations & Invoices ----------------
     pg, errs, reqs = page(b, 4204)
     check("Sales opens", tab(pg, "Sales"))
-    pg.get_by_role("tab", name="Quotations & Invoices", exact=True).first.click(); pg.wait_for_timeout(1500)
+    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
     unpaid = row(pg, "INV-AZO050926-3"); paid = row(pg, "INV-AZO100926-2"); qt = row(pg, "QT-AZO150926-1")
     check("an UNPAID invoice offers Void and not Delete", unpaid.get_by_role("button", name="Void", exact=True).count() == 1 and unpaid.get_by_role("button", name="Delete", exact=True).count() == 0)
     check("a PAID invoice offers neither Void nor Delete", paid.get_by_role("button", name="Void", exact=True).count() == 0 and paid.get_by_role("button", name="Delete", exact=True).count() == 0)

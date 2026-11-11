@@ -101,6 +101,8 @@ a.fileChip:hover { border-color: var(--muted-foreground); }
 .warn { margin: 0; font-size: var(--type-caption-size); color: var(--danger); }
 .extras { display: grid; gap: 0.625rem; margin-top: 0.5rem; }
 .submit { width: 100%; }
+/* v1.282.0 - the photo's sticky Add update: the gold main action, navy ink */
+.sticky .submit { min-height: 3rem; border-color: var(--gold-solid); background: var(--gold-solid); color: var(--brand-primary); font-weight: 700; }
 .empty { margin: 0; padding: 0.75rem 0; font-size: var(--type-body-sm-size); color: var(--muted-foreground); }
 .sticky { position: sticky; bottom: 0; padding-top: 0.5rem; background: linear-gradient(to bottom, transparent, var(--card) 35%); }
 
@@ -169,7 +171,9 @@ a.fileChip:hover { border-color: var(--muted-foreground); }
 
 /* v1.258.0 - the status summary on Details */
 .summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; padding: 0.875rem; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); }
-.sumLatest { display: grid; gap: 0.375rem; min-width: 0; padding: 0.625rem 0.75rem; border-radius: 0.5rem; background: var(--secondary); }
+/* v1.282.0 - the photo's Latest update: an info-tinted callout with its label */
+.sumLatest { display: grid; gap: 0.375rem; min-width: 0; padding: 0.875rem 1rem; border: 1px solid color-mix(in srgb, var(--info) 22%, transparent); border-radius: var(--radius-card-v2); background: var(--info-soft); }
+.sumLabel { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; color: var(--info); }
 .sumMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; min-width: 0; font-size: var(--type-caption-size); color: var(--foreground); font-weight: 600; }
 .sumBody { margin: 0; font-size: var(--type-body-sm-size); color: var(--foreground); white-space: pre-line; overflow-wrap: anywhere; }
 .sumList { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }

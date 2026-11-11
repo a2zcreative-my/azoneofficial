@@ -77,8 +77,12 @@ with sync_playwright() as p:
     pg.screenshot(path=f"{S}/tp-all-tasks.png")
 
     dr, _ = open_task(pg, "All Tasks", TITLE)
-    tabs = [t.inner_text().strip() for t in dr.get_by_role("tablist", name="Task sections").get_by_role("tab").all()]
-    check("the drawer: Details · Updates & Comments (n) · Files (n) · Activity", len(tabs) == 4 and tabs[0] == "Details" and re.match(r"Updates & Comments \(\d+\)", tabs[1]) and re.match(r"Files \(\d+\)", tabs[2]) and tabs[3] == "Activity", str(tabs))
+    # v1.282.0 - the photo's tabs: the tab's name is its word, the count its badge (read as its description)
+    tl = dr.get_by_role("tablist", name="Task sections").get_by_role("tab")
+    tabs = [t.evaluate("e => [...e.childNodes].filter(n => n.nodeType === 3 || (n.nodeType === 1 && getComputedStyle(n).display !== 'none' && !n.getAttribute('aria-hidden'))).map(n => n.textContent).join('').trim()") for t in tl.all()]
+    counts = [t.evaluate("e => { const id = e.getAttribute('aria-describedby'); return id ? document.getElementById(id)?.textContent.trim() : null; }") for t in tl.all()]
+    check("the drawer: Details · Updates & Comments · Files · Activity, Updates and Files with their counts", len(tabs) == 4 and tabs[0] == "Details" and tabs[1] == "Updates & Comments" and tabs[2] == "Files" and tabs[3] == "Activity"
+          and re.match(r"\d+ waiting", counts[1] or "") and re.match(r"\d+ waiting", counts[2] or ""), str([tabs, counts]))
     bar = dr.get_by_test_id("review-bar")
     sl = dr.get_by_test_id("summary-latest")  # v1.258.0 - the latest report moved from the bar's one line into the status summary, in full
     check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "Ready for Review" in bar.inner_text() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text())
@@ -106,7 +110,7 @@ with sync_playwright() as p:
     cb = json.loads(cl[0]["body"]) if cl else {}
     check("the CEO closes it as a management exception: one POST /close with the reason, and the toast says so", len(cl) == 1 and cb.get("exception") is True and "bank accepted" in cb.get("exception_reason", "") and "Task closed" in pg.inner_text("body"), str(cb))
 
-    dr.get_by_role("tab", name=re.compile("^Updates & Comments")).click(); pg.wait_for_timeout(1500)
+    dr.get_by_role("tab", name=re.compile("^Updates( & Comments)?$")).click(); pg.wait_for_timeout(1500)
     feed = dr.get_by_test_id("task-feed")
     kinds = [li.get_attribute("data-kind") for li in feed.locator("li").all()]
     check("Updates & Comments: updates and comments in one feed, typed", {"progress", "blocker", "review_request", "comment"} <= set(kinds), str(kinds))

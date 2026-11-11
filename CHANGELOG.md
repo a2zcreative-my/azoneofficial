@@ -10,6 +10,135 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.281.0] - 2026-11-11 - Minimal Executive Workspace, E3 + E4: the Sales Overview, the task sheet and the payment verification sheet in the photo's layout - BUILT, NOT DEPLOYED
+
+The third phase of the approved Minimal Executive Workspace (the CEO, "Approve for all", 11-11-2026; blueprint sections 5.4-5.5, decision 6). No figure, route, permission or record changed.
+
+- **Figures:** the photo's five.
+    - Collected says "(Verified)" while the CEO verifies payments.
+    - Reported, not verified: the Payments queue's waiting total and count. It is shown only to the roles that read Payments; otherwise the Cash received tile stays.
+    - Outstanding: the balance still owed, with its invoice and overdue counts.
+    - Open Quotations: those not yet invoiced, and their value.
+    - Follow-ups due.
+- **This month:** the quotation and invoice figures the tiles gave way to are said in one line under the figures. The funnel and trend below keep the detail.
+- **Needs action (new):** the unpaid invoices and the follow-ups due, overdue first, each with its one existing action.
+    - Record payment opens Payments with that invoice's sheet. It appears only where the server says a payment may be reported (the list's 1.278.0 rule), so it never leads nowhere.
+    - Follow up opens the customer's file.
+    - Every other row offers Open.
+    - It is a table on a wide screen and cards on a phone.
+- **Company week:** management on Everyone sees the company's week beside it (the Dashboard's Sales Performance card), never on Mine and never a salesperson.
+- **Tabs:**
+    - they count what waits: documents to settle, payments for the CEO, follow-ups due;
+    - on a phone the documents tab reads "Documents" (decision 6) and the main action "Create". LineTabs takes an optional phone word.
+- **Tile layout:**
+    - five across from 1024 px;
+    - the phone keeps the photo's icon well above the words;
+    - Sales Performance stacks its figures above the chart in a narrow column (a container query).
+- **Tab badges.** A tab's name stays the word it shows ("Payments", or "Documents" on a phone), so voice control and scripts find it whatever waits behind it. The badge is the tab's description ("1 waiting").
+- **E4, the task sheet (tasks.tsx, task-progress.tsx; blueprint 5.6):**
+    - it opens full screen on a phone;
+    - the tabs carry their counts as badges (Updates & Comments, or "Updates" on a phone; Files);
+    - the latest update leads Details as an info callout ("LATEST UPDATE"), then the stages (all five, Acknowledged included: the history is never shortened), the next step and the decisions this person may take, unchanged;
+    - the sticky main action is the gold "Add update". It opens the same update sheet; a tick or the button never closes a task.
+- **E4, the payment verification sheet (payments-panel.tsx; blueprint 5.7):**
+    - titled "Payment verification", with the invoice, the customer and the company under it;
+    - the money as a short list: Invoice total, Verified, Reported · waiting, and Outstanding after verify (the balance less what waits);
+    - the reported payment as facts: By, Method, Reference, Company, Received in, and View proof;
+    - the decision for the first payment that waits is pinned at the sheet's foot: Verify payment (gold), Ask a question (was "Request clarification", decision 6) and Reject. Other payments keep their own buttons;
+    - the rules are 1.272.0's: Verify asks for the authenticator code, bank and amount; Reject asks for a reason; a reporter cannot verify their own report; opening the sheet records nothing.
+- **Tests:**
+    - tests/browser/sales-e3.py is new;
+    - tests/browser/sheets-e4.py is new;
+    - tests/executive-workspace.mjs has E3 and E4 sections;
+    - task-progress.py reads the tab names and badges;
+    - payments-verify.py reads the photo's words.
+
+## [1.280.0] - 2026-11-11 - Minimal Executive Workspace, E2: the Dashboard and My Day in the photo's layout - BUILT, NOT DEPLOYED
+
+The second phase of the approved Minimal Executive Workspace (the CEO, "Approve for all", 11-11-2026; claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md sections 5.1-5.3, decisions 2, 4 and 6). No figure, permission or record changed. One read-only route is added (decision 2); there is no migration.
+
+- **Management (CEO, COO, CCO, admin, super admin: the week engine's outlook):**
+    - five figures: Weekly Target (% reached, working days left), Collected (Company sales from 10-11-2026), Invoices raised this week, Outstanding, and Open Quotations;
+    - the Collected tile shows the change against the same point last week;
+    - Outstanding is what unpaid invoices still owe: their total less the verified payments;
+    - Sales Performance has This Week / This Month / YTD. The week is drawn as a running total against the target, a month by business week and a year by month. A day to come is drawn empty, with a figure table for screen readers. A failed read shows Retry, never a zero;
+    - then My Tasks, Follow-ups (open quotations with a booked follow-up), Approvals (the Desk's decisions), Today's Schedule and Quick Actions.
+- **My Day (a salesperson):** their figures, then the Next best action, My Tasks, Follow-ups, Approvals (when any) and the schedule.
+    - The next best action is the most urgent of their own follow-ups and tasks, overdue first, then due today.
+    - Snooze hides it on that device until tomorrow and tells the server nothing.
+- **Everyone else:** their figures, My Tasks, the schedule and Quick Actions.
+- **Every card of before is still on the Dashboard, one click deeper, behind More, on every width:**
+    - sales pace, pipeline, financial health and advice;
+    - Today's focus, upcoming and pending, team, task overview and sales by month;
+    - activities, lives, shift and leave;
+    - the summary and the system status.
+- **Phones:**
+    - the target leads, then Needs your decision (management) or the Next best action (staff), then the other figures two by two;
+    - the welcome line keeps to the name;
+    - the date is said once: the header's date pill on a wide screen, the line under the title on a phone.
+- **My Tasks:** the tick opens the task's update sheet. It never closes a task.
+- **Quick Actions** open Sales where the work is done. Sales accepts the start views `create_invoice` (the create form set to Invoice), `payments`, `add_customer` and `followups`. The strip replaces the old Quick Actions card, so there is one strip, not two.
+    - Management gets New Quotation, Create Invoice, Record Payment, New Task, Apply Leave, Submit Claim and Add Client.
+    - Everyone gets only what they may open; staff also get Check in / out.
+- **Header date pill (decision 4):** on the Dashboard, a native date input under the photo's pill. It changes only which day Today's Schedule shows, with Back to today. The choice is held in portal-provider `dashDate`.
+- **New route (worker/src/weekly-sales.ts):** GET /staff/sales/week/performance?period=week|month|ytd, exec_view only, read-only.
+    - It is the company figure by day. Each day is counted by its business week's rule (countsAllChannels), so the days add up to the week's company figure exactly.
+    - It returns the same point of the previous period, the week's approved target, and outstanding less verified payments.
+- **New components:**
+    - components/ui/segmented.tsx: a radio group with arrow keys;
+    - components/portal/executive-cards.tsx and executive.module.css.
+- **The photo's KPI tile is used on every dashboard.** The v1.263.0 compact strip is retired; tiles are measured on the content box, so the well stays beside the words in a row of five.
+- **Tests:**
+    - tests/company-performance.mjs is new: 25 checks against the whole worker on SQLite, 8 mutations caught;
+    - tests/browser/dashboard-e2.py is new: 50/50;
+    - tests/executive-workspace.mjs has 12 more checks (44);
+    - tests/dashboard-overview.mjs: the quick action gating now reads the strip, and an empty match fails;
+    - tests/browser/compact-dashboard.py opens More first, holds the same cards to the same rules, and reads the photo's five figures (51/51);
+    - the fixture serves the route, including PERF=fail as a 500.
+
+## [1.279.0] - 2026-11-11 - Minimal Executive Workspace, E1: the photo's sidebar, header and KPI tile - BUILT, NOT DEPLOYED
+
+The CEO approved the Minimal Executive Workspace blueprint and all eight decisions ("Approve for all", 11-11-2026; claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md). E1 is the tokens and the shell. Layout only: no route, permission, record or figure changed.
+
+- Sidebar (components/layout/side-nav.tsx):
+    - the photo's rail: the A2Z OS wordmark; Dashboard and Desk; REVENUE Sales, Ecommerce, Agents; OPERATIONS Projects, Tasks, Inventory; PEOPLE HR, Attendance, Leave, Claims, Payroll; FINANCE Finance, Accounting, Commission (RAIL_PRIMARY);
+    - every other tab the person may open is under More, in the registry's order (decision 3). More stays open while it holds the open tab;
+    - the icon-only rail, the phone's More sheet and search still list every tab, and the /admin and /account rails are unchanged in content;
+    - rows are plain 20px line icons at 34px (44px on a touch screen). The current tab is a gold pill with navy ink and a soft glow (decision 5: white on gold is 2.3:1);
+    - the name card at the foot (avatar, name, role) opens the account menu: Profile, Cards, notification sound, push alerts, Bahasa Melayu, Plum & Rose colours (each with On / Off), and Sign out.
+- Projects (decision 4) is a shortcut into Tasks > Projects. It is drawn only for someone who may open Tasks and holds project_view, through one rule shared with the Tasks page (lib/caps.ts canViewProjects). Tasks stays the current item.
+- Registry: Ecommerce follows Sales in ALL_TABS, so Revenue reads Sales, Ecommerce, Agents. Access and `/portal?tab=` links are unchanged.
+- Header (components/portal/portal-shell.tsx):
+    - search ("Search anything…"), the bell, Help (new, decision 4) and dark mode;
+    - sound, push, language, colour theme and Sign out moved to the name card menu. They still sit in the phone's More sheet, which now also has Help. Both use one set of handlers;
+    - no avatar in the header. The 27px / 700 page title (--type-page-size) and a gold-ink eyebrow on the workspace ground.
+- Help sheet (components/portal/help-sheet.tsx, new): what the page is for (where TAB_HINTS has a line), the keys to get around, where the settings went, and who to tell when something is wrong. It promises nothing it cannot keep.
+- KPI tile (components/ui/kpi-tile.*):
+    - the photo's 52px tinted well with a 28px icon, a 13px label, the 22px bold figure and a 9px bar;
+    - the change is a pill ("▲ +24%") with the comparison beside it (`delta.vs`). A tile in a row of five keeps its well beside the words;
+    - Sales, Ecommerce and the Dashboard tiles pass the comparison separately.
+- The Header date picker, the Dashboard, My Day, Sales, Task detail and Payment verification screens are E2-E4.
+- Tests:
+    - tests/executive-workspace.mjs is new: 32 checks, 6 mutations caught;
+    - tests/browser/shell-e1.py is new: 32/32;
+    - tests/browser/shell-3.py now reads the approved groups (Home, Revenue, Operations, People, Finance, More) and the name card's Cards and Profile, 26/26;
+    - tests/tab-zones.mjs reads the projects rule from lib/caps.ts.
+
+## [1.278.0] - 2026-11-11 - Sales: with payment verification on, the list says where an invoice's money stands - BUILT, NOT DEPLOYED
+
+The CEO, 11-11-2026: "paid seem doesnt change the status on sales for COO". With payment verification ON (1.272.0), nobody marks an invoice paid; it becomes paid when the CEO verifies payments up to its total (decision P1). The server refused the COO's Paid (409, as designed and tested). The Sales documents list still offered the COO the Paid dropdown, though, and the toast said only "is unchanged - try again". No rule changed.
+
+- Sales -> Quotations & Invoices, verification ON:
+    - the status column shows where the invoice's money stands (Paid / Partially paid · RM verified / Unpaid, plus "RM x waiting for the CEO" for reported payments) and a Record payment button;
+    - the button opens Payments with that invoice's Record payment sheet (reference and proof, as in 1.272.0);
+    - the Paid dropdown is drawn only while verification is OFF, as before.
+- Any refused status change now shows the server's reason in the toast instead of only "try again".
+- The state is read from the existing GET /staff/payments (CEO, COO, super admin: the invoice_payment roles). No new route and no worker change.
+- Tests:
+    - tests/payment-verify.mjs has 2 new checks (88 checks, 16 mutations caught);
+    - tests/browser/paid-status.py is new: the COO with verification on and off, desktop and phone, 24/24. The 1.275.0 build fails it.
+    - The fixture's PAYDOCS=1 mode puts the documents list's own invoice in Payments, and PATCH paid is refused while verification is on.
+
 ## [1.277.0] - 2026-11-11 - A2Z OS 3.0, C2: the shell - grouped navigation, folding groups, one phone bar - BUILT, NOT DEPLOYED
 
 The CEO approved the 3.0 blueprint ("approved", 10-11-2026): the navigation regrouping and the five-stop phone bar, C1-C2 first. Layout only: no route, permission, deep link or record changed.

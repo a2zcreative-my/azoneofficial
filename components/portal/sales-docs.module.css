@@ -203,25 +203,23 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-@media (min-width: 1680px) {
+/* v1.281.0 - the photo's five figures: five across from a laptop up */
+@media (min-width: 1024px) {
   .tiles [role="group"] {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
-/* the five figures on a phone: two across, the icon well folded away (the
-   Ecommerce rule, v1.212.0); the figure's size is the tile's own (v1.214.1) */
+/* the five figures on a phone: two across; the figure's size is the tile's
+   own (v1.214.1). v1.281.0 - the photo keeps the icon well, above the words
+   (the tile's own narrow rule), so the phone no longer folds it away */
 @media (max-width: 639px) {
   .tiles [role="group"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
   }
   .tiles [role="group"] > * {
-    padding: 0.75rem;
+    padding: 0.875rem;
     gap: 0.5rem;
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .tiles [role="group"] > * > span:first-child {
-    display: none;
   }
 }
 .scopeRow {
@@ -266,5 +264,28 @@
 @media (min-width: 1024px) {
   .table {
     border-top: 0;
+  }
+}
+
+/* v1.278.0 - payment verification on: the invoice's money state and its
+   Record payment button, in the status column, wrapping on a narrow row */
+.payState {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+/* v1.281.0 - the photo's Sales Overview: Needs action beside the company's
+   week (management, Everyone), one under the other below 1024 px */
+.needGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (min-width: 1024px) {
+  .needGrid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
   }
 }

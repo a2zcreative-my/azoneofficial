@@ -448,3 +448,90 @@
   font-size: var(--type-caption-size);
   overflow-wrap: anywhere;
 }
+
+/* ---- v1.281.0 - Needs action (the photo's Sales Overview): a table on a
+   wide screen, each row a card on a phone ---- */
+.needWrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+.need {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.need th {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.71875rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.need td {
+  padding: 0.5rem 0.625rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.need tr:last-child td {
+  border-bottom: 0;
+}
+.needOpen {
+  display: grid;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.needOpen strong {
+  font-weight: 600;
+}
+.needOpen span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.needOpen:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.needAct {
+  text-align: right;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .need thead {
+    display: none;
+  }
+  .need,
+  .need tbody {
+    display: grid;
+  }
+  .need tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.25rem 0.75rem;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .need tr:last-child {
+    border-bottom: 0;
+  }
+  .need td {
+    padding: 0;
+    border: 0;
+  }
+  .need td:nth-child(3) {
+    grid-column: 1;
+    color: var(--muted-foreground);
+  }
+  .need td:nth-child(4) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

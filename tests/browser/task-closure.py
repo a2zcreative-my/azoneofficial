@@ -113,7 +113,7 @@ with sync_playwright() as p:
         ro = [x for x in get(PORT, "/__tasks")["posts"] if x["p"].endswith("/reopen")]
         check(f"{w}px: one POST /reopen with the reason", len(ro) == 1 and json.loads(ro[0]["body"]).get("reason") == "Zainab asked for a revised quotation", str(ro))
         # ---- the timeline feed ----
-        dr.get_by_role("tab", name=re.compile("^Updates & Comments")).click(); pg.wait_for_timeout(1500)
+        dr.get_by_role("tab", name=re.compile("^Updates( & Comments)?$")).click(); pg.wait_for_timeout(1500)
         feed = dr.get_by_test_id("task-feed")
         kinds = [li.get_attribute("data-kind") for li in feed.locator("li").all()]
         check(f"{w}px: the timeline shows the closure and the task's creation - real events only", "closed" in kinds and kinds[-1] == "created", str(kinds))
@@ -144,7 +144,7 @@ with sync_playwright() as p:
         check(f"{w}px: the summary sits inside the drawer, nothing past its edge", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))
         sm.get_by_test_id("summary-all").click(); pg.wait_for_timeout(1200)
         check(f"{w}px: See all updates opens the Updates & Comments tab", dr.get_by_test_id("task-feed").count() == 1 and dr.get_by_test_id("task-feed").is_visible())
-        dr.get_by_role("tab", name=re.compile("^Updates & Comments")).click(); pg.wait_for_timeout(1500)
+        dr.get_by_role("tab", name=re.compile("^Updates( & Comments)?$")).click(); pg.wait_for_timeout(1500)
         feed = dr.get_by_test_id("task-feed")
         wd = feed.locator("li[data-withdrawn='1']")
         check(f"{w}px: the mistaken entry is withdrawn - who and why shown, the number itself gone from the timeline", wd.count() == 1 and "withdrawn by" in wd.inner_text() and "Typed my authenticator code by mistake" in wd.inner_text() and "683768" not in feed.inner_text(), feed.inner_text()[:300])

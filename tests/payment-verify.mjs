@@ -143,6 +143,14 @@ async function runtime(workerBundle) {
     const dp = await call("/docs/102/payments", 3, "POST", { amount_cents: 1000, received_on: "2026-11-04" });
     ok(dp.status === 409 && parts(102) === 0, "a direct part payment is refused too", dp.text);
     ok(/paid_received === true && await paymentVerificationOn\(env\)/.test(readFileSync(join(root, "worker/src/staff.ts"), "utf8")), "an invoice cannot be created already paid while it is on");
+    /* v1.278.0 (the CEO, 11-11-2026: "paid seem doesnt change the status on sales for COO") - the documents
+       list no longer offers the refused Paid dropdown while verification is on, and a refusal says why */
+    {
+      const ui = readFileSync(join(root, "components/portal/sales.tsx"), "utf8");
+      ok(/canPay && pv\?\.on && d\.payment_status !== "void"/.test(ui) && /canPay && !pv\?\.on && d\.payment_status !== "void" && \(\s*<select/.test(ui),
+        "while it is on, the Sales list shows the money state and Record payment instead of the Paid dropdown");
+      ok(/r\.data\?\.error\?\.message \?\? L\(`\$\{d\.doc_number\} is unchanged/.test(ui), "a refused status change shows the server's reason, not only 'try again'");
+    }
 
     /* ---------- reporting: scope, reference, a report is not money ---------- */
     ok((await report(103, 9, 80000, "MBB 0003")).status === 403, "a salesperson cannot report on someone else's invoice");

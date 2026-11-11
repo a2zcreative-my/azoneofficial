@@ -11,7 +11,7 @@
    actions this person may take and the timeline. Every rule is the server's
    (worker/src/payment-verify.ts); this screen only offers what it allows. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, csrfFetch } from "@/lib/api";
 import { compressImage } from "@/lib/compress-image";
 import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
@@ -19,6 +19,7 @@ import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmDanger, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SideDrawer } from "@/components/ui/side-drawer";
+import { AppIcon } from "@/components/ui/app-icon";
 import { StageTimeline, type Stage } from "@/components/ui/stage-timeline";
 import { openAttachment } from "@/components/ui/document-preview";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -91,7 +92,11 @@ async function uploadProof(reportId: number, f: File): Promise<string | null> {
   return j?.error?.message ?? L("The proof was not attached.", "Bukti tidak dilampirkan.");
 }
 
-export function PaymentsPanel({ userId, onChanged }: { userId: number; onChanged?: () => void }) {
+export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened }: {
+  userId: number; onChanged?: () => void;
+  /** v1.278.0 - opened from an invoice's Record payment in the documents list: its sheet opens at once */
+  recordInvoiceId?: number | null; onRecordOpened?: () => void;
+}) {
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState(false);
   const [tick, setTick] = useState(0);
@@ -124,6 +129,10 @@ export function PaymentsPanel({ userId, onChanged }: { userId: number; onChanged
 
   if (failed) return <div className={card}><p className={css.empty}>{L("Payments could not be loaded.", "Bayaran tidak dapat dimuatkan.")}</p></div>;
   if (!data) return <div className={card}><SkelRows rows={4} /></div>;
+
+  /* v1.278.0 - opened from an invoice's Record payment in the documents
+     list: that invoice's sheet is open until it is closed or saved */
+  const sheetFor = recordFor ?? (recordInvoiceId != null ? data.invoices.find((i) => i.id === recordInvoiceId && i.can_report) ?? null : null);
 
   /* what is waiting for THIS person */
   const mineToAct = (r: Rep) =>
@@ -219,8 +228,8 @@ export function PaymentsPanel({ userId, onChanged }: { userId: number; onChanged
         )}
       </section>
 
-      {recordFor && <RecordSheet inv={recordFor} onClose={() => setRecordFor(null)}
-        onDone={(m) => { setRecordFor(null); toast(L("Saved", "Disimpan"), m); reload(); }}
+      {sheetFor && <RecordSheet inv={sheetFor} onClose={() => { setRecordFor(null); onRecordOpened?.(); }}
+        onDone={(m) => { setRecordFor(null); onRecordOpened?.(); toast(L("Saved", "Disimpan"), m); reload(); }}
         onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
       {openInv !== null && <InvoiceDrawer invId={openInv} data={data} userId={userId} onClose={() => setOpenInv(null)}
         onDone={(m) => { toast(L("Saved", "Disimpan"), m); reload(); }}
@@ -327,6 +336,10 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
   const [checked, setChecked] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  /* v1.282.0 - the sticky actions open the form inside the payment's card:
+     bring it into view so the person sees what they are about to confirm */
+  const formRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (act) requestAnimationFrame(() => formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })); }, [act]);
 
   useEffect(() => {
     let live = true;
@@ -392,18 +405,37 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
   });
   const [sen, sms, scls] = words(STATUS_WORDS, pic?.status ?? "unpaid");
 
+  /* v1.282.0 - MINIMAL EXECUTIVE WORKSPACE, E4 (the photo's Payment
+     Verification, claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md 5.7): the
+     money first, the reported payment as facts, the timeline, and the
+     decision for the first payment that waits pinned at the foot - Verify
+     (gold), Ask a question, Reject. Same rules as 1.272.0: Verify asks for
+     the authenticator code, Reject for a reason; opening changes nothing. */
+  const isPending = (r: Rep) => ["reported", "evidence_checked"].includes(r.state);
+  const mayVerify = (r: Rep) => data.can.verify && isPending(r) && (r.reported_by !== userId || (r.state === "evidence_checked" && r.evidence_by !== userId));
+  const lead = pic && data.can.verify ? pic.reports.find((r) => isPending(r)) ?? null : null;
+  const afterVerify = pic ? Math.max(0, pic.outstanding_cents - pic.pending_cents) : 0;
   return (
-    <SideDrawer open onClose={onClose} wide full title={pic ? pic.invoice.doc_number : L("Payments", "Bayaran")}
-      subtitle={pic ? `${pic.invoice.customer ?? ""} · ${pic.invoice.company_name}` : undefined}>
+    <SideDrawer open onClose={onClose} wide full title={L("Payment verification", "Pengesahan bayaran")}
+      subtitle={pic ? `${pic.invoice.doc_number} · ${pic.invoice.customer ?? ""} · ${pic.invoice.company_name}` : undefined}
+      footer={lead && !act ? (
+        <div className={css.footActs} data-testid="payment-decide">
+          {mayVerify(lead) && <button type="button" className={css.btnVerify} onClick={() => start(lead.id, "verify", lead)}><AppIcon name="verify" />{L("Verify payment", "Sahkan bayaran")}</button>}
+          <span className={css.footPair}>
+            <button type="button" className={btnSm} onClick={() => start(lead.id, "clarify")}>{L("Ask a question", "Tanya soalan")}</button>
+            <button type="button" className={btnSmDanger} onClick={() => start(lead.id, "reject")}>{L("Reject", "Tolak")}</button>
+          </span>
+        </div>
+      ) : undefined}>
       {!pic ? <SkelRows rows={4} /> : (
         <div className={css.stack}>
-          <div className={css.sum}>
-            <span><span className={css.k}>{L("Invoice total", "Jumlah invois")}</span>{fmtRM(pic.invoice.total_cents)}</span>
-            <span><span className={css.k}>{L("Verified", "Disahkan")}</span>{fmtRM(pic.verified_cents)}</span>
-            <span><span className={css.k}>{L("Pending", "Tertunda")}</span>{fmtRM(pic.pending_cents)}</span>
-            <span><span className={css.k}>{L("Outstanding", "Baki")}</span><b>{fmtRM(pic.outstanding_cents)}</b></span>
-            <span className={`${scls} ${css.chip}`}>{L(sen, sms)}</span>
-          </div>
+          <dl className={css.money} data-testid="payment-money">
+            <div><dt>{L("Invoice total", "Jumlah invois")}</dt><dd>{fmtRM(pic.invoice.total_cents)}</dd></div>
+            <div><dt><span className={`${chipSmSuccess} ${css.chip}`}>{L("Verified", "Disahkan")}</span></dt><dd>{fmtRM(pic.verified_cents)}</dd></div>
+            <div><dt><span className={`${chipSmWarn} ${css.chip}`}>{L("Reported · waiting", "Dilapor · menunggu")}</span></dt><dd>{fmtRM(pic.pending_cents)}</dd></div>
+            <div className={css.moneyTotal}><dt>{pic.pending_cents > 0 ? L("Outstanding after verify", "Baki selepas disahkan") : L("Outstanding", "Baki")}</dt><dd>{fmtRM(pic.pending_cents > 0 ? afterVerify : pic.outstanding_cents)}</dd></div>
+          </dl>
+          <span className={`${scls} ${css.chip}`}>{L(sen, sms)}</span>
           {pic.reports.length === 0 && <p className={css.empty}>{L("No payment reported yet.", "Belum ada bayaran dilapor.")}</p>}
           {pic.reports.map((r) => {
             const [en, ms, cls] = words(STATE_WORDS, r.state);
@@ -413,10 +445,16 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
             return (
               <article key={r.id} className={css.pay} data-testid="payment-item">
                 <div className={css.bar}>
-                  <span className={css.title}>{fmtRM(r.amount_cents)} · {dmy(r.received_on)}</span>
+                  <span className={css.title}><AppIcon name="pay" />{L("Reported payment", "Bayaran dilapor")} · {fmtRM(r.amount_cents)} · {dmy(r.received_on)}</span>
                   <span className={`${cls} ${css.chip}`}>{L(en, ms)}</span>
                 </div>
-                <p className={css.sub}>{(METHODS.find((m) => m[0] === r.method)?.[1]) ?? r.method}{r.reference ? ` · ${r.reference}` : ""} · {L("reported by", "dilapor oleh")} {r.reporter ?? "-"} {dmyMYT(r.reported_at)}</p>
+                <dl className={css.facts}>
+                  <div><dt>{L("By", "Oleh")}</dt><dd>{r.reporter ?? "-"} · {dmyMYT(r.reported_at)}</dd></div>
+                  <div><dt>{L("Method", "Kaedah")}</dt><dd>{(METHODS.find((m) => m[0] === r.method)?.[1]) ?? r.method}</dd></div>
+                  {r.reference && <div><dt>{L("Reference", "Rujukan")}</dt><dd>{r.reference}</dd></div>}
+                  <div><dt>{L("Company", "Syarikat")}</dt><dd>{pic.invoice.company_name}</dd></div>
+                  {r.bank_name && <div><dt>{L("Received in", "Diterima dalam")}</dt><dd>{r.bank_name}</dd></div>}
+                </dl>
                 {r.note && <p className={`${css.sub} ${css.lines}`}>{r.note}</p>}
                 {r.dup_of !== null && <p className="erp-note erp-note-danger">{L("Possible duplicate: this reference was already used in this company.", "Mungkin pendua: rujukan ini telah digunakan dalam syarikat ini.")}{r.dup_reason ? ` ${L("Verified because:", "Disahkan kerana:")} ${r.dup_reason}` : ""}</p>}
                 {r.over_cents > 0 && <p className="erp-note erp-note-warning">{L(`Reported ${fmtRM(r.over_cents)} above the balance. At most the balance is verified; the rest is never applied to another invoice.`, `Dilapor ${fmtRM(r.over_cents)} melebihi baki. Paling banyak baki disahkan; selebihnya tidak digunakan untuk invois lain.`)}</p>}
@@ -426,20 +464,21 @@ function InvoiceDrawer({ invId, data, userId, onClose, onDone, onFail }: { invId
                 {r.reason && <p className="erp-note erp-note-danger">{L("Reason:", "Sebab:")} {r.reason}</p>}
                 {r.reverse_reason && <p className="erp-note erp-note-warning">{L("Reversed:", "Dibatalkan:")} {r.reverse_reason}</p>}
                 <div className={css.actions}>
-                  {r.has_proof && <button type="button" className={btnSm} onClick={() => openAttachment(`/api/v1/staff/payment-reports/${r.id}/proof`, L("Payment proof", "Bukti bayaran"))}>{L("View proof", "Lihat bukti")}</button>}
+                  {r.has_proof && <button type="button" className={`${btnSm} ${css.proof}`} onClick={() => openAttachment(`/api/v1/staff/payment-reports/${r.id}/proof`, L("Payment proof", "Bukti bayaran"))}><AppIcon name="attach" />{L("View proof", "Lihat bukti")}</button>}
                   {r.mine && ["reported", "clarify"].includes(r.state) && <button type="button" className={btnSm} onClick={() => start(r.id, "proof")}>{r.has_proof ? L("Replace proof", "Ganti bukti") : L("Attach proof", "Lampir bukti")}</button>}
                   {r.mine && r.state === "clarify" && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "answer")}>{L("Answer", "Jawab")}</button>}
                   {canEvidence && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "evidence")}>{L("Check bank evidence", "Semak bukti bank")}</button>}
-                  {canVerify && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "verify", r)}>{L("Verify payment", "Sahkan bayaran")}</button>}
-                  {data.can.verify && pending && <button type="button" className={btnSm} onClick={() => start(r.id, "clarify")}>{L("Request clarification", "Minta penjelasan")}</button>}
-                  {data.can.verify && (pending || r.state === "clarify") && <button type="button" className={btnSmDanger} onClick={() => start(r.id, "reject")}>{L("Reject", "Tolak")}</button>}
+                  {/* the first payment that waits carries its decision in the sheet's foot */}
+                  {canVerify && r.id !== lead?.id && <button type="button" className={btnSmPrimary} onClick={() => start(r.id, "verify", r)}>{L("Verify payment", "Sahkan bayaran")}</button>}
+                  {data.can.verify && pending && r.id !== lead?.id && <button type="button" className={btnSm} onClick={() => start(r.id, "clarify")}>{L("Ask a question", "Tanya soalan")}</button>}
+                  {data.can.verify && (pending || r.state === "clarify") && r.id !== lead?.id && <button type="button" className={btnSmDanger} onClick={() => start(r.id, "reject")}>{L("Reject", "Tolak")}</button>}
                   {data.can.verify && r.state === "verified" && <button type="button" className={btnSmDanger} onClick={() => start(r.id, "reverse")}>{L("Reverse", "Batalkan")}</button>}
                 </div>
                 {data.can.verify && r.reported_by === userId && r.state === "reported" && (
                   <p className={css.sub}>{L("You reported this payment: the COO checks its bank evidence before you can verify it.", "Anda melaporkan bayaran ini: COO menyemak bukti banknya sebelum anda boleh mengesahkannya.")}</p>
                 )}
                 {act?.rid === r.id && (
-                  <div className={css.formCol} data-testid="payment-action">
+                  <div className={css.formCol} data-testid="payment-action" ref={formRef}>
                     {act.mode === "verify" && (<>
                       <label className={css.field}>{L("Received in account", "Diterima dalam akaun")}
                         <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value ? Number(e.target.value) : "")}>

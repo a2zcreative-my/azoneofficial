@@ -29,8 +29,9 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
      and the sub-line says it in words ("This month · ...") - the same on every tab */
   /** a plain line under the figure */
   sub?: ReactNode;
-  /** a change against a previous period; null pct = nothing to compare */
-  delta?: { pct: number | null; text: string } | null;
+  /** a change against a previous period; null pct = nothing to compare.
+      v1.279.0 - `vs` ("vs last month") is drawn beside the pill, as the photo */
+  delta?: { pct: number | null; text: string; vs?: string } | null;
   /** a share bar under the line (0-100) */
   bar?: { pct: number; tone: "green" | "gold" | "red" | "blue" };
   /** up to 14 values drawn as a small bar run, the last one emphasised */
@@ -60,7 +61,10 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
           )}
         </span>
         {delta && delta.pct != null && !busy && (
-          <span className={delta.pct >= 0 ? css.up : css.down}>{delta.pct >= 0 ? "↑" : "↓"} {delta.text}</span>
+          <span className={css.change}>
+            <span className={delta.pct >= 0 ? css.up : css.down}>{delta.pct >= 0 ? "▲" : "▼"} {delta.text}</span>
+            {delta.vs && <span>{delta.vs}</span>}
+          </span>
         )}
         {sub && <span className={css.sub}>{sub}</span>}
         {bar && !busy && (

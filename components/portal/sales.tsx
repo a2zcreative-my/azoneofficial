@@ -10,7 +10,9 @@ import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL, withStepUp } from "@/components/portal/page-shared";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
-import { ClosedSales, FollowUps, SalesOverviewCards, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
+import { ClosedSales, FollowUps, NeedsActionCard, SalesOverviewCards, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
+import { SalesPerformanceCard } from "@/components/portal/executive-cards"; // v1.281.0
+import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
 import { SalesEnquiries, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -1317,6 +1319,20 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     });
     return () => cancelAnimationFrame(frame);
   }, [startView]);
+  /* v1.280.0 - the Dashboard's Quick Actions and Follow-ups (Minimal
+     Executive Workspace E2) open THIS page where the work is done - the
+     create form as an invoice, Payments, Add customer, Customers & Follow-ups;
+     no second form anywhere. The server still decides every save. */
+  useEffect(() => {
+    if (!startView || !["create_invoice", "payments", "add_customer", "followups"].includes(startView)) return;
+    const frame = requestAnimationFrame(() => {
+      if (startView === "create_invoice") { setWsView("documents"); setWorkTab("create"); setDoc((d) => ({ ...d, doc_type: "INV" })); requestAnimationFrame(() => document.getElementById("sales-work")?.scrollIntoView({ block: "start" })); }
+      else if (startView === "payments") setWsView("payments");
+      else if (startView === "add_customer") { setWsView("customers"); setCustTab("add"); requestAnimationFrame(() => document.getElementById("sales-customers")?.scrollIntoView({ block: "start" })); }
+      else setWsView("customers");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [startView]);
   /* v1.191.0 - the owner's photo: "10 / page" beside numbered pages */
   const [DOC_PER, setDocPer] = useState(10);
   /* v1.191.0 - the photo puts Receipts, Credit notes and Outstanding on the
@@ -1366,6 +1382,16 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      COO and admins only (worker permissions invoice_payment). Everyone who
      can invoice still sees the payment status. */
   const canPay = holds("invoice_payment", ["super_admin", "ceo", "coo"].includes(user.role)); // v1.234.0 - = PERMS.invoice_payment (the owner: CEO, COO, super admin only)
+  /* v1.278.0 (the CEO, 11-11-2026: "paid seem doesnt change the status on
+     sales for COO"): with payment verification ON (1.272.0) nobody marks an
+     invoice paid - it becomes paid when the CEO has verified payments up to
+     its total - but this list still offered the Paid dropdown, the server
+     refused it (409), and the toast only said "try again". So the list asks
+     /staff/payments whether verification is on and, if it is, shows where
+     the money stands (verified, waiting for the CEO, outstanding) and a
+     Record payment button into Payments instead of the dropdown. */
+  const [pv, setPv] = useState<{ on: boolean; inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }>; pend?: { cents: number; n: number } } | null>(null);
+  const [recordInv, setRecordInv] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
   /* v1.205.0 - a search hit opens the document (the list narrowed to its
      number, its panel open) or the customer (its record open on the
@@ -1391,6 +1417,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       `/staff/docs`
     );
     setDocs(d.data?.docs ?? []);
+    if (canPay) {
+      const pr = await api<{ on: boolean; invoices?: { id: number; verified_cents: number; pending_cents: number; can_report: boolean }[]; tiles?: { pending_cents?: number; pending_count?: number } }>(`/staff/payments`);
+      if (pr.ok && pr.data) {
+        const inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }> = {};
+        for (const i of pr.data.invoices ?? []) inv[i.id] = { verified_cents: Number(i.verified_cents ?? 0), pending_cents: Number(i.pending_cents ?? 0), can_report: i.can_report === true };
+        setPv({ on: pr.data.on === true, inv, pend: { cents: Number(pr.data.tiles?.pending_cents ?? 0), n: Number(pr.data.tiles?.pending_count ?? 0) } });
+      }
+    }
     setCanConfirmPaid(d.data?.can_confirm_paid === true);
     setCanConfirmOwn(d.data?.can_confirm_own === true);
     void loadSummary();
@@ -1421,7 +1455,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       items?: { name: string; sku: string; unit_price_cents?: number }[];
     }>(`/staff/inventory`);
     setInvItems(inv.data?.items ?? []);
-  }, [loadSummary]);
+  }, [loadSummary, canPay]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -2133,14 +2167,16 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
        again is the natural response. Both outcomes now say so, and a
        failure reloads so the dropdown stops showing a value the server
        never accepted. */
-    const r = await api(`/staff/docs/${d.id}`, {
+    const r = await api<{ error?: { message?: string } }>(`/staff/docs/${d.id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     });
     if (!r.ok) {
+      /* v1.278.0 - say WHY (the server's own words), not just "try again":
+         a refusal such as payment verification is not fixed by retrying */
       showToast(
         L("Not saved", "Tidak disimpan"),
-        L(`${d.doc_number} is unchanged — try again`, `${d.doc_number} tidak berubah — cuba lagi`),
+        r.data?.error?.message ?? L(`${d.doc_number} is unchanged — try again`, `${d.doc_number} tidak berubah — cuba lagi`),
         "notice",
       );
     } else {
@@ -2208,19 +2244,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   /* v1.186.0 (the owner's reference): last month's figures beside this
      month's, by the same two rules - raised by created_at, paid by paid_at */
   const lastKey = (() => { const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
-  const lastInv = sDocs.filter((d) => d.doc_type === "INV" && mytYm(d.created_at) === lastKey);
   const lastPaid = sDocs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid" && mytYm(d.paid_at ?? d.created_at) === lastKey);
-  const vsLast = (now: number, before: number): { pct: number | null; text: string } | undefined => {
+  /* v1.279.0 - the photo's change pill: the signed percentage in the pill,
+     the comparison beside it */
+  const vsLast = (now: number, before: number): { pct: number | null; text: string; vs: string } | undefined => {
     if (!before) return undefined;
     const pct = Math.round(((now - before) / before) * 100);
-    return { pct, text: L(`${Math.abs(pct)}% vs last month`, `${Math.abs(pct)}% berbanding bulan lepas`) };
+    return { pct, text: `${pct >= 0 ? "+" : "−"}${Math.abs(pct)}%`, vs: L("vs last month", "berbanding bulan lepas") };
   };
-  /* the last six months of quotations raised, newest last - the tile's bars */
-  const qtSpark = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - (5 - i));
-    const k = d.toISOString().slice(0, 7);
-    return sDocs.filter((x) => x.doc_type === "QT" && mytYm(x.created_at) === k).length;
-  });
   /* v1.186.0 - the documents list: a type pill, a search, a status pick and
      ten a page. Filters only; every row keeps every action it had. */
   const docRows = docs.filter((d) =>
@@ -2235,6 +2266,18 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const docPageSafe = Math.min(docPage, docPages);
   const pageDocs = docRows.slice((docPageSafe - 1) * DOC_PER, docPageSafe * DOC_PER);
 
+  /* ---- v1.281.0 - MINIMAL EXECUTIVE WORKSPACE, E3: the photo's Sales
+     Overview (claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md 5.4-5.5) ---- */
+  const today = mytToday();
+  const openQt = sDocs.filter((d) => d.doc_type === "QT" && !d.invoiced_as && d.payment_status !== "void");
+  const overdueInv = unpaidInv.filter((d) => d.payment_status === "overdue");
+  const dueFollow = sFollowups.filter((f) => f.due_on <= today);
+  /* Needs action: unpaid invoices and follow-ups due, the overdue first (sales-workspace.tsx needRowsFor) */
+  const openDocRow = (d: SalesDoc) => { setWsView("documents"); setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); };
+  /* the company's week beside it, for the people who read the company figure */
+  const weekDash = useWeekDash().data;
+  const companyView = Boolean(weekDash?.outlook) && scope === "all";
+
   return (
     /* The page's TabPage is the stack; these are its zones: AT A GLANCE
        (figures), THE WORK, CUSTOMERS; the page adds THIS MONTH (the map)
@@ -2245,16 +2288,17 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           right; the breadcrumb they replace said the same thing twice. */}
       <LineTabs value={wsView} onChange={(k) => setWsView(k)} label={L("Sales", "Jualan")} tabs={[
         ["overview", L("Overview", "Gambaran")],
-        ["documents", L("Quotations & Invoices", "Sebut Harga & Invois")],
-        ["payments", L("Payments", "Bayaran")], // v1.272.0 - report, then the CEO verifies
+        /* v1.281.0 - the photo's counts: what waits behind each tab; "Documents" on a phone (decision 6) */
+        ["documents", L("Quotations & Invoices", "Sebut Harga & Invois"), loaded ? openQt.length + unpaidInv.filter((d) => d.payment_status !== "void").length : null, L("Documents", "Dokumen")],
+        ["payments", L("Payments", "Bayaran"), pv?.on ? pv.pend?.n ?? null : null], // v1.272.0 - report, then the CEO verifies
         ["closed", L("Closed Sales", "Jualan Ditutup")],
-        ["customers", L("Customers & Follow-ups", "Pelanggan & Susulan")],
+        ["customers", L("Customers & Follow-ups", "Pelanggan & Susulan"), loaded ? dueFollow.length : null],
         ...(reports ? ([["reports", L("Reports", "Laporan")]] as const) : []),
       ]} aside={
         <TabAside>
           <TabPeriod>{(() => { const [y, m] = monthKey.split("-").map(Number) as [number, number]; return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" }); })()}</TabPeriod>
           <TabAction icon="add" onClick={() => { setWorkTab("create"); jump("sales-work"); }}>
-            {L("Create document", "Buat dokumen")}
+            <span className="erp-desktop-only">{L("Create document", "Buat dokumen")}</span><span className="erp-phone-only">{L("Create", "Cipta")}</span>
           </TabAction>
         </TabAside>
       } />
@@ -2271,35 +2315,42 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               row, the same rules); the screen's own sums over the documents it
               holds are the fallback for a worker without that route. */}
           <KpiRow label={L("Sales this month", "Jualan bulan ini")}>
-            <KpiTile icon="paid" tone="green" label={L("Collected", "Dikutip")} value={fmtRM(sm ? sm.collected.cents : cents(paidThisMonth))} busy={!loaded}
+            {/* v1.281.0 - the photo's five: Collected (Verified when the CEO
+                verifies payments), what waits for the CEO, what is owed, the
+                open quotations and the follow-ups due */}
+            <KpiTile icon="paid" tone="green" label={pv?.on ? L("Collected (Verified)", "Dikutip (Disahkan)") : L("Collected", "Dikutip")} value={fmtRM(sm ? sm.collected.cents : cents(paidThisMonth))} busy={!loaded}
               sub={L(`This month · ${sm ? sm.collected.n : paidThisMonth.length} paid in full, by payment date`, `Bulan ini · ${sm ? sm.collected.n : paidThisMonth.length} dibayar penuh, ikut tarikh bayaran`)}
               delta={sm ? vsLast(sm.collected.cents, sm.collected_last.cents) : vsLast(cents(paidThisMonth), cents(lastPaid))}
               onClick={() => setWsView("closed")} title={L("Open the closed sales", "Buka jualan ditutup")} />
-            {sm && (
+            {pv?.on && pv.pend ? (
+              <KpiTile icon="time" tone="gold" label={L("Reported, not verified", "Dilaporkan, belum disahkan")} value={fmtRM(pv.pend.cents)}
+                sub={L(`${pv.pend.n} payment${pv.pend.n === 1 ? "" : "s"} wait${pv.pend.n === 1 ? "s" : ""} for the CEO`, `${pv.pend.n} bayaran menunggu CEO`)}
+                onClick={() => setWsView("payments")} title={L("Open Payments", "Buka Bayaran")} />
+            ) : sm ? (
               <KpiTile icon="money" tone="green" label={L("Cash received", "Wang diterima")} value={fmtRM(sm.cash_cents)}
                 sub={L("This month · part payments included", "Bulan ini · termasuk bayaran separa")} delta={vsLast(sm.cash_cents, sm.cash_last_cents)}
                 title={L("Money received this month: part payments on the day they arrived, and what was left on each invoice marked paid this month. Collected is unchanged: it counts an invoice once it is paid in full.", "Wang diterima bulan ini: bayaran separa pada hari ia tiba, dan baki setiap invois yang ditanda dibayar bulan ini. Dikutip tidak berubah: ia mengira invois setelah dibayar penuh.")} />
-            )}
-            <KpiTile icon="document" tone="gold" label={L("Quotations", "Sebut harga")} value={sm ? sm.quotations.n : monthQt.length} busy={!loaded}
-              spark={sm ? sm.quotations_spark : qtSpark} sub={L(`This month · ${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}`, `Bulan ini · ${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}`)}
-              onClick={() => { setWorkTab("documents"); setDocType("QT"); setDocPage(1); jump("sales-work"); }} title={L("Open the quotations", "Buka sebut harga")} />
-            <KpiTile icon="documents" tone="navy" label={L("Invoices", "Invois")} value={fmtRM(sm ? sm.invoiced.cents : cents(monthInv))} busy={!loaded}
-              sub={L(`This month · ${sm ? sm.invoiced.n : monthInv.length} raised`, `Bulan ini · ${sm ? sm.invoiced.n : monthInv.length} dikeluarkan`)}
-              delta={sm ? vsLast(sm.invoiced.cents, sm.invoiced_last.cents) : vsLast(cents(monthInv), cents(lastInv))}
-              onClick={() => { setWorkTab("documents"); setDocType("INV"); setDocPage(1); jump("sales-work"); }} title={L("Open the invoices", "Buka invois")} />
-            {sm ? (
-              <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={fmtRM(sm.outstanding.balance_cents)} busy={!loaded}
-                sub={L(`Still owed · ${sm.outstanding.n} invoice${sm.outstanding.n === 1 ? "" : "s"} · ${fmtRM(sm.outstanding.total_cents)} invoiced · any month${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} not yet invoiced on ${sm.to_invoice.n} quotation${sm.to_invoice.n === 1 ? "" : "s"}` : ""}`, `Masih terhutang · ${sm.outstanding.n} invois · ${fmtRM(sm.outstanding.total_cents)} diinvois · mana-mana bulan${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} belum diinvois pada ${sm.to_invoice.n} sebut harga` : ""}`)}
-                onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
-            ) : (
-              <KpiTile icon="pending" tone="red" label={L("Unpaid Invoices", "Invois Belum Dibayar")} value={unpaidInv.length} busy={!loaded}
-                sub={L(`Any month · ${fmtRM(cents(unpaidInv))}`, `Mana-mana bulan · ${fmtRM(cents(unpaidInv))}`)}
-                onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
-            )}
-            <KpiTile icon="date" tone="blue" label={L("Follow-ups due", "Susulan perlu dibuat")} value={sFollowups.filter((f) => f.due_on <= mytToday()).length} busy={!loaded}
-              sub={L(`Today or earlier · ${sFollowups.filter((f) => f.due_on < mytToday()).length} overdue`, `Hari ini atau lebih awal · ${sFollowups.filter((f) => f.due_on < mytToday()).length} lewat`)}
+            ) : null}
+            <KpiTile icon="pending" tone="red" label={L("Outstanding", "Tertunggak")} value={fmtRM(sm ? sm.outstanding.balance_cents : cents(unpaidInv))} busy={!loaded}
+              sub={sm ? L(`${sm.outstanding.n} invoice${sm.outstanding.n === 1 ? "" : "s"} · ${overdueInv.length} overdue · ${fmtRM(sm.outstanding.total_cents)} invoiced · any month${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} not yet invoiced` : ""}`, `${sm.outstanding.n} invois · ${overdueInv.length} lewat · ${fmtRM(sm.outstanding.total_cents)} diinvois · mana-mana bulan${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} belum diinvois` : ""}`)
+                : L(`${unpaidInv.length} invoice${unpaidInv.length === 1 ? "" : "s"} · ${overdueInv.length} overdue · any month`, `${unpaidInv.length} invois · ${overdueInv.length} lewat · mana-mana bulan`)}
+              onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
+            <KpiTile icon="document" tone="purple" label={L("Open Quotations", "Sebut Harga Terbuka")} value={openQt.length} busy={!loaded}
+              sub={L(`${fmtRM(cents(openQt))} · not yet invoiced`, `${fmtRM(cents(openQt))} · belum diinvois`)}
+              onClick={() => { setWorkTab("documents"); setDocType("QT"); setDocStatus("open"); setDocPage(1); jump("sales-work"); }} title={L("Open the quotations not yet invoiced", "Buka sebut harga yang belum diinvois")} />
+            <KpiTile icon="date" tone="blue" label={L("Follow-ups due", "Susulan perlu dibuat")} value={dueFollow.length} busy={!loaded}
+              sub={L(`Today or earlier · ${sFollowups.filter((f) => f.due_on < today).length} overdue`, `Hari ini atau lebih awal · ${sFollowups.filter((f) => f.due_on < today).length} lewat`)}
               onClick={() => setWsView("customers")} title={L("Open the customers and follow-ups", "Buka pelanggan dan susulan")} />
           </KpiRow>
+          </div>
+          {/* v1.281.0 - this month in one line: the two month figures the
+              photo's tiles gave way to (the funnel and trend below hold the detail) */}
+          <p className="erp-meta" data-testid="sales-month-line">{L(`This month: ${sm ? sm.quotations.n : monthQt.length} quotation${(sm ? sm.quotations.n : monthQt.length) === 1 ? "" : "s"} (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invoice${(sm ? sm.invoiced.n : monthInv.length) === 1 ? "" : "s"} raised (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`,
+            `Bulan ini: ${sm ? sm.quotations.n : monthQt.length} sebut harga (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invois dikeluarkan (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`)}</p>
+          <div className={companyView ? sc.needGrid : undefined}>
+            <NeedsActionCard loaded={loaded} data={{ unpaid: unpaidInv, followups: dueFollow, pv, partPaid, canPay, today }}
+              onRecord={(d) => { setRecordInv(d.id); setWsView("payments"); }} onOpenDoc={(d) => openDocRow(d as SalesDoc)} onFollow={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
+            {companyView && <SalesPerformanceCard onOpen={() => setWsView("closed")} pace={weekDash?.outlook ? { cents: weekDash.outlook.required_per_day_cents, allChannels: weekDash.company.basis_kind === "all_channels" } : undefined} />}
           </div>
           <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()} summary={sm} scope={scope}
             onOpenDocs={(t) => { setWorkTab("documents"); setDocType(t); setDocStatus("all"); setDocPage(1); jump("sales-work"); }}
@@ -2323,7 +2374,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       )}
       {wsView === "reports" && reports}
       {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
-      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} />}
+      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the
@@ -3365,7 +3416,32 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     on a DO, the invoiced chip on a quotation - exactly the
                     controls the row had, in their own column */}
                 <span className={sc.cStatus} role="cell">
-                  {d.doc_type === "INV" && canPay && d.payment_status !== "void" && (
+                  {/* v1.278.0 - verification ON: where the money stands, and the way to report it */}
+                  {d.doc_type === "INV" && canPay && pv?.on && d.payment_status !== "void" && (() => {
+                    const v = pv.inv[d.id];
+                    const paid = d.payment_status === "paid";
+                    const verified = v?.verified_cents ?? 0, pending = v?.pending_cents ?? 0;
+                    return (
+                      <span className={sc.payState} data-testid="pv-status">
+                        <span className={paid ? chipSmSuccess : verified > 0 ? chipSmWarn : chipSmNeutral}>
+                          {paid ? L("Paid", "Dibayar") : verified > 0 ? `${L("Partially paid", "Dibayar sebahagian")} · ${fmtRM(verified)}` : L("Unpaid", "Belum dibayar")}
+                        </span>
+                        {!paid && pending > 0 && (
+                          <span className={chipSmWarn} title={L("Reported, not money until the CEO verifies it", "Dilapor, bukan wang sehingga CEO mengesahkan")}>
+                            {fmtRM(pending)} {L("waiting for the CEO", "menunggu CEO")}
+                          </span>
+                        )}
+                        {!paid && v?.can_report && (
+                          <button type="button" className={rowBtn} data-testid="pv-record"
+                            title={L("Payments are verified by the CEO: report this payment with its proof", "Bayaran disahkan oleh CEO: lapor bayaran ini dengan buktinya")}
+                            onClick={() => { setRecordInv(d.id); setWsView("payments"); }}>
+                            {L("Record payment", "Rekod bayaran")}
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })()}
+                  {d.doc_type === "INV" && canPay && !pv?.on && d.payment_status !== "void" && (
                     <select
                       className={selectClassSm}
                       value={d.payment_status ?? "unpaid"}

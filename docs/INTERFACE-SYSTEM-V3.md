@@ -190,3 +190,45 @@ The CEO approved the 3.0 blueprint on 10-11-2026 (`claude/UIUX-3.0-BLUEPRINT.md`
 - The phone bar is the same five for every staff role: Dashboard · Desk · On Shift · Tasks · More. Pins still override. Agents keep their workspace bar.
 - Registry order (`ALL_TABS`) moved Tasks after Agents, so every group stays one run. Access, routes and deep links are unchanged.
 
+
+## 11. Minimal Executive Workspace, E1 (v1.279.0)
+
+The CEO approved the photo direction and all eight decisions on 11-11-2026; the blueprint is claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md.
+
+- **Rail.** RAIL_PRIMARY in side-nav.tsx lists the photo's modules. Everything else the person may open is under More. Presentation only: the items are the portal's permission-filtered list. The icon-only rail, the phone's More sheet and search list every tab.
+- **Current item.** A gold pill with navy ink, never white.
+- **Projects.** A shortcut into Tasks > Projects, drawn when `canOpen("Tasks") && canViewProjects(role)`.
+- **Name card.** Opens the account menu: Profile, Cards, the four settings and Sign out. A setting row has aria-pressed and On / Off, and stays open. Escape and a click outside close the menu.
+- **Header.** Search, bell, Help, dark mode. The date pill arrives with the Dashboard (E2).
+- **KPI tile.** 52px well, 22px figure, `delta.vs` beside the change pill.
+- **Guards.** tests/executive-workspace.mjs and tests/browser/shell-e1.py.
+
+## 12. Minimal Executive Workspace, E2 - the Dashboard (v1.280.0)
+
+- **Layout.** `dashboard-overview.tsx` draws the photo's grid from `executive.module.css`. Each child carries its phone order in `--o`.
+- **Who gets which layout.**
+    - Management: the five figures, Sales Performance plus My Tasks, Follow-ups, Approvals and Schedule, then Quick Actions.
+    - Staff: figures, Next best action, My Tasks, Follow-ups and Schedule, then Quick Actions.
+    - Everything of before sits behind More.
+- **Cards.** The cards live in `executive-cards.tsx` and only draw.
+    - The one new read is `GET /staff/sales/week/performance` (exec_view).
+    - A tick opens the update sheet.
+    - Snooze is per device (`azone-nba-snoozed`).
+- **Period switch.** `components/ui/segmented.tsx`: a radio group with arrow keys; the chosen option is a gold pill with navy ink.
+- **Guards.** `tests/company-performance.mjs`, `tests/browser/dashboard-e2.py` and `tests/executive-workspace.mjs` (E2 section).
+
+## 13. Minimal Executive Workspace, E3 - the Sales Overview (v1.281.0)
+
+The Sales Overview has the photo's five figures and Needs action (`sales-workspace.tsx` NeedsActionCard, which only draws). Sales hands each row its existing action:
+
+- Record payment, only where `/staff/payments` says `can_report`;
+- Follow up (opens the customer's file);
+- Open, for every other row.
+
+Management on Everyone sees the company's week (SalesPerformanceCard) beside it. LineTabs takes a fourth item, the phone's shorter word.
+
+## 14. Minimal Executive Workspace, E4 - the record sheets (v1.281.0)
+
+- **Task sheet.** Opens full screen on a phone; its tabs carry badges; Details opens on the Latest update callout, then the five stages and the decisions; the sticky gold button reads "Add update".
+- **Payment verification sheet.** The money list leads, then the reported payment as facts. The decision for the first waiting payment sits in the sheet's footer (Verify, Ask a question, Reject).
+- **Tab badges (LineTabs).** A tab's name is its word; the count badge is `aria-hidden` and serves as the tab's description.

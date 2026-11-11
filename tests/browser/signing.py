@@ -38,7 +38,7 @@ def signing_tab(pg):
 
 def open_quotation(pg):
     tab(pg, "Sales")
-    pg.get_by_role("tab", name="Quotations & Invoices", exact=True).first.click(); pg.wait_for_timeout(1500)
+    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
     btn = pg.locator("[role='row']:has-text('QT-AZO150926-1')").first.get_by_test_id("open-quotation")
     if btn.count() != 1: return False
     btn.click(); pg.wait_for_timeout(2200)
