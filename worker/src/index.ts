@@ -300,7 +300,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0183_financial_advisory";
+const LATEST_MIGRATION = "0184_fa_registry";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5658,6 +5658,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0178 (passkeys: credentials, single-use challenges, how a session began)", `SELECT w.id, w.credential_id, w.revoked_at, c.purpose, c.binding_hash, s.auth_method, s.auth_credential_id FROM webauthn_credentials w, webauthn_challenges c, sessions s LIMIT 0`],
       ["0179-0180 (web_orders.booked_cents and refund_flagged_at: the ELFIA booking columns)", `SELECT booked_cents, refund_flagged_at FROM web_orders LIMIT 0`],
       ["0183 (financial advisory: cases, consents, figures, append-only notes and events, verified bank criteria)", `SELECT c.id, c.case_ref, c.prescreen, n.note_type, k.state, e.event_key FROM fa_cases c LEFT JOIN fa_notes n ON n.case_id = c.id LEFT JOIN fa_criteria k ON k.product = c.product LEFT JOIN fa_events e ON e.case_id = c.id LIMIT 0`],
+      ["0184 (financial advisory: bank, branch and banker registry)", `SELECT b.name_key, br.locality_id, bk.email_key, v.fact, a.state AS alloc, t.bank_id, l.banker_id, e.event FROM fa_banks b LEFT JOIN fa_branches br ON br.bank_id = b.id LEFT JOIN fa_bankers bk ON bk.bank_id = b.id LEFT JOIN fa_banker_verifications v ON v.banker_id = bk.id LEFT JOIN fa_allocations a ON a.banker_id = bk.id LEFT JOIN fa_criteria_terms t ON t.bank_id = b.id LEFT JOIN fa_note_links l ON l.banker_id = bk.id LEFT JOIN fa_registry_events e ON e.entity_id = b.id LIMIT 0`],
       ["0182 (deposit billing: one live invoice per PRODUCT quotation; a service quotation billed in parts)", `SELECT id FROM sales_documents INDEXED BY ux_inv_live_per_product_qt WHERE converted_from = 0 AND doc_type = 'INV' AND voided_at IS NULL AND COALESCE(kind, 'product') != 'service' LIMIT 0`],
       ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
@@ -5864,6 +5865,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0181_payment_verification",
       "0182_quotation_billing",
       "0183_financial_advisory",
+      "0184_fa_registry",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

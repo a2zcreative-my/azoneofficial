@@ -10,8 +10,8 @@
      Clients           the pipeline: search, product and status filters,
                        one row per case; a new case finds the existing
                        customer by phone instead of creating a second one
-     Banker relations  the bank contacts and their contact log (management
-                       adds contacts; nobody sends client documents from here)
+     Bankers           v1.286.0 - the ONE bank, branch and banker registry
+                       (fa-registry.tsx); nobody sends client documents from here
      Bank criteria     the ONE place a bank's rule is written: a draft until
                        management verifies it with its source and date
      Agreements        switched off until counsel clears the agreement
@@ -31,6 +31,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { btnSm, btnSmPrimary, btnSmQuiet, card, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import { APPLICATION, BANKER, Chip, FaCase, PRESCREEN, PRODUCT } from "./fa-case";
+import { BankerRegistry } from "./fa-registry";
 import css from "./financial-advisory.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -39,7 +40,6 @@ type View = "overview" | "clients" | "bankers" | "criteria" | "agreements";
 interface Summary { open: number; awaiting_banker: number; incomplete: number; official_decisions: number; legal: Record<string, boolean>; can: { create: boolean; decide: boolean; criteria: boolean } }
 interface Row { id: number; case_ref: string; product: string; stage: string; prescreen: string; banker_status: string; application_status: string; override_result: string | null; issuer_code: string; updated_at: string; client: string | null; owner: string | null; projected_dsr_bp: number | null }
 interface Criterion { id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string; dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null; required_documents: string | null; source: string; last_verified_on: string | null; state: string }
-interface Contact { id: number; bank: string; contact_name: string; contact_role: string | null; branch: string | null; channel: string | null; channel_confirmed: number; relationship: string; owner: string | null }
 const STAGE_WORD: Record<string, [string, string]> = {
   intake: ["Intake", "Pengambilan"], profile: ["Profile", "Profil"], prescreen: ["Pre-screened", "Disaring"], review: ["Management review", "Semakan pengurusan"], matching: ["Bank matching", "Padanan bank"],
   agreement: ["Agreement", "Perjanjian"], enquiry: ["Bank enquiry", "Pertanyaan bank"], application: ["Application", "Permohonan"], decision: ["Decision", "Keputusan"], disbursed: ["Disbursed", "Dikeluarkan"], fee: ["Fee", "Yuran"], closed: ["Closed", "Ditutup"],
@@ -72,7 +72,7 @@ export function FinancialAdvisoryPanel() {
       <LineTabs value={view} onChange={setView} label={L("Financial advisory", "Nasihat kewangan")} tabs={[
         ["overview", L("Overview", "Gambaran")],
         ["clients", L("Clients", "Pelanggan"), sum?.open || null],
-        ["bankers", L("Banker relations", "Hubungan bank"), null, L("Bankers", "Bank")],
+        ["bankers", L("Bankers", "Pegawai bank")],
         ["criteria", L("Bank criteria", "Kriteria bank"), null, L("Criteria", "Kriteria")],
         ["agreements", L("Agreements", "Perjanjian")],
       ]} />
@@ -82,7 +82,7 @@ export function FinancialAdvisoryPanel() {
         <>
           {view === "overview" && <Overview sum={sum} rows={rows} openCase={setOpen} create={() => setCreating(true)} go={setView} />}
           {view === "clients" && <Clients rows={rows} can={sum?.can.create ?? false} openCase={setOpen} create={() => setCreating(true)} />}
-          {view === "bankers" && <Bankers toast={show} />}
+          {view === "bankers" && <BankerRegistry toast={show} />}
           {view === "criteria" && <Criteria toast={show} />}
           {view === "agreements" && <Agreements />}
         </>
@@ -210,79 +210,6 @@ function NewCase({ onClose, toast, opened }: { onClose: () => void; toast: (t: s
   );
 }
 
-function Bankers({ toast }: { toast: (t: string, m: string, v?: "notice") => void }) {
-  const [data, setData] = useState<{ contacts: Contact[]; can: { manage: boolean; log: boolean } } | null>(null);
-  const [tick, setTick] = useState(0);
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ bank: "", contact_name: "", contact_role: "", branch: "", channel: "", relationship: "prospect" });
-  const [logFor, setLogFor] = useState<Contact | null>(null);
-  useEffect(() => { let live = true; void api<typeof data>("/staff/fa/contacts").then((r) => { if (live && r.ok) setData(r.data); }); return () => { live = false; }; }, [tick]);
-  const add = async () => {
-    const r = await api<Err>("/staff/fa/contacts", { method: "POST", body: JSON.stringify(f) });
-    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), (r.data as Err | null)?.error?.message ?? "", "notice"); return; }
-    toast(L("Contact added", "Kenalan ditambah"), f.bank); setAdding(false); setF({ bank: "", contact_name: "", contact_role: "", branch: "", channel: "", relationship: "prospect" }); setTick((t) => t + 1);
-  };
-  return (
-    <section className={`${card} ${css.sec}`} aria-label={L("Banker relations", "Hubungan bank")}>
-      <div className={css.head}><h3 className={css.h}><AppIcon name="users" />{L("Banker relations", "Hubungan bank")}</h3>{data?.can.manage && <button type="button" className={btnSmPrimary} onClick={() => setAdding(true)}><AppIcon name="add" />{L("Add contact", "Tambah kenalan")}</button>}</div>
-      <p className={css.sub}>{L("A contact here gets no portal access. Client documents are never sent from this list.", "Kenalan di sini tidak mendapat akses portal. Dokumen pelanggan tidak dihantar dari senarai ini.")}</p>
-      {!data ? <SkelRows rows={3} /> : data.contacts.length === 0 ? <p className={css.empty}>{L("No banker contact yet.", "Belum ada kenalan bank.")}</p> : (
-        <ul className={css.items}>{data.contacts.map((k) => (
-          <li key={k.id} className={css.item} data-testid="fa-contact">
-            <span className={css.itemMain}><b>{k.bank} · {k.contact_name}</b><span className={css.sub}>{[k.contact_role, k.branch, k.channel].filter(Boolean).join(" · ")}{k.channel ? (k.channel_confirmed ? ` (${L("confirmed", "disahkan")})` : ` (${L("unconfirmed", "belum disahkan")})`) : ""}</span></span>
-            <span className={k.relationship === "active" ? chipSmSuccess : chipSmNeutral}>{k.relationship}</span>
-            <button type="button" className={btnSmQuiet} onClick={() => setLogFor(k)}>{L("Contact log", "Log hubungan")}</button>
-          </li>
-        ))}</ul>
-      )}
-      {adding && (
-        <SideDrawer open onClose={() => setAdding(false)} dirty={!!(f.bank || f.contact_name)} title={L("Add banker contact", "Tambah kenalan bank")}>
-          <div className={css.stack}>
-            <div className={css.form}>
-              <label className={css.field}>{L("Bank", "Bank")}<input className={inputClassSm} value={f.bank} maxLength={80} onChange={(e) => setF({ ...f, bank: e.target.value })} /></label>
-              <label className={css.field}>{L("Contact name", "Nama kenalan")}<input className={inputClassSm} value={f.contact_name} maxLength={120} onChange={(e) => setF({ ...f, contact_name: e.target.value })} /></label>
-              <label className={css.field}>{L("Role", "Jawatan")}<input className={inputClassSm} value={f.contact_role} maxLength={80} onChange={(e) => setF({ ...f, contact_role: e.target.value })} /></label>
-              <label className={css.field}>{L("Branch", "Cawangan")}<input className={inputClassSm} value={f.branch} maxLength={80} onChange={(e) => setF({ ...f, branch: e.target.value })} /></label>
-              <label className={css.field}>{L("Official channel (work email or line)", "Saluran rasmi (e-mel atau talian kerja)")}<input className={inputClassSm} value={f.channel} maxLength={120} onChange={(e) => setF({ ...f, channel: e.target.value })} /></label>
-              <label className={css.field}>{L("Relationship", "Hubungan")}<select className={selectClassSm} value={f.relationship} onChange={(e) => setF({ ...f, relationship: e.target.value })}>{["prospect", "active", "paused", "ended"].map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
-            </div>
-            <button type="button" className={btnSmPrimary} disabled={!f.bank.trim() || !f.contact_name.trim()} onClick={() => void add()}>{L("Add contact", "Tambah kenalan")}</button>
-          </div>
-        </SideDrawer>
-      )}
-      {logFor && <ContactLog k={logFor} canLog={data?.can.log ?? false} onClose={() => setLogFor(null)} toast={toast} />}
-    </section>
-  );
-}
-
-function ContactLog({ k, canLog, onClose, toast }: { k: Contact; canLog: boolean; onClose: () => void; toast: (t: string, m: string, v?: "notice") => void }) {
-  const [log, setLog] = useState<{ id: number; channel: string; summary: string; created_at: string; actor: string | null }[] | null>(null);
-  const [tick, setTick] = useState(0);
-  const [f, setF] = useState({ channel: "call", summary: "" });
-  useEffect(() => { let live = true; void api<{ log: NonNullable<typeof log> }>(`/staff/fa/contacts/${k.id}/log`).then((r) => { if (live && r.ok && r.data) setLog(r.data.log); }); return () => { live = false; }; }, [k.id, tick]);
-  const add = async () => {
-    const r = await api<Err>(`/staff/fa/contacts/${k.id}/log`, { method: "POST", body: JSON.stringify(f) });
-    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), (r.data as Err | null)?.error?.message ?? "", "notice"); return; }
-    toast(L("Logged", "Dilog"), k.bank); setF({ ...f, summary: "" }); setTick((t) => t + 1);
-  };
-  return (
-    <SideDrawer open onClose={onClose} dirty={!!f.summary} title={`${k.bank} · ${k.contact_name}`} subtitle={L("Contact log - never client figures without a disclosure consent", "Log hubungan - tiada angka pelanggan tanpa persetujuan pendedahan")}>
-      <div className={css.stack}>
-        {canLog && (<>
-          <div className={css.form}>
-            <label className={css.field}>{L("Channel", "Saluran")}<select className={selectClassSm} value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>{["call", "email", "whatsapp", "meeting", "other"].map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
-            <label className={`${css.field} ${css.wide}`}>{L("What was discussed", "Apa yang dibincangkan")}<textarea className={textareaClass} rows={2} maxLength={600} value={f.summary} onChange={(e) => setF({ ...f, summary: e.target.value })} /></label>
-          </div>
-          <button type="button" className={btnSmPrimary} disabled={f.summary.trim().length < 5} onClick={() => void add()}>{L("Log contact", "Log hubungan")}</button>
-        </>)}
-        {!log ? <SkelRows rows={3} /> : log.length === 0 ? <p className={css.empty}>{L("No contact logged yet.", "Belum ada hubungan dilog.")}</p> : (
-          <ul className={css.items}>{log.map((x) => <li key={x.id} className={css.item}><span className={css.itemMain}><b>{x.channel} · {dmyMYT(x.created_at)}</b><span className={css.lines}>{x.summary}</span><span className={css.sub}>{x.actor}</span></span></li>)}</ul>
-        )}
-      </div>
-    </SideDrawer>
-  );
-}
-
 const EMP = ["permanent", "contract", "government", "glc", "private", "business_owner", "commission_based"];
 const REQ_DOCS: [string, string][] = [["payslip", "Payslip"], ["bank_statement", "Bank statement"], ["epf", "EPF statement"], ["facility_statement", "Facility statement"], ["ccris_by_client", "CCRIS"], ["ic", "IC copy"]];
 
@@ -347,12 +274,17 @@ function Criteria({ toast }: { toast: (t: string, m: string, v?: "notice") => vo
 }
 
 function NewCriterion({ onClose, toast, saved }: { onClose: () => void; toast: (t: string, m: string, v?: "notice") => void; saved: () => void }) {
-  const [f, setF] = useState({ bank: "", product: "personal_financing", income_definition: "net", commitment_definition: "all", dsr: "", min_income: "", min_service: "", source: "", emp: [] as string[], docs: [] as string[] });
+  /* v1.286.0 - the bank comes from the one bank registry */
+  const [banks, setBanks] = useState<{ id: number; name: string; status: string }[] | null>(null);
+  const [offers, setOffers] = useState<{ bank_id: number; product: string; status: string }[]>([]);
+  useEffect(() => { let live = true; void api<{ banks: NonNullable<typeof banks>; products: typeof offers }>("/staff/fa/registry").then((r) => { if (live && r.ok && r.data) { setBanks(r.data.banks.filter((b) => b.status !== "retired")); setOffers(r.data.products.filter((p) => p.status === "active")); } }); return () => { live = false; }; }, []);
+  const [f, setF] = useState({ bank: "", product: "personal_financing", min_age: "", max_age: "", min_tenure: "", max_tenure: "", income_definition: "net", commitment_definition: "all", dsr: "", min_income: "", min_service: "", source: "", emp: [] as string[], docs: [] as string[] });
   const toggle = (k: "emp" | "docs", v: string, on: boolean) => setF({ ...f, [k]: on ? [...f[k], v] : f[k].filter((x) => x !== v) });
   const save = async () => {
     const dsr = Number(f.dsr), inc = Number(f.min_income.replace(/,/g, ""));
     const r = await api<Err>("/staff/fa/criteria", { method: "POST", body: JSON.stringify({
-      bank: f.bank, product: f.product, income_definition: f.income_definition, commitment_definition: f.commitment_definition, source: f.source,
+      bank_id: Number(f.bank), product: f.product,
+      min_age: f.min_age ? Number(f.min_age) : undefined, max_age: f.max_age ? Number(f.max_age) : undefined, min_tenure_months: f.min_tenure ? Number(f.min_tenure) : undefined, max_tenure_months: f.max_tenure ? Number(f.max_tenure) : undefined, income_definition: f.income_definition, commitment_definition: f.commitment_definition, source: f.source,
       dsr_guideline_pct: f.dsr.trim() && Number.isFinite(dsr) ? dsr : undefined, min_income_cents: f.min_income.trim() && Number.isFinite(inc) ? Math.round(inc * 100) : undefined,
       min_service_months: f.min_service.trim() ? Number(f.min_service) : undefined, employment_categories: f.emp.length ? f.emp : undefined, required_documents: f.docs.length ? f.docs : undefined,
     }) });
@@ -361,10 +293,13 @@ function NewCriterion({ onClose, toast, saved }: { onClose: () => void; toast: (
   };
   return (
     <SideDrawer open onClose={onClose} dirty={!!(f.bank || f.source)} title={L("Propose a bank criterion", "Cadang kriteria bank")} subtitle={L("A draft is never used for matching", "Draf tidak digunakan untuk padanan")}>
-      <div className={css.stack}>
+      {!banks ? <SkelRows rows={4} /> : <div className={css.stack}>
         <div className={css.form}>
-          <label className={css.field}>{L("Bank", "Bank")}<input className={inputClassSm} value={f.bank} maxLength={80} onChange={(e) => setF({ ...f, bank: e.target.value })} /></label>
+          <label className={css.field}>{L("Bank (from the registry)", "Bank (daripada daftar)")}<select className={selectClassSm} value={f.bank} data-testid="fa-crit-bank" onChange={(e) => setF({ ...f, bank: e.target.value })}><option value="">—</option>{(banks ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
           <label className={css.field}>{L("Product", "Produk")}<select className={selectClassSm} value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}><option value="personal_financing">{L("Personal financing", "Pembiayaan peribadi")}</option><option value="debt_consolidation">{L("Debt consolidation", "Penyatuan hutang")}</option></select></label>
+          {f.bank && !offers.some((o) => String(o.bank_id) === f.bank && o.product === f.product) && <p className={`erp-note ${css.wide}`}>{L("This bank has no such product in the registry yet - management adds it in Bankers, Bank registry.", "Bank ini belum ada produk tersebut dalam daftar - pengurusan menambahnya dalam Pegawai bank, Daftar bank.")}</p>}
+          <label className={css.field}>{L("Age from - to (optional)", "Umur dari - hingga (pilihan)")}<span className={css.inline}><input className={inputClassSm} inputMode="numeric" aria-label={L("Minimum age", "Umur minimum")} value={f.min_age} onChange={(e) => setF({ ...f, min_age: e.target.value.replace(/\D/g, "") })} /><input className={inputClassSm} inputMode="numeric" aria-label={L("Maximum age", "Umur maksimum")} value={f.max_age} onChange={(e) => setF({ ...f, max_age: e.target.value.replace(/\D/g, "") })} /></span></label>
+          <label className={css.field}>{L("Tenure months from - to (optional)", "Tempoh bulan dari - hingga (pilihan)")}<span className={css.inline}><input className={inputClassSm} inputMode="numeric" aria-label={L("Minimum tenure", "Tempoh minimum")} value={f.min_tenure} onChange={(e) => setF({ ...f, min_tenure: e.target.value.replace(/\D/g, "") })} /><input className={inputClassSm} inputMode="numeric" aria-label={L("Maximum tenure", "Tempoh maksimum")} value={f.max_tenure} onChange={(e) => setF({ ...f, max_tenure: e.target.value.replace(/\D/g, "") })} /></span></label>
           <label className={css.field}>{L("DSR guideline (%)", "Garis panduan DSR (%)")}<input className={inputClassSm} inputMode="decimal" value={f.dsr} onChange={(e) => setF({ ...f, dsr: e.target.value })} /></label>
           <label className={css.field}>{L("Measured on", "Diukur atas")}<select className={selectClassSm} value={f.income_definition} onChange={(e) => setF({ ...f, income_definition: e.target.value })}><option value="net">{L("Net income", "Pendapatan bersih")}</option><option value="gross">{L("Gross income", "Pendapatan kasar")}</option></select></label>
           <label className={css.field}>{L("Commitments counted", "Komitmen dikira")}<select className={selectClassSm} value={f.commitment_definition} onChange={(e) => setF({ ...f, commitment_definition: e.target.value })}><option value="all">{L("All", "Semua")}</option><option value="exclude_ptptn">{L("All except PTPTN", "Semua kecuali PTPTN")}</option></select></label>
@@ -374,8 +309,8 @@ function NewCriterion({ onClose, toast, saved }: { onClose: () => void; toast: (
         </div>
         <fieldset className={css.fieldset}><legend>{L("Employment accepted (none ticked = not stated)", "Pekerjaan diterima (tiada = tidak dinyatakan)")}</legend>{EMP.map((x) => <label key={x} className={css.check}><input type="checkbox" checked={f.emp.includes(x)} onChange={(e) => toggle("emp", x, e.target.checked)} /> {x.replace("_", " ")}</label>)}</fieldset>
         <fieldset className={css.fieldset}><legend>{L("Documents the bank requires", "Dokumen yang diperlukan bank")}</legend>{REQ_DOCS.map(([k, w]) => <label key={k} className={css.check}><input type="checkbox" checked={f.docs.includes(k)} onChange={(e) => toggle("docs", k, e.target.checked)} /> {w}</label>)}</fieldset>
-        <button type="button" className={btnSmPrimary} disabled={!f.bank.trim() || f.source.trim().length < 5} onClick={() => void save()}>{L("Save draft", "Simpan draf")}</button>
-      </div>
+        <button type="button" className={btnSmPrimary} disabled={!f.bank || !offers.some((o) => String(o.bank_id) === f.bank && o.product === f.product) || f.source.trim().length < 5} onClick={() => void save()}>{L("Save draft", "Simpan draf")}</button>
+      </div>}
     </SideDrawer>
   );
 }

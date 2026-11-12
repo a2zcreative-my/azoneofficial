@@ -431,3 +431,12 @@ Financial Advisory fa_* tables (cases, consents, profiles, figures, documents,
 assessments, notes, criteria, banker contacts, events). It writes to no table
 that carries money, pay or people; the client stays one customers row, case
 tasks are ordinary tasks, and the bank's disbursement is never booked.
+1.286.0 adds `0184_fa_registry` (additive, IF NOT EXISTS only, no ALTER):
+the bank, branch and banker registry (fa_banks, fa_localities, fa_branches,
+fa_bank_products, fa_bankers, fa_banker_verifications, fa_banker_branches,
+fa_banker_products, fa_registry_events), the stage 2 tables (fa_matches,
+fa_allocations, fa_enquiries, fa_disclosures, fa_applications, unused), and
+fa_criteria_terms and fa_note_links beside the existing criteria and notes.
+0183 ran in production with 1.285.0 and is not edited; its free-text banker
+contacts stay in place, unused. No table that carries money, pay or people,
+and no row in users for any banker.

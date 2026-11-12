@@ -147,7 +147,11 @@ async function runtime(workerBundle) {
     ok(a1.j?.result?.outcome === "manual_review", "no verified bank criterion yet: manual review, never a pass or a rejection");
 
     /* ---------- criteria: verified only ---------- */
-    const dr = await call("/fa/criteria", 9, "POST", { bank: "Bank A", product: "personal_financing", dsr_guideline_pct: 60, required_documents: ["payslip", "epf"], source: "Bank A RM email, 01-11-2026" });
+    /* v1.286.0 - the bank comes from the one bank registry */
+    const bankA = await call("/fa/banks", 1, "POST", { name: "Bank A", kind: "commercial" });
+    await call(`/fa/banks/${bankA.j.id}/products`, 1, "POST", { product: "personal_financing", channel: "branch", source: "Invented test bank, test data" });
+    ok((await call("/fa/criteria", 9, "POST", { bank: "Bank A", product: "personal_financing", source: "Typed bank name only" })).status === 400, "a criterion's bank cannot be typed - it is chosen from the registry");
+    const dr = await call("/fa/criteria", 9, "POST", { bank_id: bankA.j.id, product: "personal_financing", dsr_guideline_pct: 60, required_documents: ["payslip", "epf"], source: "Bank A RM email, 01-11-2026" });
     ok(dr.status === 201, "Sales may propose a criterion (a draft)");
     ok((await call(`/fa/criteria/${dr.j.id}/verify`, 9, "POST", { last_verified_on: "2026-11-01" })).status === 403, "...but only management verifies it");
     ok((await call(`/fa/cases/${id1}/assess`, 9, "POST", { instalment_cents: 50000 })).j?.result?.outcome === "manual_review", "a draft criterion is never matched or treated as official");
@@ -169,14 +173,14 @@ async function runtime(workerBundle) {
     ok(ov.status === 200 && db.prepare(`SELECT override_result, prescreen FROM fa_cases WHERE id = ?`).get(id1)?.override_result === "manual_review" && db.prepare(`SELECT prescreen FROM fa_cases WHERE id = ?`).get(id1)?.prescreen === "affordability_concern" && n(`SELECT COUNT(*) AS n FROM fa_assessments WHERE case_id = ?`, id1) === nA && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'fa.override'`) === 1, "the CEO overrides with a reason; the computed result is kept and the override audited");
 
     /* ---------- notes ---------- */
-    const bf = await call(`/fa/cases/${id1}/notes`, 9, "POST", { type: "banker", bank: "Bank A", source: "call", status: "indicatively_suitable", body: "Profile looks acceptable subject to full documents", follow_up_on: "2026-11-14" });
+    const bf = await call(`/fa/cases/${id1}/notes`, 9, "POST", { type: "banker", bank_id: bankA.j.id, source: "call", status: "indicatively_suitable", body: "Profile looks acceptable subject to full documents", follow_up_on: "2026-11-14" });
     const cs = () => db.prepare(`SELECT banker_status, application_status FROM fa_cases WHERE id = ?`).get(id1);
     ok(bf.status === 201 && cs().banker_status === "indicatively_suitable" && cs().application_status === "not_submitted", "banker feedback moves the banker status only, never the application");
-    ok((await call(`/fa/cases/${id1}/notes`, 9, "POST", { type: "banker", bank: "Bank A", status: "officially_approved", body: "Banker says approved" })).status === 400, "a banker's word can never be recorded as an approval");
-    ok((await call(`/fa/cases/${id1}/notes`, 9, "POST", { type: "decision", bank: "Bank A", status: "officially_approved", body: "Approved" })).status === 403, "Sales cannot record an official decision");
-    ok((await call(`/fa/cases/${id1}/notes`, 1, "POST", { type: "decision", bank: "Bank A", status: "officially_approved", body: "Approved" })).j?.error?.code === "evidence_required", "an official decision needs the bank's document");
+    ok((await call(`/fa/cases/${id1}/notes`, 9, "POST", { type: "banker", bank_id: bankA.j.id, status: "officially_approved", body: "Banker says approved" })).status === 400, "a banker's word can never be recorded as an approval");
+    ok((await call(`/fa/cases/${id1}/notes`, 9, "POST", { type: "decision", bank_id: bankA.j.id, status: "officially_approved", body: "Approved" })).status === 403, "Sales cannot record an official decision");
+    ok((await call(`/fa/cases/${id1}/notes`, 1, "POST", { type: "decision", bank_id: bankA.j.id, status: "officially_approved", body: "Approved" })).j?.error?.code === "evidence_required", "an official decision needs the bank's document");
     const letter = await upload(id1, 9, "bank_decision");
-    const dc = await call(`/fa/cases/${id1}/notes`, 1, "POST", { type: "decision", bank: "Bank A", status: "officially_approved", body: "Letter of offer received", bank_reference: "BA-REF-1", approved_cents: 3000000, evidence_id: letter.j.id });
+    const dc = await call(`/fa/cases/${id1}/notes`, 1, "POST", { type: "decision", bank_id: bankA.j.id, status: "officially_approved", body: "Letter of offer received", bank_reference: "BA-REF-1", approved_cents: 3000000, evidence_id: letter.j.id });
     ok(dc.status === 201 && cs().application_status === "officially_approved", "with the letter, the CEO records the official decision", dc.text);
     let blocked = 0;
     for (const sql of [`UPDATE fa_notes SET body = 'x'`, `DELETE FROM fa_notes`, `UPDATE fa_events SET event = 'x'`, `DELETE FROM fa_assessments`]) { try { db.exec(sql); } catch { blocked++; } }

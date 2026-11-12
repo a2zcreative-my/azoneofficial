@@ -65,6 +65,16 @@ ok("a failed employment check: No Suitable Product", run(base, "personal_financi
 ok("a gross-income criterion uses gross", run(base, "personal_financing", [crit({ income_definition: "gross" })]).matches[0].checks[0].text.includes("44.6%"), run(base, "personal_financing", [crit({ income_definition: "gross" })]).matches[0].checks[0].text);
 ok("PTPTN excluded where the criterion says so", E.commitmentsOf([it("commitment", "ptptn", 20000), it("commitment", "car", 50000)], "exclude_ptptn") === 50000);
 
+/* v1.286.0 - age, amount and tenure, only when the verified criterion states them */
+const rA = run(base, "personal_financing", [crit({ min_age: 21, max_age: 58, min_amount_cents: 500000, max_amount_cents: 15000000, min_tenure_months: 12, max_tenure_months: 120 })], { instalment_cents: 50000, amount_cents: 3000000, tenure_months: 60 }, { employment_category: "permanent", age_years: 40 });
+const sA = (k) => rA.matches[0].checks.find((c) => c.key === k)?.state;
+ok("age, amount and tenure inside the ranges are satisfied", sA("age") === "ok" && sA("amount") === "ok" && sA("tenure") === "ok", JSON.stringify(rA.matches[0].checks));
+const rB = run(base, "personal_financing", [crit({ max_age: 58 })], { instalment_cents: 50000 }, { age_years: 60 });
+ok("an age above the bank's maximum fails the match (No Suitable Product)", rB.matches[0].checks.find((c) => c.key === "age")?.state === "failed" && rB.matches[0].fit === "fails");
+const rC = run(base, "personal_financing", [crit({ max_tenure_months: 84, min_age: 21 })], { instalment_cents: 50000, tenure_months: 120 }, {});
+ok("a tenure past the maximum fails; an unrecorded age is unverified, never assumed", rC.matches[0].checks.find((c) => c.key === "tenure")?.state === "failed" && rC.matches[0].checks.find((c) => c.key === "age")?.state === "unverified");
+ok("no range stated: no age, amount or tenure check at all", !run(base, "personal_financing", [crit()]).matches[0].checks.some((c) => ["age", "amount", "tenure"].includes(c.key)));
+
 /* illustrative instalment */
 ok("annuity instalment (RM 30,000, 60 months, 8%): RM 608.30, rounded up to the sen", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }) === 60830, E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }));
 ok("a given instalment wins; nothing given = null", E.instalmentOf({ instalment_cents: 50000 }) === 50000 && E.instalmentOf({}) === null);

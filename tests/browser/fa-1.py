@@ -86,19 +86,21 @@ with sync_playwright() as p:
         check(f"{tag}: banker feedback says Not a bank approval", "Not a bank approval." in nb and "Fixture Bank A" in nb, nb[:300])
         check(f"{tag}: the official decision group waits for the bank's written decision", "needs the bank's written decision" in pg.get_by_test_id("fa-notes-decision").inner_text())
         if w in (1440, 390):
-            pg.get_by_role("button", name="Add banker feedback").click(); pg.wait_for_timeout(300)
+            pg.get_by_role("button", name="Add banker feedback").click(); pg.wait_for_timeout(700)
             form = pg.get_by_test_id("fa-note-form")
-            opts = form.locator("select").nth(1).locator("option").all_inner_texts()
+            opts = form.get_by_label("Indicative assessment").locator("option").all_inner_texts()
             check(f"{tag}: banker feedback offers feedback words only, never approved", len(opts) == 5 and not any("approv" in o.lower() for o in opts), opts)
-            form.locator("input").first.fill("Fixture Bank A"); form.locator("select").nth(1).select_option("documents_required"); form.locator("textarea").fill("Fixture: send the last three payslips.")
+            # v1.286.0 - the banker and the bank come from the registry, never typed
+            check(f"{tag}: the note form has no typed bank - it picks from the registry", form.get_by_test_id("fa-note-banker").count() == 1 and form.get_by_test_id("fa-note-bank").count() == 1)
+            form.get_by_test_id("fa-note-banker").select_option("1"); form.get_by_label("Indicative assessment").select_option("documents_required"); form.locator("textarea").fill("Fixture: send the last three payslips.")
             form.get_by_role("button", name="Save note").click(); pg.wait_for_timeout(900)
             posts = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{CEO}/__fixture-status").read())["fa_posts"]
             sent = [x for x in posts if x["path"] == "/staff/fa/cases/1/notes"]
-            check(f"{tag}: saving banker feedback posts to the case's notes route as type banker", len(sent) == 1 and sent[0]["method"] == "POST" and sent[0]["body"].get("type") == "banker" and sent[0]["body"].get("status") == "documents_required", posts)
+            check(f"{tag}: saving banker feedback posts to the case's notes route as type banker", len(sent) == 1 and sent[0]["method"] == "POST" and sent[0]["body"].get("type") == "banker" and sent[0]["body"].get("status") == "documents_required" and sent[0]["body"].get("banker_id") == 1 and "bank" not in sent[0]["body"], posts)
             check(f"{tag}: the banker status chip follows the feedback", "Banker: documents required" in pg.get_by_test_id("fa-statuses").inner_text())
-            pg.get_by_role("button", name="Record official bank decision").click(); pg.wait_for_timeout(300)
+            pg.get_by_role("button", name="Record official bank decision").click(); pg.wait_for_timeout(500)
             form = pg.get_by_test_id("fa-note-form")
-            form.locator("input").first.fill("Fixture Bank A"); form.locator("textarea").fill("Fixture letter says approved.")
+            form.get_by_test_id("fa-note-bank").select_option("1"); form.locator("textarea").fill("Fixture letter says approved.")
             save = form.get_by_role("button", name="Save note")
             check(f"{tag}: an official decision cannot be saved without the bank's document", save.is_disabled())
             pg.get_by_role("button", name="Cancel").click(); pg.wait_for_timeout(200)

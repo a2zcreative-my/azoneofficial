@@ -27,8 +27,14 @@ const result2 = {
   consolidation: { before: { commitments_cents: 185000, dsr_bp: 3083 }, overlap: { commitments_cents: 185000, instalment_cents: 120000, dsr_bp: 5083 }, after: { commitments_cents: 100000, instalment_cents: 120000, dsr_bp: 3666, settled_ids: [22] } },
   unverified_commitments: 0, arrears: false, missing: [], outcome: "manual_review", reasons: ["The overlap period (50.8%) is above every verified guideline until settlement", "Preliminary only - the bank decides"], matches: [], ruleset: [],
 };
+const STATES = ["KUALA LUMPUR", "SELANGOR", "PUTRAJAYA", "NEGERI SEMBILAN", "JOHOR", "MELAKA", "KEDAH", "PERAK", "PERLIS", "TERENGGANU", "PULAU PINANG", "PAHANG", "KELANTAN", "SABAH", "SARAWAK", "LABUAN"];
 const people = { owner: { id: 9001, name: "Fixture Person" } };
 
+function asg(id, banker_id, branch_id, branch, state, district, coverage, coverage_areas) { return { id, banker_id, branch_id, is_primary: 1, coverage, coverage_areas, effective_from: "2026-11-01", branch, state, district }; }
+function bk(id, bank_id, full_name, position, work_email, work_phone, status_now, availability_now, assignments, products, facts) {
+  return { id, bank_id, bank: bank_id === 1 ? "Fixture Bank A Berhad" : "Fixture Bank B", full_name, position, work_email, work_phone, preferred_channel: work_email ? "work_email" : "work_phone", relationship_type: id === 3 ? "central_unit" : "direct",
+    owner_id: 9001, owner: "Fixture Person", case_limit: id === 1 ? 5 : null, open_cases: id === 1 ? 1 : 0, status_now, availability_now, registered_by: id === 2 ? 9001 : 9002, identity: facts.identity ?? null, referral: facts.referral ?? null, assignments, products };
+}
 function freshState() {
   return {
     cases: [
@@ -79,8 +85,33 @@ function freshState() {
       { id: 1, family: "fixture-bank-a:personal_financing", version: 1, bank: "Fixture Bank A", product: "personal_financing", income_definition: "net", commitment_definition: "all", dsr_guideline_bp: 6000, min_income_cents: 300000, employment_categories: null, min_service_months: null, required_documents: JSON.stringify(["payslip", "epf"]), source: "Fixture: product sheet, 01-11-2026", last_verified_on: "2026-11-01", state: "verified" },
       { id: 2, family: "fixture-bank-b:debt_consolidation", version: 1, bank: "Fixture Bank B", product: "debt_consolidation", income_definition: "gross", commitment_definition: "exclude_ptptn", dsr_guideline_bp: null, min_income_cents: null, employment_categories: JSON.stringify(["permanent", "government"]), min_service_months: 6, required_documents: null, source: "Fixture: call with relationship manager, 05-11-2026", last_verified_on: null, state: "draft" },
     ],
-    contacts: [{ id: 1, bank: "Fixture Bank A", contact_name: "Fixture Banker", contact_role: "Relationship manager", branch: "Fixture Branch", channel: "banker@fixture.test", channel_confirmed: 1, relationship: "active", owner: "Fixture Person" }],
-    log: { 1: [{ id: 1, channel: "call", summary: "Introduced A2Z; agreed to send enquiries only with consent.", created_at: "2026-11-05 02:00:00", actor: "Fixture Person" }] },
+    /* v1.286.0 - the registry: invented banks, branches and bankers only */
+    banks: [
+      { id: 1, name: "Fixture Bank A Berhad", kind: "commercial", status: "verified", website: null, source: "Fixture: invented test bank", last_verified_on: "2026-11-01", branches: 2, bankers: 3, retired_reason: null },
+      { id: 2, name: "Fixture Bank B", kind: "islamic", status: "pending", website: null, source: null, last_verified_on: null, branches: 1, bankers: 1, retired_reason: null },
+    ],
+    products: [
+      { id: 1, bank_id: 1, product: "personal_financing", channel: "branch", status: "active", source: "Fixture" },
+      { id: 2, bank_id: 1, product: "debt_consolidation", channel: "central", status: "active", source: "Fixture" },
+      { id: 3, bank_id: 2, product: "personal_financing", channel: "branch", status: "active", source: "Fixture" },
+    ],
+    localities: [{ id: 1, state: "JOHOR", district: "Johor Bahru", city: "Johor Bahru" }, { id: 2, state: "JOHOR", district: "Johor Bahru", city: "Skudai" }, { id: 3, state: "SELANGOR", district: "Petaling", city: "Shah Alam" }],
+    branches: [
+      { id: 1, bank_id: 1, bank: "Fixture Bank A Berhad", name: "Fixture JB City", code: "F01", address: "1 Jalan Fixture", postcode: "80000", state: "JOHOR", district: "Johor Bahru", city: "Johor Bahru", phone: "07-000 0001", status: "open", status_note: null, verified: 1, last_verified_on: "2026-11-01", source: "Fixture", bankers: 2 },
+      { id: 2, bank_id: 1, bank: "Fixture Bank A Berhad", name: "Fixture Skudai", code: null, address: null, postcode: "81300", state: "JOHOR", district: "Johor Bahru", city: "Skudai", phone: null, status: "open", status_note: null, verified: 0, last_verified_on: null, source: null, bankers: 0 },
+      { id: 3, bank_id: 2, bank: "Fixture Bank B", name: "Fixture Shah Alam", code: null, address: null, postcode: "40000", state: "SELANGOR", district: "Petaling", city: "Shah Alam", phone: null, status: "temporarily_closed", status_note: "Fixture: renovation", verified: 0, last_verified_on: null, source: null, bankers: 1 },
+    ],
+    bankers: [
+      bk(1, 1, "Fixture Banker Satu", "Relationship manager", "satu@fixturebank.test", "07-111 2222", "verified", "available", [asg(1, 1, 1, "Fixture JB City", "JOHOR", "Johor Bahru", "districts", '["Johor Bahru"]')], ["personal_financing"], { identity: { verified_on: "2026-11-01", next_review_on: "2027-11-01", method: "call_branch_line", due: false }, referral: { verified_on: "2026-11-02", next_review_on: "2027-11-02", restrictions: "Personal financing only", due: false } }),
+      bk(2, 1, "Fixture Banker Dua", "Personal financing executive", "dua@fixturebank.test", null, "pending_verification", "unknown", [asg(2, 2, 1, "Fixture JB City", "JOHOR", "Johor Bahru", "branch", null)], ["personal_financing"], {}),
+      bk(3, 1, "Fixture Banker Tiga Dengan Nama Yang Sangat Panjang", "Central unit", "tiga@fixturebank.test", null, "requires_reverification", "limited", [asg(3, 3, null, null, null, null, "national", null)], ["debt_consolidation"], { identity: { verified_on: "2025-10-01", next_review_on: "2026-10-01", method: "written_letter", due: true } }),
+      bk(4, 2, "Fixture Banker Empat", "Branch manager", "empat@fixturebankb.test", "03-555 0000", "no_longer_available", "unknown", [], ["personal_financing"], {}),
+    ],
+    regEvents: [
+      { id: 3, entity: "banker", entity_id: 2, event: "registered", detail: JSON.stringify({ bank: "Fixture Bank A Berhad" }), created_at: "2026-11-10 03:00:00", actor: "Fixture Person", subject: "Fixture Banker Dua" },
+      { id: 2, entity: "banker", entity_id: 1, event: "identity_verified", detail: JSON.stringify({ method: "call_branch_line", next_review_on: "2027-11-01" }), created_at: "2026-11-01 03:00:00", actor: "Fixture Person", subject: "Fixture Banker Satu" },
+      { id: 1, entity: "bank", entity_id: 1, event: "added", detail: null, created_at: "2026-10-30 03:00:00", actor: "Fixture Person", subject: "Fixture Bank A Berhad" },
+    ],
     posts: [],
   };
 }
@@ -122,7 +153,7 @@ export function faRoute(p, method, b) {
       if (b.type === "banker" && !["enquiry_sent", "under_review", "indicatively_suitable", "documents_required", "not_supported"].includes(b.status)) return [400, { error: { code: "invalid_input", message: "A banker's feedback is never an approval." } }];
       if (b.type === "decision" && !c.decide) return [403, { error: { code: "forbidden", message: "Only management records an official decision" } }];
       if (b.type === "decision" && !b.evidence_id) return [400, { error: { code: "evidence_required", message: "Attach the bank's letter." } }];
-      fa.notes[id].unshift({ id: 50 + fa.posts.length, note_type: b.type, bank: b.bank, source: b.source ?? null, status_value: b.status, body: b.body, conditions: b.conditions ?? null, missing_documents: b.missing_documents ?? null, follow_up_on: b.follow_up_on ?? null, bank_reference: b.bank_reference ?? null, approved_cents: b.approved_cents ?? null, evidence_id: b.evidence_id ?? null, corrects_id: null, author: "Fixture Person", author_role: ROLE(), created_at: "2026-11-11 06:30:00" });
+      fa.notes[id].unshift({ id: 50 + fa.posts.length, note_type: b.type, bank: (b.banker_id ? fa.bankers.find((x) => x.id === b.banker_id)?.bank : fa.banks.find((x) => x.id === b.bank_id)?.name) ?? null, source: b.source ?? null, status_value: b.status, body: b.body, conditions: b.conditions ?? null, missing_documents: b.missing_documents ?? null, follow_up_on: b.follow_up_on ?? null, bank_reference: b.bank_reference ?? null, approved_cents: b.approved_cents ?? null, evidence_id: b.evidence_id ?? null, corrects_id: null, author: "Fixture Person", author_role: ROLE(), created_at: "2026-11-11 06:30:00" });
       if (b.type === "banker") k.banker_status = b.status; else k.application_status = b.status;
       return [201, { ok: true }];
     }
@@ -130,9 +161,42 @@ export function faRoute(p, method, b) {
     if (method !== "GET") return [method === "POST" ? 201 : 200, { ok: true }];
   }
   if (p === "/staff/fa/criteria" && method === "GET") return [200, { criteria: fa.criteria, can: { propose: c.edit, verify: c.decide } }];
-  if (p === "/staff/fa/contacts" && method === "GET") return [200, { contacts: fa.contacts, can: { manage: c.decide, log: c.edit } }];
-  const lg = p.match(/^\/staff\/fa\/contacts\/(\d+)\/log$/);
-  if (lg && method === "GET") return [200, { log: fa.log[Number(lg[1])] ?? [] }];
+  /* v1.286.0 - the registry (rules proven by tests/fa-registry.mjs) */
+  if (p === "/staff/fa/registry" && method === "GET") return [200, { banks: fa.banks, products: fa.products, localities: fa.localities, branches: fa.branches, bankers: fa.bankers, states: STATES, today: "2026-11-12", can: { register: c.edit, manage: c.decide } }];
+  if (p === "/staff/fa/registry/events" && method === "GET") return [200, { events: fa.regEvents }];
+  const one = p.match(/^\/staff\/fa\/bankers\/(\d+)$/);
+  if (one && method === "GET") {
+    const x = fa.bankers.find((y) => y.id === Number(one[1]));
+    if (!x) return [404, { error: { code: "not_found", message: "Banker not found" } }];
+    const verifications = [x.referral && { id: 2, fact: "referral", method: "written_letter", evidence: "Fixture: branch letter", restrictions: x.referral.restrictions, verified_on: x.referral.verified_on, next_review_on: x.referral.next_review_on, verified_by_name: "Fixture Person" },
+      x.identity && { id: 1, fact: "identity", method: x.identity.method, evidence: "Fixture: called the official line", restrictions: null, verified_on: x.identity.verified_on, next_review_on: x.identity.next_review_on, verified_by_name: "Fixture Person" }].filter(Boolean);
+    const assignments = [...x.assignments.map((a) => ({ ...a, ended_on: null, end_reason: null, city: null })), ...(x.id === 1 ? [{ ...asg(9, 1, 2, "Fixture Skudai", "JOHOR", "Johor Bahru", "branch", null), is_primary: 0, effective_from: "2025-01-01", ended_on: "2026-10-31", end_reason: "Transfer: Fixture move", city: null }] : [])];
+    return [200, { banker: { ...x, notes: null, registered_by_name: "Fixture Person", status_reason: null, created_at: "2026-10-30 03:00:00", unavailable_until: null, duplicate_reason: null }, verifications, assignments,
+      events: fa.regEvents.filter((e) => e.entity === "banker" && e.entity_id === x.id), today: "2026-11-12", can: { register: c.edit, manage: c.decide, availability: c.decide || x.owner_id === 9001 } }];
+  }
+  if (p === "/staff/fa/bankers" && method === "POST") {
+    const email = String(b.work_email ?? "").trim().toLowerCase(), phone = String(b.work_phone ?? "").replace(/\D/g, "").replace(/^60/, "0");
+    const same = fa.bankers.find((x) => x.work_email && x.work_email.toLowerCase() === email);
+    if (email && same) return [409, { error: { code: "duplicate_banker", message: `${same.full_name} (${same.bank}) already has this work email - open that record.` }, existing: { id: same.id, full_name: same.full_name, bank: same.bank } }];
+    const sameP = fa.bankers.find((x) => x.work_phone && x.work_phone.replace(/\D/g, "") === phone);
+    if (phone && sameP && String(b.different_reason ?? "").trim().length < 10) return [409, { error: { code: "possible_duplicate", message: `${sameP.full_name} (${sameP.bank}) has the same work phone. Open that record, or say why this is a different person.` }, existing: { id: sameP.id } }];
+    const id = fa.bankers.length + 1;
+    fa.bankers.push(bk(id, b.bank_id, b.full_name, b.position ?? null, b.work_email ?? null, b.work_phone ?? null, "pending_verification", "unknown", [], b.products ?? [], {}));
+    return [201, { ok: true, id, status: "pending_verification", same_name_as: [] }];
+  }
+  const vf = p.match(/^\/staff\/fa\/bankers\/(\d+)\/verify$/);
+  if (vf && method === "POST") {
+    if (!c.decide) return [403, { error: { code: "forbidden", message: "Only the CEO or COO verifies a banker" } }];
+    const x = fa.bankers.find((y) => y.id === Number(vf[1]));
+    if (ROLE() !== "ceo" && x?.registered_by === 9001) return [403, { error: { code: "self_approval", message: "You registered this banker - someone else verifies them." } }];
+    if (x && b.fact === "identity") { x.identity = { verified_on: b.verified_on, next_review_on: "2027-11-12", method: b.method, due: false }; x.status_now = "verified"; }
+    return [200, { ok: true, next_review_on: "2027-11-12" }];
+  }
+  if (p === "/staff/fa/branches" && method === "POST") {
+    const loc = fa.localities.find((l) => l.id === b.locality_id);
+    if (loc && String(b.postcode).startsWith("5") && loc.state === "JOHOR" && String(b.postcode_note ?? "").trim().length < 5) return [409, { error: { code: "postcode_state_mismatch", message: `Postcode ${b.postcode} reads as KUALA LUMPUR, not JOHOR. Check it, or say why it is right.` } }];
+    return [201, { ok: true, id: 10 + fa.posts.length, same_name_elsewhere: [] }];
+  }
   if (method !== "GET") return [method === "POST" ? 201 : 200, { ok: true }];
   return null;
 }

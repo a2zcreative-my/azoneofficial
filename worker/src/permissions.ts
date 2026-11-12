@@ -296,6 +296,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   fa_decide: ["ceo", "coo"],
   /** verify and publish bank criteria; manage banker relations */
   fa_criteria: ["ceo", "coo"],
+  fa_registry: ["ceo", "coo"], // v1.286.0 - add and verify banks, branches and bankers (blueprint v1.1, B9)
   /** view and process payroll (was PAYROLL_PROC) */
   payroll_process: ["super_admin", "admin", "ceo", "coo"],
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
@@ -509,7 +510,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Financial Advisory", key: "fa_view", en: "Open Financial Advisory (own cases)", ms: "Buka Nasihat Kewangan (kes sendiri)", cap: "fa_view" },
   { module: "Financial Advisory", key: "fa_edit", en: "Record client profiles, figures, documents and banker feedback", ms: "Rekod profil, angka, dokumen dan maklum balas bank pelanggan", cap: "fa_edit", note_en: "Own cases only, unless fa_decide", note_ms: "Kes sendiri sahaja, kecuali fa_decide" },
   { module: "Financial Advisory", key: "fa_decide", en: "Every case; official bank decisions; pre-screen overrides", ms: "Semua kes; keputusan rasmi bank; mengatasi saringan awal", cap: "fa_decide" },
-  { module: "Financial Advisory", key: "fa_criteria", en: "Verify bank criteria; manage banker relations", ms: "Sahkan kriteria bank; urus hubungan bank", cap: "fa_criteria" },
+  { module: "Financial Advisory", key: "fa_criteria", en: "Verify bank criteria", ms: "Sahkan kriteria bank", cap: "fa_criteria" },
+  { module: "Financial Advisory", key: "fa_registry", en: "Add and verify banks, branches and bankers", ms: "Tambah dan sahkan bank, cawangan dan pegawai bank", cap: "fa_registry", note_en: "Never a banker they registered themselves (the owner apart)", note_ms: "Tidak pegawai bank yang didaftar sendiri (kecuali pemilik)" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },

@@ -33,9 +33,10 @@ export interface FaItem {
 export interface FaCriterion {
   id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string;
   dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null;
-  required_documents: string | null; last_verified_on: string | null; state: string;
+  required_documents: string | null; last_verified_on: string | null; state: string; bank_id?: number | null;
+  min_age?: number | null; max_age?: number | null; min_amount_cents?: number | null; max_amount_cents?: number | null; min_tenure_months?: number | null; max_tenure_months?: number | null;
 }
-export interface FaProfile { employment_category?: string | null; service_months?: number | null }
+export interface FaProfile { employment_category?: string | null; service_months?: number | null; age_years?: number | null }
 export interface Proposal { instalment_cents?: number | null; amount_cents?: number | null; tenure_months?: number | null; rate_bp?: number | null }
 export type CheckState = "ok" | "unverified" | "failed";
 export interface Check { key: string; state: CheckState; text: string }
@@ -158,6 +159,21 @@ export function assess(input: {
     if (c.min_service_months != null) {
       const m = profile?.service_months ?? null;
       checks.push(m == null ? { key: "service", state: "unverified", text: "Length of service not recorded" } : { key: "service", state: m >= c.min_service_months ? "ok" : "failed", text: `Service ${m} months vs minimum ${c.min_service_months}` });
+    }
+    /* v1.286.0 - age, amount and tenure ranges, only when the verified criterion states them */
+    const age = profile?.age_years ?? null;
+    if (c.min_age != null || c.max_age != null) {
+      const lo = c.min_age ?? 0, hi = c.max_age ?? 200;
+      checks.push(age == null ? { key: "age", state: "unverified", text: "Age not recorded" } : { key: "age", state: age >= lo && age <= hi ? "ok" : "failed", text: `Age ${age} vs ${c.min_age ?? "-"} to ${c.max_age ?? "-"}` });
+    }
+    if (product !== "advisory_only" && (c.min_amount_cents != null || c.max_amount_cents != null)) {
+      const a = proposal.amount_cents ?? null, lo = c.min_amount_cents ?? 0, hi = c.max_amount_cents ?? Number.MAX_SAFE_INTEGER;
+      const rm = (x: number | null | undefined) => (x == null ? "-" : `RM ${(x / 100).toFixed(2)}`);
+      checks.push(a == null ? { key: "amount", state: "unverified", text: "Amount not proposed" } : { key: "amount", state: a >= lo && a <= hi ? "ok" : "failed", text: `Amount ${rm(a)} vs ${rm(c.min_amount_cents)} to ${rm(c.max_amount_cents)}` });
+    }
+    if (product !== "advisory_only" && (c.min_tenure_months != null || c.max_tenure_months != null)) {
+      const t = proposal.tenure_months ?? null, lo = c.min_tenure_months ?? 0, hi = c.max_tenure_months ?? 10000;
+      checks.push(t == null ? { key: "tenure", state: "unverified", text: "Tenure not proposed" } : { key: "tenure", state: t >= lo && t <= hi ? "ok" : "failed", text: `Tenure ${t} months vs ${c.min_tenure_months ?? "-"} to ${c.max_tenure_months ?? "-"}` });
     }
     if (unverified > 0) checks.push({ key: "commitments", state: "unverified", text: `${unverified} commitment${unverified === 1 ? " is" : "s are"} declared, not verified` });
     const hardFail = checks.some((k) => k.state === "failed" && k.key !== "dsr");

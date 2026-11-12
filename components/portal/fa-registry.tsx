@@ -1,0 +1,667 @@
+"use client";
+
+/* v1.286.0 - FINANCIAL ADVISORY: BANKERS (the CEO, 12-11-2026: "proceed with
+   Banker Registration, Branch Network & Smart Allocation Blueprint v1.1";
+   claude/BANKER-REGISTRY-BLUEPRINT-v1.1.md, stage 1). Replaces the old
+   free-text banker contacts with the ONE registry:
+
+     Directory   every banker once: search, bank, state, product and status
+                 filters; Register banker in four steps; one banker's record
+                 with its verifications, where they work and the history
+     Branches    each bank's branches, placed by state, district and city
+                 from the place list; closed or renamed, never deleted
+     Banks       the bank list and what each offers, at branches or centrally
+     History     every registry change, append only
+
+   Registering a banker never verifies them, never creates a login and
+   never sends anything. Verification is two separate facts (contact
+   identity, referral permission), each with its evidence and a review date,
+   and nobody verifies a banker they registered themselves. */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { dmy, dmyMYT, mytToday } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
+import { SideDrawer } from "@/components/ui/side-drawer";
+import { LineTabs } from "@/components/ui/line-tabs";
+import { AppIcon } from "@/components/ui/app-icon";
+import { SkelRows } from "@/components/ui/skeleton";
+import { btnSm, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
+import css from "./financial-advisory.module.css";
+
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+type Toast = (t: string, m: string, v?: "notice") => void;
+type Err = { error?: { message?: string; code?: string }; existing?: { id: number; full_name?: string; bank?: string; name?: string } };
+type Sub = "directory" | "branches" | "banks" | "history";
+
+interface Bank { id: number; name: string; kind: string; status: string; website: string | null; source: string | null; last_verified_on: string | null; branches: number; bankers: number; retired_reason: string | null }
+interface BankProduct { id: number; bank_id: number; product: string; channel: string; status: string; source: string | null }
+interface Place { id: number; state: string; district: string; city: string }
+interface Branch { id: number; bank_id: number; bank: string; name: string; code: string | null; address: string | null; postcode: string; state: string | null; district: string | null; city: string | null; phone: string | null; status: string; status_note: string | null; verified: number; last_verified_on: string | null; source: string | null; bankers: number }
+interface Assignment { id: number; banker_id: number; branch_id: number | null; is_primary: number; coverage: string; coverage_areas: string | null; effective_from: string; branch: string | null; state: string | null; district: string | null }
+interface Banker {
+  id: number; bank_id: number; bank: string; full_name: string; position: string | null; work_email: string | null; work_phone: string | null; preferred_channel: string; relationship_type: string;
+  owner_id: number | null; owner: string | null; case_limit: number | null; open_cases: number; status_now: string; availability_now: string; registered_by: number;
+  identity: { verified_on: string; next_review_on: string; method: string; due: boolean } | null; referral: { verified_on: string; next_review_on: string; restrictions: string | null; due: boolean } | null;
+  assignments: Assignment[]; products: string[];
+}
+interface Registry { banks: Bank[]; products: BankProduct[]; localities: Place[]; branches: Branch[]; bankers: Banker[]; states: string[]; today: string; can: { register: boolean; manage: boolean } }
+
+const PRODUCTS: [string, string, string][] = [["personal_financing", "Personal financing", "Pembiayaan peribadi"], ["debt_consolidation", "Debt consolidation", "Penyatuan hutang"]];
+const productWord = (p: string) => { const x = PRODUCTS.find((r) => r[0] === p); return x ? L(x[1], x[2]) : p.replace(/_/g, " "); };
+export const BANKER_STATUS: Record<string, [string, string, string]> = {
+  pending_verification: ["Pending verification", "Menunggu pengesahan", chipSmWarn],
+  verified: ["Verified", "Disahkan", chipSmSuccess],
+  requires_reverification: ["Requires reverification", "Perlu disahkan semula", chipSmDanger],
+  inactive: ["Inactive", "Tidak aktif", chipSmNeutral],
+  no_longer_available: ["No longer available", "Tidak lagi tersedia", chipSmNeutral],
+};
+const AVAIL: Record<string, [string, string, string]> = {
+  available: ["Available", "Tersedia", chipSmSuccess], limited: ["Limited capacity", "Kapasiti terhad", chipSmWarn],
+  unavailable: ["Unavailable", "Tidak tersedia", chipSmDanger], unknown: ["Availability unknown", "Ketersediaan tidak diketahui", chipSmNeutral],
+};
+const RELATION: Record<string, [string, string]> = { direct: ["Direct contact", "Hubungan terus"], referral: ["Referral partner", "Rakan rujukan"], central_unit: ["Central unit", "Unit pusat"], other: ["Other", "Lain-lain"] };
+const CHANNEL: Record<string, [string, string]> = { work_email: ["Work email", "E-mel kerja"], work_phone: ["Work phone", "Telefon kerja"], whatsapp_work: ["WhatsApp (work number)", "WhatsApp (nombor kerja)"], in_person: ["In person", "Bersemuka"] };
+const METHOD: Record<string, [string, string]> = {
+  call_branch_line: ["Called the branch's official line", "Panggil talian rasmi cawangan"], bank_domain_email: ["Email from the bank's own domain", "E-mel daripada domain bank"],
+  in_person: ["Met at the branch", "Bertemu di cawangan"], written_letter: ["Letter from the bank", "Surat daripada bank"], other: ["Other (described below)", "Lain-lain (diterangkan di bawah)"],
+};
+const EVENT: Record<string, [string, string]> = {
+  added: ["Added", "Ditambah"], verified: ["Verified", "Disahkan"], retired: ["Retired", "Ditamatkan"], product_set: ["Product set", "Produk ditetapkan"], product_retired: ["Product retired", "Produk ditamatkan"],
+  renamed: ["Renamed", "Dinamakan semula"], status: ["Status changed", "Status ditukar"], registered: ["Registered", "Didaftarkan"], identity_verified: ["Contact identity verified", "Identiti kenalan disahkan"],
+  referral_verified: ["Referral permission confirmed", "Kebenaran rujukan disahkan"], availability: ["Availability updated", "Ketersediaan dikemas kini"], transferred: ["Transferred", "Dipindahkan"],
+  assignment_ended: ["Assignment ended", "Tugasan ditamatkan"], products: ["Products changed", "Produk ditukar"],
+};
+const ENTITY: Record<string, [string, string]> = { bank: ["Bank", "Bank"], branch: ["Branch", "Cawangan"], banker: ["Banker", "Pegawai bank"], locality: ["Place", "Tempat"] };
+const chip = (map: Record<string, [string, string, string]>, k: string) => { const x = map[k] ?? [k, k, chipSmNeutral]; return <span className={`${x[2]} ${css.chip}`}>{L(x[0], x[1])}</span>; };
+const areas = (s: string | null) => { try { const v = s ? (JSON.parse(s) as string[]) : []; return Array.isArray(v) ? v : []; } catch { return []; } };
+const whereText = (a: Assignment) => a.branch_id == null ? L("Central channel", "Saluran pusat") : [a.branch, a.district, a.state].filter(Boolean).join(", ");
+const coverText = (a: Assignment) => a.coverage === "national" ? L("national", "seluruh negara") : a.coverage === "branch" ? L("branch only", "cawangan sahaja") : areas(a.coverage_areas).join(", ");
+const errMsg = (d: unknown) => (d as Err | null)?.error?.message ?? L("Please try again.", "Sila cuba lagi.");
+
+async function post(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: Err | null }> {
+  const r = await api<Err>(path, { method: "POST", body: JSON.stringify(body) });
+  return { ok: r.ok, status: r.status ?? (r.ok ? 200 : 400), data: (r.data as Err | null) ?? null };
+}
+
+export function BankerRegistry({ toast }: { toast: Toast }) {
+  const [sub, setSub] = useState<Sub>("directory");
+  const [data, setData] = useState<Registry | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [tick, setTick] = useState(0);
+  const reload = useCallback(() => setTick((t) => t + 1), []);
+  useEffect(() => {
+    let live = true;
+    void api<Registry>("/staff/fa/registry").then((r) => { if (!live) return; if (r.ok && r.data) { setData(r.data); setFailed(false); } else setFailed(true); });
+    return () => { live = false; };
+  }, [tick]);
+  const due = (data?.bankers ?? []).filter((b) => b.status_now === "pending_verification" || b.status_now === "requires_reverification").length;
+  return (
+    <div className={css.stack} data-testid="fa-registry">
+      <LineTabs value={sub} onChange={setSub} label={L("Bankers", "Pegawai bank")} tabs={[
+        ["directory", L("Banker directory", "Direktori pegawai bank"), due || null, L("Directory", "Direktori")],
+        ["branches", L("Branch registry", "Daftar cawangan"), null, L("Branches", "Cawangan")],
+        ["banks", L("Bank registry", "Daftar bank"), null, L("Banks", "Bank")],
+        ["history", L("Audit history", "Sejarah audit"), null, L("History", "Sejarah")],
+      ]} />
+      {failed ? (
+        <div className={`${card} ${css.sec}`}><p className={css.empty}>{L("The banker registry could not load.", "Daftar pegawai bank tidak dapat dimuatkan.")}</p><button type="button" className={btnSm} onClick={reload}>{L("Try again", "Cuba lagi")}</button></div>
+      ) : !data ? <div className={`${card} ${css.sec}`}><SkelRows rows={5} /></div> : (
+        <>
+          {sub === "directory" && <Directory data={data} toast={toast} reload={reload} />}
+          {sub === "branches" && <Branches data={data} toast={toast} reload={reload} />}
+          {sub === "banks" && <Banks data={data} toast={toast} reload={reload} />}
+          {sub === "history" && <History />}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================ the directory ============================ */
+
+function Directory({ data, toast, reload }: { data: Registry; toast: Toast; reload: () => void }) {
+  const [q, setQ] = useState("");
+  const [bank, setBank] = useState("");
+  const [state, setState] = useState("");
+  const [product, setProduct] = useState("");
+  const [status, setStatus] = useState("current");
+  const [open, setOpen] = useState<number | null>(null);
+  const [registering, setRegistering] = useState(false);
+  const rows = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return data.bankers.filter((b) => (!t || `${b.full_name} ${b.bank} ${b.position ?? ""} ${b.assignments.map(whereText).join(" ")}`.toLowerCase().includes(t))
+      && (!bank || String(b.bank_id) === bank)
+      && (!state || b.assignments.some((a) => a.state === state || (a.coverage === "states" && areas(a.coverage_areas).includes(state)) || a.coverage === "national"))
+      && (!product || b.products.includes(product))
+      && (status === "all" || (status === "current" ? b.status_now !== "no_longer_available" && b.status_now !== "inactive" : b.status_now === status)));
+  }, [data.bankers, q, bank, state, product, status]);
+  return (
+    <section className={`${card} ${css.sec}`} aria-label={L("Banker directory", "Direktori pegawai bank")} data-testid="fa-directory">
+      <div className={css.head}>
+        <h3 className={css.h}><AppIcon name="users" />{L("Banker directory", "Direktori pegawai bank")} <span className={css.sub}>{rows.length} / {data.bankers.length}</span></h3>
+        {data.can.register && <button type="button" className={btnSmPrimary} onClick={() => setRegistering(true)} data-testid="fa-register"><AppIcon name="add" />{L("Register banker", "Daftar pegawai bank")}</button>}
+      </div>
+      <p className={css.sub}>{L("Registering a banker gives them no portal access and sends them nothing. A banker is used only once verified, and only within their recorded products and areas.", "Mendaftar pegawai bank tidak memberi akses portal dan tidak menghantar apa-apa. Pegawai bank digunakan hanya selepas disahkan, dan hanya dalam produk dan kawasan yang direkod.")}</p>
+      <div className={css.tools}>
+        <input className={inputClassSm} type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search name, bank or branch", "Cari nama, bank atau cawangan")} aria-label={L("Search bankers", "Cari pegawai bank")} />
+        <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value)} aria-label={L("Bank", "Bank")}><option value="">{L("All banks", "Semua bank")}</option>{data.banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+        <select className={selectClassSm} value={state} onChange={(e) => setState(e.target.value)} aria-label={L("State", "Negeri")}><option value="">{L("All states", "Semua negeri")}</option>{data.states.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+        <select className={selectClassSm} value={product} onChange={(e) => setProduct(e.target.value)} aria-label={L("Product", "Produk")}><option value="">{L("All products", "Semua produk")}</option>{PRODUCTS.map(([k]) => <option key={k} value={k}>{productWord(k)}</option>)}</select>
+        <select className={selectClassSm} value={status} onChange={(e) => setStatus(e.target.value)} aria-label={L("Status", "Status")}>
+          <option value="current">{L("Current bankers", "Pegawai semasa")}</option>
+          {Object.entries(BANKER_STATUS).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}
+          <option value="all">{L("Everyone", "Semua")}</option>
+        </select>
+      </div>
+      {data.bankers.length === 0 ? <p className={css.empty}>{data.banks.length === 0 ? L("No bank in the registry yet. Management adds the banks first (Bank registry), then their branches.", "Belum ada bank dalam daftar. Pengurusan menambah bank dahulu (Daftar bank), kemudian cawangan.") : L("No banker registered yet.", "Belum ada pegawai bank didaftarkan.")}</p>
+        : rows.length === 0 ? <p className={css.empty}>{L("No banker matches these filters.", "Tiada pegawai bank sepadan dengan penapis ini.")}</p> : (
+          <ul className={css.rows}>{rows.map((b) => {
+            const primary = b.assignments.find((a) => a.is_primary) ?? b.assignments[0];
+            return (
+              <li key={b.id}>
+                <button type="button" className={css.bankerRow} onClick={() => setOpen(b.id)} data-testid="fa-banker">
+                  <span className={css.who}><b>{b.full_name}</b><span className={css.sub}>{[b.position, b.bank].filter(Boolean).join(" · ")}</span></span>
+                  <span className={css.who}><span className={css.sub}>{primary ? whereText(primary) : L("No current branch", "Tiada cawangan semasa")}</span><span className={css.sub}>{b.products.map(productWord).join(" · ")}</span></span>
+                  <span className={css.chips}>{chip(BANKER_STATUS, b.status_now)}{b.status_now === "verified" || b.status_now === "requires_reverification" ? chip(AVAIL, b.availability_now) : null}</span>
+                  <span className={css.when}>{b.owner ? `${L("Owner", "Pemilik")}: ${b.owner}` : ""}</span>
+                </button>
+              </li>
+            );
+          })}</ul>
+        )}
+      {registering && <Register data={data} toast={toast} onClose={() => setRegistering(false)} done={(id) => { setRegistering(false); reload(); setOpen(id); }} openExisting={(id) => { setRegistering(false); setOpen(id); }} />}
+      {open != null && <BankerRecord id={open} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} />}
+    </section>
+  );
+}
+
+type Assign = { branch_id: number | null; coverage: string; areas: string; primary: boolean };
+const blankAssign = (): Assign => ({ branch_id: null, coverage: "branch", areas: "", primary: true });
+
+function Register({ data, toast, onClose, done, openExisting }: { data: Registry; toast: Toast; onClose: () => void; done: (id: number) => void; openExisting: (id: number) => void }) {
+  const [step, setStep] = useState(1);
+  const [f, setF] = useState({ bank_id: "", full_name: "", position: "", work_email: "", work_phone: "", preferred_channel: "work_email", relationship_type: "direct", products: [] as string[], notes: "", different_reason: "" });
+  const [where, setWhere] = useState<Assign[]>([blankAssign()]);
+  const [busy, setBusy] = useState(false);
+  const [dup, setDup] = useState<{ code: string; message: string; id?: number } | null>(null);
+  const banks = data.banks.filter((b) => b.status !== "retired");
+  const bankId = Number(f.bank_id) || null;
+  const offered = data.products.filter((p) => p.bank_id === bankId && p.status === "active");
+  const central = offered.some((p) => p.channel === "central");
+  const branches = data.branches.filter((b) => b.bank_id === bankId && b.status !== "closed");
+  const sameName = f.full_name.trim().length > 2 ? data.bankers.filter((b) => b.full_name.toLowerCase().replace(/[^a-z]+/g, " ").trim() === f.full_name.toLowerCase().replace(/[^a-z]+/g, " ").trim()) : [];
+  const set = (k: keyof typeof f, v: string | string[]) => { setF({ ...f, [k]: v }); setDup(null); };
+  const ok1 = !!bankId && f.full_name.trim().length >= 3;
+  const ok2 = !!(f.work_email.trim() || f.work_phone.trim()) && (!f.work_email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.work_email.trim()));
+  const ok3 = f.products.length > 0 && where.length > 0 && where.every((a) => (a.branch_id != null || central) && (a.coverage === "branch" || a.coverage === "national" || a.areas.trim()));
+  const save = async () => {
+    setBusy(true);
+    const r = await post("/staff/fa/bankers", {
+      bank_id: bankId, full_name: f.full_name, position: f.position || undefined, work_email: f.work_email || undefined, work_phone: f.work_phone || undefined,
+      preferred_channel: f.preferred_channel, relationship_type: f.relationship_type, products: f.products, notes: f.notes || undefined, different_reason: f.different_reason || undefined,
+      assignments: where.map((a, i) => ({ branch_id: a.branch_id, coverage: a.branch_id == null && a.coverage === "branch" ? "national" : a.coverage, areas: a.areas.split(",").map((x) => x.trim()).filter(Boolean), primary: i === 0 })),
+    });
+    setBusy(false);
+    if (!r.ok) {
+      const code = r.data?.error?.code ?? "";
+      if (code === "duplicate_banker" || code === "possible_duplicate") { setDup({ code, message: errMsg(r.data), id: r.data?.existing?.id }); return; }
+      toast(L("Not registered", "Tidak didaftarkan"), errMsg(r.data), "notice"); return;
+    }
+    toast(L("Banker registered", "Pegawai bank didaftarkan"), L("Pending verification - management verifies before use.", "Menunggu pengesahan - pengurusan mengesahkan sebelum digunakan."));
+    done(Number((r.data as unknown as { id: number }).id));
+  };
+  const STEPS: [number, string, string][] = [[1, "Bank and person", "Bank dan individu"], [2, "Work contact", "Hubungan kerja"], [3, "Where and what", "Di mana dan apa"], [4, "Review", "Semak"]];
+  return (
+    <SideDrawer open onClose={onClose} dirty={!!(f.full_name || f.work_email || f.work_phone)} title={L("Register banker", "Daftar pegawai bank")} subtitle={`${L("Step", "Langkah")} ${step} / 4 · ${L(STEPS[step - 1]![1], STEPS[step - 1]![2])}`}
+      footer={(
+        <div className={css.row}>
+          {step > 1 && <button type="button" className={btnSmQuiet} onClick={() => setStep(step - 1)}>{L("Back", "Kembali")}</button>}
+          {step < 4 && <button type="button" className={btnSmPrimary} data-testid="fa-reg-next" disabled={step === 1 ? !ok1 : step === 2 ? !ok2 : !ok3} onClick={() => setStep(step + 1)}>{L("Next", "Seterusnya")}</button>}
+          {step === 4 && <button type="button" className={btnSmPrimary} data-testid="fa-reg-save" disabled={busy || !ok1 || !ok2 || !ok3 || (dup?.code === "possible_duplicate" && f.different_reason.trim().length < 10) || dup?.code === "duplicate_banker"} onClick={() => void save()}>{busy ? L("Registering…", "Mendaftar…") : L("Register as pending", "Daftar sebagai menunggu")}</button>}
+        </div>
+      )}>
+      <div className={css.stack}>
+        <ol className={css.steps} aria-label={L("Steps", "Langkah")}>{STEPS.map(([n, en, ms]) => <li key={n} className={n === step ? css.now : n < step ? css.done : css.todo} aria-current={n === step ? "step" : undefined}>{n}. {L(en, ms)}</li>)}</ol>
+        {step === 1 && (
+          <div className={css.form}>
+            <label className={css.field}>{L("Bank (from the registry)", "Bank (daripada daftar)")}
+              <select className={selectClassSm} value={f.bank_id} onChange={(e) => { setF({ ...f, bank_id: e.target.value, products: [] }); setWhere([blankAssign()]); setDup(null); }} data-testid="fa-reg-bank">
+                <option value="">—</option>{banks.map((b) => <option key={b.id} value={b.id}>{b.name}{b.status === "pending" ? ` (${L("bank not yet verified", "bank belum disahkan")})` : ""}</option>)}
+              </select></label>
+            <label className={css.field}>{L("Full name", "Nama penuh")}<input className={inputClassSm} value={f.full_name} maxLength={120} onChange={(e) => set("full_name", e.target.value)} data-testid="fa-reg-name" /></label>
+            <label className={css.field}>{L("Position", "Jawatan")}<input className={inputClassSm} value={f.position} maxLength={80} onChange={(e) => set("position", e.target.value)} placeholder={L("e.g. Relationship manager", "cth. Pengurus perhubungan")} /></label>
+            {banks.length === 0 && <p className={`erp-note ${css.wide}`}>{L("There is no bank in the registry yet. The CEO or COO adds it first.", "Belum ada bank dalam daftar. CEO atau COO menambahnya dahulu.")}</p>}
+            {sameName.length > 0 && <p className={`erp-note ${css.wide}`} data-testid="fa-reg-samename">{L("Someone with this name is already in the directory:", "Seseorang dengan nama ini sudah ada dalam direktori:")} {sameName.map((b) => `${b.full_name} (${b.bank})`).join("; ")}. {L("A name alone never merges records - check the work contact.", "Nama sahaja tidak menggabungkan rekod - semak hubungan kerja.")}</p>}
+          </div>
+        )}
+        {step === 2 && (
+          <div className={css.form}>
+            <label className={css.field}>{L("Work email", "E-mel kerja")}<input className={inputClassSm} type="email" value={f.work_email} maxLength={160} onChange={(e) => set("work_email", e.target.value)} data-testid="fa-reg-email" /></label>
+            <label className={css.field}>{L("Work phone", "Telefon kerja")}<input className={inputClassSm} inputMode="tel" value={f.work_phone} maxLength={40} onChange={(e) => set("work_phone", e.target.value)} data-testid="fa-reg-phone" /></label>
+            <label className={css.field}>{L("Preferred channel", "Saluran pilihan")}<select className={selectClassSm} value={f.preferred_channel} onChange={(e) => set("preferred_channel", e.target.value)}>{Object.entries(CHANNEL).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}</select></label>
+            <label className={css.field}>{L("Relationship", "Hubungan")}<select className={selectClassSm} value={f.relationship_type} onChange={(e) => set("relationship_type", e.target.value)}>{Object.entries(RELATION).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}</select></label>
+            <p className={`erp-note ${css.wide}`}>{L("Work contact only - never a personal number, a password or an online-banking login.", "Hubungan kerja sahaja - bukan nombor peribadi, kata laluan atau log masuk perbankan.")}</p>
+          </div>
+        )}
+        {step === 3 && (
+          <div className={css.stack}>
+            <fieldset className={css.fieldset}><legend>{L("Products this banker handles", "Produk yang dikendalikan")}</legend>
+              {offered.length === 0 ? <span className={css.sub}>{L("This bank has no product in the registry yet - management adds it in Bank registry.", "Bank ini belum ada produk dalam daftar - pengurusan menambahnya dalam Daftar bank.")}</span>
+                : offered.map((p) => <label key={p.product} className={css.check}><input type="checkbox" checked={f.products.includes(p.product)} onChange={(e) => set("products", e.target.checked ? [...f.products, p.product] : f.products.filter((x) => x !== p.product))} /> {productWord(p.product)}{p.channel === "central" ? ` (${L("central", "pusat")})` : ""}</label>)}
+            </fieldset>
+            {where.map((a, i) => (
+              <fieldset key={i} className={css.fieldset} data-testid="fa-reg-where"><legend>{i === 0 ? L("Primary place of work", "Tempat kerja utama") : L("Also covers", "Juga meliputi")}</legend>
+                <div className={css.form}>
+                  <label className={css.field}>{L("Branch", "Cawangan")}
+                    <select className={selectClassSm} value={a.branch_id == null ? "" : String(a.branch_id)} onChange={(e) => setWhere(where.map((x, j) => (j === i ? { ...x, branch_id: e.target.value ? Number(e.target.value) : null } : x)))} data-testid="fa-reg-branch">
+                      <option value="">{central ? L("Central channel (no branch)", "Saluran pusat (tiada cawangan)") : "—"}</option>
+                      {branches.map((b) => <option key={b.id} value={b.id}>{b.name} · {[b.city, b.state].filter(Boolean).join(", ")} {b.postcode}</option>)}
+                    </select></label>
+                  <label className={css.field}>{L("Coverage", "Liputan")}
+                    <select className={selectClassSm} value={a.coverage} onChange={(e) => setWhere(where.map((x, j) => (j === i ? { ...x, coverage: e.target.value } : x)))}>
+                      <option value="branch">{L("This branch only", "Cawangan ini sahaja")}</option><option value="districts">{L("Districts", "Daerah")}</option><option value="states">{L("States", "Negeri")}</option><option value="national">{L("National", "Seluruh negara")}</option>
+                    </select></label>
+                  {(a.coverage === "districts" || a.coverage === "states") && (
+                    <label className={`${css.field} ${css.wide}`}>{a.coverage === "states" ? L("States, separated by commas (e.g. JOHOR, MELAKA)", "Negeri, dipisah koma (cth. JOHOR, MELAKA)") : L("Districts, separated by commas", "Daerah, dipisah koma")}
+                      <input className={inputClassSm} value={a.areas} maxLength={300} list={a.coverage === "states" ? "fa-states" : "fa-districts"} onChange={(e) => setWhere(where.map((x, j) => (j === i ? { ...x, areas: e.target.value } : x)))} /></label>
+                  )}
+                </div>
+                {i > 0 && <button type="button" className={btnSmQuiet} onClick={() => setWhere(where.filter((_, j) => j !== i))}>{L("Remove", "Buang")}</button>}
+              </fieldset>
+            ))}
+            <datalist id="fa-states">{data.states.map((s) => <option key={s} value={s} />)}</datalist>
+            <datalist id="fa-districts">{[...new Set(data.localities.map((l) => l.district))].map((d) => <option key={d} value={d} />)}</datalist>
+            {where.length < 4 && <button type="button" className={btnSmQuiet} onClick={() => setWhere([...where, { ...blankAssign(), primary: false }])}><AppIcon name="add" />{L("Add another branch or area", "Tambah cawangan atau kawasan lain")}</button>}
+          </div>
+        )}
+        {step === 4 && (
+          <div className={css.stack}>
+            <dl className={css.kv}>
+              <div><dt>{L("Banker", "Pegawai bank")}</dt><dd>{f.full_name}{f.position ? ` · ${f.position}` : ""}</dd></div>
+              <div><dt>{L("Bank", "Bank")}</dt><dd>{banks.find((b) => b.id === bankId)?.name}</dd></div>
+              <div><dt>{L("Work contact", "Hubungan kerja")}</dt><dd className={css.lines}>{[f.work_email, f.work_phone].filter(Boolean).join(" · ")}</dd></div>
+              <div><dt>{L("Products", "Produk")}</dt><dd>{f.products.map(productWord).join(", ")}</dd></div>
+            </dl>
+            <label className={css.field}>{L("Notes (optional, no client details)", "Nota (pilihan, tiada butiran pelanggan)")}<textarea className={textareaClass} rows={2} maxLength={600} value={f.notes} onChange={(e) => set("notes", e.target.value)} /></label>
+            {dup?.code === "duplicate_banker" && (
+              <div className="erp-note" data-testid="fa-reg-dup"><p>{dup.message}</p>{dup.id != null && <button type="button" className={btnSmPrimary} onClick={() => openExisting(dup.id!)}>{L("Open that record", "Buka rekod itu")}</button>}</div>
+            )}
+            {dup?.code === "possible_duplicate" && (
+              <div className="erp-note" data-testid="fa-reg-possible"><p>{dup.message}</p>
+                {dup.id != null && <button type="button" className={btnSm} onClick={() => openExisting(dup.id!)}>{L("Open that record", "Buka rekod itu")}</button>}
+                <label className={css.field}>{L("Why this is a different person (at least 10 characters)", "Mengapa ini individu berbeza (sekurang-kurangnya 10 aksara)")}<input className={inputClassSm} value={f.different_reason} maxLength={300} onChange={(e) => setF({ ...f, different_reason: e.target.value })} data-testid="fa-reg-reason" /></label>
+              </div>
+            )}
+            <p className="erp-note">{L("Saved as Pending verification. The CEO or COO verifies the contact identity separately - never the person who registered it. Nothing is sent to the banker.", "Disimpan sebagai Menunggu pengesahan. CEO atau COO mengesahkan identiti kenalan secara berasingan - bukan individu yang mendaftar. Tiada apa-apa dihantar kepada pegawai bank.")}</p>
+          </div>
+        )}
+      </div>
+    </SideDrawer>
+  );
+}
+
+interface Record_ { banker: Banker & { notes: string | null; registered_by_name: string | null; status_reason: string | null; created_at: string; unavailable_until: string | null; duplicate_reason: string | null }; verifications: { id: number; fact: string; method: string; evidence: string; restrictions: string | null; verified_on: string; next_review_on: string; verified_by_name: string | null }[]; assignments: (Assignment & { ended_on: string | null; end_reason: string | null; city: string | null })[]; events: { id: number; event: string; detail: string | null; created_at: string; actor: string | null }[]; today: string; can: { register: boolean; manage: boolean; availability: boolean } }
+
+function BankerRecord({ id, data, toast, onClose, changed }: { id: number; data: Registry; toast: Toast; onClose: () => void; changed: () => void }) {
+  const [rec, setRec] = useState<Record_ | null>(null);
+  const [tick, setTick] = useState(0);
+  const [act, setAct] = useState<"" | "identity" | "referral" | "availability" | "transfer" | "status">("");
+  const [f, setF] = useState({ method: "call_branch_line", evidence: "", restrictions: "", on: mytToday(), availability: "available", until: "", case_limit: "", branch: "", reason: "", status: "inactive" });
+  useEffect(() => { let live = true; void api<Record_>(`/staff/fa/bankers/${id}`).then((r) => { if (live && r.ok && r.data) setRec(r.data); }); return () => { live = false; }; }, [id, tick]);
+  const run = async (path: string, body: unknown, done: string) => {
+    const r = await post(path, body);
+    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), errMsg(r.data), "notice"); return; }
+    toast(done, rec?.banker.full_name ?? ""); setAct(""); setTick((t) => t + 1); changed();
+  };
+  const b = rec?.banker;
+  const ended = (rec?.assignments ?? []).filter((a) => a.ended_on);
+  const current = (rec?.assignments ?? []).filter((a) => !a.ended_on);
+  const otherBranches = data.branches.filter((x) => x.bank_id === b?.bank_id && x.status !== "closed");
+  return (
+    <SideDrawer open onClose={onClose} wide dirty={!!act && !!(f.evidence || f.reason)} title={b ? b.full_name : L("Banker", "Pegawai bank")} subtitle={b ? [b.position, b.bank].filter(Boolean).join(" · ") : ""}>
+      {!rec || !b ? <SkelRows rows={6} /> : (
+        <div className={css.stack} data-testid="fa-banker-record">
+          <div className={css.chips}>{chip(BANKER_STATUS, b.status_now)}{chip(AVAIL, b.availability_now)}<span className={`${chipSmInfo} ${css.chip}`}>{L(...(RELATION[b.relationship_type] ?? [b.relationship_type, b.relationship_type]))}</span></div>
+          <dl className={css.kv}>
+            <div><dt>{L("Work contact", "Hubungan kerja")}</dt><dd className={css.lines}>{[b.work_email, b.work_phone].filter(Boolean).join(" · ") || "—"}</dd></div>
+            <div><dt>{L("Preferred channel", "Saluran pilihan")}</dt><dd>{L(...(CHANNEL[b.preferred_channel] ?? [b.preferred_channel, b.preferred_channel]))}</dd></div>
+            <div><dt>{L("Products", "Produk")}</dt><dd>{b.products.map(productWord).join(", ") || "—"}</dd></div>
+            <div><dt>{L("Relationship owner", "Pemilik hubungan")}</dt><dd>{b.owner ?? "—"}</dd></div>
+            <div><dt>{L("Registered", "Didaftarkan")}</dt><dd>{dmyMYT(b.created_at)} · {b.registered_by_name ?? "—"}</dd></div>
+            <div><dt>{L("Open cases · limit", "Kes terbuka · had")}</dt><dd>{b.open_cases ?? 0} · {b.case_limit ?? L("none set", "tiada had")}</dd></div>
+          </dl>
+          {b.duplicate_reason && <p className={css.sub}>{L("Shares a work phone with another banker:", "Berkongsi telefon kerja dengan pegawai lain:")} {b.duplicate_reason}</p>}
+
+          <section className={css.sec} aria-label={L("Verification", "Pengesahan")}>
+            <h3 className={css.h}><AppIcon name="verify" />{L("Verification - two separate facts", "Pengesahan - dua fakta berasingan")}</h3>
+            {(["identity", "referral"] as const).map((fact) => {
+              const v = rec.verifications.find((x) => x.fact === fact);
+              return (
+                <div key={fact} className={css.item} data-testid={`fa-fact-${fact}`}>
+                  <span className={css.itemMain}>
+                    <b>{fact === "identity" ? L("Contact identity", "Identiti kenalan") : L("Referral permission", "Kebenaran rujukan")}</b>
+                    {v ? <span className={css.sub}>{L(...(METHOD[v.method] ?? [v.method, v.method]))} · {dmy(v.verified_on)} · {v.verified_by_name ?? "—"} · {L("review by", "semak sebelum")} {dmy(v.next_review_on)}{v.restrictions ? ` · ${v.restrictions}` : ""}</span>
+                      : <span className={css.sub}>{L("Not confirmed", "Belum disahkan")}</span>}
+                  </span>
+                  {v ? (v.next_review_on < rec.today ? <span className={`${chipSmDanger} ${css.chip}`}>{L("Review due", "Perlu disemak")}</span> : <span className={`${chipSmSuccess} ${css.chip}`}>{L("Confirmed", "Disahkan")}</span>) : <span className={`${chipSmWarn} ${css.chip}`}>{L("Pending", "Menunggu")}</span>}
+                  {rec.can.manage && b.status_now !== "no_longer_available" && b.status_now !== "inactive" && (fact === "identity" || (rec.verifications.some((x) => x.fact === "identity" && x.next_review_on >= rec.today))) && (
+                    <button type="button" className={btnSm} onClick={() => { setAct(fact); setF({ ...f, evidence: "", restrictions: "", on: mytToday() }); }}>{v ? L("Re-verify", "Sahkan semula") : L("Verify", "Sahkan")}</button>
+                  )}
+                </div>
+              );
+            })}
+            {(act === "identity" || act === "referral") && (
+              <div className={css.stack} data-testid="fa-verify-form">
+                <div className={css.form}>
+                  <label className={css.field}>{L("How it was confirmed", "Cara disahkan")}<select className={selectClassSm} value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>{Object.entries(METHOD).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}</select></label>
+                  <label className={css.field}>{L("Confirmed on", "Disahkan pada")}<input className={inputClassSm} type="date" value={f.on} max={mytToday()} onChange={(e) => setF({ ...f, on: e.target.value })} /></label>
+                  <label className={`${css.field} ${css.wide}`}>{L("Evidence - which official line or email, who confirmed (at least 10 characters)", "Bukti - talian atau e-mel rasmi mana, siapa mengesahkan (sekurang-kurangnya 10 aksara)")}<textarea className={textareaClass} rows={2} maxLength={400} value={f.evidence} onChange={(e) => setF({ ...f, evidence: e.target.value })} data-testid="fa-verify-evidence" /></label>
+                  {act === "referral" && <label className={`${css.field} ${css.wide}`}>{L("Restrictions (products, areas, conditions)", "Sekatan (produk, kawasan, syarat)")}<input className={inputClassSm} value={f.restrictions} maxLength={300} onChange={(e) => setF({ ...f, restrictions: e.target.value })} /></label>}
+                </div>
+                <p className="erp-note">{L("You cannot verify a banker you registered yourself. The next review is set 12 months ahead.", "Anda tidak boleh mengesahkan pegawai bank yang anda daftarkan sendiri. Semakan seterusnya ditetapkan 12 bulan ke hadapan.")}</p>
+                <div className={css.row}>
+                  <button type="button" className={btnSmPrimary} disabled={f.evidence.trim().length < 10} data-testid="fa-verify-save" onClick={() => void run(`/staff/fa/bankers/${b.id}/verify`, { fact: act, method: f.method, evidence: f.evidence, restrictions: f.restrictions || undefined, verified_on: f.on }, act === "identity" ? L("Identity verified", "Identiti disahkan") : L("Referral permission confirmed", "Kebenaran rujukan disahkan"))}>{L("Confirm", "Sahkan")}</button>
+                  <button type="button" className={btnSmQuiet} onClick={() => setAct("")}>{L("Cancel", "Batal")}</button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className={css.sec} aria-label={L("Where they work", "Tempat bekerja")}>
+            <div className={css.head}>
+              <h3 className={css.h}><AppIcon name="place" />{L("Where they work", "Tempat bekerja")}</h3>
+              <span className={css.inline}>
+                {rec.can.availability && b.status_now !== "no_longer_available" && <button type="button" className={btnSmQuiet} onClick={() => setAct("availability")}>{L("Update availability", "Kemas kini ketersediaan")}</button>}
+                {rec.can.manage && b.status_now !== "no_longer_available" && <button type="button" className={btnSmQuiet} onClick={() => { setAct("transfer"); setF({ ...f, branch: "", reason: "" }); }}>{L("Transfer", "Pindah")}</button>}
+                {rec.can.manage && <button type="button" className={btnSmQuiet} onClick={() => { setAct("status"); setF({ ...f, reason: "", status: b.status_now === "inactive" || b.status_now === "no_longer_available" ? "active" : "inactive" }); }}>{L("Change status", "Tukar status")}</button>}
+              </span>
+            </div>
+            {current.length === 0 ? <p className={css.sub}>{L("No current assignment.", "Tiada tugasan semasa.")}</p> : (
+              <ul className={css.items}>{current.map((a) => <li key={a.id} className={css.item}><span className={css.itemMain}><b>{whereText(a)}{a.is_primary ? ` · ${L("primary", "utama")}` : ""}</b><span className={css.sub}>{L("Covers", "Meliputi")} {coverText(a)} · {L("since", "sejak")} {dmy(a.effective_from)}</span></span></li>)}</ul>
+            )}
+            {ended.length > 0 && (
+              <details className={css.sub}><summary>{L("Earlier assignments", "Tugasan terdahulu")} ({ended.length})</summary>
+                <ul className={css.items}>{ended.map((a) => <li key={a.id} className={css.item}><span className={css.itemMain}><span>{whereText(a)}</span><span className={css.sub}>{dmy(a.effective_from)} – {dmy(a.ended_on!)} · {a.end_reason}</span></span></li>)}</ul>
+              </details>
+            )}
+            {act === "availability" && (
+              <div className={css.stack}>
+                <div className={css.form}>
+                  <label className={css.field}>{L("Availability today", "Ketersediaan hari ini")}<select className={selectClassSm} value={f.availability} onChange={(e) => setF({ ...f, availability: e.target.value })}><option value="available">{L("Available", "Tersedia")}</option><option value="limited">{L("Limited capacity", "Kapasiti terhad")}</option><option value="unavailable">{L("Unavailable", "Tidak tersedia")}</option></select></label>
+                  {f.availability === "unavailable" && <label className={css.field}>{L("Until", "Sehingga")}<input className={inputClassSm} type="date" min={mytToday()} value={f.until} onChange={(e) => setF({ ...f, until: e.target.value })} /></label>}
+                  {rec.can.manage && <label className={css.field}>{L("Case limit (optional)", "Had kes (pilihan)")}<input className={inputClassSm} inputMode="numeric" value={f.case_limit} onChange={(e) => setF({ ...f, case_limit: e.target.value.replace(/\D/g, "") })} /></label>}
+                </div>
+                <p className={css.sub}>{L("A statement older than 30 days shows as Unknown.", "Kenyataan lebih 30 hari ditunjukkan sebagai Tidak diketahui.")}</p>
+                <div className={css.row}><button type="button" className={btnSmPrimary} disabled={f.availability === "unavailable" && !f.until} onClick={() => void run(`/staff/fa/bankers/${b.id}/availability`, { availability: f.availability, until: f.until || undefined, case_limit: rec.can.manage && f.case_limit ? Number(f.case_limit) : undefined }, L("Availability updated", "Ketersediaan dikemas kini"))}>{L("Save", "Simpan")}</button><button type="button" className={btnSmQuiet} onClick={() => setAct("")}>{L("Cancel", "Batal")}</button></div>
+              </div>
+            )}
+            {act === "transfer" && (
+              <div className={css.stack}>
+                <div className={css.form}>
+                  <label className={css.field}>{L("New branch", "Cawangan baharu")}<select className={selectClassSm} value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })}><option value="">—</option>{otherBranches.map((x) => <option key={x.id} value={x.id}>{x.name} · {[x.city, x.state].filter(Boolean).join(", ")}</option>)}</select></label>
+                  <label className={css.field}>{L("Why (at least 5 characters)", "Sebab (sekurang-kurangnya 5 aksara)")}<input className={inputClassSm} value={f.reason} maxLength={300} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>
+                </div>
+                <p className={css.sub}>{L("The current primary assignment ends today and the new one starts - the history is kept.", "Tugasan utama semasa tamat hari ini dan yang baharu bermula - sejarah disimpan.")}</p>
+                <div className={css.row}><button type="button" className={btnSmPrimary} disabled={!f.branch || f.reason.trim().length < 5} onClick={() => void run(`/staff/fa/bankers/${b.id}/transfer`, { branch_id: Number(f.branch), coverage: "branch", reason: f.reason }, L("Transferred", "Dipindahkan"))}>{L("Transfer", "Pindah")}</button><button type="button" className={btnSmQuiet} onClick={() => setAct("")}>{L("Cancel", "Batal")}</button></div>
+              </div>
+            )}
+            {act === "status" && (
+              <div className={css.stack}>
+                <div className={css.form}>
+                  <label className={css.field}>{L("Status", "Status")}<select className={selectClassSm} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}><option value="active">{L("Active", "Aktif")}</option><option value="inactive">{L("Inactive", "Tidak aktif")}</option><option value="left">{L("No longer available (left the bank)", "Tidak lagi tersedia (meninggalkan bank)")}</option></select></label>
+                  <label className={css.field}>{L("Why (at least 5 characters)", "Sebab (sekurang-kurangnya 5 aksara)")}<input className={inputClassSm} value={f.reason} maxLength={300} onChange={(e) => setF({ ...f, reason: e.target.value })} /></label>
+                </div>
+                <div className={css.row}><button type="button" className={btnSmPrimary} disabled={f.reason.trim().length < 5} onClick={() => void run(`/staff/fa/bankers/${b.id}/status`, { status: f.status, reason: f.reason }, L("Status changed", "Status ditukar"))}>{L("Save", "Simpan")}</button><button type="button" className={btnSmQuiet} onClick={() => setAct("")}>{L("Cancel", "Batal")}</button></div>
+              </div>
+            )}
+          </section>
+
+          <section className={css.sec} aria-label={L("History", "Sejarah")}>
+            <h3 className={css.h}><AppIcon name="time" />{L("History", "Sejarah")}</h3>
+            <EventList events={rec.events.map((e) => ({ ...e, entity: "banker", subject: null }))} />
+          </section>
+        </div>
+      )}
+    </SideDrawer>
+  );
+}
+
+/* ============================ branches ============================ */
+
+function Branches({ data, toast, reload }: { data: Registry; toast: Toast; reload: () => void }) {
+  const [bank, setBank] = useState("");
+  const [state, setState] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [act, setAct] = useState<{ id: number; what: "verify" | "status" | "rename" } | null>(null);
+  const [g, setG] = useState({ source: "", on: mytToday(), status: "temporarily_closed", note: "", name: "" });
+  const rows = data.branches.filter((b) => (!bank || String(b.bank_id) === bank) && (!state || b.state === state));
+  const run = async (path: string, body: unknown, done: string) => {
+    const r = await post(path, body);
+    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), errMsg(r.data), "notice"); return; }
+    toast(done, ""); setAct(null); reload();
+  };
+  return (
+    <section className={`${card} ${css.sec}`} aria-label={L("Branch registry", "Daftar cawangan")} data-testid="fa-branches">
+      <div className={css.head}>
+        <h3 className={css.h}><AppIcon name="place" />{L("Branch registry", "Daftar cawangan")} <span className={css.sub}>{rows.length}</span></h3>
+        {data.can.manage && <button type="button" className={btnSmPrimary} onClick={() => setAdding(true)} disabled={data.banks.length === 0}><AppIcon name="add" />{L("Add branch", "Tambah cawangan")}</button>}
+      </div>
+      <p className={css.sub}>{L("Only branches confirmed from the bank's own sources. A branch that closes or is renamed keeps its record; closing one ends its bankers' assignments.", "Hanya cawangan yang disahkan daripada sumber bank sendiri. Cawangan yang ditutup atau dinamakan semula kekal rekodnya; menutupnya menamatkan tugasan pegawai.")}</p>
+      <div className={css.tools}>
+        <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value)} aria-label={L("Bank", "Bank")}><option value="">{L("All banks", "Semua bank")}</option>{data.banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+        <select className={selectClassSm} value={state} onChange={(e) => setState(e.target.value)} aria-label={L("State", "Negeri")}><option value="">{L("All states", "Semua negeri")}</option>{data.states.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+      </div>
+      {rows.length === 0 ? <p className={css.empty}>{L("No branch yet.", "Belum ada cawangan.")}</p> : (
+        <ul className={css.items}>{rows.map((b) => (
+          <li key={b.id} className={css.item} data-testid="fa-branch">
+            <span className={css.itemMain}>
+              <b>{b.bank} · {b.name}{b.code ? ` (${b.code})` : ""}</b>
+              <span className={css.sub}>{[b.address, b.postcode, b.city, b.district, b.state].filter(Boolean).join(", ")}{b.phone ? ` · ${b.phone}` : ""}</span>
+              <span className={css.sub}>{b.bankers} {L("current banker(s)", "pegawai semasa")}{b.last_verified_on ? ` · ${L("verified", "disahkan")} ${dmy(b.last_verified_on)}` : ""}{b.status_note ? ` · ${b.status_note}` : ""}</span>
+            </span>
+            <span className={css.chips}>
+              {b.status === "open" ? null : <span className={`${b.status === "closed" ? chipSmNeutral : chipSmWarn} ${css.chip}`}>{b.status === "closed" ? L("Closed", "Ditutup") : L("Temporarily closed", "Ditutup sementara")}</span>}
+              {b.verified ? <span className={`${chipSmSuccess} ${css.chip}`}>{L("Verified", "Disahkan")}</span> : <span className={`${chipSmWarn} ${css.chip}`}>{L("Not verified", "Belum disahkan")}</span>}
+            </span>
+            {data.can.manage && b.status !== "closed" && (
+              <span className={css.inline}>
+                {!b.verified && <button type="button" className={btnSm} onClick={() => { setAct({ id: b.id, what: "verify" }); setG({ ...g, source: "", on: mytToday() }); }}>{L("Verify", "Sahkan")}</button>}
+                <button type="button" className={btnSmQuiet} onClick={() => { setAct({ id: b.id, what: "rename" }); setG({ ...g, name: b.name, note: "" }); }}>{L("Rename", "Namakan semula")}</button>
+                <button type="button" className={btnSmQuiet} onClick={() => { setAct({ id: b.id, what: "status" }); setG({ ...g, status: b.status === "open" ? "temporarily_closed" : "open", note: "" }); }}>{L("Status", "Status")}</button>
+              </span>
+            )}
+            {act?.id === b.id && (
+              <div className={`${css.form} ${css.wide}`}>
+                {act.what === "verify" && <>
+                  <label className={css.field}>{L("How you confirmed it", "Cara anda mengesahkan")}<input className={inputClassSm} value={g.source} maxLength={300} onChange={(e) => setG({ ...g, source: e.target.value })} placeholder={L("e.g. the bank's branch locator", "cth. pencari cawangan bank")} /></label>
+                  <label className={css.field}>{L("On", "Pada")}<input className={inputClassSm} type="date" max={mytToday()} value={g.on} onChange={(e) => setG({ ...g, on: e.target.value })} /></label>
+                </>}
+                {act.what === "rename" && <label className={css.field}>{L("New official name", "Nama rasmi baharu")}<input className={inputClassSm} value={g.name} maxLength={120} onChange={(e) => setG({ ...g, name: e.target.value })} /></label>}
+                {act.what === "status" && <label className={css.field}>{L("Status", "Status")}<select className={selectClassSm} value={g.status} onChange={(e) => setG({ ...g, status: e.target.value })}><option value="open">{L("Open", "Dibuka")}</option><option value="temporarily_closed">{L("Temporarily closed", "Ditutup sementara")}</option><option value="closed">{L("Closed for good (ends assignments)", "Ditutup terus (tamatkan tugasan)")}</option></select></label>}
+                {act.what !== "verify" && <label className={css.field}>{L("Why (at least 5 characters)", "Sebab (sekurang-kurangnya 5 aksara)")}<input className={inputClassSm} value={g.note} maxLength={300} onChange={(e) => setG({ ...g, note: e.target.value })} /></label>}
+                <div className={css.row}>
+                  <button type="button" className={btnSmPrimary} disabled={act.what === "verify" ? g.source.trim().length < 5 : g.note.trim().length < 5}
+                    onClick={() => void (act.what === "verify" ? run(`/staff/fa/branches/${b.id}/verify`, { source: g.source, verified_on: g.on }, L("Branch verified", "Cawangan disahkan"))
+                      : act.what === "rename" ? run(`/staff/fa/branches/${b.id}/rename`, { name: g.name, note: g.note }, L("Branch renamed", "Cawangan dinamakan semula"))
+                        : run(`/staff/fa/branches/${b.id}/status`, { status: g.status, note: g.note }, L("Branch status changed", "Status cawangan ditukar")))}>{L("Save", "Simpan")}</button>
+                  <button type="button" className={btnSmQuiet} onClick={() => setAct(null)}>{L("Cancel", "Batal")}</button>
+                </div>
+              </div>
+            )}
+          </li>
+        ))}</ul>
+      )}
+      {adding && <NewBranch data={data} toast={toast} onClose={() => setAdding(false)} saved={() => { setAdding(false); reload(); }} />}
+    </section>
+  );
+}
+
+function NewBranch({ data, toast, onClose, saved }: { data: Registry; toast: Toast; onClose: () => void; saved: () => void }) {
+  const [f, setF] = useState({ bank_id: "", name: "", code: "", address: "", postcode: "", locality_id: "", phone: "", source: "", postcode_note: "" });
+  const [place, setPlace] = useState({ state: "", district: "", city: "" });
+  const [places, setPlaces] = useState(data.localities);
+  const [mismatch, setMismatch] = useState("");
+  const set = (k: keyof typeof f, v: string) => { setF({ ...f, [k]: v }); if (k === "postcode" || k === "locality_id") setMismatch(""); };
+  const addPlace = async () => {
+    const r = await post("/staff/fa/localities", place);
+    if (!r.ok) { toast(L("Not added", "Tidak ditambah"), errMsg(r.data), "notice"); return; }
+    const id = Number((r.data as unknown as { id: number }).id);
+    if (!places.some((p) => p.id === id)) setPlaces([...places, { id, state: place.state, district: place.district.trim(), city: place.city.trim() }]);
+    setF({ ...f, locality_id: String(id) }); setPlace({ state: "", district: "", city: "" });
+  };
+  const save = async () => {
+    const r = await post("/staff/fa/branches", { bank_id: Number(f.bank_id), name: f.name, code: f.code || undefined, address: f.address || undefined, postcode: f.postcode, locality_id: Number(f.locality_id), phone: f.phone || undefined, source: f.source || undefined, postcode_note: f.postcode_note || undefined });
+    if (!r.ok) {
+      if (r.data?.error?.code === "postcode_state_mismatch") { setMismatch(errMsg(r.data)); return; }
+      toast(L("Not saved", "Tidak disimpan"), errMsg(r.data), "notice"); return;
+    }
+    const others = (r.data as unknown as { same_name_elsewhere?: string[] }).same_name_elsewhere ?? [];
+    toast(L("Branch added", "Cawangan ditambah"), others.length ? L(`Note: a branch of the same name exists at ${others.join(", ")}.`, `Nota: cawangan dengan nama sama wujud di ${others.join(", ")}.`) : L("Not verified until management confirms it.", "Belum disahkan sehingga pengurusan mengesahkannya."));
+    saved();
+  };
+  return (
+    <SideDrawer open onClose={onClose} dirty={!!(f.name || f.postcode)} title={L("Add branch", "Tambah cawangan")} subtitle={L("From the bank's own sources only - never invented", "Daripada sumber bank sahaja - tidak direka")}>
+      <div className={css.stack}>
+        <div className={css.form}>
+          <label className={css.field}>{L("Bank", "Bank")}<select className={selectClassSm} value={f.bank_id} onChange={(e) => set("bank_id", e.target.value)}><option value="">—</option>{data.banks.filter((b) => b.status !== "retired").map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+          <label className={css.field}>{L("Official branch name", "Nama rasmi cawangan")}<input className={inputClassSm} value={f.name} maxLength={120} onChange={(e) => set("name", e.target.value)} /></label>
+          <label className={css.field}>{L("Branch code (optional)", "Kod cawangan (pilihan)")}<input className={inputClassSm} value={f.code} maxLength={20} onChange={(e) => set("code", e.target.value)} /></label>
+          <label className={css.field}>{L("Official phone (optional)", "Telefon rasmi (pilihan)")}<input className={inputClassSm} inputMode="tel" value={f.phone} maxLength={40} onChange={(e) => set("phone", e.target.value)} /></label>
+          <label className={`${css.field} ${css.wide}`}>{L("Address (optional)", "Alamat (pilihan)")}<input className={inputClassSm} value={f.address} maxLength={300} onChange={(e) => set("address", e.target.value)} /></label>
+          <label className={css.field}>{L("Postcode", "Poskod")}<input className={inputClassSm} inputMode="numeric" value={f.postcode} maxLength={5} onChange={(e) => set("postcode", e.target.value.replace(/\D/g, ""))} /></label>
+          <label className={css.field}>{L("State, district and city", "Negeri, daerah dan bandar")}<select className={selectClassSm} value={f.locality_id} onChange={(e) => set("locality_id", e.target.value)}><option value="">—</option>{places.map((p) => <option key={p.id} value={p.id}>{p.city}, {p.district}, {p.state}</option>)}</select></label>
+          <label className={`${css.field} ${css.wide}`}>{L("Source (where this branch is confirmed)", "Sumber (di mana cawangan ini disahkan)")}<input className={inputClassSm} value={f.source} maxLength={300} onChange={(e) => set("source", e.target.value)} /></label>
+        </div>
+        <fieldset className={css.fieldset}><legend>{L("Place not in the list? Add it", "Tempat tiada dalam senarai? Tambah")}</legend>
+          <div className={css.form}>
+            <label className={css.field}>{L("State", "Negeri")}<select className={selectClassSm} value={place.state} onChange={(e) => setPlace({ ...place, state: e.target.value })}><option value="">—</option>{data.states.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+            <label className={css.field}>{L("District", "Daerah")}<input className={inputClassSm} value={place.district} maxLength={60} onChange={(e) => setPlace({ ...place, district: e.target.value })} /></label>
+            <label className={css.field}>{L("City or town", "Bandar")}<input className={inputClassSm} value={place.city} maxLength={60} onChange={(e) => setPlace({ ...place, city: e.target.value })} /></label>
+          </div>
+          <button type="button" className={btnSmQuiet} disabled={!place.state || place.district.trim().length < 2 || place.city.trim().length < 2} onClick={() => void addPlace()}>{L("Add place", "Tambah tempat")}</button>
+        </fieldset>
+        {mismatch && (
+          <div className="erp-note" data-testid="fa-postcode-mismatch"><p>{mismatch}</p>
+            <label className={css.field}>{L("Why it is right (at least 5 characters)", "Mengapa ia betul (sekurang-kurangnya 5 aksara)")}<input className={inputClassSm} value={f.postcode_note} maxLength={200} onChange={(e) => setF({ ...f, postcode_note: e.target.value })} /></label>
+          </div>
+        )}
+        <div className={css.row}><button type="button" className={btnSmPrimary} disabled={!f.bank_id || f.name.trim().length < 2 || !/^\d{5}$/.test(f.postcode) || !f.locality_id || (!!mismatch && f.postcode_note.trim().length < 5)} onClick={() => void save()}>{L("Add branch", "Tambah cawangan")}</button></div>
+      </div>
+    </SideDrawer>
+  );
+}
+
+/* ============================ banks ============================ */
+
+function Banks({ data, toast, reload }: { data: Registry; toast: Toast; reload: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ name: "", kind: "commercial", website: "", source: "" });
+  const [act, setAct] = useState<{ id: number; what: "verify" | "retire" | "product" } | null>(null);
+  const [g, setG] = useState({ source: "", on: mytToday(), reason: "", product: "personal_financing", channel: "branch" });
+  const run = async (path: string, body: unknown, done: string) => {
+    const r = await post(path, body);
+    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), errMsg(r.data), "notice"); return false; }
+    toast(done, ""); setAct(null); reload(); return true;
+  };
+  const KIND: Record<string, [string, string]> = { commercial: ["Commercial bank", "Bank perdagangan"], islamic: ["Islamic bank", "Bank Islam"], dfi: ["Development financial institution", "Institusi kewangan pembangunan"], cooperative: ["Cooperative", "Koperasi"], other: ["Other", "Lain-lain"] };
+  return (
+    <section className={`${card} ${css.sec}`} aria-label={L("Bank registry", "Daftar bank")} data-testid="fa-banks">
+      <div className={css.head}>
+        <h3 className={css.h}><AppIcon name="balance" />{L("Bank registry", "Daftar bank")} <span className={css.sub}>{data.banks.length}</span></h3>
+        {data.can.manage && <button type="button" className={btnSmPrimary} onClick={() => setAdding(true)}><AppIcon name="add" />{L("Add bank", "Tambah bank")}</button>}
+      </div>
+      <p className={css.sub}>{L("Each bank once, by its official name. Adding a bank is not a partnership claim - A2Z is not affiliated with any bank.", "Setiap bank sekali, dengan nama rasminya. Menambah bank bukan tuntutan perkongsian - A2Z tidak bergabung dengan mana-mana bank.")}</p>
+      {data.banks.length === 0 ? <p className={css.empty}>{L("No bank yet.", "Belum ada bank.")}</p> : (
+        <ul className={css.items}>{data.banks.map((b) => {
+          const prods = data.products.filter((p) => p.bank_id === b.id);
+          return (
+            <li key={b.id} className={css.item} data-testid="fa-bank">
+              <span className={css.itemMain}>
+                <b>{b.name}</b>
+                <span className={css.sub}>{L(...(KIND[b.kind] ?? [b.kind, b.kind]))} · {b.branches} {L("branch(es)", "cawangan")} · {b.bankers} {L("banker(s)", "pegawai")}{b.last_verified_on ? ` · ${L("verified", "disahkan")} ${dmy(b.last_verified_on)}` : ""}</span>
+                <span className={css.sub}>{prods.length === 0 ? L("No product recorded", "Tiada produk direkod") : prods.map((p) => `${productWord(p.product)} (${p.channel === "central" ? L("central", "pusat") : L("branches", "cawangan")}${p.status === "retired" ? `, ${L("retired", "ditamatkan")}` : ""})`).join(" · ")}</span>
+                {b.retired_reason && <span className={css.sub}>{b.retired_reason}</span>}
+              </span>
+              <span className={`${b.status === "verified" ? chipSmSuccess : b.status === "pending" ? chipSmWarn : chipSmNeutral} ${css.chip}`}>{b.status === "verified" ? L("Verified", "Disahkan") : b.status === "pending" ? L("Pending", "Menunggu") : L("Retired", "Ditamatkan")}</span>
+              {data.can.manage && b.status !== "retired" && (
+                <span className={css.inline}>
+                  {b.status === "pending" && <button type="button" className={btnSm} onClick={() => { setAct({ id: b.id, what: "verify" }); setG({ ...g, source: "", on: mytToday() }); }}>{L("Verify", "Sahkan")}</button>}
+                  <button type="button" className={btnSmQuiet} onClick={() => { setAct({ id: b.id, what: "product" }); setG({ ...g, source: "" }); }}>{L("Products", "Produk")}</button>
+                  <button type="button" className={btnSmQuiet} onClick={() => { setAct({ id: b.id, what: "retire" }); setG({ ...g, reason: "" }); }}>{L("Retire", "Tamatkan")}</button>
+                </span>
+              )}
+              {act?.id === b.id && (
+                <div className={`${css.form} ${css.wide}`}>
+                  {act.what === "product" && <>
+                    <label className={css.field}>{L("Product", "Produk")}<select className={selectClassSm} value={g.product} onChange={(e) => setG({ ...g, product: e.target.value })}>{PRODUCTS.map(([k]) => <option key={k} value={k}>{productWord(k)}</option>)}</select></label>
+                    <label className={css.field}>{L("Handled", "Dikendalikan")}<select className={selectClassSm} value={g.channel} onChange={(e) => setG({ ...g, channel: e.target.value })}><option value="branch">{L("At branches", "Di cawangan")}</option><option value="central">{L("By a central unit", "Oleh unit pusat")}</option></select></label>
+                  </>}
+                  {act.what !== "retire" && <label className={css.field}>{L("Source (the bank's website, an official letter)", "Sumber (laman web bank, surat rasmi)")}<input className={inputClassSm} value={g.source} maxLength={300} onChange={(e) => setG({ ...g, source: e.target.value })} /></label>}
+                  {act.what === "verify" && <label className={css.field}>{L("Confirmed on", "Disahkan pada")}<input className={inputClassSm} type="date" max={mytToday()} value={g.on} onChange={(e) => setG({ ...g, on: e.target.value })} /></label>}
+                  {act.what === "retire" && <label className={css.field}>{L("Why (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)")}<input className={inputClassSm} value={g.reason} maxLength={300} onChange={(e) => setG({ ...g, reason: e.target.value })} /></label>}
+                  <div className={css.row}>
+                    <button type="button" className={btnSmPrimary} disabled={act.what === "retire" ? g.reason.trim().length < 10 : g.source.trim().length < 5}
+                      onClick={() => void (act.what === "verify" ? run(`/staff/fa/banks/${b.id}/verify`, { source: g.source, verified_on: g.on }, L("Bank verified", "Bank disahkan"))
+                        : act.what === "retire" ? run(`/staff/fa/banks/${b.id}/retire`, { reason: g.reason }, L("Bank retired", "Bank ditamatkan"))
+                          : run(`/staff/fa/banks/${b.id}/products`, { product: g.product, channel: g.channel, source: g.source }, L("Product saved", "Produk disimpan")))}>{L("Save", "Simpan")}</button>
+                    <button type="button" className={btnSmQuiet} onClick={() => setAct(null)}>{L("Cancel", "Batal")}</button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}</ul>
+      )}
+      {adding && (
+        <SideDrawer open onClose={() => setAdding(false)} dirty={!!f.name} title={L("Add bank", "Tambah bank")} subtitle={L("The official name, from the bank's own sources", "Nama rasmi, daripada sumber bank sendiri")}>
+          <div className={css.stack}>
+            <div className={css.form}>
+              <label className={css.field}>{L("Official name", "Nama rasmi")}<input className={inputClassSm} value={f.name} maxLength={120} onChange={(e) => setF({ ...f, name: e.target.value })} data-testid="fa-bank-name" /></label>
+              <label className={css.field}>{L("Kind", "Jenis")}<select className={selectClassSm} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{Object.entries(KIND).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}</select></label>
+              <label className={css.field}>{L("Official website (optional)", "Laman web rasmi (pilihan)")}<input className={inputClassSm} value={f.website} maxLength={160} onChange={(e) => setF({ ...f, website: e.target.value })} /></label>
+              <label className={css.field}>{L("Source (optional)", "Sumber (pilihan)")}<input className={inputClassSm} value={f.source} maxLength={300} onChange={(e) => setF({ ...f, source: e.target.value })} /></label>
+            </div>
+            <p className="erp-note">{L("Saved as Pending. A bank written another way (\"Bhd\", capitals, spaces) is recognised as the same bank.", "Disimpan sebagai Menunggu. Bank yang ditulis cara lain (\"Bhd\", huruf besar, ruang) dikenali sebagai bank yang sama.")}</p>
+            <div className={css.row}><button type="button" className={btnSmPrimary} disabled={f.name.trim().length < 2} onClick={() => void run("/staff/fa/banks", { name: f.name, kind: f.kind, website: f.website || undefined, source: f.source || undefined }, L("Bank added", "Bank ditambah")).then((ok) => { if (ok) { setAdding(false); setF({ name: "", kind: "commercial", website: "", source: "" }); } })}>{L("Add bank", "Tambah bank")}</button></div>
+          </div>
+        </SideDrawer>
+      )}
+    </section>
+  );
+}
+
+/* ============================ history ============================ */
+
+interface Ev { id: number; entity: string; event: string; detail: string | null; created_at: string; actor: string | null; subject: string | null }
+function History() {
+  const [events, setEvents] = useState<Ev[] | null>(null);
+  useEffect(() => { let live = true; void api<{ events: Ev[] }>("/staff/fa/registry/events").then((r) => { if (live && r.ok && r.data) setEvents(r.data.events); }); return () => { live = false; }; }, []);
+  return (
+    <section className={`${card} ${css.sec}`} aria-label={L("Audit history", "Sejarah audit")} data-testid="fa-reg-history">
+      <h3 className={css.h}><AppIcon name="time" />{L("Audit history", "Sejarah audit")} <span className={css.sub}>{L("append only", "tambah sahaja")}</span></h3>
+      {!events ? <SkelRows rows={5} /> : <EventList events={events} />}
+    </section>
+  );
+}
+
+function EventList({ events }: { events: Ev[] }) {
+  if (events.length === 0) return <p className={css.empty}>{L("Nothing recorded yet.", "Belum ada rekod.")}</p>;
+  const detailText = (d: string | null) => {
+    if (!d) return "";
+    try {
+      const o = JSON.parse(d) as Record<string, unknown>;
+      return ["reason", "note", "source", "method", "to", "availability", "next_review_on", "restrictions"].filter((k) => o[k] != null && o[k] !== "").map((k) => String(o[k])).join(" · ");
+    } catch { return ""; }
+  };
+  return (
+    <ul className={css.items}>{events.map((e) => (
+      <li key={e.id} className={css.item} data-testid="fa-reg-event">
+        <span className={css.itemMain}>
+          <b>{L(...(ENTITY[e.entity] ?? [e.entity, e.entity]))}{e.subject ? ` · ${e.subject}` : ""} — {L(...(EVENT[e.event] ?? [e.event.replace(/_/g, " "), e.event.replace(/_/g, " ")]))}</b>
+          <span className={css.sub}>{dmyMYT(e.created_at)} · {e.actor ?? "—"}{detailText(e.detail) ? ` · ${detailText(e.detail)}` : ""}</span>
+        </span>
+      </li>
+    ))}</ul>
+  );
+}

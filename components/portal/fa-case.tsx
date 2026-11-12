@@ -399,7 +399,10 @@ function Dsr({ pic, latest, post, setDirty }: { pic: Pic; latest: Result | null;
 function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: boolean) => void }) {
   const c = pic.case;
   const [mode, setMode] = useState<"" | "banker" | "decision">("");
-  const [n, setN] = useState({ bank: "", source: "call", status: "under_review", body: "", conditions: "", missing: "", follow: "", ref: "", approved: "", evidence: "" as number | "" });
+  /* v1.286.0 - the bank and banker come from the one registry, never typed */
+  const [reg, setReg] = useState<{ banks: { id: number; name: string; status: string }[]; bankers: { id: number; bank_id: number; full_name: string; bank: string; status_now: string }[] } | null>(null);
+  useEffect(() => { if (!mode || reg) return; let live = true; void api<NonNullable<typeof reg>>("/staff/fa/registry").then((r) => { if (live && r.ok && r.data) setReg(r.data); }); return () => { live = false; }; }, [mode, reg]);
+  const [n, setN] = useState({ bank: "", banker: "", source: "call", status: "under_review", body: "", conditions: "", missing: "", follow: "", ref: "", approved: "", evidence: "" as number | "" });
   const set = (k: keyof typeof n, v: string | number) => { setN({ ...n, [k]: v }); setDirty(true); };
   const GROUPS: [string, string, string, string][] = [["system", "A · System assessment", "A · Penilaian sistem", css.nA ?? ""], ["banker", "B · Banker feedback", "B · Maklum balas bank", css.nB ?? ""], ["decision", "C · Official bank decision", "C · Keputusan rasmi bank", css.nC ?? ""]];
   return (
@@ -407,13 +410,23 @@ function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: bo
       {(pic.can.note || pic.can.decide) && c.stage !== "closed" && (
         <div className={css.row}>
           {pic.can.note && <button type="button" className={btnSmPrimary} onClick={() => { setMode("banker"); setN({ ...n, status: "under_review" }); }}><AppIcon name="add" />{L("Add banker feedback", "Tambah maklum balas bank")}</button>}
-          {pic.can.decide && <button type="button" className={btnSm} onClick={() => { setMode("decision"); setN({ ...n, status: "officially_approved" }); }}>{L("Record official bank decision", "Rekod keputusan rasmi bank")}</button>}
+          {pic.can.decide && <button type="button" className={btnSm} onClick={() => { setMode("decision"); setN({ ...n, banker: "", status: "officially_approved" }); }}>{L("Record official bank decision", "Rekod keputusan rasmi bank")}</button>}
         </div>
       )}
       {mode && (
         <section className={`${card} ${css.sec}`} aria-label={L("New note", "Nota baharu")} data-testid="fa-note-form">
+          {!reg ? <SkelRows rows={3} /> : <>
           <div className={css.form}>
-            <label className={css.field}>{L("Bank", "Bank")}<input className={inputClassSm} value={n.bank} maxLength={80} onChange={(e) => set("bank", e.target.value)} /></label>
+            {mode === "banker" && <label className={css.field}>{L("Banker (directory)", "Pegawai bank (direktori)")}
+              <select className={selectClassSm} value={n.banker} data-testid="fa-note-banker" onChange={(e) => { const bk = reg?.bankers.find((x) => String(x.id) === e.target.value); setN({ ...n, banker: e.target.value, bank: bk ? String(bk.bank_id) : n.bank }); setDirty(true); }}>
+                <option value="">{L("— the bank only —", "— bank sahaja —")}</option>
+                {(reg?.bankers ?? []).filter((x) => x.status_now !== "no_longer_available").map((x) => <option key={x.id} value={x.id}>{x.full_name} · {x.bank}</option>)}
+              </select></label>}
+            <label className={css.field}>{L("Bank (registry)", "Bank (daftar)")}
+              <select className={selectClassSm} value={n.bank} data-testid="fa-note-bank" disabled={mode === "banker" && !!n.banker} onChange={(e) => set("bank", e.target.value)}>
+                <option value="">—</option>
+                {(reg?.banks ?? []).filter((x) => x.status !== "retired").map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select></label>
             {mode === "banker" && <label className={css.field}>{L("Source", "Sumber")}<select className={selectClassSm} value={n.source} onChange={(e) => set("source", e.target.value)}>{["call", "email", "whatsapp", "meeting", "other"].map((x) => <option key={x} value={x}>{x}</option>)}</select></label>}
             <label className={css.field}>{mode === "banker" ? L("Indicative assessment", "Penilaian indikatif") : L("Decision", "Keputusan")}
               <select className={selectClassSm} value={n.status} onChange={(e) => set("status", e.target.value)}>
@@ -435,10 +448,11 @@ function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: bo
           </div>
           <p className="erp-note">{mode === "banker" ? L("A banker's feedback is never an approval. It moves the banker status only.", "Maklum balas bank bukan kelulusan. Ia hanya mengubah status bank.") : L("Record only what the bank's own letter says, with the letter attached.", "Rekod hanya apa yang dinyatakan surat bank, dengan surat dilampirkan.")}</p>
           <div className={css.row}>
-            <button type="button" className={btnSmPrimary} disabled={!n.bank.trim() || n.body.trim().length < 5 || (mode === "decision" && n.evidence === "")}
-              onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/notes`, send({ type: mode, bank: n.bank, source: n.source, status: n.status, body: n.body, conditions: n.conditions || undefined, missing_documents: n.missing || undefined, follow_up_on: n.follow || undefined, bank_reference: n.ref || undefined, approved_cents: toCents(n.approved) ?? undefined, evidence_id: n.evidence === "" ? undefined : n.evidence }, "POST")), L("Note saved", "Nota disimpan")).then((ok) => ok && setMode(""))}>{L("Save note", "Simpan nota")}</button>
+            <button type="button" className={btnSmPrimary} disabled={!(n.bank || n.banker) || n.body.trim().length < 5 || (mode === "decision" && n.evidence === "")}
+              onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/notes`, send({ type: mode, bank_id: n.bank ? Number(n.bank) : undefined, banker_id: mode === "banker" && n.banker ? Number(n.banker) : undefined, source: n.source, status: n.status, body: n.body, conditions: n.conditions || undefined, missing_documents: n.missing || undefined, follow_up_on: n.follow || undefined, bank_reference: n.ref || undefined, approved_cents: toCents(n.approved) ?? undefined, evidence_id: n.evidence === "" ? undefined : n.evidence }, "POST")), L("Note saved", "Nota disimpan")).then((ok) => ok && setMode(""))}>{L("Save note", "Simpan nota")}</button>
             <button type="button" className={btnSmQuiet} onClick={() => { setMode(""); setDirty(false); }}>{L("Cancel", "Batal")}</button>
           </div>
+          </>}
         </section>
       )}
       {GROUPS.map(([type, en, ms, cls]) => {

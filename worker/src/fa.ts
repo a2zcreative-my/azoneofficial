@@ -32,6 +32,7 @@ import type { StaffUser } from "./staff";
 import { notify } from "./staff";
 import { json, err, audit, str, putGuarded } from "./shared";
 import { can } from "./permissions";
+import { handleFaRegistry } from "./fa-registry";
 import { assess, type FaItem, type FaCriterion, type Product } from "./fa-engine";
 
 /** Off until counsel clears each one (blueprint section 4). A constant on purpose. */
@@ -122,7 +123,11 @@ async function docOnCase(env: Env, caseId: number, docId: unknown): Promise<numb
   return r?.id ?? null;
 }
 async function liveCriteria(env: Env): Promise<FaCriterion[]> {
-  return ((await env.DB.prepare(`SELECT * FROM fa_criteria ORDER BY bank, family, version`).all<FaCriterion>()).results ?? []);
+  /* v1.286.0 - the registry bank and the ranges live beside the criterion (0184 fa_criteria_terms) */
+  return ((await env.DB.prepare(
+    `SELECT c.*, t.bank_id, t.bank_product_id, t.min_age, t.max_age, t.min_amount_cents, t.max_amount_cents, t.min_tenure_months, t.max_tenure_months
+       FROM fa_criteria c LEFT JOIN fa_criteria_terms t ON t.criterion_id = c.id ORDER BY c.bank, c.family, c.version`,
+  ).all<FaCriterion>()).results ?? []);
 }
 
 /** The whole case, for someone who may open it. */
@@ -157,7 +162,7 @@ export async function handleFa(env: Env, path: string, method: string, body: Rec
   try {
     return await route(env, path, method, body, user, params, request);
   } catch (e) {
-    if (skew(e)) return err("migration_missing", "Run migration 0183 first (PUSH.bat).", 503);
+    if (skew(e)) return err("migration_missing", "Run migrations 0183 and 0184 first (PUSH.bat).", 503);
     throw e;
   }
 }
@@ -253,22 +258,35 @@ async function route(env: Env, path: string, method: string, body: Record<string
   }
   if (path === "/fa/criteria" && method === "POST") {
     if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
-    const bank = str(b.bank, 80) ? String(b.bank).trim() : "";
+    /* v1.286.0 - the bank comes from the one bank registry, never typed (ONE BANK REGISTRY) */
+    const bk = typeof b.bank_id === "number" ? await env.DB.prepare(`SELECT id, name, status FROM fa_banks WHERE id = ?1`).bind(b.bank_id).first<{ id: number; name: string; status: string }>() : null;
     const product = String(b.product ?? "");
     const source = str(b.source, 300) ? String(b.source).trim() : "";
-    if (!bank || !["personal_financing", "debt_consolidation"].includes(product)) return err("invalid_input", "Give the bank and the product.", 400);
+    if (!bk || !["personal_financing", "debt_consolidation"].includes(product)) return err("invalid_input", "Choose the bank from the registry and the product.", 400);
+    if (bk.status === "retired") return err("invalid_state", `${bk.name} is retired.`, 409);
+    const bp = await env.DB.prepare(`SELECT id FROM fa_bank_products WHERE bank_id = ?1 AND product = ?2 AND status = 'active'`).bind(bk.id, product).first<{ id: number }>();
+    if (!bp) return err("invalid_input", `${bk.name} has no ${product.replace(/_/g, " ")} in the registry - management adds the product first.`, 400);
     if (source.length < 5) return err("invalid_input", "Say where this rule comes from (document or contact, and date).", 400);
     const pct = typeof b.dsr_guideline_pct === "number" && b.dsr_guideline_pct > 0 && b.dsr_guideline_pct < 100 ? Math.round(b.dsr_guideline_pct * 100) : null;
-    const family = str(b.family, 80) ? String(b.family) : `${bank.toLowerCase().replace(/[^a-z0-9]+/g, "-")}:${product}`;
+    const bank = bk.name;
+    const family = `bank-${bk.id}:${product}`;
     const last = await env.DB.prepare(`SELECT MAX(version) AS v FROM fa_criteria WHERE family = ?1`).bind(family).first<{ v: number | null }>();
     const list = (v: unknown) => (Array.isArray(v) ? JSON.stringify(v.map(String).filter((x) => x.length <= 60).slice(0, 20)) : null);
+    const int = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? Math.round(v) : null);
+    const range = [int(b.min_age, 18, 99), int(b.max_age, 18, 99), cents(b.min_amount_cents), cents(b.max_amount_cents), int(b.min_tenure_months, 1, 600), int(b.max_tenure_months, 1, 600)] as const;
+    if ((range[0] != null && range[1] != null && range[0] > range[1]) || (range[2] != null && range[3] != null && range[2] > range[3]) || (range[4] != null && range[5] != null && range[4] > range[5])) {
+      return err("invalid_input", "A minimum is above its maximum.", 400);
+    }
     const row = await env.DB.prepare(
       `INSERT INTO fa_criteria (family, version, bank, product, income_definition, commitment_definition, dsr_guideline_bp, min_income_cents, employment_categories, min_service_months, required_documents, source, effective_from, created_by)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING id`,
     ).bind(family, Number(last?.v ?? 0) + 1, bank, product, b.income_definition === "gross" ? "gross" : "net", b.commitment_definition === "exclude_ptptn" ? "exclude_ptptn" : "all",
       pct, cents(b.min_income_cents), list(b.employment_categories), typeof b.min_service_months === "number" ? Math.max(0, Math.round(b.min_service_months)) : null,
       list(b.required_documents), source, validDay(b.effective_from) ? b.effective_from : null, user.id).first<{ id: number }>();
-    await audit(env, user.id, "fa.criteria_draft", "fa_criteria", String(row?.id), { bank, product, family, dsr_guideline_bp: pct });
+    await env.DB.prepare(
+      `INSERT INTO fa_criteria_terms (criterion_id, bank_id, bank_product_id, min_age, max_age, min_amount_cents, max_amount_cents, min_tenure_months, max_tenure_months) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    ).bind(Number(row?.id), bk.id, bp.id, ...range).run();
+    await audit(env, user.id, "fa.criteria_draft", "fa_criteria", String(row?.id), { bank, bank_id: bk.id, product, family, dsr_guideline_bp: pct });
     return json({ ok: true, id: row?.id }, 201);
   }
   const mCr = path.match(/^\/fa\/criteria\/(\d+)\/(verify|retire)$/);
@@ -290,35 +308,9 @@ async function route(env: Env, path: string, method: string, body: Record<string
     return json({ ok: true });
   }
 
-  /* ---- banker relations ---- */
-  if (path === "/fa/contacts" && method === "GET") {
-    const { results } = await env.DB.prepare(`SELECT k.*, ${PERSON("u")} AS owner FROM fa_bank_contacts k LEFT JOIN users u ON u.id = k.owner_id ORDER BY k.bank, k.contact_name`).all();
-    return json({ contacts: results ?? [], can: { manage: can(user.role, "fa_criteria"), log: can(user.role, "fa_edit") } });
-  }
-  if (path === "/fa/contacts" && method === "POST") {
-    if (!can(user.role, "fa_criteria")) return err("forbidden", "Only management manages banker relations", 403);
-    const bank = str(b.bank, 80) ? String(b.bank).trim() : "", name = str(b.contact_name, 120) ? String(b.contact_name).trim() : "";
-    if (!bank || !name) return err("invalid_input", "Give the bank and the contact's name.", 400);
-    const rel = ["prospect", "active", "paused", "ended"].includes(String(b.relationship)) ? String(b.relationship) : "prospect";
-    const row = await env.DB.prepare(
-      `INSERT INTO fa_bank_contacts (bank, products, contact_name, contact_role, branch, channel, channel_confirmed, relationship, owner_id, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
-    ).bind(bank, Array.isArray(b.products) ? JSON.stringify(b.products.map(String).slice(0, 5)) : null, name, str(b.contact_role, 80) ? String(b.contact_role) : null,
-      str(b.branch, 80) ? String(b.branch) : null, str(b.channel, 120) ? String(b.channel) : null, b.channel_confirmed === true ? 1 : 0, rel, user.id, user.id).first<{ id: number }>();
-    await audit(env, user.id, "fa.contact_add", "fa_bank_contacts", String(row?.id), { bank });
-    return json({ ok: true, id: row?.id }, 201);
-  }
-  const mLog = path.match(/^\/fa\/contacts\/(\d+)\/log$/);
-  if (mLog) {
-    const k = await env.DB.prepare(`SELECT id FROM fa_bank_contacts WHERE id = ?1`).bind(Number(mLog[1])).first<{ id: number }>();
-    if (!k) return err("not_found", "Contact not found", 404);
-    if (method === "GET") return json({ log: (await env.DB.prepare(`SELECT l.id, l.channel, l.summary, l.case_id, l.created_at, ${PERSON("u")} AS actor FROM fa_contact_log l LEFT JOIN users u ON u.id = l.actor_id WHERE l.contact_id = ?1 ORDER BY l.id DESC LIMIT 100`).bind(k.id).all()).results ?? [] });
-    if (method !== "POST") return null;
-    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot log banker contact", 403);
-    const summary = str(b.summary, 600) ? String(b.summary).trim() : "";
-    if (summary.length < 5) return err("invalid_input", "Write what was discussed (no client figures unless a consent covers it).", 400);
-    await env.DB.prepare(`INSERT INTO fa_contact_log (contact_id, case_id, channel, summary, actor_id) VALUES (?1, ?2, ?3, ?4, ?5)`)
-      .bind(k.id, typeof b.case_id === "number" ? b.case_id : null, ["call", "email", "whatsapp", "meeting", "other"].includes(String(b.channel)) ? String(b.channel) : "other", summary, user.id).run();
-    return json({ ok: true }, 201);
+  /* ---- v1.286.0 the bank, branch and banker registry ---- */
+  if (path === "/fa/registry" || path.startsWith("/fa/registry/") || path.startsWith("/fa/banks") || path.startsWith("/fa/branches") || path.startsWith("/fa/bankers") || path === "/fa/localities") {
+    return handleFaRegistry(env, path, method, b, user, params);
   }
 
   /* ---- one consent ---- */
@@ -556,7 +548,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     if (!mayEdit(user, c)) return err("forbidden", "Not a case you can change", 403);
     if (!(await consentsReady(env, c.id))) return err("consent_required", "Record the privacy notice and the assessment consent first.", 409);
     const items = ((await env.DB.prepare(`SELECT * FROM fa_items WHERE case_id = ?1`).bind(c.id).all<FaItem>()).results ?? []);
-    const profile = await env.DB.prepare(`SELECT employment_category, service_months FROM fa_profiles WHERE case_id = ?1 ORDER BY version DESC LIMIT 1`).bind(c.id).first<{ employment_category: string | null; service_months: number | null }>();
+    const profile = await env.DB.prepare(`SELECT employment_category, service_months, age_years FROM fa_profiles WHERE case_id = ?1 ORDER BY version DESC LIMIT 1`).bind(c.id).first<{ employment_category: string | null; service_months: number | null; age_years: number | null }>();
     const docs = ((await env.DB.prepare(`SELECT DISTINCT kind FROM fa_documents WHERE case_id = ?1 AND verified = 1 AND removed_at IS NULL`).bind(c.id).all<{ kind: string }>()).results ?? []).map((d) => d.kind);
     const proposal = { instalment_cents: cents(b.instalment_cents), amount_cents: cents(b.amount_cents), tenure_months: typeof b.tenure_months === "number" ? b.tenure_months : null, rate_bp: typeof b.rate_bp === "number" ? b.rate_bp : null };
     const r = assess({ product: c.product, items, profile, proposal, criteria: await liveCriteria(env), verifiedDocKinds: docs, today: mytToday() });
@@ -592,17 +584,32 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const type = String(b.type ?? "");
     const text = str(b.body, 2000) ? String(b.body).trim() : "";
     if (text.length < 5) return err("invalid_input", "Write the note.", 400);
-    const bank = str(b.bank, 80) ? String(b.bank).trim() : null;
+    /* v1.286.0 - the bank is the registry's: from the banker, or a bank_id */
+    let bank: string | null = null, bankerId: number | null = null, branchId: number | null = null;
+    if (typeof b.banker_id === "number") {
+      const bkr = await env.DB.prepare(`SELECT bk.id, k.name AS bank FROM fa_bankers bk JOIN fa_banks k ON k.id = bk.bank_id WHERE bk.id = ?1`).bind(b.banker_id).first<{ id: number; bank: string }>();
+      if (!bkr) return err("invalid_input", "Choose the banker from the directory.", 400);
+      bank = bkr.bank; bankerId = bkr.id;
+      if (typeof b.branch_id === "number") {
+        const br = await env.DB.prepare(`SELECT a.branch_id FROM fa_banker_branches a WHERE a.banker_id = ?1 AND a.branch_id = ?2`).bind(bkr.id, b.branch_id).first();
+        if (!br) return err("invalid_input", "That branch is not one of the banker's.", 400);
+        branchId = b.branch_id;
+      }
+    } else if (typeof b.bank_id === "number") {
+      bank = (await env.DB.prepare(`SELECT name FROM fa_banks WHERE id = ?1`).bind(b.bank_id).first<{ name: string }>())?.name ?? null;
+      if (!bank) return err("invalid_input", "Choose the bank from the registry.", 400);
+    }
     if (type === "banker") {
       if (!(mayEdit(user, c) || (await isMember(env, c.id, user.id)))) return err("forbidden", "You cannot add notes to this case", 403);
       const status = String(b.status ?? "");
       if (!BANKER_STATUS.includes(status)) return err("invalid_input", `A banker's feedback is one of ${BANKER_STATUS.join(", ")} - never an approval.`, 400);
-      if (!bank) return err("invalid_input", "Name the bank.", 400);
+      if (!bank) return err("invalid_input", "Choose the banker (or the bank) from the registry.", 400);
       const source = ["call", "email", "whatsapp", "meeting", "other"].includes(String(b.source)) ? String(b.source) : "other";
-      const row = await env.DB.prepare(`INSERT INTO fa_notes (case_id, note_type, bank, product, contact_id, source, status_value, body, conditions, missing_documents, follow_up_on, evidence_id, author_id, author_role) VALUES (?1, 'banker', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`)
-        .bind(c.id, bank, str(b.product, 60) ? String(b.product) : c.product, typeof b.contact_id === "number" ? b.contact_id : null, source, status, text,
+      const row = await env.DB.prepare(`INSERT INTO fa_notes (case_id, note_type, bank, product, source, status_value, body, conditions, missing_documents, follow_up_on, evidence_id, author_id, author_role) VALUES (?1, 'banker', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) RETURNING id`)
+        .bind(c.id, bank, str(b.product, 60) ? String(b.product) : c.product, source, status, text,
           str(b.conditions, 600) ? String(b.conditions) : null, str(b.missing_documents, 600) ? String(b.missing_documents) : null,
           validDay(b.follow_up_on) ? b.follow_up_on : null, await docOnCase(env, c.id, b.evidence_id), user.id, user.role).first<{ id: number }>();
+      if (bankerId) await env.DB.prepare(`INSERT INTO fa_note_links (note_id, banker_id, branch_id) VALUES (?1, ?2, ?3)`).bind(Number(row?.id), bankerId, branchId).run();
       /* a banker's word moves the banker status only - never the application */
       await env.DB.prepare(`UPDATE fa_cases SET banker_status = ?1, updated_at = datetime('now') WHERE id = ?2`).bind(status, c.id).run();
       await event(env, c.id, "banker_feedback", user.id, { bank, status });
