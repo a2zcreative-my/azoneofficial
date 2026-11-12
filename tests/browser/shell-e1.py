@@ -4,15 +4,12 @@ shell) on screen. The CEO approved the photo and all eight decisions,
 The source half is tests/executive-workspace.mjs.
 
 Here, in a browser:
-  the rail is the photo's: the A2Z OS wordmark; Dashboard, Desk; REVENUE
-  Sales, Ecommerce, Agents; OPERATIONS Projects, Tasks, Inventory; PEOPLE
-  HR, Attendance, Leave, Claims, Payroll; FINANCE Finance, Accounting,
-  Commission; More; the name card;
-  More holds the CEO's other tabs (v1.284.0: Financial Advisory first, after
-  Agents in the registry) and opens; a tab inside More keeps it open;
+  the rail (v1.287.0, the CEO's navigation directive): the A2Z OS wordmark;
+  WORKSPACE, REVENUE, OPERATIONS, PEOPLE, FINANCE, ELFIA, SYSTEM with every
+  module in its own group and no More; the name card;
   the current tab is a gold pill with navy ink at AA contrast;
   Projects opens Tasks on its Projects tab and Tasks is the current item;
-  a salesperson's rail shows only what they may open, and More only theirs;
+  a salesperson's rail shows only what they may open, and no empty group;
   the header has search, the bell, Help and dark mode and nothing else;
   the name card's menu has Profile, Cards, the four settings with On / Off,
   and Sign out; a setting flips and the menu stays open; Escape closes it;
@@ -50,25 +47,21 @@ with sync_playwright() as p:
     # ---------- the CEO's rail ----------
     ctx, pg, errs = page(b, 4177, 1440, 900)
     rail = pg.evaluate(RAIL_JS)
-    want = [["Home", ["Dashboard", "Desk"]], ["Revenue", ["Sales", "Ecommerce", "Agents"]], ["Operations", ["Projects", "Tasks", "Inventory"]],
-            ["People", ["HR", "Attendance", "Leave", "Claims", "Payroll"]], ["Finance", ["Finance", "Accounting", "Commission"]], ["More", ["More"]]]
-    check("the CEO's rail is the photo's groups and modules, in the photo's order, then More", rail == want, rail)
+    # v1.287.0 - the CEO's navigation directive (12-11-2026): seven groups, every module in its own, no More
+    want = [["Workspace", ["Dashboard", "Desk", "News"]], ["Revenue", ["Sales", "Ecommerce", "Agents", "Financial Advisory"]],
+            ["Operations", ["Projects", "Tasks", "Inventory", "Assets", "Hotels"]],
+            ["People", ["HR", "Staff", "Attendance", "On Shift", "Leave", "Claims", "Payroll"]], ["Finance", ["Finance", "Accounting", "Commission"]],
+            ["ELFIA", ["ELFIA Store", "ELFIA Traffic"]], ["System", ["Companies", "Users & Security"]]]
+    check("the CEO's rail is the seven groups with every module in its own place, and no More", rail == want, rail)
     check("the wordmark reads A2Z OS", "A2Z OS" in pg.locator(".erp-rail-brand").inner_text())
-    check("the Home group has no visible heading but keeps its name", pg.locator(".erp-rail-group[data-group=Home] > button").get_attribute("aria-label") == "Home group" and pg.evaluate("getComputedStyle(document.querySelector('.erp-rail-group[data-group=Home] > button')).position") == "absolute")
+    check("the Workspace group has a visible heading", pg.locator(".erp-rail-group[data-group=Workspace] > button").inner_text().strip().upper() == "WORKSPACE")
     act = pg.locator(".erp-rail-item[aria-current=page]")
     check("the current tab is Dashboard, a gold pill", act.inner_text().strip() == "Dashboard" and "201, 162, 39" in pg.evaluate("getComputedStyle(document.querySelector('.erp-rail-item[aria-current=page]')).backgroundColor"))
     ratio = pg.evaluate(CONTRAST_JS, ".erp-rail-item[aria-current=page]")
     check("...with navy ink at AA contrast (decision 5), never white on gold", ratio >= 4.5, round(ratio, 2))
-    more = pg.locator(".erp-rail-group[data-group=More] button[aria-controls=rail-more]")
-    check("More starts shut", more.get_attribute("aria-expanded") == "false" and pg.locator("#rail-more").count() == 0)
-    more.click(); pg.wait_for_timeout(300)
-    inmore = [t.strip() for t in pg.locator("#rail-more button").all_inner_texts()]
-    check("More holds the CEO's other tabs - ELFIA, the people pages, Companies, Users - in the registry's order",
-          inmore[:3] == ["Financial Advisory", "Assets", "Hotels"] and {"ELFIA Store", "ELFIA Traffic", "On Shift", "News", "Staff", "Companies", "Users"} <= set(inmore) and "Cards" not in inmore and "Profile" not in inmore, inmore)
-    check("every tab is reachable from the rail: the photo's, More's and the name card's", len(set(inmore)) + 15 + 2 >= 27, len(inmore))
-    pg.locator("#rail-more").get_by_role("button", name="Users", exact=True).click(); pg.wait_for_timeout(1500)
-    check("a tab inside More opens and keeps More open, as the current item", pg.locator("#rail-more .erp-rail-item[aria-current=page]").inner_text().strip() == "Users"
-          and more.get_attribute("aria-expanded") == "true")
+    check("there is no More on the desktop rail", pg.locator("aside.erp-rail").get_by_role("button", name="More").count() == 0)
+    pg.locator(".erp-rail").get_by_role("button", name="Users & Security", exact=True).click(); pg.wait_for_timeout(1500)
+    check("a System module opens as the current item, its group open", pg.locator(".erp-rail-group[data-group=System] .erp-rail-item[aria-current=page]").inner_text().strip() == "Users & Security")
     pg.locator(".erp-rail").get_by_role("button", name="Projects", exact=True).click(); pg.wait_for_timeout(1800)
     check("Projects opens Tasks on its Projects tab", pg.locator("h1.erp-topbar-title").first.inner_text().strip() == "Tasks"
           and pg.get_by_role("tab", name="Projects", exact=True).first.get_attribute("aria-selected") == "true")
@@ -114,11 +107,9 @@ with sync_playwright() as p:
     # ---------- a salesperson's rail: only what they may open ----------
     ctx, pg, errs = page(b, 4182, 1440, 900)
     allowed = pg.evaluate("() => [...document.querySelectorAll('.erp-rail-nav button[data-nav-item]')].map(b => b.innerText.trim())")
-    check("a salesperson's rail never offers a module they may not open (no Payroll, Accounting, Users)", not ({"Payroll", "Accounting", "Users"} & set(allowed)), allowed)
-    if pg.locator("button[aria-controls=rail-more]").count():
-        pg.locator("button[aria-controls=rail-more]").click(); pg.wait_for_timeout(300)
-        inmore = [t.strip() for t in pg.locator("#rail-more button").all_inner_texts()]
-        check("...and their More holds only their own other tabs", not ({"Users", "Companies", "Payroll"} & set(inmore)), inmore)
+    check("a salesperson's rail never offers a module they may not open (no Payroll, Accounting, Users, Companies)", not ({"Payroll", "Accounting", "Users & Security", "Companies"} & set(allowed)), allowed)
+    groups = pg.evaluate("() => [...document.querySelectorAll('.erp-rail-nav .erp-rail-group')].map(g => g.dataset.group)")
+    check("...and draws no group they have nothing in (no System)", "System" not in groups and "More" not in groups, groups)
     check("no page errors (salesperson)", not errs, errs)
     ctx.close()
 

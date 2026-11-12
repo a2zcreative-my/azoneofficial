@@ -33,10 +33,17 @@ import { notify } from "./staff";
 import { json, err, audit, str, putGuarded } from "./shared";
 import { can } from "./permissions";
 import { handleFaRegistry } from "./fa-registry";
-import { assess, type FaItem, type FaCriterion, type Product } from "./fa-engine";
+import { assess, ENGINE_VERSION, type FaItem, type FaCriterion, type Product } from "./fa-engine";
+import { isExecutiveOwner } from "./decision-policy";
+import { handleFaMatch } from "./fa-match";
 
 /** Off until counsel clears each one (blueprint section 4). A constant on purpose. */
-export const FA_LEGAL = { agreement: false, fee: false, disclosure: false, commission: false } as const;
+/* v1.288.0 - the CEO, 12-11-2026, decision D5 of DSR blueprint v1.2: "proceed
+   without lawyers" - sending a client's documents to an ALLOCATED, verified
+   banker opens, behind the client's own disclosure consent naming that bank
+   and those documents, a management Proceed and an approved allocation
+   (worker/src/fa-match.ts). The agreement, the fee and commission stay off. */
+export const FA_LEGAL = { agreement: false, fee: false, disclosure: true, commission: false } as const;
 
 const PRODUCTS = ["personal_financing", "debt_consolidation", "advisory_only"] as const;
 const STAGES = ["intake", "profile", "prescreen", "review", "matching", "agreement", "enquiry", "application", "decision", "disbursed", "fee", "closed"] as const;
@@ -68,7 +75,7 @@ const skew = (e: unknown) => /no such (table|column)/i.test(String(e));
 const cents = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 10_000_000_000 ? v : null);
 const PERSON = (a: string) => `COALESCE(NULLIF(TRIM(${a}.full_name), ''), ${a}.name)`;
 
-interface Case {
+export interface Case {
   id: number; case_ref: string | null; customer_id: number; owner_id: number; agent_request_id: number | null; issuer_code: string; product: Product;
   purpose: string | null; stage: string; prescreen: string; banker_status: string; application_status: string; override_result: string | null;
   override_reason: string | null; closed_reason: string | null; created_at: string; updated_at: string;
@@ -130,6 +137,15 @@ async function liveCriteria(env: Env): Promise<FaCriterion[]> {
   ).all<FaCriterion>()).results ?? []);
 }
 
+/** v1.288.0 - where a case stands with Management: the last submission, and the decision on it (if any) */
+export async function reviewState(env: Env, caseId: number): Promise<{ pending: boolean; submitted_id: number | null; submitted_by: number | null; assessment_id: number | null; decision: string | null; decided_at: string | null }> {
+  const last = await env.DB.prepare(`SELECT id, action, actor_id, assessment_id, created_at FROM fa_reviews WHERE case_id = ?1 ORDER BY id DESC LIMIT 1`).bind(caseId).first<{ id: number; action: string; actor_id: number; assessment_id: number | null; created_at: string }>();
+  if (!last) return { pending: false, submitted_id: null, submitted_by: null, assessment_id: null, decision: null, decided_at: null };
+  if (last.action === "submitted") return { pending: true, submitted_id: last.id, submitted_by: last.actor_id, assessment_id: last.assessment_id, decision: null, decided_at: null };
+  const sub = await env.DB.prepare(`SELECT id, actor_id FROM fa_reviews WHERE case_id = ?1 AND action = 'submitted' AND id < ?2 ORDER BY id DESC LIMIT 1`).bind(caseId, last.id).first<{ id: number; actor_id: number }>();
+  return { pending: false, submitted_id: sub?.id ?? null, submitted_by: sub?.actor_id ?? null, assessment_id: last.assessment_id, decision: last.action, decided_at: last.created_at };
+}
+
 /** The whole case, for someone who may open it. */
 async function picture(env: Env, u: StaffUser, c: Case) {
   const q = (sql: string, ...a: unknown[]) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results ?? []);
@@ -143,11 +159,21 @@ async function picture(env: Env, u: StaffUser, c: Case) {
     documents: await q(`SELECT d.id, d.kind, d.content_type, d.size_bytes, d.doc_date, d.verified, d.uploaded_at, ${PERSON("u")} AS by_name FROM fa_documents d LEFT JOIN users u ON u.id = d.uploaded_by WHERE d.case_id = ?1 AND d.removed_at IS NULL ORDER BY d.id DESC`, c.id),
     consents: await q(`SELECT id, kind, notice_version, institution, documents, captured_how, given_at, expires_at, withdrawn_at, withdrawn_note, recorded_at FROM fa_consents WHERE case_id = ?1 ORDER BY id`, c.id),
     assessments,
-    notes: await q(`SELECT n.*, ${PERSON("u")} AS author FROM fa_notes n LEFT JOIN users u ON u.id = n.author_id WHERE n.case_id = ?1 ORDER BY n.id DESC`, c.id),
+    /* v1.290.0 - with the day of the contact and the tenure the letter states (0186) */
+    notes: await q(`SELECT n.*, ${PERSON("u")} AS author, f.contact_on, f.tenure_months, l.banker_id AS linked_banker_id FROM fa_notes n LEFT JOIN users u ON u.id = n.author_id LEFT JOIN fa_note_facts f ON f.note_id = n.id LEFT JOIN fa_note_links l ON l.note_id = n.id WHERE n.case_id = ?1 ORDER BY n.id DESC`, c.id),
     events: await q(`SELECT e.id, e.event, e.detail, e.created_at, ${PERSON("u")} AS actor FROM fa_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.case_id = ?1 ORDER BY e.id`, c.id),
     tasks: await q(`SELECT t.id, t.title, t.deadline, t.status, ${PERSON("u")} AS assignee FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to WHERE t.link_kind = 'fa_case' AND t.link_id = ?1 ORDER BY t.id DESC`, c.id),
     members: await q(`SELECT m.user_id, ${PERSON("u")} AS name FROM fa_case_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.case_id = ?1`, c.id),
-    can: { edit: mayEdit(u, c), decide: can(u.role, "fa_decide"), note: can(u.role, "fa_edit") || (await isMember(env, c.id, u.id)) },
+    /* v1.288.0 - the management review history (append only), the commitment details, the banker allocations */
+    reviews: await q(`SELECT r.id, r.assessment_id, r.action, r.reason, r.next_action, r.actor_id, r.actor_role, r.created_at, ${PERSON("u")} AS actor FROM fa_reviews r LEFT JOIN users u ON u.id = r.actor_id WHERE r.case_id = ?1 ORDER BY r.id DESC`, c.id),
+    item_meta: await q(`SELECT m.* FROM fa_item_meta m JOIN fa_items i ON i.id = m.item_id WHERE i.case_id = ?1`, c.id),
+    allocations: await q(`SELECT a.id, a.product, a.bank_id, a.banker_id, a.branch_id, a.role, a.state, a.reason, a.created_by, a.created_at, a.decided_at, k.name AS bank, bk.full_name AS banker, br.name AS branch,
+        e.id AS enquiry_id, e.state AS enquiry_state, e.sent_at
+        FROM fa_allocations a JOIN fa_banks k ON k.id = a.bank_id JOIN fa_bankers bk ON bk.id = a.banker_id LEFT JOIN fa_branches br ON br.id = a.branch_id LEFT JOIN fa_enquiries e ON e.allocation_id = a.id
+       WHERE a.case_id = ?1 ORDER BY a.id DESC`, c.id),
+    disclosures: await q(`SELECT x.id, x.enquiry_id, x.document_id, x.channel, x.recipient, x.purpose, x.sent_at, d.kind AS document_kind, ${PERSON("u")} AS sent_by FROM fa_disclosures x LEFT JOIN fa_documents d ON d.id = x.document_id LEFT JOIN users u ON u.id = x.sent_by WHERE x.case_id = ?1 ORDER BY x.id DESC`, c.id),
+    review: await reviewState(env, c.id),
+    can: { edit: mayEdit(u, c), decide: can(u.role, "fa_decide"), allocate: can(u.role, "fa_allocate"), note: can(u.role, "fa_edit") || (await isMember(env, c.id, u.id)) },
     legal: FA_LEGAL,
   };
 }
@@ -299,13 +325,58 @@ async function route(env: Env, path: string, method: string, body: Record<string
       const r = await env.DB.prepare(`UPDATE fa_criteria SET state = 'verified', last_verified_on = ?1, verified_by = ?2, verified_at = datetime('now') WHERE id = ?3 AND state = 'draft'`)
         .bind(b.last_verified_on, user.id, c.id).run();
       if (!Number(r.meta?.changes ?? 0)) return err("invalid_state", "Only a draft criterion can be verified.", 409);
-      /* one verified version per family: the older one retires */
-      await env.DB.prepare(`UPDATE fa_criteria SET state = 'retired' WHERE family = ?1 AND id != ?2 AND state = 'verified'`).bind(c.family, c.id).run();
+      /* one verified version per family: the older one retires - v1.288.0: when the new one is in force; a
+         version effective later leaves the current one in force until its date (the engine takes the newest in force) */
+      const eff = (c as unknown as { effective_from?: string | null }).effective_from ?? null;
+      if (!eff || eff <= mytToday()) await env.DB.prepare(`UPDATE fa_criteria SET state = 'retired' WHERE family = ?1 AND id != ?2 AND state = 'verified' AND version < ?3`).bind(c.family, c.id, c.version).run();
     } else {
       await env.DB.prepare(`UPDATE fa_criteria SET state = 'retired' WHERE id = ?1`).bind(c.id).run();
     }
     await audit(env, user.id, `fa.criteria_${mCr[2]}`, "fa_criteria", String(c.id), { family: c.family, version: c.version, bank: c.bank });
     return json({ ok: true });
+  }
+
+  /* ---- v1.290.0 (image 04, G2) one banker's cases: the counts for everyone
+     who may open Financial Advisory; the case lines - client, DSR, feedback,
+     the official outcome - only for the cases this person may open ---- */
+  const mBc = path.match(/^\/fa\/bankers\/(\d+)\/cases$/);
+  if (mBc && method === "GET") {
+    if (!can(user.role, "fa_view")) return err("forbidden", "You cannot open Financial Advisory", 403);
+    const bankerId = Number(mBc[1]);
+    const bk = await env.DB.prepare(`SELECT id FROM fa_bankers WHERE id = ?1`).bind(bankerId).first();
+    if (!bk) return err("not_found", "Banker not found", 404);
+    const rows = (await env.DB.prepare(
+      `SELECT a.id AS allocation_id, a.case_id, a.state, a.reason, a.created_at, a.decided_at, ${PERSON("d")} AS decided_by, c.case_ref, c.owner_id, c.product, c.stage, c.application_status, c.banker_status, cu.company AS client,
+              (SELECT x.projected_dsr_bp FROM fa_assessments x WHERE x.case_id = c.id ORDER BY x.id DESC LIMIT 1) AS projected_dsr_bp,
+              e.id AS enquiry_id, e.state AS enquiry_state, e.sent_at
+         FROM fa_allocations a JOIN fa_cases c ON c.id = a.case_id LEFT JOIN customers cu ON cu.id = c.customer_id
+         LEFT JOIN users d ON d.id = a.decided_by LEFT JOIN fa_enquiries e ON e.allocation_id = a.id
+        WHERE a.banker_id = ?1 ORDER BY a.id DESC LIMIT 200`,
+    ).bind(bankerId).all<{ allocation_id: number; case_id: number; state: string; reason: string | null; created_at: string; decided_at: string | null; decided_by: string | null; case_ref: string; owner_id: number; product: string; stage: string; application_status: string; banker_status: string; client: string | null; projected_dsr_bp: number | null; enquiry_id: number | null; enquiry_state: string | null; sent_at: string | null }>()).results ?? [];
+    const OUTCOME = ["conditional_offer", "officially_approved", "declined", "disbursed"];
+    const counts = {
+      allocated: rows.filter((r) => ["assigned", "awaiting_consent", "ready"].includes(r.state)).length,
+      pending: rows.filter((r) => r.state === "pending_review").length,
+      enquiry_open: rows.filter((r) => ["sent", "acknowledged", "information_requested"].includes(r.enquiry_state ?? "")).length,
+      feedback: rows.filter((r) => r.enquiry_state === "feedback_received").length,
+      outcome: rows.filter((r) => OUTCOME.includes(r.application_status)).length,
+    };
+    const cases = [];
+    for (const r of rows) {
+      const may = isAll(user) || r.owner_id === user.id || (await isMember(env, r.case_id, user.id));
+      if (!may) { cases.push({ allocation_id: r.allocation_id, state: r.state, mine: false }); continue; }
+      const feedback = (await env.DB.prepare(
+        `SELECT n.id, n.status_value, n.body, n.source, n.missing_documents, n.follow_up_on, n.created_at, f.contact_on, ${PERSON("u")} AS author
+           FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id LEFT JOIN fa_note_facts f ON f.note_id = n.id LEFT JOIN users u ON u.id = n.author_id
+          WHERE l.banker_id = ?1 AND n.case_id = ?2 AND n.note_type = 'banker' ORDER BY n.id DESC LIMIT 5`,
+      ).bind(bankerId, r.case_id).all()).results ?? [];
+      const decisions = (await env.DB.prepare(
+        `SELECT n.id, n.bank, n.status_value, n.bank_reference, n.approved_cents, n.created_at, f.tenure_months, n.evidence_id IS NOT NULL AS has_letter
+           FROM fa_notes n LEFT JOIN fa_note_facts f ON f.note_id = n.id WHERE n.case_id = ?1 AND n.note_type = 'decision' ORDER BY n.id DESC LIMIT 3`,
+      ).bind(r.case_id).all()).results ?? [];
+      cases.push({ ...r, mine: true, feedback, decisions });
+    }
+    return json({ counts, cases });
   }
 
   /* ---- v1.286.0 the bank, branch and banker registry ---- */
@@ -405,6 +476,55 @@ async function route(env: Env, path: string, method: string, body: Record<string
     return json({ ok: true, id: row?.id }, 201);
   }
 
+  /* ---- v1.288.0 DSR pre-check: the one engine, stateless (Quick Check and the live result) ---- */
+  if (path === "/fa/preview" && method === "POST") {
+    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot run a DSR pre-check", 403);
+    const product = String(b.product ?? "personal_financing") as Product;
+    if (!["personal_financing", "debt_consolidation", "advisory_only"].includes(product)) return err("invalid_input", "Unknown product", 400);
+    const raw = Array.isArray(b.items) ? (b.items as Array<Record<string, unknown>>) : [];
+    if (raw.length > 60) return err("invalid_input", "Too many figures.", 400);
+    /* D3: a Quick Check carries no identity - a name, IC or phone is refused, not ignored */
+    for (const k of ["name", "ic", "nric", "phone", "email", "customer", "client"]) if (b[k] !== undefined) return err("identity_refused", "A Quick Check takes figures only - no name, IC, phone or email.", 400);
+    const items: FaItem[] = [];
+    for (const [i, r] of raw.entries()) {
+      const side = String(r.side ?? ""), kind = String(r.kind ?? "");
+      if (!SIDES.includes(side) || !(KINDS[side] ?? []).includes(kind)) return err("invalid_input", `Line ${i + 1}: unknown ${side || "side"} ${kind}`, 400);
+      const m = cents(r.monthly_cents);
+      if (m === null) return err("invalid_input", `Line ${i + 1}: the monthly amount is in sen, zero or more.`, 400);
+      items.push({ id: i + 1, side: side as FaItem["side"], kind, monthly_cents: m, state: r.verified === true ? "verified" : "declared",
+        settle_in_consolidation: r.settle === true ? 1 : 0, settlement_doc_id: r.settle === true ? -1 : null, arrears: r.arrears === true ? 1 : 0,
+        label: str(r.label, 80) ? String(r.label) : null, source: r.verified === true ? "preview" : "declared",
+        remaining_months: typeof r.remaining_months === "number" && Number.isInteger(r.remaining_months) && r.remaining_months >= 0 && r.remaining_months <= 600 ? r.remaining_months : null });
+    }
+    const p = (b.proposal ?? {}) as Record<string, unknown>;
+    const proposal = { instalment_cents: cents(p.instalment_cents), amount_cents: cents(p.amount_cents), tenure_months: typeof p.tenure_months === "number" && Number.isInteger(p.tenure_months) && p.tenure_months > 0 && p.tenure_months <= 600 ? p.tenure_months : null, rate_bp: typeof p.rate_bp === "number" && p.rate_bp >= 0 && p.rate_bp <= 5000 ? Math.round(p.rate_bp) : null };
+    const prof = (b.profile ?? null) as Record<string, unknown> | null;
+    const profile = prof ? { employment_category: str(prof.employment_category, 40) ? String(prof.employment_category) : null, service_months: typeof prof.service_months === "number" ? prof.service_months : null, age_years: typeof prof.age_years === "number" ? prof.age_years : null } : null;
+    const r = assess({ product, items, profile, proposal, criteria: await liveCriteria(env), verifiedDocKinds: [], today: mytToday() });
+    /* nothing is stored; a pressed Calculate leaves one audit line with no figure in it */
+    if (b.final === true) await audit(env, user.id, "fa.quick_check", "fa", "preview", { lines: items.length, product, outcome: r.outcome });
+    return json({ result: r, assumed_settlements: items.filter((i) => i.settlement_doc_id === -1).length, stored: false });
+  }
+
+  /* ---- v1.288.0 the management review queue ---- */
+  if (path === "/fa/reviews" && method === "GET") {
+    const decide = can(user.role, "fa_decide");
+    const { results } = await env.DB.prepare(
+      `SELECT r.id, r.case_id, r.assessment_id, r.reason, r.created_at, ${PERSON("u")} AS submitted_by, c.case_ref, c.product, c.prescreen, cu.company AS client,
+              a.current_dsr_bp, a.projected_dsr_bp, a.outcome
+         FROM fa_reviews r JOIN fa_cases c ON c.id = r.case_id LEFT JOIN customers cu ON cu.id = c.customer_id LEFT JOIN users u ON u.id = r.actor_id LEFT JOIN fa_assessments a ON a.id = r.assessment_id
+        WHERE r.action = 'submitted' AND r.id = (SELECT MAX(id) FROM fa_reviews x WHERE x.case_id = r.case_id)
+          ${decide ? "" : "AND (c.owner_id = ?1 OR EXISTS (SELECT 1 FROM fa_case_members m WHERE m.case_id = c.id AND m.user_id = ?1))"}
+        ORDER BY r.id`,
+    ).bind(...(decide ? [] : [user.id])).all();
+    return json({ pending: results ?? [], can: { decide } });
+  }
+
+  /* ---- v1.288.0 banker matching, allocation, enquiry and disclosure (fa-match.ts) ---- */
+  if (path.startsWith("/fa/allocations/") || /^\/fa\/cases\/\d+\/(match|allocations|enquiries|disclosures)$/.test(path)) {
+    return handleFaMatch(env, path, method, b, user, { caseOf, mayOpen, mayEdit, event, touch, reviewState, liveCriteria, consentsReady, docOnCase });
+  }
+
   /* ---- one case ---- */
   const m = path.match(/^\/fa\/cases\/(\d+)(?:\/([a-z]+))?$/);
   if (!m) return null;
@@ -428,8 +548,13 @@ async function route(env: Env, path: string, method: string, body: Record<string
         const why = str(b.closed_reason, 300) ? String(b.closed_reason).trim() : "";
         if (why.length < 5) return err("invalid_input", "Say why the case closes (no loan advised, declined, withdrawn, client stopped, completed).", 400);
         sets.push(`stage = 'closed'`, `closed_reason = ?${vals.push(why)}`, `closed_at = datetime('now')`, `closed_by = ?${vals.push(user.id)}`);
-      } else if (["agreement", "enquiry", "application", "fee"].includes(to)) {
-        return err("legal_gate", "This step is switched off until counsel clears it (agreement, disclosure to banks, fee).", 409);
+      } else if (["agreement", "application", "fee"].includes(to)) {
+        return err("legal_gate", "This step is switched off until counsel clears it (agreement, formal application, fee).", 409);
+      } else if (to === "enquiry") {
+        return err("invalid_transition", "A case moves to enquiry when an enquiry to its allocated banker is recorded.", 409);
+      } else if (to === "matching" && (await reviewState(env, c.id)).decision !== "proceed") {
+        /* v1.288.0 - banker matching only after Management decided Proceed (blueprint v1.2) */
+        return err("review_required", "Banker matching opens only after Management decides Proceed on a submitted assessment.", 409);
       } else if (!(NEXT[c.stage] ?? []).includes(to)) {
         return err("invalid_transition", `A case in ${c.stage} cannot move to ${to}.`, 409);
       } else sets.push(`stage = ?${vals.push(to)}`);
@@ -547,13 +672,13 @@ async function route(env: Env, path: string, method: string, body: Record<string
   if (sub === "assess" && method === "POST") {
     if (!mayEdit(user, c)) return err("forbidden", "Not a case you can change", 403);
     if (!(await consentsReady(env, c.id))) return err("consent_required", "Record the privacy notice and the assessment consent first.", 409);
-    const items = ((await env.DB.prepare(`SELECT * FROM fa_items WHERE case_id = ?1`).bind(c.id).all<FaItem>()).results ?? []);
+    const items = ((await env.DB.prepare(`SELECT i.*, m.remaining_months FROM fa_items i LEFT JOIN fa_item_meta m ON m.item_id = i.id WHERE i.case_id = ?1`).bind(c.id).all<FaItem>()).results ?? []);
     const profile = await env.DB.prepare(`SELECT employment_category, service_months, age_years FROM fa_profiles WHERE case_id = ?1 ORDER BY version DESC LIMIT 1`).bind(c.id).first<{ employment_category: string | null; service_months: number | null; age_years: number | null }>();
     const docs = ((await env.DB.prepare(`SELECT DISTINCT kind FROM fa_documents WHERE case_id = ?1 AND verified = 1 AND removed_at IS NULL`).bind(c.id).all<{ kind: string }>()).results ?? []).map((d) => d.kind);
     const proposal = { instalment_cents: cents(b.instalment_cents), amount_cents: cents(b.amount_cents), tenure_months: typeof b.tenure_months === "number" ? b.tenure_months : null, rate_bp: typeof b.rate_bp === "number" ? b.rate_bp : null };
     const r = assess({ product: c.product, items, profile, proposal, criteria: await liveCriteria(env), verifiedDocKinds: docs, today: mytToday() });
     const row = await env.DB.prepare(`INSERT INTO fa_assessments (case_id, ruleset, inputs, result, current_dsr_bp, projected_dsr_bp, outcome, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`)
-      .bind(c.id, JSON.stringify(r.ruleset), JSON.stringify({ proposal, items: items.map((i) => ({ id: i.id, side: i.side, kind: i.kind, monthly_cents: i.monthly_cents, state: i.state, voided: !!i.voided_at, settle: i.settle_in_consolidation, settlement_doc: i.settlement_doc_id })), profile, docs }), JSON.stringify(r), r.current_dsr_bp, r.projected_dsr_bp, r.outcome, user.id).first<{ id: number }>();
+      .bind(c.id, JSON.stringify(r.ruleset), JSON.stringify({ engine_version: ENGINE_VERSION, proposal, items: items.map((i) => ({ id: i.id, side: i.side, kind: i.kind, monthly_cents: i.monthly_cents, state: i.state, voided: !!i.voided_at, settle: i.settle_in_consolidation, settlement_doc: i.settlement_doc_id })), profile, docs }), JSON.stringify(r), r.current_dsr_bp, r.projected_dsr_bp, r.outcome, user.id).first<{ id: number }>();
     const pct = (bp: number | null) => (bp == null ? "-" : `${(bp / 100).toFixed(1)}%`);
     const bodyText = [
       `Net income: ${r.income_net_cents == null ? "not verified" : `RM ${(r.income_net_cents / 100).toFixed(2)}`}; commitments RM ${(r.commitments_cents / 100).toFixed(2)}.`,
@@ -566,6 +691,140 @@ async function route(env: Env, path: string, method: string, body: Record<string
     await event(env, c.id, "prescreen_completed", user.id, { outcome: r.outcome, assessment: row?.id });
     await audit(env, user.id, "fa.assess", "fa_assessments", String(row?.id), { case: c.case_ref, outcome: r.outcome });
     return json({ ok: true, assessment_id: row?.id, result: r }, 201);
+  }
+
+  /* ---- v1.288.0 the DSR workspace writes the figures as one set: unchanged lines stay, a changed
+     line is replaced (its verification does not carry over), a missing line is removed - never edited ---- */
+  if (sub === "figures" && method === "PUT") {
+    if (!mayEdit(user, c)) return err("forbidden", "Not a case you can change", 403);
+    if (!(await consentsReady(env, c.id))) return err("consent_required", "Record the privacy notice and the assessment consent first.", 409);
+    const raw = Array.isArray(b.items) ? (b.items as Array<Record<string, unknown>>) : null;
+    if (!raw || raw.length > 60) return err("invalid_input", "Send the figures as a list (at most 60).", 400);
+    const existing = ((await env.DB.prepare(`SELECT i.*, m.lender_bank_id, m.lender_name, m.account_last4, m.facility_ref, m.remaining_months, m.duplicate_reason FROM fa_items i LEFT JOIN fa_item_meta m ON m.item_id = i.id WHERE i.case_id = ?1 AND i.voided_at IS NULL`).bind(c.id).all<Record<string, unknown>>()).results ?? []);
+    type Line = { id: number | null; side: string; kind: string; monthly: number; label: string | null; source: string; arrears: number; lender_bank_id: number | null; lender_name: string | null; last4: string | null; ref: string | null; remaining: number | null; dup: string | null };
+    const lines: Line[] = [];
+    for (const [i, r] of raw.entries()) {
+      const side = String(r.side ?? ""), kind = String(r.kind ?? "");
+      if (!SIDES.includes(side) || !(KINDS[side] ?? []).includes(kind)) return err("invalid_input", `Line ${i + 1}: for ${side || "this side"}, kind is one of ${(KINDS[side] ?? []).join(", ")}`, 400);
+      const monthly = cents(r.monthly_cents);
+      if (monthly === null) return err("invalid_input", `Line ${i + 1}: enter the monthly amount in sen.`, 400);
+      const last4 = r.account_last4 == null || r.account_last4 === "" ? null : String(r.account_last4);
+      if (last4 !== null && !/^\d{4}$/.test(last4)) return err("invalid_input", `Line ${i + 1}: the account's last four digits only.`, 400);
+      const rem = r.remaining_months == null || r.remaining_months === "" ? null : Number(r.remaining_months);
+      if (rem !== null && !(Number.isInteger(rem) && rem >= 0 && rem <= 600)) return err("invalid_input", `Line ${i + 1}: remaining months is 0 to 600.`, 400);
+      lines.push({ id: typeof r.id === "number" ? r.id : null, side, kind, monthly, label: str(r.label, 80) ? String(r.label).trim() : null,
+        source: SOURCES.includes(String(r.source)) ? String(r.source) : "declared", arrears: r.arrears === true ? 1 : 0,
+        lender_bank_id: typeof r.lender_bank_id === "number" ? r.lender_bank_id : null, lender_name: str(r.lender_name, 80) ? String(r.lender_name).trim() : null,
+        last4, ref: str(r.facility_ref, 60) ? String(r.facility_ref).trim() : null, remaining: rem, dup: str(r.duplicate_reason, 300) ? String(r.duplicate_reason).trim() : null });
+    }
+    const byId = new Map(existing.map((e) => [Number(e.id), e]));
+    for (const l of lines) if (l.id !== null && !byId.has(l.id)) return err("invalid_input", "A line names a figure that is not on this case (or was removed).", 400);
+    /* the same commitment twice: same kind, lender, last four and amount - refused unless a reason says why */
+    const lenderKey = (bankId: unknown, name: unknown) => (bankId != null ? `b${bankId}` : String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, ""));
+    const seen = new Map<string, number>();
+    for (const [i, l] of lines.entries()) {
+      if (l.side !== "commitment") continue;
+      const key = [l.kind, lenderKey(l.lender_bank_id, l.lender_name), l.last4 ?? "", l.monthly].join("|");
+      if (seen.has(key) && !(l.dup && l.dup.length >= 10)) {
+        return json({ error: { code: "possible_duplicate", message: `Line ${i + 1} looks like line ${seen.get(key)! + 1}: the same ${l.kind.replace(/_/g, " ")} with the same lender, account and amount. Remove it, or say why it is a second facility.` }, line: i }, 409);
+      }
+      seen.set(key, i);
+    }
+    const same = (l: Line, e: Record<string, unknown>) => l.side === e.side && l.kind === e.kind && l.monthly === Number(e.monthly_cents) && (l.label ?? null) === (e.label ?? null)
+      && l.arrears === Number(e.arrears) && (l.lender_bank_id ?? null) === (e.lender_bank_id ?? null) && (l.lender_name ?? null) === (e.lender_name ?? null)
+      && (l.last4 ?? null) === (e.account_last4 ?? null) && (l.remaining ?? null) === (e.remaining_months ?? null);
+    const keep = new Set<number>(), stmts: D1PreparedStatement[] = [];
+    let added = 0, replaced = 0;
+    const insert = (l: Line) => {
+      stmts.push(env.DB.prepare(`INSERT INTO fa_items (case_id, side, kind, label, monthly_cents, arrears, source, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`)
+        .bind(c.id, l.side, l.kind, l.label, l.monthly, l.arrears, l.source, user.id));
+      if (l.side === "commitment" && (l.lender_bank_id != null || l.lender_name || l.last4 || l.ref || l.remaining != null || l.dup)) {
+        stmts.push(env.DB.prepare(`INSERT INTO fa_item_meta (item_id, lender_bank_id, lender_name, account_last4, facility_ref, remaining_months, duplicate_reason) VALUES (last_insert_rowid(), ?1, ?2, ?3, ?4, ?5, ?6)`)
+          .bind(l.lender_bank_id, l.lender_name, l.last4, l.ref, l.remaining, l.dup));
+      }
+    };
+    for (const l of lines) {
+      if (l.id !== null) {
+        const e = byId.get(l.id)!;
+        if (same(l, e)) { keep.add(l.id); continue; }
+        keep.add(l.id);
+        stmts.push(env.DB.prepare(`UPDATE fa_items SET voided_at = datetime('now'), voided_by = ?1, void_reason = 'Revised in the DSR workspace' WHERE id = ?2 AND voided_at IS NULL`).bind(user.id, l.id));
+        insert(l); replaced++;
+      } else { insert(l); added++; }
+    }
+    let removed = 0;
+    for (const e of existing) if (!keep.has(Number(e.id))) {
+      stmts.push(env.DB.prepare(`UPDATE fa_items SET voided_at = datetime('now'), voided_by = ?1, void_reason = 'Removed in the DSR workspace' WHERE id = ?2 AND voided_at IS NULL`).bind(user.id, e.id));
+      removed++;
+    }
+    if (stmts.length) await env.DB.batch(stmts);
+    await event(env, c.id, "figures_saved", user.id, { added, replaced, removed });
+    await audit(env, user.id, "fa.figures_save", "fa_cases", String(c.id), { case: c.case_ref, added, replaced, removed });
+    await touch(env, c.id);
+    return json({ ok: true, added, replaced, removed });
+  }
+
+  /* ---- v1.288.0 every saved assessment, newest first, with where it stands in review ---- */
+  if (sub === "assessments" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT a.id, a.outcome, a.current_dsr_bp, a.projected_dsr_bp, a.ruleset, a.created_at, ${PERSON("u")} AS by_name, json_extract(a.result, '$.engine_version') AS engine_version,
+              (SELECT r.action FROM fa_reviews r WHERE r.assessment_id = a.id ORDER BY r.id DESC LIMIT 1) AS review
+         FROM fa_assessments a LEFT JOIN users u ON u.id = a.created_by WHERE a.case_id = ?1 ORDER BY a.id DESC`,
+    ).bind(c.id).all();
+    return json({ assessments: results ?? [] });
+  }
+
+  /* ---- v1.288.0 submit an assessment to Management ---- */
+  if (sub === "review" && method === "POST") {
+    if (!mayEdit(user, c)) return err("forbidden", "Not a case you can change", 403);
+    if (c.stage === "closed") return err("invalid_state", "This case is closed.", 409);
+    const aid = typeof b.assessment_id === "number" ? b.assessment_id : NaN;
+    const a = await env.DB.prepare(`SELECT id, outcome FROM fa_assessments WHERE id = ?1 AND case_id = ?2`).bind(aid, c.id).first<{ id: number; outcome: string }>();
+    if (!a) return err("invalid_input", "Choose a saved assessment of this case.", 400);
+    if (a.outcome === "incomplete") return err("invalid_state", "An assessment with missing information cannot be reviewed - complete it first.", 409);
+    const st = await reviewState(env, c.id);
+    if (st.pending) return err("already_pending", "This case is already waiting for Management.", 409);
+    const note = str(b.note, 600) ? String(b.note).trim() : null;
+    await env.DB.prepare(`INSERT INTO fa_reviews (case_id, assessment_id, action, reason, actor_id, actor_role) VALUES (?1, ?2, 'submitted', ?3, ?4, ?5)`).bind(c.id, a.id, note, user.id, user.role).run();
+    await env.DB.prepare(`UPDATE fa_cases SET stage = CASE WHEN stage IN ('intake', 'profile', 'prescreen', 'matching') THEN 'review' ELSE stage END, updated_at = datetime('now') WHERE id = ?1`).bind(c.id).run();
+    await event(env, c.id, "review_submitted", user.id, { assessment: a.id });
+    await audit(env, user.id, "fa.review_submit", "fa_cases", String(c.id), { case: c.case_ref, assessment: a.id });
+    const deciders = ((await env.DB.prepare(`SELECT id, role FROM users WHERE is_active = 1`).all<{ id: number; role: string }>()).results ?? []).filter((x) => can(x.role as StaffUser["role"], "fa_decide") && x.id !== user.id);
+    for (const d of deciders) await notify(env, d.id, "fa", `${c.case_ref}: a DSR assessment is waiting for your review.`, `fa_review:${c.id}:${a.id}:${d.id}`, { once: true });
+    return json({ ok: true }, 201);
+  }
+
+  /* ---- v1.288.0 Management decides - an internal decision, never a loan approval ---- */
+  if (sub === "review" && method === "PUT") {
+    if (!can(user.role, "fa_decide")) return err("forbidden", "Only the CEO, COO or CCO decides a review", 403);
+    const st = await reviewState(env, c.id);
+    if (!st.pending) return err("invalid_state", "Nothing is waiting for a decision on this case.", 409);
+    if (st.submitted_by === user.id && !isExecutiveOwner(user)) {
+      await audit(env, user.id, "auth.self_approval_refused", "fa_cases", String(c.id), { action: "fa.review_decide" });
+      return err("self_approval", "You submitted this review - another manager decides it.", 403);
+    }
+    const decision = String(b.decision ?? "");
+    if (!["proceed", "request_info", "concern", "unsuitable"].includes(decision)) return err("invalid_input", "decision is proceed, request_info, concern or unsuitable", 400);
+    const reason = str(b.reason, 1000) ? String(b.reason).trim() : "";
+    const min = decision === "concern" || decision === "unsuitable" ? 20 : 10;
+    if (reason.length < min) return err("invalid_input", `Give the reason (at least ${min} characters).`, 400);
+    const next = str(b.next_action, 300) ? String(b.next_action).trim() : null;
+    if (decision === "request_info" && !next) return err("invalid_input", "Say what information is needed.", 400);
+    await env.DB.prepare(`INSERT INTO fa_reviews (case_id, assessment_id, action, reason, next_action, actor_id, actor_role) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`).bind(c.id, st.assessment_id, decision, reason, next, user.id, user.role).run();
+    if (decision === "proceed") await env.DB.prepare(`UPDATE fa_cases SET stage = 'matching', updated_at = datetime('now') WHERE id = ?1 AND stage != 'closed'`).bind(c.id).run();
+    else if (decision === "request_info") await env.DB.prepare(`UPDATE fa_cases SET stage = 'profile', updated_at = datetime('now') WHERE id = ?1 AND stage != 'closed'`).bind(c.id).run();
+    else if (decision === "unsuitable") await env.DB.prepare(`UPDATE fa_cases SET stage = 'closed', closed_reason = ?1, closed_at = datetime('now'), closed_by = ?2, updated_at = datetime('now') WHERE id = ?3`).bind(`Not suitable for further borrowing assessment: ${reason}`.slice(0, 300), user.id, c.id).run();
+    if (decision === "request_info" && next) {
+      const row = await env.DB.prepare(`INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline, link_kind, link_id) VALUES (?1, ?2, ?3, ?4, 'normal', NULL, 'fa_case', ?5) RETURNING id`)
+        .bind(`${c.case_ref}: ${next}`.slice(0, 140), "Management asked for more information - open the case for the details.", c.owner_id, user.id, c.id).first<{ id: number }>();
+      await event(env, c.id, "task_created", user.id, { task: row?.id });
+    }
+    await event(env, c.id, `review_${decision}`, user.id, { assessment: st.assessment_id });
+    await audit(env, user.id, `fa.review_${decision}`, "fa_cases", String(c.id), { case: c.case_ref, assessment: st.assessment_id, reason });
+    const WORD: Record<string, string> = { proceed: "approved for internal progression to banker matching (not a loan approval)", request_info: "more information requested", concern: "an affordability concern was recorded", unsuitable: "not progressed" };
+    if (st.submitted_by) await notify(env, st.submitted_by, "fa", `${c.case_ref}: ${WORD[decision]}.`, `fa_decided:${c.id}:${st.submitted_id}`, { once: true });
+    if (c.owner_id !== st.submitted_by) await notify(env, c.owner_id, "fa", `${c.case_ref}: ${WORD[decision]}.`, `fa_decided_o:${c.id}:${st.submitted_id}`, { once: true });
+    return json({ ok: true, decision });
   }
 
   if (sub === "override" && method === "POST") {
@@ -599,6 +858,16 @@ async function route(env: Env, path: string, method: string, body: Record<string
       bank = (await env.DB.prepare(`SELECT name FROM fa_banks WHERE id = ?1`).bind(b.bank_id).first<{ name: string }>())?.name ?? null;
       if (!bank) return err("invalid_input", "Choose the bank from the registry.", 400);
     }
+    /* v1.290.0 (G5, G6) - the day the banker was actually contacted (not after today, not before the case),
+       and the tenure an official decision letter states */
+    const contactOn = b.contact_on === undefined || b.contact_on === null || b.contact_on === "" ? null : validDay(b.contact_on) ? String(b.contact_on) : "bad";
+    if (contactOn === "bad" || (contactOn && (contactOn > mytToday() || contactOn < c.created_at.slice(0, 10)))) return err("invalid_input", "The contact date is a real day between the case's opening and today.", 400);
+    const tenure = b.tenure_months === undefined || b.tenure_months === null || b.tenure_months === "" ? null : typeof b.tenure_months === "number" && Number.isInteger(b.tenure_months) && b.tenure_months > 0 && b.tenure_months <= 600 ? b.tenure_months : -1;
+    if (tenure === -1) return err("invalid_input", "The tenure is whole months, 1 to 600, as the bank's letter states.", 400);
+    const facts = async (noteId: number, contact: string | null, months: number | null) => {
+      if (contact === null && months === null) return;
+      await env.DB.prepare(`INSERT INTO fa_note_facts (note_id, contact_on, tenure_months) VALUES (?1, ?2, ?3)`).bind(noteId, contact, months).run();
+    };
     if (type === "banker") {
       if (!(mayEdit(user, c) || (await isMember(env, c.id, user.id)))) return err("forbidden", "You cannot add notes to this case", 403);
       const status = String(b.status ?? "");
@@ -609,7 +878,11 @@ async function route(env: Env, path: string, method: string, body: Record<string
         .bind(c.id, bank, str(b.product, 60) ? String(b.product) : c.product, source, status, text,
           str(b.conditions, 600) ? String(b.conditions) : null, str(b.missing_documents, 600) ? String(b.missing_documents) : null,
           validDay(b.follow_up_on) ? b.follow_up_on : null, await docOnCase(env, c.id, b.evidence_id), user.id, user.role).first<{ id: number }>();
-      if (bankerId) await env.DB.prepare(`INSERT INTO fa_note_links (note_id, banker_id, branch_id) VALUES (?1, ?2, ?3)`).bind(Number(row?.id), bankerId, branchId).run();
+      /* v1.288.0 - feedback on an enquiry links to it (and to its banker) */
+      const enq = typeof b.enquiry_id === "number" ? await env.DB.prepare(`SELECT id, banker_id FROM fa_enquiries WHERE id = ?1 AND case_id = ?2`).bind(b.enquiry_id, c.id).first<{ id: number; banker_id: number }>() : null;
+      if (enq) await env.DB.prepare(`UPDATE fa_enquiries SET state = 'feedback_received', updated_at = datetime('now') WHERE id = ?1 AND state IN ('sent', 'acknowledged', 'information_requested')`).bind(enq.id).run();
+      if (bankerId || enq) await env.DB.prepare(`INSERT INTO fa_note_links (note_id, banker_id, branch_id, enquiry_id) VALUES (?1, ?2, ?3, ?4)`).bind(Number(row?.id), bankerId ?? enq?.banker_id ?? null, branchId, enq?.id ?? null).run();
+      await facts(Number(row?.id), contactOn ?? mytToday(), null);
       /* a banker's word moves the banker status only - never the application */
       await env.DB.prepare(`UPDATE fa_cases SET banker_status = ?1, updated_at = datetime('now') WHERE id = ?2`).bind(status, c.id).run();
       await event(env, c.id, "banker_feedback", user.id, { bank, status });
@@ -628,6 +901,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
         .bind(c.id, bank, str(b.product, 60) ? String(b.product) : c.product, status, text, str(b.conditions, 600) ? String(b.conditions) : null,
           str(b.bank_reference, 80) ? String(b.bank_reference) : null, cents(b.approved_cents), validDay(b.expires_on) ? b.expires_on : null, ev, user.id, user.role).first<{ id: number }>();
       /* the disbursed amount is a fact on the case - never A2Z revenue, never a cash row */
+      await facts(Number(row?.id), null, tenure);
       await env.DB.prepare(`UPDATE fa_cases SET application_status = ?1, stage = CASE WHEN ?1 = 'disbursed' THEN 'disbursed' WHEN stage != 'closed' THEN 'decision' ELSE stage END, updated_at = datetime('now') WHERE id = ?2`).bind(status, c.id).run();
       await event(env, c.id, "bank_decision", user.id, { bank, status });
       await audit(env, user.id, "fa.note_decision", "fa_notes", String(row?.id), { case: c.case_ref, bank, status, evidence_id: ev });
@@ -654,11 +928,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     return json({ ok: true, id: row?.id }, 201);
   }
 
-  if (sub === "disclosures" && method === "POST") {
-    /* written for the day counsel clears it; off until then (L1, L4) */
-    if (!FA_LEGAL.disclosure) return err("legal_gate", "Sending client data to a bank is switched off until counsel clears the consent wording.", 409);
-    return null;
-  }
+  /* v1.288.0 - disclosures moved to fa-match.ts (dispatched above), behind the allocation and the client's consent */
   if ((sub === "agreement" || sub === "fee") && method === "POST") {
     return err("legal_gate", "The client agreement and the proposed fee are switched off until counsel clears them.", 409);
   }

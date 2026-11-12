@@ -19,9 +19,10 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronDown, ChevronsUpDown, Ellipsis, FolderKanban } from "lucide-react";
+import { ChevronDown, ChevronsUpDown, FolderKanban } from "lucide-react";
 import css from "./side-nav.module.css";
-import { TabIcon, LogOut } from "@/components/layout/nav-icons";
+import { TabIcon, GroupIcon, LogOut } from "@/components/layout/nav-icons";
+import { NAV_GROUPS } from "@/lib/portal-tabs";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { getLang } from "@/lib/i18n";
 
@@ -82,34 +83,21 @@ export interface AccountAction {
    person's name instead of as a group (FOOT_SECTION) - still a section, so
    the More sheet and the access review keep listing it. Same tabs, same
    access, same URLs. */
-export const SECTIONS: { title: string; tabs: string[] }[] = [
-  { title: "Home", tabs: ["Dashboard", "Desk"] },
-  { title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents", "Financial Advisory"] },
-  { title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
-  { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
-  { title: "People", tabs: ["HR", "Attendance", "On Shift", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },
-  { title: "Finance", tabs: ["Finance", "Accounting", "Commission", "Companies"] },
-  { title: "Account", tabs: ["Cards", "Profile"] },
-  { title: "System", tabs: ["Users"] },
-];
+/* v1.287.0 - GLOBAL NAVIGATION (the CEO approved the blueprint, 12-11-2026,
+   claude/NAVIGATION-BLUEPRINT.md): WORKSPACE, REVENUE, OPERATIONS, PEOPLE,
+   FINANCE, ELFIA, SYSTEM, and the Account pair at the foot. The groups now
+   live beside the registry (NAV_GROUPS in lib/portal-tabs.ts) so the rail,
+   the phone's More sheet and the access card read ONE list; SECTIONS stays
+   the name those readers import. Same tabs, same access, same URLs. */
+export const SECTIONS: { title: string; tabs: string[] }[] = NAV_GROUPS;
 /** v1.277.0 - the section the portal rail draws at its foot, with the name */
 export const FOOT_SECTION = "Account";
-/* v1.279.0 - MINIMAL EXECUTIVE WORKSPACE (the CEO approved the photo's
-   sidebar, 11-11-2026, claude/MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md
-   decision 3): the portal rail draws the photo's modules under their
-   groups and puts every other tab the person may open under More, in the
-   registry's order. Presentation only, like SECTIONS: the same `items`, the
-   same access; the icon-only rail, the phone's More sheet and search still
-   list every tab. */
-export const RAIL_PRIMARY: ReadonlySet<string> = new Set([
-  "Dashboard", "Desk",
-  "Sales", "Ecommerce", "Agents",
-  "Tasks", "Inventory",
-  "HR", "Attendance", "Leave", "Claims", "Payroll",
-  "Finance", "Accounting", "Commission",
-]);
-/** the group the photo draws without a heading (its first two rows) */
-const UNTITLED_GROUP = "Home";
+/* v1.287.0 - the desktop "More" of v1.279.0 (RAIL_PRIMARY: fifteen modules
+   on the rail, every other one under More) is gone, by the CEO's directive
+   of 12-11-2026 ("NO UNSTRUCTURED MORE CATEGORY ON DESKTOP"): every module
+   the person may open is drawn in its own group. */
+/** the group id of a section title (GROUP_ICON is keyed by id) */
+const groupId = (title: string) => NAV_GROUPS.find((g) => g.title === title)?.id ?? title.toLowerCase();
 /** v1.277.0 - which groups this device folded (titles); the group holding
     the open tab is always unfolded */
 export const NAV_GROUPS_KEY = "azone-nav-folded";
@@ -135,7 +123,7 @@ const writeFolded = (v: string) => {
     and by the phone's More sheet (app/portal/page.tsx), so the two surfaces
     cannot name a group differently. */
 export const SECTION_LABEL_MS: Record<string, string> = {
-  Overview: "Ringkasan", Sales: "Jualan", Home: "Utama", Revenue: "Hasil", Operations: "Operasi", ELFIA: "ELFIA", People: "Kakitangan",
+  Overview: "Ringkasan", Workspace: "Ruang Kerja", Sales: "Jualan", Home: "Utama", Revenue: "Hasil", Operations: "Operasi", ELFIA: "ELFIA", People: "Kakitangan",
   Finance: "Kewangan", Account: "Akaun", System: "Sistem", Other: "Lain-lain",
   /* v1.228.0 - the /admin and /account rails (console-shell.tsx) */
   Content: "Kandungan", Leads: "Prospek", Client: "Klien",
@@ -183,6 +171,36 @@ export function SideNav({
      the scrolling <nav> would be clipped by its overflow. Decorative - each
      button's aria-label already carries the name. */
   const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
+  /* v1.287.0 - the collapsed portal rail draws one icon per group; the icon
+     opens a labelled flyout of that group's modules (the CEO's choice D2).
+     Arrow keys move inside it, Escape closes it and returns to the icon, a
+     click outside or a choice closes it. Fixed to the viewport beside the
+     icon, like the tooltip, so the scrolling <nav> cannot clip it. */
+  const [fly, setFly] = useState<{ title: string; top: number; left: number } | null>(null);
+  const flyRef = useRef<HTMLDivElement | null>(null);
+  const flyOpener = useRef<HTMLButtonElement | null>(null);
+  const closeFly = (refocus: boolean) => { setFly(null); if (refocus) flyOpener.current?.focus(); };
+  useEffect(() => {
+    if (!fly) return;
+    flyRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (flyRef.current?.contains(t) || flyOpener.current?.contains(t)) return;
+      setFly(null);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [fly]);
+  const onFlyKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") { e.preventDefault(); closeFly(true); return; }
+    if (e.key === "Tab") { setFly(null); return; }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const nodes = Array.from(flyRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+    const at = nodes.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === "Home" ? 0 : e.key === "End" ? nodes.length - 1 : e.key === "ArrowDown" ? Math.min(at + 1, nodes.length - 1) : Math.max(at - 1, 0);
+    e.preventDefault();
+    nodes[next]?.focus();
+  };
   const showTip = (el: HTMLElement, label: string) => {
     if (!collapsed) return;
     const r = el.getBoundingClientRect();
@@ -225,14 +243,9 @@ export function SideNav({
   /* the portal's Account pair goes to the foot, beside the name */
   const foot = portalRail ? grouped.find((g) => g.title === FOOT_SECTION) : undefined;
   const railGroups = foot ? grouped.filter((g) => g !== foot) : grouped;
-  /* v1.279.0 - the photo's rail: the primary modules under their groups,
-     the rest of what this person may open under More. The icon-only rail
-     keeps every tab (a column of icons has room, and hides nothing). */
-  const photoRail = portalRail && !collapsed;
-  const moreItems = photoRail ? railGroups.flatMap((g) => g.items.filter((i) => !RAIL_PRIMARY.has(i.name))) : [];
-  const moreHoldsActive = moreItems.some((i) => i.name === active);
-  const [moreOpenState, setMoreOpen] = useState(false);
-  const moreOpen = moreOpenState || moreHoldsActive;
+  /* the expanded portal rail; the collapsed one draws group icons instead */
+  const fullRail = portalRail && !collapsed;
+  const groupRail = portalRail && collapsed;
   /* the name card's menu: closes on Escape, on a click outside, on a choice */
   const [menuOpen, setMenuOpen] = useState(false);
   const footRef = useRef<HTMLDivElement | null>(null);
@@ -317,7 +330,7 @@ export function SideNav({
         )}
         <button
           type="button"
-          onClick={onToggleCollapsed}
+          onClick={() => { setFly(null); onToggleCollapsed(); }}
           aria-label={collapsed ? (ms ? "Buka navigasi" : "Expand navigation") : (ms ? "Kecilkan navigasi" : "Collapse navigation")}
           title={collapsed ? (ms ? "Buka navigasi" : "Expand navigation") : (ms ? "Kecilkan navigasi" : "Collapse navigation")}
           aria-expanded={!collapsed}
@@ -327,28 +340,55 @@ export function SideNav({
         </button>
       </div>
 
-      <nav ref={navRef} onKeyDown={onNavKey} className="erp-rail-nav" data-style={photoRail ? "photo" : undefined}>
-        {railGroups.map((section) => {
-          const shown = photoRail ? section.items.filter((i) => RAIL_PRIMARY.has(i.name)) : section.items;
-          const withProjects = photoRail && section.title === "Operations" && projectsButton;
+      <nav ref={navRef} onKeyDown={onNavKey} className="erp-rail-nav" data-style={fullRail ? "photo" : undefined}>
+        {groupRail && railGroups.map((section) => {
+          const id = groupId(section.title);
+          const holds = section.items.some((i) => i.name === active);
+          const open = fly?.title === section.title;
+          const name = sectionTitle(section.title, lang);
+          return (
+            <div key={section.title} className="erp-rail-group" data-group={section.title}>
+              <ul>
+                <li>
+                  <button type="button" data-nav-item data-group-icon={id} className={`erp-rail-item ${holds ? css.groupOn : ""}`}
+                    /* the group holding the open page wears the gold, so the place is never lost */
+                    data-holds-active={holds || undefined}
+                    aria-haspopup="true" aria-expanded={open} aria-controls={open ? "rail-flyout" : undefined}
+                    aria-label={ms ? `Kumpulan ${name}` : `${name} group`}
+                    onMouseEnter={(e) => showTip(e.currentTarget, name)} onMouseLeave={() => setTip(null)}
+                    onFocus={(e) => { if (!fly) showTip(e.currentTarget, name); }} onBlur={() => setTip(null)}
+                    onClick={(e) => {
+                      setTip(null);
+                      if (open) { setFly(null); return; }
+                      flyOpener.current = e.currentTarget;
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setFly({ title: section.title, top: Math.min(r.top, window.innerHeight - 24 - (section.items.length + 2) * 44), left: r.right + 8 });
+                    }}>
+                    <span className="erp-rail-icon"><GroupIcon id={id} className="erp-icon" /></span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          );
+        })}
+        {!groupRail && railGroups.map((section) => {
+          const shown = section.items;
+          const withProjects = fullRail && section.title === "Operations" && projectsButton;
           if (shown.length === 0 && !withProjects) return null;
           /* v1.277.0 - a group folds (the chevron), except the one holding the
-             open tab and the icon-only rail, which always show their items */
+             open tab, which always shows its items */
           const holdsActive = shown.some((i) => i.name === active);
           const open = collapsed || !portalRail || holdsActive || !folded.includes(section.title);
           const listId = `rail-${section.title.replace(/\W+/g, "-").toLowerCase()}`;
-          const untitled = photoRail && section.title === UNTITLED_GROUP;
           return (
           <div key={section.title} className="erp-rail-group" data-group={section.title}>
             {/* The section header names the group; on the portal rail it is
                 the fold button. Collapsed mode replaces it with a hairline so
-                the grouping is still legible without text. v1.279.0 - the
-                photo draws Dashboard and Desk with no heading: the Home
-                button keeps its name for a screen reader, drawn as nothing. */}
+                the grouping is still legible without text. */}
             {collapsed ? (
               <div className="erp-rail-group-rule" aria-hidden />
             ) : portalRail ? (
-              <button type="button" className={`erp-rail-group-label ${css.groupToggle} ${untitled ? "erp-sr-only" : ""}`}
+              <button type="button" className={`erp-rail-group-label ${css.groupToggle}`}
                 aria-expanded={open} aria-controls={listId} disabled={holdsActive}
                 /* named "Finance group", never just "Finance": the Finance TAB keeps its name to itself */
                 aria-label={ms ? `Kumpulan ${sectionTitle(section.title, lang)}` : `${sectionTitle(section.title, lang)} group`}
@@ -366,25 +406,32 @@ export function SideNav({
           </div>
           );
         })}
-        {/* v1.279.0 - More: every other tab this person may open, in the
-            registry's order. Open while it holds the open tab. */}
-        {moreItems.length > 0 && (
-          <div className="erp-rail-group" data-group="More">
-            <ul>
-              <li>
-                <button type="button" data-nav-item className="erp-rail-item" aria-expanded={moreOpen} aria-controls="rail-more"
-                  onClick={() => { if (!moreHoldsActive) setMoreOpen((v) => !v); }}>
-                  <span className="erp-rail-icon"><Ellipsis aria-hidden className="erp-icon" strokeWidth={1.75} /></span>
-                  <span className="erp-rail-item-label">{ms ? "Lagi" : "More"}</span>
-                  <ChevronDown aria-hidden className={`${css.chevron} ${moreOpen ? "" : css.chevronShut}`} />
-                </button>
-              </li>
-            </ul>
-            {moreOpen && <ul id="rail-more" className={css.moreList} aria-label={ms ? "Modul lain" : "More modules"}>{moreItems.map(itemButton)}</ul>}
-          </div>
-        )}
       </nav>
 
+      {fly && groupRail && (() => {
+        const g = railGroups.find((x) => x.title === fly.title);
+        if (!g) return null;
+        const name = sectionTitle(g.title, lang);
+        return (
+          <div id="rail-flyout" ref={flyRef} className={css.flyout} style={{ top: fly.top, left: fly.left }}
+            role="group" aria-label={name} onKeyDown={onFlyKey} data-testid="rail-flyout">
+            <p className={css.flyTitle} aria-hidden>{name}</p>
+            <ul className={css.flyList}>
+              {g.title === "Operations" && onProjects && (
+                <li><button type="button" className={css.flyItem} onClick={() => { closeFly(false); onProjects(); }}>
+                  <FolderKanban aria-hidden className="erp-icon" strokeWidth={1.75} /><span>{ms ? "Projek" : "Projects"}</span>
+                </button></li>
+              )}
+              {g.items.map((it) => (
+                <li key={it.name}><button type="button" className={css.flyItem} aria-current={it.name === active ? "page" : undefined}
+                  onClick={() => { closeFly(false); onSelect(it.name); }}>
+                  <TabIcon name={it.name} className="erp-icon" /><span>{it.label}</span>
+                </button></li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
       {tip && collapsed && (
         <span aria-hidden style={{ top: tip.top, left: tip.left }} className="erp-rail-tip">
           {tip.label}

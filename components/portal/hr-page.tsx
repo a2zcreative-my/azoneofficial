@@ -420,7 +420,7 @@ function HrAdministration({ role, admin, go, canOpen, open }: {
     { icon: "money", title: L("Payroll runs", "Larian gaji"), where: L("Payroll", "Gaji"),
       text: L("Salaries, statutory deductions, payslips and exports.", "Gaji, potongan berkanun, slip gaji dan eksport."),
       show: canOpen("Payroll"), onClick: () => go("Payroll") },
-    { icon: "access", title: L("Roles & tab access", "Peranan & akses tab"), where: L("Users", "Pengguna"),
+    { icon: "access", title: L("Roles & tab access", "Peranan & akses tab"), where: L("Users & Security", "Pengguna & Keselamatan"),
       text: L("Who can open HR and every other module.", "Siapa boleh membuka HR dan setiap modul lain."),
       show: canOpen("Users"), onClick: () => go("Users") },
   ];

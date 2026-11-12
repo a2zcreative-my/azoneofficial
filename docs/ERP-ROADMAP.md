@@ -440,3 +440,16 @@ fa_criteria_terms and fa_note_links beside the existing criteria and notes.
 0183 ran in production with 1.285.0 and is not edited; its free-text banker
 contacts stay in place, unused. No table that carries money, pay or people,
 and no row in users for any banker.
+1.288.0 adds `0185_fa_dsr` (additive, IF NOT EXISTS only, no ALTER): fa_reviews
+(the append-only management review of a DSR assessment - submitted, proceed,
+request_info, concern, unsuitable, withdrawn) and fa_item_meta (lender, last
+four digits and months remaining beside a commitment line). The stage 2
+tables from 0184 (fa_matches, fa_allocations, fa_enquiries, fa_disclosures)
+come into use; fa_applications stays unused. Still no table that carries
+money, pay or people, and no row in users or customers is created by it.
+1.290.0 adds `0186_fa_banker_pic` (additive, IF NOT EXISTS only, no ALTER):
+fa_banker_contact_changes (every change to a banker's work email or phone,
+append only - an identity verification older than the change no longer
+counts) and fa_note_facts (the day of a banker contact and the tenure an
+official decision letter states, written once). No table that carries money,
+pay or people.

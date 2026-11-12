@@ -45,6 +45,8 @@ export const AVAILABILITY_STALE_DAYS = 30; // B5
 
 const PERSON = (a: string) => `COALESCE(NULLIF(TRIM(${a}.full_name), ''), ${a}.name)`;
 const mytToday = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+/** v1.288.0 - the same Malaysian today, for fa-match.ts */
+export const todayMyt = mytToday;
 const validDay = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`));
 const addMonths = (d: string, m: number) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() + m); return t.toISOString().slice(0, 10); };
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 864e5);
@@ -66,12 +68,26 @@ interface Banker {
   id: number; bank_id: number; full_name: string; status: string; availability: string; availability_on: string | null; unavailable_until: string | null;
   case_limit: number | null; owner_id: number | null; registered_by: number; email_key: string | null; phone_key: string | null;
 }
-interface Verification { banker_id: number; fact: string; verified_on: string; next_review_on: string; method: string; restrictions: string | null; verified_by_name?: string | null }
+interface Verification { banker_id: number; fact: string; verified_on: string; next_review_on: string; method: string; restrictions: string | null; verified_by_name?: string | null; created_at?: string }
+
+/** v1.290.0 (G3) - a contact identity confirmed BEFORE the banker's work
+    email or phone last changed no longer counts: the new contact is verified
+    again. The verification row itself stays as it was (append only). */
+export function identityStands<T extends { created_at?: string } | null>(identity: T, contactChangedAt: string | null | undefined): T | null {
+  if (!identity || !contactChangedAt) return identity;
+  return identity.created_at && identity.created_at > contactChangedAt ? identity : null;
+}
+/** the last time a banker's work email or phone changed (null before 0186, or never) */
+export async function contactChangedAt(env: Env, bankerId: number): Promise<string | null> {
+  try { return (await env.DB.prepare(`SELECT MAX(created_at) AS at FROM fa_banker_contact_changes WHERE banker_id = ?1`).bind(bankerId).first<{ at: string | null }>())?.at ?? null; }
+  catch { return null; }
+}
 
 /** The banker's directory status - worked out from the facts, never typed. */
-export function bankerStatus(b: { status: string }, identity: Verification | null, referral: Verification | null, today: string): string {
+export function bankerStatus(b: { status: string }, identity: Verification | null, referral: Verification | null, today: string, contactChanged: string | null = null): string {
   if (b.status === "left") return "no_longer_available";
   if (b.status === "inactive") return "inactive";
+  identity = identityStands(identity, contactChanged);
   if (!identity) return "pending_verification";
   if (identity.next_review_on < today || (referral && referral.next_review_on < today)) return "requires_reverification";
   return "verified";
@@ -94,7 +110,8 @@ async function latestFacts(env: Env, bankerId: number): Promise<{ identity: Veri
     `SELECT v.*, ${PERSON("u")} AS verified_by_name FROM fa_banker_verifications v LEFT JOIN users u ON u.id = v.verified_by WHERE v.banker_id = ?1 ORDER BY v.id DESC`,
   ).bind(bankerId).all<Verification>();
   const list = results ?? [];
-  return { identity: list.find((v) => v.fact === "identity") ?? null, referral: list.find((v) => v.fact === "referral") ?? null };
+  /* v1.290.0 - an identity confirmed before the contact last changed no longer counts */
+  return { identity: identityStands(list.find((v) => v.fact === "identity") ?? null, await contactChangedAt(env, bankerId)), referral: list.find((v) => v.fact === "referral") ?? null };
 }
 /** areas a coverage names: states from the controlled list, districts as typed in the locality list */
 function areasOf(v: unknown, coverage: string): string[] | null {
@@ -133,7 +150,17 @@ export async function handleFaRegistry(env: Env, path: string, method: string, b
               (SELECT COUNT(*) FROM fa_allocations a WHERE a.banker_id = bk.id AND a.state IN ('draft', 'pending_review', 'assigned', 'awaiting_consent', 'ready')) AS open_cases
          FROM fa_bankers bk JOIN fa_banks k ON k.id = bk.bank_id LEFT JOIN users u ON u.id = bk.owner_id ORDER BY bk.full_name`,
     ).all<Banker & Record<string, unknown>>()).results ?? [];
-    const verifs = (await env.DB.prepare(`SELECT banker_id, fact, verified_on, next_review_on, method, restrictions FROM fa_banker_verifications ORDER BY id DESC`).all<Verification>()).results ?? [];
+    const verifs = (await env.DB.prepare(`SELECT banker_id, fact, verified_on, next_review_on, method, restrictions, created_at FROM fa_banker_verifications ORDER BY id DESC`).all<Verification>()).results ?? [];
+    /* v1.290.0 - the last contact change per banker, and the last contact (an enquiry sent or feedback linked to the banker) */
+    const changed = new Map<number, string>();
+    try { for (const r of (await env.DB.prepare(`SELECT banker_id, MAX(created_at) AS at FROM fa_banker_contact_changes GROUP BY banker_id`).all<{ banker_id: number; at: string }>()).results ?? []) changed.set(r.banker_id, r.at); } catch { /* pre-0186 */ }
+    const lastContact = new Map<number, string>();
+    for (const r of (await env.DB.prepare(
+      `SELECT banker_id, MAX(at) AS at FROM (
+         SELECT e.banker_id, COALESCE(e.sent_at, e.created_at) AS at FROM fa_enquiries e WHERE e.state != 'not_sent'
+         UNION ALL SELECT l.banker_id, n.created_at FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id WHERE l.banker_id IS NOT NULL
+       ) GROUP BY banker_id`,
+    ).all<{ banker_id: number; at: string }>()).results ?? []) lastContact.set(r.banker_id, r.at);
     const assigns = (await env.DB.prepare(
       `SELECT a.id, a.banker_id, a.branch_id, a.is_primary, a.coverage, a.coverage_areas, a.effective_from, br.name AS branch, l.state, l.district
          FROM fa_banker_branches a LEFT JOIN fa_branches br ON br.id = a.branch_id LEFT JOIN fa_localities l ON l.id = br.locality_id
@@ -141,10 +168,10 @@ export async function handleFaRegistry(env: Env, path: string, method: string, b
     ).all<{ banker_id: number }>()).results ?? [];
     const bprods = (await env.DB.prepare(`SELECT banker_id, product FROM fa_banker_products`).all<{ banker_id: number; product: string }>()).results ?? [];
     const bankers = bankersRaw.map((bk) => {
-      const identity = verifs.find((v) => v.banker_id === bk.id && v.fact === "identity") ?? null;
+      const identity = identityStands(verifs.find((v) => v.banker_id === bk.id && v.fact === "identity") ?? null, changed.get(bk.id));
       const referral = verifs.find((v) => v.banker_id === bk.id && v.fact === "referral") ?? null;
       return {
-        ...bk, status_now: bankerStatus(bk, identity, referral, today), availability_now: availabilityNow(bk, today),
+        ...bk, status_now: bankerStatus(bk, identity, referral, today), availability_now: availabilityNow(bk, today), last_contact_at: lastContact.get(bk.id) ?? null,
         identity: identity ? { verified_on: identity.verified_on, next_review_on: identity.next_review_on, method: identity.method, due: identity.next_review_on < today } : null,
         referral: referral ? { verified_on: referral.verified_on, next_review_on: referral.next_review_on, restrictions: referral.restrictions, due: referral.next_review_on < today } : null,
         assignments: assigns.filter((a) => a.banker_id === bk.id),
@@ -167,7 +194,92 @@ export async function handleFaRegistry(env: Env, path: string, method: string, b
     const events = (await env.DB.prepare(`SELECT e.id, e.event, e.detail, e.created_at, ${PERSON("u")} AS actor FROM fa_registry_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.entity = 'banker' AND e.entity_id = ?1 ORDER BY e.id DESC`).bind(bk.id).all()).results ?? [];
     const products = ((await env.DB.prepare(`SELECT product FROM fa_banker_products WHERE banker_id = ?1`).bind(bk.id).all<{ product: string }>()).results ?? []).map((p) => p.product);
     const f = await latestFacts(env, bk.id);
-    return json({ banker: { ...bk, status_now: bankerStatus(bk, f.identity, f.referral, today), availability_now: availabilityNow(bk, today), products }, verifications, assignments, events, today, can: { register, manage, availability: manage || bk.owner_id === user.id } });
+    /* v1.290.0 - when the contact last changed (an earlier identity confirmation no longer counts), the last contact, who may own the relationship */
+    const changedAt = await contactChangedAt(env, bk.id);
+    const last = await env.DB.prepare(
+      `SELECT MAX(at) AS at FROM (SELECT COALESCE(e.sent_at, e.created_at) AS at FROM fa_enquiries e WHERE e.banker_id = ?1 AND e.state != 'not_sent'
+         UNION ALL SELECT n.created_at FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id WHERE l.banker_id = ?1)`,
+    ).bind(bk.id).first<{ at: string | null }>();
+    const mayEdit = manage || (register && bk.owner_id === user.id);
+    const owners = manage ? ((await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND role IN ('ceo', 'coo', 'cco', 'sales_marketing') ORDER BY name`).all<{ id: number; name: string; role: string }>()).results ?? []).filter((o) => can(o.role as StaffUser["role"], "fa_edit")) : [];
+    return json({ banker: { ...bk, status_now: bankerStatus(bk, f.identity, f.referral, today), availability_now: availabilityNow(bk, today), products, contact_changed_at: changedAt, last_contact_at: last?.at ?? null },
+      verifications, assignments, events, today, owners, can: { register, manage, availability: manage || bk.owner_id === user.id, edit: mayEdit && bk.status !== "left" } });
+  }
+
+  /* ---- v1.290.0 (image 04, G3) edit a banker's details: the relationship
+     owner, the CEO or the COO. A changed work email or phone is recorded
+     (append only) and the contact identity must be verified again; the
+     duplicate rules of registration apply again. ---- */
+  if (mOne && method === "PATCH") {
+    const bk = await env.DB.prepare(`SELECT * FROM fa_bankers WHERE id = ?1`).bind(Number(mOne[1])).first<Banker & { position: string | null; work_email: string | null; work_phone: string | null; preferred_channel: string | null; relationship_type: string; notes: string | null; duplicate_reason: string | null }>();
+    if (!bk) return err("not_found", "Banker not found", 404);
+    if (!(manage || (register && bk.owner_id === user.id))) return err("forbidden", "The banker's relationship owner, the CEO or the COO edits these details", 403);
+    if (bk.status === "left") return err("invalid_state", "This banker has left the bank - their record is kept as it was.", 409);
+    const sets: string[] = [], vals: unknown[] = [];
+    const changed: Record<string, [unknown, unknown]> = {};
+    const put = (col: string, from: unknown, to: unknown) => { if ((from ?? null) === (to ?? null)) return; sets.push(`${col} = ?${sets.length + 1}`); vals.push(to ?? null); changed[col] = [from ?? null, to ?? null]; };
+    if (typeof b.position === "string") put("position", bk.position, text(b.position, 80) || null);
+    if (typeof b.notes === "string") put("notes", bk.notes, text(b.notes, 600) || null);
+    if (typeof b.preferred_channel === "string") { if (!CHANNELS.includes(b.preferred_channel)) return err("invalid_input", `preferred_channel is one of ${CHANNELS.join(", ")}`, 400); put("preferred_channel", bk.preferred_channel, b.preferred_channel); }
+    if (typeof b.relationship_type === "string") { if (!RELATIONSHIPS.includes(b.relationship_type)) return err("invalid_input", `relationship_type is one of ${RELATIONSHIPS.join(", ")}`, 400); put("relationship_type", bk.relationship_type, b.relationship_type); }
+    let email = bk.work_email, phone = bk.work_phone;
+    if (typeof b.work_email === "string") {
+      email = text(b.work_email, 160) || null;
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err("invalid_input", "That work email is not an email address.", 400);
+    }
+    if (typeof b.work_phone === "string") {
+      phone = text(b.work_phone, 40) || null;
+      const k = phone ? phoneKey(phone) : null;
+      if (k && (k.length < 9 || k.length > 12)) return err("invalid_input", "That work phone is not a Malaysian number.", 400);
+    }
+    if (!email && !phone) return err("invalid_input", "Keep a work email or a work phone.", 400);
+    const contact: Array<{ field: string; from: string | null; to: string | null }> = [];
+    if ((email ?? null) !== (bk.work_email ?? null) && (email ? emailKey(email) : null) !== bk.email_key) {
+      const eKey = email ? emailKey(email) : null;
+      if (eKey) {
+        const same = await env.DB.prepare(`SELECT bk.id, bk.full_name, k.name AS bank FROM fa_bankers bk JOIN fa_banks k ON k.id = bk.bank_id WHERE bk.email_key = ?1 AND bk.id != ?2`).bind(eKey, bk.id).first<{ id: number; full_name: string; bank: string }>();
+        if (same) { return json({ error: { code: "duplicate_banker", message: `${same.full_name} (${same.bank}) already has this work email - open that record.` }, existing: same }, 409); }
+      }
+      put("work_email", bk.work_email, email); put("email_key", bk.email_key, eKey);
+      contact.push({ field: "work_email", from: bk.work_email, to: email });
+    } else if ((email ?? null) !== (bk.work_email ?? null)) put("work_email", bk.work_email, email);
+    if ((phone ? phoneKey(phone) : null) !== bk.phone_key) {
+      const pKey = phone ? phoneKey(phone) : null;
+      const why = text(b.different_reason, 300);
+      if (pKey) {
+        const same = await env.DB.prepare(`SELECT bk.id, bk.full_name, k.name AS bank FROM fa_bankers bk JOIN fa_banks k ON k.id = bk.bank_id WHERE bk.phone_key = ?1 AND bk.id != ?2`).bind(pKey, bk.id).first<{ id: number; full_name: string; bank: string }>();
+        if (same && why.length < 10) return json({ error: { code: "possible_duplicate", message: `${same.full_name} (${same.bank}) has the same work phone. Say why this is a different person.` }, existing: same }, 409);
+        if (same) put("duplicate_reason", bk.duplicate_reason, why);
+      }
+      put("work_phone", bk.work_phone, phone); put("phone_key", bk.phone_key, pKey);
+      contact.push({ field: "work_phone", from: bk.work_phone, to: phone });
+    } else if ((phone ?? null) !== (bk.work_phone ?? null)) put("work_phone", bk.work_phone, phone);
+    if (b.owner_id !== undefined && b.owner_id !== bk.owner_id) {
+      if (!manage) return err("forbidden", "Only the CEO or COO changes the relationship owner", 403);
+      const o = typeof b.owner_id === "number" ? await env.DB.prepare(`SELECT id, role FROM users WHERE id = ?1 AND is_active = 1`).bind(b.owner_id).first<{ id: number; role: string }>() : null;
+      if (!o || !can(o.role as StaffUser["role"], "fa_edit")) return err("invalid_input", "That person cannot own a banker relationship.", 400);
+      put("owner_id", bk.owner_id, o.id);
+    }
+    if (b.case_limit !== undefined) {
+      const lim = b.case_limit === null || b.case_limit === "" ? null : typeof b.case_limit === "number" && Number.isInteger(b.case_limit) && b.case_limit > 0 && b.case_limit <= 500 ? b.case_limit : -1;
+      if (lim === -1) return err("invalid_input", "A case limit is 1 to 500, or none.", 400);
+      if (lim !== bk.case_limit && !manage) return err("forbidden", "Only the CEO or COO sets a case limit", 403);
+      put("case_limit", bk.case_limit, lim);
+    }
+    if (!sets.length) return json({ ok: true, unchanged: true });
+    sets.push("updated_at = datetime('now')");
+    const stmts = [env.DB.prepare(`UPDATE fa_bankers SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`).bind(...vals, bk.id)];
+    for (const x of contact) stmts.push(env.DB.prepare(`INSERT INTO fa_banker_contact_changes (banker_id, field, from_value, to_value, changed_by) VALUES (?1, ?2, ?3, ?4, ?5)`).bind(bk.id, x.field, x.from, x.to, user.id));
+    try { await env.DB.batch(stmts); }
+    catch (e) {
+      if (/UNIQUE/i.test(String(e))) return err("duplicate_banker", "Another banker has this work email.", 409);
+      if (/no such table/i.test(String(e))) return err("pending_migration", "Editing a banker needs database change 0186 - run PUSH.bat", 503);
+      throw e;
+    }
+    const fields = Object.keys(changed).filter((k) => !k.endsWith("_key"));
+    await regEvent(env, "banker", bk.id, "edited", user.id, { fields, contact_changed: contact.map((x) => x.field) });
+    await audit(env, user.id, "fa.banker_edit", "fa_bankers", String(bk.id), { changed: Object.fromEntries(Object.entries(changed).filter(([k]) => !k.endsWith("_key"))) });
+    return json({ ok: true, fields, identity_reverify: contact.length > 0 });
   }
 
   /* ---- the registry's own history ---- */

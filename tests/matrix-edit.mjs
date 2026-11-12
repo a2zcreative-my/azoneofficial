@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* THE EDITABLE MATRIX (v1.237.0) - runtime guard: the WHOLE worker (index.ts,
  * bundled) against SQLite with every migration applied, by direct request.
  *
@@ -172,7 +173,7 @@ const MUT = [
   ["worker/src/index.ts", "the saved matrix is not loaded for a request", "try { setPermissionOverrides(row.perm_meta ? (JSON.parse(row.perm_meta) as { perms?: unknown }).perms : null); } catch { setPermissionOverrides(null); }", "setPermissionOverrides(null);"],
   ["worker/src/staff.ts", "a changed cell is not audited", '      for (const d of done) await audit(env, user.id, "permissions.change"', '      for (const d of []) await audit(env, user.id, "permissions.change"'],
 ];
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   const src = readFileSync(join(root, file), "utf8");
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
@@ -186,4 +187,4 @@ for (const [file, name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`matrix-edit: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`matrix-edit: ${checks} checks passed (${MUT.length} mutations caught) - the owner and the super admin edit the matrix; every saved cell is the permission the server enforces; audited, reversible`);
+console.log(`matrix-edit: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - the owner and the super admin edit the matrix; every saved cell is the permission the server enforces; audited, reversible`);

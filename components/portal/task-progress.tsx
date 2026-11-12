@@ -177,6 +177,7 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
   return (
     <div className={tp.wrap} data-testid="task-progress">
       {toastNode}
+      <TitleBar d={d} onChanged={changed} />
       <LineTabs value={tab} onChange={setTab} tabs={tabs} label={L("Task sections", "Bahagian tugasan")} />
       <div hidden={tab !== "details"} className={tp.tabsGap}>
         {/* v1.282.0 - the photo's order: the latest update first, then the
@@ -204,13 +205,63 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
   );
 }
 
+/* ---------------- v1.289.0 EDIT TASK TITLE (the CEO, 12-11-2026, image 02) ----------------
+   The title on its own: Edit Title -> the field -> Save / Cancel (Enter /
+   Escape). Only the title changes (PATCH /tasks/:id {title}); the dates,
+   assignee, checklist, status, progress, files and updates stay as they
+   are, and the change is in Activity with the old and the new title. Shown
+   only when the server says this person may edit (the assignee or a
+   manager, the task open) - a closed task is reopened first. */
+function TitleBar({ d, onChanged }: { d: TaskDetail; onChanged: (title?: string, sub?: string) => void }) {
+  const [edit, setEdit] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const save = async () => {
+    const v = (edit ?? "").trim();
+    if (!v) { setProblem(L("The title cannot be empty.", "Tajuk tidak boleh kosong.")); return; }
+    if (v === d.task.title) { setEdit(null); return; }
+    setBusy(true);
+    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${d.task.id}`, { method: "PATCH", body: JSON.stringify({ title: v }) });
+    setBusy(false);
+    if (!r.ok) { setProblem(r.data?.error?.message ?? L("The title was not saved - try again.", "Tajuk tidak disimpan - cuba lagi.")); return; }
+    setEdit(null); setProblem("");
+    onChanged(L("Title updated", "Tajuk dikemas kini"), L("Dates, checklist, progress and history are unchanged.", "Tarikh, senarai semak, kemajuan dan sejarah tidak berubah."));
+  };
+  return (
+    <section className={tp.titleBar} aria-label={L("Task title", "Tajuk tugasan")} data-testid="task-title-bar">
+      <div className={tp.titleHead}>
+        <span className={tp.titleMeta}>{L("Task ID", "ID Tugasan")} TSK-{String(d.task.id).padStart(6, "0")}{d.task.creator ? ` · ${L("created by", "dicipta oleh")} ${d.task.creator}` : ""} · {stamp(d.task.created_at)}</span>
+        {d.can.edit && edit === null && (
+          <button type="button" className={`${btnSm} ${tp.titleBtn}`} onClick={() => { setEdit(d.task.title); setProblem(""); }} data-testid="edit-title"><AppIcon name="edit" className="erp-icon" />{L("Edit Title", "Sunting Tajuk")}</button>
+        )}
+      </div>
+      {edit === null ? <p className={tp.titleText} data-testid="task-title">{d.task.title}</p> : (
+        <div className={tp.titleEdit}>
+          <input className={inputClass} value={edit} maxLength={200} autoFocus aria-label={L("Task title", "Tajuk tugasan")} data-testid="title-input"
+            onChange={(e) => { setEdit(e.target.value); setProblem(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void save(); } if (e.key === "Escape") { e.preventDefault(); e.nativeEvent.stopImmediatePropagation(); setEdit(null); setProblem(""); } }} />{/* Escape leaves the field, not the drawer: React listens on the document, as the drawer does */}
+          <div className={tp.titleRow}>
+            <span className={tp.titleCount}>{edit.length} / 200 · {L("only the title changes", "hanya tajuk berubah")}</span>
+            <span className={tp.titleBtns}>
+              <button type="button" className={`${btnSm} ${tp.titleBtn}`} onClick={() => { setEdit(null); setProblem(""); }} data-testid="cancel-title">{L("Cancel", "Batal")}</button>
+              <button type="button" className={`${btnSmPrimary} ${tp.titleBtn}`} disabled={busy || !edit.trim()} onClick={() => void save()} data-testid="save-title">{busy ? L("Saving…", "Menyimpan…") : L("Save title", "Simpan tajuk")}</button>
+            </span>
+          </div>
+        </div>
+      )}
+      <Problem text={problem} />
+    </section>
+  );
+}
+
 /** The same, as its own drawer - a project's task row, a link from a bell. */
 export function TaskDrawer({ taskId, onClose, onChanged }: { taskId: number; onClose: () => void; onChanged?: () => void }) {
-  const { d } = useTaskDetail(taskId, 0);
+  const [tick, setTick] = useState(0); // v1.289.0 - a renamed task's drawer title follows
+  const { d } = useTaskDetail(taskId, tick);
   return (
     <SideDrawer open onClose={onClose} wide full title={d?.task.title ?? L("Task", "Tugasan")}
       subtitle={d ? <span className={tp.helpers}><StateChip status={d.task.status} stage={d.task.stage} />{d.task.deadline ? <span className={chipSmNeutral}>{L(`Due ${day(d.task.deadline)}`, `Akhir ${day(d.task.deadline)}`)}</span> : null}</span> : undefined}>
-      <TaskProgressTabs taskId={taskId} onChanged={onChanged} />
+      <TaskProgressTabs taskId={taskId} onChanged={() => { setTick((n) => n + 1); onChanged?.(); }} />
     </SideDrawer>
   );
 }

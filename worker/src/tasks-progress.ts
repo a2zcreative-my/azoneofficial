@@ -793,7 +793,9 @@ export async function taskActivity(env: Env, t: TaskRow, a: TaskAccess) {
     if (r.action === "task.assistant_add") { add({ key: `a${r.id}`, at: r.created_at, kind: "assist.add", text: `Added ${await nameOf(env, d.user_id)} to help`, by: r.who, by_id: r.user_id, photo_key: r.photo_key }); continue; }
     if (r.action === "task.assistant_remove") { add({ key: `a${r.id}`, at: r.created_at, kind: "assist.remove", text: `${await nameOf(env, d.user_id)} no longer helps`, by: r.who, by_id: r.user_id, photo_key: r.photo_key }); continue; }
     if (d.reassigned_to) add({ key: `a${r.id}r`, at: r.created_at, kind: "task.reassign", text: `Reassigned from ${await nameOf(env, d.from)} to ${await nameOf(env, d.reassigned_to)}`, by: r.who, by_id: r.user_id, photo_key: r.photo_key, quote: d.reason ?? null });
-    const ch = d.changed ? Object.entries(d.changed).filter(([k]) => k in label) : [];
+    /* v1.289.0 - a title change is its own entry: "Title updated", the old and the new title */
+    if (d.changed?.title) add({ key: `a${r.id}t`, at: r.created_at, kind: "task.title", text: `Title updated - changed from "${String(d.changed.title[0] ?? "")}" to "${String(d.changed.title[1] ?? "")}"`, by: r.who, by_id: r.user_id, photo_key: r.photo_key });
+    const ch = d.changed ? Object.entries(d.changed).filter(([k]) => k in label && k !== "title") : [];
     if (ch.length) add({ key: `a${r.id}e`, at: r.created_at, kind: "task.edit", text: `Changed ${ch.map(([k, v]) => `${label[k]} ${k === "description" ? "" : `${String(v[0] ?? "none")} → ${String(v[1] ?? "none")}`}`.trim()).join(", ")}`, by: r.who, by_id: r.user_id, photo_key: r.photo_key });
   }
   const items = new Map((await env.DB.prepare(`SELECT id, title FROM task_items WHERE task_id = ?1`).bind(t.id).all<{ id: number; title: string }>().catch(() => ({ results: [] as { id: number; title: string }[] }))).results.map((i) => [i.id, i.title]));

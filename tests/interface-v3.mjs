@@ -354,14 +354,15 @@ ok("the bottom-nav item is a 60px stop with an ellipsised label", /\.erp-bottom-
 const RETIRED = ["Reconciliation", "Ads Fund", "Purchasing"];
 const registries = {
   "lib/portal-tabs.ts": /const ALL_TABS = \[([\s\S]*?)\] as const;/,
-  "components/layout/side-nav.tsx": /export const SECTIONS[\s\S]*?^\];/m,
+  "components/layout/side-nav.tsx": /export const SECTIONS[^\n]*/,
+  "lib/portal-tabs.ts#groups": /export const NAV_GROUPS[\s\S]*?^\];/m,
   "components/layout/nav-icons.tsx": /export const TAB_ICON[\s\S]*?^\};/m,
   "lib/i18n.ts": /DICT[\s\S]*/,
   "components/portal/lazy-panels.tsx": /[\s\S]*/,
   "worker/src/staff.ts": /const TAB_ACCESS_TABS = \[[^\]]*\]/,
 };
 for (const [f, re] of Object.entries(registries)) {
-  const m = stripComments(read(f)).match(re);
+  const m = stripComments(read(f.split("#")[0])).match(re);
   const hit = RETIRED.filter((t) => m && new RegExp(`"${t}"`).test(m[0]));
   ok(`${f} does not name a retired tab`, m && hit.length === 0, hit.join(", "));
 }

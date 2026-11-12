@@ -107,12 +107,15 @@ ok("TAB_HINTS names only real tabs");
    v1.13.0 had never been placed in a section and were falling through to
    "Other" at the bottom of the rail, which is what he was looking at. */
 {
+  /* v1.287.0 - the groups live beside the registry (NAV_GROUPS); side-nav's
+     SECTIONS is that same list, re-exported */
   const nav = readFileSync("components/layout/side-nav.tsx", "utf8");
-  const secM = nav.match(/export const SECTIONS: \{ title: string; tabs: string\[\] \}\[\] = \[([\s\S]*?)^\];/m);
+  if (!/export const SECTIONS: \{ title: string; tabs: string\[\] \}\[\] = NAV_GROUPS;/.test(nav)) fail("side-nav SECTIONS is not NAV_GROUPS - a second grouping");
+  const secM = registry.match(/export const NAV_GROUPS: NavGroup\[\] = \[([\s\S]*?)^\];/m);
   const sectioned = [...(secM?.[1] ?? "").matchAll(/tabs: \[([^\]]*)\]/g)]
     .flatMap((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]));
   const shown = ALL_TABS.filter((t) => !PARKED.has(t));
-  if (!secM) fail("SECTIONS not found in components/layout/side-nav.tsx");
+  if (!secM) fail("NAV_GROUPS not found in lib/portal-tabs.ts");
   else if (JSON.stringify(sectioned) !== JSON.stringify(shown)) {
     const missing = shown.filter((t) => !sectioned.includes(t));
     const extra = sectioned.filter((t) => !shown.includes(t));

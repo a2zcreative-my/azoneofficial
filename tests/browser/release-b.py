@@ -105,7 +105,7 @@ with sync_playwright() as p:
 
     # ---------------- D-6: locked cells in the matrix ----------------
     pg, errs, reqs = page(b, 4191)
-    check("Users opens (the owner)", tab(pg, "Users"))
+    check("Users & Security opens (the owner)", tab(pg, "Users & Security"))
     pg.get_by_role("tab", name="Roles & Permissions", exact=True).first.click(); pg.wait_for_timeout(1500)
     card = pg.locator("[aria-label='Access policy matrix']")
     card.get_by_role("button", name="Edit matrix").click(); pg.wait_for_timeout(600)

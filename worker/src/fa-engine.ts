@@ -23,17 +23,27 @@
      matching     per criterion: what is satisfied, unverified, failed and
                   missing; never a score, never an amount, never "approved" */
 
+/* v1.288.0 - DSR PRE-CHECK (the CEO approved blueprint v1.2, 12-11-2026):
+   the same engine now also reports the breakdown with each figure's source,
+   remaining and residual income (residual = after the living costs the
+   client DECLARED - no reference figure is invented, decision D2), a
+   confidence count, a criterion only from its effective date, and for a
+   consolidation the monthly and total-repayment differences with the risks.
+   ENGINE_VERSION is stored with every saved result. */
+export const ENGINE_VERSION = "1.288.0";
+
 export type Product = "personal_financing" | "debt_consolidation" | "advisory_only";
 export type Outcome = "incomplete" | "potentially_suitable" | "manual_review" | "affordability_concern" | "no_product";
 
 export interface FaItem {
   id: number; side: "income" | "deduction" | "commitment" | "expense"; kind: string; monthly_cents: number;
   state: string; settle_in_consolidation?: number | null; settlement_doc_id?: number | null; arrears?: number | null; voided_at?: string | null;
+  source?: string | null; label?: string | null; remaining_months?: number | null;
 }
 export interface FaCriterion {
   id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string;
   dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null;
-  required_documents: string | null; last_verified_on: string | null; state: string; bank_id?: number | null;
+  required_documents: string | null; last_verified_on: string | null; state: string; bank_id?: number | null; effective_from?: string | null;
   min_age?: number | null; max_age?: number | null; min_amount_cents?: number | null; max_amount_cents?: number | null; min_tenure_months?: number | null; max_tenure_months?: number | null;
 }
 export interface FaProfile { employment_category?: string | null; service_months?: number | null; age_years?: number | null }
@@ -99,6 +109,15 @@ export interface Assessment {
   };
   unverified_commitments: number; arrears: boolean; missing: string[];
   outcome: Outcome; reasons: string[]; matches: Match[]; ruleset: { criteria: Array<{ id: number; family: string; version: number }> };
+  /* v1.288.0 */
+  engine_version: string;
+  gross_cents: number | null; deductions_cents: number; remaining_cents: number | null; living_cents: number | null; residual_cents: number | null;
+  confidence: { verified: number; declared: number };
+  breakdown: Array<{ id: number; side: string; kind: string; label: string | null; monthly_cents: number; state: string; source: string | null; counted: boolean }>;
+  consolidation_totals: null | {
+    settled_monthly_cents: number; monthly_difference_cents: number | null; new_total_cents: number | null;
+    settled_remaining_cents: number | null; total_difference_cents: number | null; risks: string[];
+  };
 }
 
 export function assess(input: {
@@ -106,7 +125,10 @@ export function assess(input: {
   verifiedDocKinds: string[]; today: string;
 }): Assessment {
   const { product, items, profile, proposal, today } = input;
-  const criteria = input.criteria.filter((c) => c.state === "verified" && c.product === product);
+  /* v1.288.0 - a rule counts from its effective date, never before */
+  const inForce = input.criteria.filter((c) => c.state === "verified" && c.product === product && (!c.effective_from || c.effective_from <= today));
+  /* one version per family: the newest that is in force today (a verified future version waits for its date) */
+  const criteria = inForce.filter((c) => !inForce.some((o) => o.family === c.family && o.version > c.version));
   const net = incomeOf(items, "net");
   const commit = commitmentsOf(items);
   const inst = product === "advisory_only" ? null : instalmentOf(proposal);
@@ -208,7 +230,39 @@ export function assess(input: {
       outcome = "manual_review"; reasons.push("The overlap period (before settlement) is above every guideline");
     }
   }
+  /* v1.288.0 - the breakdown, remaining and residual, confidence, consolidation totals */
+  const liveItems = items.filter(live);
+  const grossV = sum(liveItems.filter((i) => i.side === "income" && i.state === "verified" && INCOME_KINDS.includes(i.kind)));
+  const dedAll = sum(liveItems.filter((i) => i.side === "deduction"));
+  const remaining = net == null ? null : net - commit - (inst ?? 0);
+  const residual = remaining == null || expenses === 0 ? null : remaining - expenses;
+  const breakdown = liveItems.map((i) => ({
+    id: i.id, side: i.side, kind: i.kind, label: i.label ?? null, monthly_cents: Math.max(0, Math.round(Number(i.monthly_cents) || 0)), state: i.state, source: i.source ?? null,
+    counted: i.side === "income" ? i.state === "verified" : true,
+  }));
+  const confidence = { verified: liveItems.filter((i) => i.state === "verified").length, declared: liveItems.filter((i) => i.state !== "verified").length };
+  let consolidation_totals: Assessment["consolidation_totals"] = null;
+  if (product === "debt_consolidation") {
+    const settledItems = liveItems.filter((i) => settled.has(i.id));
+    const settledMonthly = sum(settledItems);
+    const tenure = proposal.tenure_months ?? null;
+    const newTotal = inst != null && tenure ? inst * tenure : null;
+    const known = settledItems.every((i) => Number.isInteger(i.remaining_months) && Number(i.remaining_months) >= 0);
+    const settledRemaining = settledItems.length && known ? settledItems.reduce((a, i) => a + Math.round(Number(i.monthly_cents) || 0) * Number(i.remaining_months), 0) : null;
+    const risks: string[] = [];
+    if (newTotal != null && settledRemaining != null && newTotal > settledRemaining) risks.push("The total repaid rises: the client pays more overall, even if the monthly amount falls");
+    if (tenure && settledItems.some((i) => Number(i.remaining_months) > 0) && tenure > Math.max(...settledItems.map((i) => Number(i.remaining_months) || 0))) risks.push("The new tenure is longer than the longest debt it settles");
+    if (consolidation?.overlap.dsr_bp != null && criteria.length && criteria.every((c) => c.dsr_guideline_bp == null || consolidation!.overlap.dsr_bp! > c.dsr_guideline_bp)) risks.push("Until the old debts are settled, both run together above every verified guideline");
+    if (settledItems.length === 0) risks.push("No facility is marked for settlement with its settlement letter yet: nothing is removed");
+    consolidation_totals = {
+      settled_monthly_cents: settledMonthly, monthly_difference_cents: inst == null ? null : settledMonthly - inst,
+      new_total_cents: newTotal, settled_remaining_cents: settledRemaining,
+      total_difference_cents: newTotal != null && settledRemaining != null ? newTotal - settledRemaining : null, risks,
+    };
+  }
   return {
+    engine_version: ENGINE_VERSION, gross_cents: grossV > 0 ? grossV : null, deductions_cents: dedAll, remaining_cents: remaining, living_cents: expenses > 0 ? expenses : null,
+    residual_cents: residual, confidence, breakdown, consolidation_totals,
     income_net_cents: net, commitments_cents: commit, instalment_cents: inst, expenses_cents: expenses,
     current_dsr_bp: current, projected_dsr_bp: projected, disposable_cents: disposable, consolidation,
     unverified_commitments: unverified, arrears, missing, outcome, reasons, matches,

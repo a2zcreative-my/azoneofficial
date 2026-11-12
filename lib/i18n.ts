@@ -43,7 +43,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Birthdays": { en: "Birthdays", ms: "Hari Lahir" },
   "Cards": { en: "Cards", ms: "Kad" }, // v1.129.0 - the digital business cards
   "Profile": { en: "Profile", ms: "Profil" },
-  "Users": { en: "Users", ms: "Pengguna" },
+  "Users": { en: "Users & Security", ms: "Pengguna & Keselamatan" },
   // chrome
   "Sign out": { en: "Sign out", ms: "Log keluar" },
   "Search…": { en: "Search…", ms: "Cari…" },

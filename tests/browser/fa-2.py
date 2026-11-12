@@ -8,7 +8,11 @@ in tests/fa-registry.mjs; here, the screens at the seven widths:
   - the directory shows each banker once with a status worked out from the
     record (Verified, Pending verification, Requires reverification) and
     availability only for a verified banker; a banker who left is hidden from
-    Current bankers; the state filter keeps a national banker;
+    All and kept under Inactive (v1.290.0 G4: All / Ready / Needs
+    verification / On hold / Inactive); the state filter keeps a national banker;
+  - v1.290.0 (image 04): each banker's BK- id; on a large desktop the
+    directory, the profile and the banker's cases side by side; Edit for the
+    owner and the CEO/COO; the cases panel names only cases you may open;
   - Register banker is four steps; a known work email stops at the review
     with Open that record and no save; a shared work phone asks why and saves
     only with the reason; it posts no login, only POST /fa/bankers;
@@ -55,7 +59,7 @@ with sync_playwright() as p:
         tag = f"CEO {w}"
         ctx, pg, errs = open_bankers(b, CEO, w)
         reg = pg.get_by_test_id("fa-registry")
-        tabs = reg.get_by_role("tab").all_inner_texts()
+        tabs = reg.get_by_role("tablist").first.get_by_role("tab").all_inner_texts()  # v1.290.0 - the directory has its own filter tabs below
         check(f"{tag}: Bankers has four views", len(tabs) == 4 and any("irector" in t for t in tabs) and any("ranch" in t for t in tabs) and any("ank" in t for t in tabs) and any("istory" in t for t in tabs), tabs)
         rows = pg.get_by_test_id("fa-banker")
         texts = rows.all_inner_texts()
@@ -69,15 +73,36 @@ with sync_playwright() as p:
         pg.get_by_test_id("fa-directory").get_by_label("State").select_option("SELANGOR"); pg.wait_for_timeout(200)
         check(f"{tag}: the state filter keeps a national banker only", rows.count() == 1 and "Banker Tiga" in rows.first.inner_text(), rows.all_inner_texts())
         pg.get_by_test_id("fa-directory").get_by_label("State").select_option(""); pg.wait_for_timeout(150)
-        pg.get_by_test_id("fa-directory").get_by_label("Status").select_option("no_longer_available"); pg.wait_for_timeout(150)
-        check(f"{tag}: the banker who left is kept, under No longer available", rows.count() == 1 and "Empat" in rows.first.inner_text())
-        pg.get_by_test_id("fa-directory").get_by_label("Status").select_option("current"); pg.wait_for_timeout(150)
+        dt = pg.get_by_test_id("fa-directory").get_by_role("tab")
+        words = [t.evaluate("e => [...e.childNodes].filter(n => n.nodeType === 3 || (n.nodeType === 1 && getComputedStyle(n).display !== 'none' && !n.getAttribute('aria-hidden'))).map(n => n.textContent).join('').trim()") for t in dt.all()]
+        check(f"{tag}: the directory words are All / Ready / Needs verification / On hold / Inactive - never Active (G4)", len(words) == 5 and words[0] == "All" and words[1] == "Ready" and words[2] in ("Needs verification", "Verify") and words[3] == "On hold" and words[4] == "Inactive" and not any(x == "Active" for x in words), words)
+        def dtab(name):
+            pg.get_by_test_id("fa-directory").get_by_role("tab").filter(has_text=name).first.click(); pg.wait_for_timeout(200)
+        dtab("Ready")
+        check(f"{tag}: Ready lists the verified, available banker only", rows.count() == 1 and "Banker Satu" in rows.first.inner_text(), rows.all_inner_texts())
+        dtab("erif")
+        check(f"{tag}: Needs verification lists the pending and the lapsed", rows.count() == 2 and not any("Satu" in t for t in rows.all_inner_texts()), rows.all_inner_texts())
+        dtab("Inactive")
+        check(f"{tag}: the banker who left is kept, under Inactive", rows.count() == 1 and "Empat" in rows.first.inner_text())
+        dtab("All")
+        check(f"{tag}: each banker shows the BK- id", all("BK-0000" in t for t in rows.all_inner_texts()), rows.all_inner_texts())
         check(f"{tag}: no sideways page (directory)", sideways(pg))
         if w in (1440, 390): pg.screenshot(path=f"{OUT}/fa2-directory-{w}.png", full_page=True)
 
         # one banker's record
-        rows.filter(has_text="Banker Satu").first.click(); pg.wait_for_timeout(900)
+        rows.filter(has_text="Banker Satu").first.click(); pg.wait_for_timeout(1100)
         rec = pg.get_by_test_id("fa-banker-record")
+        panel = pg.get_by_test_id("fa-banker-panel")
+        if w >= 1280:
+            boxes = [pg.get_by_test_id(t).bounding_box() for t in ("fa-directory", "fa-banker-profile", "fa-banker-panel")]
+            check(f"{tag}: directory, profile and cases side by side (G1)", all(boxes) and boxes[0]["x"] < boxes[1]["x"] < boxes[2]["x"] and abs(boxes[0]["y"] - boxes[2]["y"]) < 4, boxes)
+        else:
+            check(f"{tag}: the record opens as a sheet, with the banker's cases inside it", pg.get_by_role("dialog").count() == 1 and panel.count() == 1)
+        pt = panel.inner_text() if panel.count() else ""
+        check(f"{tag}: the cases panel - counts, what matching checks, the related cases, feedback marked indicative", "Allocated" in pt and "What matching checks" in pt and "FA-000001" in pt and "indicative only" in pt and "contact 11-11-2026" in pt, pt[:400])
+        check(f"{tag}: the CEO sees both cases named", pg.get_by_test_id("fa-banker-case").count() == 2 and "not yours" not in pt)
+        check(f"{tag}: no 'approved' in the banker's cases - only an official decision with the bank's letter may say so", "approv" not in pt.lower(), pt[:300])
+        check(f"{tag}: the CEO may edit the banker", rec.get_by_test_id("fa-banker-edit").count() >= 1)
         ident = rec.get_by_test_id("fa-fact-identity").inner_text() if rec.count() else ""
         refr = rec.get_by_test_id("fa-fact-referral").inner_text() if rec.count() else ""
         check(f"{tag}: the record shows identity and referral as two confirmed facts", "Contact identity" in ident and "Confirmed" in ident and "Referral permission" in refr and "Personal financing only" in refr, ident + " | " + refr)
@@ -85,6 +110,15 @@ with sync_playwright() as p:
         check(f"{tag}: no password, login or portal access is offered", not any(k in rec.inner_text().lower() for k in ("password", "invite", "portal access", "create login")))
         if w < 500: check(f"{tag}: record sheet buttons at least 44 px on a phone", not short_buttons(pg, "[role=dialog]"), short_buttons(pg, "[role=dialog]"))
         check(f"{tag}: no sideways page (record)", sideways(pg))
+        if w in (1440, 390):
+            # v1.290.0 - Edit: a changed work email warns that it is verified again, and posts the fields
+            rec.get_by_test_id("fa-banker-edit").first.click(); pg.wait_for_timeout(300)
+            ef = rec.get_by_test_id("fa-banker-edit-form")
+            ef.get_by_test_id("fa-edit-email").fill("satu.new@fixturebank.test"); pg.wait_for_timeout(100)
+            check(f"{tag}: changing the work email says it must be verified again", "verified again" in ef.inner_text())
+            ef.get_by_test_id("fa-edit-save").click(); pg.wait_for_timeout(900)
+            ep = [x for x in posts(CEO) if x["path"] == "/staff/fa/bankers/1" and x["method"] == "PATCH"]
+            check(f"{tag}: Edit sends one PATCH with the new email", len(ep) == 1 and ep[0]["body"].get("work_email") == "satu.new@fixturebank.test", ep)
         pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
 
         if w in (1440, 390):
@@ -190,6 +224,11 @@ with sync_playwright() as p:
         pg.get_by_test_id("fa-banker").filter(has_text="Banker Dua").first.click(); pg.wait_for_timeout(900)
         rec = pg.get_by_test_id("fa-banker-record")
         check(f"{tag}: Sales sees no Verify, Transfer or Change status", rec.get_by_role("button", name="Verify").count() == 0 and rec.get_by_role("button", name="Transfer").count() == 0 and rec.get_by_role("button", name="Change status").count() == 0)
+        check(f"{tag}: Sales may edit a banker they own (Fixture Person owns them all)", rec.get_by_test_id("fa-banker-edit").count() >= 1)
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+        pg.get_by_test_id("fa-banker").filter(has_text="Banker Satu").first.click(); pg.wait_for_timeout(1100)
+        pt = pg.get_by_test_id("fa-banker-panel").inner_text() if pg.get_by_test_id("fa-banker-panel").count() else ""
+        check(f"{tag}: another salesperson's client is counted, not named (G2)", "FA-000001" in pt and "FA-000002" not in pt and "Fixture Client Dua" not in pt and "not yours" in pt, pt[:400])
         pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
         sub(pg, "Branch registry", "Branches")
         check(f"{tag}: no Add branch for Sales", pg.get_by_test_id("fa-branches").get_by_role("button", name="Add branch").count() == 0)

@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* THE AGENT PORTAL WORKFLOW (v1.250.0) - runtime guard: the WHOLE worker
  * bundled against SQLite with every migration applied, by direct request as
  * each role, a fake send_email binding and a fake R2. Fixed clock: Sunday
@@ -341,7 +342,7 @@ const MUT = [
   ["worker/src/agent.ts", "an agent's follow-up date moves Sales' follow-up", "      if (follow && handler) await env.DB.prepare(`UPDATE agent_requests SET next_follow_up_on", "      if (follow) await env.DB.prepare(`UPDATE agent_requests SET next_follow_up_on"],
   ["worker/src/agent.ts", "internal files reach the agent", "      if (!f || (!staff && f.visibility !== \"agent\")) return err(\"not_found\", \"File not found\", 404);", "      if (!f) return err(\"not_found\", \"File not found\", 404);"],
 ];
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   const src = readFileSync(join(root, file), "utf8");
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
@@ -359,4 +360,4 @@ for (const [file, name, from, to] of MUT) {
 }
 rmSync(dir, { recursive: true, force: true });
 if (fail) { console.error(`go-live-h: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`go-live-h: ${checks} checks passed (${MUT.length} mutations caught) - the agent portal: verified-email activation on the same account, retry-safe submissions, Sales prefill and auto-link, publish only an issued, approved, valid revision, internal notes never reach an agent, an agent's acceptance claim needs evidence and verifying needs the recorded acceptance, no money moves`);
+console.log(`go-live-h: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - the agent portal: verified-email activation on the same account, retry-safe submissions, Sales prefill and auto-link, publish only an issued, approved, valid revision, internal notes never reach an agent, an agent's acceptance claim needs evidence and verifying needs the recorded acceptance, no money moves`);

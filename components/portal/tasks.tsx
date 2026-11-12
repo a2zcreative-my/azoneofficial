@@ -1354,7 +1354,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         const t = openTask == null ? null : tasks.find((x) => x.id === openTask) ?? null;
         if (!t) return null;
         const mine = isMine(t);
-        const canEdit = mine || canManage;
+        const canEdit = (mine || canManage) && t.status !== "completed"; // v1.289.0 (T1) - a closed task is reopened first
         const creator = t.created_by == null ? null : t.created_by === user.id ? L("You", "Anda") : team.find((u) => u.id === t.created_by)?.name ?? null;
         const startEdit = () => setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, start_date: t.start_date ?? "", deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 });
         const saveEdit = async () => {

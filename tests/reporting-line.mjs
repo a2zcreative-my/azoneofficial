@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* CEO TOP-LEVEL HIERARCHY (v1.233.0) - runtime guard: the real worker
  * (staff.ts, bundled, with lib/org-tree.ts) against SQLite with EVERY
  * migration applied.
@@ -163,7 +164,7 @@ const MUT = [
   ["lib/org-tree.ts", "the super admin gets a card", 'const SYSTEM_ROLES = ["admin", "super_admin", "customer"];', 'const SYSTEM_ROLES = ["customer"];'],
   ["worker/src/staff.ts", "the endpoint leaks the record", "const pub = (u: OrgPerson | null) => u ? {", "const pub = (u: OrgPerson | null) => u ? { ...u,"],
 ];
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   const src = readFileSync(join(root, file), "utf8");
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
@@ -177,4 +178,4 @@ for (const [file, name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`reporting-line: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`reporting-line: ${n} checks passed (${MUT.length} mutations caught) - the CEO tops the chart with no supervisor and no HOD; every line read from the Organisation`);
+console.log(`reporting-line: ${n} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - the CEO tops the chart with no supervisor and no HOD; every line read from the Organisation`);

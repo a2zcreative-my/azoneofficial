@@ -540,6 +540,18 @@ export function PortalShell({ children }: { children: ReactNode }) {
                     {sectionTitle(section.title, lang)}
                   </p>
                   <div className={css.moreGrid}>
+                  {/* v1.287.0 - the desktop rail's Projects shortcut, here too
+                      (the CEO's choice D4): a way into Tasks > Projects, not a
+                      tab, so it has no pin and Tasks keeps the access */}
+                  {section.title === "Operations" && showProjects && (
+                    <span className={css.moreCell}>
+                      <button type="button" data-testid="more-projects" className={css.moreTab}
+                        onClick={() => { setTabStart({ tab: "Tasks", view: "projects" }); setTab("Tasks"); setMoreOpen(false); window.scrollTo({ top: 0 }); }}>
+                        <span aria-hidden className="erp-center"><AppIcon name="folder" /></span>
+                        {L("Projects", "Projek")}
+                      </button>
+                    </span>
+                  )}
                   {section.tabs.map((t) => moreTile(t))}
                   </div>
                 </section>

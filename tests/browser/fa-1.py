@@ -12,7 +12,7 @@ here, the screens, at the seven widths (1440, 1280, 768, 430, 390, 360, 320):
   - the debt-consolidation case shows the three periods;
   - a banker note can only pick feedback words; an official decision needs
     the bank's document (the button stays off without one) and is offered to
-    the CEO and COO only;
+    the CEO, COO and CCO only (v1.288.0, D1);
   - a new case with an existing phone offers the existing customer;
   - no sideways page; buttons at least 44 px tall on a phone.
 Screenshots: $FA_OUT (default /tmp/fa-shots), outside the repo.
@@ -47,7 +47,7 @@ sideways = lambda pg: pg.evaluate("document.scrollingElement.scrollWidth <= wind
 def short_buttons(pg, scope):
     return pg.evaluate(f"""[...document.querySelectorAll('{scope} button')].filter(b => b.offsetParent && b.getBoundingClientRect().height < 43.5 && !b.closest('[role=tablist]')).map(b => b.innerText.trim() + ':' + Math.round(b.getBoundingClientRect().height)).slice(0, 6)""")
 def open_case(pg, ref):
-    pg.get_by_role("tab", name="Clients").first.click(); pg.wait_for_timeout(500)
+    pg.get_by_role("tab", name="Clients & Cases").or_(pg.get_by_role("tab", name="Cases", exact=True)).first.click(); pg.wait_for_timeout(500)
     pg.get_by_test_id("fa-case-row").filter(has_text=ref).first.click(); pg.wait_for_timeout(1200)
     return pg.get_by_test_id("fa-case")
 
@@ -60,7 +60,10 @@ with sync_playwright() as p:
         check(f"{tag}: the Financial Advisory panel opens", panel.count() == 1, pg.url)
         txt = panel.inner_text() if panel.count() else ""
         check(f"{tag}: four counts (open, information missing, waiting on a banker, official decisions)", all(s in txt for s in ["Open cases", "Information missing", "Waiting on a banker", "Official bank decisions"]), txt[:400])
-        check(f"{tag}: the switched-off list names the agreement, the proposed fee, sending to a bank, commission", pg.get_by_test_id("fa-legal").count() == 1 and all(s in pg.get_by_test_id("fa-legal").inner_text() for s in ["agreement", "15% fee", "Sending client documents", "Commission"]))
+        # v1.288.0 - the CEO's D5 (12-11-2026) opened sending documents to a banker under the client's consent; the other three stay off
+        lg = pg.get_by_test_id("fa-legal").inner_text() if pg.get_by_test_id("fa-legal").count() == 1 else ""
+        check(f"{tag}: the switched-off list names the agreement, the proposed fee and commission", all(s in lg for s in ["agreement", "15% fee", "Commission"]), lg)
+        check(f"{tag}: sending documents is no longer listed as off, and says it needs the client's disclosure consent", "Sending client documents" not in lg and "disclosure consent" in lg, lg)
         check(f"{tag}: the disclaimer is on the page", "Indicative only. Subject to official bank approval." in txt and "not affiliated with any bank" in txt)
         check(f"{tag}: no word Eligible or Approved as a status on the overview", "Eligible" not in txt and "Bank Approved" not in txt)
         check(f"{tag}: no sideways page (overview)", sideways(pg))
@@ -76,7 +79,7 @@ with sync_playwright() as p:
         check(f"{tag}: the progress strip marks the agreement, application and fee as needing legal clearance", st.count("needs legal clearance") >= 3)
         check(f"{tag}: no sideways page (case sheet)", sideways(pg))
         pg.screenshot(path=f"{OUT}/ceo-{w}-case.png", full_page=False)
-        pg.get_by_role("tab", name="DSR & matching").or_(pg.get_by_role("tab", name="DSR", exact=True)).first.click(); pg.wait_for_timeout(500)
+        sheet.get_by_role("tab", name="DSR assessment").or_(sheet.get_by_role("tab", name="DSR", exact=True)).first.click(); pg.wait_for_timeout(500)
         mt = pg.get_by_test_id("fa-matches").inner_text() if pg.get_by_test_id("fa-matches").count() else ""
         check(f"{tag}: the bank match shows its checks, the missing EPF statement and Banker review required", "within the 60.0% guideline" in mt and "Missing: EPF statement" in mt and "Banker review required" in mt, mt[:400])
         check(f"{tag}: no score, probability or amount on the match", not any(s in mt.lower().replace("no score", "") for s in ["score", "probab", "eligible amount", "chance"]))
@@ -111,7 +114,7 @@ with sync_playwright() as p:
         pg.keyboard.press("Escape"); pg.wait_for_timeout(600)
 
         sheet = open_case(pg, "FA-000002")
-        pg.get_by_role("tab", name="DSR & matching").or_(pg.get_by_role("tab", name="DSR", exact=True)).first.click(); pg.wait_for_timeout(500)
+        sheet.get_by_role("tab", name="DSR assessment").or_(sheet.get_by_role("tab", name="DSR", exact=True)).first.click(); pg.wait_for_timeout(500)
         cons = pg.get_by_test_id("fa-consolidation").inner_text() if pg.get_by_test_id("fa-consolidation").count() else ""
         check(f"{tag}: debt consolidation shows before / overlap / after (30.8%, 50.8%, 36.7%)", all(s in cons for s in ["A · Before", "B · Overlap", "C · After", "30.8%", "50.8%", "36.7%"]), cons[:400])
         check(f"{tag}: no sideways page (consolidation)", sideways(pg))
@@ -141,7 +144,8 @@ with sync_playwright() as p:
             check(f"{role} {w}: opens Financial Advisory", pg.get_by_test_id("fa-panel").count() == 1)
             open_case(pg, "FA-000001"); pg.get_by_role("tab", name="Kelayakan notes").or_(pg.get_by_role("tab", name="Notes", exact=True)).first.click(); pg.wait_for_timeout(400)
             dec = pg.get_by_role("button", name="Record official bank decision").count()
-            check(f"{role} {w}: official decision offered only to the CEO and COO", dec == (1 if role == "COO" else 0))
+            # v1.288.0 - D1: the CCO holds fa_decide with the CEO and COO
+            check(f"{role} {w}: official decision offered only to management (CEO, COO, CCO)", dec == (1 if role in ("COO", "CCO") else 0))
             check(f"{role} {w}: no sideways page", sideways(pg))
             pg.screenshot(path=f"{OUT}/{role.lower()}-{w}-notes.png", full_page=False)
             check(f"{role} {w}: no page error", not errs, errs)

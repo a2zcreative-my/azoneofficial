@@ -27,7 +27,7 @@ import {
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
   Receipt, ScrollText, Settings2, ShieldCheck,
   ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
-  UsersRound, Video, Wallet,
+  UsersRound, Video, Wallet, LayoutGrid, TrendingUp, Boxes, Users, Coins, ShoppingBag, Cog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -101,6 +101,19 @@ export const TAB_ICON: Record<string, LucideIcon> = {
 export function TabIcon({ name, className }: { name: string; className?: string }) {
   const I = TAB_ICON[name] ?? Square;
   return <I aria-hidden className={className ?? "h-[18px] w-[18px]"} strokeWidth={1.75} />;
+}
+
+/* v1.287.0 - one icon per navigation GROUP, for the collapsed rail (each
+   group is one icon that opens a labelled flyout). Kept apart from TAB_ICON
+   and from every tab's own icon, so a group never looks like one of its
+   modules. Keyed by NAV_GROUPS[].id (lib/portal-tabs.ts). */
+export const GROUP_ICON: Record<string, LucideIcon> = {
+  workspace: LayoutGrid, revenue: TrendingUp, operations: Boxes, people: Users,
+  finance: Coins, elfia: ShoppingBag, system: Cog,
+};
+export function GroupIcon({ id, className }: { id: string; className?: string }) {
+  const I = GROUP_ICON[id] ?? Square;
+  return <I aria-hidden className={className ?? "erp-icon"} strokeWidth={1.75} />;
 }
 
 /* Re-exported so consumers import every chrome icon from ONE place — keeps

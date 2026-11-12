@@ -75,6 +75,14 @@ const rC = run(base, "personal_financing", [crit({ max_tenure_months: 84, min_ag
 ok("a tenure past the maximum fails; an unrecorded age is unverified, never assumed", rC.matches[0].checks.find((c) => c.key === "tenure")?.state === "failed" && rC.matches[0].checks.find((c) => c.key === "age")?.state === "unverified");
 ok("no range stated: no age, amount or tenure check at all", !run(base, "personal_financing", [crit()]).matches[0].checks.some((c) => ["age", "amount", "tenure"].includes(c.key)));
 
+/* v1.288.0 - effective dates, one version per family, residual and confidence */
+ok("a rule effective tomorrow is not applied today", run(base, "personal_financing", [crit({ effective_from: "2026-11-12" })]).matches.length === 0);
+const two = run(base, "personal_financing", [crit({ id: 1, version: 1 }), crit({ id: 2, version: 2, dsr_guideline_bp: 7000 })]);
+ok("of two verified versions in force, only the newest counts", two.matches.length === 1 && two.matches[0].criterion_id === 2, JSON.stringify(two.matches.map((m) => m.criterion_id)));
+const rr = run([...base, it("expense", "food", 100000)], "personal_financing", [crit()]);
+ok("remaining = net - commitments - instalment; residual = remaining - declared living costs", rr.remaining_cents === rr.income_net_cents - rr.commitments_cents - rr.instalment_cents && rr.residual_cents === rr.remaining_cents - 100000, `${rr.remaining_cents} ${rr.residual_cents}`);
+ok("no declared living cost: no residual is invented", run(base, "personal_financing", [crit()]).residual_cents === null);
+
 /* illustrative instalment */
 ok("annuity instalment (RM 30,000, 60 months, 8%): RM 608.30, rounded up to the sen", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }) === 60830, E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }));
 ok("a given instalment wins; nothing given = null", E.instalmentOf({ instalment_cents: 50000 }) === 50000 && E.instalmentOf({}) === null);

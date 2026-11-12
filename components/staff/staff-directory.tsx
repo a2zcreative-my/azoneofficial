@@ -1166,7 +1166,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
               </dl>
               {/* Users owns sign-in and permissions: the account is changed there */}
               {can("Users") && go && (
-                <button type="button" className={btnSm} onClick={() => { setPeek(null); go("Users"); }}><AppIcon name="lock" />{L("View in Users", "Lihat di Pengguna")}</button>
+                <button type="button" className={btnSm} onClick={() => { setPeek(null); go("Users"); }}><AppIcon name="lock" />{L("View in Users & Security", "Lihat di Pengguna & Keselamatan")}</button>
               )}
             </section>
             <section className={sp.block} aria-label={L("Roles and responsibilities", "Peranan dan tanggungjawab")}>

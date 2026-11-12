@@ -48,8 +48,8 @@ export function HelpSheet({ open, onClose, tab, lang }: { open: boolean; onClose
           </p>
           <p className={css.p}>
             {L(
-              "Modules not shown in the sidebar are under More, and every page you may open is in search.",
-              "Modul yang tiada di bar sisi ada di bawah Lagi, dan setiap halaman yang anda boleh buka ada dalam carian.",
+              "Every module you may open is in its group in the sidebar - Workspace, Revenue, Operations, People, Finance, ELFIA, System - and in search. With the sidebar collapsed, a group icon opens its list; on a phone, the groups are under More.",
+              "Setiap modul yang anda boleh buka ada dalam kumpulannya di bar sisi - Ruang Kerja, Hasil, Operasi, Kakitangan, Kewangan, ELFIA, Sistem - dan dalam carian. Apabila bar sisi dikecilkan, ikon kumpulan membuka senarainya; di telefon, kumpulan ada di bawah Lagi.",
             )}
           </p>
         </section>

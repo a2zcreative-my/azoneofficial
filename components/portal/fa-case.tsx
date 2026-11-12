@@ -8,10 +8,13 @@
      header   the client, the case reference, the three statuses as three
               chips (pre-screen, banker feedback, formal application) -
               never one "Eligible" flag
-     tabs     Overview, Profile & figures, DSR & matching, Kelayakan notes,
-              Documents, Consents, Timeline, Agreement
-     legal    the agreement, the proposed fee and sending documents to a
-              bank are shown as switched off until counsel clears them
+     tabs     Overview, Financial profile, DSR assessment, Banker matching,
+              Kelayakan notes, Documents, Consents, Case timeline, Agreement
+              (v1.288.0 - DSR blueprint v1.2; the review, matching and
+              disclosure screens live in fa-dsr.tsx)
+     legal    the agreement and the proposed fee are shown as switched off
+              until counsel clears them (sending documents to a banker opened
+              under the client's consent, the CEO's D5, 12-11-2026)
 
    The screen offers only what the server allows (worker/src/fa.ts); every
    figure on it comes from the server's own snapshot. */
@@ -27,6 +30,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { StageTimeline, type Stage } from "@/components/ui/stage-timeline";
 import { SkelRows } from "@/components/ui/skeleton";
 import { openAttachment } from "@/components/ui/document-preview";
+import { BankerMatching, CaseReview, decisionWord, type DsrPic } from "./fa-dsr";
 import css from "./financial-advisory.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -84,7 +88,7 @@ const LOCKED_STEPS = new Set(["agreement", "application", "fee"]);
 
 interface Item { id: number; side: string; kind: string; label: string | null; monthly_cents: number; outstanding_cents: number | null; arrears: number; settle_in_consolidation: number; settlement_doc_id: number | null; state: string; source: string; voided_at: string | null }
 interface Doc { id: number; kind: string; doc_date: string | null; verified: number; uploaded_at: string; by_name: string | null }
-interface Note { id: number; note_type: string; bank: string | null; source: string | null; status_value: string | null; body: string; conditions: string | null; missing_documents: string | null; follow_up_on: string | null; bank_reference: string | null; approved_cents: number | null; evidence_id: number | null; corrects_id: number | null; author: string | null; author_role: string | null; created_at: string }
+interface Note { id: number; note_type: string; bank: string | null; source: string | null; status_value: string | null; body: string; conditions: string | null; missing_documents: string | null; follow_up_on: string | null; bank_reference: string | null; approved_cents: number | null; evidence_id: number | null; corrects_id: number | null; author: string | null; author_role: string | null; created_at: string; contact_on?: string | null; tenure_months?: number | null }
 interface Check { key: string; state: string; text: string }
 interface Match { criterion_id: number; bank: string; checks: Check[]; missing_documents: string[]; stale: boolean; last_verified_on: string | null; fit: string }
 interface Result {
@@ -101,10 +105,14 @@ interface Pic {
   assessments: { id: number; result: string; outcome: string; created_at: string; by_name: string | null }[];
   notes: Note[]; events: { id: number; event: string; detail: string | null; created_at: string; actor: string | null }[];
   tasks: { id: number; title: string; deadline: string | null; status: string; assignee: string | null }[];
-  can: { edit: boolean; decide: boolean; note: boolean };
+  can: { edit: boolean; decide: boolean; note: boolean; allocate?: boolean };
+  /* v1.288.0 - the management review, the banker allocation and what was sent */
+  reviews?: { id: number; assessment_id: number | null; action: string; reason: string | null; next_action: string | null; actor: string | null; actor_role: string; created_at: string }[];
+  review?: { pending: boolean; decision: string | null; assessment_id: number | null; submitted_by: number | null };
+  allocations?: { id: number; bank: string; banker: string; state: string; enquiry_id: number | null }[];
   legal: { agreement: boolean; fee: boolean; disclosure: boolean; commission: boolean };
 }
-type Tab = "overview" | "figures" | "dsr" | "notes" | "documents" | "consents" | "timeline" | "agreement";
+export type Tab = "overview" | "figures" | "dsr" | "matching" | "notes" | "documents" | "consents" | "timeline" | "agreement";
 const EVENT_WORDS: Record<string, string> = {
   case_created: "Case created", consent_recorded: "Consent recorded", consent_withdrawn: "Consent withdrawn", profile_saved: "Profile saved", item_added: "Figure added",
   item_verify: "Figure verified", item_void: "Figure removed", item_settlement: "Settlement evidenced", document_uploaded: "Document uploaded", document_verified: "Document checked",
@@ -112,11 +120,11 @@ const EVENT_WORDS: Record<string, string> = {
   note_corrected: "Note corrected", task_created: "Task created", stage_changed: "Stage changed", case_closed: "Case closed", case_updated: "Case updated", member_added: "Assisting staff added",
 };
 
-export function FaCase({ caseId, onClose, onChanged, toast }: { caseId: number; onClose: () => void; onChanged: () => void; toast: (title: string, m: string, tone?: "notice") => void }) {
+export function FaCase({ caseId, onClose, onChanged, toast, initialTab }: { caseId: number; onClose: () => void; onChanged: () => void; toast: (title: string, m: string, tone?: "notice") => void; initialTab?: Tab }) {
   const [pic, setPic] = useState<Pic | null>(null);
   const [failed, setFailed] = useState(false);
   const [tick, setTick] = useState(0);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "overview");
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     let live = true;
@@ -157,17 +165,19 @@ export function FaCase({ caseId, onClose, onChanged, toast }: { caseId: number; 
           </ol>
           <LineTabs value={tab} onChange={setTab} label={L("Case", "Kes")} tabs={[
             ["overview", L("Overview", "Gambaran")],
-            ["figures", L("Profile & figures", "Profil & angka"), null, L("Figures", "Angka")],
-            ["dsr", L("DSR & matching", "DSR & padanan"), null, "DSR"],
+            ["figures", L("Financial profile", "Profil kewangan"), null, L("Profile", "Profil")],
+            ["dsr", L("DSR assessment", "Penilaian DSR"), pic.review?.pending ? 1 : null, "DSR"],
+            ["matching", L("Banker matching", "Padanan pegawai bank"), null, L("Bankers", "Bank")],
             ["notes", L("Kelayakan notes", "Nota kelayakan"), null, L("Notes", "Nota")],
             ["documents", L("Documents", "Dokumen"), null, L("Docs", "Dok")],
             ["consents", L("Consents", "Persetujuan")],
-            ["timeline", L("Timeline", "Garis masa")],
+            ["timeline", L("Case timeline", "Garis masa kes"), null, L("Timeline", "Garis masa")],
             ["agreement", L("Agreement", "Perjanjian")],
           ]} />
           {tab === "overview" && <Overview pic={pic} latest={latest} go={setTab} post={post} />}
           {tab === "figures" && <Figures pic={pic} post={post} setDirty={setDirty} />}
           {tab === "dsr" && <Dsr pic={pic} latest={latest} post={post} setDirty={setDirty} />}
+          {tab === "matching" && <BankerMatching pic={pic as unknown as DsrPic} post={post} toast={toast} />}
           {tab === "notes" && <Notes pic={pic} post={post} setDirty={setDirty} />}
           {tab === "documents" && <Documents pic={pic} reload={reload} toast={toast} post={post} />}
           {tab === "consents" && <Consents pic={pic} post={post} setDirty={setDirty} />}
@@ -206,7 +216,7 @@ function Overview({ pic, latest, go, post }: { pic: Pic; latest: Result | null; 
             <p className={css.sub}>{latest.reasons.join(". ")}. <i>{L("*Illustrative; not an offer.", "*Ilustrasi; bukan tawaran.")}</i></p>
           </>
         )}
-        <button type="button" className={btnSm} onClick={() => go("dsr")}>{L("Open DSR & matching", "Buka DSR & padanan")}</button>
+        <button type="button" className={btnSm} onClick={() => go("dsr")}>{L("Open the DSR assessment", "Buka penilaian DSR")}</button>
       </section>
       <section className={`${card} ${css.sec}`} aria-label={L("Next action", "Tindakan seterusnya")}>
         <h3 className={css.h}><AppIcon name="target" />{L("Next action", "Tindakan seterusnya")}</h3>
@@ -218,8 +228,9 @@ function Overview({ pic, latest, go, post }: { pic: Pic; latest: Result | null; 
         <button type="button" className={btnSm} onClick={() => go("notes")}>{L("Open notes", "Buka nota")}</button>
         {pic.can.edit && c.stage !== "closed" && (
           <div className={css.row}>
-            {c.stage === "prescreen" && <button type="button" className={btnSm} onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}`, send({ stage: "matching" }, "PATCH")), L("Moved to bank matching", "Dipindah ke padanan bank"))}>{L("Move to bank matching", "Pindah ke padanan bank")}</button>}
-            {c.stage === "prescreen" && <button type="button" className={btnSm} onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}`, send({ stage: "review" }, "PATCH")), L("Sent for management review", "Dihantar untuk semakan"))}>{L("Ask for management review", "Minta semakan pengurusan")}</button>}
+            {/* v1.288.0 - matching opens only after a management Proceed (worker/src/fa.ts reviewState) */}
+            {pic.review?.decision === "proceed" ? <button type="button" className={btnSm} onClick={() => go("matching")}>{L("Match a banker", "Padankan pegawai bank")}</button>
+              : !pic.review?.pending && pic.assessments.length > 0 && <button type="button" className={btnSm} onClick={() => go("dsr")}>{L("Submit for management review", "Hantar untuk semakan pengurusan")}</button>}
             {!closing ? <button type="button" className={btnSmQuiet} onClick={() => setClosing(true)}>{L("Close case", "Tutup kes")}</button> : (
               <span className={css.inline}>
                 <select className={selectClassSm} value={why} onChange={(e) => setWhy(e.target.value)} aria-label={L("Reason", "Sebab")}>
@@ -345,6 +356,7 @@ function Dsr({ pic, latest, post, setDirty }: { pic: Pic; latest: Result | null;
           <button type="button" className={btnSmPrimary} data-testid="fa-run" onClick={() => void run()}>{L("Run pre-screen", "Jalankan saringan")}</button>
         </section>
       )}
+      <CaseReview pic={pic as unknown as DsrPic} post={post} />
       {!latest ? <p className={css.empty}>{L("No pre-screen yet.", "Belum ada saringan.")}</p> : (
         <>
           <section className={`${card} ${css.sec}`} aria-label={L("Result", "Keputusan")}>
@@ -402,9 +414,12 @@ function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: bo
   /* v1.286.0 - the bank and banker come from the one registry, never typed */
   const [reg, setReg] = useState<{ banks: { id: number; name: string; status: string }[]; bankers: { id: number; bank_id: number; full_name: string; bank: string; status_now: string }[] } | null>(null);
   useEffect(() => { if (!mode || reg) return; let live = true; void api<NonNullable<typeof reg>>("/staff/fa/registry").then((r) => { if (live && r.ok && r.data) setReg(r.data); }); return () => { live = false; }; }, [mode, reg]);
-  const [n, setN] = useState({ bank: "", banker: "", source: "call", status: "under_review", body: "", conditions: "", missing: "", follow: "", ref: "", approved: "", evidence: "" as number | "" });
+  const [n, setN] = useState({ contact: mytToday(), tenure: "", enquiry: "", bank: "", banker: "", source: "call", status: "under_review", body: "", conditions: "", missing: "", follow: "", ref: "", approved: "", evidence: "" as number | "" });
   const set = (k: keyof typeof n, v: string | number) => { setN({ ...n, [k]: v }); setDirty(true); };
-  const GROUPS: [string, string, string, string][] = [["system", "A · System assessment", "A · Penilaian sistem", css.nA ?? ""], ["banker", "B · Banker feedback", "B · Maklum balas bank", css.nB ?? ""], ["decision", "C · Official bank decision", "C · Keputusan rasmi bank", css.nC ?? ""]];
+  const GROUPS: [string, string, string, string][] = [["system", "A · System assessment", "A · Penilaian sistem", css.nA ?? ""], ["management", "M · Management review", "M · Semakan pengurusan", css.nM ?? ""], ["banker", "B · Banker feedback", "B · Maklum balas bank", css.nB ?? ""], ["decision", "C · Official bank decision", "C · Keputusan rasmi bank", css.nC ?? ""]];
+  /* v1.288.0 - All / System / Management / Banker / Official */
+  const [only, setOnly] = useState<"all" | "system" | "management" | "banker" | "decision">("all");
+  const enquiries = (pic.allocations ?? []).filter((a) => a.enquiry_id != null);
   return (
     <div className={css.stack}>
       {(pic.can.note || pic.can.decide) && c.stage !== "closed" && (
@@ -427,6 +442,8 @@ function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: bo
                 <option value="">—</option>
                 {(reg?.banks ?? []).filter((x) => x.status !== "retired").map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
               </select></label>
+            {mode === "banker" && enquiries.length > 0 && <label className={css.field}>{L("Answers the enquiry (optional)", "Menjawab pertanyaan (pilihan)")}<select className={selectClassSm} value={n.enquiry} onChange={(e) => set("enquiry", e.target.value)}><option value="">—</option>{enquiries.map((a) => <option key={a.id} value={a.enquiry_id!}>{a.banker} · {a.bank}</option>)}</select></label>}
+            {mode === "banker" && <label className={css.field}>{L("Contact date", "Tarikh hubungan")}<input className={inputClassSm} type="date" value={n.contact} max={mytToday()} min={c.created_at.slice(0, 10)} onChange={(e) => set("contact", e.target.value)} data-testid="fa-note-contact" /></label>}
             {mode === "banker" && <label className={css.field}>{L("Source", "Sumber")}<select className={selectClassSm} value={n.source} onChange={(e) => set("source", e.target.value)}>{["call", "email", "whatsapp", "meeting", "other"].map((x) => <option key={x} value={x}>{x}</option>)}</select></label>}
             <label className={css.field}>{mode === "banker" ? L("Indicative assessment", "Penilaian indikatif") : L("Decision", "Keputusan")}
               <select className={selectClassSm} value={n.status} onChange={(e) => set("status", e.target.value)}>
@@ -439,6 +456,7 @@ function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: bo
             {mode === "banker" && <label className={css.field}>{L("Follow up on", "Susulan pada")}<input className={inputClassSm} type="date" value={n.follow} min={mytToday()} onChange={(e) => set("follow", e.target.value)} /></label>}
             {mode === "decision" && <label className={css.field}>{L("Bank reference", "Rujukan bank")}<input className={inputClassSm} value={n.ref} maxLength={80} onChange={(e) => set("ref", e.target.value)} /></label>}
             {mode === "decision" && <label className={css.field}>{L("Amount as stated by the bank (RM)", "Jumlah seperti dinyatakan bank (RM)")}<input className={inputClassSm} inputMode="decimal" value={n.approved} onChange={(e) => set("approved", e.target.value)} /></label>}
+            {mode === "decision" && <label className={css.field}>{L("Tenure as stated (months)", "Tempoh seperti dinyatakan (bulan)")}<input className={inputClassSm} inputMode="numeric" value={n.tenure} onChange={(e) => set("tenure", e.target.value.replace(/\D/g, ""))} data-testid="fa-note-tenure" /></label>}
             <label className={css.field}>{mode === "decision" ? L("Bank's document (required)", "Dokumen bank (wajib)") : L("Evidence (optional)", "Bukti (pilihan)")}
               <select className={selectClassSm} value={n.evidence} onChange={(e) => set("evidence", e.target.value ? Number(e.target.value) : "")}>
                 <option value="">—</option>
@@ -449,25 +467,44 @@ function Notes({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: bo
           <p className="erp-note">{mode === "banker" ? L("A banker's feedback is never an approval. It moves the banker status only.", "Maklum balas bank bukan kelulusan. Ia hanya mengubah status bank.") : L("Record only what the bank's own letter says, with the letter attached.", "Rekod hanya apa yang dinyatakan surat bank, dengan surat dilampirkan.")}</p>
           <div className={css.row}>
             <button type="button" className={btnSmPrimary} disabled={!(n.bank || n.banker) || n.body.trim().length < 5 || (mode === "decision" && n.evidence === "")}
-              onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/notes`, send({ type: mode, bank_id: n.bank ? Number(n.bank) : undefined, banker_id: mode === "banker" && n.banker ? Number(n.banker) : undefined, source: n.source, status: n.status, body: n.body, conditions: n.conditions || undefined, missing_documents: n.missing || undefined, follow_up_on: n.follow || undefined, bank_reference: n.ref || undefined, approved_cents: toCents(n.approved) ?? undefined, evidence_id: n.evidence === "" ? undefined : n.evidence }, "POST")), L("Note saved", "Nota disimpan")).then((ok) => ok && setMode(""))}>{L("Save note", "Simpan nota")}</button>
+              onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/notes`, send({ type: mode, contact_on: mode === "banker" && n.contact ? n.contact : undefined, tenure_months: mode === "decision" && n.tenure ? Number(n.tenure) : undefined, enquiry_id: mode === "banker" && n.enquiry ? Number(n.enquiry) : undefined, bank_id: n.bank ? Number(n.bank) : undefined, banker_id: mode === "banker" && n.banker ? Number(n.banker) : undefined, source: n.source, status: n.status, body: n.body, conditions: n.conditions || undefined, missing_documents: n.missing || undefined, follow_up_on: n.follow || undefined, bank_reference: n.ref || undefined, approved_cents: toCents(n.approved) ?? undefined, evidence_id: n.evidence === "" ? undefined : n.evidence }, "POST")), L("Note saved", "Nota disimpan")).then((ok) => ok && setMode(""))}>{L("Save note", "Simpan nota")}</button>
             <button type="button" className={btnSmQuiet} onClick={() => { setMode(""); setDirty(false); }}>{L("Cancel", "Batal")}</button>
           </div>
           </>}
         </section>
       )}
-      {GROUPS.map(([type, en, ms, cls]) => {
+      <LineTabs value={only} onChange={setOnly} label={L("Show notes", "Tunjuk nota")} tabs={[
+        ["all", L("All", "Semua")], ["system", L("System", "Sistem")], ["management", L("Management", "Pengurusan"), (pic.reviews ?? []).length || null], ["banker", L("Banker", "Bank")], ["decision", L("Official", "Rasmi")],
+      ]} />
+      {GROUPS.filter(([type]) => only === "all" || only === type).map(([type, en, ms, cls]) => {
+        if (type === "management") {
+          const rv = pic.reviews ?? [];
+          return (
+            <section key={type} className={`${card} ${css.sec} ${cls}`} aria-label={L(en, ms)} data-testid="fa-notes-management">
+              <h3 className={css.h}>{L(en, ms)}</h3>
+              {rv.length === 0 ? <p className={css.sub}>{L("No review yet.", "Belum ada semakan.")}</p> : rv.map((r) => (
+                <article key={r.id} className={css.note}>
+                  <div className={css.noteHead}><b>{decisionWord(r.action)}</b><span className={css.sub}>{dmyMYT(r.created_at)} · {r.actor ?? ""} ({r.actor_role}){r.assessment_id ? ` · ${L("assessment", "penilaian")} #${r.assessment_id}` : ""}</span></div>
+                  {r.reason && <p className={css.lines}>{r.reason}</p>}
+                  {r.next_action && <p className={css.sub}>{L("Needed", "Diperlukan")}: {r.next_action}</p>}
+                  {r.action === "proceed" && <p className={css.sub}><em>{L("Internal progression only - not a loan approval.", "Kemajuan dalaman sahaja - bukan kelulusan pinjaman.")}</em></p>}
+                </article>
+              ))}
+            </section>
+          );
+        }
         const list = pic.notes.filter((x) => x.note_type === type);
         return (
           <section key={type} className={`${card} ${css.sec} ${cls}`} aria-label={L(en, ms)} data-testid={`fa-notes-${type}`}>
             <h3 className={css.h}>{L(en, ms)}</h3>
             {list.length === 0 ? <p className={css.sub}>{type === "decision" ? L("None yet - needs the bank's written decision.", "Belum ada - perlu keputusan bertulis bank.") : L("None yet.", "Belum ada.")}</p> : list.map((x) => (
               <article key={x.id} className={css.note}>
-                <div className={css.noteHead}><b>{x.bank ?? (type === "system" ? L("System", "Sistem") : "")}</b>{x.status_value && type !== "system" ? <Chip map={type === "banker" ? BANKER : APPLICATION} k={x.status_value} /> : null}<span className={css.sub}>{dmyMYT(x.created_at)} · {x.author ?? L("System", "Sistem")}{x.author_role && x.author_role !== "system" ? ` (${x.author_role})` : ""}{x.source ? ` · ${x.source}` : ""}{x.corrects_id ? ` · ${L("corrects note", "membetulkan nota")} #${x.corrects_id}` : ""}</span></div>
+                <div className={css.noteHead}><b>{x.bank ?? (type === "system" ? L("System", "Sistem") : "")}</b>{x.contact_on ? <span className={css.sub}>{L("contacted", "dihubungi")} {dmy(x.contact_on)}</span> : null}{x.status_value && type !== "system" ? <Chip map={type === "banker" ? BANKER : APPLICATION} k={x.status_value} /> : null}<span className={css.sub}>{dmyMYT(x.created_at)} · {x.author ?? L("System", "Sistem")}{x.author_role && x.author_role !== "system" ? ` (${x.author_role})` : ""}{x.source ? ` · ${x.source}` : ""}{x.corrects_id ? ` · ${L("corrects note", "membetulkan nota")} #${x.corrects_id}` : ""}</span></div>
                 <p className={css.lines}>{x.body}</p>
                 {x.conditions && <p className={css.sub}>{L("Conditions", "Syarat")}: {x.conditions}</p>}
                 {x.missing_documents && <p className={css.sub}>{L("Missing", "Tiada")}: {x.missing_documents}</p>}
                 {x.follow_up_on && <p className={css.sub}>{L("Follow up", "Susulan")}: {dmy(x.follow_up_on)}</p>}
-                {x.bank_reference && <p className={css.sub}>{L("Bank reference", "Rujukan bank")}: {x.bank_reference}{x.approved_cents ? ` · ${L("amount stated", "jumlah dinyatakan")} ${fmtRM(x.approved_cents)}` : ""}</p>}
+                {x.bank_reference && <p className={css.sub}>{L("Bank reference", "Rujukan bank")}: {x.bank_reference}{x.approved_cents ? ` · ${L("amount stated", "jumlah dinyatakan")} ${fmtRM(x.approved_cents)}` : ""}{x.tenure_months ? ` · ${x.tenure_months} ${L("months", "bulan")}` : ""}</p>}
                 {type === "banker" && <p className={css.sub}><em>{L("Not a bank approval.", "Bukan kelulusan bank.")}</em></p>}
               </article>
             ))}
@@ -532,7 +569,7 @@ function Consents({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d:
   const [note, setNote] = useState("");
   return (
     <div className={css.stack}>
-      <p className="erp-note">{L("Record the privacy notice and the assessment consent before any figure. A disclosure consent names one institution and the documents it covers; sending to a bank stays switched off until counsel clears the wording.", "Rekod notis privasi dan persetujuan penilaian sebelum sebarang angka. Persetujuan pendedahan menamakan satu institusi dan dokumennya; penghantaran kepada bank kekal dimatikan sehingga peguam meluluskan.")}</p>
+      <p className="erp-note">{L("Record the privacy notice and the assessment consent before any figure. A disclosure consent names one bank and the documents it covers; only those documents can be sent, and only to an approved banker of that bank (Banker matching).", "Rekod notis privasi dan persetujuan penilaian sebelum sebarang angka. Persetujuan pendedahan menamakan satu bank dan dokumennya; hanya dokumen itu boleh dihantar, dan hanya kepada pegawai bank yang diluluskan (Padanan pegawai bank).")}</p>
       <section className={`${card} ${css.sec}`} aria-label={L("Consents", "Persetujuan")}>
         {pic.consents.length === 0 ? <p className={css.sub}>{L("None recorded.", "Tiada direkod.")}</p> : (
           <ul className={css.items}>{pic.consents.map((k) => (
@@ -594,7 +631,7 @@ function Agreement({ pic }: { pic: Pic }) {
   return (
     <section className={`${card} ${css.sec}`} aria-label={L("Client agreement", "Perjanjian pelanggan")} data-testid="fa-agreement">
       <h3 className={css.h}><AppIcon name="lock" />{L("Client agreement", "Perjanjian pelanggan")} <span className={`${chipSmNeutral} ${css.chip}`}>{L("Switched off", "Dimatikan")}</span></h3>
-      <p>{L("The agreement, the proposed fee and sending documents to a bank are switched off until a Malaysian lawyer clears them (Consumer Credit Act 2025 registration, PDPA consent wording, the fee basis).", "Perjanjian, yuran yang dicadangkan dan penghantaran dokumen kepada bank dimatikan sehingga peguam Malaysia meluluskannya (pendaftaran Akta Kredit Pengguna 2025, kata-kata persetujuan PDPA, asas yuran).")}</p>
+      <p>{L("The agreement and the proposed fee are switched off until a Malaysian lawyer clears them (Consumer Credit Act 2025 registration, the fee basis). Sending documents to a banker is open under the client's disclosure consent (CEO decision, 12-11-2026).", "Perjanjian dan yuran yang dicadangkan dimatikan sehingga peguam Malaysia meluluskannya (pendaftaran Akta Kredit Pengguna 2025, asas yuran). Penghantaran dokumen kepada pegawai bank dibuka di bawah persetujuan pendedahan pelanggan (keputusan CEO, 12-11-2026).")}</p>
       <dl className={css.kv}>
         <div><dt>{L("Fee", "Yuran")}</dt><dd><span className={`${chipSmWarn} ${css.chip}`}>{L("15% PROPOSED — subject to legal and commercial approval", "15% DICADANGKAN — tertakluk kepada kelulusan undang-undang dan komersial")}</span></dd></div>
         <div><dt>{L("Payable now", "Perlu dibayar sekarang")}</dt><dd>{L("Nothing - no quotation or invoice is raised", "Tiada - tiada sebut harga atau invois")}</dd></div>

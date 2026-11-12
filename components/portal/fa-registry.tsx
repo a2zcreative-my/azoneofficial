@@ -18,7 +18,8 @@
    identity, referral permission), each with its evidence and a review date,
    and nobody verifies a banker they registered themselves. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { atLeast, onBreakpoint } from "@/lib/breakpoints";
 import { api } from "@/lib/api";
 import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -43,7 +44,7 @@ interface Banker {
   id: number; bank_id: number; bank: string; full_name: string; position: string | null; work_email: string | null; work_phone: string | null; preferred_channel: string; relationship_type: string;
   owner_id: number | null; owner: string | null; case_limit: number | null; open_cases: number; status_now: string; availability_now: string; registered_by: number;
   identity: { verified_on: string; next_review_on: string; method: string; due: boolean } | null; referral: { verified_on: string; next_review_on: string; restrictions: string | null; due: boolean } | null;
-  assignments: Assignment[]; products: string[];
+  assignments: Assignment[]; products: string[]; last_contact_at?: string | null;
 }
 interface Registry { banks: Bank[]; products: BankProduct[]; localities: Place[]; branches: Branch[]; bankers: Banker[]; states: string[]; today: string; can: { register: boolean; manage: boolean } }
 
@@ -71,6 +72,7 @@ const EVENT: Record<string, [string, string]> = {
   renamed: ["Renamed", "Dinamakan semula"], status: ["Status changed", "Status ditukar"], registered: ["Registered", "Didaftarkan"], identity_verified: ["Contact identity verified", "Identiti kenalan disahkan"],
   referral_verified: ["Referral permission confirmed", "Kebenaran rujukan disahkan"], availability: ["Availability updated", "Ketersediaan dikemas kini"], transferred: ["Transferred", "Dipindahkan"],
   assignment_ended: ["Assignment ended", "Tugasan ditamatkan"], products: ["Products changed", "Produk ditukar"],
+  edited: ["Details edited", "Butiran disunting"],
 };
 const ENTITY: Record<string, [string, string]> = { bank: ["Bank", "Bank"], branch: ["Branch", "Cawangan"], banker: ["Banker", "Pegawai bank"], locality: ["Place", "Tempat"] };
 const chip = (map: Record<string, [string, string, string]>, k: string) => { const x = map[k] ?? [k, k, chipSmNeutral]; return <span className={`${x[2]} ${css.chip}`}>{L(x[0], x[1])}</span>; };
@@ -84,7 +86,7 @@ async function post(path: string, body: unknown): Promise<{ ok: boolean; status:
   return { ok: r.ok, status: r.status ?? (r.ok ? 200 : 400), data: (r.data as Err | null) ?? null };
 }
 
-export function BankerRegistry({ toast }: { toast: Toast }) {
+export function BankerRegistry({ toast, openCase }: { toast: Toast; openCase?: (id: number, tab?: string) => void }) {
   const [sub, setSub] = useState<Sub>("directory");
   const [data, setData] = useState<Registry | null>(null);
   const [failed, setFailed] = useState(false);
@@ -108,7 +110,7 @@ export function BankerRegistry({ toast }: { toast: Toast }) {
         <div className={`${card} ${css.sec}`}><p className={css.empty}>{L("The banker registry could not load.", "Daftar pegawai bank tidak dapat dimuatkan.")}</p><button type="button" className={btnSm} onClick={reload}>{L("Try again", "Cuba lagi")}</button></div>
       ) : !data ? <div className={`${card} ${css.sec}`}><SkelRows rows={5} /></div> : (
         <>
-          {sub === "directory" && <Directory data={data} toast={toast} reload={reload} />}
+          {sub === "directory" && <Directory data={data} toast={toast} reload={reload} openCase={openCase} />}
           {sub === "branches" && <Branches data={data} toast={toast} reload={reload} />}
           {sub === "banks" && <Banks data={data} toast={toast} reload={reload} />}
           {sub === "history" && <History />}
@@ -120,23 +122,45 @@ export function BankerRegistry({ toast }: { toast: Toast }) {
 
 /* ============================ the directory ============================ */
 
-function Directory({ data, toast, reload }: { data: Registry; toast: Toast; reload: () => void }) {
+/* v1.290.0 (image 04, G4) - the directory's five words, each from the facts:
+   Ready = verified and in date, available or limited, under any case limit;
+   Needs verification = pending or due again (a changed contact included);
+   On hold = unavailable, or at the case limit; Inactive = inactive or left.
+   "Active" is not used: it would read as "verified". */
+export type DirFilter = "all" | "ready" | "verify" | "hold" | "inactive";
+const atLimit = (b: Banker) => b.case_limit != null && (b.open_cases ?? 0) >= b.case_limit;
+export function dirGroup(b: Banker): DirFilter | null {
+  if (b.status_now === "inactive" || b.status_now === "no_longer_available") return "inactive";
+  if (b.status_now === "pending_verification" || b.status_now === "requires_reverification") return "verify";
+  if (b.availability_now === "unavailable" || atLimit(b)) return "hold";
+  if (b.status_now === "verified" && (b.availability_now === "available" || b.availability_now === "limited")) return "ready";
+  return null; /* verified, availability unknown: listed under All only */
+}
+export const bkId = (id: number) => `BK-${String(id).padStart(6, "0")}`;
+const useXl = () => useSyncExternalStore((cb) => onBreakpoint("xl", () => cb()), () => atLeast("xl"), () => false);
+
+function Directory({ data, toast, reload, openCase }: { data: Registry; toast: Toast; reload: () => void; openCase?: (id: number, tab?: string) => void }) {
   const [q, setQ] = useState("");
   const [bank, setBank] = useState("");
   const [state, setState] = useState("");
   const [product, setProduct] = useState("");
-  const [status, setStatus] = useState("current");
+  const [status, setStatus] = useState<DirFilter>("all");
   const [open, setOpen] = useState<number | null>(null);
   const [registering, setRegistering] = useState(false);
-  const rows = useMemo(() => {
+  const xl = useXl();
+  const base = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return data.bankers.filter((b) => (!t || `${b.full_name} ${b.bank} ${b.position ?? ""} ${b.assignments.map(whereText).join(" ")}`.toLowerCase().includes(t))
+    return data.bankers.filter((b) => (!t || `${b.full_name} ${bkId(b.id)} ${b.bank} ${b.position ?? ""} ${b.assignments.map(whereText).join(" ")}`.toLowerCase().includes(t))
       && (!bank || String(b.bank_id) === bank)
       && (!state || b.assignments.some((a) => a.state === state || (a.coverage === "states" && areas(a.coverage_areas).includes(state)) || a.coverage === "national"))
-      && (!product || b.products.includes(product))
-      && (status === "all" || (status === "current" ? b.status_now !== "no_longer_available" && b.status_now !== "inactive" : b.status_now === status)));
-  }, [data.bankers, q, bank, state, product, status]);
+      && (!product || b.products.includes(product)));
+  }, [data.bankers, q, bank, state, product]);
+  const count = (f: DirFilter) => base.filter((b) => (f === "all" ? b.status_now !== "no_longer_available" : dirGroup(b) === f)).length;
+  const rows = base.filter((b) => (status === "all" ? b.status_now !== "no_longer_available" : dirGroup(b) === status));
+  /* a large desktop: the directory, the profile and the cases side by side (G1); smaller: the record opens as a sheet */
+  const selected = xl ? (open != null && rows.some((b) => b.id === open) ? open : rows[0]?.id ?? null) : open;
   return (
+    <div className={xl ? css.bkWs : css.stack} data-testid="fa-banker-ws">
     <section className={`${card} ${css.sec}`} aria-label={L("Banker directory", "Direktori pegawai bank")} data-testid="fa-directory">
       <div className={css.head}>
         <h3 className={css.h}><AppIcon name="users" />{L("Banker directory", "Direktori pegawai bank")} <span className={css.sub}>{rows.length} / {data.bankers.length}</span></h3>
@@ -148,20 +172,19 @@ function Directory({ data, toast, reload }: { data: Registry; toast: Toast; relo
         <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value)} aria-label={L("Bank", "Bank")}><option value="">{L("All banks", "Semua bank")}</option>{data.banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
         <select className={selectClassSm} value={state} onChange={(e) => setState(e.target.value)} aria-label={L("State", "Negeri")}><option value="">{L("All states", "Semua negeri")}</option>{data.states.map((s) => <option key={s} value={s}>{s}</option>)}</select>
         <select className={selectClassSm} value={product} onChange={(e) => setProduct(e.target.value)} aria-label={L("Product", "Produk")}><option value="">{L("All products", "Semua produk")}</option>{PRODUCTS.map(([k]) => <option key={k} value={k}>{productWord(k)}</option>)}</select>
-        <select className={selectClassSm} value={status} onChange={(e) => setStatus(e.target.value)} aria-label={L("Status", "Status")}>
-          <option value="current">{L("Current bankers", "Pegawai semasa")}</option>
-          {Object.entries(BANKER_STATUS).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}
-          <option value="all">{L("Everyone", "Semua")}</option>
-        </select>
       </div>
+      <LineTabs value={status} onChange={setStatus} label={L("Show bankers", "Tunjuk pegawai bank")} tabs={[
+        ["all", L("All", "Semua"), count("all")], ["ready", L("Ready", "Sedia"), count("ready")], ["verify", L("Needs verification", "Perlu pengesahan"), count("verify") || null, L("Verify", "Sahkan")],
+        ["hold", L("On hold", "Ditahan"), count("hold") || null], ["inactive", L("Inactive", "Tidak aktif"), count("inactive") || null],
+      ]} />
       {data.bankers.length === 0 ? <p className={css.empty}>{data.banks.length === 0 ? L("No bank in the registry yet. Management adds the banks first (Bank registry), then their branches.", "Belum ada bank dalam daftar. Pengurusan menambah bank dahulu (Daftar bank), kemudian cawangan.") : L("No banker registered yet.", "Belum ada pegawai bank didaftarkan.")}</p>
         : rows.length === 0 ? <p className={css.empty}>{L("No banker matches these filters.", "Tiada pegawai bank sepadan dengan penapis ini.")}</p> : (
           <ul className={css.rows}>{rows.map((b) => {
             const primary = b.assignments.find((a) => a.is_primary) ?? b.assignments[0];
             return (
               <li key={b.id}>
-                <button type="button" className={css.bankerRow} onClick={() => setOpen(b.id)} data-testid="fa-banker">
-                  <span className={css.who}><b>{b.full_name}</b><span className={css.sub}>{[b.position, b.bank].filter(Boolean).join(" · ")}</span></span>
+                <button type="button" className={`${css.bankerRow} ${xl ? css.bankerRowSm : ""} ${selected === b.id ? css.bankerOn : ""}`} aria-current={selected === b.id ? "true" : undefined} onClick={() => setOpen(b.id)} data-testid="fa-banker">
+                  <span className={css.who}><b>{b.full_name}</b><span className={css.sub}>{bkId(b.id)} · {[b.position, b.bank].filter(Boolean).join(" · ")}</span></span>
                   <span className={css.who}><span className={css.sub}>{primary ? whereText(primary) : L("No current branch", "Tiada cawangan semasa")}</span><span className={css.sub}>{b.products.map(productWord).join(" · ")}</span></span>
                   <span className={css.chips}>{chip(BANKER_STATUS, b.status_now)}{b.status_now === "verified" || b.status_now === "requires_reverification" ? chip(AVAIL, b.availability_now) : null}</span>
                   <span className={css.when}>{b.owner ? `${L("Owner", "Pemilik")}: ${b.owner}` : ""}</span>
@@ -171,8 +194,12 @@ function Directory({ data, toast, reload }: { data: Registry; toast: Toast; relo
           })}</ul>
         )}
       {registering && <Register data={data} toast={toast} onClose={() => setRegistering(false)} done={(id) => { setRegistering(false); reload(); setOpen(id); }} openExisting={(id) => { setRegistering(false); setOpen(id); }} />}
-      {open != null && <BankerRecord id={open} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} />}
+      {!xl && open != null && <BankerRecord id={open} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} openCase={openCase} />}
     </section>
+    {xl && (selected != null
+      ? <BankerRecord key={selected} id={selected} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} openCase={openCase} inline />
+      : <section className={`${card} ${css.sec}`}><p className={css.empty}>{L("Choose a banker.", "Pilih pegawai bank.")}</p></section>)}
+    </div>
   );
 }
 
@@ -301,12 +328,14 @@ function Register({ data, toast, onClose, done, openExisting }: { data: Registry
   );
 }
 
-interface Record_ { banker: Banker & { notes: string | null; registered_by_name: string | null; status_reason: string | null; created_at: string; unavailable_until: string | null; duplicate_reason: string | null }; verifications: { id: number; fact: string; method: string; evidence: string; restrictions: string | null; verified_on: string; next_review_on: string; verified_by_name: string | null }[]; assignments: (Assignment & { ended_on: string | null; end_reason: string | null; city: string | null })[]; events: { id: number; event: string; detail: string | null; created_at: string; actor: string | null }[]; today: string; can: { register: boolean; manage: boolean; availability: boolean } }
+interface Record_ { banker: Banker & { notes: string | null; registered_by_name: string | null; status_reason: string | null; created_at: string; unavailable_until: string | null; duplicate_reason: string | null; contact_changed_at?: string | null; last_contact_at?: string | null }; verifications: { id: number; fact: string; method: string; evidence: string; restrictions: string | null; verified_on: string; next_review_on: string; verified_by_name: string | null; created_at?: string }[]; assignments: (Assignment & { ended_on: string | null; end_reason: string | null; city: string | null })[]; events: { id: number; event: string; detail: string | null; created_at: string; actor: string | null }[]; today: string; owners?: { id: number; name: string }[]; can: { register: boolean; manage: boolean; availability: boolean; edit?: boolean } }
 
-function BankerRecord({ id, data, toast, onClose, changed }: { id: number; data: Registry; toast: Toast; onClose: () => void; changed: () => void }) {
+function BankerRecord({ id, data, toast, onClose, changed, openCase, inline = false }: { id: number; data: Registry; toast: Toast; onClose: () => void; changed: () => void; openCase?: (id: number, tab?: string) => void; inline?: boolean }) {
   const [rec, setRec] = useState<Record_ | null>(null);
   const [tick, setTick] = useState(0);
-  const [act, setAct] = useState<"" | "identity" | "referral" | "availability" | "transfer" | "status">("");
+  const [act, setAct] = useState<"" | "identity" | "referral" | "availability" | "transfer" | "status" | "edit">("");
+  const [ed, setEd] = useState({ position: "", work_email: "", work_phone: "", preferred_channel: "work_email", relationship_type: "direct", notes: "", owner_id: "", case_limit: "", different_reason: "" });
+  const [edDup, setEdDup] = useState("");
   const [f, setF] = useState({ method: "call_branch_line", evidence: "", restrictions: "", on: mytToday(), availability: "available", until: "", case_limit: "", branch: "", reason: "", status: "inactive" });
   useEffect(() => { let live = true; void api<Record_>(`/staff/fa/bankers/${id}`).then((r) => { if (live && r.ok && r.data) setRec(r.data); }); return () => { live = false; }; }, [id, tick]);
   const run = async (path: string, body: unknown, done: string) => {
@@ -318,11 +347,66 @@ function BankerRecord({ id, data, toast, onClose, changed }: { id: number; data:
   const ended = (rec?.assignments ?? []).filter((a) => a.ended_on);
   const current = (rec?.assignments ?? []).filter((a) => !a.ended_on);
   const otherBranches = data.branches.filter((x) => x.bank_id === b?.bank_id && x.status !== "closed");
-  return (
-    <SideDrawer open onClose={onClose} wide dirty={!!act && !!(f.evidence || f.reason)} title={b ? b.full_name : L("Banker", "Pegawai bank")} subtitle={b ? [b.position, b.bank].filter(Boolean).join(" · ") : ""}>
-      {!rec || !b ? <SkelRows rows={6} /> : (
+  const startEdit = () => {
+    if (!b) return;
+    setEd({ position: b.position ?? "", work_email: b.work_email ?? "", work_phone: b.work_phone ?? "", preferred_channel: b.preferred_channel, relationship_type: b.relationship_type, notes: rec?.banker.notes ?? "", owner_id: b.owner_id == null ? "" : String(b.owner_id), case_limit: b.case_limit == null ? "" : String(b.case_limit), different_reason: "" });
+    setEdDup(""); setAct("edit");
+  };
+  const saveEdit = async () => {
+    if (!b || !rec) return;
+    const body: Record<string, unknown> = { position: ed.position, work_email: ed.work_email, work_phone: ed.work_phone, preferred_channel: ed.preferred_channel, relationship_type: ed.relationship_type, notes: ed.notes, different_reason: ed.different_reason || undefined };
+    if (rec.can.manage) { body.owner_id = ed.owner_id ? Number(ed.owner_id) : undefined; body.case_limit = ed.case_limit ? Number(ed.case_limit) : null; }
+    const r = await api<Err & { identity_reverify?: boolean }>(`/staff/fa/bankers/${b.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    if (!r.ok) {
+      const d = r.data as Err | null;
+      if (d?.error?.code === "possible_duplicate" || d?.error?.code === "duplicate_banker") { setEdDup(errMsg(d)); return; }
+      toast(L("Not saved", "Tidak disimpan"), errMsg(d), "notice"); return;
+    }
+    toast(L("Details saved", "Butiran disimpan"), (r.data as { identity_reverify?: boolean } | null)?.identity_reverify ? L("The work contact changed - the contact identity must be verified again.", "Hubungan kerja berubah - identiti kenalan perlu disahkan semula.") : b.full_name);
+    setAct(""); setTick((t) => t + 1); changed();
+  };
+  /* an identity confirmed before the contact last changed no longer counts (the row stays, append only) */
+  const voidBefore = rec?.banker.contact_changed_at ?? null;
+  const head = b ? (
+    <div className={css.bkHead}>
+      <span className={css.bkAvatar} aria-hidden="true">{b.full_name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}</span>
+      <div className={css.who}>
+        <b className={css.bkName}>{b.full_name}</b>
+        <span className={css.chips}><span className={`${chipSmNeutral} ${css.chip}`}>{bkId(b.id)}</span>{chip(BANKER_STATUS, b.status_now)}{chip(AVAIL, b.availability_now)}</span>
+        <span className={css.sub}>{[b.position, b.bank].filter(Boolean).join(" · ")} · {L(...(RELATION[b.relationship_type] ?? [b.relationship_type, b.relationship_type]))}</span>
+      </div>
+      <span className={css.inline}>
+        {rec?.can.edit && <button type="button" className={btnSm} onClick={startEdit} data-testid="fa-banker-edit"><AppIcon name="edit" />{L("Edit", "Sunting")}</button>}
+        {rec?.can.availability && b.status_now !== "no_longer_available" && <button type="button" className={btnSm} onClick={() => setAct("availability")} data-testid="fa-banker-avail">{L("Set availability", "Tetapkan ketersediaan")}</button>}
+      </span>
+    </div>
+  ) : null;
+  const body = !rec || !b ? <SkelRows rows={6} /> : (
         <div className={css.stack} data-testid="fa-banker-record">
-          <div className={css.chips}>{chip(BANKER_STATUS, b.status_now)}{chip(AVAIL, b.availability_now)}<span className={`${chipSmInfo} ${css.chip}`}>{L(...(RELATION[b.relationship_type] ?? [b.relationship_type, b.relationship_type]))}</span></div>
+          {inline && head}
+          {!inline && <div className={css.chips}><span className={`${chipSmNeutral} ${css.chip}`}>{bkId(b.id)}</span>{chip(BANKER_STATUS, b.status_now)}{chip(AVAIL, b.availability_now)}<span className={`${chipSmInfo} ${css.chip}`}>{L(...(RELATION[b.relationship_type] ?? [b.relationship_type, b.relationship_type]))}</span>
+            {rec.can.edit && <button type="button" className={btnSmQuiet} onClick={startEdit} data-testid="fa-banker-edit"><AppIcon name="edit" />{L("Edit", "Sunting")}</button>}</div>}
+          {act === "edit" && (
+            <section className={css.sec} aria-label={L("Edit banker details", "Sunting butiran pegawai bank")} data-testid="fa-banker-edit-form">
+              <div className={css.form}>
+                <label className={css.field}>{L("Position", "Jawatan")}<input className={inputClassSm} value={ed.position} maxLength={80} onChange={(e) => setEd({ ...ed, position: e.target.value })} /></label>
+                <label className={css.field}>{L("Work email", "E-mel kerja")}<input className={inputClassSm} type="email" value={ed.work_email} maxLength={160} onChange={(e) => { setEd({ ...ed, work_email: e.target.value }); setEdDup(""); }} data-testid="fa-edit-email" /></label>
+                <label className={css.field}>{L("Work phone", "Telefon kerja")}<input className={inputClassSm} inputMode="tel" value={ed.work_phone} maxLength={40} onChange={(e) => { setEd({ ...ed, work_phone: e.target.value }); setEdDup(""); }} data-testid="fa-edit-phone" /></label>
+                <label className={css.field}>{L("Preferred channel", "Saluran pilihan")}<select className={selectClassSm} value={ed.preferred_channel} onChange={(e) => setEd({ ...ed, preferred_channel: e.target.value })}>{Object.entries(CHANNEL).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}</select></label>
+                <label className={css.field}>{L("Relationship", "Hubungan")}<select className={selectClassSm} value={ed.relationship_type} onChange={(e) => setEd({ ...ed, relationship_type: e.target.value })}>{Object.entries(RELATION).map(([k, v]) => <option key={k} value={k}>{L(v[0], v[1])}</option>)}</select></label>
+                {rec.can.manage && <label className={css.field}>{L("Relationship owner", "Pemilik hubungan")}<select className={selectClassSm} value={ed.owner_id} onChange={(e) => setEd({ ...ed, owner_id: e.target.value })}><option value="">—</option>{(rec.owners ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>}
+                {rec.can.manage && <label className={css.field}>{L("Case limit (blank = none)", "Had kes (kosong = tiada)")}<input className={inputClassSm} inputMode="numeric" value={ed.case_limit} onChange={(e) => setEd({ ...ed, case_limit: e.target.value.replace(/\D/g, "") })} /></label>}
+                <label className={`${css.field} ${css.wide}`}>{L("Notes (no client details)", "Nota (tiada butiran pelanggan)")}<textarea className={textareaClass} rows={2} maxLength={600} value={ed.notes} onChange={(e) => setEd({ ...ed, notes: e.target.value })} /></label>
+              </div>
+              {(ed.work_email.trim() !== (b.work_email ?? "") || ed.work_phone.trim() !== (b.work_phone ?? "")) && <p className="erp-note">{L("Changing the work email or phone means the contact identity must be verified again before this banker is matched.", "Menukar e-mel atau telefon kerja bermakna identiti kenalan perlu disahkan semula sebelum pegawai ini dipadankan.")}</p>}
+              {edDup && <div className="erp-note" data-testid="fa-edit-dup"><p>{edDup}</p>
+                <label className={css.field}>{L("Why this is a different person (at least 10 characters)", "Mengapa ini individu berbeza (sekurang-kurangnya 10 aksara)")}<input className={inputClassSm} value={ed.different_reason} maxLength={300} onChange={(e) => setEd({ ...ed, different_reason: e.target.value })} /></label></div>}
+              <div className={css.row}>
+                <button type="button" className={btnSmPrimary} disabled={!ed.work_email.trim() && !ed.work_phone.trim()} onClick={() => void saveEdit()} data-testid="fa-edit-save">{L("Save details", "Simpan butiran")}</button>
+                <button type="button" className={btnSmQuiet} onClick={() => setAct("")}>{L("Cancel", "Batal")}</button>
+              </div>
+            </section>
+          )}
           <dl className={css.kv}>
             <div><dt>{L("Work contact", "Hubungan kerja")}</dt><dd className={css.lines}>{[b.work_email, b.work_phone].filter(Boolean).join(" · ") || "—"}</dd></div>
             <div><dt>{L("Preferred channel", "Saluran pilihan")}</dt><dd>{L(...(CHANNEL[b.preferred_channel] ?? [b.preferred_channel, b.preferred_channel]))}</dd></div>
@@ -330,18 +414,24 @@ function BankerRecord({ id, data, toast, onClose, changed }: { id: number; data:
             <div><dt>{L("Relationship owner", "Pemilik hubungan")}</dt><dd>{b.owner ?? "—"}</dd></div>
             <div><dt>{L("Registered", "Didaftarkan")}</dt><dd>{dmyMYT(b.created_at)} · {b.registered_by_name ?? "—"}</dd></div>
             <div><dt>{L("Open cases · limit", "Kes terbuka · had")}</dt><dd>{b.open_cases ?? 0} · {b.case_limit ?? L("none set", "tiada had")}</dd></div>
+            <div><dt>{L("Last contact", "Hubungan terakhir")}</dt><dd>{rec.banker.last_contact_at ? dmyMYT(rec.banker.last_contact_at) : "—"}</dd></div>
+            {rec.banker.notes && <div><dt>{L("Notes", "Nota")}</dt><dd className={css.lines}>{rec.banker.notes}</dd></div>}
           </dl>
           {b.duplicate_reason && <p className={css.sub}>{L("Shares a work phone with another banker:", "Berkongsi telefon kerja dengan pegawai lain:")} {b.duplicate_reason}</p>}
 
           <section className={css.sec} aria-label={L("Verification", "Pengesahan")}>
             <h3 className={css.h}><AppIcon name="verify" />{L("Verification - two separate facts", "Pengesahan - dua fakta berasingan")}</h3>
             {(["identity", "referral"] as const).map((fact) => {
-              const v = rec.verifications.find((x) => x.fact === fact);
+              const v0 = rec.verifications.find((x) => x.fact === fact);
+              /* v1.290.0 - an identity confirmed before the contact changed is shown as superseded, not as confirmed */
+              const superseded = fact === "identity" && !!v0 && !!voidBefore && !!v0.created_at && v0.created_at <= voidBefore;
+              const v = superseded ? undefined : v0;
               return (
                 <div key={fact} className={css.item} data-testid={`fa-fact-${fact}`}>
                   <span className={css.itemMain}>
                     <b>{fact === "identity" ? L("Contact identity", "Identiti kenalan") : L("Referral permission", "Kebenaran rujukan")}</b>
                     {v ? <span className={css.sub}>{L(...(METHOD[v.method] ?? [v.method, v.method]))} · {dmy(v.verified_on)} · {v.verified_by_name ?? "—"} · {L("review by", "semak sebelum")} {dmy(v.next_review_on)}{v.restrictions ? ` · ${v.restrictions}` : ""}</span>
+                      : superseded ? <span className={css.sub} data-testid="fa-identity-superseded">{L(`The work contact changed on ${dmyMYT(voidBefore!)} - the earlier confirmation (${dmy(v0!.verified_on)}) no longer counts. Verify the new contact.`, `Hubungan kerja berubah pada ${dmyMYT(voidBefore!)} - pengesahan terdahulu (${dmy(v0!.verified_on)}) tidak lagi dikira. Sahkan hubungan baharu.`)}</span>
                       : <span className={css.sub}>{L("Not confirmed", "Belum disahkan")}</span>}
                   </span>
                   {v ? (v.next_review_on < rec.today ? <span className={`${chipSmDanger} ${css.chip}`}>{L("Review due", "Perlu disemak")}</span> : <span className={`${chipSmSuccess} ${css.chip}`}>{L("Confirmed", "Disahkan")}</span>) : <span className={`${chipSmWarn} ${css.chip}`}>{L("Pending", "Menunggu")}</span>}
@@ -417,14 +507,110 @@ function BankerRecord({ id, data, toast, onClose, changed }: { id: number; data:
             )}
           </section>
 
+          {!inline && <BankerCases bankerId={b.id} banker={b} openCase={openCase} />}
           <section className={css.sec} aria-label={L("History", "Sejarah")}>
-            <h3 className={css.h}><AppIcon name="time" />{L("History", "Sejarah")}</h3>
+            <h3 className={css.h}><AppIcon name="time" />{L("Activity history", "Sejarah aktiviti")}</h3>
             <EventList events={rec.events.map((e) => ({ ...e, entity: "banker", subject: null }))} />
           </section>
         </div>
-      )}
+      );
+  if (inline) {
+    return (
+      <>
+        <section className={`${card} ${css.sec}`} aria-label={L("Banker profile", "Profil pegawai bank")} data-testid="fa-banker-profile">
+          <h3 className={css.h}><AppIcon name="person" />{L("Banker profile", "Profil pegawai bank")}</h3>
+          {body}
+        </section>
+        {b && <BankerCases bankerId={b.id} banker={b} openCase={openCase} panel />}
+      </>
+    );
+  }
+  return (
+    <SideDrawer open onClose={onClose} wide dirty={!!act && !!(f.evidence || f.reason || act === "edit")} title={b ? b.full_name : L("Banker", "Pegawai bank")} subtitle={b ? [b.position, b.bank].filter(Boolean).join(" · ") : ""}>
+      {body}
     </SideDrawer>
   );
+}
+
+/* ============================ v1.290.0 the banker's cases (image 04, G2) ============================
+   Counts for everyone who may open Financial Advisory; the case lines -
+   client, DSR, the banker's feedback, the official outcome - only for the
+   cases this person may open (the server decides: GET /fa/bankers/:id/cases).
+   Four separate kinds of entry, never one "approved" word: the internal
+   allocation, the banker's indicative feedback, the official bank decision
+   (with the bank's letter) - and the system DSR stays on the case. */
+interface BCase {
+  allocation_id: number; state: string; mine: boolean; case_id?: number; case_ref?: string; client?: string | null; product?: string; projected_dsr_bp?: number | null;
+  application_status?: string; created_at?: string; decided_at?: string | null; decided_by?: string | null; enquiry_state?: string | null; sent_at?: string | null; reason?: string | null;
+  feedback?: { id: number; status_value: string; body: string; source: string | null; missing_documents: string | null; follow_up_on: string | null; created_at: string; contact_on: string | null; author: string | null }[];
+  decisions?: { id: number; bank: string; status_value: string; bank_reference: string | null; approved_cents: number | null; created_at: string; tenure_months: number | null; has_letter: number }[];
+}
+const ALLOC: Record<string, [string, string, string]> = {
+  draft: ["Draft", "Draf", chipSmNeutral], pending_review: ["Waiting for the CEO or COO", "Menunggu CEO atau COO", chipSmWarn], assigned: ["Allocated", "Diperuntukkan", chipSmSuccess],
+  awaiting_consent: ["Awaiting client consent", "Menunggu persetujuan", chipSmWarn], ready: ["Allocated", "Diperuntukkan", chipSmSuccess], cancelled: ["Cancelled", "Dibatalkan", chipSmNeutral], reassigned: ["Reassigned", "Diagih semula", chipSmNeutral],
+};
+const FEED: Record<string, string> = { enquiry_sent: "Enquiry sent", under_review: "Under review", indicatively_suitable: "Indicatively suitable", documents_required: "Documents required", not_supported: "Not supported" };
+const DECIDED: Record<string, string> = { conditional_offer: "Conditional offer (official)", officially_approved: "Officially approved (bank letter)", declined: "Declined (official)", disbursed: "Disbursed (evidence)" };
+function BankerCases({ bankerId, banker, openCase, panel = false }: { bankerId: number; banker: Banker; openCase?: (id: number, tab?: string) => void; panel?: boolean }) {
+  const [d, setD] = useState<{ counts: { allocated: number; pending: number; enquiry_open: number; feedback: number; outcome: number }; cases: BCase[] } | null>(null);
+  useEffect(() => { let live = true; void api<NonNullable<typeof d>>(`/staff/fa/bankers/${bankerId}/cases`).then((r) => { if (live && r.ok && r.data) setD(r.data); }); return () => { live = false; }; }, [bankerId]);
+  const mine = (d?.cases ?? []).filter((c) => c.mine);
+  const others = (d?.cases ?? []).length - mine.length;
+  const primary = banker.assignments.find((a) => a.is_primary) ?? banker.assignments[0];
+  const inner = (
+    <>
+      <h3 className={css.h}><AppIcon name="users" />{L("Client matching & case allocation", "Padanan pelanggan & peruntukan kes")}</h3>
+      {!d ? <SkelRows rows={4} /> : (<>
+        <dl className={css.bkCounts}>
+          <div><dt>{L("Allocated", "Diperuntukkan")}</dt><dd>{d.counts.allocated}</dd></div>
+          <div><dt>{L("Enquiry open", "Pertanyaan terbuka")}</dt><dd>{d.counts.enquiry_open}</dd></div>
+          <div><dt>{L("Official outcome", "Keputusan rasmi")}</dt><dd>{d.counts.outcome}</dd></div>
+        </dl>
+        <div className={css.sec}>
+          <b className={css.sub}>{L("What matching checks for this banker (internal)", "Apa yang disemak semasa padanan (dalaman)")}</b>
+          <ul className={css.list}>
+            <li><AppIcon name={banker.status_now === "verified" ? "success" : "warning"} /><span>{banker.status_now === "verified" ? L("Contact identity and referral permission verified, in date", "Identiti kenalan dan kebenaran rujukan disahkan, dalam tempoh") : L("Not matchable until verified", "Tidak boleh dipadan sehingga disahkan")}</span></li>
+            <li><AppIcon name="document" /><span>{L("Products", "Produk")}: {banker.products.map(productWord).join(", ") || "—"}</span></li>
+            <li><AppIcon name="place" /><span>{L("Coverage", "Liputan")}: {primary ? `${whereText(primary)} · ${coverText(primary)}` : "—"}</span></li>
+            <li><AppIcon name={banker.availability_now === "available" || banker.availability_now === "limited" ? "success" : "warning"} /><span>{L(...((AVAIL[banker.availability_now] ?? AVAIL.unknown!).slice(0, 2) as [string, string]))}{banker.case_limit != null ? ` · ${banker.open_cases ?? 0} / ${banker.case_limit} ${L("cases", "kes")}` : ""}</span></li>
+            <li><AppIcon name="chart" /><span>{L("The client's projected DSR within the bank's verified guideline - checked on each case", "DSR unjuran pelanggan dalam garis panduan disahkan bank - disemak pada setiap kes")}</span></li>
+          </ul>
+        </div>
+        <div className={css.sec} data-testid="fa-banker-cases">
+          <b className={css.sub}>{L("Related cases", "Kes berkaitan")} ({d.cases.length})</b>
+          {d.cases.length === 0 ? <p className={css.sub}>{L("No case allocated to this banker yet. Allocation happens in a case's Banker matching tab after a management Proceed.", "Belum ada kes diperuntukkan. Peruntukan dibuat dalam tab Padanan pegawai bank selepas Pengurusan memutuskan Teruskan.")}</p> : (
+            <ul className={css.items}>
+              {mine.map((c) => (
+                <li key={c.allocation_id} className={css.item} data-testid="fa-banker-case">
+                  <span className={css.itemMain}>
+                    {openCase && c.case_id ? <button type="button" className={css.linkBtn} onClick={() => openCase(c.case_id!, "matching")}><b>{c.case_ref} · {c.client ?? "—"}</b></button> : <b>{c.case_ref} · {c.client ?? "—"}</b>}
+                    <span className={css.sub}>{L("Projected DSR", "DSR unjuran")} {c.projected_dsr_bp == null ? "—" : `${(c.projected_dsr_bp / 100).toFixed(1)}%`} · {L("allocated", "diperuntukkan")} {dmyMYT(c.created_at!)}</span>
+                  </span>
+                  {chip(ALLOC, c.state)}
+                  <ul className={css.bkTl}>
+                    <li><b>{L("Internal allocation", "Peruntukan dalaman")}</b><span className={css.sub}>{c.decided_at ? `${L("confirmed by management", "disahkan oleh pengurusan")} ${dmyMYT(c.decided_at)}${c.decided_by ? ` · ${c.decided_by}` : ""}` : L("waiting for the CEO or COO", "menunggu CEO atau COO")}</span></li>
+                    {c.sent_at && <li><b>{L("Enquiry sent", "Pertanyaan dihantar")}</b><span className={css.sub}>{dmyMYT(c.sent_at)}</span></li>}
+                    {(c.feedback ?? []).map((n) => (
+                      <li key={`f${n.id}`} className={css.bkFeed}><b>{L("Banker feedback (indicative only)", "Maklum balas bank (indikatif sahaja)")} · {FEED[n.status_value] ?? n.status_value}</b>
+                        <span className={css.sub}>{L("contact", "hubungan")} {n.contact_on ? dmy(n.contact_on) : dmyMYT(n.created_at)}{n.source ? ` · ${n.source}` : ""}{n.author ? ` · ${n.author}` : ""}</span><span>“{n.body}”</span>
+                        {n.missing_documents && <span className={css.sub}>{L("Asked for", "Diminta")}: {n.missing_documents}</span>}{n.follow_up_on && <span className={css.sub}>{L("Follow up", "Susulan")} {dmy(n.follow_up_on)}</span>}</li>
+                    ))}
+                    {(c.decisions ?? []).map((x) => (
+                      <li key={`d${x.id}`} className={css.bkDecision}><b>{L("Official bank decision", "Keputusan rasmi bank")} · {DECIDED[x.status_value] ?? x.status_value}</b>
+                        <span className={css.sub}>{dmyMYT(x.created_at)} · {x.bank}{x.bank_reference ? ` · ${L("ref", "ruj")} ${x.bank_reference}` : ""}{x.approved_cents ? ` · RM ${(x.approved_cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2 })}` : ""}{x.tenure_months ? ` · ${x.tenure_months} ${L("months", "bulan")}` : ""}{x.has_letter ? ` · ${L("bank letter attached", "surat bank dilampirkan")}` : ""}</span></li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {others > 0 && <li className={css.item}><span className={css.itemMain}><b>{others} {L(others === 1 ? "case" : "cases", "kes")}</b><span className={css.sub}>{L("Other people's clients - not shown to you", "Pelanggan orang lain - tidak ditunjukkan kepada anda")}</span></span><span className={`${chipSmNeutral} ${css.chip}`}>{L("not yours", "bukan anda")}</span></li>}
+            </ul>
+          )}
+        </div>
+        <p className={css.disclaimer}><AppIcon name="info" /><span>{L("Banker matching and feedback are internal and indicative. Only the bank's own letter is a decision.", "Padanan dan maklum balas pegawai bank adalah dalaman dan indikatif. Hanya surat bank sendiri ialah keputusan.")}</span></p>
+      </>)}
+    </>
+  );
+  return panel ? <section className={`${card} ${css.sec}`} aria-label={L("Client matching and case allocation", "Padanan pelanggan dan peruntukan kes")} data-testid="fa-banker-panel">{inner}</section> : <section className={css.sec} data-testid="fa-banker-panel">{inner}</section>;
 }
 
 /* ============================ branches ============================ */

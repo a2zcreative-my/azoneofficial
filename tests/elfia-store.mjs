@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* ELFIA STORE 2.0 (v1.235.0) - runtime guard: the WHOLE worker (index.ts,
  * bundled - the store's feed lives there) against SQLite with every
  * migration applied. Nothing here calls the live store: fetch is stubbed.
@@ -210,7 +211,7 @@ const MUT = [
   ["worker/src/staff.ts", "Restore accepts any key", 'if (!known) return err("invalid_input", "That photo is not in this product\'s history", 400);', ""],
   ["worker/src/staff.ts", "a failed Update now is recorded", 'return err("store_refused",', 'await audit(env, user.id, "elfia.sync_now", "inventory_items", null, {}); return err("store_refused",'],
 ];
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   const src = readFileSync(join(root, file), "utf8");
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
@@ -224,4 +225,4 @@ for (const [file, name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`elfia-store: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`elfia-store: ${n} checks passed (${MUT.length} mutations caught) - one product record, the feed's price, the owner's roles, a recorded read before 'Connected', photos never lost`);
+console.log(`elfia-store: ${n} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - one product record, the feed's price, the owner's roles, a recorded read before 'Connected', photos never lost`);

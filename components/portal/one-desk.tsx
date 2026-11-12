@@ -55,7 +55,7 @@ import css from "./one-desk.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes";
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory";
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
@@ -86,12 +86,13 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   billing: ["Invoices to raise", "Invois untuk dibuat"], // v1.181.16
   people: ["People", "Orang"], // v1.181.17
   quotes: ["Quotations to approve", "Sebut harga untuk diluluskan"], // v1.181.17
+  advisory: ["DSR assessments to review", "Penilaian DSR untuk disemak"], // v1.288.0
 };
 
 /* v1.175.0 - a desk cached by an older build, or served by a worker that has
    not been deployed yet, has no `kind`. Rather than dropping every approval
    into the wrong list, read it from the bucket the same way the worker does. */
-const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "quotes"];
+const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "quotes", "advisory"];
 export const kindOf = (i: DeskItem): "decide" | "do" =>
   i.kind ?? (DECIDE_BUCKETS.includes(i.bucket) || i.id.startsWith("task-close:") ? "decide" : "do");
 

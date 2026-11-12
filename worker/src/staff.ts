@@ -9679,6 +9679,11 @@ async function handleStaffRoutes(
        That is not editing, that is retyping.
        v1.246.0 (T-3, the owner kept it) - the assignee still edits these;
        every change is recorded old -> new and the assigner is told. */
+    /* v1.289.0 (Edit Task Title, the CEO 12-11-2026) - an empty title is
+       refused, not silently ignored; the title is one field and nothing else
+       moves with it (dates, assignee, checklist, progress, files, updates) */
+    if (typeof body?.title === "string" && body.title.trim() === "") return err("invalid_input", "The task title cannot be empty", 400);
+    if (typeof body?.title === "string" && body.title.trim().length > 200) return err("invalid_input", "The task title is at most 200 characters", 400);
     if (str(body?.title, 200) && String(body!.title).trim() !== row.title) {
       sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim()); changed.title = [row.title, String(body!.title).trim()];
     }
@@ -9736,6 +9741,10 @@ async function handleStaffRoutes(
       if (typeof body?.status === "string" || body?.title !== undefined || body?.priority !== undefined || body?.deadline !== undefined || body?.start_date !== undefined || body?.description !== undefined) return json({ ok: true, unchanged: true });
       return err("invalid_input", "Nothing to update", 400);
     }
+    /* v1.289.0 (decision T1) - a CLOSED task is not edited: its title, dates,
+       priority, description and assignee stay as they were when it closed.
+       Reopen it first (Reopen, with the reason), then change it. */
+    if (row.status === "completed") return err("reopen_required", "This task is closed - reopen it first (Reopen, with the reason), then change it", 409);
     await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
       .bind(...vals, id).run();
     /* v1.42.0: every status move leaves a trail row, and the OTHER party is
@@ -9761,6 +9770,14 @@ async function handleStaffRoutes(
     if (user.id === row.assigned_to && row.created_by && row.created_by !== user.id && (changed.deadline || changed.priority)) {
       const what = [changed.deadline ? `due ${changed.deadline[0] ?? "none"} → ${changed.deadline[1] ?? "none"}` : "", changed.priority ? `priority ${changed.priority[0]} → ${changed.priority[1]}` : ""].filter(Boolean).join(", ");
       await notify(env, row.created_by, "task", `✏ ${user.name} changed ${row.title}: ${what}`, `task:${id}:edit:${Date.now()}`);
+    }
+    /* v1.289.0 (decision T3) - a renamed task: the other party hears the old
+       and the new title (the assignee renamed it -> the person who set it;
+       somebody else renamed it -> the assignee) */
+    if (changed.title) {
+      const [was, now] = changed.title as [string, string];
+      const to = user.id === row.assigned_to ? (row.created_by && row.created_by !== user.id ? row.created_by : null) : (reassignedTo === null ? row.assigned_to : null);
+      if (to) await notify(env, to, "task", `✏ ${user.name} renamed a task: "${was}" → "${now}"`, `task:${id}:title:${Date.now()}`);
     }
     /* Whoever now owns it hears that it moved, and the blocks that were
        already on the roster move with it — leaving them on the old person's

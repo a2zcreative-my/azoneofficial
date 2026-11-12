@@ -260,9 +260,19 @@ REM  command - so a broken authorization rule, a wrong bridge price or a
 REM  silent delete went live first and was reported in a build log
 REM  afterwards. run-guards installs the API's type definitions itself if
 REM  they are missing, so this needs nothing else.
+REM  v1.290.1 (the owner, 12-11-2026: "why it took too long to push" - "yes")
+REM  The guards' MUTATION pass - about 550 deliberate breakages, each one a
+REM  full copy and rebuild of the engine - made this step take far too long
+REM  on this PC (Windows file copies, the virus scanner, six at a time) and
+REM  hit the 15-minute limits. It is skipped here: every rule check of every
+REM  guard still runs and still stops the release. The mutation pass is run
+REM  before every delivery in the build sandbox and recorded in the GATE note.
+REM  To run it here as well:  set FULLGUARDS=1  then PUSH.bat
+if not "%FULLGUARDS%"=="1" set NOMUT=1
 echo   [4/7] Checking every rule that protects live data ^(the engine compile included^)...
 call node scripts\run-guards.mjs
 if errorlevel 1 set PORTALGUARDS=1
+set NOMUT=
 
 REM  v1.148.0 - A PORTAL GUARD FAILURE NO LONGER SILENTLY BLOCKS THE STORE.
 REM  This used to `goto :guardsfailed`, which ends the script - and the STORE

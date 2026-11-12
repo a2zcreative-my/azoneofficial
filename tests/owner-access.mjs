@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* THE COMPANY OWNER (v1.236.0) - runtime guard: the WHOLE worker (index.ts,
  * bundled) against SQLite with every migration applied, by direct request.
  *
@@ -270,7 +271,7 @@ const MUT = [
   ["worker/src/staff.ts", "an exception can hide a tab from the owner", 'if (mode === "deny" && target.role === "ceo" && (await readOwner(env))?.user_id === targetId) {', "if (false) {"],
   ["worker/src/staff.ts", "the last recovery admin check always passes", "  return Number(others?.n ?? 0) === 0;\n}", "  return false;\n}"],
 ];
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   const src = readFileSync(join(root, file), "utf8");
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
@@ -284,4 +285,4 @@ for (const [file, name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`owner-access: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`owner-access: ${checks} checks passed (${MUT.length} mutations caught) - one verified owner on the one permission source; super admin keeps recovery; nobody escalates themselves`);
+console.log(`owner-access: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - one verified owner on the one permission source; super admin keeps recovery; nobody escalates themselves`);

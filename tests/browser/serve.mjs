@@ -444,6 +444,12 @@ const server = http.createServer((req, res) => {
         projectPosts.push({ p, body });
         res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, version: 2 })); return;
       }
+      /* v1.289.0 - Edit Task Title: PATCH /tasks/:id, recorded for /__tasks
+         (the worker's rules are proven by tests/task-title.mjs) */
+      if (req.method === "PATCH" && /^\/staff\/tasks\/\d+$/.test(p) && process.env.TASKP) {
+        taskPosts.push({ method: req.method, p, body });
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
+      }
       /* v1.247.0 - a manual task reminder and the task email settings */
       if (req.method === "POST" && /^\/staff\/tasks\/\d+\/remind$/.test(p)) {
         taskPosts.push({ method: req.method, p, body });

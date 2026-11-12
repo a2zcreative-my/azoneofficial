@@ -28,11 +28,11 @@ def open_health(b, w=1440, h=1000):
     pg = ctx.new_page(); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"{BASE}/portal"); pg.wait_for_timeout(2500)
-    btn = pg.get_by_role("button", name="Users", exact=True).filter(visible=True)
+    btn = pg.get_by_role("button", name="Users & Security", exact=True).filter(visible=True)
     if btn.count() == 0:
         m = pg.get_by_role("button", name="More").filter(visible=True)
         if m.count(): m.first.click(); pg.wait_for_timeout(500)
-        btn = pg.get_by_role("button", name="Users", exact=True).filter(visible=True)
+        btn = pg.get_by_role("button", name="Users & Security", exact=True).filter(visible=True)
     btn.first.click(); pg.wait_for_timeout(1800)
     pg.get_by_role("tab", name="Security & Sessions", exact=True).first.click(); pg.wait_for_timeout(1800)
     return ctx, pg, errs

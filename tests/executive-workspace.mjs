@@ -45,23 +45,21 @@ const tasks = read("components/portal/tasks.tsx");
 const registry = read("lib/portal-tabs.ts");
 
 /* ---- the rail ---- */
-const primM = nav.match(/export const RAIL_PRIMARY: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\);/);
-const primary = primM ? [...primM[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]) : [];
-const PHOTO = ["Dashboard", "Desk", "Sales", "Ecommerce", "Agents", "Tasks", "Inventory", "HR", "Attendance", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission"];
-ok("the rail's primary modules are the photo's, in the photo's order", JSON.stringify(primary) === JSON.stringify(PHOTO), primary.join(", "));
+/* v1.287.0 - the v1.279.0 rail cut (RAIL_PRIMARY, the rest under More) is
+   RETIRED by the CEO's navigation directive of 12-11-2026 ("NO UNSTRUCTURED
+   MORE CATEGORY ON DESKTOP", claude/NAVIGATION-BLUEPRINT.md). What held here
+   now holds the other way round, and tests/navigation.mjs holds the groups. */
 const allTabs = [...(registry.match(/const ALL_TABS = \[([\s\S]*?)\] as const;/)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-ok("every primary module is a real tab (the rail invents nothing)", primary.every((t) => allTabs.includes(t)));
-ok("Revenue reads Sales, Ecommerce, Agents, Financial Advisory in the registry and the rail", allTabs.indexOf("Sales") < allTabs.indexOf("Ecommerce") && allTabs.indexOf("Ecommerce") < allTabs.indexOf("Agents") && /\{ title: "Revenue", tabs: \["Sales", "Ecommerce", "Agents", "Financial Advisory"\] \}/.test(nav));
 const body = strip(nav);
-ok("More holds every other tab the person may open (from the same filtered items)", /const moreItems = photoRail \? railGroups\.flatMap\(\(g\) => g\.items\.filter\(\(i\) => !RAIL_PRIMARY\.has\(i\.name\)\)\) : \[\];/.test(body));
-ok("More stays open while it holds the open tab", /const moreOpen = moreOpenState \|\| moreHoldsActive;/.test(body));
-ok("the icon-only rail and the /admin, /account rails keep every item (no More there)", /const photoRail = portalRail && !collapsed;/.test(body) && /const shown = photoRail \? section\.items\.filter\(\(i\) => RAIL_PRIMARY\.has\(i\.name\)\) : section\.items;/.test(body));
-ok("the phone's More sheet still groups EVERY tab from SECTIONS (not the rail's cut)", /const mobileGroups = SECTIONS\.map/.test(read("components/portal/portal-provider.tsx")));
+ok("there is no rail cut and no desktop More any more", !/RAIL_PRIMARY|moreItems|moreOpen/.test(body));
+ok("Revenue reads Sales, Ecommerce, Agents, Financial Advisory in the registry and the groups", allTabs.indexOf("Sales") < allTabs.indexOf("Ecommerce") && allTabs.indexOf("Ecommerce") < allTabs.indexOf("Agents") && /\{ id: "revenue", title: "Revenue", tabs: \["Sales", "Ecommerce", "Agents", "Financial Advisory"\] \}/.test(registry));
+ok("the expanded rail draws every item of a group (the same filtered items)", /const shown = section\.items;/.test(body));
+ok("the phone's More sheet still groups EVERY tab from SECTIONS", /const mobileGroups = SECTIONS\.map/.test(read("components/portal/portal-provider.tsx")));
 ok("Projects is a shortcut, never aria-current, and opens Tasks > Projects", /const projectsButton = onProjects \?/.test(body) && !/key="__projects"[\s\S]{0,200}aria-current/.test(body)
   && /onProjects=\{showProjects \? \(\) => \{ setTabStart\(\{ tab: "Tasks", view: "projects" \}\); setTab\("Tasks"\); \} : undefined\}/.test(shell));
 ok("Projects is drawn only for someone who may open Tasks AND holds project_view", /const showProjects = canOpen\("Tasks"\) && canViewProjects\(user\.role\);/.test(shell));
 ok("ONE projects rule, shared by the shortcut and the Tasks page", /export function canViewProjects\(role[^)]*\): boolean \{\s*return holds\("project_view",/.test(caps) && /const canProjects = canViewProjects\(user\.role\);/.test(tasks) && !/holds\("project_view"/.test(strip(tasks)));
-ok("the Home group is drawn without a heading but keeps its name for a screen reader", /const UNTITLED_GROUP = "Home";/.test(nav) && /\$\{untitled \? "erp-sr-only" : ""\}/.test(nav));
+ok("every group is drawn with its heading (Workspace included)", !/UNTITLED_GROUP|erp-sr-only/.test(body));
 ok("a fold button is still named as a group (\"Finance group\")", /`\$\{sectionTitle\(section\.title, lang\)\} group`/.test(nav));
 
 /* ---- the active pill: navy on gold (decision 5) ---- */

@@ -107,7 +107,8 @@ async function runtime(workerBundle) {
     const ainaList = (await call("/fa/cases", 9)).j?.cases ?? [];
     ok(ainaList.length === 1 && ainaList[0].id === id1, "a salesperson's list is their own cases only");
     ok(((await call("/fa/cases", 1)).j?.cases ?? []).length === 2 && ((await call("/fa/cases", 3)).j?.cases ?? []).length === 2, "the CEO and COO see every case");
-    ok(((await call("/fa/cases", 6)).j?.cases ?? []).length === 0, "the CCO sees only cases they own or assist");
+    /* v1.288.0 - the CCO reviews (decision D1 of DSR blueprint v1.2), so the CCO sees every case like the CEO and COO */
+    ok(((await call("/fa/cases", 6)).j?.cases ?? []).length === 2, "the CCO, a reviewer now, sees every case");
     ok(!/income|monthly_cents|ic_|phone/.test(JSON.stringify(ainaList)), "the list carries no income, figures, IC or phone");
 
     /* ---------- consent first; no credentials ---------- */
@@ -194,8 +195,8 @@ async function runtime(workerBundle) {
     ok((await call(`/fa/documents/${slip.j.id}`, 7)).status === 403 && (await call(`/fa/documents/${slip.j.id}`, 21)).status === 403, "HR and an agent cannot either");
     const view = await call(`/fa/documents/${slip.j.id}`, 1);
     ok(view.status === 200 && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'fa.document_view'`) === 1, "the CEO can - and the view is audited");
-    await call(`/fa/cases/${id1}/members`, 9, "POST", { user_id: 6 });
-    ok((await call(`/fa/cases/${id1}`, 6)).status === 200 && (await call(`/fa/cases/${id1}/items`, 6, "POST", { side: "income", kind: "allowance", monthly_cents: 1000 })).status === 403, "an assisting member reads the case but cannot change the client's figures");
+    await call(`/fa/cases/${id1}/members`, 9, "POST", { user_id: 15 });
+    ok((await call(`/fa/cases/${id1}`, 15)).status === 200 && (await call(`/fa/cases/${id1}/items`, 15, "POST", { side: "income", kind: "allowance", monthly_cents: 1000 })).status === 403, "an assisting member reads the case but cannot change the client's figures");
 
     /* ---------- debt consolidation: three periods ---------- */
     await add(id2, 15, "income", "gross_salary", 600000);
@@ -213,7 +214,10 @@ async function runtime(workerBundle) {
     ok(k1?.before?.dsr_bp === 3083 && k1?.overlap?.dsr_bp === 5083 && k1?.after?.commitments_cents === 100000 && k1?.after?.dsr_bp === 3666, "before 30.8%, overlap 50.8%, after removes the evidenced facility once (36.6%)", JSON.stringify(k1));
 
     /* ---------- the legal gates ---------- */
-    for (const [path, body, what] of [[`/fa/cases/${id1}/disclosures`, { institution: "Bank A" }, "sending documents to a bank"], [`/fa/cases/${id1}/agreement`, {}, "the client agreement"], [`/fa/cases/${id1}/fee`, {}, "the proposed fee"]]) {
+    /* v1.288.0 - sending to a bank opened by the CEO's decision D5, but only after a management Proceed (fa-dsr.mjs proves the rest) */
+    const disc = await call(`/fa/cases/${id1}/disclosures`, 1, "POST", { enquiry_id: 1, document_ids: [1], channel: "work_email", purpose: "Assessment" });
+    ok(disc.status === 409 && disc.j?.error?.code === "review_required", "nothing goes to a bank before Management decides Proceed - even for the CEO", disc.text);
+    for (const [path, body, what] of [[`/fa/cases/${id1}/agreement`, {}, "the client agreement"], [`/fa/cases/${id1}/fee`, {}, "the proposed fee"]]) {
       const r = await call(path, 1, "POST", body);
       ok(r.status === 409 && r.j?.error?.code === "legal_gate", `${what} is shut until counsel clears it - even for the CEO`);
     }
@@ -259,12 +263,12 @@ const MUT = [
   [F, "a banker may approve", [["const BANKER_STATUS = [\"enquiry_sent\",", "const BANKER_STATUS = [\"officially_approved\", \"enquiry_sent\","]]],
   [F, "a decision without evidence", [["      if (!ev) return err(\"evidence_required\"", "      if (false) return err(\"evidence_required\""]]],
   [F, "Sales verifies criteria", [["    if (!can(user.role, \"fa_criteria\")) return err(\"forbidden\", \"Only management verifies bank criteria\", 403);", ""]]],
-  [F, "the disclosure gate open", [["    if (!FA_LEGAL.disclosure) return err(\"legal_gate\"", "    if (false) return err(\"legal_gate\""]]],
+  [F, "the agreement gate open", [['if ((sub === "agreement" || sub === "fee") && method === "POST") {', "if (false) {"]]],
   [F, "a duplicate client by phone", [["      if (hit) return json(", "      if (false) return json("]]],
   [F, "an override with no reason", [["    if (reason.length < 20) return err(\"invalid_input\", \"Explain the override", "    if (false) return err(\"invalid_input\", \"Explain the override"]]],
   [F, "assisting members edit figures", [["const mayEdit = (u: StaffUser, c: Case) => can(u.role, \"fa_edit\") && (isAll(u) || c.owner_id === u.id);", "const mayEdit = (u: StaffUser, c: Case) => can(u.role, \"fa_edit\");"]]],
   [E, "declared income qualifies", [["inc.filter((i) => i.state === \"verified\" && INCOME_KINDS.includes(i.kind))", "inc.filter((i) => INCOME_KINDS.includes(i.kind))"]]],
-  [E, "draft criteria match", [["input.criteria.filter((c) => c.state === \"verified\" && c.product === product)", "input.criteria.filter((c) => c.state !== \"retired\" && c.product === product)"]]],
+  [E, "draft criteria match", [["input.criteria.filter((c) => c.state === \"verified\" && c.product === product && ", "input.criteria.filter((c) => c.state !== \"retired\" && c.product === product && "]]],
   /* the engine's own evidence condition is mutation-covered by tests/fa-engine.mjs (period C); here the route that sets it */
   ["worker/src/fa.ts", "a settlement without its letter", [['if (!doc) return err("evidence_required", "Choose the settlement letter on this case.", 400);', 'void doc;']]],
   ["worker/src/permissions.ts", "HR opens Financial Advisory", [['  fa_view: ["ceo", "coo", "cco", "sales_marketing"],', '  fa_view: ["ceo", "coo", "cco", "sales_marketing", "hr_admin"],']]],

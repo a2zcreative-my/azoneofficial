@@ -293,10 +293,11 @@ export const PERMS: Record<string, readonly Role[]> = {
   /** open cases and record a client's profile, figures, documents and banker feedback */
   fa_edit: ["ceo", "coo", "cco", "sales_marketing"],
   /** every case; official bank decisions; pre-screen overrides; reassignment */
-  fa_decide: ["ceo", "coo"],
+  fa_decide: ["ceo", "coo", "cco"], // v1.288.0 - the CCO reviews too (the CEO, decision D1 of DSR blueprint v1.2)
   /** verify and publish bank criteria; manage banker relations */
   fa_criteria: ["ceo", "coo"],
   fa_registry: ["ceo", "coo"], // v1.286.0 - add and verify banks, branches and bankers (blueprint v1.1, B9)
+  fa_allocate: ["ceo", "coo"], // v1.288.0 - approve a banker allocation (banker blueprint v1.1, B9)
   /** view and process payroll (was PAYROLL_PROC) */
   payroll_process: ["super_admin", "admin", "ceo", "coo"],
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
@@ -509,9 +510,10 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "payment_evidence", en: "Check the bank evidence of the verifier's own report", ms: "Semak bukti bank laporan pengesah sendiri", cap: "payment_evidence", note_en: "Not needed since v1.285.0: the CEO's own Paid is final", note_ms: "Tidak diperlukan sejak v1.285.0: tanda dibayar CEO muktamad" },
   { module: "Financial Advisory", key: "fa_view", en: "Open Financial Advisory (own cases)", ms: "Buka Nasihat Kewangan (kes sendiri)", cap: "fa_view" },
   { module: "Financial Advisory", key: "fa_edit", en: "Record client profiles, figures, documents and banker feedback", ms: "Rekod profil, angka, dokumen dan maklum balas bank pelanggan", cap: "fa_edit", note_en: "Own cases only, unless fa_decide", note_ms: "Kes sendiri sahaja, kecuali fa_decide" },
-  { module: "Financial Advisory", key: "fa_decide", en: "Every case; official bank decisions; pre-screen overrides", ms: "Semua kes; keputusan rasmi bank; mengatasi saringan awal", cap: "fa_decide" },
+  { module: "Financial Advisory", key: "fa_decide", en: "Every case; management review decisions; official bank decisions; pre-screen overrides", ms: "Semua kes; keputusan semakan pengurusan; keputusan rasmi bank; mengatasi saringan awal", cap: "fa_decide", note_en: "Never on a review they submitted themselves (the owner apart)", note_ms: "Tidak pada semakan yang dihantar sendiri (kecuali pemilik)" },
   { module: "Financial Advisory", key: "fa_criteria", en: "Verify bank criteria", ms: "Sahkan kriteria bank", cap: "fa_criteria" },
   { module: "Financial Advisory", key: "fa_registry", en: "Add and verify banks, branches and bankers", ms: "Tambah dan sahkan bank, cawangan dan pegawai bank", cap: "fa_registry", note_en: "Never a banker they registered themselves (the owner apart)", note_ms: "Tidak pegawai bank yang didaftar sendiri (kecuali pemilik)" },
+  { module: "Financial Advisory", key: "fa_allocate", en: "Approve a banker allocation for a case", ms: "Luluskan peruntukan pegawai bank untuk kes", cap: "fa_allocate", note_en: "After a management Proceed; never on an allocation they proposed (the owner apart)", note_ms: "Selepas keputusan Teruskan; tidak pada peruntukan yang dicadang sendiri (kecuali pemilik)" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },

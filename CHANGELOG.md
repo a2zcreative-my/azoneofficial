@@ -10,6 +10,66 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.290.1] - 2026-11-12 - Faster PUSH: the guards' mutation pass runs before delivery, not on the PC - NOT DEPLOYED
+
+The owner, 12-11-2026 ("why it took too long to push?!" - "yes").
+
+- **PUSH.bat** sets `NOMUT=1` for the guard step: every guard still runs every rule check and still stops the release on a failure; only the mutation pass (about 550 deliberate breakages, each a full copy and rebuild of the engine) is skipped on the PC. `set FULLGUARDS=1` before PUSH.bat runs it there too. NOMUT is cleared after the step.
+- **scripts/run-guards.mjs** says so on the screen when it is skipped.
+- **Eight guards** that had no switch now honour NOMUT=1 (access-policy, commission-flow, elfia-store, go-live-h, matrix-edit, owner-access, reporting-line, sales-packages); with mutations on they behave exactly as before.
+- The mutation pass is still run in the build sandbox before every delivery and recorded in that release's GATE note.
+
+## [1.290.0] - 2026-11-12 - Financial Advisory: the banker PIC workspace - BUILT, NOT DEPLOYED
+
+The CEO, 12-11-2026, image reference 04 (claude/BANKER-PIC-BLUEPRINT.md): G3 the relationship owner, the CEO or the COO edits a banker; G4 Ready / Needs verification / On hold / Inactive; G1, G2, G5, G6, G7 as recommended.
+
+- **Three columns on a large desktop (G1):** Banker directory | Banker profile | Client matching & case allocation; below 1280 px the record opens as a sheet with the cases inside it. Initials, never a photo or a bank logo (G7). Each banker shows a stable `BK-000001` id (the existing id, formatted).
+- **Directory words (G4):** All / Ready / Needs verification / On hold / Inactive, each worked out from the facts; "Active" is not used.
+- **Edit banker (G3):** position, work email, work phone, preferred channel, relationship, notes - the relationship owner, the CEO or the COO; the owner and the case limit by the CEO or COO only. Another banker's email is refused; a shared phone needs a written reason. A changed work email or phone is recorded (append only) and the contact identity must be verified again before matching - the earlier verification row is kept and shown as superseded.
+- **The banker's cases (G2):** `GET /fa/bankers/:id/cases` - allocated / enquiry open / official outcome counted for everyone with Financial Advisory; the case lines (client, projected DSR, internal allocation, enquiry, banker feedback marked indicative, official decision with the letter) only for cases the viewer may open; "N cases - not yours" otherwise. Last contact date shown on the banker.
+- **Feedback and decisions (G5, G6):** a banker note keeps the day of the contact (not in the future, not before the case); an official decision keeps the tenure the bank's letter states.
+- **Migration `0186_fa_banker_pic` (additive):** fa_banker_contact_changes and fa_note_facts with no-update / no-delete triggers. 0183-0185 untouched.
+- **Tests:** tests/fa-banker-pic.mjs (new guard, 41 checks, 8 mutations caught); tests/browser/fa-2.py updated for the new filter words and extended (three columns, cases panel scoped, Edit) - 261 checks; fa-1 and fa-3 unchanged and passing.
+
+## [1.289.0] - 2026-11-12 - Edit Task Title - BUILT, NOT DEPLOYED
+
+The CEO, 12-11-2026, image reference 02 ("edit the main Task Title without disrupting anything else"; claude/TASK-TITLE-BLUEPRINT.md): T1 a closed task is reopened first, T3 the other person is told, T2/T4 as recommended.
+
+- **Edit Title** in every task drawer (the Tasks tab and the project task drawer, desktop and phone): the task ID, who created it and when, the title, and an Edit Title button for the people the server allows (the assignee or a manager / the Project Owner, task open). The field opens with the title; Save sends only the title; Cancel and Escape send nothing (Escape leaves the field, not the drawer); 200-character counter; 44 px controls on a phone.
+- **Server (the existing PATCH /tasks/:id, no new route, no migration):** an empty or over-long title is refused (400) instead of ignored; a closed task cannot be edited at all - title, dates, priority, description or assignee - until it is reopened (409 reopen_required); the other party is told the old and the new title (the assignee renamed it -> the person who set it; a manager renamed it -> the assignee).
+- **Activity History:** a title change is its own entry - "Title updated - changed from "A" to "B"", with who and when (from the audit row the route already wrote).
+- **Tasks tab:** the general Edit is no longer offered on a closed task.
+- **Unchanged:** permissions (helpers and outsiders still cannot rename), dates, assignee, checklist, status, progress, files, updates, project link. There is no recurring-task model, so a rename never touches another task.
+- **Tests:** tests/task-title.mjs (new guard, whole worker by direct request, 21 checks, 6 mutations caught), tests/browser/task-title.py (new, 40 checks: CEO and assignee at 1440/1280/390/360, the helper at 1280/390); task-progress.py and task-closure.py still pass. serve.mjs records PATCH /tasks/:id for TASKP=1.
+
+## [1.288.0] - 2026-11-12 - Financial Advisory: the DSR Pre-Check, management review and banker matching - BUILT, NOT DEPLOYED
+
+The CEO, 12-11-2026, on the DSR Pre-Check blueprint v1.2 (claude/DSR-PRECHECK-BLUEPRINT-v1.2.md) and his photo: "D1 to D4 proceed as per suggestions, D5 proceed without lawyers".
+
+- **Tabs:** Overview, DSR Pre-Check, Clients & Cases, Bankers, Bank Criteria, Agreements, and "+ New DSR Assessment" beside them. Overview lists the assessments waiting for management review.
+- **DSR Pre-Check (desktop: three columns as in the photo; phone and tablet: five steps with the DSR strip on top and Back / Next always in reach):** income and deductions with net income worked out, commitments with lender and last four digits, requested amount, tenure and an illustrative rate (D4, the instalment labelled Assumption), declared living costs (D2, nothing estimated). The result is the server's one engine: current and projected DSR, remaining income, residual after declared living cost, the debt-consolidation overlap and totals, key assessment lines and the verified bank criteria compared with no score. Outcomes use the directive's five phrases; nothing says approved.
+- **Quick Check (D3):** figures only - the server refuses a name, IC, phone or email, stores nothing, and a pressed Calculate leaves one audit line with no figure in it.
+- **Client Case Assessment:** the case's own figures load into the form; Save sends one figure set (unchanged lines kept, changed lines replaced and re-verified, removed lines voided with a reason) and then a new assessment version; a second identical facility is refused unless the reason is written.
+- **Management review (D1):** Submit for review notifies the CEO, COO and CCO; they decide Proceed, Request information, Affordability concern or Not suitable with a written reason, never on their own submission (the owner excepted). The decision is append-only, shown in the assessment history and in Kelayakan notes (new Management filter), and worded as internal progression, never a loan approval. The Desk shows pending reviews to deciders.
+- **Banker matching (D5, opened without counsel on the CEO's instruction):** only after a Proceed. The shortlist comes from verified bank criteria and verified, in-date bankers covering the client's area (excluded bankers show why); Sales proposes, the CEO or COO approves (not their own proposal, owner excepted); an enquiry and any documents go only under the client's disclosure consent naming that bank and covering those documents, to the banker's registry work contact, each send recorded once. Agreement, the proposed 15% fee and commission stay switched off; nothing is reported to CTOS.
+- **Case sheet tabs:** Overview, Financial profile, DSR assessment, Banker matching, Kelayakan notes (All / System / Management / Banker / Official), Documents, Consents, Case timeline, Agreement.
+- **Migration `0185_fa_dsr` (new, additive):** fa_reviews and fa_item_meta, with no-update / no-delete triggers. 0183 and 0184 untouched.
+- **Permissions (owner-approved):** fa_decide adds the CCO (D1, so the CCO also sees every case); new fa_allocate for the CEO and COO.
+- **Tests:** tests/fa-dsr.mjs (new guard, whole worker by direct request, 67 checks, mutations caught), fa-api.mjs and fa-engine.mjs updated, tests/browser/fa-3.py (new: desktop, phone and tablet, CEO/COO/Sales) and fa-1.py updated for the new tab names, D1 and D5. The browser fixture now answers the pre-check with the real engine.
+
+## [1.287.0] - 2026-11-12 - Global navigation: every module in its own group - BUILT, NOT DEPLOYED
+
+The CEO, 12-11-2026, on the navigation blueprint (claude/NAVIGATION-BLUEPRINT.md): "Do as per your recommendation" (D1 Users & Security, D2 group flyouts when collapsed, D3 keep today's folding, D4 Projects on the phone). Frontend only: no route, permission, worker or database change.
+
+- **Seven groups, one home each:** WORKSPACE (Dashboard, Desk, News), REVENUE (Sales, Ecommerce, Agents, Financial Advisory), OPERATIONS (Projects shortcut, Tasks, Inventory, Assets, Hotels), PEOPLE (HR, Staff, Attendance, On Shift, Leave, Claims, Payroll), FINANCE (Finance, Accounting, Commission), ELFIA (ELFIA Store, ELFIA Traffic), SYSTEM (Companies, Users & Security). Profile, Cards, the settings and Sign out stay on the name card's menu.
+- **No desktop More:** the v1.279.0 rail cut (RAIL_PRIMARY, ten modules under More) is removed; a group appears only when the person may open something in it.
+- **One configuration:** the groups moved beside the registry as `NAV_GROUPS` (lib/portal-tabs.ts); side-nav's `SECTIONS` is that list, read by the rail, the phone's More sheet and the access card. `ALL_TABS` is re-cut so each group is one run. `navManifest()` derives id, order, group, route and role default for review and tests.
+- **Collapsed rail (D2):** one icon per group (the open page's group in gold); a click or Enter opens a labelled flyout; arrow keys, Home/End move in it; Escape returns to the icon; Tab, a choice or a click outside closes it. The Operations flyout carries Projects.
+- **Labels (D1):** Users is shown as "Users & Security" (BM "Pengguna & Keselamatan") on its unchanged deep link (?tab=Users); the Workspace heading is "Ruang Kerja" in BM; the Help sheet explains where modules are.
+- **Phone (D4):** the bar is unchanged (Dashboard, Desk, On Shift, Tasks, More); More shows the same groups in the same order, plus a Projects tile in Operations.
+- **Folding (D3):** unchanged - groups start open, each device remembers what is folded, and the group of the open page cannot fold.
+- **Tests:** tests/navigation.mjs (new guard: groups, one home each, routes and the default role matrix unchanged, phone bar unchanged, flyout keyboard rules) and tests/browser/nav-1.py (new, 137 checks: eight staff roles plus the agent, all 26 modules opened from the rail, deep links, refresh, folding, collapsed flyouts by mouse and keyboard, phone More, eight widths). shell-e1, shell-3, executive-workspace, registry-parity, interface-v3, release-b/c/d updated for the approved structure.
+
 ## [1.286.0] - 2026-11-12 - Banker Registry, stage 1: one bank, one branch, one banker - BUILT, NOT DEPLOYED
 
 The CEO, 12-11-2026: "proceed with Banker Registration, Branch Network & Smart Allocation Blueprint v1.1" (claude/BANKER-REGISTRY-BLUEPRINT-v1.1.md, decisions B1-B12 as recommended). Stage 1 of B2: the registries and the directory. Matching and internal allocation are stage 2; sending anything to a banker stays switched off.

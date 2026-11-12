@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* ONE ACCESS POLICY (v1.234.0) - runtime guard: the real worker (staff.ts,
  * bundled) against SQLite with EVERY migration applied.
  *
@@ -166,7 +167,7 @@ const MUT = [
   ["worker/src/staff.ts", "an exception without a reason is accepted", 'if ((mode === "allow" || mode === "deny") && reasonX.length < 10)', "if (false)"],
   ["worker/src/staff.ts", "an ended exception keeps applying", "const liveEx = (p: PersonAccess, tab: string) => { const e = p.meta?.[tab]?.expires_on; return !e || e >= todayTA; };", "const liveEx = (_p: PersonAccess, _tab: string) => true;"],
 ];
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   const src = readFileSync(join(root, file), "utf8");
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
@@ -180,4 +181,4 @@ for (const [file, name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`access-policy: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`access-policy: ${n} checks passed (${MUT.length} mutations caught) - the published policy is the enforced one; exceptions with reasons, never wider than the server`);
+console.log(`access-policy: ${n} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - the published policy is the enforced one; exceptions with reasons, never wider than the server`);

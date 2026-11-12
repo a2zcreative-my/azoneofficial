@@ -55,6 +55,14 @@ export const ALL_TABS = [
      summary of it instead of a copy of it. Always visible: what is waiting on
      you is not a permission, and the page shows only what you may act on. */
   "Desk",
+  /* v1.287.0 - GLOBAL NAVIGATION (the CEO approved the navigation blueprint,
+     12-11-2026, claude/NAVIGATION-BLUEPRINT.md): this list is re-cut into the
+     approved groups - WORKSPACE (Dashboard, Desk, News), REVENUE, OPERATIONS,
+     PEOPLE (HR, Staff, Attendance, On Shift, Leave, Claims, Payroll), FINANCE,
+     ELFIA, SYSTEM (Companies, Users), then the Account pair - so each group
+     is one contiguous run (NAV_GROUPS below, tests/registry-parity.mjs).
+     Order only: access, routes and deep links are unchanged. */
+  "Announcements",
   /* v1.172.0 (Portal UI V2 - the CEO's target navigation: OVERVIEW, SALES,
      OPERATIONS, PEOPLE, FINANCE, ACCOUNT, SYSTEM): Inventory moved from third
      to eighth, behind Hankei's, so the SALES cut (what is sold and to whom)
@@ -94,13 +102,10 @@ export const ALL_TABS = [
   "Assets",
   "Hotels",
   "Threads",
-  "ELFIA Store",
-  "ELFIA Traffic",
   "HR",
+  "Staff Details",
   "Attendance",
   "On Shift",
-  "Announcements",
-  "Staff Details",
   "Leave",
   "Claims",
   "Payroll",
@@ -125,7 +130,10 @@ export const ALL_TABS = [
      Flow and Policy. The retired v1.183.0 panel and its dormant routes are
      not revived - nothing reads commission_rules or commission_entries. */
   "Commission",
+  "ELFIA Store",
+  "ELFIA Traffic",
   "Companies",
+  "Users",
   /* v1.129.0 - the three officers' digital business cards, to share with a
      client. Placed HERE, next to Profile, for two reasons and neither is
      taste: the phone bottom bar uses a fixed primary set, so a tab this far
@@ -134,12 +142,44 @@ export const ALL_TABS = [
      the CEO's own sequence above is untouched. */
   "Cards",
   "Profile",
-  "Users",
   "Stokis",
   "Content",
 ] as const;
 
 export type TabName = (typeof ALL_TABS)[number];
+
+/**
+ * v1.287.0 - THE NAVIGATION GROUPS (claude/NAVIGATION-BLUEPRINT.md, approved
+ * 12-11-2026). One list, read by the desktop rail (expanded and collapsed),
+ * the phone's More sheet and the access-review card, which is why it lives
+ * here beside the registry and not in a component. Each group is a CUT of
+ * ALL_TABS in order (tests/registry-parity.mjs), every shown tab is in
+ * exactly one group (tests/navigation.mjs), and a tab missing from every
+ * group still shows under "Other" (side-nav.tsx) so forgetting one can never
+ * make it unreachable. Presentation only: what a person may open is
+ * canSeeTab() below, and the server checks every request either way.
+ */
+export interface NavGroup {
+  /** stable id (folded-group memory, test hooks) */
+  id: string;
+  /** the English heading; BM through SECTION_LABEL_MS (side-nav.tsx) */
+  title: string;
+  tabs: TabName[];
+  /** drawn in the name card's menu at the rail's foot, not as a group */
+  placement?: "account-menu";
+}
+export const NAV_GROUPS: NavGroup[] = [
+  { id: "workspace", title: "Workspace", tabs: ["Dashboard", "Desk", "Announcements"] },
+  { id: "revenue", title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents", "Financial Advisory"] },
+  { id: "operations", title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
+  { id: "people", title: "People", tabs: ["HR", "Staff Details", "Attendance", "On Shift", "Leave", "Claims", "Payroll"] },
+  { id: "finance", title: "Finance", tabs: ["Finance", "Accounting", "Commission"] },
+  { id: "elfia", title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
+  { id: "system", title: "System", tabs: ["Companies", "Users"] },
+  { id: "account", title: "Account", tabs: ["Cards", "Profile"], placement: "account-menu" },
+];
+/** the group a tab belongs to (undefined for a parked tab) */
+export const groupOf = (tab: string): NavGroup | undefined => NAV_GROUPS.find((g) => (g.tabs as string[]).includes(tab));
 
 /** Stable daily-work destinations for the phone bar. The caller passes the
     permission-filtered list, so this helper cannot reveal a forbidden tab. */
@@ -614,3 +654,13 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Profile: { slug: "profile" },
   Users: { slug: "users" },
 };
+
+/** v1.287.0 - the navigation manifest, DERIVED (never hand-written): one
+    entry per shown tab with its order, group, route and role default. The
+    label is tr(id) and the icon TabIcon(id), keyed by the same id; who may
+    see it is canSeeTab(). Used by tests/navigation.mjs and for review. */
+export function navManifest(): { id: TabName; order: number; group: string | null; route: string | null; roles: readonly string[] | "all staff" }[] {
+  return ALL_TABS.filter((t) => !PARKED_TABS.includes(t)).map((id, order) => ({
+    id, order, group: groupOf(id)?.id ?? null, route: TAB_ROUTE[id]?.slug ?? null, roles: TAB_ROLES[id] ?? "all staff",
+  }));
+}

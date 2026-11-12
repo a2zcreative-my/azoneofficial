@@ -5,13 +5,17 @@
    the existing A2Z OS, never a separate loan CRM: the client is an ordinary
    A2Z customer, a case task is an ordinary task, every change is audited.
 
-     Overview          four counts from the server, the cases that need a
+     Overview          four counts from the server, v1.288.0 the assessments
+                       waiting for management review, the cases that need a
                        hand, the legal switches and the disclaimer
-     Clients           the pipeline: search, product and status filters,
+     DSR Pre-Check     v1.288.0 - the workspace (fa-dsr.tsx): Quick Check or
+                       Client Case; "+ New DSR Assessment" starts it empty
+     Clients & Cases   the pipeline: search, product and status filters,
                        one row per case; a new case finds the existing
                        customer by phone instead of creating a second one
      Bankers           v1.286.0 - the ONE bank, branch and banker registry
-                       (fa-registry.tsx); nobody sends client documents from here
+                       (fa-registry.tsx); documents go to a banker only from
+                       a case's Banker matching, under the client's consent
      Bank criteria     the ONE place a bank's rule is written: a draft until
                        management verifies it with its source and date
      Agreements        switched off until counsel clears the agreement
@@ -32,11 +36,14 @@ import { SkelRows } from "@/components/ui/skeleton";
 import { btnSm, btnSmPrimary, btnSmQuiet, card, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import { APPLICATION, BANKER, Chip, FaCase, PRESCREEN, PRODUCT } from "./fa-case";
 import { BankerRegistry } from "./fa-registry";
+import { DsrWorkspace, OUTCOME } from "./fa-dsr";
+import type { Tab as CaseTab } from "./fa-case";
 import css from "./financial-advisory.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 type Err = { error?: { message?: string; code?: string }; customer_id?: number; customer?: string; case_id?: number };
-type View = "overview" | "clients" | "bankers" | "criteria" | "agreements";
+type View = "overview" | "dsr" | "clients" | "bankers" | "criteria" | "agreements";
+interface Pending { id: number; case_id: number; assessment_id: number | null; reason: string | null; created_at: string; submitted_by: string | null; case_ref: string; product: string; client: string | null; current_dsr_bp: number | null; projected_dsr_bp: number | null; outcome: string | null }
 interface Summary { open: number; awaiting_banker: number; incomplete: number; official_decisions: number; legal: Record<string, boolean>; can: { create: boolean; decide: boolean; criteria: boolean } }
 interface Row { id: number; case_ref: string; product: string; stage: string; prescreen: string; banker_status: string; application_status: string; override_result: string | null; issuer_code: string; updated_at: string; client: string | null; owner: string | null; projected_dsr_bp: number | null }
 interface Criterion { id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string; dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null; required_documents: string | null; source: string; last_verified_on: string | null; state: string }
@@ -53,13 +60,18 @@ export function FinancialAdvisoryPanel() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [tick, setTick] = useState(0);
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<{ id: number; tab?: CaseTab } | null>(null);
+  const [pending, setPending] = useState<{ pending: Pending[]; can: { decide: boolean } } | null>(null);
+  const [fresh, setFresh] = useState(0);
+  const openCase = useCallback((id: number, tab?: string) => setOpen({ id, tab: tab as CaseTab | undefined }), []);
+  const newAssessment = useCallback(() => { setView("dsr"); setFresh((k) => k + 1); }, []);
   const [creating, setCreating] = useState(false);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   useEffect(() => {
     let live = true;
-    void Promise.all([api<Summary>("/staff/fa/summary"), api<{ cases: Row[] }>("/staff/fa/cases")]).then(([s, c]) => {
+    void Promise.all([api<Summary>("/staff/fa/summary"), api<{ cases: Row[] }>("/staff/fa/cases"), api<NonNullable<typeof pending>>("/staff/fa/reviews")]).then(([s, c, p]) => {
       if (!live) return;
+      if (p.ok && p.data) setPending(p.data);
       if (s.ok && s.data && c.ok && c.data) { setSum(s.data); setRows(c.data.cases); setFailed(false); }
       else setFailed(true);
     });
@@ -69,32 +81,37 @@ export function FinancialAdvisoryPanel() {
   return (
     <div className={css.stack} data-testid="fa-panel">
       {toastNode}
-      <LineTabs value={view} onChange={setView} label={L("Financial advisory", "Nasihat kewangan")} tabs={[
-        ["overview", L("Overview", "Gambaran")],
-        ["clients", L("Clients", "Pelanggan"), sum?.open || null],
-        ["bankers", L("Bankers", "Pegawai bank")],
-        ["criteria", L("Bank criteria", "Kriteria bank"), null, L("Criteria", "Kriteria")],
-        ["agreements", L("Agreements", "Perjanjian")],
-      ]} />
+      <div className={css.head}>
+        <LineTabs value={view} onChange={setView} label={L("Financial advisory", "Nasihat kewangan")} tabs={[
+          ["overview", L("Overview", "Gambaran")],
+          ["dsr", L("DSR Pre-Check", "Pra-Semakan DSR"), null, "DSR"],
+          ["clients", L("Clients & Cases", "Pelanggan & Kes"), sum?.open || null, L("Cases", "Kes")],
+          ["bankers", L("Bankers", "Pegawai bank")],
+          ["criteria", L("Bank Criteria", "Kriteria Bank"), null, L("Criteria", "Kriteria")],
+          ["agreements", L("Agreements", "Perjanjian")],
+        ]} />
+        {sum?.can.create && <button type="button" className={btnSmPrimary} onClick={newAssessment} data-testid="fa-new-dsr"><AppIcon name="add" />{L("New DSR Assessment", "Penilaian DSR Baharu")}</button>}
+      </div>
       {!failed && !sum ? <SkelRows rows={5} /> : failed ? (
         <div className={`${card} ${css.sec}`}><p className={css.empty}>{L("Financial advisory could not load. If this is the first day of the release, the database update may not be applied yet.", "Nasihat kewangan tidak dapat dimuatkan. Jika ini hari pertama keluaran, kemas kini pangkalan data mungkin belum digunakan.")}</p><button type="button" className={btnSm} onClick={refresh}>{L("Try again", "Cuba lagi")}</button></div>
       ) : (
         <>
-          {view === "overview" && <Overview sum={sum} rows={rows} openCase={setOpen} create={() => setCreating(true)} go={setView} />}
-          {view === "clients" && <Clients rows={rows} can={sum?.can.create ?? false} openCase={setOpen} create={() => setCreating(true)} />}
-          {view === "bankers" && <BankerRegistry toast={show} />}
+          {view === "overview" && <Overview sum={sum} rows={rows} pending={pending} openCase={openCase} create={() => setCreating(true)} go={setView} />}
+          {view === "dsr" && <DsrWorkspace key={fresh} toast={show} openCase={openCase} newCase={() => setCreating(true)} />}
+          {view === "clients" && <Clients rows={rows} can={sum?.can.create ?? false} openCase={openCase} create={() => setCreating(true)} />}
+          {view === "bankers" && <BankerRegistry toast={show} openCase={openCase} />}
           {view === "criteria" && <Criteria toast={show} />}
           {view === "agreements" && <Agreements />}
         </>
       )}
       <p className={css.disclaimer}><AppIcon name="info" /><span><b>{L("Indicative only. Subject to official bank approval.", "Indikatif sahaja. Tertakluk kepada kelulusan rasmi bank.")}</b> {L("A2Z is not affiliated with any bank. Eligibility, terms and approval are decided by the bank. Never ask a client for a password, OTP, PIN or online-banking login.", "A2Z tidak bergabung dengan mana-mana bank. Kelayakan, terma dan kelulusan ditentukan oleh bank. Jangan sekali-kali minta kata laluan, OTP, PIN atau log masuk perbankan dalam talian.")}</span></p>
-      {open != null && <FaCase caseId={open} onClose={() => setOpen(null)} onChanged={refresh} toast={show} />}
-      {creating && <NewCase onClose={() => setCreating(false)} toast={show} opened={(id) => { setCreating(false); refresh(); setOpen(id); }} />}
+      {open != null && <FaCase key={`${open.id}-${open.tab ?? ""}`} caseId={open.id} initialTab={open.tab} onClose={() => setOpen(null)} onChanged={refresh} toast={show} />}
+      {creating && <NewCase onClose={() => setCreating(false)} toast={show} opened={(id) => { setCreating(false); refresh(); setOpen({ id, tab: "consents" }); }} />}
     </div>
   );
 }
 
-function Overview({ sum, rows, openCase, create, go }: { sum: Summary | null; rows: Row[] | null; openCase: (id: number) => void; create: () => void; go: (v: View) => void }) {
+function Overview({ sum, rows, pending, openCase, create, go }: { sum: Summary | null; rows: Row[] | null; pending: { pending: Pending[]; can: { decide: boolean } } | null; openCase: (id: number, tab?: string) => void; create: () => void; go: (v: View) => void }) {
   const needs = (rows ?? []).filter((r) => r.stage !== "closed" && (r.prescreen === "incomplete" || r.prescreen === "manual_review" || r.stage === "review" || r.banker_status === "documents_required")).slice(0, 6);
   return (
     <div className={css.stack}>
@@ -104,6 +121,18 @@ function Overview({ sum, rows, openCase, create, go }: { sum: Summary | null; ro
         <KpiTile icon="chat" tone="blue" label={L("Waiting on a banker", "Menunggu bank")} value={sum?.awaiting_banker ?? 0} busy={!sum} sub={L("Enquiry sent or under review", "Pertanyaan dihantar atau dalam semakan")} />
         <KpiTile icon="document" tone="green" label={L("Official bank decisions", "Keputusan rasmi bank")} value={sum?.official_decisions ?? 0} busy={!sum} sub={L("Recorded with the bank's letter", "Direkod dengan surat bank")} />
       </KpiRow>
+      {(pending?.pending.length ?? 0) > 0 && (
+        <section className={`${card} ${css.sec}`} aria-label={L("Waiting for management review", "Menunggu semakan pengurusan")} data-testid="fa-review-queue">
+          <h3 className={css.h}><AppIcon name="verify" />{pending!.can.decide ? L("Waiting for your review", "Menunggu semakan anda") : L("Waiting for management review", "Menunggu semakan pengurusan")} <span className={chipSmWarn}>{pending!.pending.length}</span></h3>
+          <ul className={css.items}>{pending!.pending.map((p) => (
+            <li key={p.id} className={css.item}>
+              <span className={css.itemMain}><b>{p.client ?? "—"} · {p.case_ref}</b><span className={css.sub}>{L("submitted by", "dihantar oleh")} {p.submitted_by ?? "—"} · {dmyMYT(p.created_at)} · {L("projected DSR", "DSR unjuran")} {p.projected_dsr_bp == null ? "—" : `${(p.projected_dsr_bp / 100).toFixed(1)}%`}{p.outcome ? ` · ${L(...((OUTCOME[p.outcome] ?? OUTCOME.incomplete!).slice(0, 2) as [string, string]))}` : ""}</span></span>
+              <button type="button" className={btnSm} onClick={() => openCase(p.case_id, "dsr")}>{pending!.can.decide ? L("Review", "Semak") : L("Open", "Buka")}</button>
+            </li>
+          ))}</ul>
+          <p className={css.sub}>{L("A Proceed lets the case move to banker matching. It is an internal decision, never a loan approval.", "Teruskan membenarkan kes ke padanan pegawai bank. Ia keputusan dalaman, bukan kelulusan pinjaman.")}</p>
+        </section>
+      )}
       <div className={css.grid2}>
         <section className={`${card} ${css.sec}`} aria-label={L("Cases that need a hand", "Kes yang perlu dibantu")}>
           <div className={css.head}><h3 className={css.h}><AppIcon name="target" />{L("Cases that need a hand", "Kes yang perlu dibantu")}</h3>{sum?.can.create && <button type="button" className={btnSmPrimary} onClick={create}><AppIcon name="add" />{L("New case", "Kes baharu")}</button>}</div>
@@ -114,11 +143,12 @@ function Overview({ sum, rows, openCase, create, go }: { sum: Summary | null; ro
         <section className={`${card} ${css.sec}`} aria-label={L("Switched off until counsel clears them", "Dimatikan sehingga peguam meluluskan")} data-testid="fa-legal">
           <h3 className={css.h}><AppIcon name="lock" />{L("Switched off until counsel clears them", "Dimatikan sehingga peguam meluluskan")}</h3>
           <ul className={css.list}>
-            {[["Client agreement and e-signing", "Perjanjian pelanggan dan tandatangan-e"], ["The proposed 15% fee — no quotation or invoice", "Yuran 15% yang dicadangkan — tiada sebut harga atau invois"], ["Sending client documents to a bank", "Menghantar dokumen pelanggan kepada bank"], ["Commission on advisory fees", "Komisen atas yuran nasihat"]].map(([en, ms]) => (
+            {[["Client agreement and e-signing", "Perjanjian pelanggan dan tandatangan-e"], ["The proposed 15% fee — no quotation or invoice", "Yuran 15% yang dicadangkan — tiada sebut harga atau invois"], ["Commission on advisory fees", "Komisen atas yuran nasihat"]].map(([en, ms]) => (
               <li key={en}><AppIcon name="lock" /><span>{L(en!, ms!)}</span></li>
             ))}
           </ul>
           <p className={css.sub}>{L("CTOS reporting, blacklisting and penalty clauses are not built and will not be.", "Pelaporan CTOS, senarai hitam dan klausa penalti tidak dibina dan tidak akan dibina.")}</p>
+          <p className={css.sub}>{L("Open since 12-11-2026 (CEO decision): documents go to an approved banker only under the client's disclosure consent for that bank, and every send is recorded.", "Dibuka sejak 12-11-2026 (keputusan CEO): dokumen dihantar kepada pegawai bank yang diluluskan hanya di bawah persetujuan pendedahan pelanggan untuk bank itu, dan setiap penghantaran direkod.")}</p>
         </section>
       </div>
     </div>

@@ -75,11 +75,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.moreList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
 .foot {
   position: relative;
 }
@@ -241,4 +236,76 @@
 .menuOff {
   background: var(--secondary);
   color: var(--muted-foreground);
+}
+
+/* v1.287.0 - the collapsed rail: one icon per group, the group holding the
+   open page in the same gold as an active item; its flyout lists the group's
+   modules with their names. Tokens only. */
+.groupOn {
+  background: var(--gold-solid);
+  color: var(--brand-primary);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--gold-solid) 28%, transparent);
+}
+.groupOn :global(.erp-rail-icon) {
+  color: var(--brand-primary);
+  opacity: 1;
+}
+.flyout {
+  position: fixed;
+  z-index: 60;
+  min-width: 13rem;
+  max-width: calc(100vw - 6rem);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--brand-primary) 14%, transparent);
+}
+.flyTitle {
+  margin: 0;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.flyList {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flyItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .flyItem { min-height: 44px; }
+}
+@media (hover: hover) {
+  .flyItem:hover { background: var(--secondary); }
+}
+.flyItem:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.flyItem[aria-current="page"] {
+  background: var(--gold-solid);
+  color: var(--brand-primary);
+  font-weight: 600;
 }

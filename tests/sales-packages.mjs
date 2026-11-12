@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* SALES PACKAGES (v1.231.0) - guard.
  *
  * The owner's brief, 30-10-2026: "ONE PACKAGES LIBRARY. ONE EXISTING
@@ -228,7 +229,7 @@ const MUT = [
   ["readers see drafts", '${manage ? "" : "WHERE p.status = \'active\'"}', ""],
 ];
 const src = readFileSync(join(root, "worker/src/packages.ts"), "utf8");
-for (const [name, from, to] of MUT) {
+for (const [name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
   const mdir = mkdtempSync(join(tmpdir(), "salespkg-m-"));
@@ -241,4 +242,4 @@ for (const [name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`sales-packages: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`sales-packages: ${n} checks passed (${MUT.length} mutations caught)`);
+console.log(`sales-packages: ${n} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`})`);

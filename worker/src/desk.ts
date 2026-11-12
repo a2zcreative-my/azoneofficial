@@ -52,7 +52,7 @@ import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes"; // v1.183.0 - commission and enquiries retired
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory"; // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -386,6 +386,26 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           sub: `${open} of ${LEAVING_KEYS.length} steps open · last day ${dmy(u.left_on)}`,
           since: u.left_on, overdue: u.left_on < today,
           kind: "do", who: u.name, next: "Finish the leaving steps",
+        });
+      }
+    });
+  }
+  /* v1.288.0 - DSR assessments waiting for a management review (the CEO, COO and CCO; never one you submitted yourself) */
+  if (can(user.role, "fa_decide")) {
+    await guard("advisory", async () => {
+      const { results } = await env.DB.prepare(
+        `SELECT r.id, r.case_id, r.actor_id, r.created_at, c.case_ref, a.projected_dsr_bp, a.outcome
+           FROM fa_reviews r JOIN fa_cases c ON c.id = r.case_id LEFT JOIN fa_assessments a ON a.id = r.assessment_id
+          WHERE r.action = 'submitted' AND r.id = (SELECT MAX(id) FROM fa_reviews x WHERE x.case_id = r.case_id) AND r.actor_id != ?1
+          ORDER BY r.id ASC LIMIT 50`,
+      ).bind(user.id).all<{ id: number; case_id: number; created_at: string; case_ref: string | null; projected_dsr_bp: number | null; outcome: string | null }>();
+      for (const r of results) {
+        items.push({
+          bucket: "advisory", id: `fa-review:${r.id}`, tab: "Financial Advisory",
+          title: `${r.case_ref ?? "Advisory case"} - DSR assessment to review`,
+          sub: `${r.projected_dsr_bp == null ? "Projected DSR -" : `Projected DSR ${(r.projected_dsr_bp / 100).toFixed(1)}%`} · ${String(r.outcome ?? "").replace(/_/g, " ")} · preliminary`,
+          since: r.created_at, overdue: ageDays(r.created_at) > 2,
+          kind: "decide", who: null, next: "Proceed, ask for information, record a concern, or mark unsuitable",
         });
       }
     });

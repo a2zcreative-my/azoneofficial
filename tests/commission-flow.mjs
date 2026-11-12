@@ -1,3 +1,4 @@
+/* v1.290.1 - NOMUT=1 skips the mutation pass (PUSH.bat sets it; the owner, 12-11-2026) */
 /* COMMISSION 2.1 (v1.232.0) - runtime guard: the business flow from an
  * invoice to the payroll that pays it, through the real worker (staff.ts,
  * bundled) against SQLite with EVERY migration applied.
@@ -270,7 +271,7 @@ const MUT = [
   ["commission.ts", "anyone eligible may be settled", "AND u.left_on IS NOT NULL AND substr(u.left_on, 1, 10) < ?2 AND (u.rejoined_on IS NULL OR substr(u.rejoined_on, 1, 10) > ?2)`,\n      ).bind(id, today)", "`,\n      ).bind(id)"],
 ];
 const srcs = { "staff.ts": readFileSync(join(root, "worker/src/staff.ts"), "utf8"), "commission.ts": readFileSync(join(root, "worker/src/commission.ts"), "utf8") };
-for (const [file, name, from, to] of MUT) {
+for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
   if (!srcs[file].includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
   const mdir = mkdtempSync(join(tmpdir(), "commflow-m-"));
@@ -283,4 +284,4 @@ for (const [file, name, from, to] of MUT) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`commission-flow: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`commission-flow: ${n} checks passed (${MUT.length} mutations caught) - invoices to payroll, once; the CCO reviews only; products only when listed; leavers settled`);
+console.log(`commission-flow: ${n} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - invoices to payroll, once; the CCO reviews only; products only when listed; leavers settled`);
