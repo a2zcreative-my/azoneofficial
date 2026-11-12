@@ -46,7 +46,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { StageTimeline, type Stage } from "@/components/ui/stage-timeline";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
-import { AmountSummary, Cell, ReceiptPreview, ReviewChip, SettlementChip, actionFor, isPendingState, reviewOf, settlementOf, type MainAction } from "@/components/portal/payment-parts";
+import { AmountSummary, Cell, ReceiptPreview, ReviewChip, SettlementChip, actionFor, isPendingState, reviewOf, settlementOf, type MainAction, type PayActor } from "@/components/portal/payment-parts";
 import css from "./payments-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -62,7 +62,7 @@ interface Rep {
   decided_name?: string | null; bank_name?: string | null; verify_method?: string | null; dup_reason?: string | null; reverse_reason?: string | null;
 }
 interface OpenInv {
-  id: number; doc_number: string; total_cents: number; customer: string | null; salesperson: string | null; company: string; created_at?: string;
+  id: number; doc_number: string; total_cents: number; customer: string | null; salesperson: string | null; salesperson_id?: number | null; company: string; created_at?: string;
   verified_cents: number; pending_cents: number; outstanding_cents: number; status: string; can_report: boolean;
 }
 interface Data {
@@ -71,7 +71,7 @@ interface Data {
 }
 interface Ev { id: number; invoice_id?: number; report_id: number | null; event: string; amount_cents: number | null; detail: string | null; created_at: string; actor: string | null; doc_number?: string | null }
 interface Picture {
-  invoice: { id: number; doc_number: string; customer: string | null; total_cents: number; payment_status: string | null; company: string; company_name: string };
+  invoice: { id: number; doc_number: string; customer: string | null; total_cents: number; payment_status: string | null; company: string; company_name: string; salesperson_id?: number | null; salesperson?: string | null };
   verified_cents: number; pending_cents: number; outstanding_cents: number; status: string; reports: Rep[]; events: Ev[]; can_report: boolean;
 }
 type Err = { error?: { message?: string; code?: string } };
@@ -92,6 +92,20 @@ const toCents = (s: string) => { const n = Number(s.replace(/,/g, "")); return N
 const msg = (r: { data: unknown }, fallback: string) => (r.data as Err | null)?.error?.message ?? fallback;
 /** the account printed on the invoice's letterhead - what the customer was told to pay into (lib/issuers.ts) */
 const letterhead = (company: string) => { const i = company === "a2z" ? A2Z_CREATIVE : AZ_ONE; return `${i.bank} (${i.bankHolder})`; };
+/** v1.285.0 - whose sale a verified payment was, as recorded when the CEO decided it */
+function saleWords(ev: Ev | undefined): string | null {
+  if (!ev?.detail) return null;
+  let d: Record<string, unknown> = {};
+  try { d = JSON.parse(ev.detail) as Record<string, unknown>; } catch { return null; }
+  if (d.own_sale === true) return L("the CEO's own sale", "jualan CEO sendiri");
+  if (typeof d.own_sale === "boolean") return d.salesperson ? L(`on behalf of ${String(d.salesperson)}`, `bagi pihak ${String(d.salesperson)}`) : L("no salesperson recorded", "tiada jurujual direkod");
+  return null;
+}
+/** v1.285.0 - before the CEO clicks: whose sale this is */
+const saleBanner = (salespersonId: number | null | undefined, salesperson: string | null | undefined, userId: number) =>
+  salespersonId === userId ? L("This is your own sale.", "Ini jualan anda sendiri.")
+    : salesperson ? L(`This is ${salesperson}'s sale - you are marking it paid on their behalf.`, `Ini jualan ${salesperson} - anda menandanya dibayar bagi pihak mereka.`)
+    : L("No salesperson is recorded on this invoice.", "Tiada jurujual direkod pada invois ini.");
 const whoWord = (r: Rep) => `${r.reporter ?? "-"}${r.reporter_role && ROLE_WORD[r.reporter_role] ? ` · ${ROLE_WORD[r.reporter_role]}` : ""}${r.mine ? ` ${L("(you)", "(anda)")}` : ""}`;
 
 async function uploadProof(reportId: number, f: File): Promise<string | null> {
@@ -153,13 +167,15 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
 
   /* what is waiting for THIS person */
   const mineToAct = (r: Rep) =>
-    (data.can.verify && ((r.state === "reported" && !r.mine) || r.state === "evidence_checked"))
+    (data.can.verify && (r.state === "reported" || r.state === "evidence_checked"))
     || (data.can.evidence && r.state === "reported" && !r.mine && r.needs_evidence)
     || (r.mine && r.state === "clarify");
   const reviewableInv = (invId: number) => pendingReps.some((r) => r.invoice_id === invId && mineToAct(r));
   const awaitingIndep = pendingReps.filter((r) => reviewOf(r) === "awaiting_independent").length;
   const canReportNow = data.on && data.can.report;
-  const act = (i: OpenInv): MainAction => actionFor({ ...i, can_report: canReportNow && i.can_report }, reviewableInv(i.id));
+  /* v1.285.0 - the owner's Paid is final; the COO and CCO request it */
+  const who: PayActor = data.can.verify ? "owner" : data.can.all ? "exec" : "staff";
+  const act = (i: OpenInv): MainAction => actionFor({ ...i, can_report: canReportNow && i.can_report }, reviewableInv(i.id), who);
   const runAct = (i: OpenInv, a: MainAction) => (a.kind === "report" || a.kind === "report_remaining" ? setRecordFor(i) : setOpenInv(i.id));
 
   const needsLabel = data.can.verify ? L("Needs My Verification", "Perlu Pengesahan Saya") : L("Waiting for review", "Menunggu semakan");
@@ -359,7 +375,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
 
       {tab === "audit" && <AuditTrail onOpen={(id) => setOpenInv(id)} />}
 
-      {sheetFor && <RecordSheet inv={sheetFor === "pick" ? null : sheetFor} invoices={data.invoices.filter((i) => i.can_report && canReportNow)}
+      {sheetFor && <RecordSheet inv={sheetFor === "pick" ? null : sheetFor} invoices={data.invoices.filter((i) => i.can_report && canReportNow)} who={who} banks={data.banks} userId={userId}
         onClose={() => { setRecordFor(null); onRecordOpened?.(); }}
         onDone={(m) => { setRecordFor(null); onRecordOpened?.(); toast(L("Saved", "Disimpan"), m); reload(); }}
         onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
@@ -443,10 +459,13 @@ function PolicySheet({ data, pending, onClose, onDone, onFail }: { data: Data; p
 }
 
 /** Report payment: Details, Proof, Review - one sheet, three steps. */
-function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone, onFail }: {
+function RecordSheet({ inv: fixed, invoices, additional = false, who = "staff", banks = [], userId = 0, onClose, onDone, onFail }: {
   inv: OpenInv | null; invoices: OpenInv[]; additional?: boolean;
+  /** v1.285.0 - "owner": the CEO's Mark paid is final (report, then his own verify, in one go) */
+  who?: PayActor; banks?: Bank[]; userId?: number;
   onClose: () => void; onDone: (m: string) => void; onFail: (m: string) => void;
 }) {
+  const owner = who === "owner";
   const [pick, setPick] = useState<number | "">(fixed?.id ?? "");
   const inv = fixed ?? invoices.find((i) => i.id === pick) ?? null;
   const left = inv ? Math.max(0, inv.outstanding_cents - inv.pending_cents) : 0;
@@ -460,8 +479,13 @@ function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone
   const [file, setFile] = useState<File | null>(null);
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const companyBanks = inv ? banks.filter((b) => b.company === inv.company) : [];
+  const [bank, setBank] = useState<number | "">(companyBanks.length === 1 ? companyBanks[0]!.id : "");
+  const [vm, setVm] = useState("bank_statement");
+  const [code, setCode] = useState("");
   const cents = toCents(amount);
-  const detailsOk = !!inv && cents > 0 && !!on && (method === "cash" || ref.trim().length >= 3) && (!extra || sure);
+  const detailsOk = !!inv && cents > 0 && !!on && (method === "cash" || ref.trim().length >= 3) && (!extra || sure) && (!owner || bank !== "");
+  const full = !!inv && cents >= left && left > 0;
   const send = async () => {
     if (!inv) return;
     setBusy(true);
@@ -470,6 +494,16 @@ function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone
     });
     if (!r.ok || !r.data?.id) { setBusy(false); onFail(msg(r, L("Not reported - try again", "Tidak dilapor - cuba lagi"))); return; }
     const bad = file ? await uploadProof(r.data.id, file) : null;
+    if (owner) {
+      /* v1.285.0 - the CEO's own payment: he verifies it himself, now; nobody else checks it */
+      const v = await api<Err & { invoice_paid?: boolean }>(`/staff/payment-reports/${r.data.id}/verify`, {
+        method: "POST", body: JSON.stringify({ bank_id: bank === "" ? null : bank, verify_method: vm, amount_cents: Math.min(cents, inv.outstanding_cents), totp: code }),
+      });
+      setBusy(false); setCode("");
+      if (!v.ok) { onFail(L(`Recorded, but not marked paid: ${msg(v, "try again")} Open the invoice to finish.`, `Direkod, tetapi belum ditanda dibayar: ${msg(v, "cuba lagi")} Buka invois untuk selesaikan.`)); onDone(L("Payment recorded", "Bayaran direkod")); return; }
+      onDone(v.data?.invoice_paid ? L(`${inv.doc_number} marked paid`, `${inv.doc_number} ditanda dibayar`) : L("Payment recorded as received", "Bayaran direkod sebagai diterima"));
+      return;
+    }
     setBusy(false);
     if (bad) { onFail(L(`Reported, but the proof failed: ${bad} Open the invoice to attach it again.`, `Dilapor, tetapi bukti gagal: ${bad} Buka invois untuk melampirkannya semula.`)); onDone(L("Payment reported", "Bayaran dilapor")); return; }
     onDone(r.data.possible_duplicate
@@ -479,14 +513,18 @@ function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone
   const STEPS: [1 | 2 | 3, string][] = [[1, L("Details", "Butiran")], [2, L("Proof", "Bukti")], [3, L("Review", "Semak")]];
   return (
     <SideDrawer open onClose={onClose} full dirty={!!ref.trim() || !!file || !!note.trim()}
-      title={inv ? L(`Report payment - ${inv.doc_number}`, `Lapor bayaran - ${inv.doc_number}`) : L("Report payment", "Lapor bayaran")}
+      title={owner ? (inv ? L(`Mark paid - ${inv.doc_number}`, `Tanda dibayar - ${inv.doc_number}`) : L("Mark paid", "Tanda dibayar"))
+        : who === "exec" ? (inv ? L(`Request paid - ${inv.doc_number}`, `Mohon tanda dibayar - ${inv.doc_number}`) : L("Request paid", "Mohon tanda dibayar"))
+        : inv ? L(`Report payment - ${inv.doc_number}`, `Lapor bayaran - ${inv.doc_number}`) : L("Report payment", "Lapor bayaran")}
       subtitle={inv ? L(`${inv.customer ?? ""} · outstanding ${fmtRM(inv.outstanding_cents)}${inv.pending_cents ? ` · ${fmtRM(inv.pending_cents)} pending` : ""}`, `${inv.customer ?? ""} · baki ${fmtRM(inv.outstanding_cents)}${inv.pending_cents ? ` · ${fmtRM(inv.pending_cents)} tertunda` : ""}`) : undefined}
       footer={<div className={css.foot}>
         {step === 1 ? <button type="button" className={btnSmQuiet} onClick={onClose}>{L("Cancel", "Batal")}</button>
           : <button type="button" className={btnSmQuiet} onClick={() => setStep((s) => (s - 1) as 1 | 2)}>{L("Back", "Kembali")}</button>}
         {step === 1 && <button type="button" className={css.btnGold} disabled={!detailsOk} onClick={() => setStep(2)}>{L("Next: proof", "Seterusnya: bukti")}</button>}
-        {step === 2 && <button type="button" className={css.btnGold} disabled={!file} onClick={() => setStep(3)}>{L("Next: review", "Seterusnya: semak")}</button>}
-        {step === 3 && <button type="button" className={css.btnGold} disabled={busy || !detailsOk || !file} onClick={() => void send()}>{busy ? L("Sending…", "Menghantar…") : L("Report payment", "Lapor bayaran")}</button>}
+        {step === 2 && <button type="button" className={css.btnGold} disabled={!file && !owner} onClick={() => setStep(3)}>{owner && !file ? L("Next: review (no proof)", "Seterusnya: semak (tanpa bukti)") : L("Next: review", "Seterusnya: semak")}</button>}
+        {step === 3 && <button type="button" className={css.btnGold} data-testid="record-send" disabled={busy || !detailsOk || (!file && !owner) || (owner && code.length !== 6)} onClick={() => void send()}>
+          {busy ? L("Sending…", "Menghantar…") : owner ? (full ? L("Mark paid", "Tanda dibayar") : L("Record as received", "Rekod sebagai diterima")) : who === "exec" && full ? L("Request paid", "Mohon tanda dibayar") : L("Report payment", "Lapor bayaran")}
+        </button>}
       </div>}>
       <ol className={css.steps} aria-label={L("Steps", "Langkah")}>
         {STEPS.map(([n, w]) => <li key={n} className={step === n ? css.stepOn : step > n ? css.stepDone : undefined} aria-current={step === n ? "step" : undefined}><span>{n}</span>{w}</li>)}
@@ -514,11 +552,25 @@ function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone
           <label className={css.field}>{L("Method", "Kaedah")}<select className={selectClassSm} value={method} onChange={(e) => setMethod(e.target.value)}>{METHODS.map(([k, en, ms]) => <option key={k} value={k}>{L(en, ms)}</option>)}</select></label>
           <label className={css.field}>{method === "cash" ? L("Receipt number (optional)", "Nombor resit (pilihan)") : L("Bank or payment reference", "Rujukan bank atau bayaran")}<input className={inputClassSm} value={ref} maxLength={60} onChange={(e) => setRef(e.target.value)} placeholder={L("As printed on the bank slip", "Seperti dicetak pada slip bank")} /></label>
           {inv && <p className={css.note}><AppIcon name="info" />{L("Customer was told to pay into", "Pelanggan diminta membayar ke")} {letterhead(inv.company)}.</p>}
+          {owner && inv && (<>
+            <label className={css.field}>{L("Received in account", "Diterima dalam akaun")}
+              <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value ? Number(e.target.value) : "")}>
+                <option value="">{L("Choose the account", "Pilih akaun")}</option>
+                {banks.map((b) => <option key={b.id} value={b.id} disabled={b.company !== inv.company}>{b.name} {b.number_masked} {b.company ? `(${COMPANY[b.company] ?? b.company})` : L("(no company yet)", "(tiada syarikat lagi)")}</option>)}
+              </select>
+            </label>
+            <label className={css.field}>{L("Where you saw the money", "Di mana anda melihat wang")}
+              <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
+                <option value="bank_statement">{L("Bank statement", "Penyata bank")}</option>
+                <option value="bank_app">{L("Bank app / online banking", "Aplikasi bank / perbankan dalam talian")}</option>
+              </select>
+            </label>
+          </>)}
         </div>
       )}
       {step === 2 && (
         <div className={css.formCol}>
-          <label className={css.field}>{L("Proof (transfer slip, receipt) - PDF, JPEG or PNG", "Bukti (slip pindahan, resit) - PDF, JPEG atau PNG")}<input className={inputClassSm} type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
+          <label className={css.field}>{owner ? L("Proof (optional for you) - PDF, JPEG or PNG", "Bukti (pilihan untuk anda) - PDF, JPEG atau PNG") : L("Proof (transfer slip, receipt) - PDF, JPEG or PNG", "Bukti (slip pindahan, resit) - PDF, JPEG atau PNG")}<input className={inputClassSm} type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></label>
           {file && <p className={css.sub}>{file.name}</p>}
           <label className={css.field}>{L("Remarks (optional)", "Catatan (pilihan)")}<textarea className={textareaClass} rows={2} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} /></label>
         </div>
@@ -532,8 +584,19 @@ function RecordSheet({ inv: fixed, invoices, additional = false, onClose, onDone
             <div><dt>{L("Method", "Kaedah")}</dt><dd>{methodWord(method)}</dd></div>
             {ref.trim() && <div><dt>{L("Reference", "Rujukan")}</dt><dd>{ref.trim()}</dd></div>}
             <div><dt>{L("Proof", "Bukti")}</dt><dd>{file?.name ?? "-"}</dd></div>
+            {owner && <div><dt>{L("Received in", "Diterima dalam")}</dt><dd>{banks.find((b) => b.id === bank)?.name ?? "-"}</dd></div>}
           </dl>
-          <p className="erp-note">{L("This reports the payment. It is not counted as received, and the invoice stays unpaid, until the CEO verifies it.", "Ini melaporkan bayaran. Ia tidak dikira diterima, dan invois kekal belum dibayar, sehingga CEO mengesahkannya.")}</p>
+          {owner ? (<>
+            <p className="erp-note" data-testid="sale-banner"><b>{saleBanner(inv.salesperson_id, inv.salesperson, userId)}</b></p>
+            <p className="erp-note">{full
+              ? L(`Your Paid is final: ${inv.doc_number} turns Paid now. Cash is booked once and commission follows the existing rules. The COO and CCO are told, for the record.`, `Tanda dibayar anda muktamad: ${inv.doc_number} menjadi Dibayar sekarang. Tunai dibukukan sekali dan komisen mengikut peraturan sedia ada. COO dan CCO dimaklumkan, untuk rekod.`)
+              : L(`This records ${fmtRM(Math.min(cents, inv.outstanding_cents))} as received now; ${inv.doc_number} stays partly paid until the rest arrives.`, `Ini merekod ${fmtRM(Math.min(cents, inv.outstanding_cents))} sebagai diterima sekarang; ${inv.doc_number} kekal dibayar sebahagian sehingga baki diterima.`)}</p>
+            <label className={css.field}>{L("Authenticator code", "Kod pengesah")}<input className={inputClassSm} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label>
+          </>) : (
+            <p className="erp-note">{who === "exec" && full
+              ? L("This requests Paid. The invoice turns Paid only when the CEO verifies it; until then it is not counted as received.", "Ini memohon tanda Dibayar. Invois menjadi Dibayar hanya apabila CEO mengesahkannya; sehingga itu ia tidak dikira diterima.")
+              : L("This reports the payment. It is not counted as received, and the invoice stays unpaid, until the CEO verifies it.", "Ini melaporkan bayaran. Ia tidak dikira diterima, dan invois kekal belum dibayar, sehingga CEO mengesahkannya.")}</p>
+          )}
         </div>
       )}
     </SideDrawer>
@@ -615,7 +678,8 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
      Verify (gold) only where the 1.272 rule allows it; on the reporter's
      own report the foot says what it waits for instead (D2) */
   const isPending = (r: Rep) => ["reported", "evidence_checked"].includes(r.state);
-  const mayVerify = (r: Rep) => data.can.verify && isPending(r) && (r.reported_by !== userId || (r.state === "evidence_checked" && r.evidence_by !== userId));
+  /* v1.285.0 - the CEO verifies any waiting payment, his own included: nobody else checks his */
+  const mayVerify = (r: Rep) => data.can.verify && isPending(r);
   const lead = pic && data.can.verify ? pic.reports.find((r) => isPending(r)) ?? null : null;
   const evLead = pic && data.can.evidence && !lead ? pic.reports.find((r) => r.state === "reported" && r.reported_by !== userId && r.needs_evidence) ?? null : null;
 
@@ -626,7 +690,7 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
     const note = (d.reason ?? d.question ?? d.answer ?? d.note) as string | undefined;
     return {
       key: String(e.id), state: e.event === "rejected" ? "rejected" : e.event === "reversed" ? "returned" : "done",
-      title: `${L(...w)}${e.amount_cents ? ` · ${fmtRM(e.amount_cents)}` : ""}`,
+      title: `${L(...w)}${e.amount_cents ? ` · ${fmtRM(e.amount_cents)}` : ""}${e.event === "verified" && saleWords(e) ? ` · ${saleWords(e)}` : ""}`,
       sub: `${e.actor ?? L("System", "Sistem")} · ${dmyMYT(e.created_at)}`,
       note: note ? String(note) : undefined,
     };
@@ -681,7 +745,8 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
           {pic.reports.length === 0 && <p className={css.empty}>{L("No payment reported yet.", "Belum ada bayaran dilapor.")}</p>}
           {pic.reports.map((r) => {
             const pending = ["reported", "evidence_checked"].includes(r.state);
-            const canVerify = data.can.verify && pending && (r.reported_by !== userId || (r.state === "evidence_checked" && r.evidence_by !== userId));
+            const canVerify = data.can.verify && pending;
+            const verifiedEv = pic.events.find((e) => e.report_id === r.id && e.event === "verified");
             const canEvidence = data.can.evidence && r.state === "reported" && r.reported_by !== userId && r.needs_evidence;
             const rv = reviewOf(r);
             return (
@@ -700,7 +765,11 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
                   {r.bank_name && <div><dt>{L("Received in", "Diterima dalam")}</dt><dd>{r.bank_name}</dd></div>}
                 </dl>
                 {r.note && <p className={`${css.sub} ${css.lines}`}>{r.note}</p>}
-                {r.has_proof ? <ReceiptPreview reportId={r.id} /> : <p className="erp-note erp-note-warning">{L("No proof attached yet - it cannot be verified without one.", "Tiada bukti dilampirkan - ia tidak boleh disahkan tanpanya.")}</p>}
+                {r.has_proof ? <ReceiptPreview reportId={r.id} /> : r.mine && data.can.verify
+                  ? <p className={css.sub}>{L("No proof attached - optional for your own payment.", "Tiada bukti dilampirkan - pilihan untuk bayaran anda sendiri.")}</p>
+                  : r.state === "verified" ? <p className={css.sub}>{L("No proof attached.", "Tiada bukti dilampirkan.")}</p>
+                  : <p className="erp-note erp-note-warning">{L("No proof attached yet - it cannot be verified without one.", "Tiada bukti dilampirkan - ia tidak boleh disahkan tanpanya.")}</p>}
+                {canVerify && r.mine && <p className="erp-note" data-testid="own-sale-banner"><b>{saleBanner(pic.invoice.salesperson_id, pic.invoice.salesperson, userId)}</b></p>}
                 {rv === "awaiting_independent" && (
                   <div className={css.evid} data-testid="evidence-waiting">
                     <AppIcon name="verify" />
@@ -714,6 +783,7 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
                 {r.dup_of !== null && <p className="erp-note erp-note-danger">{L("Possible duplicate: this reference was already used in this company.", "Mungkin pendua: rujukan ini telah digunakan dalam syarikat ini.")}{r.dup_reason ? ` ${L("Verified because:", "Disahkan kerana:")} ${r.dup_reason}` : ""}</p>}
                 {r.over_cents > 0 && <p className="erp-note erp-note-warning">{L(`Reported ${fmtRM(r.over_cents)} above the balance. At most the balance is verified; the rest is never applied to another invoice.`, `Dilapor ${fmtRM(r.over_cents)} melebihi baki. Paling banyak baki disahkan; selebihnya tidak digunakan untuk invois lain.`)}</p>}
                 {r.question && <p className="erp-note">{L("CEO's question:", "Soalan CEO:")} {r.question}{r.answer ? ` - ${L("Answer:", "Jawapan:")} ${r.answer}` : ""}</p>}
+                {r.state === "verified" && saleWords(verifiedEv) && <p className={css.sub} data-testid="sale-words"><b>{r.mine ? L("Marked paid by you", "Ditanda dibayar oleh anda") : L("Verified", "Disahkan")} · {saleWords(verifiedEv)}</b></p>}
                 {r.state === "verified" && <p className={css.sub}>{L("Verified", "Disahkan")} {fmtRM(r.verified_cents ?? 0)} {L("by", "oleh")} {r.decided_name ?? "-"} · {r.bank_name ?? ""} · {r.verify_method === "receipt_only" ? L("checked on the receipt only", "disemak pada resit sahaja") : r.verify_method === "bank_app" ? L("checked in the bank app", "disemak dalam aplikasi bank") : L("checked on the bank statement", "disemak pada penyata bank")}</p>}
                 {r.reason && <p className="erp-note erp-note-danger">{L("Reason:", "Sebab:")} {r.reason}</p>}
                 {r.reverse_reason && <p className="erp-note erp-note-warning">{L("Reversed:", "Dibatalkan:")} {r.reverse_reason}</p>}

@@ -65,9 +65,9 @@ with sync_playwright() as p:
     ctx.close()
     ctx, pg, errs = page(b, 4266, 1440, 900)
     need = pg.get_by_test_id("needs-action")
-    # v1.282.0 (Payment Verification 3.0) - one action per invoice: RM 3,000 verified, nothing pending -> Report remaining payment
-    rec = need.locator("tbody tr").filter(has_text="INV-AZO050926-3").get_by_role("button", name="Report remaining payment")
-    check("an unpaid invoice Payments holds offers Report remaining payment (the COO, verification on)", rec.count() == 1, [r.inner_text() for r in need.locator("tbody tr").all()])
+    # v1.285.0 (the CEO, 12-11-2026) - the COO's button requests Paid; the CEO verifies it
+    rec = need.locator("tbody tr").filter(has_text="INV-AZO050926-3").get_by_role("button", name="Request paid")
+    check("an unpaid invoice Payments holds offers Request paid (the COO, verification on)", rec.count() == 1, [r.inner_text() for r in need.locator("tbody tr").all()])
     rec.click(); pg.wait_for_timeout(1500)
     dlg = pg.get_by_role("dialog").last
     check("...which opens Payments with that invoice's report sheet", tab(pg, "Payments").get_attribute("aria-selected") == "true" and dlg.count() == 1 and "INV-AZO050926-3" in dlg.inner_text(), dlg.inner_text()[:200] if dlg.count() else "none")
@@ -105,7 +105,7 @@ with sync_playwright() as p:
     check("a salesperson is not shown the CEO's payment queue tile", "Reported, not verified" not in tiles, tiles)
     check("...nor the company's week", pg.get_by_test_id("sales-performance").count() == 0)
     need = pg.get_by_test_id("needs-action")
-    check("...and their invoices offer Open, never Report payment (the invoice_payment roles only)", need.get_by_role("button", name="Report payment").count() == 0 and need.get_by_role("button", name="Report remaining payment").count() == 0)
+    check("...and their invoices offer Open, never Report payment (the invoice_payment roles only)", need.get_by_role("button", name="Report payment").count() == 0 and need.get_by_role("button", name="Report remaining payment").count() == 0 and need.get_by_role("button", name="Mark paid").count() == 0 and need.get_by_role("button", name="Request paid").count() == 0)
     check("no page errors (salesperson)", not errs, errs)
     ctx.close()
 
@@ -113,7 +113,7 @@ with sync_playwright() as p:
     ctx, pg, errs = page(b, 4267, 1440, 900)
     tiles = pg.evaluate(TILES_JS)
     check("verification off: the tile says Collected, not Verified", tiles[:1] == ["Collected"] and "Reported, not verified" not in tiles, tiles)
-    check("...and a row offers Open, not Report payment", pg.get_by_test_id("needs-action").get_by_role("button", name="Report payment").count() == 0 and pg.get_by_test_id("needs-action").get_by_role("button", name="Report remaining payment").count() == 0)
+    check("...and a row offers Open, not Report payment", pg.get_by_test_id("needs-action").get_by_role("button", name="Report payment").count() == 0 and pg.get_by_test_id("needs-action").get_by_role("button", name="Report remaining payment").count() == 0 and pg.get_by_test_id("needs-action").get_by_role("button", name="Request paid").count() == 0)
     check("no page errors (COO)", not errs, errs)
     ctx.close()
     b.close()

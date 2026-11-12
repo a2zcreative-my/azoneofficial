@@ -49,16 +49,16 @@ with sync_playwright() as p:
         paid = row(pg, "INV-AZO100926-2")
         check(f"{tag}: ...a paid invoice says Paid", "Paid" in paid.inner_text() and paid.locator("select").count() == 0)
         btn = r.get_by_test_id("pv-record")
-        # v1.282.0 (Payment Verification 3.0) - RM 3,000 of RM 9,900 verified, nothing pending: Report remaining payment
-        check(f"{tag}: ...and offers Report remaining payment", btn.count() == 1 and btn.inner_text().strip() == "Report remaining payment", btn.inner_text() if btn.count() else "none")
+        # v1.285.0 (the CEO, 12-11-2026) - the COO clicks Paid: it requests Paid, and the CEO verifies it
+        check(f"{tag}: ...and offers Request paid", btn.count() == 1 and btn.inner_text().strip() == "Request paid", btn.inner_text() if btn.count() else "none")
         btn.scroll_into_view_if_needed(); btn.click(); pg.wait_for_timeout(1500)
         dlg = pg.get_by_role("dialog").last
-        check(f"{tag}: Report remaining payment opens Payments with that invoice's sheet",
-              pg.get_by_role("tab", name="Payments", exact=True).first.get_attribute("aria-selected") == "true" and dlg.count() == 1 and "Report payment - INV-AZO050926-3" in dlg.inner_text(),
+        check(f"{tag}: Request paid opens Payments with that invoice's sheet",
+              pg.get_by_role("tab", name="Payments", exact=True).first.get_attribute("aria-selected") == "true" and dlg.count() == 1 and "Request paid - INV-AZO050926-3" in dlg.inner_text(),
               dlg.inner_text()[:200] if dlg.count() else "no dialog")
         check(f"{tag}: ...the sheet still asks for the reference (then the proof) before it moves on (the 1.272.0 rules)", dlg.get_by_role("button", name="Next: proof").count() == 1 and dlg.get_by_role("button", name="Next: proof").is_disabled())
         dlg.get_by_role("button", name="Close").first.click(); pg.wait_for_timeout(500)
-        check(f"{tag}: ...and closes", pg.get_by_role("dialog").filter(has_text="Report payment - INV-AZO050926-3").count() == 0)
+        check(f"{tag}: ...and closes", pg.get_by_role("dialog").filter(has_text="Request paid - INV-AZO050926-3").count() == 0)
         check(f"{tag}: no sideways page", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
         check(f"{tag}: no page errors (on)", not errs, errs)
         ctx.close()

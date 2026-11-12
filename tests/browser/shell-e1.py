@@ -8,7 +8,8 @@ Here, in a browser:
   Sales, Ecommerce, Agents; OPERATIONS Projects, Tasks, Inventory; PEOPLE
   HR, Attendance, Leave, Claims, Payroll; FINANCE Finance, Accounting,
   Commission; More; the name card;
-  More holds the CEO's other tabs and opens; a tab inside More keeps it open;
+  More holds the CEO's other tabs (v1.284.0: Financial Advisory first, after
+  Agents in the registry) and opens; a tab inside More keeps it open;
   the current tab is a gold pill with navy ink at AA contrast;
   Projects opens Tasks on its Projects tab and Tasks is the current item;
   a salesperson's rail shows only what they may open, and More only theirs;
@@ -63,8 +64,8 @@ with sync_playwright() as p:
     more.click(); pg.wait_for_timeout(300)
     inmore = [t.strip() for t in pg.locator("#rail-more button").all_inner_texts()]
     check("More holds the CEO's other tabs - ELFIA, the people pages, Companies, Users - in the registry's order",
-          inmore[:2] == ["Assets", "Hotels"] and {"ELFIA Store", "ELFIA Traffic", "On Shift", "News", "Staff", "Companies", "Users"} <= set(inmore) and "Cards" not in inmore and "Profile" not in inmore, inmore)
-    check("every tab is reachable from the rail: the photo's, More's and the name card's", len(set(inmore)) + 15 + 2 >= 26, len(inmore))
+          inmore[:3] == ["Financial Advisory", "Assets", "Hotels"] and {"ELFIA Store", "ELFIA Traffic", "On Shift", "News", "Staff", "Companies", "Users"} <= set(inmore) and "Cards" not in inmore and "Profile" not in inmore, inmore)
+    check("every tab is reachable from the rail: the photo's, More's and the name card's", len(set(inmore)) + 15 + 2 >= 27, len(inmore))
     pg.locator("#rail-more").get_by_role("button", name="Users", exact=True).click(); pg.wait_for_timeout(1500)
     check("a tab inside More opens and keeps More open, as the current item", pg.locator("#rail-more .erp-rail-item[aria-current=page]").inner_text().strip() == "Users"
           and more.get_attribute("aria-expanded") == "true")

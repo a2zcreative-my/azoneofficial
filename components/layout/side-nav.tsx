@@ -84,7 +84,7 @@ export interface AccountAction {
    access, same URLs. */
 export const SECTIONS: { title: string; tabs: string[] }[] = [
   { title: "Home", tabs: ["Dashboard", "Desk"] },
-  { title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents"] },
+  { title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents", "Financial Advisory"] },
   { title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
   { title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
   { title: "People", tabs: ["HR", "Attendance", "On Shift", "Announcements", "Staff Details", "Leave", "Claims", "Payroll"] },

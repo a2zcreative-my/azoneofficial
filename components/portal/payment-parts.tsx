@@ -72,12 +72,21 @@ export function ReviewChip({ r, testId }: { r: Review; testId?: string }) {
 export type MainAction = { kind: "report" | "report_remaining" | "view_pending" | "review" | "none"; label: string };
 /** The invoice's one main button (brief section 7). `reviewable` = a pending
     report on it is one THIS person may decide or check now. */
-export function actionFor(i: { total_cents: number; verified_cents: number; pending_cents: number; can_report: boolean }, reviewable = false): MainAction {
+/* v1.285.0 (the CEO, 12-11-2026) - who is clicking decides the words, never
+   the rule: the owner's "Mark paid" is final; the COO and CCO "Request paid"
+   (it waits for the CEO); everyone else reports a payment. */
+export type PayActor = "owner" | "exec" | "staff";
+/** the verified company owner (is_owner from the session); the other executives; everyone else */
+export const payActorOf = (u: { role: string; is_owner?: boolean }): PayActor =>
+  u.role === "ceo" && u.is_owner === true ? "owner" : ["ceo", "coo", "cco"].includes(u.role) ? "exec" : "staff";
+export function actionFor(i: { total_cents: number; verified_cents: number; pending_cents: number; can_report: boolean }, reviewable = false, who: PayActor = "staff"): MainAction {
   const outstanding = Math.max(0, i.total_cents - i.verified_cents);
   if (outstanding === 0) return { kind: "none", label: "" };
   if (i.pending_cents > 0 && reviewable) return { kind: "review", label: L("Review payment", "Semak bayaran") };
   if (i.pending_cents >= outstanding) return { kind: "view_pending", label: L("View pending payment", "Lihat bayaran tertunda") };
   if (i.can_report) {
+    if (who === "owner") return { kind: i.verified_cents > 0 || i.pending_cents > 0 ? "report_remaining" : "report", label: L("Mark paid", "Tanda dibayar") };
+    if (who === "exec") return { kind: i.verified_cents > 0 || i.pending_cents > 0 ? "report_remaining" : "report", label: L("Request paid", "Mohon tanda dibayar") };
     return i.verified_cents > 0 || i.pending_cents > 0
       ? { kind: "report_remaining", label: L("Report remaining payment", "Lapor baki bayaran") }
       : { kind: "report", label: L("Report payment", "Lapor bayaran") };
@@ -86,13 +95,13 @@ export function actionFor(i: { total_cents: number; verified_cents: number; pend
 }
 
 /** The invoice's one action as a button - the Sales documents list's row (v1.282.0). */
-export function InvoicePayAction({ inv, className, onReport, onView }: { inv: Parameters<typeof actionFor>[0]; className: string; onReport: () => void; onView: () => void }) {
-  const a = actionFor(inv);
+export function InvoicePayAction({ inv, className, onReport, onView, who = "staff" }: { inv: Parameters<typeof actionFor>[0]; className: string; onReport: () => void; onView: () => void; who?: PayActor }) {
+  const a = actionFor(inv, false, who);
   if (a.kind === "none") return null;
   const report = a.kind === "report" || a.kind === "report_remaining";
   return (
     <button type="button" className={className} data-testid="pv-record" data-kind={a.kind} onClick={report ? onReport : onView}
-      title={report ? L("Payments are verified by the CEO: report this payment with its proof", "Bayaran disahkan oleh CEO: lapor bayaran ini dengan buktinya") : undefined}>
+      title={report ? (who === "owner" ? L("Your Paid is final", "Tanda dibayar anda adalah muktamad") : L("Payments are verified by the CEO: report this payment with its proof", "Bayaran disahkan oleh CEO: lapor bayaran ini dengan buktinya")) : undefined}>
       {a.label}
     </button>
   );

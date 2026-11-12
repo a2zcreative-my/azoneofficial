@@ -94,6 +94,7 @@ async function runtime(workerBundle) {
   doc(101, "INV", 120000, 9); doc(102, "INV", 50000, 9); doc(103, "INV", 80000, 15); doc(104, "INV", 30000, 6, "azoo");
   doc(105, "INV", 100000, 1); doc(107, "INV", 20000, 9); doc(108, "INV", 10000, 9); doc(109, "INV", 40000, 9); doc(110, "INV", 50000, 9);
   doc(111, "INV", 20000, 9); doc(112, "INV", 10000, 9); // v1.283.0 - B1 and B2 (failure injection)
+  doc(113, "INV", 30000, 9); // v1.285.0 - the CEO marks a salesperson's invoice paid on her behalf
   /* an agent deal: quotation 206, the agent's won request assigned to Aina, the client's acceptance, invoice 106 */
   doc(206, "QT", 100000, 9, "a2z", null, null, 6); doc(106, "INV", 100000, 9, "a2z", 206, "unpaid", 6);
   db.prepare(`INSERT INTO agent_requests (id, agent_id, client_name, status, assigned_to, quotation_id, published_doc_id, published_revision, created_at, submitted_at) VALUES (1, 21, 'Client 6', 'won', 9, 206, 206, 0, '2026-11-01 01:00:00', '2026-11-01 01:00:00')`).run();
@@ -151,7 +152,7 @@ async function runtime(workerBundle) {
        list no longer offers the refused Paid dropdown while verification is on, and a refusal says why */
     {
       const ui = readFileSync(join(root, "components/portal/sales.tsx"), "utf8");
-      ok(/canPay && pv\?\.on && d\.payment_status !== "void"/.test(ui) && /canPay && !pv\?\.on && d\.payment_status !== "void" && \(\s*<select/.test(ui),
+      ok(/paysByReport && pv\?\.on && d\.payment_status !== "void"/.test(ui) && /canPay && !pv\?\.on && d\.payment_status !== "void" && \(\s*<select/.test(ui),
         "while it is on, the Sales list shows the money state and Record payment instead of the Paid dropdown");
       ok(/r\.data\?\.error\?\.message \?\? L\(`\$\{d\.doc_number\} is unchanged/.test(ui), "a refused status change shows the server's reason, not only 'try again'");
     }
@@ -229,24 +230,43 @@ async function runtime(workerBundle) {
     const race = await Promise.all([verify(k2.j.id, { bank_id: 2 }), verify(k2.j.id, { bank_id: 2 })]);
     ok(race.every((x) => x.status === 200) && parts(104) === 15000 && n(`SELECT COUNT(*) AS n FROM invoice_payments WHERE invoice_id = 104 AND voided_at IS NULL`) === 2, "two verifications at the same moment record the payment once", race.map((x) => x.text.slice(0, 80)).join(" | "));
 
-    /* ---------- the CEO's own report: the COO checks the evidence first ---------- */
+    /* ---------- v1.285.0 - the CEO's own Paid is final (the CEO, 12-11-2026) ----------
+       "If I update the paid status, no further verification are required
+       since I am a CEO!" and "need to know that when I click paid it is
+       behalf of someone or it is belong to my own sales". The old P3 checks
+       (the COO's evidence check before the CEO's own report) are replaced by
+       these: the rule changed, by the owner's decision. */
     const o1 = await report(105, 1, 100000, "MBB 5555");
-    await proof(o1.j.id, 1);
-    ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 3 AND ref LIKE 'pay_evidence:%'`) === 1, "the COO is asked to check the evidence of the CEO's report");
-    const ov = await verify(o1.j.id);
-    ok(ov.status === 403 && ov.j?.error?.code === "self_approval" && state(o1.j.id) === "reported", "the CEO cannot verify his own report alone");
-    ok((await call(`/payment-reports/${o1.j.id}/evidence`, 9, "POST", { checked: true, note: "Looked at it", totp: code() })).status === 403, "a salesperson cannot check the evidence");
-    ok((await call(`/payment-reports/${o1.j.id}/evidence`, 3, "POST", { checked: true, note: "Seen in Maybank" })).status === 401, "the COO's check needs a fresh code");
-    const ev = await call(`/payment-reports/${o1.j.id}/evidence`, 3, "POST", { checked: true, note: "Seen in the Maybank statement", totp: code() });
-    ok(ev.status === 200 && state(o1.j.id) === "evidence_checked", "the COO checks the bank evidence", ev.text.slice(0, 200));
+    ok(o1.status === 201 && state(o1.j.id) === "reported", "the CEO reports his own sale's payment");
+    ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE ref LIKE 'pay_evidence:%'`) === 0 && n(`SELECT COUNT(*) AS n FROM notifications WHERE ref LIKE 'pay_report:${o1.j.id}:%'`) === 0, "nobody is asked to check or verify the CEO's own payment");
+    const evNo = await call(`/payment-reports/${o1.j.id}/evidence`, 3, "POST", { checked: true, note: "Seen in Maybank", totp: code() });
+    ok(evNo.status === 409 && evNo.j?.error?.code === "not_needed" && state(o1.j.id) === "reported", "no COO evidence check exists any more", evNo.text.slice(0, 120));
+    const second = await call(`/payment-reports/${o1.j.id}/verify`, 12, "POST", { bank_id: 1, verify_method: "bank_statement", totp: code() });
+    ok(second.status === 403 && state(o1.j.id) === "reported" && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'auth.payment_verify_refused' AND user_id = 12`) === 1, "a second CEO-role account that is not the owner cannot verify (audited)", second.text.slice(0, 120));
+    ok((await call(`/payment-reports/${o1.j.id}/verify`, 3, "POST", { bank_id: 1, verify_method: "bank_statement", totp: code() })).status === 403, "the COO cannot verify");
+    ok((await call(`/payment-reports/${o1.j.id}/verify`, 6, "POST", { bank_id: 1, verify_method: "bank_statement", totp: code() })).status === 403, "the CCO cannot verify");
+    ok((await call(`/payment-reports/${o1.j.id}/verify`, 1, "POST", { bank_id: 1, verify_method: "bank_statement" })).status === 401 && state(o1.j.id) === "reported", "the CEO still confirms with his authenticator code");
     const ov2 = await verify(o1.j.id);
-    ok(ov2.status === 200 && inv(105).payment_status === "paid", "then the CEO verifies it");
-    ok(/"evidence_by":3/.test(db.prepare(`SELECT detail FROM audit_log WHERE action = 'payment.verified' AND entity_id = ?`).get(String(o1.j.id))?.detail ?? ""), "the verification audit names who checked the evidence");
+    ok(ov2.status === 200 && inv(105).payment_status === "paid" && parts(105) === 100000 && cashRows(105) === 1, "the CEO's own Paid is final at once - no second person, proof optional", ov2.text.slice(0, 200));
+    const ownEv = JSON.parse(db.prepare(`SELECT detail FROM invoice_payment_events WHERE event = 'verified' AND report_id = ?`).get(o1.j.id)?.detail ?? "{}");
+    ok(ownEv.own_sale === true && ownEv.ceo_marked === true && ownEv.has_proof === false, "the record says it is the CEO's own sale", JSON.stringify(ownEv));
+    ok(n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'payment.ceo_marked_paid' AND entity_id = ?`, String(o1.j.id)) === 1, "...audited as the CEO marking it paid");
+    ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE ref LIKE 'pay_ceo_rec:${o1.j.id}:%' AND user_id IN (3, 6) AND message LIKE '%his own sale%'`) === 2, "the COO and CCO are told, for the record: his own sale");
 
+    /* on behalf of a salesperson: Aina's invoice, the CEO marks it paid himself */
+    const o2 = await report(113, 1, 30000, "MBB 1313");
+    const ob = await verify(o2.j.id);
+    ok(ob.status === 200 && inv(113).payment_status === "paid", "the CEO marks Aina's invoice paid himself");
+    const obEv = JSON.parse(db.prepare(`SELECT detail FROM invoice_payment_events WHERE event = 'verified' AND report_id = ?`).get(o2.j.id)?.detail ?? "{}");
+    ok(obEv.own_sale === false && obEv.salesperson_id === 9 && obEv.salesperson === "Aina Seller", "the record says it was on behalf of Aina", JSON.stringify(obEv));
+    ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 9 AND ref = 'pay_ceo_sp:${o2.j.id}'`) === 1, "Aina is told it was marked paid on her behalf");
+    ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE ref LIKE 'pay_ceo_rec:${o2.j.id}:%' AND message LIKE '%on behalf of Aina Seller%'`) === 2, "the COO and CCO are told: on behalf of Aina");
+    ok(earn(113).length > 0 && earn(113).every((e) => e.user_id === 9), "commission stays with the invoice's closer, never moved to the CEO", JSON.stringify(earn(113)));
+
+    /* the COO's Paid request still waits for the CEO */
     const c2 = await report(110, 3, 50000, "MBB 1100");
     await proof(c2.j.id, 3);
-    const selfEv = await call(`/payment-reports/${c2.j.id}/evidence`, 3, "POST", { checked: true, note: "My own transfer", totp: code() });
-    ok(selfEv.status === 403 && state(c2.j.id) === "reported", "the COO cannot check the evidence of a payment the COO reported", selfEv.text.slice(0, 120));
+    ok(state(c2.j.id) === "reported" && inv(110).payment_status !== "paid" && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND ref LIKE 'pay_report:${c2.j.id}:%'`) === 1, "the COO's Paid request waits for the CEO, who is told");
 
     /* ---------- clarify, answer, reject ---------- */
     const j1 = await report(107, 9, 20000, "MBB 7007");
@@ -382,13 +402,17 @@ const checks = n;
 
 const V = "worker/src/payment-verify.ts", S = "worker/src/staff.ts";
 const MUT = [
-  [V, "the verifier verifies their own report", [["if (rep.reported_by === user.id && (rep.state !== \"evidence_checked\"", "if (false && (rep.state !== \"evidence_checked\""]]],
+  /* v1.285.0 - the CEO's own Paid is final; whose sale it is, is recorded */
+  [V, "every CEO Paid is recorded as his own sale", [["    const ownSale = inv.salesperson_id === user.id;", "    const ownSale = true;"]]],
+  [V, "any CEO-role account verifies", [["const verifier = (u: StaffUser) => can(u.role, \"payment_verify\") && isExecutiveOwner(u);", "const verifier = (u: StaffUser) => can(u.role, \"payment_verify\");"]]],
+  [V, "the COO and CCO are not told of the CEO's own Paid", [["      for (const x of execs ?? []) await notify(", "      for (const x of [] as { id: number }[]) await notify("]]],
+  [V, "the salesperson is not told it was on her behalf", [["      if (inv.salesperson_id && !ownSale) await notify(", "      if (false) await notify("]]],
   [V, "any company's account takes the money", [["if (bank.company !== rep.issuer_code) {", "if (false) {"]]],
   [V, "an unassigned account takes the money", [["if (!bank.company) return err(\"bank_company_unknown\"", "if (false) return err(\"bank_company_unknown\""]]],
   [V, "a partial payment settles the invoice", [["  if (verified < inv.total_cents) return false;\n", ""]]],
   [V, "the invoice is never settled", [["    const paid = await settle(env, user, inv, bankId, rep.reference);", "    const paid = false;"]]],
   [V, "duplicates are not flagged", [["      if (refKey) {\n        const d1", "      if (false) {\n        const d1"]]],
-  [V, "no proof needed", [["if (!rep.proof_key) return err(\"proof_required\"", "if (false) return err(\"proof_required\""]]],
+  [V, "no proof needed", [["if (!rep.proof_key && !ownReport) return err(\"proof_required\"", "if (false) return err(\"proof_required\""]]],
   [V, "verify needs no fresh code", [["    const stepUp = await requireFreshTotp(env, user, body?.totp, err, \"verify this payment\");\n    if (stepUp) return stepUp;\n", ""]]],
   [V, "a retried verify pays again", [["          WHERE id = ?6 AND state = ?7 AND payment_id IS NULL\n", "          WHERE id = ?6 AND ?7 IS NOT NULL\n"], ["SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM invoice_payment_reports WHERE id = ?8 AND state = 'verified' AND payment_id IS NULL)", "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ?8 IS NOT NULL"]]],
   /* v1.283.0 - Track B */
@@ -402,12 +426,13 @@ const MUT = [
   [V, "B5: the month is the UTC month", [["substr(datetime(r.decided_at, '+8 hours'), 1, 7) = ?1", "substr(r.decided_at, 1, 7) = ?1"]]],
   [V, "B6: anyone reads the audit trail", [["      return err(\"forbidden\", \"Only the CEO, COO and CCO read the payment audit trail\", 403);", "      void 0;"]]],
   [V, "anyone reports on any invoice", [["  return REPORT_ALL_ROLES.includes(user.role) || inv.salesperson_id === user.id;", "  return true;"]]],
-  [V, "the reporter checks their own evidence", [["    if (rep.reported_by === user.id) return err(\"self_approval\", \"You reported this payment - someone else checks its evidence.\", 403);\n", ""], ["WHERE id = ?3 AND state = 'reported' AND reported_by != ?1`", "WHERE id = ?3 AND state = 'reported' AND ?1 IS NOT NULL`"]]],
+  [V, "the COO's evidence check comes back", [["    return err(\"not_needed\", \"No evidence check is needed: the CEO's own payment is final when the CEO verifies it.\", 409);\n", ""]]],
   [V, "a reversal leaves the invoice paid", [["if (inv.payment_status === \"paid\" && (await verifiedOf(env, inv.id)) < inv.total_cents) {", "if (false) {"]]],
-  [V, "anyone may verify", [["  if (!can(user.role, \"payment_verify\")) return err(\"forbidden\", \"Only the CEO verifies payments\", 403);\n", ""]]],
+  [V, "anyone may verify", [["  if (!verifier(user)) {", "  if (false) {"]]],
   [V, "more than the balance is verified", [["    if (asked > balance) return err(\"over_balance\"", "    if (false) return err(\"over_balance\""], ["WHERE invoice_id = ?8 AND voided_at IS NULL), 0) >= ?3`,", "WHERE invoice_id = ?8 AND voided_at IS NULL), 0) >= 0 - ?3`,"]]],
   [S, "Mark Paid still works with verification on", [["        if (body!.payment_status === \"paid\") return err(\"payment_verification_on\"", "        if (false) return err(\"payment_verification_on\""]]],
-  ["worker/src/permissions.ts", "the COO may verify", [['  payment_verify: ["ceo"],', '  payment_verify: ["ceo", "coo"],']]],
+  /* v1.285.0 - the permission alone no longer decides (the owner check stands too), so the COO is let through at the one gate */
+  [V, "the COO may verify", [["const verifier = (u: StaffUser) => can(u.role, \"payment_verify\") && isExecutiveOwner(u);", "const verifier = (u: StaffUser) => (can(u.role, \"payment_verify\") && isExecutiveOwner(u)) || u.role === \"coo\";"]]],
 ];
 for (const [file, name, reps] of NOMUT ? [] : MUT) {
   n++;

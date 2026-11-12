@@ -42,7 +42,7 @@ import { TaskProgressCard, InventoryStatusCard } from "@/components/portal/compa
 import {
   CompaniesPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, FinancePage,
-  HotelsPanel, AgentsPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
+  HotelsPanel, AgentsPanel, FinancialAdvisoryPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
   AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
   StaffDirectory,
@@ -249,6 +249,15 @@ export default function PortalPage() {
             <TabPage>
               <TabZone label={user.role === "agent" ? L("Packages and my clients", "Pakej dan pelanggan saya") : L("Agents' clients", "Pelanggan ejen")}>
                 <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
+              </TabZone>
+            </TabPage>
+          )}
+          {/* v1.284.0 - Financial Advisory: TAB_ROLES draws it for the fa_view
+              holders; every route checks fa_view and the case scope itself */}
+          {activeTab === "Financial Advisory" && (
+            <TabPage>
+              <TabZone label={L("Loan pre-screening and banker relations", "Saringan pinjaman dan hubungan bank")}>
+                <FinancialAdvisoryPanel />
               </TabZone>
             </TabPage>
           )}

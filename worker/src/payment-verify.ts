@@ -54,7 +54,24 @@
      B4 a receipt alone is not proof: new verifications are checked on the
         bank statement or in the bank app ("receipt only" stays readable)
      B5 "Verified this month" is the Malaysian month, summed in SQL
-     B6 GET /payments/events - the cross-invoice audit trail, read only */
+     B6 GET /payments/events - the cross-invoice audit trail, read only
+
+   v1.285.0 - THE CEO'S PAID IS FINAL (the CEO, 12-11-2026: "COO and CCO able
+   to click paid and verify by me (CEO). If I update the paid status, no
+   further verification are required since I am a CEO!" and "need to know
+   that when I click paid it is behalf of someone or it is belong to my own
+   sales"):
+     - the verifier is the verified company owner (role ceo + is_owner from
+       the session, decision-policy.ts isExecutiveOwner), not any account
+       with the CEO role
+     - his own report needs no second person: no COO evidence check (P3 is
+       withdrawn), proof optional; he verifies it himself with his code
+     - every verification records whose sale it is - his own, or on behalf
+       of the invoice's salesperson - in the timeline and the audit; when he
+       marks a payment himself, the COO and CCO get a "For the record"
+       notice and the salesperson is told it was done on their behalf
+     - COO, CCO and Sales report (request Paid) exactly as before; only the
+       CEO turns a report into money */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, requireFreshTotp, revokePaidConfirmation, currentStaffSql } from "./staff";
@@ -62,6 +79,7 @@ import { json, err, audit, str, putGuarded } from "./shared";
 import { can } from "./permissions";
 import { bookCash, reverseLive } from "./cashbook";
 import { ensureLedger } from "./commission";
+import { isExecutiveOwner } from "./decision-policy";
 
 const SETTING = "payment_verification";
 /** who reports on every invoice (P2); anyone else holding payment_report reports only on their own invoices */
@@ -72,6 +90,8 @@ const VERIFY_METHODS = ["bank_statement", "bank_app"] as const;
 const PENDING = ["reported", "evidence_checked", "clarify"];
 const PROOF_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 const PROOF_MAX = 8 * 1024 * 1024;
+/** v1.285.0 - the one person who turns a report into money: the verified company owner */
+const verifier = (u: StaffUser) => can(u.role, "payment_verify") && isExecutiveOwner(u);
 
 const mytToday = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 const validDay = (d: unknown): d is string =>
@@ -91,7 +111,7 @@ interface Report {
   decided_by: number | null; decided_at: string | null; verify_method: string | null; verified_cents: number | null; bank_id: number | null;
   dup_reason: string | null; reason: string | null; payment_id: number | null; reversed_by: number | null; reversed_at: string | null; reverse_reason: string | null;
 }
-interface Inv { id: number; doc_number: string; doc_type: string; total_cents: number; payment_status: string | null; salesperson_id: number | null; issuer_code: string | null; customer: string | null }
+interface Inv { id: number; doc_number: string; doc_type: string; total_cents: number; payment_status: string | null; salesperson_id: number | null; issuer_code: string | null; customer: string | null; salesperson?: string | null }
 
 /** The owner's switch. Off unless saved on. */
 export async function paymentVerificationOn(env: Env): Promise<boolean> {
@@ -103,8 +123,9 @@ export async function paymentVerificationOn(env: Env): Promise<boolean> {
 
 async function invoiceOf(env: Env, id: number): Promise<Inv | null> {
   return env.DB.prepare(
-    `SELECT d.id, d.doc_number, d.doc_type, d.total_cents, d.payment_status, d.salesperson_id, d.issuer_code, cu.company AS customer
-       FROM sales_documents d LEFT JOIN customers cu ON cu.id = d.customer_id WHERE d.id = ?1`,
+    `SELECT d.id, d.doc_number, d.doc_type, d.total_cents, d.payment_status, d.salesperson_id, d.issuer_code, cu.company AS customer,
+            COALESCE(NULLIF(TRIM(sp.full_name), ''), sp.name) AS salesperson
+       FROM sales_documents d LEFT JOIN customers cu ON cu.id = d.customer_id LEFT JOIN users sp ON sp.id = d.salesperson_id WHERE d.id = ?1`,
   ).bind(id).first<Inv>();
 }
 
@@ -234,12 +255,13 @@ async function picture(env: Env, inv: Inv, user: StaffUser) {
   ).bind(inv.id).all();
   const paid = inv.payment_status === "paid";
   return {
-    invoice: { id: inv.id, doc_number: inv.doc_number, customer: inv.customer, total_cents: inv.total_cents, payment_status: inv.payment_status, company: companyOf(inv.issuer_code), company_name: COMPANY_NAME[companyOf(inv.issuer_code)] },
+    invoice: { id: inv.id, doc_number: inv.doc_number, customer: inv.customer, total_cents: inv.total_cents, payment_status: inv.payment_status, company: companyOf(inv.issuer_code), company_name: COMPANY_NAME[companyOf(inv.issuer_code)], salesperson_id: inv.salesperson_id, salesperson: inv.salesperson ?? null },
     verified_cents: paid ? Math.max(verified, inv.total_cents) : verified,
     pending_cents: pending,
     outstanding_cents: paid ? 0 : Math.max(0, inv.total_cents - verified),
     status: settlementOf(inv.total_cents, verified, pending, paid),
-    reports: (reports ?? []).map((r) => ({ ...r, proof_key: undefined, has_proof: !!r.proof_key, mine: r.reported_by === user.id, needs_evidence: !!r.reporter_role && can(r.reporter_role as StaffUser["role"], "payment_verify") })),
+    /* v1.285.0 - no report waits for a second person's evidence check any more */
+    reports: (reports ?? []).map((r) => ({ ...r, proof_key: undefined, has_proof: !!r.proof_key, mine: r.reported_by === user.id, needs_evidence: false })),
     events: events ?? [],
     can_report: reportsOn(user, inv) && !paid && inv.payment_status !== "void",
   };
@@ -302,7 +324,7 @@ export async function handlePayments(
     const on = await paymentVerificationOn(env);
     const all = can(user.role, "payment_verify") || can(user.role, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role);
     const caps = {
-      report: can(user.role, "payment_report"), verify: can(user.role, "payment_verify"), evidence: can(user.role, "payment_evidence"),
+      report: can(user.role, "payment_report"), verify: verifier(user), evidence: false,
       switch: user.role === "ceo" && user.is_owner === true, all,
     };
     let reports: unknown[] = [];
@@ -361,7 +383,7 @@ export async function handlePayments(
       banks = withCo;
     }
     return json({
-      on, ready, can: caps, banks, reports: (reports as Array<Record<string, unknown>>).map((r) => ({ ...r, has_proof: !!r.has_proof, mine: r.reported_by === user.id, needs_evidence: !!r.reporter_role && can(r.reporter_role as StaffUser["role"], "payment_verify") })),
+      on, ready, can: caps, banks, reports: (reports as Array<Record<string, unknown>>).map((r) => ({ ...r, has_proof: !!r.has_proof, mine: r.reported_by === user.id, needs_evidence: false })),
       invoices,
       tiles: {
         pending_cents: pend.reduce((a, r) => a + Number(r.amount_cents), 0), pending_count: pend.length,
@@ -433,10 +455,8 @@ export async function handlePayments(
       const id = Number(row?.id);
       await event(env, inv.id, id, "reported", user.id, amount, { method: m, reference: ref || null, received_on: on, over_cents: over, possible_duplicate: dupOf !== null }, `reported:${id}`);
       await audit(env, user.id, "payment.reported", "invoice_payment_reports", String(id), { invoice: inv.doc_number, amount_cents: amount, received_on: on, method: m, over_cents: over, possible_duplicate: dupOf !== null });
-      /* who acts next: the verifier - or, on the verifier's own report, the evidence checker */
-      if (can(user.role, "payment_verify")) {
-        for (const uid of await holders(env, "payment_evidence", user.id)) await notify(env, uid, "payment", `Check the bank evidence: ${user.name} reported ${rm(amount)} on ${inv.doc_number}.`, `pay_evidence:${id}:${uid}`, { once: true });
-      } else {
+      /* who acts next: the CEO - unless the CEO reported it himself (v1.285.0: he decides it, nobody else checks it) */
+      if (!verifier(user)) {
         for (const uid of await holders(env, "payment_verify", user.id)) await notify(env, uid, "payment", `Payment to verify: ${rm(amount)} on ${inv.doc_number}, reported by ${user.name}.`, `pay_report:${id}:${uid}`, { once: true });
       }
       return json({ ok: true, id, over_cents: over, possible_duplicate: dupOf !== null, ...(await picture(env, inv, user)) }, 201);
@@ -498,34 +518,22 @@ export async function handlePayments(
     if (!Number(r.meta?.changes ?? 0)) return err("conflict", "This payment changed - reload it.", 409);
     await event(env, inv.id, rid, "clarification_answered", user.id, null, { answer });
     await audit(env, user.id, "payment.answered", "invoice_payment_reports", String(rid), { invoice: inv.doc_number });
-    const next = can(user.role, "payment_verify") ? await holders(env, "payment_evidence", user.id) : await holders(env, "payment_verify", user.id);
+    const next = await holders(env, "payment_verify", user.id);
     for (const uid of next) await notify(env, uid, "payment", `${user.name} answered your question on ${inv.doc_number}.`, `pay_answer:${rid}:${uid}:${Date.now()}`);
     return json({ ok: true, ...(await picture(env, inv, user)) });
   }
 
   if (action === "evidence") {
     if (!can(user.role, "payment_evidence")) return err("forbidden", "You do not check payment evidence", 403);
-    if (rep.reported_by === user.id) return err("self_approval", "You reported this payment - someone else checks its evidence.", 403);
-    if (rep.state !== "reported") return err("invalid_state", "Only a payment waiting for review has its evidence checked.", 409);
-    const reporter = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(rep.reported_by).first<{ role: string }>();
-    if (!reporter || !can(reporter.role as StaffUser["role"], "payment_verify")) return err("invalid_state", "Only a payment the CEO reported needs a separate evidence check - the CEO verifies this one.", 409);
-    if (body?.checked !== true) return err("invalid_input", "Tick that you checked the money in the bank.", 400);
-    const note = str(body?.note, 300) ? String(body!.note).trim() : "";
-    if (note.length < 5) return err("invalid_input", "Say how you checked it (at least 5 characters).", 400);
-    const stepUp = await requireFreshTotp(env, user, body?.totp, err, "confirm the bank evidence");
-    if (stepUp) return stepUp;
-    const r = await env.DB.prepare(
-      `UPDATE invoice_payment_reports SET state = 'evidence_checked', evidence_by = ?1, evidence_at = datetime('now'), evidence_note = ?2, updated_at = datetime('now') WHERE id = ?3 AND state = 'reported' AND reported_by != ?1`,
-    ).bind(user.id, note, rid).run();
-    if (!Number(r.meta?.changes ?? 0)) return err("conflict", "This payment changed - reload it.", 409);
-    await event(env, inv.id, rid, "evidence_checked", user.id, rep.amount_cents, { note }, `evidence:${rid}:${user.id}:${rep.answer ? "a" : "0"}`);
-    await audit(env, user.id, "payment.evidence_checked", "invoice_payment_reports", String(rid), { invoice: inv.doc_number, amount_cents: rep.amount_cents, note });
-    for (const uid of await holders(env, "payment_verify")) await notify(env, uid, "payment", `Bank evidence checked by ${user.name}: ${rm(rep.amount_cents)} on ${inv.doc_number} is ready to verify.`, `pay_evok:${rid}:${uid}`, { once: true });
-    return json({ ok: true, ...(await picture(env, inv, user)) });
+    /* v1.285.0 - the CEO's own payment needs no second person's check */
+    return err("not_needed", "No evidence check is needed: the CEO's own payment is final when the CEO verifies it.", 409);
   }
 
   /* everything below is the verifier's */
-  if (!can(user.role, "payment_verify")) return err("forbidden", "Only the CEO verifies payments", 403);
+  if (!verifier(user)) {
+    if (can(user.role, "payment_verify")) await audit(env, user.id, "auth.payment_verify_refused", "invoice_payment_reports", String(rid), { action, reason: "not the company owner" });
+    return err("forbidden", "Only the CEO (the company owner) verifies payments", 403);
+  }
 
   if (action === "clarify") {
     if (!["reported", "evidence_checked"].includes(rep.state)) return err("invalid_state", "Only a payment waiting for review can be questioned.", 409);
@@ -557,11 +565,8 @@ export async function handlePayments(
   }
 
   if (action === "verify") {
-    /* never one's own report, unless someone else checked its bank evidence (P3) */
-    if (rep.reported_by === user.id && (rep.state !== "evidence_checked" || !rep.evidence_by || rep.evidence_by === user.id)) {
-      await audit(env, user.id, "auth.self_approval_refused", "invoice_payment_reports", String(rid), { action: "payment.verify", role: user.role });
-      return err("self_approval", "You reported this payment - its bank evidence is checked by the COO first.", 403);
-    }
+    /* v1.285.0 - the CEO's own report is his to decide: no second person (P3 withdrawn) */
+    const ownReport = rep.reported_by === user.id;
     if (!["reported", "evidence_checked"].includes(rep.state)) {
       if (rep.state === "verified") {
         /* v1.283.0 (B2) - a retry finishes a settlement that stopped half way */
@@ -573,7 +578,7 @@ export async function handlePayments(
     }
     if (inv.payment_status === "void") return err("voided", `${inv.doc_number} is void.`, 409);
     if (inv.payment_status === "paid") return err("invalid_input", `${inv.doc_number} is already paid in full - reject this report or ask the reporter.`, 409);
-    if (!rep.proof_key) return err("proof_required", "No proof is attached to this payment - ask the reporter for it.", 409);
+    if (!rep.proof_key && !ownReport) return err("proof_required", "No proof is attached to this payment - ask the reporter for it.", 409);
     const vm = String(body?.verify_method ?? "");
     if (!(VERIFY_METHODS as readonly string[]).includes(vm)) return err("invalid_input", `verify_method is one of ${VERIFY_METHODS.join(", ")}`, 400);
     if (rep.dup_of !== null) {
@@ -637,10 +642,13 @@ export async function handlePayments(
       `INSERT INTO cashbook_marks (item_key, bank_id, bank_note, bank_by, bank_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
        ON CONFLICT(item_key) DO UPDATE SET bank_id = excluded.bank_id, bank_note = excluded.bank_note, bank_by = excluded.bank_by, bank_at = excluded.bank_at`,
     ).bind(`PART:${pay.id}`, bankId, "Payment verification", user.id).run().catch(() => undefined);
-    await event(env, inv.id, rid, "verified", user.id, asked, { verify_method: vm, bank: bank.name, payment_id: pay.id, duplicate_reason: dupReason, evidence_by: rep.evidence_by }, `verified:${rid}`);
-    await audit(env, user.id, "payment.verified", "invoice_payment_reports", String(rid), {
+    /* v1.285.0 - whose sale: the CEO's own, or on behalf of the invoice's salesperson (recorded as it is today, never re-read later) */
+    const ownSale = inv.salesperson_id === user.id;
+    const sale = { own_sale: ownSale, salesperson_id: inv.salesperson_id, salesperson: inv.salesperson ?? null, ceo_marked: ownReport, has_proof: !!rep.proof_key };
+    await event(env, inv.id, rid, "verified", user.id, asked, { verify_method: vm, bank: bank.name, payment_id: pay.id, duplicate_reason: dupReason, evidence_by: rep.evidence_by, ...sale }, `verified:${rid}`);
+    await audit(env, user.id, ownReport ? "payment.ceo_marked_paid" : "payment.verified", "invoice_payment_reports", String(rid), {
       invoice: inv.doc_number, amount_cents: asked, reported_cents: rep.amount_cents, verify_method: vm, bank_id: bankId, payment_id: pay.id,
-      reported_by: rep.reported_by, evidence_by: rep.evidence_by, duplicate_reason: dupReason,
+      reported_by: rep.reported_by, evidence_by: rep.evidence_by, duplicate_reason: dupReason, ...sale,
     });
     const paid = await settle(env, user, inv, bankId, rep.reference);
     if (!paid) {
@@ -648,6 +656,14 @@ export async function handlePayments(
       await event(env, inv.id, rid, "outstanding_updated", user.id, Math.max(0, inv.total_cents - after), { verified_cents: after }, `outstanding:${rid}`);
     }
     if (rep.reported_by !== user.id) await notify(env, rep.reported_by, "payment", `The CEO verified ${rm(asked)} on ${inv.doc_number}.`, `pay_ok:${rid}`, { once: true });
+    if (ownReport) {
+      const whose = ownSale ? "his own sale" : inv.salesperson ? `on behalf of ${inv.salesperson}` : "no salesperson recorded";
+      /* the salesperson is told it was done for them */
+      if (inv.salesperson_id && !ownSale) await notify(env, inv.salesperson_id, "payment", `The CEO marked ${rm(asked)} paid on ${inv.doc_number}, on your behalf.`, `pay_ceo_sp:${rid}`, { once: true });
+      /* the COO and CCO are told, for the record, as with every executive record */
+      const { results: execs } = await env.DB.prepare(`SELECT id FROM users WHERE role IN ('coo', 'cco') AND is_active = 1 AND ${currentStaffSql()} AND id != ?1`).bind(user.id).all<{ id: number }>();
+      for (const x of execs ?? []) await notify(env, x.id, "payment", `For the record: the CEO marked ${rm(asked)} paid on ${inv.doc_number} (${whose}).`, `pay_ceo_rec:${rid}:${x.id}`, { once: true });
+    }
     if (inv.salesperson_id && inv.salesperson_id !== rep.reported_by && inv.salesperson_id !== user.id && !paid) {
       await notify(env, inv.salesperson_id, "payment", `${rm(asked)} verified on ${inv.doc_number}; ${rm(Math.max(0, inv.total_cents - (await verifiedOf(env, inv.id))))} is still outstanding.`, `pay_part:${rid}`, { once: true });
     }

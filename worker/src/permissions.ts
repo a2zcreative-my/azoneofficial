@@ -285,6 +285,17 @@ export const PERMS: Record<string, readonly Role[]> = {
   payment_verify: ["ceo"],
   /** check the bank evidence of a payment the verifier reported themselves */
   payment_evidence: ["coo"],
+  /* === v1.284.0 - FINANCIAL ADVISORY (the CEO, 11-11-2026, F3 as proposed:
+     CEO all; COO decide and criteria; Sales and the CCO their own cases).
+     The route also checks the case's own scope: owner, members, or fa_decide. */
+  /** open the Financial Advisory module and the cases in your scope */
+  fa_view: ["ceo", "coo", "cco", "sales_marketing"],
+  /** open cases and record a client's profile, figures, documents and banker feedback */
+  fa_edit: ["ceo", "coo", "cco", "sales_marketing"],
+  /** every case; official bank decisions; pre-screen overrides; reassignment */
+  fa_decide: ["ceo", "coo"],
+  /** verify and publish bank criteria; manage banker relations */
+  fa_criteria: ["ceo", "coo"],
   /** view and process payroll (was PAYROLL_PROC) */
   payroll_process: ["super_admin", "admin", "ceo", "coo"],
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
@@ -493,8 +504,12 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
   { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", cap: "confirm_paid", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },
   { module: "Sales", key: "payment_report", en: "Report a payment received (with proof)", ms: "Lapor bayaran diterima (dengan bukti)", cap: "payment_report", note_en: "Own invoices only, except COO and CCO", note_ms: "Invois sendiri sahaja, kecuali COO dan CCO" },
-  { module: "Sales", key: "payment_verify", en: "Verify a reported payment", ms: "Sahkan bayaran yang dilaporkan", cap: "payment_verify", note_en: "Never their own report until its evidence is checked", note_ms: "Bukan laporan sendiri sehingga buktinya disemak" },
-  { module: "Sales", key: "payment_evidence", en: "Check the bank evidence of the verifier's own report", ms: "Semak bukti bank laporan pengesah sendiri", cap: "payment_evidence" },
+  { module: "Sales", key: "payment_verify", en: "Verify a reported payment", ms: "Sahkan bayaran yang dilaporkan", cap: "payment_verify", note_en: "The company owner only; his own Paid is final (v1.285.0)", note_ms: "Pemilik syarikat sahaja; tanda dibayar beliau muktamad (v1.285.0)" },
+  { module: "Sales", key: "payment_evidence", en: "Check the bank evidence of the verifier's own report", ms: "Semak bukti bank laporan pengesah sendiri", cap: "payment_evidence", note_en: "Not needed since v1.285.0: the CEO's own Paid is final", note_ms: "Tidak diperlukan sejak v1.285.0: tanda dibayar CEO muktamad" },
+  { module: "Financial Advisory", key: "fa_view", en: "Open Financial Advisory (own cases)", ms: "Buka Nasihat Kewangan (kes sendiri)", cap: "fa_view" },
+  { module: "Financial Advisory", key: "fa_edit", en: "Record client profiles, figures, documents and banker feedback", ms: "Rekod profil, angka, dokumen dan maklum balas bank pelanggan", cap: "fa_edit", note_en: "Own cases only, unless fa_decide", note_ms: "Kes sendiri sahaja, kecuali fa_decide" },
+  { module: "Financial Advisory", key: "fa_decide", en: "Every case; official bank decisions; pre-screen overrides", ms: "Semua kes; keputusan rasmi bank; mengatasi saringan awal", cap: "fa_decide" },
+  { module: "Financial Advisory", key: "fa_criteria", en: "Verify bank criteria; manage banker relations", ms: "Sahkan kriteria bank; urus hubungan bank", cap: "fa_criteria" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },

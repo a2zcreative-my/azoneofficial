@@ -426,3 +426,8 @@ changes until the owner switches payment verification on.
 PRODUCT quotation (ux_inv_live_per_product_qt) replaces 0157's one per every
 quotation; a service quotation may be billed in parts, never past its total
 (held by the worker in the statement that writes the invoice).
+1.284.0 adds `0183_financial_advisory` (additive, IF NOT EXISTS only): the
+Financial Advisory fa_* tables (cases, consents, profiles, figures, documents,
+assessments, notes, criteria, banker contacts, events). It writes to no table
+that carries money, pay or people; the client stays one customers row, case
+tasks are ordinary tasks, and the bank's disbursement is never booked.

@@ -34,6 +34,7 @@ import { handleDesk } from "./desk"; // v1.106.0 - One Desk
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
 import { handlePayments, paymentVerificationOn } from "./payment-verify"; // v1.272.0 - report, then the CEO verifies
+import { handleFa } from "./fa"; // v1.284.0 - Financial Advisory (internal release 1)
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { claimScope } from "./claims-scope"; // v1.205.0 - one claims scope for the list and the search
@@ -2975,6 +2976,14 @@ async function handleStaffRoutes(
   if (path === "/payments" || path.startsWith("/payments/") || /^\/docs\/\d+\/payment-reports$/.test(path) || path.startsWith("/payment-reports/")) {
     const pv = await handlePayments(env, path, method, body, user, new URL(request.url).searchParams, request);
     if (pv) return pv;
+  }
+
+  /* ---- v1.284.0 Financial Advisory (fa.ts): the client is a customer; the
+     financial data is read only through the fa_* caps AND the case's scope;
+     agreement, fee and disclosure to banks are off until counsel clears them. ---- */
+  if (path.startsWith("/fa/")) {
+    const fa = await handleFa(env, path, method, body, user, new URL(request.url).searchParams, request);
+    if (fa) return fa;
   }
 
   /* ---- Business joins (v1.181.13) — see business.ts. The ERP roadmap,
@@ -8946,7 +8955,7 @@ async function handleStaffRoutes(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
   /* v1.234.0 - what the SERVER lets a role read behind a tab, where one rule
      decides it (the same checks the routes make). A tab absent here has no
@@ -11902,7 +11911,7 @@ async function handleStaffRoutes(
   if (confirmPaid && method === "POST") {
     if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO confirms that an invoice is paid", 403);
     /* v1.272.0 - with payment verification on, the CEO alone (P1) */
-    if (!can(user.role, "payment_verify") && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO confirms that an invoice is paid.", 403);
+    if (!(can(user.role, "payment_verify") && user.is_owner === true) && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO confirms that an invoice is paid.", 403);
     const invId = Number(confirmPaid[1]);
     const inv = await env.DB.prepare(
       `SELECT id, doc_number, doc_type, total_cents, payment_status, payment_ref, paid_at, salesperson_id FROM sales_documents WHERE id = ?1`,
@@ -11945,7 +11954,7 @@ async function handleStaffRoutes(
   if (confirmRevoke && method === "POST") {
     if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO takes back a paid confirmation", 403);
     /* v1.272.0 - with payment verification on, the CEO alone (P1) */
-    if (!can(user.role, "payment_verify") && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO takes back a paid confirmation.", 403);
+    if (!(can(user.role, "payment_verify") && user.is_owner === true) && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO takes back a paid confirmation.", 403);
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
     let n = 0;

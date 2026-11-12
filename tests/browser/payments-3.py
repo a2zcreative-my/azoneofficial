@@ -8,13 +8,13 @@ widths of the brief (1440, 1280, 768, 430, 390, 360, 320):
     and its sheet warns how many reports still wait;
   - four tiles, verified outstanding never less what is pending, the same
     figures on a desktop and a phone;
-  - the CEO's own report reads Awaiting independent evidence review, its
-    sheet has NO Verify button and says what it waits for, at every width;
+  - v1.285.0 (the CEO, 12-11-2026): the CEO's own report waits only for the
+    CEO - his sheet has the gold Verify and says it is his own sale; no
+    evidence review anywhere;
   - one action per invoice: Review payment / View pending payment / Report
     payment / Report remaining payment; settlement and review are two chips;
   - a second report on a fully pending invoice sits behind a warning and a tick;
-  - the COO is offered the evidence check (never Verify), Sales and the CCO
-    neither; the Audit Trail is read by the CEO, COO and CCO, not by Sales;
+  - the COO, the CCO and Sales never Verify and never check evidence; the Audit Trail is read by the CEO, COO and CCO, not by Sales;
   - no sideways page, sheet actions on screen and at least 44 px on a phone.
 Screenshots: $PAY3_OUT (default /tmp/pay3-shots), outside the repo.
 
@@ -70,12 +70,13 @@ with sync_playwright() as p:
         check(f"{tag}: no Switch off on the daily page", pg.get_by_role("button", name="Switch off").count() == 0)
         body = pg.inner_text("body")
         check(f"{tag}: the four tiles", all(x in body for x in ["Pending CEO verification", "Verified this month", "Verified outstanding", "Partially paid"]))
-        check(f"{tag}: the pending tile counts the report awaiting independent review", "1 awaiting independent review" in body)
+        # v1.285.0 (the CEO, 12-11-2026) - no report waits for a second person's evidence check any more
+        check(f"{tag}: nothing waits for an independent evidence review", "awaiting independent review" not in body.lower())
         # 501 RM 1,200 + 502 RM 300 + 503 RM 37.50 + (504 RM 1,200 - RM 600 verified) = RM 2,137.50; pending (RM 637.50) never deducted
         check(f"{tag}: verified outstanding is RM 2,137.50 - the RM 637.50 pending is not deducted", "RM 2,137.50" in body and "RM 637.50" in body, body[:600])
         figures[w] = [x for x in ["RM 637.50", "RM 600.00", "RM 2,137.50"] if x in body]
         own = pg.get_by_test_id("payment-row").filter(has_text="INV-AZOO-503")
-        check(f"{tag}: the CEO's own report reads Awaiting independent evidence review", own.count() == 1 and "Awaiting independent evidence review" in own.inner_text(), own.inner_text() if own.count() else "none")
+        check(f"{tag}: the CEO's own report waits only for the CEO", own.count() == 1 and "Pending CEO verification" in own.inner_text(), own.inner_text() if own.count() else "none")
         check(f"{tag}: Sales' report reads Pending CEO verification", "Pending CEO verification" in pg.get_by_test_id("payment-row").filter(has_text="INV-A2Z-501").inner_text())
         check(f"{tag}: no sideways page (Needs)", sideways(pg), pg.evaluate("document.scrollingElement.scrollWidth"))
         pg.screenshot(path=os.path.join(OUT, f"ceo-needs-{w}.png"), full_page=True)
@@ -83,23 +84,26 @@ with sync_playwright() as p:
         pg.get_by_test_id("pay-tab-balances").click(); pg.wait_for_timeout(400)
         act = lambda inv: pg.get_by_test_id("inv-row").filter(has_text=inv).get_by_test_id("inv-action")
         kinds = {i: (act(i).get_attribute("data-kind") if act(i).count() else None) for i in ["INV-A2Z-501", "INV-AZOO-502", "INV-AZOO-503", "INV-A2Z-504"]}
-        check(f"{tag}: one action per invoice - Review / Report / View pending / Report remaining", kinds == {"INV-A2Z-501": "review", "INV-AZOO-502": "report", "INV-AZOO-503": "view_pending", "INV-A2Z-504": "report_remaining"}, kinds)
+        check(f"{tag}: one action per invoice - Review (his own too) / Mark paid / Review / Mark paid (remaining)", kinds == {"INV-A2Z-501": "review", "INV-AZOO-502": "report", "INV-AZOO-503": "review", "INV-A2Z-504": "report_remaining"}, kinds)
+        check(f"{tag}: the owner's report action reads Mark paid", act("INV-AZOO-502").inner_text().strip() == "Mark paid", act("INV-AZOO-502").inner_text())
         r504 = pg.get_by_test_id("inv-row").filter(has_text="INV-A2Z-504")
-        check(f"{tag}: settlement and review are two chips (Partially paid; Unpaid + Awaiting independent review)", r504.get_by_test_id("inv-settlement").inner_text() == "Partially paid" and pg.get_by_test_id("inv-row").filter(has_text="INV-AZOO-503").get_by_test_id("inv-settlement").inner_text() == "Unpaid" and "Awaiting independent" in pg.get_by_test_id("inv-row").filter(has_text="INV-AZOO-503").get_by_test_id("inv-review").inner_text())
+        check(f"{tag}: settlement and review are two chips (Partially paid; Unpaid + Pending CEO verification)", r504.get_by_test_id("inv-settlement").inner_text() == "Partially paid" and pg.get_by_test_id("inv-row").filter(has_text="INV-AZOO-503").get_by_test_id("inv-settlement").inner_text() == "Unpaid" and "Pending CEO verification" in pg.get_by_test_id("inv-row").filter(has_text="INV-AZOO-503").get_by_test_id("inv-review").inner_text())
         if w < 500:
             hb = act("INV-AZOO-502").bounding_box()
             check(f"{tag}: a phone's row action is at least 44 px tall", hb and hb["height"] >= 43.5, hb)
         check(f"{tag}: no sideways page (Balances)", sideways(pg))
         if w in (1440, 1280, 390):
             pg.screenshot(path=os.path.join(OUT, f"ceo-balances-{w}.png"), full_page=True)
-        # the CEO's own report: no Verify, says what it waits for
+        # v1.285.0 - the CEO's own report: he verifies it himself; nobody else checks it
         dlg = drawer_for(pg, "INV-AZOO-503")
-        check(f"{tag}: the own-report sheet has NO Verify button", dlg.get_by_role("button", name="Verify payment").count() == 0)
-        lock = dlg.get_by_test_id("verify-locked")
-        check(f"{tag}: ...it says Verify after the COO's check, on screen", lock.count() == 1 and inside(pg, lock), lock.bounding_box() if lock.count() else "none")
+        vb = dlg.get_by_test_id("payment-decide").get_by_role("button", name="Verify payment")
+        check(f"{tag}: the own-report sheet has the gold Verify at the foot, on screen", vb.count() == 1 and inside(pg, vb))
+        check(f"{tag}: ...no lock and no evidence review", dlg.get_by_test_id("verify-locked").count() == 0 and dlg.get_by_test_id("evidence-waiting").count() == 0)
+        check(f"{tag}: ...it says whose sale it is", "your own sale" in (dlg.get_by_test_id("own-sale-banner").inner_text() if dlg.get_by_test_id("own-sale-banner").count() else ""))
         check(f"{tag}: ...Ask a question and Reject stay on screen", all(inside(pg, dlg.get_by_test_id("payment-decide").get_by_role("button", name=n)) for n in ["Ask a question", "Reject"]))
-        check(f"{tag}: ...the evidence review is named, with the amounts and the receipt", dlg.get_by_test_id("evidence-waiting").count() == 1 and dlg.get_by_test_id("receipt-preview").count() == 1 and dlg.get_by_test_id("payment-outstanding").inner_text() == "RM 37.50")
-        check(f"{tag}: ...the timeline shows what is still ahead", all(x in dlg.get_by_test_id("payment-timeline").inner_text() for x in ["Independent evidence review", "CEO verification", "Invoice settlement"]))
+        check(f"{tag}: ...the amounts and the receipt", dlg.get_by_test_id("receipt-preview").count() == 1 and dlg.get_by_test_id("payment-outstanding").inner_text() == "RM 37.50")
+        tl = dlg.get_by_test_id("payment-timeline").inner_text()
+        check(f"{tag}: ...the timeline shows only the CEO ahead", all(x in tl for x in ["CEO verification", "Invoice settlement"]) and "Independent evidence review" not in tl, tl)
         if w < 500:
             bb = dlg.bounding_box()
             check(f"{tag}: the sheet fills the phone", bb and bb["width"] >= w - 2, bb)
@@ -143,14 +147,10 @@ with sync_playwright() as p:
             check(f"{tag}: the tab is Waiting for review, not Needs My Verification", pg.get_by_test_id("pay-tab-needs").inner_text().split("\n")[0].strip() in ("Waiting for review", "Pending"))
             own = pg.get_by_test_id("payment-row").filter(has_text="INV-AZOO-503")
             btn = own.get_by_role("button").first.inner_text().strip()
-            check(f"{tag}: the CEO's report offers {'Check evidence' if who == 'COO' else 'Review (read only)'}", btn == ("Check evidence" if who == "COO" else "Review"), btn)
+            check(f"{tag}: the CEO's report is read only (Review)", btn == "Review", btn)
             dlg = drawer_for(pg, "INV-AZOO-503")
             check(f"{tag}: never a Verify button", dlg.get_by_role("button", name="Verify payment").count() == 0)
-            if who == "COO":
-                ev = dlg.get_by_test_id("payment-decide").get_by_role("button", name="Check bank evidence")
-                check(f"{tag}: the COO's foot is Check bank evidence, on screen", ev.count() == 1 and inside(pg, ev))
-            else:
-                check(f"{tag}: no evidence check either", dlg.get_by_role("button", name="Check bank evidence").count() == 0)
+            check(f"{tag}: no evidence check (the CEO's own payment needs none)", dlg.get_by_role("button", name="Check bank evidence").count() == 0)
             pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
             pg.get_by_test_id("pay-tab-audit").click(); pg.wait_for_timeout(700)
             au = pg.get_by_test_id("pay-audit").inner_text()

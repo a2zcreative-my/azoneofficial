@@ -31,7 +31,7 @@ import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import { WeeklySales } from "@/components/portal/weekly-sales";
 import { CommissionCard } from "@/components/portal/commission-card";
-import { actionFor } from "@/components/portal/payment-parts"; // v1.282.0
+import { actionFor, type PayActor } from "@/components/portal/payment-parts"; // v1.282.0
 import css from "./sales-workspace.module.css";
 import { Chip, ExecCard, type Tone } from "@/components/portal/executive-cards";
 import xc from "./executive.module.css";
@@ -649,6 +649,8 @@ export function NeedsActionCard<D extends WsDoc>({ data, loaded, onRecord, onOpe
     offers Open or Follow up. */
 export function needRowsFor<D extends WsDoc & { payment_status: string | null; salesperson_name?: string | null }>(p: {
   unpaid: D[]; followups: WsFollowUp[]; today: string; canPay: boolean; partPaid: Record<number, number>;
+  /** v1.285.0 - who is clicking: the owner's Mark paid is final, the COO/CCO request Paid */
+  who?: PayActor;
   pv: { on: boolean; inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }> } | null;
   onRecord: (d: D) => void; onOpenDoc: (d: D) => void; onFollow: (f: WsFollowUp) => void; onView?: (d: D) => void;
 }): NeedRow[] {
@@ -663,7 +665,7 @@ export function needRowsFor<D extends WsDoc & { payment_status: string | null; s
     return { key: `inv-${d.id}`, doc: d.doc_number, who: [d.company, d.salesperson_name].filter(Boolean).join(" · "), status, balance: Math.max(0, d.total_cents - paidSoFar),
       /* v1.282.0 - the invoice's one action (actionFor): never a second report on a fully pending invoice */
       action: (() => {
-        const a = v && pv?.on && p.canPay ? actionFor({ total_cents: d.total_cents, verified_cents: v.verified_cents, pending_cents: v.pending_cents, can_report: canRecord === true }) : null;
+        const a = v && pv?.on && p.canPay ? actionFor({ total_cents: d.total_cents, verified_cents: v.verified_cents, pending_cents: v.pending_cents, can_report: canRecord === true }, false, p.who ?? "staff") : null;
         if (a && (a.kind === "report" || a.kind === "report_remaining")) return { label: a.label, on: () => p.onRecord(d) };
         if (a && a.kind === "view_pending" && p.onView) return { label: a.label, on: () => p.onView!(d) };
         return { label: L("Open", "Buka"), on: () => p.onOpenDoc(d) };

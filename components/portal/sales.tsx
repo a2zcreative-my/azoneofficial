@@ -14,7 +14,7 @@ import { ClosedSales, FollowUps, NeedsActionCard, SalesOverviewCards, ScopeSwitc
 import { SalesPerformanceCard } from "@/components/portal/executive-cards"; // v1.281.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
-import { InvoicePayAction } from "@/components/portal/payment-parts"; // v1.282.0 - one action per invoice
+import { InvoicePayAction, payActorOf } from "@/components/portal/payment-parts"; // v1.282.0 - one action per invoice
 import { SalesEnquiries, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -1382,7 +1382,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      mark paid / unpaid / overdue, or create it already paid - is the CEO,
      COO and admins only (worker permissions invoice_payment). Everyone who
      can invoice still sees the payment status. */
-  const canPay = holds("invoice_payment", ["super_admin", "ceo", "coo"].includes(user.role)); // v1.234.0 - = PERMS.invoice_payment (the owner: CEO, COO, super admin only)
+  const canPay = holds("invoice_payment", ["super_admin", "ceo", "coo"].includes(user.role)), paysByReport = canPay || user.role === "cco", payWho = payActorOf(user); // v1.234.0 - = PERMS.invoice_payment (CEO, COO, super admin); v1.285.0 - CCO gets the COO's Paid button (a request the CEO verifies); the owner's Paid is final
   /* v1.278.0 (the CEO, 11-11-2026: "paid seem doesnt change the status on
      sales for COO"): with payment verification ON (1.272.0) nobody marks an
      invoice paid - it becomes paid when the CEO has verified payments up to
@@ -1422,7 +1422,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       `/staff/docs`
     );
     setDocs(d.data?.docs ?? []);
-    if (canPay) {
+    if (paysByReport) {
       const pr = await api<{ on: boolean; invoices?: { id: number; verified_cents: number; pending_cents: number; can_report: boolean }[]; tiles?: { pending_cents?: number; pending_count?: number } }>(`/staff/payments`);
       if (pr.ok && pr.data) {
         const inv: Record<number, { verified_cents: number; pending_cents: number; can_report: boolean }> = {};
@@ -1460,7 +1460,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       items?: { name: string; sku: string; unit_price_cents?: number }[];
     }>(`/staff/inventory`);
     setInvItems(inv.data?.items ?? []);
-  }, [loadSummary, canPay]);
+  }, [loadSummary, paysByReport]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -2358,7 +2358,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           <p className="erp-meta" data-testid="sales-month-line">{L(`This month: ${sm ? sm.quotations.n : monthQt.length} quotation${(sm ? sm.quotations.n : monthQt.length) === 1 ? "" : "s"} (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invoice${(sm ? sm.invoiced.n : monthInv.length) === 1 ? "" : "s"} raised (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`,
             `Bulan ini: ${sm ? sm.quotations.n : monthQt.length} sebut harga (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invois dikeluarkan (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`)}</p>
           <div className={companyView ? sc.needGrid : undefined}>
-            <NeedsActionCard loaded={loaded} data={{ unpaid: unpaidInv, followups: dueFollow, pv, partPaid, canPay, today }}
+            <NeedsActionCard loaded={loaded} data={{ unpaid: unpaidInv, followups: dueFollow, pv, partPaid, canPay: paysByReport, today, who: payWho }}
               onRecord={(d) => { setRecordInv(d.id); setWsView("payments"); }} onView={(d) => { setViewInv(d.id); setWsView("payments"); }} onOpenDoc={(d) => openDocRow(d as SalesDoc)} onFollow={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
             {companyView && <SalesPerformanceCard onOpen={() => setWsView("closed")} pace={weekDash?.outlook ? { cents: weekDash.outlook.required_per_day_cents, allChannels: weekDash.company.basis_kind === "all_channels" } : undefined} />}
           </div>
@@ -3427,7 +3427,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     controls the row had, in their own column */}
                 <span className={sc.cStatus} role="cell">
                   {/* v1.278.0 - verification ON: where the money stands, and the way to report it */}
-                  {d.doc_type === "INV" && canPay && pv?.on && d.payment_status !== "void" && (() => {
+                  {d.doc_type === "INV" && paysByReport && pv?.on && d.payment_status !== "void" && (() => {
                     const v = pv.inv[d.id];
                     const paid = d.payment_status === "paid";
                     const verified = v?.verified_cents ?? 0, pending = v?.pending_cents ?? 0;
@@ -3442,7 +3442,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                           </span>
                         )}
                         {/* v1.282.0 - the invoice's one action (actionFor): never a second report on a fully pending invoice */}
-                        {!paid && v && <InvoicePayAction className={rowBtn} inv={{ total_cents: d.total_cents, verified_cents: verified, pending_cents: pending, can_report: v.can_report }}
+                        {!paid && v && <InvoicePayAction className={rowBtn} who={payWho} inv={{ total_cents: d.total_cents, verified_cents: verified, pending_cents: pending, can_report: v.can_report }}
                           onReport={() => { setRecordInv(d.id); setWsView("payments"); }} onView={() => { setViewInv(d.id); setWsView("payments"); }} />}
                       </span>
                     );
@@ -3541,7 +3541,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       {L("Open", "Terbuka")}
                     </span>
                   )}
-                  {d.doc_type === "INV" && (!canPay || d.payment_status === "void") && (
+                  {d.doc_type === "INV" && (!(canPay || (paysByReport && pv?.on)) || d.payment_status === "void") && (
                     <span className={d.payment_status === "paid" ? "erp-chip erp-chip-sm erp-chip-success" : d.payment_status === "void" ? "erp-chip erp-chip-sm erp-chip-neutral" : "erp-chip erp-chip-sm erp-chip-warning"}
                       title={d.payment_status === "void" ? L(`Voided${d.void_reason ? `: ${d.void_reason}` : ""}`, `Dibatalkan${d.void_reason ? `: ${d.void_reason}` : ""}`) : undefined}>
                       {payStatusL(d.payment_status ?? "unpaid")}

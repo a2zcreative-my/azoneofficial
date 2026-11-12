@@ -71,6 +71,11 @@ export const ALL_TABS = [
   /* v1.249.0 - the agent desk: for agents their whole job (packages to promote,
      their requests); for Sales and management the list of agents' requests */
   "Agents",
+  /* v1.284.0 - Financial Advisory (the CEO approved it, 11-11-2026;
+     claude/FINANCIAL-ADVISORY-BLUEPRINT.md): loan
+     pre-screening and banker relations for an existing customer, in Revenue
+     after Agents. Legal-gated parts stay switched off (worker/src/fa.ts). */
+  "Financial Advisory",
   /* v1.277.0 - A2Z OS 3.0 (the CEO approved the 3.0 navigation, 10-11-2026,
      claude/UIUX-3.0-BLUEPRINT.md): Tasks moves from People to OPERATIONS -
      projects live inside Tasks, and the work the company does sits with what
@@ -322,6 +327,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      Written out as an ordinary entry, it disappears. */
   Sales: SALES_ROLES,
   Agents: ["sales_marketing", "ceo", "coo", "cco", "super_admin"], // agents see it through AGENT_TABS
+  "Financial Advisory": ["ceo", "coo", "cco", "sales_marketing"], // v1.284.0 - the fa_view holders; the server checks fa_view on every route
   /* v1.183.0 - Sales Performance, Hankei's and Enquiries retired: no
      default here, so a saved override or grant naming one is ignored. */
   Inventory: [
@@ -581,6 +587,7 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Ecommerce: { slug: "ecommerce" },
   Sales: { slug: "sales" },
   Agents: { slug: "agents" },
+  "Financial Advisory": { slug: "financial-advisory" },
   Inventory: { slug: "inventory" },
   Assets: { slug: "assets" },
   Hotels: { slug: "hotels", record: "hotel", context: "detail" },

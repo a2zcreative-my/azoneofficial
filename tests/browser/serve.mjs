@@ -17,6 +17,7 @@ import http from "node:http";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fixture, projectFixture } from "./fixture.mjs";
+import { fa, faRoute, resetFa } from "./fa-fixture.mjs";
 
 /* v1.247.0 - the task email settings as the worker answers them by default (task-mail.ts DEFAULT_SETTINGS) */
 const MAIL_SETTINGS = { enabled: true, triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true }, lead_hours: 24, escalation_days: 2, overdue_days: [1, 3, 7], digest_on: false, digest_time: "08:30", quiet_from: "21:00", quiet_to: "08:00", cap_per_day: 8 };
@@ -83,6 +84,8 @@ const payInit = () => ({
     ...(process.env.PAYDOCS ? [{ id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, customer: "Casa del Rio Sdn Bhd", salesperson: "Fixture Person", company: "azoo", verified: 300000, paid: false }] : []),
     /* v1.282.0 - PAYOWN=1 (Payment Verification 3.0): an invoice the signed-in person
        reported themselves (the live RM 37.50 case, invented names) and one part-paid invoice */
+    /* v1.285.0 - CEOPAY=1: Aina's invoice, for the CEO's Mark paid on her behalf */
+    ...(process.env.CEOPAY ? [{ id: 506, doc_number: "INV-A2Z-506", total_cents: 45000, customer: "Kedai Aina", salesperson: "Aina Seller", company: "a2z", verified: 0, paid: false }] : []),
     ...(process.env.PAYOWN ? [
       { id: 503, doc_number: "INV-AZOO-503", total_cents: 3750, customer: "Kedai Contoh", salesperson: "Fixture Person", company: "azoo", verified: 0, paid: false },
       { id: 504, doc_number: "INV-A2Z-504", total_cents: 120000, customer: "Syarikat Contoh", salesperson: "Fixture Person", company: "a2z", verified: 60000, paid: false },
@@ -104,7 +107,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
   if (url.pathname === "/__fixture-status") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
+    res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", fa_posts: fa.posts, missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
   }
   if (url.pathname === "/__payments") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pay)); return; }
   if (url.pathname === "/__passkeys") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pk)); return; }
@@ -112,6 +115,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
+    resetFa(); // v1.284.0
     signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
     pay = payInit(); // v1.272.0
     punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0; pk.creds = []; pk.posts = []; pk.issued = [];
@@ -212,15 +216,18 @@ const server = http.createServer((req, res) => {
         pay.posts.push({ path: p, method: "PATCH", body: b });
         if (b.payment_status === "paid") return send(409, { error: { code: "payment_verification_on", message: "INV-AZO050926-3 becomes paid when the CEO verifies its payments. Report the payment in Sales -> Payments." } });
       }
+      /* v1.284.0 - Financial Advisory (FA=1), invented fixture data (fa-fixture.mjs) */
+      if (process.env.FA && p.startsWith("/staff/fa/")) { const r = faRoute(p, req.method, jb()); if (r) return send(r[0], r[1]); }
       /* v1.272.0 - Sales -> Payments (PAYV=1), stateful, the server's rules in small */
       if (p === "/staff/payments" || p.startsWith("/staff/payments/") || /^\/staff\/docs\/\d+\/payment-reports$/.test(p) || p.startsWith("/staff/payment-reports/")) {
         const role = process.env.ROLE ?? "ceo";
-        const caps = { report: ["ceo", "coo", "cco", "sales_marketing"].includes(role), verify: role === "ceo", evidence: role === "coo", switch: role === "ceo" && !!process.env.OWNER, all: ["ceo", "coo", "cco"].includes(role) };
+        /* v1.285.0 - the owner alone verifies, his own reports included; no evidence check */
+        const caps = { report: ["ceo", "coo", "cco", "sales_marketing"].includes(role), verify: role === "ceo" && !!process.env.OWNER, evidence: false, switch: role === "ceo" && !!process.env.OWNER, all: ["ceo", "coo", "cco"].includes(role) };
         const pend = (i) => pay.reports.filter((r) => r.invoice_id === i.id && ["reported", "evidence_checked", "clarify"].includes(r.state)).reduce((a, r) => a + r.amount_cents, 0);
         const statusOf = (i) => i.paid ? "paid" : i.verified === 0 ? (pend(i) ? "reported" : "unpaid") : i.verified + pend(i) >= i.total_cents ? "fully_reported" : "partial";
-        const deco = (r) => ({ ...r, mine: r.reported_by === 9001, needs_evidence: r.reporter_role === "ceo", doc_number: pay.invoices.find((i) => i.id === r.invoice_id)?.doc_number, customer: pay.invoices.find((i) => i.id === r.invoice_id)?.customer, total_cents: pay.invoices.find((i) => i.id === r.invoice_id)?.total_cents });
+        const deco = (r) => ({ ...r, mine: r.reported_by === 9001, needs_evidence: false, doc_number: pay.invoices.find((i) => i.id === r.invoice_id)?.doc_number, customer: pay.invoices.find((i) => i.id === r.invoice_id)?.customer, total_cents: pay.invoices.find((i) => i.id === r.invoice_id)?.total_cents });
         const ev = (i, rid, event, amount, detail = null) => pay.events.push({ id: pay.events.length + 1, invoice_id: i, report_id: rid, event, amount_cents: amount, detail: detail ? JSON.stringify(detail) : null, created_at: "2026-11-05 02:00:00", actor: "Fixture Person" });
-        const picture = (i) => ({ invoice: { id: i.id, doc_number: i.doc_number, customer: i.customer, total_cents: i.total_cents, payment_status: i.paid ? "paid" : "unpaid", company: i.company, company_name: i.company === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL" },
+        const picture = (i) => ({ invoice: { id: i.id, doc_number: i.doc_number, customer: i.customer, total_cents: i.total_cents, payment_status: i.paid ? "paid" : "unpaid", company: i.company, company_name: i.company === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL", salesperson: i.salesperson, salesperson_id: i.salesperson === "Fixture Person" ? 9001 : 77 },
           verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.paid ? 0 : i.total_cents - i.verified, status: statusOf(i), reports: pay.reports.filter((r) => r.invoice_id === i.id).map(deco).reverse(), events: pay.events.filter((e) => e.invoice_id === i.id), can_report: caps.report && !i.paid });
         const b = jb();
         if (req.method !== "GET") pay.posts.push({ path: p, method: req.method, body: p.endsWith("/proof") ? "(file)" : b });
@@ -229,7 +236,7 @@ const server = http.createServer((req, res) => {
           const reps = pay.reports.map(deco);
           return send(200, { on: pay.on, ready: true, can: caps,
             banks: caps.verify ? [{ id: 1, name: "A2Z account", bank: "Maybank", number_masked: "****1111", company: "a2z" }, { id: 2, name: "AZ ONE account", bank: "Maybank", number_masked: "****2222", company: "azoo" }] : [],
-            reports: reps, invoices: open.map((i) => ({ id: i.id, doc_number: i.doc_number, total_cents: i.total_cents, customer: i.customer, salesperson: i.salesperson, company: i.company, salesperson_id: 9001, verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.total_cents - i.verified, status: statusOf(i), can_report: caps.report })),
+            reports: reps, invoices: open.map((i) => ({ id: i.id, doc_number: i.doc_number, total_cents: i.total_cents, customer: i.customer, salesperson: i.salesperson, company: i.company, salesperson_id: i.salesperson === "Fixture Person" ? 9001 : 77, verified_cents: i.verified, pending_cents: pend(i), outstanding_cents: i.total_cents - i.verified, status: statusOf(i), can_report: caps.report })),
             tiles: { pending_cents: reps.filter((r) => ["reported", "evidence_checked", "clarify"].includes(r.state)).reduce((a, r) => a + r.amount_cents, 0), pending_count: reps.filter((r) => ["reported", "evidence_checked", "clarify"].includes(r.state)).length, verified_month_cents: reps.filter((r) => r.state === "verified").reduce((a, r) => a + (r.verified_cents ?? 0), 0), outstanding_cents: open.reduce((a, i) => a + i.total_cents - i.verified, 0), outstanding_invoices: open.length, partial_invoices: open.filter((i) => ["partial", "fully_reported"].includes(statusOf(i))).length } });
         }
         /* v1.283.0 (B6) - the cross-invoice audit trail, newest first, read only */
@@ -265,10 +272,12 @@ const server = http.createServer((req, res) => {
         if (["verify", "reject", "reverse", "evidence"].includes(a) && b.totp !== "123456") return send(401, { error: { code: "totp_invalid", message: "That code is not valid" } });
         if (["verify", "reject", "reverse", "clarify"].includes(a) && !caps.verify) return send(403, { error: { code: "forbidden", message: "Only the CEO verifies payments" } });
         if (a === "verify") {
-          if (r.reported_by === 9001 && r.state !== "evidence_checked") return send(403, { error: { code: "self_approval", message: "You reported this payment - its bank evidence is checked by the COO first." } });
+          if (!r.has_proof && r.reported_by !== 9001) return send(409, { error: { code: "proof_required", message: "No proof is attached to this payment - ask the reporter for it." } });
           if (b.bank_id !== 1 && i.company === "a2z") return send(409, { error: { code: "company_mismatch", message: "Company money is never combined." } });
           r.state = "verified"; r.verified_cents = b.amount_cents; r.decided_at = "2026-11-05 02:00:00"; r.decided_name = "Fixture Person"; r.bank_name = "A2Z account"; r.verify_method = b.verify_method;
-          i.verified += b.amount_cents; ev(i.id, r.id, "verified", b.amount_cents);
+          i.verified += b.amount_cents;
+          /* v1.285.0 - whose sale, recorded at the decision (the fixture's invoices are all the signed-in person's own, except SALEOF) */
+          ev(i.id, r.id, "verified", b.amount_cents, i.salesperson === "Fixture Person" ? { own_sale: true, ceo_marked: r.reported_by === 9001 } : { own_sale: false, salesperson: i.salesperson, ceo_marked: r.reported_by === 9001 });
           if (i.verified >= i.total_cents) { i.paid = true; ev(i.id, null, "invoice_paid", i.total_cents); } else ev(i.id, r.id, "outstanding_updated", i.total_cents - i.verified);
           return send(200, { ok: true, ...picture(i) });
         }

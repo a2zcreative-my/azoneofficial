@@ -55,6 +55,10 @@ ok("fully verified -> no action", actionFor(inv(10000, 10000, 0)).kind === "none
 ok("someone who cannot report sees no report button", actionFor(inv(15000, 0, 0, false)).kind === "none" && actionFor(inv(15000, 0, 5000, false)).kind === "view_pending");
 ok("D2: the CEO's own report waits for the independent evidence review", reviewOf({ state: "reported", needs_evidence: true }) === "awaiting_independent");
 ok("anyone else's report, or one whose evidence was checked, waits for the CEO", reviewOf({ state: "reported", needs_evidence: false }) === "pending_ceo" && reviewOf({ state: "evidence_checked", needs_evidence: true }) === "pending_ceo");
+/* v1.285.0 (the CEO, 12-11-2026) - the owner's Paid is final; COO and CCO request it; the screen says whose sale it is */
+ok("v1.285.0: the owner's report action reads Mark paid", actionFor(inv(15000, 0, 0), false, "owner").label === "Mark paid" && actionFor(inv(120000, 60000, 0), false, "owner").label === "Mark paid");
+ok("v1.285.0: the COO and CCO read Request paid; everyone else Report payment", actionFor(inv(15000, 0, 0), false, "exec").label === "Request paid" && actionFor(inv(15000, 0, 0)).label === "Report payment");
+ok("v1.285.0: the words change, never the rule (a fully pending invoice is still View pending for everyone)", ["owner", "exec", "staff"].every((w) => actionFor(inv(3750, 0, 3750), false, w).kind === "view_pending"));
 ok("clarify, verified, rejected, reversed keep their own words", ["clarify", "verified", "rejected", "reversed"].every((s) => reviewOf({ state: s }) === s));
 ok("D3: settlement counts verified money only", settlementOf(3750, 0) === "unpaid" && settlementOf(120000, 60000) === "partial" && settlementOf(120000, 120000) === "paid" && settlementOf(100, 0, false, true) === "void");
 
@@ -63,6 +67,10 @@ ok("two status domains, used everywhere: settlement and review", /settlement: \{
 ok("the panel no longer prints the mixed status words", !/Fully reported - awaiting CEO|Reported - awaiting CEO|STATUS_WORDS/.test(panel));
 
 /* ---- the review sheet ---- */
+ok("v1.285.0: the CEO verifies his own report too (no second person)", /const mayVerify = \(r: Rep\) => data\.can\.verify && isPending\(r\);/.test(panel));
+ok("v1.285.0: the owner's Mark paid sends the report, then his own verification with his code", /if \(owner\) \{[\s\S]{0,400}\/staff\/payment-reports\/\$\{r\.data\.id\}\/verify`/.test(panel) && /totp: code/.test(panel));
+ok("v1.285.0: before he confirms, the sheet says whose sale it is", /data-testid="sale-banner"/.test(panel) && /on their behalf/.test(panel) && /This is your own sale\./.test(panel));
+ok("v1.285.0: a verified payment says whose sale it was, from its record", /function saleWords\(ev: Ev \| undefined\)/.test(panel) && /data-testid="sale-words"/.test(panel));
 ok("the foot's Verify only where the 1.272 rule allows; otherwise it says what it waits for", /\{mayVerify\(lead\)\s*\? <button type="button" className=\{css\.btnVerify\}/.test(panel) && /: <p className=\{css\.lock\} data-testid="verify-locked">/.test(panel) && /L\("Verify after the COO's check"/.test(panel));
 ok("the sheet names the independent evidence review on the reporter's own report", /rv === "awaiting_independent" && \(\s*<div className=\{css\.evid\} data-testid="evidence-waiting">/.test(panel));
 ok("the sheet's amounts are the shared summary (verified outstanding, pending beside it)", /<AmountSummary total=\{pic\.invoice\.total_cents\} verified=\{pic\.verified_cents\} pending=\{pic\.pending_cents\}/.test(panel) && /const outstanding = paid \? 0 : Math\.max\(0, total - verified\);/.test(partsSrc));
@@ -79,7 +87,7 @@ ok("the report sheet is three steps: Details, Proof, Review", /\[1, L\("Details"
 ok("success is said only after the server answered", /if \(!r\.ok \|\| !r\.data\?\.id\) \{ setBusy\(false\); onFail\(/.test(panel) && /if \(!r\.ok\) \{ onFail\(msg\(r, L\("Not saved - try again"/.test(panel));
 
 /* ---- one rule across Sales ---- */
-ok("the documents list uses actionFor (View pending payment opens the invoice's sheet)", /<InvoicePayAction className=\{rowBtn\} inv=\{\{ total_cents: d\.total_cents, verified_cents: verified, pending_cents: pending, can_report: v\.can_report \}\}/.test(sales) && /onReport=\{\(\) => \{ setRecordInv\(d\.id\); setWsView\("payments"\); \}\} onView=\{\(\) => \{ setViewInv\(d\.id\); setWsView\("payments"\); \}\}/.test(sales) && /const a = actionFor\(inv\);/.test(partsSrc) && /onClick=\{report \? onReport : onView\}/.test(partsSrc));
+ok("the documents list uses actionFor (View pending payment opens the invoice's sheet)", /<InvoicePayAction className=\{rowBtn\} who=\{payWho\} inv=\{\{ total_cents: d\.total_cents, verified_cents: verified, pending_cents: pending, can_report: v\.can_report \}\}/.test(sales) && /onReport=\{\(\) => \{ setRecordInv\(d\.id\); setWsView\("payments"\); \}\} onView=\{\(\) => \{ setViewInv\(d\.id\); setWsView\("payments"\); \}\}/.test(sales) && /const a = actionFor\(inv, false, who\);/.test(partsSrc) && /onClick=\{report \? onReport : onView\}/.test(partsSrc));
 ok("the Overview's Needs action uses the same rule", /const a = v && pv\?\.on && p\.canPay \? actionFor\(/.test(sw) && /a\.kind === "view_pending" && p\.onView/.test(sw));
 ok("'Record payment' is gone from Sales: the word is Report payment", !/L\("Record payment"/.test(sales + sw + panel));
 ok("on Payments the header's gold action is Report payment", /wsView === "payments" && pv\?\.on && Object\.values\(pv\.inv\)\.some\(\(v\) => v\.can_report\) \?/.test(sales) && /reportTick=\{payReport\}/.test(sales));

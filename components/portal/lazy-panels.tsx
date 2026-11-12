@@ -85,6 +85,7 @@ export const ElfiaStorePanel = lazy(() => import("@/components/portal/elfia-stor
 export const ElfiaTrafficPanel = lazy(() => import("@/components/portal/elfia-traffic-panel").then((m) => m.ElfiaTrafficPanel));
 export const FinancePage = lazy(() => import("@/components/portal/finance-panels").then((m) => m.FinancePage)); // v1.219.0 - Finance 2.0
 export const GeofenceCard = lazy(() => import("@/components/portal/geofence-card").then((m) => m.GeofenceCard));
+export const FinancialAdvisoryPanel = lazy(() => import("@/components/portal/financial-advisory").then((m) => m.FinancialAdvisoryPanel)); // v1.284.0 - Financial Advisory
 export const AgentsPanel = lazy(() => import("@/components/portal/agents-panel").then((m) => m.AgentsPanel)); // v1.249.0 - the agent desk
 export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel").then((m) => m.HotelsPanel));
 export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").then((m) => m.CardsPanel)); // v1.129.0

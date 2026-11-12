@@ -10,6 +10,28 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.285.0] - 2026-11-12 - The CEO's Paid is final, and says whose sale it is - BUILT, NOT DEPLOYED
+
+The CEO, 12-11-2026: "COO and CCO able to click paid and verify by me (CEO). If I update the paid status, no further verification are required since I am a CEO!" and "proceed, but need to know that when I click paid it is behalf of someone or it is belong to my own sales". Same payment engine; no migration, no new table.
+
+- **The CEO's Mark paid is final.** The owner reports and verifies in one step (his code, the account the money landed in, proof optional). No COO evidence check (P3 withdrawn); the evidence route answers 409 not_needed. Cash is booked once and commission starts once, through the existing settle().
+- **Whose sale.** Before he confirms, the sheet says "This is your own sale" or "This is <salesperson>'s sale - you are marking it paid on their behalf". Every verification records own_sale / salesperson in the payment timeline and the audit (payment.ceo_marked_paid when he marked it himself). The salesperson is told it was done on their behalf; the COO and CCO get a "For the record" notice. Commission stays with the invoice's closer.
+- **The verifier is the company owner** (role ceo + is_owner from the session), not any account with the CEO role; a refused attempt is audited (auth.payment_verify_refused). Confirm Paid under verification follows the same rule.
+- **COO and CCO click Paid = Request paid**: it waits for the CEO. The CCO now gets the same button in the Sales list and Needs action card as the COO. Sales keep Report payment.
+- **Tests:** all 173 guards pass. payment-verify 111 checks and 28 mutations caught (the 6 P3 checks replaced by 20 for the new rule), payment-ui 39, executive-workspace 60 (the 1.272 foot rule check now reads the 1.285 rule), browser pay-ceo 36/36 (new), payments-3 202/202, paid-status 24/24, payments-verify 53/53, sales-e3 33/33, sheets-e4 45/45.
+
+## [1.284.0] - 2026-11-12 - Financial Advisory, Release 1 (internal) - BUILT, NOT DEPLOYED
+
+Approved by the CEO on 11-11-2026 ("proceed with Financial Advisory" on claude/FINANCIAL-ADVISORY-BLUEPRINT.md: F1 internal Release 1, F2 migration 0183, F3 capabilities as proposed, F9 commission rule none, F11 naming, F12 no bank logos, F13 no banker or client portal). F4-F8, F10 and F14 stay with the CEO and counsel. Nothing deployed.
+
+- **One module in the existing OS.** New tab Financial Advisory in Revenue (CEO, COO, CCO, Sales). The client is an ordinary customer (an existing phone finds the existing customer), case tasks are ordinary tasks, every change is audited. The rail's approved primary list is unchanged; the tab is under More on the rail and in Revenue everywhere else.
+- **Migration 0183_financial_advisory (additive, IF NOT EXISTS only):** cases, members, consents, versioned profiles (IC stored masked plus a keyed hash), one figures table (income, deductions, commitments, living costs), private documents, assessment snapshots, Kelayakan notes, versioned bank criteria, banker contacts and their log, events. Triggers keep notes, assessments, events and the contact log append-only and consents undeletable.
+- **DSR engine (worker/src/fa-engine.ts):** integer basis points; only verified income counts; no DSR limit is written in code - every guideline is a bank criterion that management verifies with its source and date; a draft never matches; near a guideline goes to manual review; matches show each check (met, not met, not verified) and missing documents, never a score, probability or amount; debt consolidation in three periods with a facility removed only with its settlement letter.
+- **Three separate statuses:** pre-screen, banker feedback, formal application. Banker feedback cannot say approved; an official decision is recorded by the CEO or COO only, with the bank's document attached.
+- **Switched off until counsel clears them (409 legal_gate):** the client agreement, the proposed 15% fee (no quotation or invoice), sending documents to a bank, commission on advisory fees. No CTOS action, blacklisting or penalty exists.
+- **Safety:** credential-shaped fields (password, OTP, PIN, online banking) are refused and audited; consent before figures; every document view audited; capability fa_view on every route and case scope for Sales.
+- **Tests:** tests/fa-engine.mjs (32 checks), tests/fa-api.mjs (whole worker by direct request, mutations), tests/browser/fa-1.py (170 checks, 7 widths, CEO/COO/CCO/Sales/HR) with invented fixture data (tests/browser/fa-fixture.mjs).
+
 ## [1.283.0] - 2026-11-11 - Payment Verification 3.0, Track B: the server fixes B1-B6 - BUILT, NOT DEPLOYED
 
 Approved by the CEO on 11-11-2026 ("Proceed" on claude/PAYMENT-VERIFICATION-3.0-BLUEPRINT.md, decisions P3-P5 as recommended). Worker only (payment-verify.ts, staff.ts, business.ts). No migration, no schema change, no permission change, no commission rate change.
