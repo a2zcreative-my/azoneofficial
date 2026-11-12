@@ -89,6 +89,9 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   advisory: ["DSR assessments to review", "Penilaian DSR untuk disemak"], // v1.288.0
 };
 
+/** v1.291.0 - the module a Desk item comes from, in words (the Dashboard's decision queue) */
+export const deskBucketWord = (b: DeskItem["bucket"]): string => (BUCKET[b] ? L(BUCKET[b][0], BUCKET[b][1]) : b);
+
 /* v1.175.0 - a desk cached by an older build, or served by a worker that has
    not been deployed yet, has no `kind`. Rather than dropping every approval
    into the wrong list, read it from the bucket the same way the worker does. */

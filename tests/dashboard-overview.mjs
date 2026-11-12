@@ -103,8 +103,12 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
 
 /* ---- 6. nothing of My Day is lost ---- */
 {
-  ok("the zones are still drawn, in DASHBOARD_ZONES order", /\{shiftOnly \? zoneShift : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash));
-  ok("the clock-first job opens on My Day, the others on the overview", /const view: "overview" \| "day" = dashView \?\? \(lead === "shift" \? "day" : "overview"\);/.test(dash));
+  /* v1.291.0 (4.0) - management's My Day is the Command Center's own (the
+     overview is handed the view); everyone else still reads the zones */
+  ok("the zones are still drawn, in DASHBOARD_ZONES order, for everyone but management", /\{shiftOnly \? zoneShift : exec \? null : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash)
+     && /const exec = Boolean\(weekHead\.data\?\.outlook\);/.test(dash) && /view=\{view\} shiftKind=\{todayKind\}/.test(dash));
+  ok("the clock-first job opens on My Day, the others on the overview; a clock-first person who manages nobody reads My Day alone", /const view: "overview" \| "day" = dayOnly \? "day" : dashView \?\? \(lead === "shift" \? "day" : "overview"\);/.test(dash)
+     && /const dayOnly = !exec && lead === "shift" && !MANAGE_ROLES\.includes\(user\.role\);/.test(dash) && /\{!dayOnly && \(/.test(dash));
   ok("the zones only leave the screen under the overview (still mounted)", /\.page\[data-view="overview"\] > \[data-zone\] \{\s*display: none;/.test(read("components/portal/dashboard.module.css")));
   ok("On Shift is untouched: no overview, no tabs", /data-view=\{shiftOnly \? undefined : view\}/.test(dash) && /\{shiftOnly \? \(/.test(dash));
 }
@@ -116,7 +120,12 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
      chip in the welcome line). At least the seven photo actions must match,
      so the check can never pass on an empty list. */
   const acts = [...code.matchAll(/\{ key: "(q-[a-z]+)", icon: [^}]*show: ([^}]+) \}/g)];
-  ok("each action is gated by the tab strip, except the clock (the staff layout's)", acts.length >= 8 && acts.every(([, k, show]) => k === "q-clock" ? /^!exec$/.test(show.trim()) : /^can\("[A-Za-z ]+"\)$/.test(show.trim())), acts.map((a) => `${a[1]}=${a[2]}`).join("; "));
+  ok("each action is gated by the tab strip, except the clock (the staff layout's)", acts.length >= 10 && acts.every(([, k, show]) => k === "q-clock" ? /^true$/.test(show.trim()) : /^can\("[A-Za-z ]+"\)$/.test(show.trim())), acts.map((a) => `${a[1]}=${a[2]}`).join("; "));
+  /* v1.291.0 (4.0, blueprint section 9) - four per role, and the clock only in the staff four */
+  ok("four quick actions, chosen per role; the clock only for staff; the strip draws no more than four",
+     /const quick: QuickAction\[\] = exec\s*\? \(view === "day" \? pick\(\["quote", "task", "follow", "desk"\]\) : opsExec \? pick\(\["desk", "quote", "task", "leave"\]\) : pick\(\["quote", "invoice", "payment", "desk"\]\)\)\s*: can\("Sales"\) \? pick\(\["quote", "follow", "client", "payment"\]\) : pick\(\["clock", "leave", "claim", "task"\]\);/.test(code)
+     && (code.match(/<QuickActionsStrip actions=\{quick\} max=\{4\} \/>/g) ?? []).length === 3 && /const shown = max \? actions\.slice\(0, max\) : actions;/.test(read("components/portal/executive-cards.tsx")));
+  ok("the payment action is the payment engine's own word, Report Payment (D5)", /key: "q-payment", icon: "pay", label: L\("Report Payment"/.test(code) && !/Record Payment/.test(code));
   ok("the Sales actions open Sales where the work is done (create as an invoice, Payments, Add customer)", /openAt\("Sales", "create_invoice"\)/.test(code) && /openAt\("Sales", "payments"\)/.test(code) && /openAt\("Sales", "add_customer"\)/.test(code)
      && /\["create_invoice", "payments", "add_customer", "followups"\]\.includes\(startView\)/.test(read("components/portal/sales.tsx")));
   ok("create quotation is the Sales tab's own entry", /onCreateQuotation \? onCreateQuotation\(\) : go\("Sales"\)/.test(code));
@@ -135,7 +144,9 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
      !/tr\("Apply leave", lang\)\}\s*<\/button>[\s\S]{0,900}?\{otButtons\}/.test(dashCode) && !/tr\("Create quotation", lang\)/.test(dashCode)
      && /\{otButtons && <div className=\{shiftCss\.quick\}>\{otButtons\}<\/div>\}/.test(dashCode)
      /* v1.280.0 - the photo's Quick Actions strip: Apply Leave and New Quotation */
-     && /key: "q-leave", icon: "holiday", label: L\("Apply Leave"/.test(code) && /key: "q-quote", icon: "add", label: L\("New Quotation"/.test(code));
+     && /key: "q-leave", icon: "holiday", label: L\("Apply Leave"/.test(code) && /key: "q-quote", icon: "add", label: L\("Create Quotation"/.test(code)
+     /* v1.291.0 - My Day's own strip only for the person who has no Overview, so it never repeats it */
+     && /\{dayOnly && <QuickActionsStrip actions=\{dayQuick\} max=\{4\} \/>\}/.test(dashCode));
   /* v1.263.0 (claude/COMPACT-DASHBOARD-AUDIT.md, approved 05-11-2026) -
      Upcoming & Pending moved up into the actions row with three items; the
      month's leave stays ONE card on the Overview (never on My Day), with the

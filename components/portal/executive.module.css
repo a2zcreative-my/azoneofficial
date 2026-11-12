@@ -617,3 +617,578 @@ span.rowMain {
     gap: var(--space-3);
   }
 }
+
+/* ================================================================
+   v1.291.0 - EXECUTIVE COMMAND CENTER 4.0 (executive-cards.tsx,
+   claude/EXECUTIVE-COMMAND-CENTER-4.0-BLUEPRINT.md). Tokens only.
+   ================================================================ */
+.w_bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.w_info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.w_ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.w_warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* the header: the title, the line under it, the phone's view switch */
+.execHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+.execTitle {
+  margin: 0;
+  font-size: var(--type-page-size, 1.6875rem);
+  font-weight: 700;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+.execSub {
+  margin: 0.25rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.vsWrap {
+  position: relative;
+}
+.vsChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.vsChip :global(.erp-icon) {
+  width: 1rem;
+  height: 1rem;
+}
+.vsChip:focus-visible,
+.vsItem:focus-visible,
+.alertBtn:focus-visible,
+.recItem:focus-visible,
+.workCell:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.vsMenu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.375rem);
+  left: 0;
+  display: grid;
+  min-width: 15rem;
+  padding: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card-v2);
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
+}
+.vsItem {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.625rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.vsItem:hover {
+  background: var(--secondary);
+}
+.vsItem strong {
+  display: block;
+  font-size: 0.875rem;
+}
+.vsItem small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.vsTick {
+  color: var(--brand-accent-deep);
+  font-weight: 700;
+}
+
+/* the alert band: only while something is wrong */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: var(--radius-card-v2);
+  background: var(--danger-soft);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.alert > :global(.erp-icon) {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--danger);
+}
+.alert ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.alertBtn {
+  min-height: 1.75rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .alertBtn {
+    min-height: 2.75rem;
+  }
+}
+
+/* "3 of 5", the phone's banner, the row's status and its one action */
+.ofCount {
+  color: var(--brand-accent-deep);
+  font-size: 0.875rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.priBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--gold-solid) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--gold-solid) 12%, transparent);
+  color: var(--brand-accent-deep);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.priBanner strong {
+  font-size: 1.25rem;
+}
+.chipStack {
+  display: inline-grid;
+  justify-items: end;
+  gap: 0.25rem;
+}
+.actWord {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Sales Performance, the summary */
+.sum {
+  align-content: start;
+}
+.sumTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.sumBig {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.sumActual {
+  font-size: 1.875rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.sumOf {
+  color: var(--muted-foreground);
+  font-size: 1rem;
+  font-weight: 600;
+}
+.sumPct {
+  margin: 0;
+  color: var(--brand-accent-deep);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.sumBar {
+  display: block;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--secondary);
+}
+.sumBar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gold-solid);
+}
+.sumNote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.sumFacts,
+.sumTrio,
+.recStats,
+.todayCounts,
+.kv {
+  margin: 0;
+}
+.sumFacts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.sumFacts div {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+}
+.sumFacts dt,
+.sumTrio dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.sumFacts dd,
+.sumTrio dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sumFacts dd {
+  font-size: 1.0625rem;
+}
+.sumTrio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.sumBasis {
+  margin: 0;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.sumOwed {
+  font-size: 0.8125rem;
+}
+@media (max-width: 767px) {
+  .sumTop {
+    display: none;
+  }
+  .sumFacts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sumFacts div {
+    padding: 0;
+    background: none;
+  }
+}
+
+/* Sales Recovery: the lead, three figures, the link; the top three below */
+.recovery {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: 0.875rem 1.25rem;
+}
+.recLead {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 1rem;
+}
+.recIcon {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: var(--brand-accent-deep);
+}
+.recStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.recStats div {
+  display: grid;
+  padding: 0 var(--space-4);
+  border-left: 1px solid var(--border);
+}
+.recStats dd {
+  order: -1;
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.recStats dt {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.recTop {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) 0 0;
+  border-top: 1px dashed var(--border);
+  list-style: none;
+}
+.recItem {
+  display: grid;
+  gap: 0.125rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.recItem strong {
+  overflow: hidden;
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recItem span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.recItem:hover strong {
+  text-decoration: underline;
+}
+@media (max-width: 1023px) {
+  .recovery {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .recStats {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .recStats div:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+@media (max-width: 767px) {
+  .recStats div {
+    padding: 0 var(--space-2);
+  }
+  .recStats dd {
+    font-size: 1rem;
+  }
+}
+
+/* the phone's My Work */
+.workRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workCell {
+  display: grid;
+  align-content: start;
+  gap: 0.125rem;
+  width: 100%;
+  min-height: 4.75rem;
+  padding: 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.workCell span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.workCell strong {
+  font-size: 1.25rem;
+}
+.workCell small {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
+/* My Day: the Today strip and the contribution list */
+.today {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  padding: 0.875rem 1.25rem;
+}
+.todayLead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.todayCounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+}
+.todayCounts div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+}
+.todayCounts dd {
+  order: -1;
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.todayCounts dt {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.today > .viewAll {
+  margin-left: auto;
+}
+.kv {
+  display: grid;
+  gap: 0.5rem;
+}
+.kv div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.875rem;
+}
+.kv dt {
+  color: var(--muted-foreground);
+}
+.kv dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .today {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .todayCounts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  }
+  .todayCounts div {
+    display: grid;
+  }
+  .today > .viewAll {
+    margin-left: 0;
+  }
+}
+/* the four quick actions sit in one row on a wide screen, two by two on a phone */
+.quick4 .quickList {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@media (max-width: 767px) {
+  .quick4 .quickList {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .quick4 .quickList li {
+    flex: none;
+  }
+  .quick4 .quickTile {
+    min-height: 2.75rem;
+    flex-direction: row;
+  }
+}
+/* the narrow column beside a span2 card (the decisions, My Day's schedule): full width below 1024px */
+.sideCol {
+  min-width: 0;
+}
+@media (max-width: 1023px) {
+  .sideCol {
+    grid-column: 1 / -1;
+  }
+}
+/* the four figures: four across from 1024px, two by two below */
+.kpis4 > div {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 1024px) {
+  .kpis4 > div {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 767px) {
+  .sumTrio dd {
+    font-size: 0.875rem;
+  }
+  .recStats dd {
+    font-size: 0.9375rem;
+  }
+  .quick4 .quickPlus {
+    width: 1.75rem;
+    height: 1.75rem;
+    box-shadow: none;
+  }
+  .quick4 .quickPlus :global(.erp-icon) {
+    width: 1rem;
+    height: 1rem;
+  }
+}

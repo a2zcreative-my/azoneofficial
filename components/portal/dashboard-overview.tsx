@@ -48,9 +48,9 @@ import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
-import { splitDesk, useDeskData } from "@/components/portal/one-desk";
+import { deskAnchor, deskBucketWord, splitDesk, useDeskData } from "@/components/portal/one-desk";
 import type { Announcement, LeaveReq, Task, User } from "@/components/portal/page-shared";
-import { MANAGE_ROLES, annCatL, leaveTypeL, priorityL } from "@/components/portal/page-shared";
+import { MANAGE_ROLES, annCatL, leaveTypeL, priorityL, revealAnchor } from "@/components/portal/page-shared";
 import type { DashSummary, RevenueData } from "@/components/portal/dashboard";
 import { useCachedApi } from "@/lib/cached-api";
 import { api } from "@/lib/api";
@@ -58,7 +58,7 @@ import { dmy, fmtRM, mytToday } from "@/lib/format";
 import { getLang, type Lang } from "@/lib/i18n";
 import { LeaveMonthCard } from "@/components/portal/leave-month-card";
 import { ReportingLineStrip } from "@/components/portal/reporting-line-card";
-import { AdviceSummaryCard, FinanceHealthCard, PipelineCard, SalesPaceCard, TeamPerformanceCard, TodayFocusCard, useWeekDash } from "@/components/portal/week-target-card";
+import { AdviceSummaryCard, FinanceHealthCard, PipelineCard, SalesPaceCard, TeamPerformanceCard, TodayFocusCard, oppStatus, useWeekDash } from "@/components/portal/week-target-card";
 import { usePortal } from "@/components/portal/portal-provider";
 import type { TodayShiftKind } from "@/components/portal/on-shift";
 import { taskFigures } from "@/lib/task-figures";
@@ -66,7 +66,7 @@ import type { TabName } from "@/lib/portal-tabs";
 import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
 import ov from "./dashboard-overview.module.css";
 import x from "./executive.module.css";
-import { ApprovalsCard, FollowUpsCard, MyTasksCard, NextBestActionCard, QuickActionsStrip, SalesPerformanceCard, ScheduleCard, basisWord, usePerformance, vsWord, type FollowLite, type NextAction, type QuickAction, type ScheduleLite } from "@/components/portal/executive-cards";
+import { AlertBand, ApprovalsCard, ContributionCard, DecisionQueueCard, FollowUpsCard, MyTasksCard, MyWorkStrip, NextActionsCard, NextBestActionCard, QuickActionsStrip, SalesRecoveryStrip, SalesSummaryCard, ScheduleCard, TodayStrip, ViewSwitch, daysWaiting, usePerformance, vsWord, type AlertLine, type DayAction, type FollowLite, type NextAction, type QuickAction, type ScheduleLite } from "@/components/portal/executive-cards";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -146,7 +146,7 @@ function auditLine(a: AuditRow): { title: string; sub: string; icon: AppIconName
   return { title, sub: [what, a.user_name ? L(`by ${a.user_name}`, `oleh ${a.user_name}`) : ""].filter(Boolean).join(" · "), icon: NOUN_ICON[nounRaw] ?? "info" };
 }
 
-export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, openAt, onOpenDay, onOpenShift, todayShift, myShift, monitor, sessions, anns, annsKnown, ownLeave }: {
+export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, openAt, onOpenDay, onOpenShift, todayShift, myShift, monitor, sessions, anns, annsKnown, ownLeave, view = "overview", shiftKind, onOpenOverview }: {
   user: User;
   go: (t: TabName) => void;
   canOpen?: (t: string) => boolean;
@@ -166,6 +166,12 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   anns: Announcement[];
   annsKnown: boolean;
   ownLeave: LeaveReq[];
+  /** v1.291.0 (4.0) - which of the two views management is reading; the zones draw My Day for everyone else */
+  view?: "overview" | "day";
+  /** v1.291.0 - On Shift's verdict for today (on-shift.tsx todayShiftKind): a shift card only when one is rostered */
+  shiftKind?: TodayShiftKind;
+  /** v1.291.0 - My Day's one decisions line opens the Overview */
+  onOpenOverview?: () => void;
 }) {
   const can = (t: string) => (canOpen ? canOpen(t) : false);
   const manage = MANAGE_ROLES.includes(user.role);
@@ -189,6 +195,9 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
      dashboard; the same people may read the company figure by day */
   const exec = Boolean(wk?.outlook);
   const perfWeek = usePerformance("week", exec);
+  /* v1.291.0 (4.0, risk R3) - "verified" outstanding only while the CEO verifies payments: the Payments queue's own switch, read only by management */
+  const pvView = useCachedApi<{ on?: boolean }>(exec ? "/staff/payments" : null, exec, ["docs"]);
+  const verifying = pvView.data?.on === true;
   const pw = perfWeek.data && perfWeek.data.period === "week" ? perfWeek.data : null;
   const [moreOpen, setMoreOpen] = useState(false);
   const [audit, setAudit] = useState<AuditRow[] | null | "denied">(adminTier ? null : "denied");
@@ -647,33 +656,12 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
      card the Dashboard had before, one click deeper under More - nothing
      is lost. Each card is drawn only where this person may see its data.
      ================================================================ */
-  const fmtPct = (p: number) => `${p >= 0 ? "+" : "−"}${Math.abs(p)}%`;
-  const execTiles: Tile[] = [];
-  if (exec && wk?.outlook) {
-    const c = wk.company, o = wk.outlook;
-    execTiles.push(
-      { key: "x-target", node: <KpiTile icon="target" tone="gold" label={L("Weekly Target", "Sasaran Mingguan")} value={c.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(c.target_cents)}
-        sub={c.pct === null ? `${dmy(wk.week.from)} – ${dmy(wk.week.to)}` : c.basis_kind === "all_channels"
-          ? L(`${c.pct}% of target · all channels · ${o.days_left} working day(s) left`, `${c.pct}% daripada sasaran · semua saluran · ${o.days_left} hari bekerja lagi`)
-          : L(`${c.pct}% of target · ${o.days_left} working day(s) left`, `${c.pct}% daripada sasaran · ${o.days_left} hari bekerja lagi`)}
-        bar={c.pct === null ? undefined : { pct: c.pct, tone: "gold" }} onClick={() => go("Sales")} /> },
-      { key: "x-basis", node: <KpiTile icon="money" tone="green" label={basisWord(c.basis_kind)} value={fmtRM(c.basis_cents)}
-        delta={pw && pw.change_pct !== null ? { pct: pw.change_pct, text: fmtPct(pw.change_pct), vs: vsWord("week") } : undefined}
-        sub={pw && pw.change_pct !== null ? undefined : c.basis_kind === "all_channels" ? L("This week · every channel", "Minggu ini · setiap saluran") : L("Paid in full this week", "Dibayar penuh minggu ini")}
-        onClick={() => go("Sales")} /> },
-      { key: "x-invoices", node: <KpiTile icon="document" tone="blue" label={L("Invoices", "Invois")} value={o.invoiced.n}
-        sub={L(`${fmtRM(o.invoiced.cents)} raised this week`, `${fmtRM(o.invoiced.cents)} dikeluarkan minggu ini`)} onClick={() => go("Sales")} /> },
-      { key: "x-owed", node: <KpiTile icon="pending" tone="gold" label={L("Outstanding", "Tertunggak")} busy={!pw && !perfWeek.failed} value={pw ? fmtRM(pw.outstanding.cents) : "—"}
-        sub={pw ? L(`${pw.outstanding.invoices} unpaid invoice(s), less verified payments`, `${pw.outstanding.invoices} invois belum dibayar, tolak bayaran disahkan`) : perfWeek.failed ? L("Could not be loaded - open Sales", "Tidak dapat dimuatkan - buka Jualan") : undefined}
-        onClick={() => (openAt ? openAt("Sales", "payments") : go("Sales"))} /> },
-      { key: "x-quotes", node: <KpiTile icon="documents" tone="purple" label={L("Open Quotations", "Sebut Harga Terbuka")} value={o.open_quotations.n}
-        sub={`${fmtRM(o.open_quotations.cents)}${o.ageing_quotations ? L(` · ${o.ageing_quotations} going cold`, ` · ${o.ageing_quotations} semakin sejuk`) : ""}`}
-        onClick={() => (openAt ? openAt("Sales", "open_quotations") : go("Sales"))} /> },
-    );
-  }
-  const rowTiles = exec ? execTiles : shownTiles;
+  /* v1.291.0 - management reads the 4.0 Command Center above (an early
+     return), so this layout is the rest of the company's: the photo's
+     tiles of v1.280.0 for management are retired with it. */
+  const rowTiles = shownTiles;
   /* the target tile leads on a phone (the photo), so the row hides its copy there */
-  const hero = exec ? execTiles[0] : wk?.me ? wkTiles[0] : undefined;
+  const hero = wk?.me ? wkTiles[0] : undefined;
 
   /* My Tasks: my own open work, the most urgent first; the tick opens the update sheet */
   const openTask = (id: number) => { openRecord("Tasks", "task", id); go("Tasks"); };
@@ -681,16 +669,10 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"));
   const myTasks = mine.slice(0, 3).map((t) => ({ id: t.id, title: t.title, deadline: t.deadline, sub: t.link_label ?? (t.priority ? L(`Priority: ${priorityL(t.priority)}`, `Keutamaan: ${priorityL(t.priority)}`) : undefined) }));
 
-  /* Follow-ups: management - the open quotations with a follow-up booked;
-     a salesperson - their own next follow-ups (the week engine's lists) */
+  /* Follow-ups: a salesperson's own next follow-ups (the week engine's
+     list); management's open quotations are the 4.0 Sales Recovery strip */
   let follow: FollowLite[] | null = null;
-  if (exec && wk?.opportunities && can("Sales")) {
-    follow = wk.opportunities.filter((q) => q.next).sort((a, b) => a.next!.due_on.localeCompare(b.next!.due_on)).map((q) => ({
-      key: `q-${q.id}`, title: q.company ?? q.doc_number, due: q.next!.due_on,
-      sub: [L(`Quotation ${q.doc_number}`, `Sebut harga ${q.doc_number}`), q.next!.note].filter(Boolean).join(" · "),
-      open: () => { openRecord("Sales", "document", q.id); go("Sales"); },
-    }));
-  } else if (wk?.me?.next_followups && can("Sales")) {
+  if (wk?.me?.next_followups && can("Sales")) {
     follow = wk.me.next_followups.map((f) => ({
       key: `f-${f.id}`, title: f.company ?? L("Follow-up", "Susulan"), sub: f.note, due: f.due_on,
       open: () => (openAt ? openAt("Sales", "followups") : go("Sales")),
@@ -711,17 +693,27 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   ].sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99"));
   const schedLoaded = events !== null && sessions !== null;
 
-  /* Quick Actions: each opens a workflow that exists, only where this person may go */
-  const quick: QuickAction[] = ([
-    { key: "q-quote", icon: "add", label: L("New Quotation", "Sebut Harga Baharu"), on: () => (onCreateQuotation ? onCreateQuotation() : go("Sales")), show: can("Sales") },
-    { key: "q-invoice", icon: "document", label: L("Create Invoice", "Cipta Invois"), on: () => (openAt ? openAt("Sales", "create_invoice") : go("Sales")), show: can("Sales") },
-    { key: "q-payment", icon: "pay", label: L("Record Payment", "Rekod Bayaran"), on: () => (openAt ? openAt("Sales", "payments") : go("Sales")), show: can("Sales") },
-    { key: "q-task", icon: "orders", label: L("New Task", "Tugasan Baharu"), on: () => (openAt ? openAt("Tasks", "create") : go("Tasks")), show: can("Tasks") },
-    { key: "q-leave", icon: "holiday", label: L("Apply Leave", "Mohon Cuti"), on: () => (openAt ? openAt("Leave", "apply") : go("Leave")), show: can("Leave") },
-    { key: "q-claim", icon: "receipt", label: L("Submit Claim", "Hantar Tuntutan"), on: () => (openAt ? openAt("Claims", "submit") : go("Claims")), show: can("Claims") },
-    { key: "q-client", icon: "clients", label: L("Add Client", "Tambah Pelanggan"), on: () => (openAt ? openAt("Sales", "add_customer") : go("Sales")), show: can("Sales") },
-    { key: "q-clock", icon: "time", label: myShift.open ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: onOpenShift ?? onOpenDay, show: !exec },
-  ] as (QuickAction & { show: boolean })[]).filter((a) => a.show);
+  /* Quick Actions: each opens a workflow that exists, only where this person
+     may go. v1.291.0 (4.0) - four, chosen for the role (the blueprint,
+     section 9); "Report Payment" is the payment engine's own word (D5) */
+  const QA: Record<string, QuickAction & { show: boolean }> = {
+    quote: { key: "q-quote", icon: "add", label: L("Create Quotation", "Cipta Sebut Harga"), on: () => (onCreateQuotation ? onCreateQuotation() : go("Sales")), show: can("Sales") },
+    invoice: { key: "q-invoice", icon: "document", label: L("Create Invoice", "Cipta Invois"), on: () => (openAt ? openAt("Sales", "create_invoice") : go("Sales")), show: can("Sales") },
+    payment: { key: "q-payment", icon: "pay", label: L("Report Payment", "Lapor Bayaran"), on: () => (openAt ? openAt("Sales", "payments") : go("Sales")), show: can("Sales") },
+    desk: { key: "q-desk", icon: "pending", label: L("Open Desk", "Buka Meja"), on: () => go("Desk"), show: can("Desk") },
+    task: { key: "q-task", icon: "orders", label: L("New Task", "Tugasan Baharu"), on: () => (openAt ? openAt("Tasks", "create") : go("Tasks")), show: can("Tasks") },
+    leave: { key: "q-leave", icon: "holiday", label: L("Apply Leave", "Mohon Cuti"), on: () => (openAt ? openAt("Leave", "apply") : go("Leave")), show: can("Leave") },
+    claim: { key: "q-claim", icon: "receipt", label: L("Submit Claim", "Hantar Tuntutan"), on: () => (openAt ? openAt("Claims", "submit") : go("Claims")), show: can("Claims") },
+    client: { key: "q-client", icon: "clients", label: L("Add Client", "Tambah Pelanggan"), on: () => (openAt ? openAt("Sales", "add_customer") : go("Sales")), show: can("Sales") },
+    follow: { key: "q-follow", icon: "calendarAdd", label: L("Follow-ups", "Susulan"), on: () => (openAt ? openAt("Sales", "followups") : go("Sales")), show: can("Sales") },
+    clock: { key: "q-clock", icon: "time", label: myShift.open ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: onOpenShift ?? onOpenDay, show: true },
+  };
+  /* which four: a layout choice, not a permission - every action above is still gated by what this person may open */
+  const opsExec = user.role === "coo" || user.role === "cco";
+  const pick = (keys: string[]) => keys.map((k) => QA[k]!).filter((a) => a.show);
+  const quick: QuickAction[] = exec
+    ? (view === "day" ? pick(["quote", "task", "follow", "desk"]) : opsExec ? pick(["desk", "quote", "task", "leave"]) : pick(["quote", "invoice", "payment", "desk"]))
+    : can("Sales") ? pick(["quote", "follow", "client", "payment"]) : pick(["clock", "leave", "claim", "task"]);
 
   /* Next best action (a salesperson's My Day): the most urgent of their own
      follow-ups and tasks - overdue first, then due today */
@@ -752,30 +744,156 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   const approvalsCard = showApprovals ? <ApprovalsCard items={approvals} loaded={desk.data !== null} go={(t) => go(t as TabName)} /> : null;
   const schedCard = <ScheduleCard date={day} today={today} items={sched} loaded={schedLoaded} onViewAll={onOpenDay} onToday={() => setDashDate(null)} />;
 
+  /* ================================================================
+     v1.291.0 - EXECUTIVE COMMAND CENTER 4.0 (the CEO's "approve",
+     12-11-2026; claude/EXECUTIVE-COMMAND-CENTER-4.0-BLUEPRINT.md). For
+     management - the people the week engine gives the company outlook -
+     Overview is the company in one screen and My Day is only theirs. Every
+     figure below is a read this file already made; the cards that left the
+     Dashboard live in their modules (Sales -> Weekly target, Finance,
+     Attendance, Users -> Security & Sessions, the Desk). Nothing is worked
+     out here that the server did not say.
+     ================================================================ */
+  if (exec && wk?.outlook) {
+    const c = wk.company, ol = wk.outlook;
+    const owedLabel = verifying ? L("Verified outstanding", "Tertunggak disahkan") : L("Outstanding", "Tertunggak");
+    const owedSub = (n: number) => (verifying
+      ? L(`${n} unpaid invoice(s) · less verified payments`, `${n} invois belum dibayar · tolak bayaran disahkan`)
+      : L(`${n} unpaid invoice(s) · less recorded payments`, `${n} invois belum dibayar · tolak bayaran direkodkan`));
+    const deskFailed = desk.data === null && desk.failed;
+    const oldest = decide.reduce<number | null>((m, d) => { const w = daysWaiting(d.since, nowMs); return w === null ? m : m === null ? w : Math.max(m, w); }, null);
+
+    if (view === "day") {
+      /* ---------------- MY DAY: mine only ---------------- */
+      const me = wk.me;
+      const fuDue = (me?.next_followups ?? []).filter((f) => f.due_on <= today && can("Sales"));
+      const tasksDue = mine.filter((t) => t.deadline && t.deadline <= today);
+      const appts = sched.filter((s0) => !s0.key.startsWith("f-")).length;
+      const rows: DayAction[] = [
+        ...fuDue.map((f): DayAction & { due: string } => ({ due: f.due_on, key: `f-${f.id}`, icon: "chat", title: L(`Follow up ${f.company ?? ""}`.trim(), `Susuli ${f.company ?? ""}`.trim()), sub: f.note,
+          chip: f.due_on < today ? { text: L("Overdue", "Lewat"), tone: "bad" } : { text: L("Due today", "Perlu hari ini"), tone: "warn" },
+          act: L("Open follow-up", "Buka susulan"), on: () => (openAt ? openAt("Sales", "followups") : go("Sales")) })),
+        ...tasksDue.map((t): DayAction & { due: string } => ({ due: t.deadline!, key: `t-${t.id}`, icon: "orders", title: t.title, sub: t.deadline! < today ? L("Task · overdue", "Tugasan · lewat") : L("Task · due today", "Tugasan · perlu hari ini"),
+          chip: t.deadline! < today ? { text: L("Overdue", "Lewat"), tone: "bad" } : { text: L("Due today", "Perlu hari ini"), tone: "warn" },
+          act: L("Add an update", "Tambah kemas kini"), on: () => openTask(t.id) })),
+      ].sort((a, b) => (a as { due: string }).due.localeCompare((b as { due: string }).due));
+      const myFollow: FollowLite[] = (me?.next_followups ?? []).map((f) => ({ key: `mf-${f.id}`, title: f.company ?? L("Follow-up", "Susulan"), sub: f.note, due: f.due_on,
+        open: () => (openAt ? openAt("Sales", "followups") : go("Sales")) }));
+      const rostered = shiftKind && ["idle", "open", "between", "done", "waiting", "review"].includes(shiftKind);
+      const shiftWord = !shiftKind || shiftKind === "loading" ? "···"
+        : shiftKind === "rest" ? L("No shift rostered today", "Tiada syif dijadualkan hari ini")
+        : shiftKind === "open" ? L(`On shift since ${myShift.since}`, `Sedang syif sejak ${myShift.since}`)
+        : shiftKind === "done" || shiftKind === "between" ? L(`Clocked out ${myShift.out}`, `Daftar keluar ${myShift.out}`)
+        : shiftKind === "leave" ? L("On leave today", "Bercuti hari ini")
+        : shiftKind === "holiday" ? L("Public holiday", "Cuti umum")
+        : shiftKind === "error" ? L("Your shift could not be read - open On Shift", "Syif anda tidak dapat dibaca - buka Syif Saya")
+        : L("A shift today - not clocked in", "Ada syif hari ini - belum daftar masuk");
+      const dateWord = new Date(`${today}T00:00:00+08:00`).toLocaleDateString(lang === "ms" ? "ms-MY" : "en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kuala_Lumpur" });
+      return (
+        <div className={`${ov.page} ${x.page}`} data-layout="executive" data-view="day">
+          <div className={x.span3}>
+            <TodayStrip date={dateWord} shift={shiftWord} decisions={desk.data ? decide.length : null} onDecisions={onOpenOverview ?? (() => go("Desk"))}
+              counts={[
+                { label: L("appointments", "temujanji"), n: schedLoaded ? appts : null },
+                { label: L("follow-ups due", "susulan perlu"), n: fuDue.length },
+                { label: L("tasks due today", "tugasan perlu hari ini"), n: tasksLoaded ? tasksDue.length : null },
+              ]} />
+          </div>
+          <div className={x.span2}><NextActionsCard rows={rows} loaded={tasksLoaded} /></div>
+          <div className={`${x.sideCol} ${ov.column}`}>
+            {rostered && todayShift}
+            <ScheduleCard date={day} today={today} items={sched} loaded={schedLoaded} onToday={() => setDashDate(null)} />
+          </div>
+          <div>{tasksCard}</div>
+          <div><FollowUpsCard rows={myFollow.slice(0, 3)} total={myFollow.length} loaded today={today} onViewAll={can("Sales") ? () => (openAt ? openAt("Sales", "followups") : go("Sales")) : undefined} /></div>
+          <div><ContributionCard loaded me={me ? { basis_cents: me.basis_cents, open_quotations: me.open_quotations, introduced: me.introductions?.verified_week ?? null } : null} onOpen={can("Sales") ? () => go("Sales") : undefined} /></div>
+          <div className={x.span3}><QuickActionsStrip actions={quick} max={4} /></div>
+          <div className={x.span3}>
+            <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />
+          </div>
+        </div>
+      );
+    }
+
+    /* ---------------- OVERVIEW: the company ---------------- */
+    const alerts: AlertLine[] = [];
+    if (health && health !== "denied") {
+      const toHealth = () => (openAt ? openAt("Users", "security") : go("Users"));
+      const action = L("Open System health", "Buka Kesihatan sistem");
+      if (!health.last_backup) alerts.push({ key: "backup", text: L("No backup is recorded yet.", "Belum ada sandaran direkodkan."), action, on: toHealth });
+      else if ((backupAge ?? 0) > 7) alerts.push({ key: "backup", text: L(`The last backup is ${backupAge} days old.`, `Sandaran terakhir berusia ${backupAge} hari.`), action, on: toHealth });
+      if (errors24 > 0) alerts.push({ key: "errors", text: L(`${errors24} error(s) logged in the last 24 hours.`, `${errors24} ralat direkodkan dalam 24 jam lalu.`), action, on: toHealth });
+      const mp = (health.migrations_pending ?? []).length;
+      if (mp > 0) alerts.push({ key: "migrations", text: L(`${mp} database migration(s) not applied.`, `${mp} migrasi pangkalan data belum digunakan.`), action, on: toHealth });
+    }
+    const owedTile = (
+      <KpiTile icon="pending" tone="blue" label={owedLabel} busy={!pw && !perfWeek.failed}
+        value={pw ? fmtRM(pw.outstanding.cents) : perfWeek.failed ? L("Not available", "Tiada data") : "—"}
+        sub={pw ? owedSub(pw.outstanding.invoices) : perfWeek.failed ? L("Could not be read", "Tidak dapat dibaca") : undefined}
+        link={!pw && perfWeek.failed ? { label: L("Retry", "Cuba lagi"), onClick: perfWeek.refresh } : undefined}
+        onClick={pw ? () => (openAt ? openAt("Sales", "payments") : go("Sales")) : undefined} />
+    );
+    const recovery = (wk.opportunities ?? []).slice(0, 3).map((q) => ({ id: q.id, doc: q.doc_number, company: q.company, cents: q.total_cents,
+      why: `${oppStatus(q, wk.week.today)[0]} · ${L(`${q.age_days} days open`, `${q.age_days} hari terbuka`)}` }));
+    const decisionItems = decide.map((d) => ({ id: d.id, title: d.title, sub: d.sub, bucket: d.bucket, overdue: d.overdue, tab: d.tab, since: d.since, source: deskBucketWord(d.bucket),
+      open: () => { go(d.tab as TabName); revealAnchor(deskAnchor(d.bucket)); } }));
+    const fuMine = wk.me ? (wk.me.followups_today ?? 0) + wk.me.followups_overdue : 0;
+    return (
+      <div className={`${ov.page} ${x.page}`} data-layout="executive" data-view="overview">
+        {alerts.length > 0 && <div className={x.span3} style={o(0)}><AlertBand alerts={alerts} /></div>}
+        <div className={`${x.span3} erp-desktop-only`} data-row="figures">
+          <div className={`${ov.kpis} ${x.kpis4}`}>
+            <KpiRow label={L("The week at a glance", "Minggu ini sepintas lalu")}>
+              <KpiTile icon="target" tone="gold" label={L("Weekly target", "Sasaran mingguan")} value={c.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(c.target_cents)}
+                sub={c.pct === null ? `${dmy(wk.week.from)} – ${dmy(wk.week.to)}` : L(`${c.pct}% achieved · ${dmy(wk.week.from)} – ${dmy(wk.week.to)}`, `${c.pct}% dicapai · ${dmy(wk.week.from)} – ${dmy(wk.week.to)}`)}
+                bar={c.pct === null ? undefined : { pct: c.pct, tone: "gold" }} onClick={() => go("Sales")} />
+              <KpiTile icon="money" tone="green" label={L("Company sales", "Jualan syarikat")} value={fmtRM(c.basis_cents)}
+                delta={pw && pw.change_pct !== null ? { pct: pw.change_pct, text: `${pw.change_pct >= 0 ? "+" : "−"}${Math.abs(pw.change_pct)}%`, vs: vsWord("week") } : undefined}
+                sub={c.basis_kind === "all_channels" ? L("This week · all channels · not cash received", "Minggu ini · semua saluran · bukan tunai diterima") : L("This week · invoices paid in full", "Minggu ini · invois dibayar penuh")}
+                onClick={() => go("Sales")} />
+              {owedTile}
+              <KpiTile icon="verify" tone="red" label={L("Pending decisions", "Keputusan menunggu")} busy={desk.data === null && !deskFailed}
+                value={desk.data ? decide.length : deskFailed ? L("Not available", "Tiada data") : "—"}
+                sub={desk.data ? (decide.length === 0 ? L("Nothing waits for you", "Tiada yang menunggu anda") : oldest !== null ? L(`management attention · oldest ${oldest} day(s)`, `perhatian pengurusan · paling lama ${oldest} hari`) : L("management attention", "perhatian pengurusan")) : deskFailed ? L("The Desk could not be read", "Meja tidak dapat dibaca") : undefined}
+                link={deskFailed ? { label: L("Retry", "Cuba lagi"), onClick: desk.refresh } : undefined}
+                onClick={desk.data ? () => go("Desk") : undefined} />
+            </KpiRow>
+          </div>
+        </div>
+        <div className={x.span2} style={o(1)}>
+          <SalesSummaryCard onOpen={() => go("Sales")}
+            w={{ target_cents: c.target_cents, basis_cents: c.basis_cents, basis_kind: c.basis_kind, pct: c.pct, gap_cents: c.gap_cents, days_left: ol.days_left, required_per_day_cents: ol.required_per_day_cents, risk: ol.risk?.level ?? null }}
+            owed={pw ? <span><strong>{owedLabel}</strong> {fmtRM(pw.outstanding.cents)} · {owedSub(pw.outstanding.invoices)}</span> : undefined} />
+        </div>
+        <div className={x.sideCol} style={o(2)}>
+          <DecisionQueueCard items={decisionItems} total={decide.length} loaded={desk.data !== null} failed={deskFailed} nowMs={nowMs} onViewAll={() => go("Desk")} onRetry={desk.refresh} />
+        </div>
+        <div className={`${x.span3} erp-phone-only`} style={o(3)}>
+          <MyWorkStrip followups={fuMine} tasks={mine.length} schedule={sched.length} loaded={tasksLoaded && schedLoaded} onOpen={onOpenDay} />
+        </div>
+        {can("Sales") && (
+          <div className={x.span3} style={o(4)}>
+            <SalesRecoveryStrip open={ol.open_quotations} cold={ol.ageing_quotations} items={recovery}
+              onPipeline={() => (openAt ? openAt("Sales", "open_quotations") : go("Sales"))} onOpenDoc={(id) => { openRecord("Sales", "document", id); go("Sales"); }} />
+          </div>
+        )}
+        <div className={x.span3} style={o(5)}><QuickActionsStrip actions={quick} max={4} /></div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`${ov.page} ${x.page}`} data-layout={exec ? "executive" : wk?.me ? "my-day" : "basic"}>
+    <div className={`${ov.page} ${x.page}`} data-layout={wk?.me ? "my-day" : "basic"}>
       {/* the phone leads with the target (the photo); the row keeps it on a wide screen */}
       {hero && <div className={x.phoneOnly} style={o(0)} data-testid="hero-target">{hero.node}</div>}
       {/* ROW 1 - the figures */}
-      <div className={`${x.span3} ${hero ? x.withHero : ""}`} style={o(exec ? 2 : wk?.me ? 4 : 0)} data-row="figures">{kpiRow}</div>
-      {exec ? (
-        <>
-          <div className={x.span2} style={o(5)}><SalesPerformanceCard onOpen={() => go("Sales")} pace={wk?.outlook ? { cents: wk.outlook.required_per_day_cents, allChannels: wk.company.basis_kind === "all_channels" } : undefined} /></div>
-          <div style={o(3)}>{tasksCard}</div>
-          {followCard && <div style={o(4)}>{followCard}</div>}
-          {approvalsCard && <div style={o(1)}>{approvalsCard}</div>}
-          <div style={o(6)}>{schedCard}</div>
-        </>
-      ) : (
-        <>
+      <div className={`${x.span3} ${hero ? x.withHero : ""}`} style={o(wk?.me ? 4 : 0)} data-row="figures">{kpiRow}</div>
           {nba.length > 0 && <div style={o(1)}><NextBestActionCard candidates={nba} today={today} /></div>}
           <div style={o(2)}>{tasksCard}</div>
           {followCard && <div style={o(3)}>{followCard}</div>}
           {approvalsCard && <div style={o(5)}>{approvalsCard}</div>}
           <div style={o(6)}>{schedCard}</div>
-        </>
-      )}
-      <div className={x.span3} style={o(7)}><QuickActionsStrip actions={quick} /></div>
+      <div className={x.span3} style={o(7)}><QuickActionsStrip actions={quick} max={4} /></div>
       {/* v1.233.0 / v1.239.0 - the reporting line, one line (none for the
           CEO); the full card is on Staff -> Organisation */}
       <div className={x.span3} style={o(8)}>
@@ -855,6 +973,29 @@ export function WelcomeHeader({ user, lang: _lang, myShift, shift, onOpenDay }: 
             {word}
           </button>
         )}
+      </div>
+    </header>
+  );
+}
+
+/** v1.291.0 (4.0) - management's header: the Command Center's name and its
+    line; on a phone the photo's "CEO View" chip switches Overview and My Day
+    (decision D2) where a wide screen keeps the two tabs. */
+export function ExecHeader({ user, view, onView }: { user: User; view: "overview" | "day"; onView: (v: "overview" | "day") => void }) {
+  const roleWord = ({ ceo: "CEO", coo: "COO", cco: "CCO" } as Record<string, string>)[user.role] ?? L("Management", "Pengurusan");
+  return (
+    <header className={x.execHead} data-testid="exec-header">
+      <div>
+        <h2 className={x.execTitle}><span className="erp-desktop-only">Executive Command Center 4.0</span><span className="erp-phone-only">Executive Command Center</span></h2>
+        <p className={x.execSub}>{view === "day"
+          ? L("Your shift, tasks and appointments today.", "Syif, tugasan dan temujanji anda hari ini.")
+          : L("Company performance, key decisions and next actions at a glance.", "Prestasi syarikat, keputusan utama dan tindakan seterusnya sepintas lalu.")}</p>
+      </div>
+      <div className="erp-phone-only">
+        <ViewSwitch value={view} onChange={onView} options={[
+          ["overview", L(`${roleWord} View`, `Paparan ${roleWord}`), L("The company: figures, decisions, recovery", "Syarikat: angka, keputusan, pemulihan")],
+          ["day", L("My Day", "Hari Saya"), L("Only yours: tasks, follow-ups, schedule", "Milik anda: tugasan, susulan, jadual")],
+        ] as const} />
       </div>
     </header>
   );

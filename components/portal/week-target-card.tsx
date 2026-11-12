@@ -224,7 +224,8 @@ export function SalesPaceCard({ d, go, canSales, refresh }: { d: WeekDash; go: (
 
 /** What a quotation's status says on the Dashboard - only what is recorded:
     the owner's outcome, the open follow-up, or that nothing is recorded. */
-function oppStatus(o: Opportunity, today: string): [string, string] {
+/** v1.291.0 - exported for the Dashboard's Sales Recovery strip (the same words) */
+export function oppStatus(o: Opportunity, today: string): [string, string] {
   if (o.acceptance?.current) return [L("Accepted", "Diterima"), chipSmSuccess];
   if (o.last_contact?.outcome && OUTCOME[o.last_contact.outcome]) return [L(OUTCOME[o.last_contact.outcome]![0], OUTCOME[o.last_contact.outcome]![1]), OUTCOME[o.last_contact.outcome]![2]];
   if (o.next) return o.next.due_on < today ? [L("Follow-up late", "Susulan lewat"), chipSmWarn] : o.next.due_on === today ? [L("Follow-up today", "Susulan hari ini"), chipSmInfo] : [L(`Follow-up ${dmy(o.next.due_on)}`, `Susulan ${dmy(o.next.due_on)}`), chipSmNeutral];

@@ -28,6 +28,7 @@ import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix ed
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Attendance, type AttendanceMine } from "@/components/portal/attendance";
 import { AttendanceOverview, type OverviewTab } from "@/components/portal/attendance-overview";
+import { DailyAttendanceChart } from "@/components/portal/attendance-chart"; // v1.291.0 - moved here from My Day
 import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards";
 import { useCachedApi } from "@/lib/cached-api";
 import type { DashSummary } from "@/components/portal/dashboard";
@@ -103,6 +104,8 @@ export function AttendancePanel({ user, go }: { user: User; go: (t: TabName) => 
       {manage && (
         <div hidden={view !== "overview"} className={css.body}>
           <AttendanceOverview summary={sum.data} open={open} go={go} />
+          {/* v1.291.0 (4.0) - the Daily Attendance Statistic left the CEO's My Day; it lives with the attendance it counts */}
+          <DailyAttendanceChart role={user.role} />
         </div>
       )}
 

@@ -4,6 +4,10 @@ MINIMAL-EXECUTIVE-WORKSPACE-BLUEPRINT.md sections 5.1 - 5.3). The figures'
 source is proven by tests/company-performance.mjs (the route, against the
 whole worker) and tests/executive-workspace.mjs (the source).
 
+v1.291.0 - the CEO's half is re-pointed to EXECUTIVE COMMAND CENTER 4.0
+(tests/browser/ecc4.py holds the new screens); every behaviour below is
+still checked where it lives now.
+
 Here, in a browser:
   the CEO's desktop is the photo: five figures (Weekly Target, Collected,
   Invoices, Outstanding, Open Quotations), Sales Performance beside My Tasks,
@@ -48,50 +52,54 @@ fx = lambda port, path: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{po
 with sync_playwright() as p:
     b = p.chromium.launch()
     # ================= the CEO, desktop =================
+    # v1.291.0 (EXECUTIVE COMMAND CENTER 4.0, the CEO's "approve" 12-11-2026):
+    # the five figures, the chart beside My Tasks and the More drawer are
+    # retired for management (claude/EXECUTIVE-COMMAND-CENTER-4.0-BLUEPRINT.md);
+    # tests/browser/ecc4.py holds the new screens at eight widths. What this
+    # file held still holds, each where it lives now: the week / month / YTD
+    # chart in Sales, My Tasks / Follow-ups / Today's Schedule on My Day, the
+    # decisions in Needs My Decision, the cards of More in their modules.
     ctx, pg, errs = page(b, 4177, 1440, 900)
     check("the CEO reads the executive layout", pg.locator("[data-layout=executive]").count() == 1)
     tiles = pg.evaluate(TILES_JS)
-    check("five figures, the photo's: Weekly Target, Collected, Invoices, Outstanding, Open Quotations", tiles == ["Weekly Target", "Collected", "Invoices", "Outstanding", "Open Quotations"], tiles)
+    check("four figures (4.0): Weekly target, Company sales, Outstanding, Pending decisions", tiles == ["Weekly target", "Company sales", "Outstanding", "Pending decisions"], tiles)
     fig = pg.locator("[data-row=figures]")
     col = fig.locator("[class*=kpi-tile_tile]").nth(1).inner_text()
-    check("the Collected tile carries the change as a pill, against the same point last week", "+25%" in col and "vs last week to date" in col, col)
-    check("Outstanding is the route's figure (less verified payments)", "RM 11,100.00" in fig.locator("[class*=kpi-tile_tile]").nth(3).inner_text())
+    check("the Company sales tile carries the change as a pill, against the same point last week", "+25%" in col and "vs last week to date" in col, col)
+    check("Outstanding is the route's figure", "RM 11,100.00" in fig.locator("[class*=kpi-tile_tile]").nth(2).inner_text())
     well = pg.evaluate("() => document.querySelector('[data-row=figures] [class*=kpi-tile_well]').getBoundingClientRect()")
     tile = pg.evaluate("() => document.querySelector('[data-row=figures] [class*=kpi-tile_tile]').getBoundingClientRect()")
     check("the tile is the photo's: the well beside the words, not above them", abs(well["top"] - tile["top"]) < 30 and well["width"] >= 43, {"well": well, "tile": tile})
-    perf = pg.get_by_test_id("sales-performance")
-    check("Sales Performance says the same figure as the Collected tile - one engine", "RM 4,000.00" in perf.inner_text() and "RM 4,000.00" in col)
-    labels = pg.evaluate("() => [...document.querySelectorAll('[data-testid=sales-performance] svg text')].map(t => t.textContent)")
-    check("the week is drawn by day, Monday to Sunday", all(d in labels for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]), labels)
-    rows = pg.evaluate("() => [...document.querySelectorAll('[data-testid=sales-performance] table tbody tr')].map(r => r.innerText.replace(/\\s+/g, ' ').trim())")
-    check("...as a running total: Friday's bar is the week so far", any(r.startswith("Fri") and "RM 4,000.00" in r for r in rows), rows)
-    check("...and a day to come says so, never a zero", any(r.startswith("Sat") and "still to come" in r for r in rows), rows)
-    check("the legend has the target and what is still owed", "Target" in perf.inner_text() and "RM 15,000.00" in perf.inner_text() and "Outstanding" in perf.inner_text())
-    check("...and the week's required pace (the engine's gap over the days left)", "Required pace: RM 11,000.00 collected per working day" in perf.inner_text(), perf.inner_text()[:400])
-    radios = perf.get_by_role("radio")
-    check("the period is a radio group: This Week chosen", radios.count() == 3 and perf.get_by_role("radio", name="This Week").get_attribute("aria-checked") == "true")
-    perf.get_by_role("radio", name="This Month").click(); pg.wait_for_timeout(900)
-    t = perf.inner_text()
-    check("This Month: the month so far and its change against last month to date", "RM 9,300.00" in t and "7%" in t and "vs last month to date" in t and "Target" not in t, t[:300])
-    perf.get_by_role("radio", name="This Month").press("ArrowRight"); pg.wait_for_timeout(900)
-    t = perf.inner_text()
-    check("Right arrow moves to YTD, which says when there is nothing to compare", perf.get_by_role("radio", name="YTD").get_attribute("aria-checked") == "true" and "RM 93,300.00" in t and "Nothing at this point last period" in t, t[:300])
-    perf.get_by_role("radio", name="This Week").click(); pg.wait_for_timeout(500)
-    # ---- My Tasks: the tick opens the update sheet, changes nothing ----
+    summ = pg.get_by_test_id("sales-summary")
+    check("Sales Performance says the same figure as the Company sales tile - one engine", "RM 4,000.00" in summ.inner_text() and "RM 4,000.00" in col)
+    check("...and the week's required pace (the engine's gap over the days left)", "Needed per working day" in summ.inner_text() and "RM 11,000.00" in summ.inner_text(), summ.inner_text()[:300])
+    appr = pg.get_by_test_id("decision-queue")
+    check("Needs My Decision lists what waits for the CEO, with its word (Pending / Overdue)", "Needs My Decision" in appr.inner_text() and ("Pending" in appr.inner_text() or "Overdue" in appr.inner_text()))
+    qa = pg.get_by_test_id("quick-actions")
+    acts = [x.strip() for x in qa.locator("button").all_inner_texts()]
+    check("Quick Actions are the CEO's four, each a workflow that exists", acts == ["Create Quotation", "Create Invoice", "Report Payment", "Open Desk"], acts)
+    qa.get_by_role("button", name="Create Invoice").click(); pg.wait_for_timeout(1800)
+    check("Create Invoice opens Sales' own create form, set to Invoice", pg.locator("h1.erp-topbar-title").first.inner_text().strip() == "Sales" and pg.evaluate("() => [...document.querySelectorAll('#sales-work select')].some(s => s.value === 'INV')"))
+    pg.goto("http://127.0.0.1:4177/portal?tab=Dashboard"); pg.wait_for_timeout(2600)
+    pg.get_by_test_id("quick-actions").get_by_role("button", name="Report Payment").click(); pg.wait_for_timeout(1800)
+    check("Report Payment opens Sales > Payments", pg.get_by_role("tab", name="Payments", exact=True).first.get_attribute("aria-selected") == "true")
+    pg.goto("http://127.0.0.1:4177/portal?tab=Dashboard"); pg.wait_for_timeout(2600)
+    check("no More drawer for management - its cards live in their modules", pg.locator("#dash-more").count() == 0 and pg.get_by_role("button", name="More: sales pace").count() == 0)
+    check("no sideways page (CEO desktop)", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
+    # ---- My Day: My Tasks (the tick opens the update sheet, changes nothing), Follow-ups, the schedule ----
+    pg.get_by_role("tab", name="My Day").click(); pg.wait_for_timeout(1200)
     before = fx(4177, "/__tasks")["posts"]
     tasks = pg.get_by_test_id("my-tasks")
     tick = tasks.get_by_role("button", name="Add an update to").first
-    check("My Tasks: each task has a tick that names what it does", tick.count() == 1, tasks.inner_text()[:200])
+    check("My Tasks (My Day): each task has a tick that names what it does", tick.count() == 1, tasks.inner_text()[:200])
     name = tick.get_attribute("aria-label")
     tick.click(); pg.wait_for_timeout(1800)
     check("the tick opens Tasks with that task's sheet", pg.locator("h1.erp-topbar-title").first.inner_text().strip() == "Tasks" and pg.get_by_role("dialog").count() >= 1, name)
     check("...and closed nothing: no task was changed", fx(4177, "/__tasks")["posts"] == before)
     pg.goto("http://127.0.0.1:4177/portal?tab=Dashboard"); pg.wait_for_timeout(2600)
-    # ---- the other cards ----
-    appr = pg.get_by_test_id("approvals")
-    check("Approvals lists what waits for the CEO, with its word (Pending / Overdue)", "Approvals" in appr.inner_text() and ("Pending" in appr.inner_text() or "Overdue" in appr.inner_text()))
+    pg.get_by_role("tab", name="My Day").click(); pg.wait_for_timeout(1200)
     fol = pg.get_by_test_id("follow-ups")
-    check("Follow-ups: the open quotation with its follow-up and when it is due", "Aina Boutique (Melaka)" in fol.inner_text() and "QT-0042" in fol.inner_text())
+    check("Follow-ups (My Day): my own follow-up and its quotation", "Aina Boutique (Melaka)" in fol.inner_text() and "QT-0042" in fol.inner_text(), fol.inner_text()[:200])
     sch = pg.get_by_test_id("schedule")
     check("Today's Schedule says when nothing is on", "Today's Schedule" in sch.inner_text())
     pill = pg.get_by_test_id("date-pill")
@@ -100,43 +108,46 @@ with sync_playwright() as p:
     check("choosing a day shows that day's schedule", "Management meeting" in sch.inner_text() and "6:00 PM" in sch.inner_text() and "22 Sep" in sch.inner_text(), sch.inner_text()[:200])
     sch.get_by_role("button", name="Back to today").click(); pg.wait_for_timeout(400)
     check("...and Back to today returns", "Today's Schedule" in sch.inner_text())
-    qa = pg.get_by_test_id("quick-actions")
-    acts = [x.strip() for x in qa.locator("button").all_inner_texts()]
-    check("Quick Actions are the photo's seven, each a workflow that exists", acts == ["New Quotation", "Create Invoice", "Record Payment", "New Task", "Apply Leave", "Submit Claim", "Add Client"], acts)
-    qa.get_by_role("button", name="Create Invoice").click(); pg.wait_for_timeout(1800)
-    sel = pg.locator("#sales-work select").first
-    check("Create Invoice opens Sales' own create form, set to Invoice", pg.locator("h1.erp-topbar-title").first.inner_text().strip() == "Sales" and pg.evaluate("() => [...document.querySelectorAll('#sales-work select')].some(s => s.value === 'INV')"))
-    pg.goto("http://127.0.0.1:4177/portal?tab=Dashboard"); pg.wait_for_timeout(2600)
-    pg.get_by_test_id("quick-actions").get_by_role("button", name="Record Payment").click(); pg.wait_for_timeout(1800)
-    check("Record Payment opens Sales > Payments", pg.get_by_role("tab", name="Payments", exact=True).first.get_attribute("aria-selected") == "true")
-    pg.goto("http://127.0.0.1:4177/portal?tab=Dashboard"); pg.wait_for_timeout(2600)
-    pg.get_by_test_id("quick-actions").get_by_role("button", name="Add Client").click(); pg.wait_for_timeout(1800)
-    check("Add Client opens Sales > Customers on Add customer", pg.get_by_role("tab", name="Add customer").first.get_attribute("aria-selected") == "true")
-    pg.goto("http://127.0.0.1:4177/portal?tab=Dashboard"); pg.wait_for_timeout(2600)
-    more = pg.get_by_role("button", name="More: sales pace")
-    check("More starts shut; the cards of before are behind it", more.get_attribute("aria-expanded") == "false" and not pg.locator("#dash-more").is_visible())
-    more.click(); pg.wait_for_timeout(500)
-    check("...and opens: the sales pace, the pipeline and the finance health are all still there", pg.locator("#dash-more").is_visible() and all(w in pg.locator("#dash-more").inner_text() for w in ["Sales target & pace", "Pipeline & quotations", "Financial health"]), pg.locator("#dash-more").inner_text()[:300])
-    check("no sideways page (CEO desktop)", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
     check("no page errors (CEO desktop)", not errs, errs)
+    ctx.close()
+
+    # ---- the week / month / YTD chart: Sales' own (sales.tsx, management on Everyone) ----
+    ctx, pg, errs = page(b, 4177, 1440, 900, tab="Sales")
+    perf = pg.get_by_test_id("sales-performance")
+    if perf.count() == 0:
+        ev = pg.get_by_role("radio", name="Everyone")
+        if ev.count(): ev.first.click(); pg.wait_for_timeout(1500)
+        perf = pg.get_by_test_id("sales-performance")
+    check("the Sales Performance chart is in Sales", perf.count() == 1)
+    labels = pg.evaluate("() => [...document.querySelectorAll('[data-testid=sales-performance] svg text')].map(t => t.textContent)")
+    check("the week is drawn by day, Monday to Sunday", all(d in labels for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]), labels)
+    rows = pg.evaluate("() => [...document.querySelectorAll('[data-testid=sales-performance] table tbody tr')].map(r => r.innerText.replace(/\\s+/g, ' ').trim())")
+    check("...as a running total: Friday's bar is the week so far", any(r.startswith("Fri") and "RM 4,000.00" in r for r in rows), rows)
+    check("...and a day to come says so, never a zero", any(r.startswith("Sat") and "still to come" in r for r in rows), rows)
+    check("the legend has the target and what is still owed", "Target" in perf.inner_text() and "RM 15,000.00" in perf.inner_text() and "Outstanding" in perf.inner_text())
+    radios = perf.get_by_role("radio")
+    check("the period is a radio group: This Week chosen", radios.count() == 3 and perf.get_by_role("radio", name="This Week").get_attribute("aria-checked") == "true")
+    perf.get_by_role("radio", name="This Month").click(); pg.wait_for_timeout(900)
+    t = perf.inner_text()
+    check("This Month: the month so far and its change against last month to date", "RM 9,300.00" in t and "7%" in t and "vs last month to date" in t and "Target" not in t, t[:300])
+    perf.get_by_role("radio", name="This Month").press("ArrowRight"); pg.wait_for_timeout(900)
+    t = perf.inner_text()
+    check("Right arrow moves to YTD, which says when there is nothing to compare", perf.get_by_role("radio", name="YTD").get_attribute("aria-checked") == "true" and "RM 93,300.00" in t and "Nothing at this point last period" in t, t[:300])
+    check("no page errors (Sales)", not errs, errs)
     ctx.close()
 
     # ================= a failed read =================
     ctx, pg, errs = page(b, 4268, 1440, 900)
-    perf = pg.get_by_test_id("sales-performance")
-    check("a failed read says so, with Retry - never a false zero", "could not be loaded" in perf.inner_text() and perf.get_by_role("button", name="Retry").count() == 1, perf.inner_text()[:200])
-    check("...and the Outstanding tile waits rather than guess", "—" in pg.locator("[data-row=figures] [class*=kpi-tile_tile]").nth(3).inner_text())
+    owed = pg.locator("[data-row=figures] [class*=kpi-tile_tile]").nth(2).inner_text()
+    check("a failed read says so, with Retry - never a false zero", "Not available" in owed and "Retry" in owed and "RM 0.00" not in owed, owed)
     ctx.close()
 
     # ================= the CEO, phone =================
     ctx, pg, errs = page(b, 4177, 390, 844)
-    order = pg.evaluate(ORDER_JS)
-    check("the CEO's phone: the target first, then Needs your decision, then the figures", order[:3] == ["hero-target", "approvals", "figures"], order)
-    check("the approvals card says Needs your decision on a phone", "Needs your decision" in pg.get_by_test_id("approvals").inner_text())
-    shown = pg.evaluate(TILES_JS)
-    check("...the figures are the other four, two by two", shown == ["Collected", "Invoices", "Outstanding", "Open Quotations"], shown)
-    xs = pg.evaluate("() => [...document.querySelectorAll('[data-row=figures] [class*=kpi-tile_tile]')].filter(e => e.offsetParent).map(e => Math.round(e.getBoundingClientRect().left))")
-    check("...two across", len(set(xs)) == 2, xs)
+    order = [o for o in pg.evaluate(ORDER_JS) if o != "alert-band"]
+    check("the CEO's phone (the photo): My Performance, then My Priority Actions, then My Work", order[:3] == ["sales-summary", "decision-queue", "my-work"], order)
+    check("the decisions say My Priority Actions on a phone, with the count banner", "My Priority Actions" in pg.get_by_test_id("decision-queue").inner_text() and pg.get_by_test_id("decision-banner").is_visible())
+    check("...and there is no figure row on a phone (its figures are in My Performance)", pg.evaluate(TILES_JS) == [])
     check("no sideways page (CEO phone)", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
     check("no page errors (CEO phone)", not errs, errs)
     ctx.close()
@@ -165,8 +176,8 @@ with sync_playwright() as p:
 
     # ================= a live host =================
     ctx, pg, errs = page(b, 4180, 1440, 900)
-    qa = [x.strip() for x in pg.get_by_test_id("quick-actions").locator("button").all_inner_texts()]
-    check("a live host is offered only the actions they may take (no quotation, invoice, payment or client)", not ({"New Quotation", "Create Invoice", "Record Payment", "Add Client"} & set(qa)) and len(qa) >= 1, qa)
+    qa = [x.strip() for x in pg.get_by_test_id("quick-actions").filter(visible=True).first.locator("button").all_inner_texts()]
+    check("a live host is offered only the actions they may take (no quotation, invoice, payment or client)", not ({"Create Quotation", "Create Invoice", "Report Payment", "Add Client"} & set(qa)) and len(qa) >= 1, qa)
     check("...and no company figures or follow-ups", pg.get_by_test_id("sales-performance").count() == 0 and pg.get_by_test_id("follow-ups").count() == 0)
     check("no page errors (live host)", not errs, errs)
     ctx.close()

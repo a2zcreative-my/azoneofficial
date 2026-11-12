@@ -9,7 +9,7 @@ import { LocationHelp } from "@/components/portal/location-help";
 import { DeskSummary } from "@/components/portal/one-desk";
 import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 /* v1.203.0 - the overview (the owner's A2Z OS 2.0 reference) and the tab row */
-import { DashboardOverview, WelcomeHeader, type MonitorRow, type Session } from "@/components/portal/dashboard-overview";
+import { DashboardOverview, ExecHeader, WelcomeHeader, type MonitorRow, type Session } from "@/components/portal/dashboard-overview";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
@@ -58,7 +58,9 @@ import shiftCss from "./on-shift.module.css";
 import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
 import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
-import { WeekTargetStrip } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0
+import { WeekTargetStrip, useWeekDash } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0; useWeekDash v1.291.0
+import { QuickActionsStrip, type QuickAction } from "@/components/portal/executive-cards"; // v1.291.0
+import { ReportingLineStrip } from "@/components/portal/reporting-line-card"; // v1.291.0
 
 /**
  * Punch confirmation overlay (v1.4.29): centered card, animated ring +
@@ -1185,7 +1187,14 @@ export function Dashboard({
         : "shift";
   /* v1.203.0 - the view a job opens on: the clock-first job opens on My Day,
      as it always has (v1.115.0); the business and sales jobs on the overview */
-  const view: "overview" | "day" = dashView ?? (lead === "shift" ? "day" : "overview");
+  /* v1.291.0 (EXECUTIVE COMMAND CENTER 4.0) - management is whoever the week
+     engine gives the company outlook (the same rule as the Overview, one
+     shared request); everyone else who opens on My Day and manages nobody
+     reads My Day alone - their Overview's pieces are all on it. */
+  const weekHead = useWeekDash();
+  const exec = Boolean(weekHead.data?.outlook);
+  const dayOnly = !exec && lead === "shift" && !MANAGE_ROLES.includes(user.role);
+  const view: "overview" | "day" = dayOnly ? "day" : dashView ?? (lead === "shift" ? "day" : "overview");
   /* where this person's own shift stands, for the header and the overview -
      the same figures the clock card states */
   const myShift = { known: attKnown && !attendanceError, open: openNow, since: (openNow ? openSince : firstIn) ?? "", out: lastOut ?? "", hasOut };
@@ -1360,6 +1369,16 @@ export function Dashboard({
     />
   );
 
+  /* v1.291.0 - the four quick actions of a person who reads My Day alone:
+     the same workflows the Overview's strip opens, each only where they may go */
+  const mayOpen = (t: string) => (canOpen ? canOpen(t) : false);
+  const dayQuick: QuickAction[] = ([
+    { key: "q-clock", icon: "time", label: openNow ? L("Check out", "Daftar keluar") : L("Check in", "Daftar masuk"), on: () => go("On Shift"), show: true },
+    { key: "q-leave", icon: "holiday", label: L("Apply Leave", "Mohon Cuti"), on: () => (openAt ? openAt("Leave", "apply") : go("Leave")), show: mayOpen("Leave") },
+    { key: "q-claim", icon: "receipt", label: L("Submit Claim", "Hantar Tuntutan"), on: () => (openAt ? openAt("Claims", "submit") : go("Claims")), show: mayOpen("Claims") },
+    { key: "q-task", icon: "orders", label: L("New Task", "Tugasan Baharu"), on: () => (openAt ? openAt("Tasks", "create") : go("Tasks")), show: mayOpen("Tasks") },
+  ] as (QuickAction & { show: boolean })[]).filter((a) => a.show);
+
   /* Daily actions and pending work precede metrics and company reporting. */
   const zoneDay = (
       <section className="erp-stack-tight" data-zone="day">
@@ -1375,6 +1394,10 @@ export function Dashboard({
           Check Out on the Dashboard too) is gone by the owner's choice of
           30-10-2026: the Dashboard summarises, On Shift punches. */}
       {todayShiftCard}
+      {/* v1.291.0 (4.0) - a person who reads My Day alone keeps the Overview's
+          four quick actions and their reporting line here */}
+      {dayOnly && <QuickActionsStrip actions={dayQuick} max={4} />}
+      {dayOnly && <ReportingLineStrip canOpenOrg={Boolean(canOpen?.("Staff Details"))} openOrg={() => (openAt ? openAt("Staff Details", "org") : go("Staff Details"))} />}
       {/* v1.213.0 - this month's leave applications moved to the Overview,
           beside Upcoming & Pending (the owner, 27-10-2026); My Day keeps your
           own pending leave in the Work overview. */}
@@ -1747,11 +1770,18 @@ export function Dashboard({
               without the company figures), and every one of them is still on
               My Day in full - the desk card, the month card, the work
               overview. */}
-          <WelcomeHeader user={user} lang={lang} myShift={myShift} shift={headerShift} onOpenDay={() => go("On Shift")} />
-          <LineTabs value={view} onChange={(k) => setDashView(k)} label={L("Dashboard", "Papan pemuka")} tabs={[
-            ["overview", L("Overview", "Gambaran")],
-            ["day", L("My Day", "Hari Saya")],
-          ] as const} />
+          {exec ? <ExecHeader user={user} view={view} onView={(k) => setDashView(k)} />
+            : <WelcomeHeader user={user} lang={lang} myShift={myShift} shift={headerShift} onOpenDay={() => go("On Shift")} />}
+          {/* v1.291.0 - a phone switches management's two views from the header
+              chip (the photo); a person who reads My Day alone has no tabs */}
+          {!dayOnly && (
+            <div className={exec ? "erp-desktop-only" : undefined}>
+              <LineTabs value={view} onChange={(k) => setDashView(k)} label={L("Dashboard", "Papan pemuka")} tabs={[
+                ["overview", L("Overview", "Gambaran")],
+                ["day", L("My Day", "Hari Saya")],
+              ] as const} />
+            </div>
+          )}
           {/* v1.239.0 - a person whose Dashboard opens on My Day (the
               shift-led roles) meets the Weekly Sales Target there too: the
               owner's "every staff member understands the company sales goal".
@@ -1759,17 +1789,20 @@ export function Dashboard({
           {/* v1.240.0 (the owner's answer "One-line strip"): My Day keeps to
               the day; one line carries the week and opens the Overview, where
               the full Weekly Sales Target card is */}
-          {view === "day" && <WeekTargetStrip onOpen={() => setDashView("overview")} />}
-          <div className={view !== "overview" ? css.viewOff : css.overview}>
+          {/* v1.291.0 - management's week is the Overview's first figure; My Day stays theirs alone */}
+          {view === "day" && !exec && !dayOnly && <WeekTargetStrip onOpen={() => setDashView("overview")} />}
+          <div className={view !== "overview" && !exec ? css.viewOff : css.overview}>
             <DashboardOverview user={user} go={go} canOpen={canOpen} lang={lang} onCreateQuotation={onCreateQuotation} openAt={openAt}
               onOpenDay={() => setDashView("day")} onOpenShift={() => go("On Shift")} todayShift={todayShiftCard} myShift={myShift} monitor={MANAGE_ROLES.includes(user.role) ? monitor : null}
-              sessions={allSessions} anns={anns} annsKnown={annsKnown} ownLeave={leave} />
+              sessions={allSessions} anns={anns} annsKnown={annsKnown} ownLeave={leave}
+              view={view} shiftKind={todayKind} onOpenOverview={() => setDashView("overview")} />
           </div>
         </>
       )}
       {/* v1.175.0 — one set of zones, the order chosen by what this person
           came to do. On Shift stays a single zone: it is the clock, alone. */}
-      {shiftOnly ? zoneShift : DASHBOARD_ZONES[lead].map((k) => <Fragment key={k}>{ZONES[k]}</Fragment>)}
+      {/* v1.291.0 - management's My Day is the Command Center's own (dashboard-overview.tsx) */}
+      {shiftOnly ? zoneShift : exec ? null : DASHBOARD_ZONES[lead].map((k) => <Fragment key={k}>{ZONES[k]}</Fragment>)}
     </div>
   );
 }

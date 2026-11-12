@@ -33,6 +33,8 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel } from "@/components/ui/skeleton";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { usePortal } from "@/components/portal/portal-provider";
+import { FinanceHealthCard, useWeekDash } from "@/components/portal/week-target-card"; // v1.291.0 - moved here from the Dashboard
+import { useCachedApi } from "@/lib/cached-api";
 import { makeApi } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
 import { fmtRM, mytToday } from "@/lib/format";
@@ -186,6 +188,11 @@ type View = "overview" | "transactions" | "expenses" | "reconciliation" | "repor
 export function FinancePage({ expenses }: { expenses: ReactNode }) {
   const { canOpen, openRecord, setTab } = usePortal();
   const today = mytToday();
+  /* v1.291.0 (4.0) - the Dashboard's Financial health card lives here now,
+     for the people it was drawn for (management: the week engine's outlook);
+     the same two reads the Dashboard made, through the shared cache */
+  const week = useWeekDash();
+  const unpaid = useCachedApi<{ outstanding_invoices?: number }>(week.data?.outlook ? "/staff/dashboard/summary" : null, Boolean(week.data?.outlook));
   const [view, setView] = useState<View>("overview");
   const [preset, setPreset] = useState<Preset>("this_month");
   const [custom, setCustom] = useState({ from: "", to: "" });
@@ -307,6 +314,7 @@ export function FinancePage({ expenses }: { expenses: ReactNode }) {
 
       {/* ================= OVERVIEW ================= */}
       <div hidden={view !== "overview"} className={css.body}>
+        {week.data?.outlook && <FinanceHealthCard d={week.data} unpaid={typeof unpaid.data?.outstanding_invoices === "number" ? unpaid.data.outstanding_invoices : null} openFinance={() => (view_?.can_enter ? setAccounts(true) : setView("overview"))} />}
         <KpiRow label={L("Cash in the period", "Tunai dalam tempoh")}>
           <KpiTile icon="down" tone="green" label={L("Money in", "Tunai masuk")} value={view_ ? fmtRM(view_.totals.in_cents) : ""} busy={busy} sub={L("Actual receipts", "Penerimaan sebenar")} />
           <KpiTile icon="up" tone="red" label={L("Money out", "Tunai keluar")} value={view_ ? fmtRM(view_.totals.out_cents) : ""} busy={busy} sub={L("Actual payments", "Pembayaran sebenar")} />
