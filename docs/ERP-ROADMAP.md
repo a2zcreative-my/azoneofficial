@@ -453,3 +453,11 @@ append only - an identity verification older than the change no longer
 counts) and fa_note_facts (the day of a banker contact and the tenure an
 official decision letter states, written once). No table that carries money,
 pay or people.
+1.299.0 (Financial Advisory 2.0, phase 2) adds `0189_fa_case_ops` and
+`0190_fa_case_updates` (additive, IF NOT EXISTS only, no ALTER): fa_case_ops
+(one row per case - waiting-on, blocker, next action, closing kind and a
+management priority override with its reason) and fa_case_updates (every case
+update with its author and time, append only). A follow-up is an ordinary row
+in tasks. The priority itself is never stored. No table that carries money,
+pay or people. 0187 and 0188 stay unused (Report Live and Asset Register are
+paused); when they resume they take numbers after 0190.

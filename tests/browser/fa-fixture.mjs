@@ -20,11 +20,18 @@ async function bundleEngine() {
 }
 /* only an FA=1 server needs it */
 const ENGINE = process.env.FA ? await bundleEngine() : null;
+/* v1.299.0 - the priority is worked out by the server's own rules (worker/src/fa-priority.ts), bundled the same way */
+async function bundlePriority() {
+  const d = mkdtempSync(join(tmpdir(), "fa-prio-"));
+  execSync(`npx esbuild "${join(import.meta.dirname, "..", "..", "worker/src/fa-priority.ts")}" --bundle --format=esm --platform=neutral --outfile="${join(d, "p.mjs")}" --log-level=error`, { stdio: "inherit" });
+  return import(pathToFileURL(join(d, "p.mjs")).href);
+}
+const PRIO = process.env.FA ? await bundlePriority() : null;
 
 const ROLE = () => process.env.ROLE ?? "ceo";
 const caps = () => {
   const r = ROLE();
-  return { view: ["ceo", "coo", "cco", "sales_marketing"].includes(r), edit: ["ceo", "coo", "cco", "sales_marketing"].includes(r), decide: ["ceo", "coo", "cco"].includes(r), allocate: ["ceo", "coo"].includes(r) };
+  return { view: ["ceo", "coo", "cco", "sales_marketing"].includes(r), edit: ["ceo", "coo", "cco", "sales_marketing"].includes(r), decide: ["ceo", "coo", "cco"].includes(r), allocate: ["ceo", "coo"].includes(r), priority: ["ceo", "coo", "cco"].includes(r) };
 };
 /* v1.298.0 - the fee on by the CEO's decision (13-11-2026); the agreement and commission stay off */
 const LEGAL = { agreement: false, fee: true, disclosure: true, commission: false };
@@ -53,14 +60,21 @@ function bk(id, bank_id, full_name, position, work_email, work_phone, status_now
     owner_id: 9001, owner: "Fixture Person", case_limit: id === 1 ? 5 : null, open_cases: id === 1 ? 1 : 0, status_now, availability_now, registered_by: id === 2 ? 9001 : 9002, identity: facts.identity ?? null, referral: facts.referral ?? null, assignments, products };
 }
 const mytDay = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+const mytNow = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 /* v1.298.0 - the case list as the server builds it: next follow-up from the case's open tasks, the banker from its allocation, the review state */
 function caseRows() {
   return fa.cases.map((k) => {
     const open = (fa.tasks[k.id] ?? []).filter((x) => x.status !== "completed").sort((a, z) => (a.deadline ?? "9999").localeCompare(z.deadline ?? "9999"));
     const al = (fa.allocations[k.id] ?? []).find((a) => !["cancelled", "reassigned"].includes(a.state));
     const rv = (fa.reviews[k.id] ?? [])[0];
-    return { ...k, owner_id: 9001, current_dsr_bp: k.projected_dsr_bp == null ? null : k.projected_dsr_bp - 1000, next_follow_up: open.find((x) => x.deadline)?.deadline ?? null, next_task: open[0]?.title ?? null, next_task_owner: open[0]?.assignee ?? null,
-      banker: al ? `${al.bank} · ${al.banker}` : null, review_pending: rv?.action === "submitted" ? 1 : 0, review_at: rv?.created_at ?? null, review_action: rv?.action ?? null };
+    const o = fa.ops[k.id] ?? {};
+    const row = { ...k, owner_id: 9001, current_dsr_bp: k.projected_dsr_bp == null ? null : k.projected_dsr_bp - 1000, next_follow_up: open.find((x) => x.deadline)?.deadline ?? null, next_task: open[0]?.title ?? null, next_task_owner: open[0]?.assignee ?? null,
+      banker: al ? `${al.bank} · ${al.banker}` : null, review_pending: rv?.action === "submitted" ? 1 : 0, review_at: rv?.created_at ?? null, review_action: rv?.action ?? null,
+      allocation_state: al?.state ?? null, waiting_on: o.waiting_on ?? null, blocker: o.blocker ?? null, blocker_urgent: o.blocker_urgent ?? 0, ops_next_action: o.next_action ?? null, closed_kind: o.closed_kind ?? null,
+      priority_override: o.priority_override ?? null, priority_reason: o.priority_reason ?? null, priority_by: o.priority_override ? "Fixture Manager" : null };
+    /* v1.299.0 - the server's own priority rules on the fixture's records */
+    const auto = PRIO ? PRIO.priorityOf({ stage: row.stage, next_follow_up: row.next_follow_up, review_pending: !!row.review_pending, review_at: row.review_at, banker_status: row.banker_status, banker_docs_at: null, last_update: mytNow(), waiting_on: row.waiting_on, blocker_urgent: !!row.blocker_urgent }, mytDay()) : null;
+    return { ...row, priority: (row.stage !== "closed" && row.priority_override) || auto?.level || null, priority_auto: auto?.level ?? null, priority_why: auto?.reasons ?? [] };
   });
 }
 function freshState() {
@@ -153,6 +167,9 @@ function freshState() {
     disclosures: { 1: [], 2: [], 3: [] },
     item_meta: { 1: [{ item_id: 13, lender_name: "Fixture Lender", lender_bank_id: null, account_last4: "4321", facility_ref: null, remaining_months: 24, duplicate_reason: null, created_at: "2026-11-10 03:00:00" }], 2: [], 3: [] },
     matchSeq: 0,
+    /* v1.299.0 - FA 2.0 phase 2: the case's operations row and its update history (invented) */
+    ops: { 1: {}, 2: {}, 3: {} },
+    updates: { 1: [{ id: 1, kind: "comment", body: "Fixture: client confirmed the EPF statement is coming", old_value: null, new_value: null, task_id: null, document_id: null, author: "Fixture Person", author_role: "sales_marketing", created_at: "2026-11-11 03:00:00" }], 2: [], 3: [] },
   };
 }
 export const fa = freshState();
@@ -221,7 +238,8 @@ export function faRoute(p, method, b) {
       ok: true, case: k, customer: { id: k.customer_id, name: k.client, phone: "01X-XXX XXXX", email: null }, owner: people.owner,
       profile: id === 1 ? { version: 1, employment_status: "employed", employment_category: "permanent", employer_type: "Private company", service_months: 38, salary_pattern: "bank_credit", dependants: 2, age_years: 34, ic_masked: "XXXXXX-XX-1234" } : null,
       items: fa.items[id], documents: fa.documents[id], consents: fa.consents[id], assessments: fa.assessments[id], notes: fa.notes[id], events: fa.events[id], tasks: fa.tasks[id], members: [],
-      can: { edit: c.edit, decide: c.decide, note: c.edit, allocate: c.allocate }, legal: LEGAL,
+      can: { edit: c.edit, decide: c.decide, note: c.edit, allocate: c.allocate, priority: c.priority }, legal: LEGAL,
+      ops: { ...(fa.ops[id] ?? {}), priority_by_name: fa.ops[id]?.priority_override ? "Fixture Manager" : null }, updates: [...(fa.updates[id] ?? [])].reverse(), ready: true, row: caseRows().find((x) => x.id === id) ?? null,
       reviews: fa.reviews[id] ?? [], item_meta: fa.item_meta[id] ?? [], allocations: fa.allocations[id] ?? [], disclosures: fa.disclosures[id] ?? [],
       review: reviewOf(id),
     }];
@@ -288,6 +306,29 @@ export function faRoute(p, method, b) {
       fa.notes[id].unshift({ id: 50 + fa.posts.length, note_type: b.type, bank: (b.banker_id ? fa.bankers.find((x) => x.id === b.banker_id)?.bank : fa.banks.find((x) => x.id === b.bank_id)?.name) ?? null, source: b.source ?? null, status_value: b.status, body: b.body, conditions: b.conditions ?? null, missing_documents: b.missing_documents ?? null, follow_up_on: b.follow_up_on ?? null, bank_reference: b.bank_reference ?? null, approved_cents: b.approved_cents ?? null, evidence_id: b.evidence_id ?? null, corrects_id: null, author: "Fixture Person", author_role: ROLE(), created_at: "2026-11-11 06:30:00" });
       if (b.type === "banker") k.banker_status = b.status; else k.application_status = b.status;
       return [201, { ok: true }];
+    }
+    /* v1.299.0 - the case update and the priority override, as the server answers (rules proven by tests/fa-case-ops.mjs) */
+    if (sub === "updates" && method === "POST") {
+      const add = (kind, x) => fa.updates[id].push({ id: 500 + fa.posts.length * 10 + fa.updates[id].length, kind, body: x.body ?? null, old_value: x.old ?? null, new_value: x.now ?? null, task_id: x.task ?? null, document_id: x.doc ?? null, author: "Fixture Person", author_role: ROLE(), created_at: mytNow() });
+      const o = (fa.ops[id] ??= {});
+      if (b.follow_up_on !== undefined && (!b.follow_up_on || b.follow_up_on < mytDay() || String(b.follow_up_title ?? "").trim().length < 3)) return [400, { error: { code: "invalid_input", message: "A follow-up date is today or later, and says what it is." } }];
+      if (b.waiting_on === "paused" && !c.decide) return [403, { error: { code: "forbidden", message: "Only management pauses a case." } }];
+      if (b.comment) add("comment", { body: b.comment });
+      let task = null;
+      if (b.follow_up_on) { task = 900 + fa.posts.length; fa.tasks[id].push({ id: task, title: `${k.case_ref}: ${b.follow_up_title}`, deadline: b.follow_up_on, status: "pending", assignee: "Fixture Person" }); add("follow_up", { body: b.follow_up_title, now: b.follow_up_on, task }); }
+      if (b.document_id !== undefined) add("document", { doc: b.document_id });
+      if (b.blocker !== undefined) { add("blocker", { old: o.blocker ?? null, now: b.blocker ? `${b.blocker}${b.blocker_urgent ? " (urgent)" : ""}` : null }); o.blocker = b.blocker || null; o.blocker_urgent = b.blocker && b.blocker_urgent ? 1 : 0; }
+      if (b.next_action !== undefined) { add("next_action", { old: o.next_action ?? null, now: b.next_action || null }); o.next_action = b.next_action || null; }
+      if (b.waiting_on !== undefined) { add("waiting_on", { old: o.waiting_on ?? null, now: b.waiting_on || null }); o.waiting_on = b.waiting_on || null; }
+      return [201, { ok: true, task_id: task }];
+    }
+    if (sub === "priority" && method === "PUT") {
+      if (!c.priority) return [403, { error: { code: "forbidden", message: "Only management overrides a case's priority" } }];
+      if (String(b.reason ?? "").trim().length < 10) return [400, { error: { code: "invalid_input", message: "Give the reason (at least 10 characters)." } }];
+      const o = (fa.ops[id] ??= {});
+      fa.updates[id].push({ id: 700 + fa.posts.length, kind: "priority", body: b.reason, old_value: o.priority_override ?? null, new_value: b.priority ?? null, task_id: null, document_id: null, author: "Fixture Manager", author_role: ROLE(), created_at: mytNow() });
+      Object.assign(o, { priority_override: b.priority || null, priority_reason: b.priority ? b.reason : null, priority_at: b.priority ? mytNow() : null });
+      return [200, { ok: true }];
     }
     if (sub === "agreement") return [409, { error: { code: "legal_gate", message: "Switched off until legal review and the CEO's separate approval." } }];
     if (sub === "fee") return [409, { error: { code: "fee_after_disbursement", message: "Billed only after a recorded disbursement, through Sales." } }];

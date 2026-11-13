@@ -45,7 +45,7 @@ import { SkelRows } from "@/components/ui/skeleton";
 import { ViewSwitch } from "@/components/portal/executive-cards";
 import { useTabViewAddress } from "@/lib/tab-view";
 import { btnSm, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
-import { APPLICATION, BANKER, Chip, FaCase, PRESCREEN, PRODUCT } from "./fa-case";
+import { APPLICATION, BANKER, Chip, FaCase, PRESCREEN, PRIORITY, PRODUCT } from "./fa-case";
 import { BankerRegistry } from "./fa-registry";
 import { DsrWorkspace, OUTCOME } from "./fa-dsr";
 import type { Tab as CaseTab } from "./fa-case";
@@ -75,6 +75,16 @@ export interface Row {
   id: number; case_ref: string; product: string; stage: string; prescreen: string; banker_status: string; application_status: string; override_result: string | null; issuer_code: string; updated_at: string; client: string | null; owner: string | null; projected_dsr_bp: number | null;
   /* v1.298.0 - FA 2.0: the next follow-up is the case's own Task; the banker is the approved allocation */
   current_dsr_bp?: number | null; owner_id?: number; next_follow_up?: string | null; next_task?: string | null; next_task_owner?: string | null; banker?: string | null; review_pending?: number; review_at?: string | null; review_action?: string | null;
+  /* v1.299.0 - FA 2.0 phase 2: the priority worked out on the server (and any management override), what the case waits on */
+  priority?: string | null; priority_auto?: string | null; priority_why?: string[]; priority_override?: string | null; priority_reason?: string | null; priority_by?: string | null;
+  waiting_on?: string | null; blocker?: string | null; blocker_urgent?: number; ops_next_action?: string | null; closed_kind?: string | null; allocation_state?: string | null;
+}
+const RANK: Record<string, number> = { critical: 0, high: 1, normal: 2, low: 3 };
+const rank = (r: Row) => RANK[r.priority ?? ""] ?? 4;
+function PriorityChip({ r }: { r: Row }) {
+  if (!r.priority) return null;
+  const w = PRIORITY[r.priority] ?? [r.priority, r.priority, chipSmNeutral];
+  return <span className={`${w[2]} ${css.chip}`} title={[...(r.priority_why ?? []), r.priority_override ? `${L("Set by", "Oleh")} ${r.priority_by ?? ""}: ${r.priority_reason ?? ""}` : ""].filter(Boolean).join(" · ")} data-testid="fa-row-priority">{L(w[0], w[1])}{r.priority_override ? " *" : ""}</span>;
 }
 interface Criterion { id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string; dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null; required_documents: string | null; source: string; last_verified_on: string | null; state: string }
 const STAGE_WORD: Record<string, [string, string]> = {
@@ -98,11 +108,12 @@ export function nextOf(r: Row): Next {
   if (r.review_action === "request_info" || r.review_action === "concern") return mk(r.review_action === "request_info" ? L("Get the information management asked for", "Dapatkan maklumat yang diminta pengurusan") : L("Answer management's concern", "Jawab kebimbangan pengurusan"), owner, r.next_follow_up ?? null, "client");
   if (r.banker_status === "documents_required") return mk(L("Send the documents the banker asked for", "Hantar dokumen yang diminta pegawai bank"), owner, r.next_follow_up ?? null, "client");
   if (r.next_task) return mk(taskWords(r.next_task), r.next_task_owner ?? owner, r.next_follow_up ?? null, "task");
+  if (r.ops_next_action) return mk(r.ops_next_action, owner, null, "move");
   if (r.prescreen === "incomplete") return mk(L("Complete the client's figures", "Lengkapkan angka pelanggan"), owner, null, "figures");
   if (r.banker_status === "enquiry_sent" || r.banker_status === "under_review") return mk(L("Waiting for the banker's feedback", "Menunggu maklum balas pegawai bank"), owner, null, "banker");
   return mk(`${L("Continue", "Teruskan")}: ${L(...(STAGE_WORD[r.stage] ?? [r.stage, r.stage]))}`, owner, null, "move");
 }
-const needsAction = (r: Row) => r.stage !== "closed" && (r.prescreen === "incomplete" || r.banker_status === "documents_required" || r.review_action === "request_info" || r.review_action === "concern" || !!r.review_pending
+const needsAction = (r: Row) => r.stage !== "closed" && (r.priority === "critical" || r.prescreen === "incomplete" || r.banker_status === "documents_required" || r.review_action === "request_info" || r.review_action === "concern" || !!r.review_pending
   || (!!r.next_follow_up && r.next_follow_up.slice(0, 10) <= mytToday()));
 
 export function FinancialAdvisoryPanel({ startView }: { startView?: string }) {
@@ -183,7 +194,7 @@ export function FinancialAdvisoryPanel({ startView }: { startView?: string }) {
    are one line; the calculator and the directory stay in their own tabs. */
 function Overview({ sum, rows, pending, openCase, create, go }: { sum: Summary | null; rows: Row[] | null; pending: { pending: Pending[]; can: { decide: boolean } } | null; openCase: (id: number, tab?: string) => void; create: () => void; go: (v: View) => void }) {
   const act = useMemo(() => (rows ?? []).filter(needsAction).map((r) => ({ r, n: nextOf(r) }))
-    .sort((a, z) => Number(z.n.overdue) - Number(a.n.overdue) || Number(z.n.kind === "review") - Number(a.n.kind === "review") || (a.n.due ?? "9999").localeCompare(z.n.due ?? "9999") || z.r.updated_at.localeCompare(a.r.updated_at)), [rows]);
+    .sort((a, z) => rank(a.r) - rank(z.r) || Number(z.n.overdue) - Number(a.n.overdue) || Number(z.n.kind === "review") - Number(a.n.kind === "review") || (a.n.due ?? "9999").localeCompare(z.n.due ?? "9999") || z.r.updated_at.localeCompare(a.r.updated_at)), [rows]);
   const decide = pending?.can.decide ?? false;
   return (
     <div className={css.stack}>
@@ -206,7 +217,7 @@ function Overview({ sum, rows, pending, openCase, create, go }: { sum: Summary |
                 <span className={css.actWhat}>{n.what}</span>
                 <span className={css.sub}>{n.who}</span>
                 <span className={css.when}>{n.due ? <span className={n.overdue ? chipSmDanger : n.today ? chipSmWarn : chipSmNeutral}>{n.overdue ? L("Overdue", "Lewat") : n.today ? L("Today", "Hari ini") : dmy(n.due.slice(0, 10))}</span> : n.kind === "review" ? <span className={chipSmWarn}>{L("Waiting", "Menunggu")}</span> : "—"}</span>
-                <span className={css.actGo}>{n.kind === "review" && decide ? L("Review", "Semak") : L("Open case", "Buka kes")}</span>
+                <span className={css.actGo}><PriorityChip r={r} />{n.kind === "review" && decide ? L("Review", "Semak") : L("Open case", "Buka kes")}</span>
               </button>
             </li>
           ))}</ul>
@@ -226,7 +237,7 @@ function CaseRow({ r, onOpen }: { r: Row; onOpen: () => void }) {
     <li>
       <button type="button" className={css.caseRow} onClick={onOpen} data-testid="fa-case-row">
         <span className={css.who}><b>{r.client ?? "—"}</b><span className={css.sub}>{r.case_ref} · {L(...(PRODUCT[r.product] ?? [r.product, r.product]))} · {r.owner ?? "—"}</span></span>
-        <span className={css.stage}>{L(...(STAGE_WORD[r.stage] ?? [r.stage, r.stage]))}{r.banker ? <small className={css.sub}>{r.banker}</small> : null}</span>
+        <span className={css.stage}><PriorityChip r={r} />{L(...(STAGE_WORD[r.stage] ?? [r.stage, r.stage]))}{r.banker ? <small className={css.sub}>{r.banker}</small> : null}</span>
         <span className={css.chips}><Chip map={PRESCREEN} k={r.override_result ?? r.prescreen} /><Chip map={BANKER} k={r.banker_status} /><Chip map={APPLICATION} k={r.application_status} /></span>
         <span className={css.dsr}>{pctOf(r.projected_dsr_bp)}<small>{L("projected DSR", "DSR unjuran")}</small></span>
         <span className={css.when}>{n?.due ? <><span className={n.overdue ? chipSmDanger : n.today ? chipSmWarn : chipSmInfo}>{n.overdue ? L("Overdue", "Lewat") : n.today ? L("Today", "Hari ini") : dmy(n.due.slice(0, 10))}</span><small>{L("next follow-up", "susulan seterusnya")}</small></> : dmyMYT(r.updated_at)}</span>
@@ -238,8 +249,10 @@ function CaseRow({ r, onOpen }: { r: Row; onOpen: () => void }) {
 /* v1.298.0 - FA 2.0 Clients & Cases (directive section 4, photo 2): the quick
    filters the records can answer today, the four counts, the case list with
    its next follow-up (the case's own Task), and today's follow-ups beside it.
-   Priority and the case update form come with Phase 2. */
-type Quick = "mine" | "all" | "today" | "client" | "banker" | "review" | "closed";
+   v1.299.0 - Phase 2: the priority (worked out on the server, or set by
+   management with a reason), High priority and Ready for authorized
+   submission, sorted by priority first. */
+type Quick = "mine" | "all" | "today" | "high" | "client" | "banker" | "review" | "ready" | "closed";
 function Clients({ rows, me, can, openCase, create }: { rows: Row[] | null; me: number | null; can: boolean; openCase: (id: number) => void; create: () => void }) {
   const [q, setQ] = useState("");
   const [product, setProduct] = useState("");
@@ -248,16 +261,21 @@ function Clients({ rows, me, can, openCase, create }: { rows: Row[] | null; me: 
   const [quick, setQuick] = useState<Quick>("all");
   const today = mytToday();
   const isToday = (r: Row) => r.stage !== "closed" && !!r.next_follow_up && r.next_follow_up.slice(0, 10) <= today;
-  const isClient = (r: Row) => r.stage !== "closed" && (r.banker_status === "documents_required" || r.review_action === "request_info" || r.prescreen === "incomplete");
+  const isClient = (r: Row) => r.stage !== "closed" && (r.waiting_on === "client" || r.banker_status === "documents_required" || r.review_action === "request_info" || r.prescreen === "incomplete");
+  /* v1.299.0 - ready for authorized submission: an APPROVED banker allocation with the client's disclosure consent (state ready), nothing sent yet */
+  const isReady = (r: Row) => r.stage !== "closed" && r.allocation_state === "ready" && r.banker_status === "not_contacted";
+  const isHigh = (r: Row) => r.stage !== "closed" && (r.priority === "critical" || r.priority === "high");
   const isBanker = (r: Row) => r.stage !== "closed" && (r.banker_status === "enquiry_sent" || r.banker_status === "under_review");
   const isReview = (r: Row) => r.stage !== "closed" && (!!r.review_pending || r.stage === "review");
   const QUICK: Record<Quick, [string, string, (r: Row) => boolean]> = {
     mine: ["My cases", "Kes saya", (r) => r.stage !== "closed" && me != null && r.owner_id === me],
     all: ["All authorized", "Semua dibenarkan", (r) => r.stage !== "closed"],
     today: ["Follow-up today", "Susulan hari ini", isToday],
+    high: ["High priority", "Keutamaan tinggi", isHigh],
     client: ["Waiting for client", "Menunggu pelanggan", isClient],
     banker: ["Waiting for banker", "Menunggu bank", isBanker],
     review: ["Management review", "Semakan pengurusan", isReview],
+    ready: ["Ready for authorized submission", "Sedia untuk penghantaran dibenarkan", isReady],
     closed: ["Closed / archived", "Ditutup / arkib", (r) => r.stage === "closed"],
   };
   const owners = useMemo(() => [...new Set((rows ?? []).map((r) => r.owner ?? "").filter(Boolean))].sort(), [rows]);
@@ -268,7 +286,7 @@ function Clients({ rows, me, can, openCase, create }: { rows: Row[] | null; me: 
     if (owner && r.owner !== owner) return false;
     const n = q.trim().toLowerCase();
     return !n || `${r.client ?? ""} ${r.case_ref} ${r.owner ?? ""}`.toLowerCase().includes(n);
-  }).sort((a, z) => (a.next_follow_up ?? "9999").localeCompare(z.next_follow_up ?? "9999") || z.updated_at.localeCompare(a.updated_at)),
+  }).sort((a, z) => rank(a) - rank(z) || (a.next_follow_up ?? "9999").localeCompare(z.next_follow_up ?? "9999") || z.updated_at.localeCompare(a.updated_at)),
   // eslint-disable-next-line react-hooks/exhaustive-deps -- QUICK is rebuilt from rows and me, both listed
   [rows, q, product, stage, owner, quick, me]);
   const due = (rows ?? []).filter(isToday).sort((a, z) => (a.next_follow_up ?? "").localeCompare(z.next_follow_up ?? ""));
@@ -291,9 +309,10 @@ function Clients({ rows, me, can, openCase, create }: { rows: Row[] | null; me: 
       </section>
       <KpiRow label={L("Case counts", "Kiraan kes")}>
         <KpiTile icon="date" tone="red" label={L("Needs follow-up today", "Perlu susulan hari ini")} value={count("today")} busy={!rows} onClick={() => setQuick("today")} />
-        <KpiTile icon="clients" tone="gold" label={L("Waiting on client", "Menunggu pelanggan")} value={count("client")} busy={!rows} onClick={() => setQuick("client")} />
+        <KpiTile icon="warning" tone="gold" label={L("High priority", "Keutamaan tinggi")} value={count("high")} busy={!rows} onClick={() => setQuick("high")} />
+        <KpiTile icon="clients" tone="purple" label={L("Waiting on client", "Menunggu pelanggan")} value={count("client")} busy={!rows} onClick={() => setQuick("client")} />
         <KpiTile icon="balance" tone="blue" label={L("Waiting on banker", "Menunggu bank")} value={count("banker")} busy={!rows} onClick={() => setQuick("banker")} />
-        <KpiTile icon="verify" tone="navy" label={L("Management review", "Semakan pengurusan")} value={count("review")} busy={!rows} onClick={() => setQuick("review")} />
+        <KpiTile icon="success" tone="green" label={L("Ready to submit", "Sedia dihantar")} value={count("ready")} busy={!rows} onClick={() => setQuick("ready")} />
       </KpiRow>
       <div className={css.casesGrid}>
         <section className={`${card} ${css.sec}`} aria-label={L("Client cases", "Kes pelanggan")}>

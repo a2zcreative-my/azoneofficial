@@ -119,7 +119,8 @@ with sync_playwright() as p:
             save = form.get_by_role("button", name="Save note")
             check(f"{tag}: an official decision cannot be saved without the bank's document", save.is_disabled())
             pg.get_by_role("button", name="Cancel").click(); pg.wait_for_timeout(200)
-        pg.get_by_role("tab", name="Agreement", exact=True).click(); pg.wait_for_timeout(300)
+        # v1.299.0 - FA 2.0 section 4D: the agreement now sits in Documents & agreements
+        pg.get_by_test_id("fa-case").get_by_role("tab", name=re.compile("^(Documents & agreements|Docs)")).first.click(); pg.wait_for_timeout(300)
         ag = pg.get_by_test_id("fa-agreement").inner_text()
         check(f"{tag}: the agreement is switched off; the fee is on by the CEO's decision and nothing is payable before a disbursement", "Switched off" in ag and "ON - CEO decision 13-11-2026" in ag and "Nothing" in ag and "15% PROPOSED" not in ag, ag[:400])
         if w < 500: check(f"{tag}: case sheet buttons at least 44 px on a phone", not short_buttons(pg, "[role=dialog]"), short_buttons(pg, "[role=dialog]"))

@@ -3,6 +3,10 @@
 (claude/FINANCIAL-ADVISORY-2.0-BLUEPRINT.md). The source rules are held by
 tests/fa2.mjs; the older FA suites (fa-1, fa-2, fa-3) still run. Here:
 
+  v1.299.0 Phase 2: the priority on every case, High priority and Ready for
+  authorized submission, the nine case tabs, the case update (one request,
+  each part in the history), the management priority override (CEO yes,
+  Sales no), 44 px targets in the update form on a phone. Phase 1:
   the six views from the address, Back / Forward; a phone gets the Dashboard's
   view switch with + DSR beside it (44 px), never the tab row; the Overview's
   four figures and one list (next step, who, when); Clients & Cases quick
@@ -136,6 +140,78 @@ with sync_playwright() as p:
     pg.get_by_test_id("fa-quick").get_by_role("button", name=re.compile("^My cases")).click(); pg.wait_for_timeout(300)
     check("Sales: My cases lists the cases they own", pg.get_by_test_id("fa-pipeline").get_by_test_id("fa-case-row").count() == 3)
     c.close()
+
+    # ---------------- v1.299.0 - Phase 2: priority, the case update, the nine case tabs ----------------
+    import datetime
+    later = (datetime.datetime.utcnow() + datetime.timedelta(hours=8, days=2)).strftime("%Y-%m-%d")
+    c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+    go(pg, CEO, "&view=clients")
+    pr = pg.get_by_test_id("fa-pipeline").get_by_test_id("fa-row-priority")
+    check("P2 cases: every open case shows its priority", pr.count() == 3, pr.all_inner_texts())
+    q = pg.get_by_test_id("fa-quick")
+    check("P2 cases: High priority and Ready for authorized submission are quick filters", "High priority" in q.inner_text() and "Ready for authorized submission" in q.inner_text())
+    q.get_by_role("button", name=re.compile("^High priority")).click(); pg.wait_for_timeout(300)
+    hp = pg.get_by_test_id("fa-pipeline").get_by_test_id("fa-case-row")
+    check("P2 cases: High priority lists the review waiting and today's follow-up, not the Normal case", hp.count() == 2 and "FA-000001" not in pg.get_by_test_id("fa-pipeline").inner_text(), hp.all_inner_texts())
+    t5 = pg.get_by_test_id("fa-panel").inner_text()
+    check("P2 cases: the photo's five counts", all(s in t5 for s in ["Needs follow-up today", "High priority", "Waiting on client", "Waiting on banker", "Ready to submit"]))
+    q.get_by_role("button", name=re.compile("^All authorized")).click(); pg.wait_for_timeout(300)
+    pg.get_by_test_id("fa-case-row").filter(has_text="FA-000001").first.click(); pg.wait_for_timeout(1300)
+    sheet = pg.get_by_test_id("fa-case")
+    tabs = [x.split("\n")[0].strip() for x in sheet.get_by_role("tablist").first.get_by_role("tab").all_inner_texts()]
+    want = ["Client profile", "Financial profile", "DSR assessment history", "Banker matching", "Kelayakan notes", "Management decisions", "Documents & agreements", "Follow-ups", "Activity timeline"]
+    check("P2 case: the directive's nine tabs, in order", [re.sub(r"\d+$", "", x).strip() for x in tabs] == want, tabs)
+    check("P2 case: Client profile keeps the consents", "Privacy notice" in sheet.inner_text() or "privacy" in sheet.inner_text().lower())
+    check("P2 case: the header shows the priority", "Priority: Normal" in pg.get_by_test_id("fa-statuses").inner_text(), pg.get_by_test_id("fa-statuses").inner_text())
+    sheet.get_by_role("tab", name=re.compile("^Follow-ups")).first.click(); pg.wait_for_timeout(400)
+    fm = pg.get_by_test_id("fa-update-form")
+    fm.get_by_test_id("fa-update-comment").fill("Fixture: called the client, EPF next week")
+    fm.get_by_test_id("fa-update-fu").fill(later)
+    check("P2 update: a follow-up without what it is cannot be saved", fm.get_by_test_id("fa-update-save").is_disabled())
+    fm.get_by_test_id("fa-update-fu-title").fill("Collect the EPF statement")
+    fm.get_by_test_id("fa-update-waiting").select_option("client")
+    fm.get_by_test_id("fa-update-next").fill("Run the DSR again with EPF")
+    n0 = len(posts(CEO))
+    fm.get_by_test_id("fa-update-save").click(); pg.wait_for_timeout(1300)
+    sent = [x for x in posts(CEO)[n0:] if x["path"] == "/staff/fa/cases/1/updates"]
+    check("P2 update: one request carries the comment, the follow-up, waiting-on and the next action", len(sent) == 1 and sent[0]["body"].get("follow_up_on") == later and sent[0]["body"].get("waiting_on") == "client" and sent[0]["body"].get("comment") and sent[0]["body"].get("next_action"), sent)
+    hist = pg.get_by_test_id("fa-updates").inner_text()
+    check("P2 update: the history shows each part with its author and time", all(s in hist for s in ["Comment", "Follow-up set", "Waiting on", "Next action", "Fixture Person"]), hist[:400])
+    check("P2 update: the follow-up is listed as an open follow-up (a task)", "Collect the EPF statement" in pg.get_by_test_id("fa-followups").inner_text())
+    check("P2 update: the header now says waiting for the client", "Waiting for the client" in pg.get_by_test_id("fa-statuses").inner_text())
+    sheet.get_by_role("tab", name=re.compile("^Management decisions")).first.click(); pg.wait_for_timeout(400)
+    pf = pg.get_by_test_id("fa-priority-form")
+    check("P2 priority: the CEO sees the override form, and the computed level with its reasons", pf.count() == 1 and "Worked out from the records" in pg.get_by_test_id("fa-priority-box").inner_text())
+    pf.locator("select").select_option("low"); pf.get_by_test_id("fa-priority-reason").fill("short")
+    check("P2 priority: a reason under 10 characters cannot be saved", pf.get_by_test_id("fa-priority-save").is_disabled())
+    pf.get_by_test_id("fa-priority-reason").fill("Fixture: client asked us to wait until December")
+    n0 = len(posts(CEO)); pf.get_by_test_id("fa-priority-save").click(); pg.wait_for_timeout(1200)
+    sp = [x for x in posts(CEO)[n0:] if x["path"] == "/staff/fa/cases/1/priority"]
+    check("P2 priority: the override is sent with its reason (PUT)", len(sp) == 1 and sp[0]["method"] == "PUT" and sp[0]["body"] == {"priority": "low", "reason": "Fixture: client asked us to wait until December"}, sp)
+    st = pg.get_by_test_id("fa-statuses").inner_text()
+    check("P2 priority: the header shows the override and who set it; the computed level stays in the box", "Priority: Low" in st and "set by" in st and "Normal" in pg.get_by_test_id("fa-priority-box").inner_text(), st)
+    check("no page error (P2 CEO)", not errs, errs[:2])
+    c.close()
+
+    c = ctx_for(b, 1280); pg = c.new_page(); go(pg, SALES, "&view=clients")
+    pg.get_by_test_id("fa-case-row").filter(has_text="FA-000001").first.click(); pg.wait_for_timeout(1300)
+    pg.get_by_test_id("fa-case").get_by_role("tab", name=re.compile("^Management decisions")).first.click(); pg.wait_for_timeout(400)
+    check("P2 Sales: no priority override form", pg.get_by_test_id("fa-priority-form").count() == 0 and pg.get_by_test_id("fa-priority-box").count() == 1)
+    pg.get_by_test_id("fa-case").get_by_role("tab", name=re.compile("^Follow-ups")).first.click(); pg.wait_for_timeout(400)
+    opts = pg.get_by_test_id("fa-update-waiting").locator("option").all_inner_texts()
+    check("P2 Sales: cannot pause a case", not any("Paused" in o for o in opts), opts)
+    c.close()
+
+    for w in (390, 360):
+        c = ctx_for(b, w, 800); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+        go(pg, CEO, "&view=clients")
+        pg.get_by_test_id("fa-case-row").filter(has_text="FA-000001").first.click(); pg.wait_for_timeout(1300)
+        pg.get_by_test_id("fa-case").get_by_role("tab", name=re.compile("^Follow-ups")).first.click(); pg.wait_for_timeout(400)
+        short = pg.evaluate("[...document.querySelectorAll('[data-testid=fa-update-form] button, [data-testid=fa-update-form] select, [data-testid=fa-update-form] input:not([type=checkbox])')].filter(b => b.offsetParent && b.getBoundingClientRect().height < 43.5).map(b => (b.innerText || b.tagName) + ':' + Math.round(b.getBoundingClientRect().height)).slice(0, 6)")
+        check(f"P2 phone {w}: the update form's controls are 44 px targets", not short, short)
+        check(f"P2 phone {w}: no sideways page in the case sheet", no_hscroll(pg))
+        check(f"P2 phone {w}: no page error", not errs, errs[:2])
+        c.close()
 
     for w in WIDTHS:
         for q in ["", "&view=dsr", "&view=clients", "&view=bankers", "&view=criteria", "&view=agreements"]:

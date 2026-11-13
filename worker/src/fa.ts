@@ -36,6 +36,7 @@ import { handleFaRegistry } from "./fa-registry";
 import { assess, ENGINE_VERSION, type FaItem, type FaCriterion, type Product } from "./fa-engine";
 import { isExecutiveOwner } from "./decision-policy";
 import { handleFaMatch } from "./fa-match";
+import { priorityOf, PRIORITIES, type Priority } from "./fa-priority";
 
 /** Off until counsel clears each one (blueprint section 4). A constant on purpose. */
 /* v1.288.0 - the CEO, 12-11-2026, decision D5 of DSR blueprint v1.2: "proceed
@@ -188,7 +189,10 @@ async function picture(env: Env, u: StaffUser, c: Case) {
        WHERE a.case_id = ?1 ORDER BY a.id DESC`, c.id),
     disclosures: await q(`SELECT x.id, x.enquiry_id, x.document_id, x.channel, x.recipient, x.purpose, x.sent_at, d.kind AS document_kind, ${PERSON("u")} AS sent_by FROM fa_disclosures x LEFT JOIN fa_documents d ON d.id = x.document_id LEFT JOIN users u ON u.id = x.sent_by WHERE x.case_id = ?1 ORDER BY x.id DESC`, c.id),
     review: await reviewState(env, c.id),
-    can: { edit: mayEdit(u, c), decide: can(u.role, "fa_decide"), allocate: can(u.role, "fa_allocate"), note: can(u.role, "fa_edit") || (await isMember(env, c.id, u.id)) },
+    /* v1.299.0 - FA 2.0 phase 2: priority (computed, and any override), waiting-on, blocker, next action, the update history */
+    ...(await opsOf(env, c.id)),
+    row: (await caseRows(env, "c.id = ?1", [c.id]))[0] ?? null,
+    can: { edit: mayEdit(u, c), decide: can(u.role, "fa_decide"), allocate: can(u.role, "fa_allocate"), note: can(u.role, "fa_edit") || (await isMember(env, c.id, u.id)), priority: can(u.role, "fa_priority") && (c.owner_id !== u.id || isExecutiveOwner(u)) },
     legal: FA_LEGAL,
   };
 }
@@ -207,6 +211,67 @@ export async function handleFa(env: Env, path: string, method: string, body: Rec
     throw e;
   }
 }
+
+/* v1.299.0 - FA 2.0: the case list as one query, used by the pipeline and by
+   a single case. Before migrations 0189-0190 are applied it falls back to the
+   Phase 1 columns (no priority override, no waiting-on), never a broken page. */
+async function caseRows(env: Env, where: string, binds: unknown[]): Promise<Record<string, unknown>[]> {
+  const sqlOf = (ops: boolean) => `SELECT c.id, c.case_ref, c.product, c.stage, c.prescreen, c.banker_status, c.application_status, c.override_result, c.issuer_code, c.updated_at,
+              cu.company AS client, ${PERSON("u")} AS owner,
+              (SELECT a.projected_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS projected_dsr_bp,
+              (SELECT a.current_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS current_dsr_bp,
+              c.owner_id, c.created_at,
+              /* v1.298.0 - FA 2.0: the next follow-up is the case's earliest open TASK (the Tasks module, never a second engine) */
+              (SELECT t.deadline FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' AND t.deadline IS NOT NULL ORDER BY t.deadline, t.id LIMIT 1) AS next_follow_up,
+              (SELECT t.title FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' ORDER BY CASE WHEN t.deadline IS NULL THEN 1 ELSE 0 END, t.deadline, t.id LIMIT 1) AS next_task,
+              (SELECT ${PERSON("tu")} FROM tasks t JOIN users tu ON tu.id = t.assigned_to WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' ORDER BY CASE WHEN t.deadline IS NULL THEN 1 ELSE 0 END, t.deadline, t.id LIMIT 1) AS next_task_owner,
+              (SELECT bk.name || ' · ' || bb.full_name FROM fa_allocations al JOIN fa_bankers bb ON bb.id = al.banker_id JOIN fa_banks bk ON bk.id = al.bank_id
+                WHERE al.case_id = c.id AND al.state NOT IN ('cancelled', 'reassigned') ORDER BY CASE WHEN al.role = 'primary' THEN 0 ELSE 1 END, al.id DESC LIMIT 1) AS banker,
+              CASE WHEN ${REVIEW_PENDING} THEN 1 ELSE 0 END AS review_pending,
+              (SELECT r.created_at FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1) AS review_at,
+              (SELECT r.action FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1) AS review_action,
+              /* v1.299.0 - FA 2.0 phase 2: what the priority is worked out from, and the case's own operations row (0189) */
+              (SELECT n.created_at FROM fa_notes n WHERE n.case_id = c.id AND n.note_type = 'banker' AND n.status_value = 'documents_required' ORDER BY n.id DESC LIMIT 1) AS banker_docs_at,
+              (SELECT al.state FROM fa_allocations al WHERE al.case_id = c.id AND al.state NOT IN ('cancelled', 'reassigned') ORDER BY CASE WHEN al.role = 'primary' THEN 0 ELSE 1 END, al.id DESC LIMIT 1) AS allocation_state${ops ? `,
+              o.waiting_on, o.blocker, o.blocker_urgent, o.next_action AS ops_next_action, o.closed_kind, o.priority_override, o.priority_reason, o.priority_at,
+              (SELECT ${PERSON("pu")} FROM users pu WHERE pu.id = o.priority_by) AS priority_by,
+              MAX(c.updated_at, COALESCE((SELECT MAX(x.created_at) FROM fa_case_updates x WHERE x.case_id = c.id), c.updated_at)) AS last_update` : `, c.updated_at AS last_update`}
+         FROM fa_cases c LEFT JOIN customers cu ON cu.id = c.customer_id LEFT JOIN users u ON u.id = c.owner_id${ops ? " LEFT JOIN fa_case_ops o ON o.case_id = c.id" : ""}
+        WHERE ${where} ORDER BY CASE WHEN c.stage = 'closed' THEN 1 ELSE 0 END, c.updated_at DESC LIMIT 500`;
+  let rows: Record<string, unknown>[];
+  try { rows = ((await env.DB.prepare(sqlOf(true)).bind(...binds).all()).results ?? []) as Record<string, unknown>[]; }
+  catch (e) { if (!skew(e)) throw e; rows = ((await env.DB.prepare(sqlOf(false)).bind(...binds).all()).results ?? []) as Record<string, unknown>[]; }
+  const today = mytToday();
+  return rows.map((r) => {
+    const auto = priorityOf({
+      stage: String(r.stage), next_follow_up: (r.next_follow_up as string | null) ?? null, review_pending: Number(r.review_pending) === 1, review_at: (r.review_at as string | null) ?? null,
+      banker_status: String(r.banker_status), banker_docs_at: (r.banker_docs_at as string | null) ?? null, last_update: (r.last_update as string | null) ?? null,
+      waiting_on: (r.waiting_on as string | null) ?? null, blocker_urgent: Number(r.blocker_urgent ?? 0) === 1,
+    }, today);
+    const over = r.stage !== "closed" && PRIORITIES.includes(r.priority_override as Priority) ? (r.priority_override as Priority) : null;
+    return { ...r, priority: over ?? auto?.level ?? null, priority_auto: auto?.level ?? null, priority_why: auto?.reasons ?? [] };
+  });
+}
+async function opsOf(env: Env, caseId: number) {
+  try {
+    const ops = await env.DB.prepare(`SELECT o.*, ${PERSON("pu")} AS priority_by_name FROM fa_case_ops o LEFT JOIN users pu ON pu.id = o.priority_by WHERE o.case_id = ?1`).bind(caseId).first();
+    const updates = (await env.DB.prepare(`SELECT x.id, x.kind, x.body, x.old_value, x.new_value, x.task_id, x.document_id, x.author_role, x.created_at, ${PERSON("u")} AS author FROM fa_case_updates x LEFT JOIN users u ON u.id = x.author_id WHERE x.case_id = ?1 ORDER BY x.id DESC LIMIT 200`).bind(caseId).all()).results ?? [];
+    return { ops: ops ?? null, updates, ready: true };
+  } catch (e) { if (!skew(e)) throw e; return { ops: null, updates: [], ready: false }; }
+}
+async function logUpdate(env: Env, caseId: number, u: StaffUser, kind: string, x: { body?: string | null; old?: string | null; now?: string | null; task?: number | null; doc?: number | null }): Promise<void> {
+  await env.DB.prepare(`INSERT INTO fa_case_updates (case_id, kind, body, old_value, new_value, task_id, document_id, author_id, author_role) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`)
+    .bind(caseId, kind, x.body ?? null, x.old ?? null, x.now ?? null, x.task ?? null, x.doc ?? null, u.id, u.role).run();
+}
+/** one row per case, created on first use; only the named columns change */
+async function setOps(env: Env, caseId: number, u: StaffUser, cols: Record<string, unknown>): Promise<void> {
+  const keys = Object.keys(cols);
+  await env.DB.prepare(`INSERT INTO fa_case_ops (case_id, ${keys.join(", ")}, updated_by, updated_at) VALUES (?1, ${keys.map((_, i) => `?${i + 2}`).join(", ")}, ?${keys.length + 2}, datetime('now'))
+    ON CONFLICT(case_id) DO UPDATE SET ${keys.map((k) => `${k} = excluded.${k}`).join(", ")}, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+    .bind(caseId, ...keys.map((k) => cols[k]), u.id).run();
+}
+const WAITING = ["client", "banker", "management", "paused"] as const;
+const CLOSED_KINDS = ["completed", "not_proceeding", "withdrawn"] as const;
 
 async function route(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams, request: Request): Promise<Response | null> {
   const b = body ?? {};
@@ -233,24 +298,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   /* ---- the client pipeline ---- */
   if (path === "/fa/cases" && method === "GET") {
     const scope = isAll(user) ? "" : " AND (c.owner_id = ?1 OR EXISTS (SELECT 1 FROM fa_case_members m WHERE m.case_id = c.id AND m.user_id = ?1))";
-    const { results } = await env.DB.prepare(
-      `SELECT c.id, c.case_ref, c.product, c.stage, c.prescreen, c.banker_status, c.application_status, c.override_result, c.issuer_code, c.updated_at,
-              cu.company AS client, ${PERSON("u")} AS owner,
-              (SELECT a.projected_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS projected_dsr_bp,
-              (SELECT a.current_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS current_dsr_bp,
-              c.owner_id, c.created_at,
-              /* v1.298.0 - FA 2.0: the next follow-up is the case's earliest open TASK (the Tasks module, never a second engine) */
-              (SELECT t.deadline FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' AND t.deadline IS NOT NULL ORDER BY t.deadline, t.id LIMIT 1) AS next_follow_up,
-              (SELECT t.title FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' ORDER BY CASE WHEN t.deadline IS NULL THEN 1 ELSE 0 END, t.deadline, t.id LIMIT 1) AS next_task,
-              (SELECT ${PERSON("tu")} FROM tasks t JOIN users tu ON tu.id = t.assigned_to WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' ORDER BY CASE WHEN t.deadline IS NULL THEN 1 ELSE 0 END, t.deadline, t.id LIMIT 1) AS next_task_owner,
-              (SELECT bk.name || ' · ' || bb.full_name FROM fa_allocations al JOIN fa_bankers bb ON bb.id = al.banker_id JOIN fa_banks bk ON bk.id = al.bank_id
-                WHERE al.case_id = c.id AND al.state NOT IN ('cancelled', 'reassigned') ORDER BY CASE WHEN al.role = 'primary' THEN 0 ELSE 1 END, al.id DESC LIMIT 1) AS banker,
-              CASE WHEN ${REVIEW_PENDING} THEN 1 ELSE 0 END AS review_pending,
-              (SELECT r.created_at FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1) AS review_at,
-              (SELECT r.action FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1) AS review_action
-         FROM fa_cases c LEFT JOIN customers cu ON cu.id = c.customer_id LEFT JOIN users u ON u.id = c.owner_id
-        WHERE 1 = 1${scope} ORDER BY CASE WHEN c.stage = 'closed' THEN 1 ELSE 0 END, c.updated_at DESC LIMIT 500`,
-    ).bind(...(isAll(user) ? [] : [user.id])).all();
+    const results = await caseRows(env, `1 = 1${scope}`, isAll(user) ? [] : [user.id]);
     return json({ cases: results ?? [], me: user.id });
   }
 
@@ -578,6 +626,8 @@ async function route(env: Env, path: string, method: string, body: Record<string
       if (to === "closed") {
         const why = str(b.closed_reason, 300) ? String(b.closed_reason).trim() : "";
         if (why.length < 5) return err("invalid_input", "Say why the case closes (no loan advised, declined, withdrawn, client stopped, completed).", 400);
+        /* v1.299.0 - how it closed: completed, not proceeding or withdrawn (FA 2.0 case states) */
+        if (b.closed_kind !== undefined && !(CLOSED_KINDS as readonly string[]).includes(String(b.closed_kind))) return err("invalid_input", "closed_kind is completed, not_proceeding or withdrawn", 400);
         sets.push(`stage = 'closed'`, `closed_reason = ?${vals.push(why)}`, `closed_at = datetime('now')`, `closed_by = ?${vals.push(user.id)}`);
       } else if (["agreement", "application", "fee"].includes(to)) {
         return err("legal_gate", "This step is switched off until counsel clears it (agreement, formal application, fee).", 409);
@@ -601,6 +651,14 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const r = await env.DB.prepare(`UPDATE fa_cases SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?${vals.push(c.id)} AND stage = ?${vals.push(c.stage)}`).bind(...vals).run();
     if (!Number(r.meta?.changes ?? 0)) return err("conflict", "This case changed - reload it.", 409);
     await event(env, c.id, b.stage === "closed" ? "case_closed" : b.stage ? "stage_changed" : "case_updated", user.id, { stage: b.stage ?? null, owner: b.owner_id ?? null });
+    /* v1.299.0 - the same change on the case's update history (author and time); before 0190 the event above still holds it */
+    try {
+      if (b.stage === "closed") {
+        if (b.closed_kind !== undefined) await setOps(env, c.id, user, { closed_kind: String(b.closed_kind) });
+        await logUpdate(env, c.id, user, "closed", { body: String(b.closed_reason ?? "").trim(), old: c.stage, now: b.closed_kind !== undefined ? String(b.closed_kind) : "closed" });
+      } else if (b.stage !== undefined) await logUpdate(env, c.id, user, "status", { old: c.stage, now: String(b.stage) });
+      if (b.owner_id !== undefined) await logUpdate(env, c.id, user, "owner", { old: String(c.owner_id), now: String(b.owner_id) });
+    } catch (e) { if (!skew(e)) throw e; }
     await audit(env, user.id, "fa.case_update", "fa_cases", String(c.id), { case: c.case_ref, stage: b.stage ?? null, owner_id: b.owner_id ?? null });
     return json({ ok: true, ...(await picture(env, user, (await caseOf(env, c.id))!)) });
   }
@@ -939,6 +997,91 @@ async function route(env: Env, path: string, method: string, body: Record<string
       return json({ ok: true, id: row?.id }, 201);
     }
     return err("invalid_input", "type is banker or decision (system notes come from an assessment)", 400);
+  }
+
+  /* ---- v1.299.0 - FA 2.0 phase 2: one case update (directive 4E) ----
+     A comment, a follow-up (an ordinary Task with its deadline - never a
+     second follow-up engine), a supporting document already on the case, a
+     blocker (urgent or not), the next action, what the case waits on. Each
+     part is one append-only row with its author and time. The owner and
+     management change everything; an assisting member may only comment. */
+  if (sub === "updates" && method === "POST") {
+    const edit = mayEdit(user, c);
+    const member = edit || (await isMember(env, c.id, user.id));
+    if (!member || !can(user.role, "fa_edit")) return err("forbidden", "Not a case you can update", 403);
+    if (c.stage === "closed") return err("invalid_state", "A closed case takes no updates.", 409);
+    const comment = str(b.comment, 1000) ? String(b.comment).trim() : "";
+    const want = { follow: b.follow_up_on !== undefined, doc: b.document_id !== undefined, blocker: b.blocker !== undefined, next: b.next_action !== undefined, waiting: b.waiting_on !== undefined };
+    if (!edit && Object.values(want).some(Boolean)) return err("forbidden", "An assisting member may add a comment; the owner or management changes the rest.", 403);
+    if (!comment && !Object.values(want).some(Boolean)) return err("invalid_input", "Write a comment or change something.", 400);
+    let fuDay: string | null = null, fuTitle = "", assignee = user.id;
+    if (want.follow) {
+      if (!validDay(b.follow_up_on) || b.follow_up_on < mytToday()) return err("invalid_input", "A follow-up date is today or later.", 400);
+      fuDay = b.follow_up_on;
+      fuTitle = str(b.follow_up_title, 120) ? String(b.follow_up_title).trim() : "";
+      if (fuTitle.length < 3) return err("invalid_input", "Say what the follow-up is.", 400);
+      if (typeof b.follow_up_to === "number" && b.follow_up_to !== user.id) {
+        if (!(b.follow_up_to === c.owner_id || (await isMember(env, c.id, b.follow_up_to)))) return err("invalid_input", "A follow-up goes to the case owner or an assisting member.", 400);
+        assignee = b.follow_up_to;
+      }
+    }
+    const doc = want.doc ? await docOnCase(env, c.id, b.document_id) : null;
+    if (want.doc && doc == null) return err("invalid_input", "That document is not on this case.", 400);
+    const waiting = want.waiting ? (b.waiting_on === "" || b.waiting_on === null ? null : String(b.waiting_on)) : undefined;
+    if (waiting !== undefined && waiting !== null && !(WAITING as readonly string[]).includes(waiting)) return err("invalid_input", "waiting_on is client, banker, management, paused or empty", 400);
+    if (waiting === "paused" && !isAll(user)) return err("forbidden", "Only management pauses a case.", 403);
+    const blocker = want.blocker ? (str(b.blocker, 300) ? String(b.blocker).trim() : "") : undefined;
+    if (blocker !== undefined && blocker.length > 0 && blocker.length < 5) return err("invalid_input", "Describe the blocker (at least 5 characters), or send it empty to clear it.", 400);
+    const next = want.next ? (str(b.next_action, 200) ? String(b.next_action).trim() : "") : undefined;
+    let prev: Record<string, unknown> | null;
+    try { prev = await env.DB.prepare(`SELECT * FROM fa_case_ops WHERE case_id = ?1`).bind(c.id).first(); }
+    catch (e) { if (skew(e)) return err("not_ready", "Case updates open once the database update (0189-0190) is applied.", 503); throw e; }
+    let taskId: number | null = null;
+    if (fuDay) {
+      const row = await env.DB.prepare(`INSERT INTO tasks (title, description, assigned_to, created_by, priority, deadline, link_kind, link_id) VALUES (?1, ?2, ?3, ?4, 'normal', ?5, 'fa_case', ?6) RETURNING id`)
+        .bind(`${c.case_ref}: ${fuTitle}`, "Financial Advisory follow-up - open the case for the details.", assignee, user.id, fuDay, c.id).first<{ id: number }>();
+      taskId = row?.id ?? null;
+      await event(env, c.id, "task_created", user.id, { task: taskId, follow_up: fuDay });
+      if (assignee !== user.id) await notify(env, assignee, "task", `${c.case_ref}: a follow-up for you on ${fuDay}.`, `fa_task:${taskId}`, { once: true });
+    }
+    const cols: Record<string, unknown> = {};
+    if (waiting !== undefined) cols.waiting_on = waiting;
+    if (blocker !== undefined) { cols.blocker = blocker || null; cols.blocker_urgent = blocker && b.blocker_urgent === true ? 1 : 0; }
+    if (next !== undefined) cols.next_action = next || null;
+    if (Object.keys(cols).length) await setOps(env, c.id, user, cols);
+    if (comment) await logUpdate(env, c.id, user, "comment", { body: comment });
+    if (fuDay) await logUpdate(env, c.id, user, "follow_up", { body: fuTitle, now: fuDay, task: taskId });
+    if (doc != null) await logUpdate(env, c.id, user, "document", { doc, body: str(b.document_note, 200) ? String(b.document_note).trim() : null });
+    if (blocker !== undefined) await logUpdate(env, c.id, user, "blocker", { old: (prev?.blocker as string | null) ?? null, now: blocker ? `${blocker}${cols.blocker_urgent ? " (urgent)" : ""}` : null });
+    if (next !== undefined) await logUpdate(env, c.id, user, "next_action", { old: (prev?.next_action as string | null) ?? null, now: next || null });
+    if (waiting !== undefined) await logUpdate(env, c.id, user, "waiting_on", { old: (prev?.waiting_on as string | null) ?? null, now: waiting });
+    await touch(env, c.id);
+    await audit(env, user.id, "fa.case_updated", "fa_cases", String(c.id), { case: c.case_ref, parts: Object.entries({ comment: !!comment, ...want }).filter(([, v]) => v).map(([k]) => k), task: taskId });
+    return json({ ok: true, task_id: taskId, ...(await picture(env, user, (await caseOf(env, c.id))!)) }, 201);
+  }
+
+  /* ---- v1.299.0 - a management priority override (D-6: fa_priority = CEO, COO, CCO) ----
+     With a reason; the computed priority stays beside it; clearing returns to
+     the computed one. Never on a case the decider owns, the verified owner
+     account apart. */
+  if (sub === "priority" && method === "PUT") {
+    if (!can(user.role, "fa_priority")) return err("forbidden", "Only management overrides a case's priority", 403);
+    if (c.owner_id === user.id && !isExecutiveOwner(user)) {
+      await audit(env, user.id, "auth.self_approval_refused", "fa_cases", String(c.id), { action: "fa.priority_override" });
+      return err("self_approval", "This is your own case - another manager sets its priority.", 403);
+    }
+    if (c.stage === "closed") return err("invalid_state", "A closed case has no priority.", 409);
+    const to = b.priority === null || b.priority === "" ? null : String(b.priority);
+    if (to !== null && !(PRIORITIES as readonly string[]).includes(to)) return err("invalid_input", "priority is critical, high, normal, low, or empty to clear", 400);
+    const reason = str(b.reason, 300) ? String(b.reason).trim() : "";
+    if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
+    let prev: { priority_override: string | null } | null;
+    try { prev = await env.DB.prepare(`SELECT priority_override FROM fa_case_ops WHERE case_id = ?1`).bind(c.id).first(); }
+    catch (e) { if (skew(e)) return err("not_ready", "Priority opens once the database update (0189-0190) is applied.", 503); throw e; }
+    await setOps(env, c.id, user, { priority_override: to, priority_reason: to ? reason : null, priority_by: to ? user.id : null, priority_at: to ? new Date().toISOString().replace("T", " ").slice(0, 19) : null });
+    await logUpdate(env, c.id, user, "priority", { body: reason, old: prev?.priority_override ?? null, now: to });
+    await audit(env, user.id, "fa.priority_override", "fa_cases", String(c.id), { case: c.case_ref, from: prev?.priority_override ?? null, to, reason });
+    return json({ ok: true, ...(await picture(env, user, (await caseOf(env, c.id))!)) });
   }
 
   if (sub === "tasks" && method === "POST") {

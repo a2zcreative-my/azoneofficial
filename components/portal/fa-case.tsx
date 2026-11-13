@@ -8,8 +8,11 @@
      header   the client, the case reference, the three statuses as three
               chips (pre-screen, banker feedback, formal application) -
               never one "Eligible" flag
-     tabs     Overview, Financial profile, DSR assessment, Banker matching,
-              Kelayakan notes, Documents, Consents, Case timeline, Agreement
+     tabs     v1.299.0 - the directive's nine: Client profile (with the
+              consents), Financial profile, DSR assessment history, Banker
+              matching, Kelayakan notes, Management decisions (and the
+              priority), Documents & agreements, Follow-ups (and the case
+              update), Activity timeline
               (v1.288.0 - DSR blueprint v1.2; the review, matching and
               disclosure screens live in fa-dsr.tsx)
      legal    the agreement and the proposed fee are shown as switched off
@@ -106,14 +109,31 @@ interface Pic {
   assessments: { id: number; result: string; outcome: string; created_at: string; by_name: string | null }[];
   notes: Note[]; events: { id: number; event: string; detail: string | null; created_at: string; actor: string | null }[];
   tasks: { id: number; title: string; deadline: string | null; status: string; assignee: string | null }[];
-  can: { edit: boolean; decide: boolean; note: boolean; allocate?: boolean };
+  can: { edit: boolean; decide: boolean; note: boolean; allocate?: boolean; priority?: boolean };
+  /* v1.299.0 - FA 2.0 phase 2: the case's operations row, its update history and its list row (priority computed on read) */
+  ops?: { waiting_on: string | null; blocker: string | null; blocker_urgent: number; next_action: string | null; closed_kind: string | null; priority_override: string | null; priority_reason: string | null; priority_at: string | null; priority_by_name: string | null } | null;
+  updates?: Update[]; ready?: boolean;
+  row?: { priority: string | null; priority_auto: string | null; priority_why: string[]; next_follow_up: string | null } | null;
+  members?: { user_id: number; name: string | null }[];
   /* v1.288.0 - the management review, the banker allocation and what was sent */
   reviews?: { id: number; assessment_id: number | null; action: string; reason: string | null; next_action: string | null; actor: string | null; actor_role: string; created_at: string }[];
   review?: { pending: boolean; decision: string | null; assessment_id: number | null; submitted_by: number | null };
   allocations?: { id: number; bank: string; banker: string; state: string; enquiry_id: number | null }[];
   legal: { agreement: boolean; fee: boolean; disclosure: boolean; commission: boolean };
 }
-export type Tab = "overview" | "figures" | "dsr" | "matching" | "notes" | "documents" | "consents" | "timeline" | "agreement";
+/* v1.299.0 - the directive's nine case tabs (FA 2.0, section 4D). "consents" and "agreement" stay as names a
+   link may still use: they open Client Profile and Documents & Agreements, where those sections now live. */
+export type Tab = "overview" | "figures" | "dsr" | "matching" | "notes" | "decisions" | "documents" | "followups" | "timeline" | "consents" | "agreement";
+interface Update { id: number; kind: string; body: string | null; old_value: string | null; new_value: string | null; task_id: number | null; document_id: number | null; author: string | null; author_role: string; created_at: string }
+export const PRIORITY: Record<string, [string, string, string]> = {
+  critical: ["Critical", "Kritikal", chipSmDanger], high: ["High", "Tinggi", chipSmWarn], normal: ["Normal", "Biasa", chipSmInfo], low: ["Low", "Rendah", chipSmNeutral],
+};
+const WAITING: Record<string, [string, string]> = { client: ["Waiting for the client", "Menunggu pelanggan"], banker: ["Waiting for the banker", "Menunggu pegawai bank"], management: ["Waiting for management", "Menunggu pengurusan"], paused: ["Paused by management", "Dijeda oleh pengurusan"] };
+const UPDATE_WORD: Record<string, [string, string]> = {
+  comment: ["Comment", "Komen"], status: ["Status changed", "Status ditukar"], follow_up: ["Follow-up set", "Susulan ditetapkan"], owner: ["Owner changed", "Pemilik ditukar"], document: ["Supporting document", "Dokumen sokongan"],
+  blocker: ["Blocker", "Halangan"], next_action: ["Next action", "Tindakan seterusnya"], waiting_on: ["Waiting on", "Menunggu"], priority: ["Priority override", "Keutamaan diatasi"], closed: ["Case closed", "Kes ditutup"],
+};
+const CLOSED_KIND: Record<string, [string, string]> = { completed: ["Completed", "Selesai"], not_proceeding: ["Closed - not proceeding", "Ditutup - tidak diteruskan"], withdrawn: ["Withdrawn", "Ditarik balik"] };
 const EVENT_WORDS: Record<string, string> = {
   case_created: "Case created", consent_recorded: "Consent recorded", consent_withdrawn: "Consent withdrawn", profile_saved: "Profile saved", item_added: "Figure added",
   item_verify: "Figure verified", item_void: "Figure removed", item_settlement: "Settlement evidenced", document_uploaded: "Document uploaded", document_verified: "Document checked",
@@ -125,7 +145,7 @@ export function FaCase({ caseId, onClose, onChanged, toast, initialTab }: { case
   const [pic, setPic] = useState<Pic | null>(null);
   const [failed, setFailed] = useState(false);
   const [tick, setTick] = useState(0);
-  const [tab, setTab] = useState<Tab>(initialTab ?? "overview");
+  const [tab, setTab] = useState<Tab>(initialTab === "consents" ? "overview" : initialTab === "agreement" ? "documents" : initialTab ?? "overview");
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     let live = true;
@@ -155,7 +175,10 @@ export function FaCase({ caseId, onClose, onChanged, toast, initialTab }: { case
             <Chip map={BANKER} k={c.banker_status} />
             <Chip map={APPLICATION} k={c.application_status} />
             {c.override_result && <span className={`${chipSmNeutral} ${css.chip}`}>{L("Overridden by management", "Diatasi oleh pengurusan")}</span>}
-            {c.stage === "closed" && <span className={`${chipSmNeutral} ${css.chip}`}>{L("Closed", "Ditutup")}: {c.closed_reason}</span>}
+            {c.stage === "closed" && <span className={`${chipSmNeutral} ${css.chip}`}>{pic.ops?.closed_kind ? L(...CLOSED_KIND[pic.ops.closed_kind]!) : L("Closed", "Ditutup")}: {c.closed_reason}</span>}
+            {pic.row?.priority && <span className={`${PRIORITY[pic.row.priority]![2]} ${css.chip}`} data-testid="fa-priority" title={pic.row.priority_why.join(" · ")}>{L("Priority", "Keutamaan")}: {L(...(PRIORITY[pic.row.priority]!.slice(0, 2) as [string, string]))}{pic.ops?.priority_override ? ` · ${L("set by", "oleh")} ${pic.ops.priority_by_name ?? L("management", "pengurusan")}` : ""}</span>}
+            {pic.ops?.waiting_on && <span className={`${chipSmNeutral} ${css.chip}`}>{L(...WAITING[pic.ops.waiting_on]!)}</span>}
+            {pic.ops?.blocker && <span className={`${pic.ops.blocker_urgent ? chipSmDanger : chipSmWarn} ${css.chip}`}>{L("Blocker", "Halangan")}: {pic.ops.blocker}</span>}
           </div>
           <ol className={css.strip} aria-label={L("Case progress", "Kemajuan kes")}>
             {STEPS.map(([k, en, ms], i) => (
@@ -165,26 +188,27 @@ export function FaCase({ caseId, onClose, onChanged, toast, initialTab }: { case
               </li>
             ))}
           </ol>
+          {/* v1.299.0 - FA 2.0 section 4D: the nine case tabs; on a phone the row scrolls inside the sheet (LineTabs) */}
           <LineTabs value={tab} onChange={setTab} label={L("Case", "Kes")} tabs={[
-            ["overview", L("Overview", "Gambaran")],
-            ["figures", L("Financial profile", "Profil kewangan"), null, L("Profile", "Profil")],
-            ["dsr", L("DSR assessment", "Penilaian DSR"), pic.review?.pending ? 1 : null, "DSR"],
+            ["overview", L("Client profile", "Profil pelanggan"), null, L("Client", "Pelanggan")],
+            ["figures", L("Financial profile", "Profil kewangan"), null, L("Figures", "Angka")],
+            ["dsr", L("DSR assessment history", "Sejarah penilaian DSR"), pic.review?.pending ? 1 : null, "DSR"],
             ["matching", L("Banker matching", "Padanan pegawai bank"), null, L("Bankers", "Bank")],
             ["notes", L("Kelayakan notes", "Nota kelayakan"), null, L("Notes", "Nota")],
-            ["documents", L("Documents", "Dokumen"), null, L("Docs", "Dok")],
-            ["consents", L("Consents", "Persetujuan")],
-            ["timeline", L("Case timeline", "Garis masa kes"), null, L("Timeline", "Garis masa")],
-            ["agreement", L("Agreement", "Perjanjian")],
+            ["decisions", L("Management decisions", "Keputusan pengurusan"), null, L("Decisions", "Keputusan")],
+            ["documents", L("Documents & agreements", "Dokumen & perjanjian"), null, L("Docs", "Dok")],
+            ["followups", L("Follow-ups", "Susulan"), pic.tasks.filter((x) => x.status !== "completed").length || null],
+            ["timeline", L("Activity timeline", "Garis masa aktiviti"), null, L("Timeline", "Garis masa")],
           ]} />
-          {tab === "overview" && <Overview pic={pic} latest={latest} go={setTab} post={post} />}
+          {tab === "overview" && <><Overview pic={pic} latest={latest} go={setTab} post={post} /><Consents pic={pic} post={post} setDirty={setDirty} /></>}
           {tab === "figures" && <Figures pic={pic} post={post} setDirty={setDirty} />}
           {tab === "dsr" && <Dsr pic={pic} latest={latest} post={post} setDirty={setDirty} />}
           {tab === "matching" && <BankerMatching pic={pic as unknown as DsrPic} post={post} toast={toast} />}
           {tab === "notes" && <Notes pic={pic} post={post} setDirty={setDirty} />}
-          {tab === "documents" && <Documents pic={pic} reload={reload} toast={toast} post={post} />}
-          {tab === "consents" && <Consents pic={pic} post={post} setDirty={setDirty} />}
+          {tab === "decisions" && <Decisions pic={pic} post={post} setDirty={setDirty} />}
+          {tab === "documents" && <><Documents pic={pic} reload={reload} toast={toast} post={post} /><Agreement pic={pic} /></>}
+          {tab === "followups" && <FollowUps pic={pic} post={post} setDirty={setDirty} />}
           {tab === "timeline" && <Timeline pic={pic} post={post} setDirty={setDirty} />}
-          {tab === "agreement" && <Agreement pic={pic} />}
           <p className={css.disclaimer}><AppIcon name="info" /><span><b>{L("Indicative only. Subject to official bank approval.", "Indikatif sahaja. Tertakluk kepada kelulusan rasmi bank.")}</b> {L("A2Z is not affiliated with any bank. Eligibility, terms and approval are decided by the bank.", "A2Z tidak bergabung dengan mana-mana bank. Kelayakan, terma dan kelulusan ditentukan oleh bank.")}</span></p>
         </div>
       )}
@@ -222,7 +246,8 @@ function Overview({ pic, latest, go, post }: { pic: Pic; latest: Result | null; 
       </section>
       <section className={`${card} ${css.sec}`} aria-label={L("Next action", "Tindakan seterusnya")}>
         <h3 className={css.h}><AppIcon name="target" />{L("Next action", "Tindakan seterusnya")}</h3>
-        {openTasks.length === 0 ? <p className={css.sub}>{L("No open task - add one in Timeline.", "Tiada tugasan terbuka - tambah dalam Garis masa.")}</p> : (
+        {pic.ops?.next_action && <p className={css.sub} data-testid="fa-next-action"><b>{pic.ops.next_action}</b></p>}
+        {openTasks.length === 0 ? <p className={css.sub}>{L("No open follow-up - add one in Follow-ups.", "Tiada susulan terbuka - tambah dalam Susulan.")}</p> : (
           <ul className={css.list}>{openTasks.slice(0, 4).map((t) => <li key={t.id}><AppIcon name="time" /><span>{t.title.replace(`${c.case_ref}: `, "")}{t.deadline ? ` · ${dmy(t.deadline)}` : ""}</span></li>)}</ul>
         )}
         <h3 className={css.h}><AppIcon name="chat" />{L("Latest banker feedback", "Maklum balas bank terkini")}</h3>
@@ -239,7 +264,7 @@ function Overview({ pic, latest, go, post }: { pic: Pic; latest: Result | null; 
                   <option value="">{L("Why does it close?", "Mengapa ditutup?")}</option>
                   {[["No loan advised (advisory outcome)", "Tiada pinjaman dinasihatkan"], ["Declined by the bank", "Ditolak oleh bank"], ["Withdrawn by the client", "Ditarik balik oleh pelanggan"], ["Client stopped responding", "Pelanggan berhenti membalas"], ["Completed", "Selesai"]].map(([en, ms]) => <option key={en} value={en}>{L(en!, ms!)}</option>)}
                 </select>
-                <button type="button" className={btnSmDanger} disabled={!why} onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}`, send({ stage: "closed", closed_reason: why }, "PATCH")), L("Case closed", "Kes ditutup"))}>{L("Close", "Tutup")}</button>
+                <button type="button" className={btnSmDanger} disabled={!why} onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}`, send({ stage: "closed", closed_reason: why, closed_kind: why === "Completed" ? "completed" : why === "Withdrawn by the client" ? "withdrawn" : "not_proceeding" }, "PATCH")), L("Case closed", "Kes ditutup"))}>{L("Close", "Tutup")}</button>
               </span>
             )}
           </div>
@@ -338,8 +363,9 @@ function Dsr({ pic, latest, post, setDirty }: { pic: Pic; latest: Result | null;
   const [amount, setAmount] = useState("");
   const [tenure, setTenure] = useState("");
   const [rate, setRate] = useState("");
+  const [rateType, setRateType] = useState<"flat" | "reducing">("flat");
   const [ov, setOv] = useState({ outcome: "manual_review", reason: "" });
-  const run = () => post(api<Err>(`/staff/fa/cases/${c.id}/assess`, send(mode === "instalment" ? { instalment_cents: toCents(inst) } : { amount_cents: toCents(amount), tenure_months: Number(tenure) || null, rate_bp: Math.round((Number(rate) || 0) * 100) }, "POST")), L("Pre-screen completed", "Saringan selesai"));
+  const run = () => post(api<Err>(`/staff/fa/cases/${c.id}/assess`, send(mode === "instalment" ? { instalment_cents: toCents(inst) } : { amount_cents: toCents(amount), tenure_months: Number(tenure) || null, rate_bp: Math.round((Number(rate) || 0) * 100), rate_type: rateType }, "POST")), L("Pre-screen completed", "Saringan selesai"));
   const k = latest?.consolidation;
   return (
     <div className={css.stack}>
@@ -352,6 +378,7 @@ function Dsr({ pic, latest, post, setDirty }: { pic: Pic; latest: Result | null;
               <label className={css.field}>{L("Amount (RM)", "Jumlah (RM)")}<input className={inputClassSm} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
               <label className={css.field}>{L("Tenure (months)", "Tempoh (bulan)")}<input className={inputClassSm} inputMode="numeric" value={tenure} onChange={(e) => setTenure(e.target.value.replace(/\D/g, ""))} /></label>
               <label className={css.field}>{L("Illustrative rate (% a year)", "Kadar ilustrasi (% setahun)")}<input className={inputClassSm} inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></label>
+              <label className={css.field}>{L("Rate type", "Jenis kadar")}<select className={selectClassSm} value={rateType} onChange={(e) => setRateType(e.target.value === "reducing" ? "reducing" : "flat")}><option value="flat">{L("Flat rate", "Kadar rata")}</option><option value="reducing">{L("Reducing balance", "Baki berkurangan")}</option></select></label>
             </>)}
           </div>
           <p className={css.sub}>{L("The rate is an assumption for planning, never an offer. Only verified income counts.", "Kadar ialah andaian untuk perancangan, bukan tawaran. Hanya pendapatan disahkan dikira.")}</p>
@@ -623,6 +650,116 @@ function Timeline({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d:
           </div>
           <button type="button" className={btnSmPrimary} disabled={title.trim().length < 3} onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/tasks`, send({ title, deadline: deadline || undefined }, "POST")), L("Task added to Tasks", "Tugasan ditambah ke Tugasan")).then((ok) => ok && setTitle(""))}>{L("Add task", "Tambah tugasan")}</button>
           <p className={css.sub}>{L("Case tasks are ordinary A2Z tasks: they appear in Tasks, titled by the case reference.", "Tugasan kes ialah tugasan A2Z biasa: ia muncul dalam Tugasan, bertajuk rujukan kes.")}</p>
+        </>)}
+      </section>
+    </div>
+  );
+}
+
+/* v1.299.0 - FA 2.0 phase 2: MANAGEMENT DECISIONS - the review decisions
+   (append only, never a loan approval) and the priority: the computed level
+   with its reasons, and a management override with its reason (fa_priority,
+   never on a case the decider owns - the server decides who may). */
+function Decisions({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: boolean) => void }) {
+  const c = pic.case;
+  const [to, setTo] = useState(pic.ops?.priority_override ?? "");
+  const [why, setWhy] = useState("");
+  const history = (pic.updates ?? []).filter((x) => x.kind === "priority");
+  const auto = pic.row?.priority_auto ?? null;
+  return (
+    <div className={css.grid2}>
+      <section className={`${card} ${css.sec}`} aria-label={L("Management review decisions", "Keputusan semakan pengurusan")} data-testid="fa-decisions">
+        <h3 className={css.h}><AppIcon name="verify" />{L("Review decisions", "Keputusan semakan")}</h3>
+        {(pic.reviews ?? []).length === 0 ? <p className={css.sub}>{L("No assessment has been submitted for review yet.", "Belum ada penilaian dihantar untuk semakan.")}</p> : (
+          <ul className={css.items}>{(pic.reviews ?? []).map((r) => (
+            <li key={r.id} className={css.item}><span className={css.itemMain}><b>{decisionWord(r.action)}</b><span className={css.sub}>{r.actor ?? "—"} · {dmyMYT(r.created_at)}{r.assessment_id ? ` · ${L("assessment", "penilaian")} #${r.assessment_id}` : ""}</span>{r.reason && <span className={css.lines}>{r.reason}</span>}{r.next_action && <span className={css.sub}>{L("Next", "Seterusnya")}: {r.next_action}</span>}</span></li>
+          ))}</ul>
+        )}
+        <p className={css.sub}>{L("A Proceed lets the case move to banker matching. It is an internal decision, never a loan approval.", "Teruskan membenarkan kes ke padanan pegawai bank. Ia keputusan dalaman, bukan kelulusan pinjaman.")}</p>
+      </section>
+      <section className={`${card} ${css.sec} ${css.touch}`} aria-label={L("Priority", "Keutamaan")} data-testid="fa-priority-box">
+        <h3 className={css.h}><AppIcon name="target" />{L("Priority", "Keutamaan")}</h3>
+        {c.stage === "closed" ? <p className={css.sub}>{L("A closed case has no priority.", "Kes yang ditutup tiada keutamaan.")}</p> : (<>
+          <dl className={css.kv}>
+            <div><dt>{L("Worked out from the records", "Dikira daripada rekod")}</dt><dd>{auto ? <span className={`${PRIORITY[auto]![2]} ${css.chip}`}>{L(...(PRIORITY[auto]!.slice(0, 2) as [string, string]))}</span> : "—"} <span className={css.sub}>{(pic.row?.priority_why ?? []).join(" · ") || L("Nothing pressing", "Tiada yang mendesak")}</span></dd></div>
+            <div><dt>{L("Management override", "Diatasi pengurusan")}</dt><dd>{pic.ops?.priority_override ? <><span className={`${PRIORITY[pic.ops.priority_override]![2]} ${css.chip}`}>{L(...(PRIORITY[pic.ops.priority_override]!.slice(0, 2) as [string, string]))}</span> <span className={css.sub}>{pic.ops.priority_by_name ?? "—"}{pic.ops.priority_at ? ` · ${dmyMYT(pic.ops.priority_at)}` : ""} · {pic.ops.priority_reason}</span></> : L("None", "Tiada")}</dd></div>
+          </dl>
+          <p className={css.sub}>{L("Priority comes from follow-up dates, a waiting review, a banker's document request, blockers and how long since the last update - never from the DSR.", "Keutamaan datang daripada tarikh susulan, semakan yang menunggu, permintaan dokumen pegawai bank, halangan dan tempoh sejak kemas kini terakhir - tidak sekali-kali daripada DSR.")}</p>
+          {pic.can.priority && pic.ready !== false && (
+            <div className={css.form} data-testid="fa-priority-form">
+              <label className={css.field}>{L("Set the priority", "Tetapkan keutamaan")}<select className={selectClassSm} value={to} onChange={(e) => { setTo(e.target.value); setDirty(true); }}><option value="">{L("As worked out (clear the override)", "Seperti dikira (buang)")}</option>{Object.entries(PRIORITY).map(([k, w]) => <option key={k} value={k}>{L(w[0], w[1])}</option>)}</select></label>
+              <label className={css.field}>{L("Reason (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)")}<input className={inputClassSm} value={why} maxLength={300} onChange={(e) => { setWhy(e.target.value); setDirty(true); }} data-testid="fa-priority-reason" /></label>
+              <button type="button" className={btnSmPrimary} disabled={why.trim().length < 10 || (to || null) === (pic.ops?.priority_override ?? null)} data-testid="fa-priority-save"
+                onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/priority`, send({ priority: to || null, reason: why.trim() }, "PUT")), L("Priority saved", "Keutamaan disimpan")).then((ok) => ok && setWhy(""))}>{L("Save priority", "Simpan keutamaan")}</button>
+            </div>
+          )}
+          {history.length > 0 && <ul className={css.list}>{history.map((h) => <li key={h.id}><AppIcon name="time" /><span>{h.new_value ? L(...(PRIORITY[h.new_value]?.slice(0, 2) as [string, string] ?? [h.new_value, h.new_value])) : L("Override cleared", "Dibuang")} · {h.author ?? "—"} · {dmyMYT(h.created_at)} · {h.body}</span></li>)}</ul>}
+        </>)}
+      </section>
+    </div>
+  );
+}
+
+/* v1.299.0 - FA 2.0 phase 2: FOLLOW-UPS and the CASE UPDATE (directive 4E).
+   One form: a comment, a follow-up (an ordinary Task with its date - it shows
+   in Tasks), what the case waits on, a blocker, the next action, a document
+   already on the case. Each part is saved as its own line with its author
+   and time; nothing is rewritten. An assisting member may only comment. */
+function FollowUps({ pic, post, setDirty }: { pic: Pic; post: Post; setDirty: (d: boolean) => void }) {
+  const c = pic.case;
+  const blank = { comment: "", fu: "", fuTitle: "", fuTo: "", waiting: pic.ops?.waiting_on ?? "", blocker: pic.ops?.blocker ?? "", urgent: !!pic.ops?.blocker_urgent, next: pic.ops?.next_action ?? "", doc: "" };
+  const [f, setF] = useState(blank);
+  const set = <K extends keyof typeof blank>(k: K, v: (typeof blank)[K]) => { setF((o) => ({ ...o, [k]: v })); setDirty(true); };
+  const open = pic.tasks.filter((x) => x.status !== "completed").sort((a, z) => (a.deadline ?? "9999").localeCompare(z.deadline ?? "9999"));
+  const today = mytToday();
+  const body: Record<string, unknown> = {};
+  if (f.comment.trim()) body.comment = f.comment.trim();
+  if (pic.can.edit) {
+    if (f.fu) { body.follow_up_on = f.fu; body.follow_up_title = f.fuTitle.trim(); if (f.fuTo) body.follow_up_to = Number(f.fuTo); }
+    if (f.waiting !== (pic.ops?.waiting_on ?? "")) body.waiting_on = f.waiting;
+    if (f.blocker.trim() !== (pic.ops?.blocker ?? "") || f.urgent !== !!pic.ops?.blocker_urgent) { body.blocker = f.blocker.trim(); body.blocker_urgent = f.urgent; }
+    if (f.next.trim() !== (pic.ops?.next_action ?? "")) body.next_action = f.next.trim();
+    if (f.doc) body.document_id = Number(f.doc);
+  }
+  const ready = Object.keys(body).length > 0 && (!f.fu || f.fuTitle.trim().length >= 3) && (!f.blocker.trim() || f.blocker.trim().length >= 5);
+  const who = [pic.owner ? { id: pic.owner.id, name: pic.owner.name } : null, ...(pic.members ?? []).map((m) => ({ id: m.user_id, name: m.name ?? "—" }))].filter((x): x is { id: number; name: string } => !!x);
+  return (
+    <div className={css.grid2}>
+      <section className={`${card} ${css.sec}`} aria-label={L("Follow-ups", "Susulan")} data-testid="fa-followups">
+        <h3 className={css.h}><AppIcon name="date" />{L("Open follow-ups", "Susulan terbuka")}</h3>
+        {open.length === 0 ? <p className={css.sub}>{L("No open follow-up.", "Tiada susulan terbuka.")}</p> : (
+          <ul className={css.list}>{open.map((x) => <li key={x.id}><AppIcon name="time" /><span>{x.title.replace(`${c.case_ref}: `, "")} · {x.assignee ?? "—"}{x.deadline ? <> · <span className={x.deadline.slice(0, 10) < today ? chipSmDanger : x.deadline.slice(0, 10) === today ? chipSmWarn : chipSmNeutral}>{x.deadline.slice(0, 10) < today ? L("Overdue", "Lewat") : x.deadline.slice(0, 10) === today ? L("Today", "Hari ini") : dmy(x.deadline.slice(0, 10))}</span></> : ""}</span></li>)}</ul>
+        )}
+        <p className={css.sub}>{L("A follow-up is an ordinary task: it appears in Tasks, titled by the case reference, and is closed there.", "Susulan ialah tugasan biasa: ia muncul dalam Tugasan, bertajuk rujukan kes, dan ditutup di sana.")}</p>
+        <h3 className={css.h}><AppIcon name="chat" />{L("Update history", "Sejarah kemas kini")}</h3>
+        {(pic.updates ?? []).length === 0 ? <p className={css.sub}>{L("No update yet.", "Belum ada kemas kini.")}</p> : (
+          <ul className={css.items} data-testid="fa-updates">{(pic.updates ?? []).map((u) => (
+            <li key={u.id} className={css.item}><span className={css.itemMain}>
+              <b>{L(...(UPDATE_WORD[u.kind] ?? [u.kind, u.kind]))}</b>
+              <span>{u.kind === "waiting_on" ? (u.new_value ? L(...(WAITING[u.new_value] ?? [u.new_value, u.new_value])) : L("Not waiting", "Tidak menunggu")) : u.kind === "priority" ? (u.new_value ? `${L(...(PRIORITY[u.new_value]?.slice(0, 2) as [string, string] ?? [u.new_value, u.new_value]))} - ${u.body ?? ""}` : `${L("Override cleared", "Dibuang")} - ${u.body ?? ""}`) : u.kind === "follow_up" ? `${u.body ?? ""} · ${u.new_value ? dmy(u.new_value) : ""}` : u.kind === "closed" ? `${L(...(CLOSED_KIND[u.new_value ?? ""] ?? ["Closed", "Ditutup"]))} - ${u.body ?? ""}` : u.kind === "status" ? `${u.old_value ?? ""} -> ${u.new_value ?? ""}` : u.kind === "document" ? `${L("Document", "Dokumen")} #${u.document_id}${u.body ? ` - ${u.body}` : ""}` : (u.kind === "blocker" || u.kind === "next_action") ? (u.new_value ?? L("Cleared", "Dibuang")) : (u.body ?? u.new_value ?? "")}</span>
+              <span className={css.sub}>{u.author ?? "—"} · {dmyMYT(u.created_at)}</span>
+            </span></li>
+          ))}</ul>
+        )}
+      </section>
+      <section className={`${card} ${css.sec} ${css.touch}`} aria-label={L("Update the case", "Kemas kini kes")} data-testid="fa-update-form">
+        <h3 className={css.h}><AppIcon name="edit" />{L("Update the case", "Kemas kini kes")}</h3>
+        {c.stage === "closed" ? <p className={css.sub}>{L("A closed case takes no updates.", "Kes yang ditutup tidak menerima kemas kini.")}</p> : pic.ready === false ? <p className={css.sub}>{L("Case updates open once the database update is applied.", "Kemas kini kes dibuka selepas kemas kini pangkalan data digunakan.")}</p> : (<>
+          <label className={css.field}>{L("Comment", "Komen")}<textarea className={textareaClass} rows={2} maxLength={1000} value={f.comment} onChange={(e) => set("comment", e.target.value)} data-testid="fa-update-comment" /></label>
+          {pic.can.edit ? (<>
+            <div className={css.form}>
+              <label className={css.field}>{L("Follow-up date", "Tarikh susulan")}<input className={inputClassSm} type="date" min={today} value={f.fu} onChange={(e) => set("fu", e.target.value)} data-testid="fa-update-fu" /></label>
+              <label className={css.field}>{L("Follow-up - what (no client figures)", "Susulan - apa (tanpa angka pelanggan)")}<input className={inputClassSm} maxLength={120} value={f.fuTitle} onChange={(e) => set("fuTitle", e.target.value)} data-testid="fa-update-fu-title" /></label>
+              {who.length > 1 && <label className={css.field}>{L("Follow-up for", "Susulan untuk")}<select className={selectClassSm} value={f.fuTo} onChange={(e) => set("fuTo", e.target.value)}><option value="">{L("Me", "Saya")}</option>{who.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>}
+              <label className={css.field}>{L("Waiting on", "Menunggu")}<select className={selectClassSm} value={f.waiting} onChange={(e) => set("waiting", e.target.value)} data-testid="fa-update-waiting"><option value="">{L("Nobody - moving", "Tiada - bergerak")}</option>{Object.entries(WAITING).filter(([k]) => k !== "paused" || pic.can.decide).map(([k, w]) => <option key={k} value={k}>{L(w[0], w[1])}</option>)}</select></label>
+              <label className={css.field}>{L("Next action", "Tindakan seterusnya")}<input className={inputClassSm} maxLength={200} value={f.next} onChange={(e) => set("next", e.target.value)} data-testid="fa-update-next" /></label>
+              <label className={css.field}>{L("Blocker (empty = none)", "Halangan (kosong = tiada)")}<input className={inputClassSm} maxLength={300} value={f.blocker} onChange={(e) => set("blocker", e.target.value)} data-testid="fa-update-blocker" /></label>
+              <label className={css.check}><input type="checkbox" checked={f.urgent} disabled={!f.blocker.trim()} onChange={(e) => set("urgent", e.target.checked)} /> {L("Urgent blocker", "Halangan mendesak")}</label>
+              {pic.documents.length > 0 && <label className={css.field}>{L("Supporting document (already on the case)", "Dokumen sokongan (sudah dalam kes)")}<select className={selectClassSm} value={f.doc} onChange={(e) => set("doc", e.target.value)}><option value="">—</option>{pic.documents.map((d) => <option key={d.id} value={d.id}>{docWord(d.kind)} · {dmyMYT(d.uploaded_at)}</option>)}</select></label>}
+            </div>
+          </>) : <p className={css.sub}>{L("As an assisting member you can add a comment; the owner or management changes the rest.", "Sebagai ahli pembantu anda boleh menambah komen; pemilik atau pengurusan menukar yang lain.")}</p>}
+          <button type="button" className={btnSmPrimary} disabled={!ready} data-testid="fa-update-save"
+            onClick={() => void post(api<Err>(`/staff/fa/cases/${c.id}/updates`, send(body, "POST")), L("Case updated", "Kes dikemas kini")).then((ok) => { if (ok) { setF((o) => ({ ...o, comment: "", fu: "", fuTitle: "", fuTo: "", doc: "" })); setDirty(false); } })}>{L("Save update", "Simpan kemas kini")}</button>
         </>)}
       </section>
     </div>

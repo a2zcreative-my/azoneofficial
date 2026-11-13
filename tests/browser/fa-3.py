@@ -172,7 +172,7 @@ with sync_playwright() as p:
         check(f"{tag}: no sideways page (matching)", sideways(pg))
         pg.screenshot(path=f"{OUT}/dsr-{w}-matching.png", full_page=False)
         case_tab(pg, "Kelayakan notes", "Notes")
-        pg.get_by_test_id("fa-case").get_by_role("tab", name="Management").click(); pg.wait_for_timeout(400)
+        pg.get_by_test_id("fa-case").get_by_role("tab", name="Management", exact=True).click(); pg.wait_for_timeout(400)
         mg = pg.get_by_test_id("fa-notes-management")
         check(f"{tag}: the notes filter shows the Management entries only", mg.count() == 1 and pg.get_by_test_id("fa-notes-banker").count() == 0 and "not a loan approval" in mg.inner_text(), mg.inner_text() if mg.count() else "")
         check(f"{tag}: no page error", not errs, errs)
