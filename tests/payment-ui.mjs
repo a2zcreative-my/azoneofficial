@@ -91,6 +91,16 @@ ok("the documents list uses actionFor (View pending payment opens the invoice's 
 ok("the Overview's Needs action uses the same rule", /const a = v && pv\?\.on && p\.canPay \? actionFor\(/.test(sw) && /a\.kind === "view_pending" && p\.onView/.test(sw));
 ok("'Record payment' is gone from Sales: the word is Report payment", !/L\("Record payment"/.test(sales + sw + panel));
 ok("on Payments the header's gold action is Report payment", /wsView === "payments" && pv\?\.on && Object\.values\(pv\.inv\)\.some\(\(v\) => v\.can_report\) \?/.test(sales) && /reportTick=\{payReport\}/.test(sales));
+/* v1.294.0 - the CEO, 13-11-2026: "I cant choose Received in account as it is
+   in grey list". The rule is right (an account counts only for the company
+   the Companies review assigned it to), so it stays; the pickers now SAY why
+   nothing can be chosen and where to fix it, instead of a silent grey list. */
+{
+  const pp = read("components/portal/payments-panel.tsx");
+  ok("an account of another company, or of none, is still not choosable", (pp.match(/disabled=\{b\.company !== (inv\.company|pic\.invoice\.company)\}/g) ?? []).length === 2);
+  ok("...and when none can be chosen both pickers say why and where to assign it",
+    (pp.match(/data-testid="bank-company-missing"/g) ?? []).length === 2 && /open the Bank accounts register/.test(pp));
+}
 ok("the guard is registered", /\["payment-ui", "/.test(read("scripts/run-guards.mjs")));
 
 console.log(`  ${passed} check(s) passed.`);

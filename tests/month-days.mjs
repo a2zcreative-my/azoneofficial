@@ -143,7 +143,10 @@ ok("...and an ordinary on-time day beside it is still on time", host["2026-06-15
 /* ---- the route carries it, additively ---- */
 const staff = read("worker/src/staff.ts");
 ok("GET /staff/attendance answers with `days` beside records and today_shift",
-  /return json\(\{ month, as_of: [^}]*records: results, ot, ot_eligible, today_shift, days \}\)/.test(staff));
+  /* v1.294.0 - the records now carry their location outcome (never the
+     coordinates); `days` still rides beside records and today_shift */
+  /return json\(\{\s*month, as_of: [^}]*records, ot, ot_eligible, today_shift, days,/.test(staff)
+  && /const records = results\.map\(\(r\) => \(\{\s*type: r\.type, ip: r\.ip, created_at: r\.created_at,/.test(staff));
 ok("...and a classifier that cannot run leaves the punches intact", /try \{ days = await myMonthDays\(env, forUser, month\); \} catch/.test(staff));
 ok("the classifier uses the report's own verdict functions, not a copy",
   /export async function myMonthDays[\s\S]*?shiftResolver\(env, assignedAt\)[\s\S]*?lateAgainst\(sh, inMin\)[\s\S]*?sh\.halfDay/.test(staff));

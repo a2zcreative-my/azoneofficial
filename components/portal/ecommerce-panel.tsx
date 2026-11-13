@@ -32,10 +32,10 @@
    SYNC_ROLES (the server's sync_manage decides); the setup wording is
    TECH_ROLES. No figure or product from the mockup is used. */
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ConnectionStatusCard } from "@/components/portal/connection-status-card";
 import { REVENUE_ROLES, type RevenueData } from "@/components/portal/dashboard";
-import { ProductPerformance, StockProducts, useStockReads } from "@/components/portal/ecommerce-stock";
+import { ProductPerformance, StockChip, StockProducts, useStockReads } from "@/components/portal/ecommerce-stock";
 import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { L, ZoneLabel, type User } from "@/components/portal/page-shared";
@@ -51,10 +51,12 @@ import { useCachedApi } from "@/lib/cached-api";
 import { dmyMYT, fmtRM } from "@/lib/format";
 import type { Lang } from "@/lib/i18n";
 import type { TabName } from "@/lib/portal-tabs";
+import { useTabViewAddress } from "@/lib/tab-view";
 import { btnSm, btnSmPrimary, card } from "@/lib/ui-styles";
 import css from "./ecommerce-panel.module.css";
 
 type View = "overview" | "orders" | "fulfilment" | "stock" | "analytics" | "sync";
+const VIEWS: readonly View[] = ["overview", "orders", "fulfilment", "stock", "analytics", "sync"];
 interface FulfilSummary { month: string; by_status: Record<string, number>; oldest_preparing: { order_ref: string; days: number | null } | null }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -84,18 +86,29 @@ function syncSummary(r: SyncResult): string {
   return parts.join(" · ");
 }
 
-export function EcommercePanel({ user, lang, go, canOpen }: {
+export function EcommercePanel({ user, lang, go, canOpen, startView }: {
   user: User;
   lang: Lang;
   go: (t: TabName) => void;
   canOpen: (t: string) => boolean;
+  /** v1.296.0 - the view a link named (?tab=Ecommerce&view=orders) */
+  startView?: string;
 }) {
-  const [view, setView] = useState<View>("overview");
+  const [asked, setView] = useState<View>(() => ((VIEWS as readonly string[]).includes(startView ?? "") ? startView as View : "overview"));
+  const [seenStart, setSeenStart] = useState(startView);
+  if (startView !== seenStart) { setSeenStart(startView); if ((VIEWS as readonly string[]).includes(startView ?? "")) setView(startView as View); }
   const [ordersStatus, setOrdersStatus] = useState("");
   const [lane, setLane] = useState("preparing");
   const canRevenue = REVENUE_ROLES.includes(user.role);
   const canAnalytics = ["ceo", "super_admin"].includes(user.role);
   const canStock = canOpen("Inventory");
+  /* v1.296.0 (Ecommerce v2.0, E-1) - the view is in the address, so Back and
+     Forward move between the six; a view this person may not open is never
+     drawn, and its address opens the Overview */
+  const allowed = useCallback((v: string | null): v is View => !!v && (VIEWS as readonly string[]).includes(v)
+    && (v !== "stock" || canStock) && (v !== "analytics" || canRevenue || canAnalytics), [canStock, canRevenue, canAnalytics]);
+  const view: View = allowed(asked) ? asked : "overview";
+  useTabViewAddress("Ecommerce", view, setView, allowed);
   const rev = useCachedApi<RevenueData>(canRevenue ? "/staff/revenue" : null);
   const ful = useCachedApi<FulfilSummary>(canRevenue ? "/staff/fulfilment/summary" : null, true, ["orders"]);
   const tt = useTikTokSync(user.role);
@@ -106,13 +119,13 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
   const openOrders = (status = "") => { setOrdersStatus(status); setView("orders"); };
   const reloadKey = tt.result?.ok ? tt.result.at : 0;
 
-  const tabs: readonly (readonly [View, string])[] = [
-    ["overview", L("Overview", "Gambaran")],
-    ["orders", L("Orders", "Pesanan")],
-    ["fulfilment", L("Fulfilment", "Pemenuhan")],
-    ...(canStock ? ([["stock", L("Stock & Products", "Stok & Produk")]] as const) : []),
-    ...(canRevenue || canAnalytics ? ([["analytics", L("Analytics", "Analitik")]] as const) : []),
-    ["sync", L("Sync & Integration", "Segerak & Integrasi")],
+  const tabs: readonly (readonly [View, string, number | null, string])[] = [
+    ["overview", L("Overview", "Gambaran"), null, L("Overview", "Gambaran")],
+    ["orders", L("Orders", "Pesanan"), null, L("Orders", "Pesanan")],
+    ["fulfilment", L("Fulfilment", "Pemenuhan"), null, L("Fulfil", "Penuhi")],
+    ...(canStock ? ([["stock", L("Stock & Products", "Stok & Produk"), null, L("Stock", "Stok")]] as const) : []),
+    ...(canRevenue || canAnalytics ? ([["analytics", L("Analytics", "Analitik"), null, L("Analytics", "Analitik")]] as const) : []),
+    ["sync", L("Sync & Integration", "Segerak & Integrasi"), null, L("Sync", "Segerak")],
   ];
 
   const r = rev.data;
@@ -130,10 +143,10 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
   const tiles = canRevenue && (
       <KpiRow label={r ? `${period} · ${monthLabel(r.month, lang)}` : period}>
         <KpiTile icon="money" tone="gold"
-          label={L("TikTok sales", "Jualan TikTok")}
+          label={L("TikTok sales (gross)", "Jualan TikTok (kasar)")}
           value={r ? fmtRM(r.tiktok.this_cents) : 0} busy={!r}
           delta={revDelta}
-          sub={L("This month · order totals, returned & cancelled excluded", "Bulan ini · jumlah pesanan, dipulang & dibatal dikecualikan")} />
+          sub={L("This month · order totals, returned & cancelled excluded · by date recorded, before TikTok fees", "Bulan ini · jumlah pesanan, dipulang & dibatal dikecualikan · ikut tarikh direkod, sebelum yuran TikTok")} />
         <KpiTile icon="documents" tone="navy"
           label={L("Orders", "Pesanan")}
           value={r ? r.tiktok.this_orders : 0} busy={!r}
@@ -147,7 +160,7 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
           sub={f ? L(`This month · of ${monthOrders} TikTok orders`, `Bulan ini · daripada ${monthOrders} pesanan TikTok`) : undefined}
           onClick={() => { setLane("delivered"); setView("fulfilment"); }} title={L("See the fulfilment", "Lihat pemenuhan")} />
         <KpiTile icon="package" tone="gold"
-          label={L("To ship", "Untuk dihantar")}
+          label={L("Awaiting shipment", "Menunggu penghantaran")}
           value={<>{toShip} {f && <span className={`erp-chip erp-chip-sm ${toShip > 0 ? "erp-chip-warning" : "erp-chip-success"} ${css.inline}`}>{toShip > 0
             ? (f.oldest_preparing?.days != null ? L(`oldest ${f.oldest_preparing.days} d`, `tertua ${f.oldest_preparing.days} h`) : L("Needs action", "Perlu tindakan"))
             : L("All shipped", "Semua dihantar")}</span>}</>}
@@ -172,6 +185,15 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
   const lowN = items.filter((i) => i.status === "low").length;
   if (canStock && outN > 0) alerts.push({ key: "out", icon: "blocked", tone: "bad", text: L(`${outN} item${outN === 1 ? "" : "s"} out of stock`, `${outN} barang habis stok`), to: () => setView("stock"), cta: L("Stock", "Stok") });
   if (canStock && lowN > 0) alerts.push({ key: "low", icon: "inventory", tone: "warn", text: L(`${lowN} item${lowN === 1 ? "" : "s"} low (5 or fewer on hand)`, `${lowN} barang rendah (5 atau kurang)`), to: () => setView("stock"), cta: L("Stock", "Stok") });
+  /* v1.296.0 - two more that have records behind them: live updates the
+     security check refused (failed processing), and this month's returns */
+  const refused = tt.status?.failed_events_7d ?? 0;
+  if (refused > 0) alerts.push({ key: "refused", icon: "blocked", tone: "warn",
+    text: L(`${refused} live update${refused === 1 ? "" : "s"} from TikTok refused by the security check in 7 days - Sync still brings those orders in`, `${refused} kemas kini langsung TikTok ditolak oleh semakan keselamatan dalam 7 hari - Segerak masih membawa pesanan itu masuk`),
+    to: () => setView("sync"), cta: L("Details", "Butiran") });
+  if (f && n("returned") > 0) alerts.push({ key: "returns", icon: "returned", tone: "info",
+    text: L(`${n("returned")} order${n("returned") === 1 ? "" : "s"} returned or cancelled this month - check the stock came back`, `${n("returned")} pesanan dipulang atau dibatal bulan ini - semak stok telah kembali`),
+    to: () => { setLane("returned"); setView("fulfilment"); }, cta: L("See them", "Lihat") });
   if (tt.statusLoaded && conn.tone !== "ok") alerts.push({ key: "conn", icon: "connection", tone: conn.tone === "bad" ? "bad" : "warn", text: conn.text, to: () => setView("sync"), cta: L("Details", "Butiran") });
   if (tt.result && !tt.result.ok) alerts.push({ key: "sync", icon: "error", tone: "bad", text: tt.result.message, to: () => setView("sync"), cta: L("Details", "Butiran") });
   const alertsLoaded = oc != null && tt.statusLoaded && (!canStock || stock.inv.data != null || stock.inv.failed);
@@ -192,6 +214,32 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
             ))}
           </ul>
         )}
+    </section>
+  );
+
+  /* v1.296.0 - the items Inventory itself calls out or low, worst first; it
+     reads the same list Stock & Products shows, and opens Inventory */
+  const short = items.filter((i) => i.status === "out_of_stock" || i.status === "low")
+    .sort((a, b) => (a.status === b.status ? a.stock - b.stock : a.status === "out_of_stock" ? -1 : 1));
+  const stockAlerts = (
+    <section className={card} aria-label={L("Stock alerts", "Amaran stok")} data-testid="ecom-stock-alerts">
+      <div className={css.cardHead}>
+        <PanelTitle icon="warning">{L("Stock alerts", "Amaran stok")}{stock.inv.data ? ` (${short.length})` : ""}</PanelTitle>
+        <button type="button" className={btnSm} onClick={() => go("Inventory")}>{L("View inventory", "Lihat inventori")}</button>
+      </div>
+      {!stock.inv.data ? (stock.inv.failed ? <p className="erp-note erp-note-warning" role="alert">{L("Inventory could not be read.", "Inventori tidak dapat dibaca.")}</p> : <p className="erp-meta">…</p>)
+        : short.length === 0 ? <p className={css.allClear}><AppIcon name="success" />{L("No item is low or out of stock.", "Tiada barang yang rendah atau habis stok.")}</p> : (
+          <ul className={css.stockList}>
+            {short.slice(0, 5).map((i) => (
+              <li key={i.id}>
+                <span className={css.stockName}><strong>{i.sku}</strong> · {i.name}</span>
+                <StockChip status={i.status} />
+                <span className={css.stockOn}>{L(`On hand: ${i.stock}`, `Ada: ${i.stock}`)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      {short.length > 5 && <p className="erp-meta">{L(`${short.length - 5} more in Inventory`, `${short.length - 5} lagi dalam Inventori`)}</p>}
     </section>
   );
 
@@ -237,7 +285,11 @@ export function EcommercePanel({ user, lang, go, canOpen }: {
             {alertCard}
             {canRevenue && <FulfilmentCard onViewAll={() => setView("fulfilment")} />}
           </div>
-          <TikTokOrders mode="recent" title={L("Recent orders", "Pesanan terkini")} onViewAll={() => openOrders()} reloadKey={reloadKey} />
+          {/* v1.296.0 (E1, the directive's layout) - bottom: the newest orders beside the stock that needs buying */}
+          <div className={canStock ? css.bottomGrid : undefined}>
+            <TikTokOrders mode="recent" title={L("Recent orders", "Pesanan terkini")} onViewAll={() => openOrders()} reloadKey={reloadKey} />
+            {canStock && stockAlerts}
+          </div>
         </>
       )}
 

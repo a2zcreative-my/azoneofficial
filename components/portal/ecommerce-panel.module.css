@@ -283,3 +283,46 @@
   border-radius: inherit;
   background: var(--gold-solid);
 }
+
+/* v1.296.0 - Ecommerce v2.0, E-1: the Overview's bottom row (recent orders
+   beside the stock alerts), in DOM order on every width */
+.bottomGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1280px) {
+  .bottomGrid {
+    grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr);
+  }
+}
+.stockList {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stockList > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name chip" "on chip";
+  align-items: center;
+  gap: 0.125rem 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.stockList > li:last-child { border-bottom: 0; }
+.stockName {
+  grid-area: name;
+  min-width: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.stockList > li > :nth-child(2) { grid-area: chip; justify-self: end; }
+.stockOn {
+  grid-area: on;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}

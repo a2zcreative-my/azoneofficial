@@ -11,21 +11,58 @@
   gap: 1rem;
   min-width: 0;
 }
-.main,
-.side {
+/* v1.294.0 - On Shift v2.0: the photo's layout. One column on a phone, in
+   the order it is used (My Shift, the punch, the location, the schedule,
+   the punches, the recent days, the week, the team); twelve columns from
+   1024px: My Shift beside Location Verification, then Schedule / Punch
+   Details / Quick Actions, the week, then Team On Shift beside Recent
+   Attendance. Cards in one row share its height. */
+.aShift { order: 1; }
+.aQuick { order: 2; }
+.aLoc { order: 3; }
+.aSched { order: 4; }
+.aPunch { order: 5; }
+.aRecent { order: 6; }
+.aWeek { order: 7; }
+.wide { order: 8; }
+.aLoc,
+.aRecent,
+.aWeek,
+.wide {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1rem;
-  align-content: start;
   min-width: 0;
 }
 @media (min-width: 1024px) {
   .page {
-    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-    align-items: start;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-areas:
+      "shift shift shift shift shift loc loc loc loc loc loc loc"
+      "sched sched sched sched punch punch punch punch quick quick quick quick"
+      "week week week week week week week recent recent recent recent recent";
+    align-items: stretch;
   }
-  .wide {
-    grid-column: 1 / -1;
+  .page[data-team] {
+    grid-template-areas:
+      "shift shift shift shift shift loc loc loc loc loc loc loc"
+      "sched sched sched sched punch punch punch punch quick quick quick quick"
+      "week week week week week week week week week week week week"
+      "team team team team team team team team recent recent recent recent";
+  }
+  .page > * { order: 0; }
+  .page section {
+    align-content: start;
+  }
+  .aShift { grid-area: shift; }
+  .aLoc { grid-area: loc; }
+  .aSched { grid-area: sched; }
+  .aPunch { grid-area: punch; }
+  .aQuick { grid-area: quick; align-content: start; }
+  .aWeek { grid-area: week; }
+  .aRecent { grid-area: recent; }
+  .wide { grid-area: team; }
+  .aRecent > section,
+  .wide > section {
+    align-content: start;
   }
 }
 
@@ -349,89 +386,6 @@
   color: var(--muted-foreground);
 }
 
-/* team on shift */
-.teamRatio {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.375rem;
-  margin: 0;
-}
-.teamRatio strong {
-  font-size: 1.75rem;
-  color: var(--primary);
-  font-variant-numeric: tabular-nums;
-}
-.teamRatio span {
-  color: var(--muted-foreground);
-  font-weight: 600;
-}
-.teamRatio em {
-  font-style: normal;
-  font-size: 0.875rem;
-  color: var(--muted-foreground);
-}
-.teamTools {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
-}
-@media (min-width: 640px) {
-  .teamTools {
-    grid-template-columns: minmax(0, 1fr) 12rem;
-  }
-}
-.teamList {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.25rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-@media (min-width: 1024px) {
-  .teamList {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 1rem;
-  }
-}
-.teamRow {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: "av who chip" "av times times";
-  align-items: center;
-  column-gap: 0.625rem;
-  row-gap: 0.125rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-  min-width: 0;
-}
-.teamRow > :first-child { grid-area: av; }
-.teamRow > :nth-child(3) { grid-area: chip; }
-.teamWho {
-  grid-area: who;
-  display: grid;
-  min-width: 0;
-}
-.teamWho strong {
-  overflow-wrap: anywhere;
-  font-size: 0.875rem;
-}
-.teamWho span {
-  font-size: 0.75rem;
-  text-transform: capitalize;
-  color: var(--muted-foreground);
-}
-.teamTimes {
-  grid-area: times;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-}
-
 /* this week */
 .week {
   display: grid;
@@ -521,24 +475,6 @@
 
 .team {
   min-width: 0;
-}
-
-/* the phone reads in the order it is used: the clock, today (schedule and
-   the office check), the past days, the week, the team. The two desktop
-   columns dissolve into the one list below 1024px. */
-.oToday { order: 2; }
-.oRecent { order: 3; }
-.oWeek { order: 4; }
-.wide { order: 5; }
-@media (max-width: 1023.98px) {
-  .main,
-  .side {
-    display: contents;
-  }
-  .main > section:first-child { order: 1; }
-}
-@media (min-width: 1024px) {
-  .oToday, .oRecent, .oWeek { order: 0; }
 }
 
 /* ---- v1.229.0 - Today's Shift, the Dashboard's summary (Image 2) ---- */
@@ -763,4 +699,486 @@ button.tileBtn:focus-visible {
   .actionBtn svg:last-child:not(:first-child) {
     display: none;
   }
+}
+
+/* ==================================================================
+   v1.294.0 - On Shift v2.0 (the CEO's photo, 12-11-2026)
+   ================================================================== */
+
+/* My Shift: the scheduled line under the timer, and the facts */
+.schedLine {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  min-width: 0;
+}
+.facts > div {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.facts > div:nth-child(odd):not(.factWide) {
+  border-inline-end: 1px solid var(--border);
+}
+.facts > div:last-child,
+.facts > div:nth-last-child(2):nth-child(odd):not(.factWide) {
+  border-bottom: 0;
+}
+.factWide {
+  grid-column: 1 / -1;
+}
+.facts dt {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.facts dd {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+
+/* Today's Schedule: the hours, large */
+.schedBig {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Punch Details: each shift as its in and its out */
+.session {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.375rem;
+}
+.punchLine {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "dot what chip" "dot where where";
+  align-items: center;
+  column-gap: 0.625rem;
+  row-gap: 0.125rem;
+  min-width: 0;
+}
+.punchDot {
+  grid-area: dot;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--muted-foreground);
+  background: var(--card);
+}
+.punchDot[data-done] {
+  border-color: var(--success);
+  background: var(--success);
+}
+.punchWhat {
+  grid-area: what;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+.punchWhat strong {
+  color: var(--primary);
+  font-size: 0.875rem;
+}
+.punchWhere {
+  grid-area: where;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.punchLine > :last-child {
+  grid-area: chip;
+  justify-self: end;
+}
+
+/* the week */
+.weekFigures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+.weekFig:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (min-width: 640px) {
+  .weekFigures { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .weekFig:last-child:nth-child(odd) { grid-column: auto; }
+}
+@media (min-width: 1024px) {
+  .weekFigures { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+}
+.weekFig {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  min-width: 0;
+}
+.weekFig dt {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.weekFig dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+.weekFig[data-alert] dd {
+  color: var(--warning);
+}
+.week > li {
+  min-width: 0;
+}
+button.weekDay {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+  min-height: 2.75rem;
+  grid-template-columns: 4.5rem auto minmax(0, 1fr);
+  align-items: center;
+}
+button.weekDay[aria-pressed="true"] {
+  border-radius: var(--radius-control);
+  outline: 2px solid var(--brand-accent);
+  outline-offset: -2px;
+}
+button.weekDay:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+@media (min-width: 1024px) {
+  .week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  button.weekDay {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    justify-items: start;
+    gap: 0.375rem;
+    height: 100%;
+    padding: 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+  }
+}
+.weekDetail {
+  display: grid;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+  justify-items: start;
+}
+.weekDetailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+  width: 100%;
+}
+@media (min-width: 640px) {
+  .weekDetailGrid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+.weekDetailGrid dt {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.weekDetailGrid dd {
+  margin: 0;
+  font-weight: 700;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* recent attendance: the location column */
+.historyRow {
+  grid-template-columns: 5.75rem minmax(0, 1fr) auto;
+  grid-template-areas: "date times hours" "date loc chip";
+}
+.historyLoc {
+  grid-area: loc;
+  min-width: 0;
+}
+.historyRow > :last-child {
+  grid-area: chip;
+  justify-self: end;
+}
+@media (min-width: 640px) {
+  .historyRow {
+    grid-template-columns: 6rem minmax(0, 1fr) auto;
+    grid-template-areas: "date times hours" "date loc chip";
+  }
+}
+
+/* Team On Shift */
+.titleCount {
+  margin-inline-start: 0.25rem;
+  color: var(--muted-foreground);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.team {
+  container-type: inline-size;
+}
+.teamFigures {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+@container (min-width: 560px) {
+  .teamFigures { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+.teamFig {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  min-height: 2.75rem;
+  min-width: 0;
+}
+button.teamFig { cursor: pointer; }
+button.teamFig[aria-pressed="true"] {
+  border-color: var(--brand-accent);
+  background: var(--tint-gold);
+}
+button.teamFig:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 2px;
+}
+.teamFig[data-alert] .figValue { color: var(--danger); }
+.figValue {
+  font-size: 1.375rem;
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+.figLabel {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.teamTools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.teamTools > * { min-height: 2.75rem; }
+@container (min-width: 560px) {
+  .teamTools {
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  }
+  .teamTools > input { grid-column: 1 / -1; }
+}
+@container (min-width: 900px) {
+  .teamTools > input { grid-column: auto / span 2; }
+}
+.teamHead {
+  display: none;
+}
+.teamList {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.teamRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "who status chev"
+    "shift shift chev"
+    "in out chev"
+    "place loc chev";
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  width: 100%;
+  padding: 0.625rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  min-width: 0;
+}
+.teamRow:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: -2px;
+}
+@media (hover: hover) { .teamRow:hover { background: var(--surface-hover); } }
+.teamRow > :nth-child(1) { grid-area: who; }
+.teamRow > :nth-child(2) { grid-area: shift; }
+.teamRow > :nth-child(3) { grid-area: place; }
+.teamRow > :nth-child(4) { grid-area: in; }
+.teamRow > :nth-child(5) { grid-area: out; justify-self: end; }
+.teamRow > :nth-child(6) { grid-area: status; justify-self: end; }
+.teamRow > :nth-child(7) { grid-area: loc; justify-self: end; }
+.teamRow > :nth-child(8) { grid-area: chev; }
+.teamWho {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 0;
+}
+.teamName {
+  display: grid;
+  min-width: 0;
+}
+.teamName strong {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.teamName span {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+}
+.teamCell {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.teamCell::before {
+  content: attr(data-label) ": ";
+  color: var(--muted-foreground);
+}
+.teamLoc { min-width: 0; }
+.teamChevron { color: var(--muted-foreground); }
+.teamChevron svg { width: 1rem; height: 1rem; }
+@container (min-width: 640px) {
+  .teamHead,
+  .teamRow {
+    display: grid;
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.2fr) 3.5rem 3.5rem 7.25rem 7.5rem 1rem;
+    grid-template-areas: none;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .teamHead {
+    padding: 0 0.25rem 0.375rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .teamRow > * { grid-area: auto !important; justify-self: start !important; }
+  .teamCell::before { content: none; }
+  /* one site today: the work location column joins at wider widths */
+  .teamHead > :nth-child(3),
+  .teamRow > :nth-child(3) { display: none; }
+}
+@container (min-width: 960px) {
+  .teamHead,
+  .teamRow {
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.1fr) minmax(0, 1.2fr) 3.5rem 3.5rem 7.25rem 7.5rem 1rem;
+  }
+  .teamHead > :nth-child(3),
+  .teamRow > :nth-child(3) { display: block; }
+}
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.pager > span { margin-inline-end: auto; }
+
+/* the manager's detail drawer */
+.detail {
+  display: grid;
+  gap: 0.875rem;
+}
+.detailWho {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.detailFacts {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+.detailFacts > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.detailFacts dt {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.detailFacts dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+  text-transform: none;
+}
+.timeline {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.timelineRow {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-control);
+  background: var(--surface-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.timelineWhat {
+  display: grid;
+  min-width: 0;
+}
+.timelineWhat strong {
+  font-size: 0.875rem;
+  color: var(--primary);
 }

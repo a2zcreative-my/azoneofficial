@@ -58,7 +58,7 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
    The rules below moved with them (the full module rules are
    tests/ecommerce-module.mjs). */
 const tab = read("components/portal/ecommerce-panel.tsx");
-ok("the Ecommerce block hands the tab to its panel", /\{activeTab === "Ecommerce" && \([\s\S]{0,400}?<EcommercePanel user=\{user\} lang=\{lang\} go=\{setTab\} canOpen=\{canOpen\} \/>/.test(page));
+ok("the Ecommerce block hands the tab to its panel", /\{activeTab === "Ecommerce" && \([\s\S]{0,400}?<EcommercePanel user=\{user\} lang=\{lang\} go=\{setTab\} canOpen=\{canOpen\}(?: startView=\{startOf\("Ecommerce"\)\})? \/>/.test(page));
 
 /* 1. the order of the Overview and of Analytics */
 const overview = tab.slice(tab.indexOf('{view === "overview" && ('), tab.indexOf('{view === "orders" &&'));

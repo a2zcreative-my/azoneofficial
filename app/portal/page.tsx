@@ -131,7 +131,7 @@ export default function PortalPage() {
             /* v1.173.0: the zones are the panel's own (tasks.tsx). */
             <Tasks user={user} progress={MANAGE_ROLES.includes(user.role) ? <TaskProgressCard /> : undefined} initialView={startOf("Tasks")} focus={focusOf("Tasks")} />
           )}
-          {activeTab === "Announcements" && <Announcements user={user} focus={focusOf("Announcements")} />}
+          {activeTab === "Announcements" && <Announcements user={user} focus={focusOf("Announcements")} startView={startOf("Announcements")} />}
           {/* v1.40.0 (AUDIT M12): visibility is decided ONCE, in the tabs filter
               (role default + tab-access override). The extra role re-check here
               made Sales the only tab where an override granted by the CEO
@@ -240,7 +240,7 @@ export default function PortalPage() {
             /* v1.185.0 - the page is its own panel (ecommerce-panel.tsx): the
                tab row, the tiles, the orders table, fulfilment, the map and
                the month's detail, with the same cards and the same gates. */
-            <EcommercePanel user={user} lang={lang} go={setTab} canOpen={canOpen} />
+            <EcommercePanel user={user} lang={lang} go={setTab} canOpen={canOpen} startView={startOf("Ecommerce")} />
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}
           {activeTab === "Assets" && <AssetsPanel focus={focusOf("Assets")} />}

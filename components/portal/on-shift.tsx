@@ -34,13 +34,15 @@ import { useEffect, useMemo, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
-import { L, type MonthDay } from "@/components/portal/page-shared";
+import { L, type AttRecord, type LocOutcome, type MonthDay } from "@/components/portal/page-shared";
+import { LocChip, locFlagged, locWord } from "@/components/portal/shift-location";
+import { SideDrawer } from "@/components/ui/side-drawer";
 import type { MonitorRow } from "@/components/portal/dashboard-overview";
 import { useCachedApi } from "@/lib/cached-api";
 import { daysOf, hoursLabel, mytDay, pairSessions, type Session } from "@/lib/clock-sessions";
 import { dmy, mytToday } from "@/lib/format";
 import { outboxAll, subscribeOutbox, dismissNeedsHr } from "@/lib/outbox";
-import { chipInfo, chipNeutral, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSuccess, chipWarn, inputClass, selectClass } from "@/lib/ui-styles";
+import { chipInfo, chipNeutral, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSuccess, chipWarn, inputClass, selectClass } from "@/lib/ui-styles";
 import css from "./on-shift.module.css";
 
 const utcMs = (at: string): number => Date.parse(`${at.replace(" ", "T")}Z`);
@@ -147,24 +149,53 @@ export function todaySessions(today: { type: string; created_at: string }[], ope
   return list;
 }
 
-export function SessionRows({ sessions, known }: { sessions: Session[]; known: boolean }) {
+/* v1.294.0 (On Shift v2.0) - PUNCH DETAILS: each shift as its clock-in and
+   clock-out, and each punch with the location outcome the server gave it
+   (the in and the out are judged separately and never overwrite each
+   other). `punches` are today's records as read; nothing is computed here
+   that the server did not say. */
+export function SessionRows({ sessions, known, punches = [], site = null, exempt = false }: {
+  sessions: Session[]; known: boolean;
+  punches?: AttRecord[];
+  /** the site's name, when a geofence is set */
+  site?: string | null;
+  exempt?: boolean;
+}) {
   if (!known) return <SkelRows rows={2} />;
   if (sessions.length === 0) {
     return <p className={css.muted}>{L("No punches recorded today.", "Tiada punch direkodkan hari ini.")}</p>;
   }
+  const at = new Map(punches.map((r) => [r.created_at, r]));
+  const where = (r: AttRecord | undefined) => {
+    if (!r?.loc) return null;
+    const w = locWord(r.loc, exempt);
+    return site && (r.loc.status === "verified" || r.loc.status === "outside" || r.loc.status === "low_accuracy") ? `${site} · ${w.long}` : w.long;
+  };
   return (
     <ol className={css.sessions} aria-label={L("Today's punches", "Punch hari ini")}>
-      {sessions.map((s, i) => (
-        <li key={s.in} className={`${css.session} ${css.sessionGold}`}>
-          <span className={css.sessionNo}>{L(`Shift ${i + 1}`, `Syif ${i + 1}`)}</span>
-          <span className={css.sessionTimes}>
-            <span className={css.inTime}>{mytHm(s.in)}</span>
-            <span aria-hidden className={css.arrow}>→</span>
-            {s.out ? <span>{mytHm(s.out)}</span> : <span className={chipSmSuccess}>{L("open", "terbuka")}</span>}
-          </span>
-          <span className={css.sessionLen}>{s.out ? hoursLabel(s.minutes) : L("running", "berjalan")}</span>
-        </li>
-      ))}
+      {sessions.map((s, i) => {
+        const pin = at.get(s.in);
+        const pout = s.out ? at.get(s.out) : undefined;
+        return (
+          <li key={s.in} className={`${css.session} ${css.sessionGold}`} data-testid="punch-session">
+            {sessions.length > 1 && <span className={css.sessionNo}>{L(`Shift ${i + 1}`, `Syif ${i + 1}`)}</span>}
+            <div className={css.punchLine} data-kind="in">
+              <span className={css.punchDot} data-done="" aria-hidden />
+              <span className={css.punchWhat}><strong>{L("Clock In", "Daftar Masuk")}</strong><span className={css.inTime}>{mytHm(s.in)}</span></span>
+              <span className={css.punchWhere}>{where(pin) ?? <span className={css.muted}>{L("Location not read", "Lokasi tidak dibaca")}</span>}</span>
+              {pin?.pending ? <span className={chipSmWarn}>{L("Awaiting approval", "Menunggu kelulusan")}</span> : <LocChip loc={pin?.loc ?? null} exempt={exempt} small />}
+            </div>
+            <div className={css.punchLine} data-kind="out">
+              <span className={css.punchDot} data-done={s.out ? "" : undefined} aria-hidden />
+              <span className={css.punchWhat}><strong>{L("Clock Out", "Daftar Keluar")}</strong>{s.out ? <span>{mytHm(s.out)}</span> : <span className={css.muted}>{L("Not yet recorded", "Belum direkod")}</span>}</span>
+              <span className={css.punchWhere}>{s.out ? where(pout) ?? "" : <span className={css.sessionLen}>{L("running", "berjalan")}</span>}</span>
+              {s.out ? (pout?.pending ? <span className={chipSmWarn}>{L("Awaiting approval", "Menunggu kelulusan")}</span> : <LocChip loc={pout?.loc ?? null} exempt={exempt} small />)
+                : <span className={chipSmNeutral}>{L("Pending", "Belum")}</span>}
+            </div>
+            {s.out && <span className={css.sessionLen}>{L(`Worked ${hoursLabel(s.minutes)}`, `Bekerja ${hoursLabel(s.minutes)}`)}</span>}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -204,26 +235,107 @@ export function ScheduleSlots({ slots, known, nowMinute }: { slots: SlotLite[] |
 /* team on shift                                                       */
 /* ------------------------------------------------------------------ */
 
-type TeamFilter = "" | "on" | "out" | "none";
-const stateOf = (m: MonitorRow): Exclude<TeamFilter, ""> =>
-  m.last_type === "clock_in" ? "on" : m.out_at || m.last_type === "clock_out" ? "out" : "none";
+/* v1.294.0 (On Shift v2.0, section 12) - TEAM ON SHIFT, redesigned. The
+   same monitor route and the same readers (hr_manage or exec_view, checked
+   by the worker); the route now adds, read-only, who each person is at work,
+   today's shift from the one schedule rule, leave and holidays, and each
+   punch's location OUTCOME - a word and a distance, never a position. The
+   five counts are counted from the rows drawn, so they cannot disagree with
+   the list: scheduled headcount is not the on-shift headcount. */
+export interface TeamPunch { type: string; at: string; pending?: boolean; loc: LocOutcome }
+export interface TeamRow extends MonitorRow {
+  position?: string | null; department?: string | null; role_title?: string | null;
+  shift?: { label: string | null; pattern: string; scheduled: boolean };
+  on_leave?: boolean; holiday?: boolean;
+  punches?: TeamPunch[];
+  in_loc?: LocOutcome | null; out_loc?: LocOutcome | null;
+  loc_exempt?: boolean;
+}
+type TeamState = "on" | "out" | "none" | "leave" | "off";
+const stateOf = (m: TeamRow): TeamState =>
+  m.last_type === "clock_in" ? "on" : m.out_at || m.last_type === "clock_out" ? "out"
+    : m.on_leave ? "leave" : m.holiday || (m.shift && !m.shift.scheduled) ? "off" : "none";
+const STATE_WORD: Record<TeamState, [string, string]> = {
+  on: ["On Shift", "Sedang Syif"], out: ["Clocked Out", "Daftar Keluar"], none: ["Not Yet Clocked In", "Belum Daftar Masuk"],
+  leave: ["On Leave", "Bercuti"], off: ["Not Scheduled", "Tiada Jadual"],
+};
+const STATE_CHIP: Record<TeamState, string> = { on: chipSmSuccess, out: chipSmNeutral, none: chipSmWarn, leave: chipSmInfo, off: chipSmNeutral };
+const STATE_RANK: Record<TeamState, number> = { none: 0, on: 1, out: 2, leave: 3, off: 4 };
+type LocFilter = "" | "verified" | "outside" | "low" | "noloc" | "nopunch";
+const locKey = (m: TeamRow): Exclude<LocFilter, ""> => {
+  const all = (m.punches ?? []).map((p) => p.loc.status);
+  const l = m.in_loc?.status ?? all[0];
+  if (!l) return "nopunch";
+  if (all.includes("outside") || l === "outside") return "outside";
+  if (l === "denied" || l === "unavailable" || l === "none") return "noloc";
+  if (l === "low_accuracy") return "low";
+  return "verified";
+};
+/** a person with a punch management reviews today (outside, or no location) */
+const flaggedToday = (m: TeamRow) => !m.loc_exempt && (m.punches ?? []).some((p) => locFlagged(p.loc));
+const PAGE = 10;
 
-export function TeamOnShift({ rows, onOpenAttendance }: { rows: MonitorRow[] | null; onOpenAttendance?: () => void }) {
+export function TeamOnShift({ rows, onOpenAttendance, site = null }: {
+  rows: TeamRow[] | null;
+  onOpenAttendance?: () => void;
+  /** the site's name, when a geofence is set */
+  site?: string | null;
+}) {
   const [q, setQ] = useState("");
-  const [f, setF] = useState<TeamFilter>("");
+  const [f, setF] = useState<"" | TeamState>("");
+  const [dept, setDept] = useState("");
+  const [locF, setLocF] = useState<LocFilter>("");
+  const [shiftF, setShiftF] = useState("");
+  const [sort, setSort] = useState<"status" | "name" | "in">("status");
+  const [page, setPage] = useState(0);
+  const [open, setOpen] = useState<TeamRow | null>(null);
+  const list = useMemo(() => rows ?? [], [rows]);
+  const hasShift = list.some((m) => m.shift);
   const counts = useMemo(() => {
-    const c = { on: 0, out: 0, none: 0 };
-    for (const m of rows ?? []) c[stateOf(m)]++;
+    const c = { scheduled: 0, on: 0, notIn: 0, out: 0, exceptions: 0 };
+    for (const m of rows ?? []) {
+      const st = stateOf(m);
+      const sched = m.shift ? m.shift.scheduled && !m.on_leave : true;
+      if (sched) c.scheduled++;
+      if (st === "on") c.on++;
+      if (st === "out") c.out++;
+      if (st === "none") c.notIn++;
+      if (flaggedToday(m)) c.exceptions++;
+    }
     return c;
   }, [rows]);
+  const depts = useMemo(() => [...new Set(list.map((m) => (m.department ?? "").trim()).filter(Boolean))].sort(), [list]);
+  const patterns = useMemo(() => [...new Set(list.map((m) => m.shift?.pattern ?? "").filter(Boolean))].sort(), [list]);
   const needle = q.trim().toLowerCase();
-  const shown = (rows ?? [])
+  const shown = list
     .filter((m) => !f || stateOf(m) === f)
-    .filter((m) => !needle || m.name.toLowerCase().includes(needle) || m.role.replace(/_/g, " ").includes(needle));
+    .filter((m) => !dept || (m.department ?? "").trim() === dept)
+    .filter((m) => !locF || locKey(m) === locF)
+    .filter((m) => !shiftF || m.shift?.pattern === shiftF)
+    .filter((m) => !needle || [m.name, m.role.replace(/_/g, " "), m.position ?? "", m.department ?? "", m.role_title ?? ""].some((x) => x.toLowerCase().includes(needle)))
+    .sort((a, b) => sort === "name" ? a.name.localeCompare(b.name)
+      : sort === "in" ? (a.in_at ?? "~").localeCompare(b.in_at ?? "~") || a.name.localeCompare(b.name)
+      : STATE_RANK[stateOf(a)] - STATE_RANK[stateOf(b)] || a.name.localeCompare(b.name));
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE));
+  const at = Math.min(page, pages - 1);
+  const slice = shown.slice(at * PAGE, at * PAGE + PAGE);
+  const reset = () => setPage(0);
+  const job = (m: TeamRow) => m.position || m.role_title || m.role.replace(/_/g, " ");
+  const FIG: [keyof typeof counts, string, string, "" | TeamState][] = [
+    ["scheduled", "Total scheduled", "Jumlah berjadual", ""],
+    ["on", "On shift now", "Sedang syif", "on"],
+    ["notIn", "Not yet clocked in", "Belum daftar masuk", "none"],
+    ["out", "Clocked out", "Daftar keluar", "out"],
+    ["exceptions", "Location exceptions", "Pengecualian lokasi", ""],
+  ];
   return (
-    <section className={`erp-card ${css.card} ${css.team}`} aria-label={L("Team on shift", "Pasukan sedang syif")}>
+    <section className={`erp-card ${css.card} ${css.team}`} aria-label={L("Team on shift", "Pasukan sedang syif")} data-testid="team-on-shift">
       <div className={css.cardHead}>
-        <h3 className={css.cardTitle}><AppIcon name="users" className="erp-icon" />{L("Team On Shift", "Pasukan Sedang Syif")}</h3>
+        <div className={css.titleBlock}>
+          <h3 className={css.cardTitle}><AppIcon name="users" className="erp-icon" />{L("Team On Shift", "Pasukan Sedang Syif")}
+            {rows !== null && <span className={css.titleCount}>({counts.on} / {counts.scheduled})</span>}</h3>
+          <p className={css.cardSub}>{L("Staff on today's list, their shift and where they punched", "Kakitangan dalam senarai hari ini, syif mereka dan lokasi punch")}{site ? ` · ${L("Work location", "Lokasi kerja")}: ${site}` : ""}</p>
+        </div>
         {onOpenAttendance && (
           <button type="button" className="erp-button erp-button-ghost erp-button-compact" onClick={onOpenAttendance}>
             {L("Open Attendance", "Buka Kehadiran")}
@@ -232,46 +344,146 @@ export function TeamOnShift({ rows, onOpenAttendance }: { rows: MonitorRow[] | n
       </div>
       {rows === null ? <SkelRows rows={4} /> : (
         <>
-          <p className={css.teamRatio}>
-            <strong>{counts.on}</strong><span>/ {rows.length}</span>
-            <em>{L("on shift now", "sedang syif")} · {counts.out} {L("clocked out", "daftar keluar")} · {counts.none} {L("not in yet", "belum masuk")}</em>
-          </p>
+          <div className={css.teamFigures} data-testid="team-figures">
+            {FIG.map(([k, en, ms, st]) => {
+              const body = (<><span className={css.figValue} data-testid={`team-fig-${k}`}>{counts[k]}</span><span className={css.figLabel}>{L(en, ms)}</span></>);
+              return st
+                ? <button key={k} type="button" className={css.teamFig} aria-pressed={f === st} onClick={() => { setF(f === st ? "" : st); reset(); }}>{body}</button>
+                : k === "exceptions"
+                  ? <button key={k} type="button" className={css.teamFig} data-alert={counts.exceptions > 0 ? "" : undefined} aria-pressed={locF === "outside"} onClick={() => { setLocF(locF === "outside" ? "" : "outside"); reset(); }}>{body}</button>
+                  : <div key={k} className={css.teamFig}>{body}</div>;
+            })}
+          </div>
+          {!hasShift && <p className={css.hint}>{L("Scheduled counts are shown once the server sends today's shifts.", "Kiraan berjadual dipaparkan selepas pelayan menghantar syif hari ini.")}</p>}
           <div className={css.teamTools}>
-            <input type="search" className={inputClass} value={q} onChange={(e) => setQ(e.target.value)}
-              placeholder={L("Find a person or role", "Cari orang atau peranan")} aria-label={L("Find a person on shift", "Cari orang sedang syif")} />
-            <select className={selectClass} value={f} onChange={(e) => setF(e.target.value as TeamFilter)} aria-label={L("Shift status", "Status syif")}>
-              <option value="">{L("Everyone", "Semua")}</option>
-              <option value="on">{L("On shift", "Sedang syif")}</option>
-              <option value="out">{L("Clocked out", "Daftar keluar")}</option>
-              <option value="none">{L("Not in yet", "Belum masuk")}</option>
+            <input type="search" className={inputClass} value={q} onChange={(e) => { setQ(e.target.value); reset(); }}
+              placeholder={L("Search staff, position or department", "Cari kakitangan, jawatan atau jabatan")} aria-label={L("Search staff on shift", "Cari kakitangan sedang syif")} />
+            <select className={selectClass} value={f} onChange={(e) => { setF(e.target.value as "" | TeamState); reset(); }} aria-label={L("Attendance status", "Status kehadiran")} data-testid="team-status">
+              <option value="">{L("All statuses", "Semua status")}</option>
+              {(Object.keys(STATE_WORD) as TeamState[]).map((k) => <option key={k} value={k}>{L(STATE_WORD[k][0], STATE_WORD[k][1])}</option>)}
+            </select>
+            <select className={selectClass} value={locF} onChange={(e) => { setLocF(e.target.value as LocFilter); reset(); }} aria-label={L("Location status", "Status lokasi")} data-testid="team-location">
+              <option value="">{L("All locations", "Semua lokasi")}</option>
+              <option value="verified">{L("Verified", "Disahkan")}</option>
+              <option value="outside">{L("Outside", "Di luar")}</option>
+              <option value="low">{L("Low accuracy", "Ketepatan rendah")}</option>
+              <option value="noloc">{L("No location", "Tiada lokasi")}</option>
+              <option value="nopunch">{L("No punch yet", "Belum punch")}</option>
+            </select>
+            {depts.length > 0 && (
+              <select className={selectClass} value={dept} onChange={(e) => { setDept(e.target.value); reset(); }} aria-label={L("Department", "Jabatan")} data-testid="team-dept">
+                <option value="">{L("All departments", "Semua jabatan")}</option>
+                {depts.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            )}
+            {patterns.length > 1 && (
+              <select className={selectClass} value={shiftF} onChange={(e) => { setShiftF(e.target.value); reset(); }} aria-label={L("Shift type", "Jenis syif")} data-testid="team-shift">
+                <option value="">{L("All shift types", "Semua jenis syif")}</option>
+                {patterns.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )}
+            <select className={selectClass} value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label={L("Sort", "Susun")} data-testid="team-sort">
+              <option value="status">{L("Sort: status", "Susun: status")}</option>
+              <option value="name">{L("Sort: name", "Susun: nama")}</option>
+              <option value="in">{L("Sort: clock-in time", "Susun: masa masuk")}</option>
             </select>
           </div>
           {shown.length === 0 ? (
             <p className={css.muted}>{rows.length === 0 ? L("No staff on today's list.", "Tiada kakitangan dalam senarai hari ini.") : L("Nobody matches.", "Tiada yang sepadan.")}</p>
           ) : (
-            <ul className={css.teamList}>
-              {shown.map((m) => {
-                const st = stateOf(m);
-                return (
-                  <li key={m.id} className={css.teamRow}>
-                    <Avatar name={m.name} size="md" />
-                    <span className={css.teamWho}><strong>{m.name}</strong><span>{m.role.replace(/_/g, " ")}</span></span>
-                    <span className={st === "on" ? chipSuccess : st === "out" ? chipNeutral : chipWarn}>
-                      {st === "on" ? L("On shift", "Sedang syif") : st === "out" ? L("Clocked out", "Daftar keluar") : L("Not in yet", "Belum masuk")}
-                    </span>
-                    <span className={css.teamTimes}>
-                      {m.in_at ? <span>{L("in", "masuk")} {mytHm(m.in_at)}</span> : <span className={css.muted}>—</span>}
-                      {m.out_at && <span>{L("out", "keluar")} {mytHm(m.out_at)}</span>}
-                      {(m.shifts ?? 0) > 1 && <span>{m.shifts} {L("shifts", "syif")}</span>}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <div className={css.teamHead} aria-hidden>
+                <span>{L("Staff", "Kakitangan")}</span><span>{L("Shift", "Syif")}</span><span>{L("Work location", "Lokasi kerja")}</span>
+                <span>{L("Clock in", "Masuk")}</span><span>{L("Clock out", "Keluar")}</span><span>{L("Status", "Status")}</span><span>{L("Location", "Lokasi")}</span><span />
+              </div>
+              <ul className={css.teamList}>
+                {slice.map((m) => {
+                  const st = stateOf(m);
+                  return (
+                    <li key={m.id}>
+                      <button type="button" className={css.teamRow} onClick={() => setOpen(m)} data-testid="team-row"
+                        aria-label={L(`${m.name}: ${STATE_WORD[st][0]} - open details`, `${m.name}: ${STATE_WORD[st][1]} - buka butiran`)}>
+                        <span className={css.teamWho}>
+                          <Avatar name={m.name} size="md" />
+                          <span className={css.teamName}><strong>{m.name}</strong><span>{job(m)}{m.department ? ` · ${m.department}` : ""}</span></span>
+                        </span>
+                        <span className={css.teamCell} data-label={L("Shift", "Syif")}>{m.shift?.label ?? (m.shift ? L("No shift", "Tiada syif") : "—")}</span>
+                        <span className={css.teamCell} data-label={L("Work location", "Lokasi kerja")}>{site ?? "—"}</span>
+                        <span className={css.teamCell} data-label={L("Clock in", "Masuk")}>{m.in_at ? mytHm(m.in_at) : "—"}{(m.shifts ?? 0) > 1 && <span className={css.muted}> · {m.shifts}×</span>}</span>
+                        <span className={css.teamCell} data-label={L("Clock out", "Keluar")}>{m.out_at ? mytHm(m.out_at) : "—"}</span>
+                        <span className={STATE_CHIP[st]}>{L(STATE_WORD[st][0], STATE_WORD[st][1])}</span>
+                        <span className={css.teamLoc}>{m.in_loc || (m.punches ?? []).length ? <LocChip loc={m.in_loc ?? m.punches?.[0]?.loc ?? null} exempt={!!m.loc_exempt} small /> : <span className={css.muted}>—</span>}</span>
+                        <span className={css.teamChevron} aria-hidden><AppIcon name="next" /></span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              {pages > 1 && (
+                <div className={css.pager}>
+                  <span className={css.muted}>{L(`Showing ${at * PAGE + 1}–${Math.min(shown.length, at * PAGE + PAGE)} of ${shown.length}`, `Menunjukkan ${at * PAGE + 1}–${Math.min(shown.length, at * PAGE + PAGE)} daripada ${shown.length}`)}</span>
+                  <button type="button" className="erp-button erp-button-ghost erp-button-compact" disabled={at === 0} onClick={() => setPage(at - 1)}>{L("Previous", "Sebelum")}</button>
+                  <button type="button" className="erp-button erp-button-ghost erp-button-compact" disabled={at >= pages - 1} onClick={() => setPage(at + 1)}>{L("Next", "Seterusnya")}</button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
+      <SideDrawer open={!!open} onClose={() => setOpen(null)} title={open?.name ?? ""}
+        subtitle={open ? `${job(open)}${open.department ? ` · ${open.department}` : ""}` : undefined}
+        footer={onOpenAttendance ? (
+          <button type="button" className="erp-button erp-button-primary" onClick={() => { setOpen(null); onOpenAttendance(); }}>
+            {L("Open Attendance to correct a record", "Buka Kehadiran untuk membetulkan rekod")}
+          </button>
+        ) : undefined}>
+        {open && <TeamDetail m={open} site={site} />}
+      </SideDrawer>
     </section>
+  );
+}
+
+function TeamDetail({ m, site }: { m: TeamRow; site: string | null }) {
+  const st = stateOf(m);
+  const punches = m.punches ?? [];
+  const flagged = punches.filter((p) => !m.loc_exempt && locFlagged(p.loc));
+  return (
+    <div className={css.detail} data-testid="team-detail">
+      <div className={css.detailWho}>
+        <Avatar name={m.name} size="lg" />
+        <span className={STATE_CHIP[st]}>{L(STATE_WORD[st][0], STATE_WORD[st][1])}</span>
+      </div>
+      <dl className={css.detailFacts}>
+        <div><dt>{L("Today's shift", "Syif hari ini")}</dt><dd>{m.shift?.label ?? (m.on_leave ? L("On approved leave", "Cuti diluluskan") : m.holiday ? L("Public holiday", "Cuti umum") : L("Not scheduled", "Tiada jadual"))}{m.shift?.pattern ? ` · ${m.shift.pattern}` : ""}</dd></div>
+        <div><dt>{L("Work location", "Lokasi kerja")}</dt><dd>{site ?? L("No site boundary set", "Tiada sempadan tapak")}</dd></div>
+        <div><dt>{L("Role", "Peranan")}</dt><dd>{m.role.replace(/_/g, " ")}{m.loc_exempt ? ` · ${L("not flagged for location", "tidak ditanda untuk lokasi")}` : ""}</dd></div>
+      </dl>
+      <h4 className={css.subHead}>{L("Attendance timeline", "Garis masa kehadiran")}</h4>
+      {punches.length === 0 ? <p className={css.muted}>{L("No punch today.", "Tiada punch hari ini.")}</p> : (
+        <ol className={css.timeline}>
+          {punches.map((p) => (
+            <li key={`${p.type}-${p.at}`} className={css.timelineRow} data-testid="team-punch">
+              <span className={css.inTime}>{mytHm(p.at)}</span>
+              <span className={css.timelineWhat}>
+                <strong>{p.type === "clock_out" ? L("Clock out", "Daftar keluar") : L("Clock in", "Daftar masuk")}</strong>
+                <span className={css.muted}>
+                  {locWord(p.loc, !!m.loc_exempt).long}
+                  {p.loc.accuracy_m !== null && ` · ${L("accuracy", "ketepatan")} ±${p.loc.accuracy_m} m`}
+                </span>
+              </span>
+              {p.pending ? <span className={chipSmWarn}>{L("Awaiting approval", "Menunggu kelulusan")}</span> : <LocChip loc={p.loc} exempt={!!m.loc_exempt} small />}
+            </li>
+          ))}
+        </ol>
+      )}
+      <h4 className={css.subHead}>{L("Location exceptions", "Pengecualian lokasi")}</h4>
+      <p className={css.muted}>
+        {flagged.length === 0 ? L("None today.", "Tiada hari ini.")
+          : L(`${flagged.length} punch${flagged.length > 1 ? "es" : ""} today ${flagged.length > 1 ? "are" : "is"} outside the site boundary or without a location. They are recorded, not refused.`,
+              `${flagged.length} punch hari ini di luar sempadan tapak atau tanpa lokasi. Ia direkod, bukan ditolak.`)}
+      </p>
+      <p className={css.hint}>{L("Distances only - exact positions are not shown here. Corrections go through Attendance, under its own approval rules.", "Jarak sahaja - kedudukan tepat tidak dipaparkan di sini. Pembetulan melalui Kehadiran, di bawah peraturan kelulusannya.")}</p>
+    </div>
   );
 }
 
@@ -285,48 +497,135 @@ interface RosterLite {
   task_blocks?: { id: number; user_id: number; block_date: string; start_time: string; end_time: string | null; title?: string | null; done_at?: string | null }[];
 }
 
-export function WeekSchedule({ userId, onOpenRoster }: { userId: number; onOpenRoster?: () => void }) {
+/* v1.294.0 (On Shift v2.0, section 10) - THE WEEK, CONSOLIDATED. One card
+   for what used to be "This week" (the roster's own rows) and the week's
+   attendance: seven days, each with the SERVER'S verdict for it (the month
+   classifier the Attendance module and payroll use, myMonthDays) and the
+   person's own roster rows. The counts are counts of those verdicts and of
+   the shared pairing rule's sessions - nothing is classified here. Picking a
+   day opens its detail below the timeline. */
+export function WeekSchedule({ userId, onOpenRoster, days: verdicts = null, records = [], statusLabel, onOpenAttendance, known = true }: {
+  userId: number;
+  onOpenRoster?: () => void;
+  /** the month verdicts covering this week (the current month, plus the
+      previous one when the week began in it); null = not read */
+  days?: MonthDay[] | null;
+  records?: AttRecord[];
+  statusLabel?: (s: MonthDay["status"]) => string;
+  onOpenAttendance?: () => void;
+  known?: boolean;
+}) {
   const roster = useCachedApi<RosterLite>("/staff/roster", true, ["live-sessions", "task-blocks"]);
   const today = mytToday();
-  const days = roster.data?.days ?? [];
+  const [pick, setPick] = useState<string | null>(null);
+  /* this week in Malaysia, Monday to Sunday - the roster rows are matched to it by date */
+  const days = (() => {
+    const t = new Date(`${today}T00:00:00Z`);
+    const mon = new Date(t.getTime() - ((t.getUTCDay() + 6) % 7) * 86400000);
+    return Array.from({ length: 7 }, (_, i) => new Date(mon.getTime() + i * 86400000).toISOString().slice(0, 10));
+  })();
   const items = (d: string) => [
     ...(roster.data?.sessions ?? []).filter((s) => s.host_user_id === userId && s.session_date === d && s.status !== "cancelled")
       .map((s) => ({ key: `s${s.id}`, start: s.start_time, end: s.end_time, what: `${L("Live", "Live")} · ${s.platform}${s.client ? ` · ${s.client}` : ""}` })),
     ...(roster.data?.task_blocks ?? []).filter((b) => b.user_id === userId && b.block_date === d)
       .map((b) => ({ key: `b${b.id}`, start: b.start_time, end: b.end_time, what: b.title ?? L("Task", "Tugasan") })),
   ].sort((a, b) => a.start.localeCompare(b.start));
+  const verdict = new Map((verdicts ?? []).map((d) => [d.date, d]));
+  const paired = new Map(daysOf(records).map((d) => [d.date, d]));
+  const pendingDays = new Set(records.filter((r) => r.pending).map((r) => mytDay(r.created_at)));
+  const past = days.filter((d) => d <= today);
+  const vs = past.map((d) => verdict.get(d)).filter((v): v is MonthDay => !!v);
+  const count = {
+    scheduled: vs.filter((v) => v.scheduled).length,
+    attended: vs.filter((v) => v.worked).length,
+    completed: past.reduce((n, d) => n + (paired.get(d)?.sessions.filter((x) => x.out).length ?? 0), 0),
+    late: vs.filter((v) => v.status === "late" || v.status === "half_day").length,
+    missing: vs.filter((v) => v.open && v.date < today).length,
+    leave: vs.filter((v) => v.status === "leave").length,
+    pending: new Set([...vs.filter((v) => v.status === "awaiting_approval").map((v) => v.date), ...past.filter((d) => pendingDays.has(d))]).size,
+  };
+  const FIG: [keyof typeof count, string, string][] = [
+    ["scheduled", "Scheduled", "Berjadual"], ["attended", "Attended", "Hadir"], ["completed", "Completed shifts", "Syif selesai"],
+    ["late", "Late", "Lewat"], ["missing", "Missing punch", "Punch tertinggal"], ["leave", "Approved leave", "Cuti diluluskan"],
+    ["pending", "Pending corrections", "Pembetulan menunggu"],
+  ];
+  const word = (v: MonthDay | undefined, d: string) =>
+    d > today ? L("Upcoming", "Akan datang") : !v ? "—" : v.open && d < today ? L("Missing punch", "Punch tertinggal") : statusLabel ? statusLabel(v.status) : v.status;
+  const tone = (v: MonthDay | undefined, d: string) =>
+    d > today || !v ? chipSmNeutral : v.open && d < today ? chipSmWarn
+      : v.status === "ok" || v.status === "assigned" ? chipSmSuccess
+      : v.status === "late" || v.status === "half_day" || v.status === "absent" || v.status === "awaiting_approval" ? chipSmWarn
+      : v.status === "leave" || v.status === "holiday" || v.status === "pending" ? chipSmInfo : chipSmNeutral;
+  const sel = pick && days.includes(pick) ? pick : null;
+  const selV = sel ? verdict.get(sel) : undefined;
+  const selP = sel ? paired.get(sel) : undefined;
   return (
-    <section className={`erp-card ${css.card}`} aria-label={L("My roster this week", "Roster saya minggu ini")}>
+    <section className={`erp-card ${css.card}`} aria-label={L("This week", "Minggu ini")} data-testid="week-summary">
       <div className={css.cardHead}>
-        <h3 className={css.cardTitle}><AppIcon name="date" className="erp-icon" />{L("This week", "Minggu ini")}</h3>
+        <div className={css.titleBlock}>
+          <h3 className={css.cardTitle}><AppIcon name="date" className="erp-icon" />{L("This Week", "Minggu Ini")}</h3>
+          <p className={css.cardSub}>{L("Your attendance this week, as the Attendance module records it", "Kehadiran anda minggu ini, seperti yang direkod modul Kehadiran")}</p>
+        </div>
         {onOpenRoster && (
           <button type="button" className="erp-button erp-button-ghost erp-button-compact" onClick={onOpenRoster}>{L("Open roster", "Buka roster")}</button>
         )}
       </div>
-      <p className={css.hint}>{L("Roster assignments and live sessions. Your working pattern applies on the other days.", "Tugasan roster dan sesi live. Corak kerja anda terpakai pada hari lain.")}</p>
-      {roster.loading ? <SkelRows rows={4} /> : roster.failed && !roster.data ? (
-        <p className={css.muted}>{L("The roster could not be loaded.", "Roster tidak dapat dimuatkan.")}</p>
-      ) : (
-        <ul className={css.week}>
-          {days.map((d) => {
-            const list = items(d);
-            return (
-              <li key={d} className={css.weekDay} data-today={d === today ? "" : undefined}>
-                <span className={css.weekDate}>
-                  <strong>{new Date(`${d}T00:00:00Z`).toLocaleDateString("en-MY", { weekday: "short", timeZone: "UTC" })}</strong>
-                  <span>{dmy(d).slice(0, 5)}</span>
-                </span>
-                {list.length === 0 ? <span className={css.muted}>—</span> : (
-                  <span className={css.weekItems}>
-                    {list.map((x) => (
-                      <span key={x.key} className={css.weekItem}><span className={css.slotTime}>{x.start}{x.end ? `–${x.end}` : ""}</span> {x.what}</span>
-                    ))}
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+      {!known || roster.loading ? <SkelRows rows={4} /> : (
+        <>
+          <dl className={css.weekFigures}>
+            {FIG.map(([k, en, ms]) => (
+              <div key={k} className={css.weekFig} data-alert={(k === "late" || k === "missing" || k === "pending") && count[k] > 0 ? "" : undefined}>
+                <dt>{L(en, ms)}</dt><dd data-testid={`week-${k}`}>{verdicts ? count[k] : "—"}</dd>
+              </div>
+            ))}
+          </dl>
+          {roster.failed && !roster.data && <p className={css.hint}>{L("The roster could not be loaded; the days below show your attendance only.", "Roster tidak dapat dimuatkan; hari di bawah hanya menunjukkan kehadiran anda.")}</p>}
+          <ul className={css.week} aria-label={L("Days of this week", "Hari minggu ini")}>
+            {days.map((d) => {
+              const list = items(d);
+              const v = verdict.get(d);
+              return (
+                <li key={d}>
+                  <button type="button" className={css.weekDay} data-today={d === today ? "" : undefined} aria-pressed={sel === d}
+                    onClick={() => setPick(sel === d ? null : d)} data-testid="week-day">
+                    <span className={css.weekDate}>
+                      <strong>{new Date(`${d}T00:00:00Z`).toLocaleDateString("en-MY", { weekday: "short", timeZone: "UTC" })}</strong>
+                      <span>{dmy(d).slice(0, 5)}</span>
+                    </span>
+                    <span className={tone(v, d)}>{word(v, d)}</span>
+                    {list.length > 0 && (
+                      <span className={css.weekItems}>
+                        {list.map((x) => (
+                          <span key={x.key} className={css.weekItem}><span className={css.slotTime}>{x.start}{x.end ? `–${x.end}` : ""}</span> {x.what}</span>
+                        ))}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {sel && (
+            <div className={css.weekDetail} data-testid="week-detail" role="region" aria-label={L(`Attendance on ${dmy(sel)}`, `Kehadiran pada ${dmy(sel)}`)}>
+              <dl className={css.weekDetailGrid}>
+                <div><dt>{L("Date", "Tarikh")}</dt><dd>{dmy(sel)}</dd></div>
+                <div><dt>{L("Status", "Status")}</dt><dd>{word(selV, sel)}</dd></div>
+                <div><dt>{L("Clock in", "Masuk")}</dt><dd>{selV?.in ?? "—"}</dd></div>
+                <div><dt>{L("Clock out", "Keluar")}</dt><dd>{selV?.out ?? (selV?.open ? L("Not recorded", "Tidak direkod") : "—")}</dd></div>
+                <div><dt>{L("Worked", "Bekerja")}</dt><dd>{selP && selP.minutes > 0 ? hoursLabel(selP.minutes) : "—"}</dd></div>
+                <div><dt>{L("Shifts", "Syif")}</dt><dd>{selP ? selP.sessions.length : 0}</dd></div>
+              </dl>
+              {onOpenAttendance && (
+                <button type="button" className="erp-button erp-button-ghost erp-button-compact" onClick={onOpenAttendance}>
+                  {L("Open in Attendance", "Buka dalam Kehadiran")}<AppIcon name="next" />
+                </button>
+              )}
+            </div>
+          )}
+          {verdicts && past.length > 0 && count.attended === 0 && (
+            <p className={css.hint}>{L("No attendance recorded yet this week.", "Belum ada kehadiran direkod minggu ini.")}</p>
+          )}
+        </>
       )}
     </section>
   );
@@ -336,22 +635,28 @@ export function WeekSchedule({ userId, onOpenRoster }: { userId: number; onOpenR
 /* recent days                                                         */
 /* ------------------------------------------------------------------ */
 
-export function RecentDays({ records, days, known, statusLabel, onOpenAttendance }: {
-  records: { type: string; created_at: string }[];
+/* v1.294.0 (On Shift v2.0, section 11) - the five most recent days, with
+   the location outcome of the day's first clock-in; View Full History opens
+   the Attendance module, where every record stays. */
+export function RecentDays({ records, days, known, statusLabel, onOpenAttendance, exempt = false }: {
+  records: AttRecord[];
   days: MonthDay[] | null;
   known: boolean;
   statusLabel: (s: MonthDay["status"]) => string;
   onOpenAttendance?: () => void;
+  exempt?: boolean;
 }) {
   const paired = daysOf(records);
   const verdict = new Map((days ?? []).map((d) => [d.date, d]));
-  const recent = paired.slice(0, 7);
+  const firstIn = new Map<string, AttRecord>();
+  for (const r of records) if (r.type === "clock_in") firstIn.set(mytDay(r.created_at), r); // newest first: the last written is the day's first
+  const recent = paired.slice(0, 5);
   return (
-    <section className={`erp-card ${css.card}`} aria-label={L("Recent days", "Hari terkini")}>
+    <section className={`erp-card ${css.card}`} aria-label={L("Recent attendance", "Kehadiran terkini")} data-testid="recent-attendance">
       <div className={css.cardHead}>
-        <h3 className={css.cardTitle}><AppIcon name="time" className="erp-icon" />{L("Recent days", "Hari terkini")}</h3>
+        <h3 className={css.cardTitle}><AppIcon name="time" className="erp-icon" />{L("Recent Attendance", "Kehadiran Terkini")}</h3>
         {onOpenAttendance && (
-          <button type="button" className="erp-button erp-button-ghost erp-button-compact" onClick={onOpenAttendance}>{L("Full history", "Sejarah penuh")}</button>
+          <button type="button" className="erp-button erp-button-ghost erp-button-compact" onClick={onOpenAttendance}>{L("View full history", "Lihat sejarah penuh")}<AppIcon name="next" /></button>
         )}
       </div>
       {!known ? <SkelRows rows={4} /> : recent.length === 0 ? (
@@ -364,14 +669,16 @@ export function RecentDays({ records, days, known, statusLabel, onOpenAttendance
             const last = d.sessions[d.sessions.length - 1];
             const good = v && (v.status === "ok" || v.status === "assigned");
             const warn = v && (v.status === "late" || v.status === "half_day" || v.status === "absent" || v.status === "awaiting_approval");
+            const fi = firstIn.get(d.date);
             return (
-              <li key={d.date} className={css.historyRow}>
+              <li key={d.date} className={css.historyRow} data-testid="recent-row">
                 <span className={css.historyDate}>{dmy(d.date)}</span>
                 <span className={css.historyTimes}>
                   {first ? mytHm(first.in) : "—"} → {last?.out ? mytHm(last.out) : d.open ? L("open", "terbuka") : "—"}
                   {d.sessions.length > 1 && <span className={css.muted}> · {d.sessions.length} {L("shifts", "syif")}</span>}
                 </span>
                 <span className={css.historyHours}>{d.minutes > 0 ? hoursLabel(d.minutes) : "—"}</span>
+                <span className={css.historyLoc}>{fi?.loc ? <LocChip loc={fi.loc} exempt={exempt} small /> : <span className={css.muted}>—</span>}</span>
                 {v ? <span className={good ? chipSmSuccess : warn ? chipSmWarn : chipSmNeutral}>{statusLabel(v.status)}</span> : <span />}
               </li>
             );

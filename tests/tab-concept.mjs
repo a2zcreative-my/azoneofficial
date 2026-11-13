@@ -114,7 +114,7 @@ const BODY = {
   "HR": ["components/portal/hr-page.tsx"], // v1.192.0 - the page is its own tabbed panel
   "Attendance": ["components/portal/attendance-panel.tsx"], // v1.188.0 - the page is its own tabbed panel
   "Tasks": ["components/portal/tasks.tsx"],
-  "Announcements": ["components/portal/announcements.tsx#Announcements"],
+  "Announcements": ["components/portal/announcements.tsx#Announcements", "components/portal/news-parts.tsx#NewsStats"], // v1.295.0 - News N1: the shared stat strip lives with the News parts
   "Staff Details": ["components/staff/staff-directory.tsx#StaffDirectory"],
   "Leave": ["components/portal/leave.tsx#Leave"],
   "Claims": ["components/portal/role-panels.tsx#ClaimsPanel"],

@@ -30,6 +30,7 @@ import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, leaveRoute, leaveAbove, leaveNextStep, parseLeaveRoute, leaveRoutedTimeline, LEAVE_ROUTE_VERSION, type LeaveTimelineRow, type LeaveRoute, type LeaveDecisionRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
+import { haversineM, locOutcome, LOC_FLAG_EXEMPT_ROLES, type LocOutcome } from "./punch-location"; // v1.294.0 - On Shift v2.0: a punch's location as a word, never its coordinates
 import { handleDesk, handleDeskCompleted } from "./desk"; // v1.106.0 - One Desk; v1.293.0 - Completed (read only)
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
@@ -1736,15 +1737,7 @@ async function getGeofence(env: Env): Promise<Geofence | null> {
   } catch { return null; } // pre-0057 (no system_meta) — geofence simply off
 }
 
-/** Great-circle distance in metres (haversine — plenty for a 100 m fence). */
-function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const rad = Math.PI / 180;
-  const dLat = (lat2 - lat1) * rad;
-  const dLng = (lng2 - lng1) * rad;
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+/* v1.294.0 - haversineM moved to punch-location.ts, beside the outcome rule that reads it */
 
 /* One gate used by BOTH the clock punch and the OT punch (review finding:
    gating only clock in/out left OT — the PAID punches — open to a sofa).
@@ -5684,19 +5677,26 @@ async function handleStaffRoutes(
          one before - the dashboard showed no punch and offered Clock in
          while the punch route, which has always worked in MYT, refused
          "already clocked in". */
-      `SELECT type, ip, created_at FROM attendance_records
+      `SELECT type, ip, created_at, gps, pending_approval FROM attendance_records
        WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
        ORDER BY created_at DESC LIMIT 400`,
-    ).bind(forUser, month).all()).results;
+    ).bind(forUser, month).all<{ type: string; ip: string | null; created_at: string; gps: string | null; pending_approval: number | null }>()).results;
     // v1.4.155: overtime punches ride along (own dashboard + HR views). Guarded
     // so the endpoint keeps working before migration 0044 lands.
     let ot: unknown[] = [];
     try {
+      /* v1.294.0 - with its decision, so On Shift can say requested,
+         approved or rejected and never treat worked time as approved OT. A
+         database without the column answers the old way. */
       const o = await env.DB.prepare(
+        `SELECT type, created_at, COALESCE(status, 'pending') AS status FROM ot_records
+         WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
+         ORDER BY created_at DESC LIMIT 100`,
+      ).bind(forUser, month).all().catch(() => env.DB.prepare(
         `SELECT type, created_at FROM ot_records
          WHERE user_id = ?1 AND strftime('%Y-%m', created_at, '+8 hours') = ?2
          ORDER BY created_at DESC LIMIT 100`,
-      ).bind(forUser, month).all();
+      ).bind(forUser, month).all());
       ot = o.results;
     } catch { /* table not migrated yet — return empty */ }
     // Eligibility flag drives whether the dashboard shows the OT buttons at
@@ -5718,6 +5718,10 @@ async function handleStaffRoutes(
       slots: { start: string; end: string; what: string | null; claimed: boolean }[];
       slots_label: string; can_clock_in: boolean; why_not: string | null; can_ot: boolean;
       entry?: ReturnType<typeof shiftEntry>;
+      /* v1.294.0 - On Shift's schedule card: the pattern's unpaid break
+         this day earns (breakFor), the minute past which a clock-in is a
+         half day (the late rule's own line), and the pattern's name */
+      break_minutes?: number; half_day_at?: string | null; pattern?: string;
     } | null = null;
     try {
       const tdy = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -5760,6 +5764,9 @@ async function handleStaffRoutes(
            open, nothing left to clock in for. The same gate the route runs. */
         can_ot: !verdictT.ok && !isOpen(sessT) && slotsT.length > 0,
         entry: shiftEntry(new Date(), tdy, remaining ?? slotsT, priorRemaining ?? priorSlots, recent, remaining === null),
+        break_minutes: breakFor(shT),
+        half_day_at: shT.kind === "rest_day" ? null : hhmm(shT.halfDay),
+        pattern: shT.pattern,
       };
     } catch { /* a schedule that cannot be read is not a reason to hide the punches */ }
     /* v1.170.0 - THE PERSON'S OWN MONTH, DAY BY DAY. The Dashboard has shown
@@ -5777,7 +5784,25 @@ async function handleStaffRoutes(
        response it always did. */
     let days: MyMonthDay[] | undefined;
     try { days = await myMonthDays(env, forUser, month); } catch { /* the punches still answer */ }
-    return json({ month, as_of: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), records: results, ot, ot_eligible, today_shift, days });
+    /* v1.294.0 - On Shift v2.0: each punch carries its location OUTCOME
+       (punch-location.ts) - a status word, the distance and the reported
+       accuracy - judged against the current fence. The stored position
+       itself is NOT sent: the page never needed it, and a person's own
+       coordinates stay with the register's readers. `pending` marks a
+       forgotten punch still waiting for approval. */
+    const fenceA = await getGeofence(env);
+    const records = results.map((r) => ({
+      type: r.type, ip: r.ip, created_at: r.created_at,
+      pending: r.pending_approval === 1,
+      loc: locOutcome(r.gps, fenceA) as LocOutcome,
+    }));
+    const subjectRole = forUser === user.id ? user.role
+      : (await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(forUser).first<{ role: string }>())?.role ?? "";
+    return json({
+      month, as_of: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), records, ot, ot_eligible, today_shift, days,
+      loc_exempt: LOC_FLAG_EXEMPT_ROLES.includes(subjectRole),
+      fence: fenceA ? { label: fenceA.label, radius_m: fenceA.radius_m } : null,
+    });
   }
 
   if (path === "/attendance/monitor" && method === "GET") {
@@ -5823,7 +5848,80 @@ async function handleStaffRoutes(
     // v1.21.0: ship the fence with the list so management screens flag
     // "outside office" against the REAL configured fence (not a client
     // constant that could drift from it).
-    return json({ date: todayM, staff: results, geofence: await getGeofence(env) });
+    const fenceM = await getGeofence(env);
+    /* v1.294.0 - On Shift v2.0, Team On Shift. Added to the same rows, for
+       the same readers, all read-only:
+         - who they are at work: position, department, role title;
+         - today's shift from the ONE schedule rule (shiftResolver with the
+           roster, daySlots), whether the day is scheduled at all, and a
+           full day of approved leave or a public holiday - so scheduled
+           headcount is never confused with who is on shift;
+         - today's punches, each with its location OUTCOME (a word, the
+           distance, the accuracy) and never its coordinates, plus the
+           outcome of the first clock-in and the last clock-out.
+       in_gps stays for the cards that already read it. */
+    const extra = new Map<number, Record<string, unknown>>();
+    try {
+      const ids = (results as { id: number }[]).map((r) => r.id);
+      const people = new Map<number, { position: string | null; department: string | null; role_title: string | null; joined_on: string | null; role: string }>();
+      if (ids.length) {
+        /* the same active accounts the snapshot lists; read whole rather
+           than bound one by one, so a long staff list cannot hit the
+           binding limit */
+        for (const r of (await env.DB.prepare(
+          `SELECT id, position, department, role_title, joined_on, role FROM users WHERE is_active = 1`,
+        ).all<{ id: number; position: string | null; department: string | null; role_title: string | null; joined_on: string | null; role: string }>()).results ?? []) people.set(r.id, r);
+      }
+      const asgM = await assignedResolver(env, todayM, todayM);
+      const shiftAtM = await shiftResolver(env, asgM);
+      const holsM = await holidaysAround(env, todayM.slice(0, 7));
+      const holM = holsM.find((h) => h.holiday_date === todayM) ?? null;
+      let leaveM: (LeaveCoverage & { user_id: number })[] = [];
+      try {
+        leaveM = ((await env.DB.prepare(
+          `SELECT user_id, start_date, end_date, days, day_part, coverage_json FROM leave_requests
+            WHERE status = 'approved' AND start_date <= ?1 AND end_date >= ?1`,
+        ).bind(todayM).all<LeaveCoverage & { user_id: number }>()).results) ?? [];
+      } catch { /* pre-leave_requests */ }
+      const punchesM = (await env.DB.prepare(
+        `SELECT user_id, type, created_at, gps, pending_approval FROM attendance_records
+          WHERE date(created_at, '+8 hours') = ?1 ORDER BY created_at`,
+      ).bind(todayM).all<{ user_id: number; type: string; created_at: string; gps: string | null; pending_approval: number | null }>()).results ?? [];
+      for (const id of ids) {
+        const who = people.get(id);
+        const sh = shiftAtM(id, todayM);
+        const slotsM = daySlots(sh.windows, asgM.list(id, todayM).map((a) => ({ start: a.start, end: a.end, what: a.what })));
+        const holiday = Boolean(holM && holidayEntitles(holM, holsM, who?.joined_on));
+        const mineLeave = leaveM.filter((l) => l.user_id === id);
+        const onLeave = mineLeave.length > 0 && !mineLeave.some(isPartialLeave);
+        const mine = punchesM.filter((p) => p.user_id === id && (p.type === "clock_in" || p.type === "clock_out"));
+        const punches = mine.map((p) => ({ type: p.type, at: p.created_at, pending: p.pending_approval === 1, loc: locOutcome(p.gps, fenceM) as LocOutcome }));
+        const firstInP = punches.find((p) => p.type === "clock_in") ?? null;
+        const lastOutP = [...punches].reverse().find((p) => p.type === "clock_out") ?? null;
+        extra.set(id, {
+          position: who?.position ?? null,
+          department: who?.department ?? null,
+          role_title: who?.role_title ?? null,
+          shift: {
+            label: slotsM.length ? slotsLabel(slotsM) : null,
+            pattern: sh.pattern,
+            scheduled: sh.kind !== "rest_day" && slotsM.length > 0 && !holiday,
+          },
+          on_leave: onLeave,
+          holiday,
+          punches,
+          in_loc: firstInP ? firstInP.loc : null,
+          out_loc: lastOutP ? lastOutP.loc : null,
+          loc_exempt: LOC_FLAG_EXEMPT_ROLES.includes(who?.role ?? ""),
+        });
+      }
+    } catch { /* the snapshot still answers without the additions */ }
+    const staffM = (results as Record<string, unknown>[]).map((r) => ({ ...r, ...(extra.get(r.id as number) ?? {}) }));
+    return json({
+      date: todayM, staff: staffM, geofence: fenceM,
+      /* the site the outcomes are judged against, as words (v1.294.0) */
+      site: fenceM ? { label: fenceM.label, radius_m: fenceM.radius_m } : null,
+    });
   }
 
   /* ============ v1.84.0 — the month, reconciled ============

@@ -8,11 +8,22 @@ import { card, tabPill, tabPillOn } from "@/lib/ui-styles";
 import { Lang, getLang } from "@/lib/i18n";
 
 /* v1.25.1 — remembered-data keys for the Dashboard's own four requests. */
+/* v1.294.0 - On Shift v2.0: a punch's location as the server judges it
+   (worker/src/punch-location.ts) - a status word, the distance to the site
+   and the reported accuracy. Never the coordinates. */
+export type LocStatus = "verified" | "outside" | "low_accuracy" | "recorded" | "denied" | "unavailable" | "none";
+export interface LocOutcome { status: LocStatus; distance_m: number | null; accuracy_m: number | null }
+export interface AttRecord { type: string; created_at: string; pending?: boolean; loc?: LocOutcome }
 export type DashCache = {
   as_of?: string;
-  records: { type: string; created_at: string }[];
-  ot?: { type: string; created_at: string }[];
+  records: AttRecord[];
+  /* v1.294.0 - with the decision: pending / approved / rejected / replacement */
+  ot?: { type: string; created_at: string; status?: string }[];
   ot_eligible?: boolean;
+  /* v1.294.0 - whether the person is exempt from the outside flag
+     (CEO, COO, CCO) and the site the outcomes are judged against */
+  loc_exempt?: boolean;
+  fence?: { label: string; radius_m: number } | null;
   /* v1.133.0 — every block of today's pattern, so the card can say which
      shifts to clock for. null when the schedule cannot be read. */
   today_shift?: {
@@ -24,6 +35,8 @@ export type DashCache = {
     slots_label?: string; can_clock_in?: boolean; why_not?: string | null;
     /* v1.134.0 - OT in / OT out open only after the schedule. */
     can_ot?: boolean;
+    /* v1.294.0 - the break the day earns, the half-day line, the pattern */
+    break_minutes?: number; half_day_at?: string | null; pattern?: string;
   } | null;
   /* v1.170.0 - the month, one verdict per day up to today, from the worker's
      own classifier (the same one payroll and the HR report use). Optional:

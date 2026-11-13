@@ -7,7 +7,7 @@ import { ShieldOk } from "@/components/layout/nav-icons";
 import { UpcomingEventsCard } from "@/components/portal/events";
 import { LocationHelp } from "@/components/portal/location-help";
 import { DeskSummary } from "@/components/portal/one-desk";
-import { Announcement, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
+import { Announcement, type AttRecord, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TASKS, DashCache, L, LeaveReq, MANAGE_ROLES, MONTH_NAMES, MonthDay, SectionTabs, Task, User, ZoneLabel, annCatL, leaveTypeL, mytGreeting, mytTime, mytTodayLine, priorityL } from "@/components/portal/page-shared";
 /* v1.203.0 - the overview (the owner's A2Z OS 2.0 reference) and the tab row */
 import { DashboardOverview, ExecHeader, WelcomeHeader, type MonitorRow, type Session } from "@/components/portal/dashboard-overview";
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -18,7 +18,7 @@ import { SkelRows, SkelText } from "@/components/ui/skeleton";
 import { SITE_CONFIG } from "@/constants/site";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
-import { cacheRead, cacheWrite } from "@/lib/cached-api";
+import { cacheRead, cacheWrite, useCachedApi } from "@/lib/cached-api";
 import { dmy, fmtRM, mytDateOf, mytToday } from "@/lib/format";
 import { Lang, getLang, t as tr } from "@/lib/i18n";
 
@@ -55,7 +55,8 @@ import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { PunchIcon } from "@/components/ui/punch-icon";
 import css from "./dashboard.module.css";
 import shiftCss from "./on-shift.module.css";
-import { daysOf, sessionMinutes } from "@/lib/clock-sessions";
+import { daysOf, hoursLabel, sessionMinutes } from "@/lib/clock-sessions";
+import { LocationCard, LocChip } from "@/components/portal/shift-location"; // v1.294.0 - On Shift v2.0
 import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 import { WeekTargetStrip, useWeekDash } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0; useWeekDash v1.291.0
@@ -340,7 +341,7 @@ export function Dashboard({
   /* v1.25.1: seeded from remembered data IN THE INITIALISER — seeding only
      the "known" flag left a single frame where the answer was declared known
      while the list was still empty, which printed the false message again. */
-  const [today, setToday] = useState<{ type: string; created_at: string }[]>(
+  const [today, setToday] = useState<AttRecord[]>(
     () =>
       (cacheRead<DashCache>(DASH_ATT)?.records ?? []).filter(
         (r) => mytDateOf(r.created_at) === mytToday()
@@ -352,7 +353,7 @@ export function Dashboard({
   );
   /* v1.134.0 — the OT pair is back, AFTER the schedule (CEO: "after their
      working schedule, does they be able to OT clock in and out?"). */
-  const [todayOt, setTodayOt] = useState<{ type: string; created_at: string }[]>(
+  const [todayOt, setTodayOt] = useState<{ type: string; created_at: string; status?: string }[]>(
     () => (cacheRead<DashCache>(DASH_ATT)?.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday())
   );
   const [otEligible, setOtEligible] = useState(
@@ -360,9 +361,10 @@ export function Dashboard({
   );
   /* v1.15.0: the same attendance response, kept un-filtered — powers the
      personal month chart and the KPI strip without a second request. */
-  const [monthRecs, setMonthRecs] = useState<
-    { type: string; created_at: string }[]
-  >(() => cacheRead<DashCache>(DASH_ATT)?.records ?? []);
+  const [monthRecs, setMonthRecs] = useState<AttRecord[]>(() => cacheRead<DashCache>(DASH_ATT)?.records ?? []);
+  /* v1.294.0 - On Shift v2.0: whether this person is exempt from the
+     outside flag (CEO, COO, CCO), from the same response */
+  const [locExempt, setLocExempt] = useState(() => cacheRead<DashCache>(DASH_ATT)?.loc_exempt === true);
   /* v1.170.0 — the month's verdicts, from the same response. null = the
      worker did not send them (an older build, or the classifier could not
      run); the card is then simply not drawn rather than drawn wrong. */
@@ -478,6 +480,7 @@ export function Dashboard({
     setTodayShift(d.today_shift ?? null);
     setTodayOt((d.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     setOtEligible(d.ot_eligible === true);
+    setLocExempt(d.loc_exempt === true);
     setAttKnown(true);
     setAttendanceError(false);
   }, []);
@@ -634,10 +637,12 @@ export function Dashboard({
   };
   const fmtDist = (m: number) =>
     m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
+  /* v1.294.0 - a site that could not be read is said, not shown as "no fence" */
+  const [fenceFailed, setFenceFailed] = useState(false);
   useEffect(() => {
     void api<{ configured: boolean; radius_m?: number; label?: string }>(
       `/staff/attendance/geofence`
-    ).then((r) => setFence(r.ok && r.data ? r.data : { configured: false }));
+    ).then((r) => { setFenceFailed(!(r.ok && r.data)); setFence(r.ok && r.data ? r.data : { configured: false }); });
   }, []);
   /* v1.18.1: reports DENIED separately from "couldn't get a fix" — the CEO
      wants staff told when their punch was recorded without location, and
@@ -1613,132 +1618,220 @@ export function Dashboard({
      would only be refused when the first one lands */
   const holding = waitingPunches.length > 0;
   const forgotOffered = !openNow && canClockIn && !hasOut;
+  /* v1.294.0 - ON SHIFT v2.0, RELEASE 1 (CEO directive 12-11-2026 and its
+     photo; "approve continuously", 13-11-2026). The page keeps every piece
+     it had - the one punch(), the forgotten-punch link, the outbox, OT, the
+     toast, the reminder, the tiles, the location check - and lays them out
+     as the photo does: My Shift beside Location Verification; Today's
+     Schedule, Punch Details and Quick Actions; the week; Recent Attendance
+     and, for the roles the monitor answers, Team On Shift. On a phone it is
+     one column in the order it is used: My Shift, the punch, the location,
+     the schedule, the punches, the recent days, the week, the team.
+     Location comes as the server's OUTCOME of each stored punch - never as
+     coordinates - and is judged by the punch gate's own rule. */
+  const site = fence?.configured ? (fence.label ?? null) : null;
+  const lastLocPunch = today.find((r) => (r.type === "clock_in" || r.type === "clock_out") && !!r.loc) ?? null;
+  const latestLoc = lastLocPunch?.loc ? { type: lastLocPunch.type, at: lastLocPunch.created_at, loc: lastLocPunch.loc } : null;
+  const slotMin = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+  const schedSlots = todayShift?.slots ?? [];
+  const schedSpan = schedSlots.reduce((n, x) => n + Math.max(0, (x.end === "00:00" ? 1440 : slotMin(x.end)) - slotMin(x.start)), 0);
+  const breakMin = todayShift?.break_minutes ?? 0;
+  const schedLabel = schedSlots.length === 1 ? `${schedSlots[0]!.start} – ${schedSlots[0]!.end}`
+    : todayShift ? (todayShift.slots_label || todayShift.entry?.work_label || todayShift.label || null) : null;
+  const lateToday = todayStatus === "late" || todayStatus === "half_day";
+  const missedYesterday = openNow && !!openSinceRaw && mytDateOf(openSinceRaw) !== mytToday();
+  /* the attendance state, one word, from the verdict On Shift already reads */
+  const stateWord: [string, string] | null =
+    todayKind === "loading" ? null
+    : todayKind === "error" ? ["Not loaded", "Tidak dimuatkan"]
+    : todayKind === "waiting" ? ["Pending confirmation", "Menunggu pengesahan"]
+    : todayKind === "review" ? ["Pending correction", "Pembetulan menunggu"]
+    : todayKind === "open" ? (missedYesterday ? ["Missing punch · still open from yesterday", "Punch tertinggal · masih terbuka dari semalam"] : lateToday ? ["On Shift · Late", "Sedang Syif · Lewat"] : ["On Shift", "Sedang Syif"])
+    : todayKind === "between" ? ["Clocked Out · next shift later", "Daftar Keluar · syif seterusnya nanti"]
+    : todayKind === "done" ? (lateToday ? ["Clocked Out · Late", "Daftar Keluar · Lewat"] : ["Clocked Out", "Daftar Keluar"])
+    : todayKind === "leave" ? ["On Leave", "Bercuti"]
+    : todayKind === "holiday" ? ["Public Holiday", "Cuti Umum"]
+    : todayKind === "rest" ? ["Not Scheduled", "Tiada Jadual"]
+    : nextSlot && schedSlots.every((x) => x.claimed || slotMin(x.start) > mytMinuteNow) ? ["Scheduled", "Dijadualkan"] : ["Not Yet Clocked In", "Belum Daftar Masuk"];
+  /* overtime: what was asked and what was decided - worked time is never
+     called approved overtime here */
+  const otIns = todayOt.filter((r) => r.type === "ot_in");
+  const otCount = (st: string) => otIns.filter((r) => (r.status ?? "pending") === st).length;
+  const otWord = otIns.length === 0
+    ? (otEligible ? L("None requested today", "Tiada dimohon hari ini") : L("Not eligible", "Tidak layak"))
+    : [otCount("pending") && L(`${otCount("pending")} waiting for a decision`, `${otCount("pending")} menunggu keputusan`),
+       otCount("approved") && L(`${otCount("approved")} approved`, `${otCount("approved")} diluluskan`),
+       otCount("replacement") && L(`${otCount("replacement")} as replacement leave`, `${otCount("replacement")} sebagai cuti gantian`),
+       otCount("rejected") && L(`${otCount("rejected")} rejected`, `${otCount("rejected")} ditolak`)].filter(Boolean).join(" · ");
+  /* the week's verdicts: the month already read, plus the month before when
+     the week began in it - the same route, read only then */
+  const weekMon = (() => { const t = new Date(`${mytToday()}T00:00:00Z`); return new Date(t.getTime() - ((t.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); })();
+  const prevMonthNeeded = shiftOnly && weekMon.slice(0, 7) !== mytToday().slice(0, 7);
+  const prevMonth = useCachedApi<DashCache>(prevMonthNeeded ? `/staff/attendance?month=${weekMon.slice(0, 7)}` : null, prevMonthNeeded, ["attendance"]);
+  const weekDays = monthDays ? [...(prevMonth.data?.days ?? []), ...monthDays] : null;
+  const weekRecs = [...monthRecs, ...(prevMonth.data?.records ?? [])];
+  const manager = MANAGE_ROLES.includes(user.role);
   const zoneShift = (
-    <div className={shiftCss.page} data-zone="shift">
-      <div className={shiftCss.main}>
-        <section className={`erp-card ${shiftCss.card} ${shiftCss.shift}`} aria-label={L("My shift", "Syif saya")}>
-          <div className={shiftCss.cardHead}>
-            {/* v1.229.0 - Image 1: the title with its line under it */}
-            <div className={shiftCss.titleBlock}>
-              <h2 className={shiftCss.cardTitle}><AppIcon name="time" className="erp-icon" />{L("My Shift", "Syif Saya")}</h2>
-              <p className={shiftCss.cardSub}>{L("Your work summary for today", "Ringkasan kerja anda hari ini")}</p>
-            </div>
-            {attKnown && (
-              <span className={chipForState(shiftState)} role="status">
-                {openNow ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
-                  : hasOut ? L(`Clocked out at ${lastOut ?? ""}`, `Daftar keluar ${lastOut ?? ""}`)
-                  : L("Not clocked in yet", "Belum daftar masuk")}
-              </span>
-            )}
+    <div className={shiftCss.page} data-zone="shift" data-team={manager ? "" : undefined}>
+      <section className={`erp-card ${shiftCss.card} ${shiftCss.shift} ${shiftCss.aShift}`} aria-label={L("My shift", "Syif saya")}>
+        <div className={shiftCss.cardHead}>
+          <div className={shiftCss.titleBlock}>
+            <h2 className={shiftCss.cardTitle}><AppIcon name="time" className="erp-icon" />{L("My Shift", "Syif Saya")}</h2>
+            <p className={shiftCss.cardSub}>{L("Your current shift and attendance status", "Syif semasa dan status kehadiran anda")}</p>
           </div>
-          {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
-          {attendanceError && (
-            <div role="alert" className={css.heroAlert}>
-              <span>{L("Your day could not be refreshed. Check your connection and retry - nothing is assumed until the server answers.", "Hari anda tidak dapat dimuat semula. Semak sambungan dan cuba lagi - tiada apa diandaikan sehingga pelayan menjawab.")}</span>
-              <button type="button" className={btnHero} onClick={() => void load()}>
-                <AppIcon name="refresh" className="erp-icon" />{L("Retry", "Cuba lagi")}
-              </button>
-            </div>
+          {attKnown && (
+            <span className={chipForState(shiftState)} role="status">
+              {openNow ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
+                : hasOut ? L(`Clocked out at ${lastOut ?? ""}`, `Daftar keluar ${lastOut ?? ""}`)
+                : L("Not clocked in yet", "Belum daftar masuk")}
+            </span>
           )}
-          <div className={shiftCss.shiftBody}>
-            <ShiftTimer state={shiftState} openSince={openSinceRaw} workedMinutes={workedToday}
-              firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null} lastOut={hasOut ? lastOut : null} />
-            {/* v1.229.0 - Image 1: said once nothing is left to clock today */}
-            {attKnown && shiftState === "done" && !canClockIn && waitingPunches.length === 0 && (
-              <span className={`${chipSuccess} ${shiftCss.allDone}`} role="status"><AppIcon name="success" />{L("All shifts clocked", "Semua syif didaftar")}</span>
-            )}
-            {attKnown && (
-              <div className={shiftCss.punchRow}>
-                {openNow ? (
-                  <button type="button" className={`erp-button erp-button-primary ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
-                    onClick={() => void press(() => punch("clock_out"))}>
-                    <PunchIcon kind="out" />{busy === "clock_out" ? L("Recording…", "Merekod…") : L("Clock Out", "Daftar Keluar")}
-                  </button>
-                ) : canClockIn ? (
-                  <button type="button" className={`erp-button ${shiftCss.punchBtn} ${shiftCss.punchIn}`} disabled={!!busy || holding || settling}
-                    onClick={() => void press(() => punch("clock_in"))}>
-                    <PunchIcon kind="in" />{busy === "clock_in" ? L("Recording…", "Merekod…") : shiftsToday > 0 ? L("Clock In · next shift", "Daftar Masuk · syif seterusnya") : L("Clock In", "Daftar Masuk")}
-                  </button>
-                ) : (
-                  <p className={shiftCss.why} role="status">{whyNoClockIn}</p>
-                )}
-                {forgotOffered && (
-                  <button type="button" className={shiftCss.forgot} disabled={!!busy || holding || settling}
-                    onClick={() => void press(() => punch("clock_out", forgotArmed))}>
-                    {forgotArmed ? L("Tap again to send the clock-out to the CEO", "Tekan lagi untuk hantar daftar keluar kepada CEO") : L("Forgot to clock in? Clock out for approval", "Terlupa daftar masuk? Daftar keluar untuk kelulusan")}
-                  </button>
-                )}
-                {slow && (
-                  <p className={shiftCss.slow} role="status">
-                    {L("Still waiting for the server. Do not press again - the answer will show here.", "Masih menunggu pelayan. Jangan tekan lagi - jawapannya akan dipaparkan di sini.")}
-                  </p>
-                )}
-              </div>
-            )}
+        </div>
+        {todayShift?.entry?.leave_review && <p role="status" className={css.heroWarn}>{L("Your leave coverage needs management review.", "Tempoh cuti anda perlu semakan pengurusan.")}</p>}
+        {attendanceError && (
+          <div role="alert" className={css.heroAlert}>
+            <span>{L("Your day could not be refreshed. Check your connection and retry - nothing is assumed until the server answers.", "Hari anda tidak dapat dimuat semula. Semak sambungan dan cuba lagi - tiada apa diandaikan sehingga pelayan menjawab.")}</span>
+            <button type="button" className={btnHero} onClick={() => void load()}>
+              <AppIcon name="refresh" className="erp-icon" />{L("Retry", "Cuba lagi")}
+            </button>
           </div>
-          <WaitingPunches list={waitingPunches} />
-          {punchFeedback}
-          {clockOutNote}
-          {/* v1.229.0 - Image 1: the four figures with their icons; each opens
-              My attendance for those who may (the owner's answer "Tiles open
-              My attendance"), otherwise they are plain figures */}
-          <div className={shiftCss.tiles}>
-            {([
-              ["in", shiftCss.wellIn, L("Clocked in", "Daftar masuk"), attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"],
-              ["out", shiftCss.wellOut, L("Last out", "Keluar terakhir"), attKnown && hasOut ? lastOut : "--:--"],
-              ["hours", shiftCss.wellHours, L("Today's hours", "Jam hari ini"), !attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`],
-              ["shifts", shiftCss.wellShifts, L("Shifts", "Syif"), attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"],
-            ] as const).map(([k, well, label, value]) => {
-              const inner = (
-                <>
-                  <span className={`${shiftCss.tileWell} ${well}`} aria-hidden>
-                    {k === "in" ? <PunchIcon kind="in" /> : k === "out" ? <PunchIcon kind="out" /> : <AppIcon name={k === "hours" ? "date" : "orders"} />}
-                  </span>
-                  <span className={shiftCss.tileText}><span className={shiftCss.tileLabel}>{label}</span><span className={shiftCss.tileValue}>{value}</span></span>
-                  {canAtt ? <span className={shiftCss.tileChevron} aria-hidden><AppIcon name="next" /></span> : <span />}
-                </>
-              );
-              return canAtt
+        )}
+        <div className={shiftCss.shiftBody}>
+          <ShiftTimer state={shiftState} openSince={openSinceRaw} workedMinutes={workedToday}
+            firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null} lastOut={hasOut ? lastOut : null} />
+          {attKnown && schedLabel && schedSlots.length > 0 && (
+            <p className={shiftCss.schedLine} data-testid="shift-scheduled">{L("Scheduled", "Dijadualkan")}: {schedLabel}{schedSpan > 0 ? ` (${hoursLabel(schedSpan)})` : ""}</p>
+          )}
+          {/* v1.229.0 - Image 1: said once nothing is left to clock today */}
+          {attKnown && shiftState === "done" && !canClockIn && waitingPunches.length === 0 && (
+            <span className={`${chipSuccess} ${shiftCss.allDone}`} role="status"><AppIcon name="success" />{L("All shifts clocked", "Semua syif didaftar")}</span>
+          )}
+        </div>
+        {/* v1.229.0 - Image 1: the four figures with their icons; each opens
+            My attendance for those who may (the owner's answer "Tiles open
+            My attendance"), otherwise they are plain figures */}
+        <div className={shiftCss.tiles}>
+          {([
+            ["in", shiftCss.wellIn, L("Clocked in", "Daftar masuk"), attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"],
+            ["out", shiftCss.wellOut, L("Last out", "Keluar terakhir"), attKnown && hasOut ? lastOut : "--:--"],
+            ["hours", shiftCss.wellHours, L("Today's hours", "Jam hari ini"), !attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`],
+            ["shifts", shiftCss.wellShifts, L("Shifts", "Syif"), attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"],
+          ] as const).map(([k, well, label, value]) => {
+            const inner = (
+              <>
+                <span className={`${shiftCss.tileWell} ${well}`} aria-hidden>
+                  {k === "in" ? <PunchIcon kind="in" /> : k === "out" ? <PunchIcon kind="out" /> : <AppIcon name={k === "hours" ? "date" : "orders"} />}
+                </span>
+                <span className={shiftCss.tileText}><span className={shiftCss.tileLabel}>{label}</span><span className={shiftCss.tileValue}>{value}</span></span>
+                {canAtt ? <span className={shiftCss.tileChevron} aria-hidden><AppIcon name="next" /></span> : <span />}
+              </>
+            );
+            return canAtt
                 ? <button key={k} type="button" className={shiftCss.tileBtn} onClick={() => go("Attendance")} aria-label={`${label}: ${value} - ${L("open My attendance", "buka kehadiran saya")}`}>{inner}</button>
                 : <div key={k} className={shiftCss.tileBtn}>{inner}</div>;
-            })}
-          </div>
-          <h3 className={shiftCss.subHead}>{L("Today's punches", "Punch hari ini")}</h3>
-          <SessionRows sessions={sessionsNow} known={attKnown} />
-          {todayOt.length > 0 && (
-            <p className={shiftCss.muted}>
-              {[...todayOt].reverse().map((r) => `${r.type === "ot_in" ? L("OT in", "OT masuk") : L("OT out", "OT keluar")} ${mytHm(r.created_at)}`).join(" · ")}
-            </p>
-          )}
-          {otButtons && <div className={shiftCss.quick}>{otButtons}</div>}
-          {otNote}
-          {/* v1.229.0 - Image 1: Apply leave beside the navy My attendance */}
-          <div className={shiftCss.quick}>
-            <button type="button" className={`erp-button erp-button-secondary ${shiftCss.actionBtn}`} onClick={() => go("Leave")}><AppIcon name="date" />{tr("Apply leave", lang)}</button>
-            {canAtt && <button type="button" className={`erp-button erp-button-primary ${shiftCss.actionBtn}`} onClick={() => go("Attendance")}><AppIcon name="document" />{L("My attendance", "Kehadiran saya")}<AppIcon name="next" /></button>}
-          </div>
-        </section>
-        <div className={shiftCss.oRecent}><RecentDays records={monthRecs} days={monthDays} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)}
-          onOpenAttendance={canAtt ? () => go("Attendance") : undefined} /></div>
-      </div>
-      <div className={shiftCss.side}>
-        <section className={`erp-card ${shiftCss.card} ${shiftCss.oToday}`} aria-label={L("Today's schedule", "Jadual hari ini")}>
-          <div className={shiftCss.cardHead}>
-            <h3 className={shiftCss.cardTitle}><AppIcon name="date" className="erp-icon" />{L("Today's schedule", "Jadual hari ini")}</h3>
-          </div>
-          <ScheduleSlots slots={todayShift?.slots ?? (attKnown ? [] : null)} known={attKnown} nowMinute={mytMinuteNow} />
-          {shiftRule}
-        </section>
-        {fenceStrip && (
-          <section className={`erp-card ${shiftCss.card} ${shiftCss.oToday} ${css.fenceCard}`} aria-label={L("Office location", "Lokasi pejabat")}>
-            {fenceStrip}
-          </section>
+          })}
+        </div>
+        {/* v1.294.0 - section A: the state, the break, overtime and where */}
+        {attKnown && (
+          <dl className={shiftCss.facts} data-testid="shift-facts">
+            <div><dt>{L("Status", "Status")}</dt><dd>{stateWord ? L(stateWord[0], stateWord[1]) : "—"}</dd></div>
+            <div><dt>{L("Break", "Rehat")}</dt><dd>{schedSlots.length === 0 ? "—" : breakMin > 0 ? L(`${breakMin} min, unpaid`, `${breakMin} min, tidak berbayar`) : L("None scheduled", "Tiada dijadualkan")}</dd></div>
+            <div><dt>{L("Overtime", "Lebih masa")}</dt><dd>{otWord}</dd></div>
+            <div><dt>{L("Work location", "Lokasi kerja")}</dt><dd>{site ?? (fence ? L("No geofence set", "Tiada geofence") : "—")}</dd></div>
+            <div className={shiftCss.factWide}><dt>{L("GPS status", "Status GPS")}</dt><dd><LocChip loc={latestLoc?.loc ?? null} exempt={locExempt} pending={waitingPunches.length > 0} small long /></dd></div>
+          </dl>
         )}
-        <div className={shiftCss.oWeek}><WeekSchedule userId={user.id} onOpenRoster={canAtt ? () => go("Attendance") : undefined} /></div>
+      </section>
+      <section className={`erp-card ${shiftCss.card} ${shiftCss.aQuick}`} aria-label={L("Quick actions", "Tindakan pantas")} data-testid="shift-actions">
+        <div className={shiftCss.cardHead}>
+          <h3 className={shiftCss.cardTitle}><AppIcon name="fast" className="erp-icon" />{L("Quick Actions", "Tindakan Pantas")}</h3>
+        </div>
+        {!attKnown ? <SkelRows rows={2} /> : (
+          <div className={shiftCss.punchRow}>
+            {openNow ? (
+              <button type="button" className={`erp-button erp-button-primary ${shiftCss.punchBtn}`} disabled={!!busy || holding || settling}
+                onClick={() => void press(() => punch("clock_out"))}>
+                <PunchIcon kind="out" />{busy === "clock_out" ? L("Recording…", "Merekod…") : L("Clock Out", "Daftar Keluar")}
+              </button>
+            ) : canClockIn ? (
+              <button type="button" className={`erp-button ${shiftCss.punchBtn} ${shiftCss.punchIn}`} disabled={!!busy || holding || settling}
+                onClick={() => void press(() => punch("clock_in"))}>
+                <PunchIcon kind="in" />{busy === "clock_in" ? L("Recording…", "Merekod…") : shiftsToday > 0 ? L("Clock In · next shift", "Daftar Masuk · syif seterusnya") : L("Clock In", "Daftar Masuk")}
+              </button>
+            ) : (
+              <p className={shiftCss.why} role="status">{whyNoClockIn}</p>
+            )}
+            {forgotOffered && (
+              <button type="button" className={shiftCss.forgot} disabled={!!busy || holding || settling}
+                onClick={() => void press(() => punch("clock_out", forgotArmed))}>
+                {forgotArmed ? L("Tap again to send the clock-out to the CEO", "Tekan lagi untuk hantar daftar keluar kepada CEO") : L("Forgot to clock in? Clock out for approval", "Terlupa daftar masuk? Daftar keluar untuk kelulusan")}
+              </button>
+            )}
+            {slow && (
+              <p className={shiftCss.slow} role="status">
+                {L("Still waiting for the server. Do not press again - the answer will show here.", "Masih menunggu pelayan. Jangan tekan lagi - jawapannya akan dipaparkan di sini.")}
+              </p>
+            )}
+          </div>
+        )}
+        <WaitingPunches list={waitingPunches} />
+        {punchFeedback}
+        {clockOutNote}
+        {otButtons && <div className={shiftCss.quick}>{otButtons}</div>}
+        {otNote}
+        {/* v1.229.0 - Image 1: Apply leave beside the navy My attendance */}
+        <div className={shiftCss.quick}>
+          <button type="button" className={`erp-button erp-button-secondary ${shiftCss.actionBtn}`} onClick={() => go("Leave")}><AppIcon name="date" />{tr("Apply leave", lang)}</button>
+          {canAtt && <button type="button" className={`erp-button erp-button-primary ${shiftCss.actionBtn}`} onClick={() => go("Attendance")}><AppIcon name="document" />{L("My attendance", "Kehadiran saya")}<AppIcon name="next" /></button>}
+        </div>
+      </section>
+      <div className={shiftCss.aLoc}>
+        <LocationCard fence={fenceFailed ? null : fence} fenceFailed={fenceFailed} latest={latestLoc} exempt={locExempt}
+          waiting={waitingPunches.length} known={attKnown}>
+          {fenceStrip && (
+            <div className={css.fenceCard}>
+              {fenceStrip}
+            </div>
+          )}
+        </LocationCard>
       </div>
+      <section className={`erp-card ${shiftCss.card} ${shiftCss.aSched}`} aria-label={L("Today's schedule", "Jadual hari ini")}>
+        <div className={shiftCss.cardHead}>
+          <h3 className={shiftCss.cardTitle}><AppIcon name="date" className="erp-icon" />{L("Today's Schedule", "Jadual Hari Ini")}</h3>
+          {attKnown && todayShift?.pattern && schedSlots.length > 0 && <span className={chipSmNeutral}>{todayShift.pattern}</span>}
+        </div>
+        {attKnown && schedSlots.length > 0 && (
+          <>
+            <p className={shiftCss.schedBig}>{schedLabel}</p>
+            <dl className={shiftCss.facts} data-testid="schedule-facts">
+              <div><dt>{L("Work location", "Lokasi kerja")}</dt><dd>{site ?? "—"}</dd></div>
+              <div><dt>{L("Expected work", "Jangkaan kerja")}</dt><dd>{hoursLabel(Math.max(0, schedSpan - breakMin))}{breakMin > 0 ? L(` (after a ${breakMin} min break)`, ` (selepas rehat ${breakMin} min)`) : ""}</dd></div>
+              <div><dt>{L("Late and half day", "Lewat dan separuh hari")}</dt><dd>{todayShift?.half_day_at ? L(`Late after each shift's start; half day after ${todayShift.half_day_at}`, `Lewat selepas mula syif; separuh hari selepas ${todayShift.half_day_at}`) : L("Late after each shift's start", "Lewat selepas mula syif")}</dd></div>
+              <div><dt>{L("Overtime", "Lebih masa")}</dt><dd>{otEligible ? L("Eligible - time outside the schedule goes to the CEO to decide", "Layak - masa di luar jadual dihantar kepada CEO untuk keputusan") : L("Not eligible", "Tidak layak")}</dd></div>
+            </dl>
+          </>
+        )}
+        <ScheduleSlots slots={todayShift?.slots ?? (attKnown ? [] : null)} known={attKnown} nowMinute={mytMinuteNow} />
+        {shiftRule}
+      </section>
+      <section className={`erp-card ${shiftCss.card} ${shiftCss.aPunch}`} aria-label={L("Punch details", "Butiran punch")} data-testid="punch-details">
+        <div className={shiftCss.cardHead}>
+          <h3 className={shiftCss.cardTitle}><AppIcon name="verify" className="erp-icon" />{L("Punch Details", "Butiran Punch")}</h3>
+        </div>
+        <SessionRows sessions={sessionsNow} known={attKnown} punches={today} site={site} exempt={locExempt} />
+        {todayOt.length > 0 && (
+          <p className={shiftCss.muted}>
+            {[...todayOt].reverse().map((r) => `${r.type === "ot_in" ? L("OT in", "OT masuk") : L("OT out", "OT keluar")} ${mytHm(r.created_at)}`).join(" · ")}
+          </p>
+        )}
+      </section>
+      <div className={shiftCss.aRecent}><RecentDays records={monthRecs} days={monthDays} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)}
+        onOpenAttendance={canAtt ? () => go("Attendance") : undefined} exempt={locExempt} /></div>
+      <div className={shiftCss.aWeek}><WeekSchedule userId={user.id} onOpenRoster={canAtt ? () => go("Attendance") : undefined}
+        days={weekDays} records={weekRecs} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} /></div>
       {MANAGE_ROLES.includes(user.role) && (
         <div className={shiftCss.wide}>
-          <TeamOnShift rows={monitor} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} />
+          <TeamOnShift rows={monitor} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} site={site} />
         </div>
       )}
     </div>

@@ -273,6 +273,17 @@ const announcements = [
     required: 1, acked_at: null, my_last_version: 1, version: 2, updated_at: D + "15 03:00:00", important: 1, pinned: 0, audience: ["Sales"],
     to_line: "Sales team", memo_date: null, from_name: "Fixture Person, CEO", publisher_name: "Fixture Person", publisher_position: "CEO", created_by: 9001,
     files: [{ id: 1, filename: "october-targets.pdf", content_type: "application/pdf", size: 120400 }] },
+  /* v1.295.0 - News N1 (invented): a pinned memo, the person's own post (not required), a post from before they
+     joined (not required) and ten short notices, so the feed pages, filters and History have rows */
+  { id: 5, title: "Fixture memo: studio access cards", body: "Kepada: Semua kakitangan\nPerkara: Kad akses studio\n* Collect your card from the front desk\n* Report a lost card the same day", category: "memo", created_at: D + "16 01:00:00", acked: 0,
+    required: 1, acked_at: null, my_last_version: 0, version: 1, important: 0, pinned: 1, audience: null, to_line: "Semua kakitangan", memo_date: "16 September 2026", from_name: "Fixture Person, CEO", publisher_name: "Fixture Person", publisher_position: "CEO", created_by: 9002, files: [] },
+  { id: 6, title: "Fixture: my own training note", body: "Training slides are on the shared drive.", category: "training", created_at: D + "05 02:00:00", acked: 0,
+    required: 0, acked_at: null, my_last_version: 0, version: 1, important: 0, pinned: 0, audience: null, publisher_name: "Fixture Person", publisher_position: "CEO", created_by: 9001, files: [] },
+  { id: 7, title: "Fixture: an older holiday notice", body: "An older notice from before this person joined.", category: "holiday", created_at: "2026-07-01 02:00:00", acked: 0,
+    required: 0, acked_at: null, my_last_version: 0, version: 1, important: 0, pinned: 0, audience: null, publisher_name: "Fixture Person", created_by: 9002, files: [] },
+  ...Array.from({ length: 10 }, (_, i) => ({ id: 20 + i, title: `Fixture notice ${i + 1}`, body: `Invented notice number ${i + 1} for the paging test.`, category: ["news", "meeting", "training"][i % 3],
+    created_at: `2026-08-${String(10 + i).padStart(2, "0")} 02:00:00`, acked: i % 2, required: 1, acked_at: i % 2 ? `2026-08-${String(11 + i).padStart(2, "0")} 02:00:00` : null, my_last_version: i % 2, version: 1,
+    important: i === 3 ? 1 : 0, pinned: 0, audience: null, publisher_name: "Fixture Person", publisher_position: "CEO", created_by: 9002, files: [] })),
 ];
 /* v1.252.0 - each leave carries the timeline the worker works out
    (leave-chain.ts leaveTimeline) and who it waits on; can_act is added per
@@ -502,16 +513,19 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       if (process.env.DAY && iso === "2026-09-18") { days.push({ date: iso, status: process.env.DAY === "off" ? "rest_day" : "pending", in: null, out: null, open: false, scheduled: process.env.DAY !== "off", worked: false }); continue; }
       const late = d % 7 === 3; const half = d === 12;
       const inT = late ? "09:41" : "08:5" + (d % 10); const outT = half ? "13:02" : iso === today ? null : "18:1" + (d % 10);
-      recs.push({ type: "clock_in", created_at: `${iso} ${String(Number(inT.slice(0, 2)) - 8).padStart(2, "0")}:${inT.slice(3)}:00` });
-      if (outT) recs.push({ type: "clock_out", created_at: `${iso} ${String(Number(outT.slice(0, 2)) - 8).padStart(2, "0")}:${outT.slice(3)}:00` });
+      /* v1.294.0 - each punch carries the server's location OUTCOME (never coordinates): a late day was punched outside */
+      const locIn = late ? { status: "outside", distance_m: 132, accuracy_m: 18 } : d === 5 ? { status: "unavailable", distance_m: null, accuracy_m: null } : { status: "verified", distance_m: 24, accuracy_m: 8 };
+      recs.push({ type: "clock_in", created_at: `${iso} ${String(Number(inT.slice(0, 2)) - 8).padStart(2, "0")}:${inT.slice(3)}:00`, pending: false, loc: locIn });
+      if (outT) recs.push({ type: "clock_out", created_at: `${iso} ${String(Number(outT.slice(0, 2)) - 8).padStart(2, "0")}:${outT.slice(3)}:00`, pending: false, loc: { status: "verified", distance_m: 31, accuracy_m: 12 } });
       days.push({ date: iso, status: iso === today ? "pending" : half ? "half_day" : late ? "late" : "ok", in: inT, out: outT, open: iso === today, scheduled: true, worked: true });
     }
-    data = { as_of: today, records: recs, ot: [], ot_eligible: true, days,
+    recs.reverse(); // newest first, as the worker sends them
+    data = { as_of: today, records: recs, ot: [], ot_eligible: true, days, loc_exempt: ["ceo", "coo", "cco"].includes(ROLE), fence: { label: "Setia Tropika office", radius_m: 150 },
       today_shift: process.env.DAY === "off" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "rest", label: "Rest day", windows: [], slots: [], slots_label: "", can_clock_in: false, why_not: "rest_day", can_ot: false }
         : process.env.DAY === "ready" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "office", label: "Office day", windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: false }], slots_label: "Today", can_clock_in: true, why_not: null, can_ot: false } // v1.247.2 - not clocked in yet, Clock In offered
         : process.env.DAY === "later" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "live", label: "Live session", windows: [{ start: "23:30", end: "23:59" }], slots: [{ start: "23:30", end: "23:59", what: "Live", claimed: false }], slots_label: "23:30-23:59", can_clock_in: false, why_not: "too_early", can_ot: false }
         : { entry: { clocked_in: true, open_since: "2026-10-20 00:56:00", clock_out_at: null, launch_shift: false, leave_review: false, work_label: "Office" }, kind: "office", label: "Office day",
-        windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: true }], slots_label: "Today", can_clock_in: false, why_not: null, can_ot: false } };
+        windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: true }], slots_label: "Today", can_clock_in: false, why_not: null, can_ot: false, break_minutes: 60, half_day_at: "13:00", pattern: "Office" } };
   }
   if (p === "/staff/attendance/monitor") data = { date: D + "16", geofence: { lat: 1.56, lng: 103.72, radius_m: 150, label: "Setia Tropika office" },
     /* v1.191.0 - stored as the worker stores them: UTC "YYYY-MM-DD HH:MM:SS"
@@ -519,7 +533,21 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     staff: staff.slice(0, 8).map((x, i) => ({ id: x.id, name: x.full_name ?? x.name, role: x.role,
       in_at: i < 6 ? `${D}16 0${i % 2}:${String(10 + i * 7).padStart(2, "0")}:00` : null,
       out_at: i === 1 ? `${D}16 09:31:00` : null, last_type: i < 6 ? (i === 1 ? "clock_out" : "clock_in") : null, shifts: i < 6 ? 1 : 0,
-      in_gps: i < 6 ? (i === 3 ? "1.5712,103.7601,25" : "1.5601,103.7201,12") : null })) };
+      in_gps: i < 6 ? (i === 3 ? "1.5712,103.7601,25" : "1.5601,103.7201,12") : null,
+      /* v1.294.0 - the read-only additions: who they are at work, today's shift, each punch's location outcome */
+      position: ["CEO", "Account Executive", "Designer", "Live host", "Marketing", "HR Executive", "Editor", "Sales"][i] ?? null,
+      department: ["Management", "Finance", "Creative", "Live", "Marketing", "HR", "Creative", "Sales"][i] ?? null,
+      role_title: null,
+      shift: { label: i === 6 ? null : "09:00-18:00", pattern: i === 4 ? "Live board" : "Office", scheduled: i !== 6 },
+      on_leave: i === 7, holiday: false,
+      punches: i < 6 ? [
+        { type: "clock_in", at: `${D}16 0${i % 2}:${String(10 + i * 7).padStart(2, "0")}:00`, pending: false, loc: i === 3 ? { status: "outside", distance_m: 1320, accuracy_m: 25 } : i === 5 ? { status: "denied", distance_m: null, accuracy_m: null } : { status: "verified", distance_m: 20 + i, accuracy_m: 12 } },
+        ...(i === 1 ? [{ type: "clock_out", at: `${D}16 09:31:00`, pending: false, loc: { status: "low_accuracy", distance_m: 90, accuracy_m: 400 } }] : []),
+      ] : [],
+      in_loc: i < 6 ? (i === 3 ? { status: "outside", distance_m: 1320, accuracy_m: 25 } : i === 5 ? { status: "denied", distance_m: null, accuracy_m: null } : { status: "verified", distance_m: 20 + i, accuracy_m: 12 }) : null,
+      out_loc: i === 1 ? { status: "low_accuracy", distance_m: 90, accuracy_m: 400 } : null,
+      loc_exempt: ["ceo", "coo", "cco"].includes(x.role) })),
+    site: { label: "Setia Tropika office", radius_m: 150 } };
   /* v1.185.0 - the Ecommerce page: the TikTok connection, the orders the
      sync stored, and the buyer cities behind the map and the top states */
   /* v1.226.0 - Profile -> Shift reminders: the person's own switches */

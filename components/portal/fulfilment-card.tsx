@@ -35,7 +35,7 @@ const CHIPS: [key: string, label: string, labelMs: string, icon: AppIconName][] 
   ["shipped", "Shipped", "Dihantar", "shipped"],
   ["in_transit", "In transit", "Dalam perjalanan", "transit"],
   ["delivered", "Delivered", "Telah sampai", "success"],
-  ["returned", "Returned", "Dipulangkan", "returned"],
+  ["returned", "Returned / cancelled", "Dipulang / dibatal", "returned"],
 ];
 /* v1.191.0 - each status's tint in the reference's five tiles */
 const TONE: Record<string, string> = { preparing: "gold", shipped: "blue", in_transit: "blue", delivered: "green", returned: "red" };
@@ -91,7 +91,7 @@ export function FulfilmentCard({ onViewAll }: { onViewAll?: () => void } = {}) {
       <div className={css.head}>
         <span className={css.well}><AppIcon name="fulfilment" /></span>
         <div className={css.headText}>
-          <p className={css.title}>{L("Fulfilment Overview", "Gambaran Pemenuhan")}</p>
+          <p className={css.title}>{L("Fulfilment Summary", "Ringkasan Pemenuhan")}</p>
           {/* v1.212.0 - TikTok orders only, by the month they were recorded (the server's rule) */}
           <p className={css.sub}>{d ? (() => { const m = Number(d.month.slice(5, 7)) - 1; return `${L("TikTok orders recorded in", "Pesanan TikTok direkodkan pada")} ${MONTHS[m] ? `${MONTHS[m]} ${d.month.slice(0, 4)}` : dmy(d.month)}`; })() : "…"}</p>
         </div>
@@ -112,6 +112,9 @@ export function FulfilmentCard({ onViewAll }: { onViewAll?: () => void } = {}) {
               </button>
             ))}
           </div>
+          {/* v1.296.0 (Ecommerce v2.0) - the lifecycle, said once: progress and outcome are not one line */}
+          <p className={css.sub} data-testid="fulfilment-lifecycle">{L("A new order counts under Preparing, then moves Shipped → In transit → Delivered. Returned / cancelled is how an order ends instead, not a step after Delivered; the store records a return and a cancellation as one outcome.",
+            "Pesanan baharu dikira dalam Disediakan, kemudian Dihantar → Dalam perjalanan → Sampai. Dipulang / dibatal ialah pengakhiran lain, bukan langkah selepas Sampai; kedai merekod pulangan dan pembatalan sebagai satu hasil.")}</p>
           {totalMonth === 0 && (
             <p className={css.sub}>{L("No shipments recorded this month yet.", "Belum ada penghantaran direkodkan bulan ini.")}</p>
           )}

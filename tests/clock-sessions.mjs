@@ -279,7 +279,9 @@ ok("...and On Shift does not OFFER Clock In on that answer",
      /firstIn=\{today\.some\(\(r\) => r\.type === "clock_in"\) \? firstIn : null\} lastOut=\{hasOut \? lastOut : null\}/.test(zoneShift)
      && /firstIn=\{today\.some\(\(r\) => r\.type === "clock_in"\) \? firstIn : null\}\s*lastOut=\{hasOut \? lastOut : null\}/.test(dashCode.slice(dashCode.indexOf("const todayShiftCard = ("))));
   ok("the day's punch record is drawn per session, on On Shift",
-     (dashCode.match(/<SessionRows sessions=\{sessionsNow\} known=\{attKnown\} \/>/g) ?? []).length === 1
+     /* v1.294.0 - Punch Details hands it today's punches, the site and the
+        exemption so each punch shows its location outcome; still one call */
+     (dashCode.match(/<SessionRows sessions=\{sessionsNow\} known=\{attKnown\}[^>]*\/>/g) ?? []).length === 1
      && /<SessionRows /.test(zoneShift),
      "one row per shift; the summary carries only first in, last out and the hours");
   /* v1.176.2 made the Dashboard a handoff into On Shift; v1.184.0 reversed

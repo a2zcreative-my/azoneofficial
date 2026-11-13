@@ -559,6 +559,11 @@ function RecordSheet({ inv: fixed, invoices, additional = false, who = "staff", 
                 {banks.map((b) => <option key={b.id} value={b.id} disabled={b.company !== inv.company}>{b.name} {b.number_masked} {b.company ? `(${COMPANY[b.company] ?? b.company})` : L("(no company yet)", "(tiada syarikat lagi)")}</option>)}
               </select>
             </label>
+            {!banks.some((b) => b.company === inv.company) && (
+              <p className={css.note} role="note" data-testid="bank-company-missing"><AppIcon name="info" />{L(
+                `No bank account is assigned to ${COMPANY[inv.company] ?? inv.company} yet, so none can be chosen. In Companies, open the Bank accounts register, review the account the money went into and choose ${COMPANY[inv.company] ?? inv.company}, then verify here. This keeps each company's money apart.`,
+                `Tiada akaun bank ditetapkan kepada ${COMPANY[inv.company] ?? inv.company} lagi, jadi tiada yang boleh dipilih. Dalam Syarikat, buka daftar Akaun bank, semak akaun yang menerima wang dan pilih ${COMPANY[inv.company] ?? inv.company}, kemudian sahkan di sini. Ini memastikan wang setiap syarikat berasingan.`)}</p>
+            )}
             <label className={css.field}>{L("Where you saw the money", "Di mana anda melihat wang")}
               <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
                 <option value="bank_statement">{L("Bank statement", "Penyata bank")}</option>
@@ -806,6 +811,11 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
                           {data.banks.map((b) => <option key={b.id} value={b.id} disabled={b.company !== pic.invoice.company}>{b.name} {b.number_masked} {b.company ? `(${COMPANY[b.company] ?? b.company})` : L("(no company yet)", "(tiada syarikat lagi)")}</option>)}
                         </select>
                       </label>
+                      {!data.banks.some((b) => b.company === pic.invoice.company) && (
+                        <p className={css.note} role="note" data-testid="bank-company-missing"><AppIcon name="info" />{L(
+                          `No bank account is assigned to ${COMPANY[pic.invoice.company] ?? pic.invoice.company} yet, so none can be chosen. In Companies, open the Bank accounts register, review the account the money went into and choose ${COMPANY[pic.invoice.company] ?? pic.invoice.company}, then verify here. This keeps each company's money apart.`,
+                          `Tiada akaun bank ditetapkan kepada ${COMPANY[pic.invoice.company] ?? pic.invoice.company} lagi, jadi tiada yang boleh dipilih. Dalam Syarikat, buka daftar Akaun bank, semak akaun yang menerima wang dan pilih ${COMPANY[pic.invoice.company] ?? pic.invoice.company}, kemudian sahkan di sini. Ini memastikan wang setiap syarikat berasingan.`)}</p>
+                      )}
                       <label className={css.field}>{L("How you checked it", "Cara anda menyemak")}
                         <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
                           <option value="bank_statement">{L("Bank statement", "Penyata bank")}</option>
