@@ -326,3 +326,29 @@
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+
+/* v1.297.0 - the phone's view bar: the Dashboard's view switch, the sync beside it */
+.viewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.phoneSync {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--gold-solid);
+  color: var(--primary);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.phoneSync svg { width: 1rem; height: 1rem; }
+.phoneSync:disabled { opacity: 0.6; }
+.phoneSync:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: 2px; }

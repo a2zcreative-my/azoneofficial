@@ -13,7 +13,7 @@ import { Lang, getLang } from "@/lib/i18n";
    and the reported accuracy. Never the coordinates. */
 export type LocStatus = "verified" | "outside" | "low_accuracy" | "recorded" | "denied" | "unavailable" | "none";
 export interface LocOutcome { status: LocStatus; distance_m: number | null; accuracy_m: number | null }
-export interface AttRecord { type: string; created_at: string; pending?: boolean; loc?: LocOutcome }
+export interface AttRecord { type: string; created_at: string; pending?: boolean; loc?: LocOutcome; /* v1.297.0 - own records only */ pos?: { lat: number; lng: number; acc: number | null } | null }
 export type DashCache = {
   as_of?: string;
   records: AttRecord[];
@@ -23,7 +23,7 @@ export type DashCache = {
   /* v1.294.0 - whether the person is exempt from the outside flag
      (CEO, COO, CCO) and the site the outcomes are judged against */
   loc_exempt?: boolean;
-  fence?: { label: string; radius_m: number } | null;
+  fence?: { label: string; radius_m: number; lat?: number; lng?: number } | null;
   /* v1.133.0 — every block of today's pattern, so the card can say which
      shifts to clock for. null when the schedule cannot be read. */
   today_shift?: {

@@ -26,6 +26,7 @@ import { useState, type ReactNode } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { L, type LocOutcome, type LocStatus } from "@/components/portal/page-shared";
+import { PunchMap, type MapPoint } from "@/components/portal/punch-map";
 import { chipDanger, chipInfo, chipNeutral, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSuccess, chipWarn } from "@/lib/ui-styles";
 import css from "./shift-location.module.css";
 
@@ -161,11 +162,13 @@ export function FenceDiagram({ radius, distance, accuracy, outside, siteLabel }:
 /* the Location Verification card                                      */
 /* ------------------------------------------------------------------ */
 
-export interface LatestPunch { type: string; at: string; loc: LocOutcome }
+export interface LatestPunch { type: string; at: string; loc: LocOutcome; pos?: { lat: number; lng: number; acc: number | null } | null }
 
 const mytHmLocal = (at: string) => new Date(Date.parse(`${at.replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(11, 16);
 
-export function LocationCard({ fence, fenceFailed, latest, exempt, waiting, known, children }: {
+export function LocationCard({ fence, fenceFailed, latest, exempt, waiting, known, mapSite = null, children }: {
+  /** v1.297.0 - the site's point, sent only with the person's own day: draws the real map */
+  mapSite?: MapPoint | null;
   /** the site, as GET /staff/attendance/geofence answers it; null = not read yet */
   fence: { configured: boolean; radius_m?: number; label?: string } | null;
   /** the site could not be read */
@@ -180,6 +183,7 @@ export function LocationCard({ fence, fenceFailed, latest, exempt, waiting, know
   children?: ReactNode;
 }) {
   const [mapOpen, setMapOpen] = useState(false);
+  const [tilesFailed, setTilesFailed] = useState(false);
   const configured = !!fence?.configured;
   const radius = fence?.radius_m ?? 0;
   const label = fence?.label ?? L("the office", "pejabat");
@@ -209,10 +213,25 @@ export function LocationCard({ fence, fenceFailed, latest, exempt, waiting, know
           {configured ? (
             <div className={css.mapWrap} data-open={mapOpen ? "" : undefined}>
               <button type="button" className={css.mapToggle} aria-expanded={mapOpen} onClick={() => setMapOpen((o) => !o)}>
-                <AppIcon name="place" />{mapOpen ? L("Hide the location diagram", "Sembunyikan rajah lokasi") : L("Show the location diagram", "Tunjukkan rajah lokasi")}
+                <AppIcon name="place" />{mapOpen ? L("Hide the map", "Sembunyikan peta") : L("Show the map", "Tunjukkan peta")}
               </button>
               <div className={css.mapBody}>
-                <FenceDiagram radius={radius} distance={hasPoint ? loc!.distance_m : null} accuracy={hasPoint ? loc!.accuracy_m : null} outside={outside} siteLabel={label} />
+                {mapSite && !tilesFailed ? (
+                  <PunchMap site={mapSite} radius={radius} punch={latest?.pos ? { lat: latest.pos.lat, lng: latest.pos.lng } : null}
+                    accuracy={latest?.pos?.acc ?? null} outside={outside} siteLabel={label} onFail={() => setTilesFailed(true)} />
+                ) : (
+                  <>
+                    {tilesFailed && <p className={css.note} role="status">{L("The map could not load, so the distance diagram is shown instead.", "Peta tidak dapat dimuatkan, jadi rajah jarak dipaparkan.")}</p>}
+                    <FenceDiagram radius={radius} distance={hasPoint ? loc!.distance_m : null} accuracy={hasPoint ? loc!.accuracy_m : null} outside={outside} siteLabel={label} />
+                  </>
+                )}
+                {mapSite && !tilesFailed && (
+                  <ul className={css.legend}>
+                    <li><span className={css.keySite} aria-hidden />{L("Assigned location", "Lokasi ditetapkan")}</li>
+                    {latest?.pos && <li><span className={outside ? css.keyPunchOut : css.keyPunch} aria-hidden />{L("Your punch location", "Lokasi punch anda")}</li>}
+                    <li><span className={css.keyFence} aria-hidden />{L(`Geofence (${radius} m radius)`, `Geofence (jejari ${radius} m)`)}</li>
+                  </ul>
+                )}
               </div>
             </div>
           ) : (

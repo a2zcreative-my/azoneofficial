@@ -40,6 +40,7 @@ import { FulfilmentCard } from "@/components/portal/fulfilment-card";
 import { OpsMapCard } from "@/components/portal/ops-map";
 import { L, ZoneLabel, type User } from "@/components/portal/page-shared";
 import { TabPage } from "@/components/portal/tab-concept";
+import { ViewSwitch } from "@/components/portal/executive-cards";
 import { TikTokAnalyticsCard } from "@/components/portal/tiktok-cards";
 import { STATUSES, TikTokOrders, connectionLine, useOrderCounts, useTikTokSync, type SyncResult } from "@/components/portal/tiktok-orders";
 import { TopStatesCard } from "@/components/portal/top-states-card";
@@ -57,6 +58,15 @@ import css from "./ecommerce-panel.module.css";
 
 type View = "overview" | "orders" | "fulfilment" | "stock" | "analytics" | "sync";
 const VIEWS: readonly View[] = ["overview", "orders", "fulfilment", "stock", "analytics", "sync"];
+/* the phone switch's line under each view's name */
+const PHONE_SUB: Record<View, () => string> = {
+  overview: () => L("The month at a glance, and what needs you", "Bulan ini sepintas lalu, dan yang perlu anda"),
+  orders: () => L("Every TikTok order, searchable", "Semua pesanan TikTok, boleh dicari"),
+  fulfilment: () => L("Where each order is now", "Di mana setiap pesanan sekarang"),
+  stock: () => L("Inventory, read here", "Inventori, dibaca di sini"),
+  analytics: () => L("States, the map and the month", "Negeri, peta dan bulan ini"),
+  sync: () => L("The connection and the last sync", "Sambungan dan segerak terakhir"),
+};
 interface FulfilSummary { month: string; by_status: Record<string, number>; oldest_preparing: { order_ref: string; days: number | null } | null }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -257,6 +267,11 @@ export function EcommercePanel({ user, lang, go, canOpen, startView }: {
 
   return (
     <TabPage className={css.page}>
+      {/* v1.297.0 (the CEO, 13-11-2026: "Ecommerce PWA doesnt standardize as
+          like a Dashboard button") - the tab row on a wide screen; on a phone
+          the Dashboard's view switch (the "CEO View" chip) and the sync
+          beside it, as the Desk and Sales do, never a row cut off at the edge */}
+      <div className="erp-desktop-only" data-testid="ecom-tabs">
       <LineTabs value={view} tabs={tabs} label={L("Ecommerce", "E-dagang")}
         onChange={(k) => { if (k === "orders") setOrdersStatus(""); setView(k); }}
         aside={
@@ -269,6 +284,16 @@ export function EcommercePanel({ user, lang, go, canOpen, startView }: {
             )}
           </TabAside>
         } />
+      </div>
+      <div className={`erp-phone-only ${css.viewBar}`} data-testid="ecom-view-bar">
+        <ViewSwitch value={view} onChange={(k) => { if (k === "orders") setOrdersStatus(""); setView(k); }} label={L("Ecommerce view", "Paparan e-dagang")}
+          options={tabs.map(([k, label]) => [k, label, PHONE_SUB[k]()] as const)} />
+        {tt.canSync && (
+          <button type="button" className={css.phoneSync} onClick={() => void tt.sync()} disabled={tt.busy} aria-busy={tt.busy}>
+            <AppIcon name="refresh" />{tt.busy ? L("Syncing…", "Menyegerak…") : L("Sync", "Segerak")}
+          </button>
+        )}
+      </div>
 
       {(tt.busy || tt.result) && (
         <p className={`erp-note ${tt.busy ? "erp-note-info" : tt.result?.ok ? (tt.result.problems.length ? "erp-note-warning" : "erp-note-success") : "erp-note-warning"} ${css.syncNote}`} role="status">

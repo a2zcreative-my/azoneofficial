@@ -515,12 +515,14 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       const inT = late ? "09:41" : "08:5" + (d % 10); const outT = half ? "13:02" : iso === today ? null : "18:1" + (d % 10);
       /* v1.294.0 - each punch carries the server's location OUTCOME (never coordinates): a late day was punched outside */
       const locIn = late ? { status: "outside", distance_m: 132, accuracy_m: 18 } : d === 5 ? { status: "unavailable", distance_m: null, accuracy_m: null } : { status: "verified", distance_m: 24, accuracy_m: 8 };
-      recs.push({ type: "clock_in", created_at: `${iso} ${String(Number(inT.slice(0, 2)) - 8).padStart(2, "0")}:${inT.slice(3)}:00`, pending: false, loc: locIn });
+      /* v1.297.0 - the person's own positions (their own day only); invented points near the fixture office */
+      const posIn = late ? { lat: 1.5612, lng: 103.7212, acc: 18 } : d === 5 ? null : { lat: 1.56015, lng: 103.72012, acc: 8 };
+      recs.push({ type: "clock_in", created_at: `${iso} ${String(Number(inT.slice(0, 2)) - 8).padStart(2, "0")}:${inT.slice(3)}:00`, pending: false, loc: locIn, pos: posIn });
       if (outT) recs.push({ type: "clock_out", created_at: `${iso} ${String(Number(outT.slice(0, 2)) - 8).padStart(2, "0")}:${outT.slice(3)}:00`, pending: false, loc: { status: "verified", distance_m: 31, accuracy_m: 12 } });
       days.push({ date: iso, status: iso === today ? "pending" : half ? "half_day" : late ? "late" : "ok", in: inT, out: outT, open: iso === today, scheduled: true, worked: true });
     }
     recs.reverse(); // newest first, as the worker sends them
-    data = { as_of: today, records: recs, ot: [], ot_eligible: true, days, loc_exempt: ["ceo", "coo", "cco"].includes(ROLE), fence: { label: "Setia Tropika office", radius_m: 150 },
+    data = { as_of: today, records: recs, ot: [], ot_eligible: true, days, loc_exempt: ["ceo", "coo", "cco"].includes(ROLE), fence: { label: "Setia Tropika office", radius_m: 150, lat: 1.56, lng: 103.72 },
       today_shift: process.env.DAY === "off" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "rest", label: "Rest day", windows: [], slots: [], slots_label: "", can_clock_in: false, why_not: "rest_day", can_ot: false }
         : process.env.DAY === "ready" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "office", label: "Office day", windows: [{ start: "09:00", end: "18:00" }], slots: [{ start: "09:00", end: "18:00", what: "Office", claimed: false }], slots_label: "Today", can_clock_in: true, why_not: null, can_ot: false } // v1.247.2 - not clocked in yet, Clock In offered
         : process.env.DAY === "later" ? { entry: { clocked_in: false, open_since: null, clock_out_at: null, launch_shift: false, leave_review: false }, kind: "live", label: "Live session", windows: [{ start: "23:30", end: "23:59" }], slots: [{ start: "23:30", end: "23:59", what: "Live", claimed: false }], slots_label: "23:30-23:59", can_clock_in: false, why_not: "too_early", can_ot: false }

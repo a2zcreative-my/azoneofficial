@@ -77,3 +77,15 @@ export function locOutcome(gps: string | null | undefined, fence: FenceLite | nu
   if (acc !== null && acc > fence.radius_m) return { status: "low_accuracy", distance_m, accuracy_m };
   return { status: "verified", distance_m, accuracy_m };
 }
+
+/** v1.297.0 - a punch's own position, for the person who made it (their On
+    Shift map). null for a punch with no fix. Rounded to 6 decimals (~0.1 m). */
+export function punchPos(gps: string | null | undefined): { lat: number; lng: number; acc: number | null } | null {
+  const raw = typeof gps === "string" ? gps.trim() : "";
+  const m = GPS_TEXT.exec(raw);
+  if (!m) return null;
+  const lat = Number(m[1]), lng = Number(m[2]);
+  if (!(lat >= -90 && lat <= 90) || !(lng >= -180 && lng <= 180)) return null;
+  const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
+  return { lat: r6(lat), lng: r6(lng), acc: m[3] !== undefined ? Math.round(Number(m[3])) : null };
+}

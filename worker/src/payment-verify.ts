@@ -590,9 +590,20 @@ export async function handlePayments(
     const bank = await bankCompany(env, bankId);
     if (!bank.ok || !bank.active) return err("invalid_input", "That account is not an active company account.", 400);
     if (!bank.company) return err("bank_company_unknown", `${bank.name} is not assigned to a company yet. Assign it in Companies (review), then verify.`, 409);
-    if (bank.company !== rep.issuer_code) {
-      return err("company_mismatch", `${inv.doc_number} is ${COMPANY_NAME[rep.issuer_code] ?? rep.issuer_code}'s invoice; ${bank.name} belongs to ${COMPANY_NAME[bank.company] ?? bank.company}. Company money is never combined.`, 409);
+    /* v1.297.0 (the CEO, 13-11-2026: "my payment will be received either one
+       of it", answer "Allow, flagged"). A customer may pay an A2Z invoice into
+       the AZ ONE account, or the other way round. The money is still verified
+       against the invoice - but only when the CEO says, in this request, that
+       it landed in the OTHER company's account and why. It is then recorded as
+       a cross-company receipt (money one company holds for the other) in the
+       event, the audit and the cash book mark; nothing is ever silently mixed.
+       An account with no company is still refused above. */
+    const crossCompany = bank.company !== rep.issuer_code;
+    const crossReason = crossCompany && str(body?.cross_reason, 300) ? String(body!.cross_reason).trim() : "";
+    if (crossCompany && (body?.cross_company !== true || crossReason.length < 10)) {
+      return err("company_mismatch", `${inv.doc_number} is ${COMPANY_NAME[rep.issuer_code] ?? rep.issuer_code}'s invoice; ${bank.name} belongs to ${COMPANY_NAME[bank.company] ?? bank.company}. If the customer paid into that account, confirm it as a cross-company receipt and give the reason (at least 10 characters).`, 409);
     }
+    const cross = crossCompany ? { cross_company: true, invoice_company: rep.issuer_code, received_company: bank.company, cross_reason: crossReason } : null;
     const verifiedSoFar = await verifiedOf(env, inv.id);
     const balance = Math.max(0, inv.total_cents - verifiedSoFar);
     const asked = body?.amount_cents === undefined ? Math.min(rep.amount_cents, balance) : body.amount_cents;
@@ -641,14 +652,14 @@ export async function handlePayments(
     await env.DB.prepare(
       `INSERT INTO cashbook_marks (item_key, bank_id, bank_note, bank_by, bank_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
        ON CONFLICT(item_key) DO UPDATE SET bank_id = excluded.bank_id, bank_note = excluded.bank_note, bank_by = excluded.bank_by, bank_at = excluded.bank_at`,
-    ).bind(`PART:${pay.id}`, bankId, "Payment verification", user.id).run().catch(() => undefined);
+    ).bind(`PART:${pay.id}`, bankId, cross ? `Payment verification · cross-company: ${COMPANY_NAME[cross.invoice_company] ?? cross.invoice_company} invoice received in ${COMPANY_NAME[cross.received_company] ?? cross.received_company}'s account` : "Payment verification", user.id).run().catch(() => undefined);
     /* v1.285.0 - whose sale: the CEO's own, or on behalf of the invoice's salesperson (recorded as it is today, never re-read later) */
     const ownSale = inv.salesperson_id === user.id;
     const sale = { own_sale: ownSale, salesperson_id: inv.salesperson_id, salesperson: inv.salesperson ?? null, ceo_marked: ownReport, has_proof: !!rep.proof_key };
-    await event(env, inv.id, rid, "verified", user.id, asked, { verify_method: vm, bank: bank.name, payment_id: pay.id, duplicate_reason: dupReason, evidence_by: rep.evidence_by, ...sale }, `verified:${rid}`);
+    await event(env, inv.id, rid, "verified", user.id, asked, { verify_method: vm, bank: bank.name, payment_id: pay.id, duplicate_reason: dupReason, evidence_by: rep.evidence_by, ...sale, ...(cross ?? {}) }, `verified:${rid}`);
     await audit(env, user.id, ownReport ? "payment.ceo_marked_paid" : "payment.verified", "invoice_payment_reports", String(rid), {
       invoice: inv.doc_number, amount_cents: asked, reported_cents: rep.amount_cents, verify_method: vm, bank_id: bankId, payment_id: pay.id,
-      reported_by: rep.reported_by, evidence_by: rep.evidence_by, duplicate_reason: dupReason, ...sale,
+      reported_by: rep.reported_by, evidence_by: rep.evidence_by, duplicate_reason: dupReason, ...sale, ...(cross ?? {}),
     });
     const paid = await settle(env, user, inv, bankId, rep.reference);
     if (!paid) {

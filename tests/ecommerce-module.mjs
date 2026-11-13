@@ -117,8 +117,9 @@ const connCard = read("components/portal/connection-status-card.tsx");
   ok("…and the integration's /status and /sync", JSON.stringify([...new Set(integ)].sort()) === JSON.stringify(["/status", "/sync"]), integ.join(","));
   ok("the only write is the sync's POST", (ordersCode.match(/method: "(POST|PUT|PATCH|DELETE)"/g) ?? []).join() === 'method: "POST"' && /tiktokApi<[^>]*>\("\/sync", \{ method: "POST", body: "\{\}" \}\)/.test(ordersCode));
   ok("pressed twice is one sync", /if \(!canSync \|\| busyRef\.current\) return;/.test(ordersCode) && /busyRef\.current = true;/.test(ordersCode));
-  ok("one sync hook on the page, and the header and the Sync tab both press it",
-     (panelCode.match(/useTikTokSync\(/g) ?? []).length === 1 && (panelCode.match(/onClick=\{\(\) => void tt\.sync\(\)\}/g) ?? []).length === 2 && !/azone:tiktok-sync"/.test(panelCode + ordersCode));
+  /* v1.297.0 - the phone's view bar carries the header's Sync too (the same press of the same hook) */
+  ok("one sync hook on the page, and the header (wide and phone) and the Sync tab press it",
+     (panelCode.match(/useTikTokSync\(/g) ?? []).length === 1 && (panelCode.match(/onClick=\{\(\) => void tt\.sync\(\)\}/g) ?? []).length === 3 && !/azone:tiktok-sync"/.test(panelCode + ordersCode));
   ok("the map and the states still hear a finished sync", /window\.dispatchEvent\(new Event\("azone:tiktok-synced"\)\)/.test(ordersCode));
   const stockReads = [...stockCode.matchAll(/"(\/staff\/[^"]+)"/g)].map((m) => m[1]);
   ok("the stock view reads Inventory's own two lists and writes nothing",

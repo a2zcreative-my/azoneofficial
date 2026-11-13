@@ -33,6 +33,7 @@ function checks(f) {
   ok("A the view is in the address", /useTabViewAddress\("Ecommerce", view, setView, allowed\);/.test(p) && /startView=\{startOf\("Ecommerce"\)\}/.test(f.portal));
   ok("A Stock and Analytics are opened only by those who may", /\(v !== "stock" \|\| canStock\) && \(v !== "analytics" \|\| canRevenue \|\| canAnalytics\)/.test(p) && /const view: View = allowed\(asked\) \? asked : "overview";/.test(p));
   ok("A the guard is stable", /const allowed = useCallback\(/.test(p));
+  ok("A a phone switches views with the Dashboard's view switch, never a cut-off tab row", /<div className="erp-desktop-only" data-testid="ecom-tabs">\s*<LineTabs /.test(p) && /data-testid="ecom-view-bar">\s*<ViewSwitch value=\{view\}/.test(p));
 
   const order = ["{tiles}", "{alertCard}", "<FulfilmentCard", '<TikTokOrders mode="recent"', "{canStock && stockAlerts}"].map((s) => ov.indexOf(s));
   ok("B the directive's order: figures, attention, fulfilment, recent orders, stock alerts", order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), order.join(" < "));
@@ -55,6 +56,7 @@ let failed = res.filter(([, c]) => !c);
 for (const [n, c, d] of res) if (!c) console.log(`  ✗ ${n}${d ? `  [${d}]` : ""}`);
 const MUT = [
   ["the address forgotten", "panel", 'useTabViewAddress("Ecommerce", view, setView, allowed);', ""],
+  ["the tab row back on the phone", "panel", '<div className="erp-desktop-only" data-testid="ecom-tabs">', '<div data-testid="ecom-tabs">'],
   ["Stock for anyone", "panel", '(v !== "stock" || canStock)', '(v !== "stock" || true)'],
   ["stock alerts above recent orders", "panel", '<TikTokOrders mode="recent" title={L("Recent orders", "Pesanan terkini")} onViewAll={() => openOrders()} reloadKey={reloadKey} />\n            {canStock && stockAlerts}', '{canStock && stockAlerts}\n            <TikTokOrders mode="recent" title={L("Recent orders", "Pesanan terkini")} onViewAll={() => openOrders()} reloadKey={reloadKey} />'],
   ["called net", "panel", 'label={L("TikTok sales (gross)"', 'label={L("TikTok Net Sales"'],

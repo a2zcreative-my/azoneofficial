@@ -80,6 +80,21 @@ with sync_playwright() as p:
     check("a view this person may not open is never drawn", (view_of(pg) == "analytics") == has_analytics, (pg.url, has_analytics))
     c.close()
 
+    # v1.297.0 - the phone: the Dashboard's view switch, not a cut-off tab row
+    c = ctx_for(b, 390, 844); pg = c.new_page(); go(pg, 4177)
+    check("phone: the view switch is shown and the tab row is not", pg.get_by_test_id("ecom-view-bar").is_visible() and not pg.get_by_test_id("ecom-tabs").is_visible())
+    sw = pg.get_by_test_id("ecom-view-bar").get_by_test_id("view-switch")
+    check("phone: the switch names the view", "Overview" in sw.inner_text(), sw.inner_text())
+    sw.click(); pg.wait_for_timeout(250)
+    items = pg.get_by_role("menuitemradio")
+    check("phone: every view this person may open is in the switch", items.count() == 6, items.count())
+    pg.get_by_role("menuitemradio", name=re.compile("^Orders")).click(); pg.wait_for_timeout(700)
+    check("phone: picking Orders opens Orders, in the address", view_of(pg) == "orders" and "Orders" in pg.get_by_test_id("ecom-view-bar").get_by_test_id("view-switch").inner_text(), pg.url)
+    sync = pg.get_by_test_id("ecom-view-bar").get_by_role("button", name=re.compile("^Sync"))
+    sb = sync.bounding_box() if sync.count() else None
+    check("phone: Sync sits beside the switch, a 44 px target", sb is not None and sb["height"] >= 43.5, sb)
+    c.close()
+
     for w in WIDTHS:
         for q in ["", "&view=orders", "&view=fulfilment", "&view=sync"]:
             c = ctx_for(b, w); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))

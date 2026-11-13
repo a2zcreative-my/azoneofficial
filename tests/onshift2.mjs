@@ -36,6 +36,7 @@ const FILES = {
   on: "components/portal/on-shift.tsx",
   sl: "components/portal/shift-location.tsx",
   oncss: "components/portal/on-shift.module.css",
+  pm: "components/portal/punch-map.tsx",
   shared: "components/portal/page-shared.tsx",
 };
 
@@ -56,16 +57,18 @@ function checks(f) {
     /startsWith\("no_location:"\)/.test(loc) && /status: why === "denied" \? "denied" : "unavailable"/.test(loc));
   ok("A no fence means recorded, never verified", /if \(!fence\) return \{ status: "recorded"/.test(loc));
   ok("A the outcome carries no coordinates", /export interface LocOutcome \{ status: LocStatus; distance_m: number \| null; accuracy_m: number \| null \}/.test(loc) && !/\blat:|\blng:/.test(between(loc, "export function locOutcome", "\n}\n")));
-  ok("A one haversine, shared by the check route and the outcome", (staff.match(/function haversineM\(/g) ?? []).length === 0 && /import \{ haversineM, locOutcome, LOC_FLAG_EXEMPT_ROLES, type LocOutcome \} from "\.\/punch-location";/.test(staff));
+  ok("A one haversine, shared by the check route and the outcome", (staff.match(/function haversineM\(/g) ?? []).length === 0 && /import \{ haversineM, locOutcome, (?:punchPos, )?LOC_FLAG_EXEMPT_ROLES, type LocOutcome \} from "\.\/punch-location";/.test(staff));
   ok("A the flag exemption stays CEO, COO and CCO only", /export const LOC_FLAG_EXEMPT_ROLES: readonly string\[\] = \["ceo", "coo", "cco"\];/.test(loc));
 
   /* B - the routes */
   const get = between(staff, 'if (path === "/attendance" && method === "GET") {', 'if (path === "/attendance/monitor" && method === "GET") {');
   const mon = between(staff, 'if (path === "/attendance/monitor" && method === "GET") {', "/* ============ v1.84.0");
   ok("B GET /attendance: each record carries its outcome, and the stored gps is not passed on",
-    /const records = results\.map\(\(r\) => \(\{\s*type: r\.type, ip: r\.ip, created_at: r\.created_at,\s*pending: r\.pending_approval === 1,\s*loc: locOutcome\(r\.gps, fenceA\) as LocOutcome,\s*\}\)\);/.test(get)
+    /* v1.297.0 (the CEO: "make it real") - the map: a position only on the person's OWN records, never the raw text */
+    /const own = forUser === user\.id;/.test(get)
+    && /const records = results\.map\(\(r\) => \(\{\s*type: r\.type, ip: r\.ip, created_at: r\.created_at,\s*pending: r\.pending_approval === 1,\s*loc: locOutcome\(r\.gps, fenceA\) as LocOutcome,\s*\.\.\.\(own \? \{ pos: punchPos\(r\.gps\) \} : \{\}\),\s*\}\)\);/.test(get)
     && /records, ot, ot_eligible, today_shift, days,/.test(get) && !/records: results/.test(get));
-  ok("B GET /attendance: the site goes out as its label and radius only", /fence: fenceA \? \{ label: fenceA\.label, radius_m: fenceA\.radius_m \} : null,/.test(get));
+  ok("B GET /attendance: the site's point goes only with the person's own day", /fence: fenceA \? \{ label: fenceA\.label, radius_m: fenceA\.radius_m, \.\.\.\(own \? \{ lat: fenceA\.lat, lng: fenceA\.lng \} : \{\}\) \} : null,/.test(get));
   ok("B GET /attendance: still read-only (no INSERT, UPDATE or DELETE added)", !/\b(INSERT|UPDATE|DELETE)\b/.test(get.replace(/deriveOtForDay/g, "")));
   ok("B the monitor still answers hr_manage or exec_view only", /if \(!can\(user\.role, "hr_manage"\) && !can\(user\.role, "exec_view"\)\)/.test(mon));
   ok("B the monitor's additions are outcomes and words: no coordinate leaves in a punch",
@@ -79,7 +82,11 @@ function checks(f) {
   ok("C one punch function, and On Shift still presses it three ways", (dash.match(/const punch = async/g) ?? []).length === 1
     && /void press\(\(\) => punch\("clock_out"\)\)/.test(dash) && /void press\(\(\) => punch\("clock_in"\)\)/.test(dash) && /void press\(\(\) => punch\("clock_out", forgotArmed\)\)/.test(dash));
   ok("C location is read by the punch and the tap only", (dash.match(/navigator\.geolocation\.getCurrentPosition/g) ?? []).length === 1 && !/geolocation|watchPosition/.test(on + sl) && !/watchPosition/.test(dash));
-  ok("C the new drawing makes no request and loads no map", !/\bapi\(|fetch\(|useCachedApi|csrfFetch/.test(sl) && !/tile|leaflet|maps\.google|openstreetmap|mapbox|apikey|api_key/i.test(sl));
+  ok("C the location card makes no request of its own", !/\bapi\(|fetch\(|useCachedApi|csrfFetch/.test(sl));
+  /* v1.297.0 - the real map: OpenStreetMap's standard tiles, no library, no key, credited, with the diagram as its fallback */
+  const pm = strip(f.pm);
+  ok("C the map is OpenStreetMap's tiles, keyless, credited, and falls back to the diagram", /https:\/\/tile\.openstreetmap\.org\/\$\{z\}\/\$\{wx\}\/\$\{ty\}\.png/.test(pm) && !/apikey|api_key|access_token|leaflet|mapbox/i.test(pm)
+    && /© OpenStreetMap/.test(pm) && /mapSite && !tilesFailed \?/.test(sl) && /<FenceDiagram /.test(sl) && !/\bapi\(|fetch\(|useCachedApi/.test(pm));
   ok("C the diagram says it shows distance, not direction", /The direction of the punch is not shown/.test(f.sl));
   ok("C the existing location check is the one control, inside the location card", /<LocationCard [\s\S]{0,300}?\{fenceStrip && \(/.test(dash) && (dash.match(/checkLocation\(\)/g) ?? []).length === 1);
 
@@ -118,7 +125,7 @@ async function runtime() {
   const dir = mkdtempSync(join(tmpdir(), "onshift2-"));
   const bundle = join(dir, "loc.mjs");
   execSync(`npx esbuild "${join(root, FILES.loc)}" --bundle --format=esm --platform=neutral --outfile="${bundle}" --log-level=error`, { cwd: root, stdio: "inherit" });
-  const { locOutcome } = await import(pathToFileURL(bundle).href + `?v=${Math.random()}`);
+  const { locOutcome, punchPos } = await import(pathToFileURL(bundle).href + `?v=${Math.random()}`);
   const fence = { lat: 1.56, lng: 103.72, radius_m: 100, label: "HQ" };
   const north = (m) => (1.56 + m / 111195).toFixed(7);
   const r1 = locOutcome(`${north(24)},103.72,8`, fence);
@@ -134,6 +141,8 @@ async function runtime() {
   ok("run: no_location:denied is denied; timeout is unavailable", locOutcome("no_location:denied", fence).status === "denied" && locOutcome("no_location:timeout", fence).status === "unavailable");
   ok("run: nothing stored is none; a fence-less office is recorded", locOutcome(null, fence).status === "none" && locOutcome(`${north(5)},103.72,5`, null).status === "recorded");
   ok("run: garbage is none, never verified", locOutcome("91,200", fence).status === "none" && locOutcome("abc", fence).status === "none");
+  ok("run: a punch's own position (for its own map) is its point and accuracy; no fix is no position",
+    JSON.stringify(punchPos("1.5601234567,103.72,8")) === JSON.stringify({ lat: 1.560123, lng: 103.72, acc: 8 }) && punchPos("no_location:denied") === null && punchPos(null) === null && punchPos("91,200") === null);
   ok("run: the outcome has exactly status, distance and accuracy", JSON.stringify(Object.keys(r1).sort()) === JSON.stringify(["accuracy_m", "distance_m", "status"]));
   return out;
 }
@@ -154,7 +163,10 @@ const MUT = [
   ["the monitor opened to everyone", "staff", 'if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {\n      return err("forbidden", "HR access required", 403);\n    }\n    const todayM', 'if (false) {\n      return err("forbidden", "HR access required", 403);\n    }\n    const todayM'],
   ["a write in the monitor", "staff", "const staffM = (results", "await env.DB.prepare(`UPDATE users SET department = NULL`).run();\n    const staffM = (results"],
   ["a second location read", "dash", "const lastLocPunch =", "const watch = () => navigator.geolocation.watchPosition(() => {});\n  const lastLocPunch ="],
-  ["a map service", "sl", "const NICE = [", 'const TILE = "https://tile.openstreetmap.org";\nconst NICE = ['],
+  ["a keyed map service", "pm", "const TILE = 256;", 'const TILE = 256;\nconst KEY = "apikey=abc";'],
+  ["no fallback when the tiles fail", "sl", "mapSite && !tilesFailed ?", "mapSite ?"],
+  ["the site's point to anyone", "staff", "...(own ? { lat: fenceA.lat, lng: fenceA.lng } : {})", "lat: fenceA.lat, lng: fenceA.lng"],
+  ["another person's positions", "staff", "...(own ? { pos: punchPos(r.gps) } : {}),", "pos: punchPos(r.gps),"],
   ["the direction claimed", "sl", "The direction of the punch is not shown", "The punch is shown where it was"],
   ["the punch after the location on a phone", "oncss", ".aQuick { order: 2; }", ".aQuick { order: 4; }"],
   ["team beside recent dropped", "oncss", '"team team team team team team team team recent recent recent recent";', '"team team team team team team team team team team team team";'],

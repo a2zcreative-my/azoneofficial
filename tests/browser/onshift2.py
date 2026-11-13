@@ -50,7 +50,9 @@ with sync_playwright() as p:
     b = p.chromium.launch()
 
     # ---- the CEO at 1440: the photo's layout ----
-    c = ctx_for(b, 1440, 1000); pg = c.new_page()
+    c = ctx_for(b, 1440, 1000)
+    c.route("https://tile.openstreetmap.org/**", lambda r: r.abort())  # v1.297.0 - this run reads the distance diagram (the map's fallback); the map has its own run below
+    pg = c.new_page()
     errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     hosts = set(); pg.on("request", lambda r: hosts.add(re.sub(r"^https?://([^/]+).*$", r"\1", r.url)))
     go(pg, 4177)
@@ -131,8 +133,37 @@ with sync_playwright() as p:
     pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
     check("Team: Escape closes the drawer", pg.get_by_test_id("team-detail").count() == 0)
     check("no coordinates anywhere on the page", not COORD.search(main_text(pg)))
-    check("no request to any other host (no map service)", hosts <= {"127.0.0.1", "localhost"} or all(h in ("127.0.0.1", "localhost") or h.startswith("127.0.0.1") or h.startswith("localhost") or h.startswith("data:") for h in hosts), hosts)
+    # v1.297.0 - the CEO asked for a real map: OpenStreetMap's tile host is the one other host, and only for map images
+    check("no request to any other host but the map's tiles", all(h.startswith("127.0.0.1") or h.startswith("localhost") or h == "tile.openstreetmap.org" for h in hosts), hosts)
     check("no page error (CEO)", not errs, errs[:2])
+    c.close()
+
+    # ---- v1.297.0 - the real map (OpenStreetMap tiles; served here by a stub, the sandbox has no outside network) ----
+    import struct, zlib
+    def png1(r, g, b):
+        raw = b"\x00" + bytes([r, g, b])
+        def chunk(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    tile = png1(236, 233, 226)
+    c = ctx_for(b, 1440, 1000)
+    tiles = []
+    c.route("https://tile.openstreetmap.org/**", lambda r: (tiles.append(r.request.url), r.fulfill(status=200, content_type="image/png", body=tile)))
+    pg = c.new_page(); go(pg, 4177)
+    check("map: the location card draws the real map for the person's own day", pg.get_by_test_id("punch-map").count() == 1 and pg.get_by_test_id("fence-diagram").count() == 0)
+    check("map: its tiles are OpenStreetMap's, and it says so", len(tiles) > 0 and all(t.startswith("https://tile.openstreetmap.org/") for t in tiles) and "© OpenStreetMap" in pg.get_by_test_id("punch-map").inner_text())
+    lab = pg.get_by_test_id("punch-map").get_by_role("img").first.get_attribute("aria-label") or ""
+    check("map: it names the site, the fence and the punch in words", "Setia Tropika office" in lab and "150 metre" in lab and "punch" in lab, lab)
+    z0 = sorted({t.split("/")[3] for t in tiles}); n0 = len(tiles)
+    pg.get_by_test_id("punch-map").get_by_role("button", name="Zoom in").click(); pg.wait_for_timeout(500)
+    z1 = sorted({t.split("/")[3] for t in tiles[n0:]})
+    check("map: zoom in asks for the next zoom's tiles", z1 and int(z1[-1]) == int(z0[-1]) + 1, (z0, z1))
+    check("map: no coordinates are printed on the page", not COORD.search(pg.locator("main").inner_text()))
+    c.close()
+    c = ctx_for(b, 1440, 1000)
+    c.route("https://tile.openstreetmap.org/**", lambda r: r.abort())
+    pg = c.new_page(); go(pg, 4177, 5000)
+    check("map: when the tiles cannot load, the distance diagram is shown and it says why",
+          pg.get_by_test_id("fence-diagram").count() == 1 and "The map could not load" in pg.get_by_test_id("location-card").inner_text())
     c.close()
 
     # ---- the widths: no sideways page, no error card ----
@@ -145,13 +176,15 @@ with sync_playwright() as p:
             c.close()
 
     # ---- the live host on a phone: the order, the folded map, no team ----
-    c = ctx_for(b, 390, 844); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+    c = ctx_for(b, 390, 844)
+    c.route("https://tile.openstreetmap.org/**", lambda r: r.fulfill(status=200, content_type="image/png", body=tile))
+    pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     go(pg, 4180)
     s = top(pg, "section[aria-label='My shift']"); q = top(pg, "[data-testid=shift-actions]"); l = top(pg, "[data-testid=location-card]")
     check("phone: My Shift, then the punch, then the location", s and q and l and s["y"] < q["y"] < l["y"], (s, q, l))
-    check("phone: the diagram is folded behind its button", not pg.get_by_test_id("fence-diagram").is_visible())
-    pg.get_by_role("button", name="Show the location diagram").click(); pg.wait_for_timeout(300)
-    check("phone: ...and opens on a tap", pg.get_by_test_id("fence-diagram").is_visible())
+    check("phone: the map is folded behind its button", not pg.get_by_test_id("punch-map").is_visible())
+    pg.get_by_role("button", name="Show the map").click(); pg.wait_for_timeout(500)
+    check("phone: ...and opens on a tap", pg.get_by_test_id("punch-map").is_visible())
     zb = pg.get_by_role("button", name="Zoom in").bounding_box()
     check("phone: the zoom buttons are 44 px targets", zb and zb["height"] >= 43.5 and zb["width"] >= 43.5, zb)
     check("phone: a host has no Team On Shift", pg.get_by_test_id("team-on-shift").count() == 0)

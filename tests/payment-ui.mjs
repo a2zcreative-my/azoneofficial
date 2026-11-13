@@ -97,7 +97,18 @@ ok("on Payments the header's gold action is Report payment", /wsView === "paymen
    nothing can be chosen and where to fix it, instead of a silent grey list. */
 {
   const pp = read("components/portal/payments-panel.tsx");
-  ok("an account of another company, or of none, is still not choosable", (pp.match(/disabled=\{b\.company !== (inv\.company|pic\.invoice\.company)\}/g) ?? []).length === 2);
+  /* v1.297.0 - the CEO, 13-11-2026 ("my payment will be received either one
+     of it", answer "Allow, flagged"): the other company's account may be
+     chosen, but only with the cross-company confirmation and a reason; an
+     account with no company stays unchoosable. The rule changed by the
+     owner's decision; tests/payment-verify.mjs holds the server side. */
+  ok("an account with no company is never choosable; the other company's is, flagged", /disabled=\{!b\.company\}/.test(pp)
+    && (pp.match(/bankOption\(b, (inv\.company|pic\.invoice\.company)\)/g) ?? []).length === 2
+    && (pp.match(/<CrossCompany bankCo=/g) ?? []).length === 2);
+  ok("...the confirmation and its reason are required before Verify, and sent with it",
+    /const crossReady = \(bankCo: string \| null \| undefined, invCo: string, ok: boolean, why: string\) => !bankCo \|\| bankCo === invCo \|\| \(ok && why\.trim\(\)\.length >= 10\);/.test(pp)
+    && (pp.match(/crossReady\(/g) ?? []).length === 2 && (pp.match(/cross_company: crossOk, cross_reason: crossWhy\.trim\(\)/g) ?? []).length === 2);
+  ok("...and a verified cross-company payment says so", /data-testid="cross-company-chip"/.test(pp));
   ok("...and when none can be chosen both pickers say why and where to assign it",
     (pp.match(/data-testid="bank-company-missing"/g) ?? []).length === 2 && /open the Bank accounts register/.test(pp));
 }

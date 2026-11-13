@@ -466,7 +466,7 @@ export function AlertBand({ alerts }: { alerts: AlertLine[] }) {
 
 /** The phone's view switch (the photo's "CEO View" chip): a two-option
     menu, the current view ticked; Escape or a press outside closes it. */
-export function ViewSwitch<T extends string>({ value, options, onChange }: { value: T; options: readonly (readonly [T, string, string])[]; onChange: (v: T) => void }) {
+export function ViewSwitch<T extends string>({ value, options, onChange, label }: { value: T; options: readonly (readonly [T, string, string])[]; onChange: (v: T) => void; /** v1.297.0 - the menu's name (default: the Dashboard's) */ label?: string }) {
   const [open, setOpen] = useState(false);
   const cur = options.find((o) => o[0] === value) ?? options[0]!;
   return (
@@ -476,7 +476,7 @@ export function ViewSwitch<T extends string>({ value, options, onChange }: { val
         {cur[1]} <AppIcon name={open ? "up" : "down"} />
       </button>
       {open && (
-        <div role="menu" className={css.vsMenu} aria-label={L("Dashboard view", "Paparan papan pemuka")}>
+        <div role="menu" className={css.vsMenu} aria-label={label ?? L("Dashboard view", "Paparan papan pemuka")}>
           {options.map(([k, label, sub]) => (
             <button key={k} type="button" role="menuitemradio" aria-checked={k === value} className={css.vsItem}
               onClick={() => { setOpen(false); onChange(k); }}>

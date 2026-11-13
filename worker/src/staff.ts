@@ -30,7 +30,7 @@ import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, leaveRoute, leaveAbove, leaveNextStep, parseLeaveRoute, leaveRoutedTimeline, LEAVE_ROUTE_VERSION, type LeaveTimelineRow, type LeaveRoute, type LeaveDecisionRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
-import { haversineM, locOutcome, LOC_FLAG_EXEMPT_ROLES, type LocOutcome } from "./punch-location"; // v1.294.0 - On Shift v2.0: a punch's location as a word, never its coordinates
+import { haversineM, locOutcome, punchPos, LOC_FLAG_EXEMPT_ROLES, type LocOutcome } from "./punch-location"; // v1.294.0 - On Shift v2.0: a punch's location as a word, never its coordinates
 import { handleDesk, handleDeskCompleted } from "./desk"; // v1.106.0 - One Desk; v1.293.0 - Completed (read only)
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
@@ -5791,17 +5791,24 @@ async function handleStaffRoutes(
        coordinates stay with the register's readers. `pending` marks a
        forgotten punch still waiting for approval. */
     const fenceA = await getGeofence(env);
+    /* v1.297.0 (the CEO, 13-11-2026: "the Geofence I want to make it real") -
+       the On Shift card draws a real map, so a person reading THEIR OWN day
+       receives their own punch positions and the site's point. Never anyone
+       else's: an HR read of another person (forUser !== user.id) carries the
+       outcome only, as before, and the team views never carry a position. */
+    const own = forUser === user.id;
     const records = results.map((r) => ({
       type: r.type, ip: r.ip, created_at: r.created_at,
       pending: r.pending_approval === 1,
       loc: locOutcome(r.gps, fenceA) as LocOutcome,
+      ...(own ? { pos: punchPos(r.gps) } : {}),
     }));
     const subjectRole = forUser === user.id ? user.role
       : (await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(forUser).first<{ role: string }>())?.role ?? "";
     return json({
       month, as_of: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), records, ot, ot_eligible, today_shift, days,
       loc_exempt: LOC_FLAG_EXEMPT_ROLES.includes(subjectRole),
-      fence: fenceA ? { label: fenceA.label, radius_m: fenceA.radius_m } : null,
+      fence: fenceA ? { label: fenceA.label, radius_m: fenceA.radius_m, ...(own ? { lat: fenceA.lat, lng: fenceA.lng } : {}) } : null,
     });
   }
 

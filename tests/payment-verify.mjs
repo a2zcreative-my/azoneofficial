@@ -229,6 +229,22 @@ async function runtime(workerBundle) {
     await proof(k2.j.id, 6);
     const race = await Promise.all([verify(k2.j.id, { bank_id: 2 }), verify(k2.j.id, { bank_id: 2 })]);
     ok(race.every((x) => x.status === 200) && parts(104) === 15000 && n(`SELECT COUNT(*) AS n FROM invoice_payments WHERE invoice_id = 104 AND voided_at IS NULL`) === 2, "two verifications at the same moment record the payment once", race.map((x) => x.text.slice(0, 80)).join(" | "));
+    /* v1.297.0 - the CEO, 13-11-2026: a payment may land in either company's
+       account ("Allow, flagged"). Only with the cross-company confirmation and
+       a reason; recorded as such in the event, the audit and the cash book. */
+    const k3 = await report(104, 6, 5000, "MBB 9003");
+    await proof(k3.j.id, 6);
+    ok((await verify(k3.j.id, { bank_id: 1 })).j?.error?.code === "company_mismatch", "another company's account without the cross-company confirmation is refused");
+    ok((await verify(k3.j.id, { bank_id: 1, cross_company: true, cross_reason: "short" })).j?.error?.code === "company_mismatch", "...and with a reason under 10 characters");
+    ok((await verify(k3.j.id, { bank_id: 3, cross_company: true, cross_reason: "Customer paid the wrong account" })).j?.error?.code === "bank_company_unknown", "...an account with no company is still refused, confirmation or not");
+    ok(state(k3.j.id) === "reported" && parts(104) === 15000, "...and nothing changed");
+    const kx = await verify(k3.j.id, { bank_id: 1, cross_company: true, cross_reason: "Customer transferred into the A2Z Maybank account" });
+    ok(kx.status === 200 && parts(104) === 20000, "confirmed, the AZ ONE invoice is verified with the money in the A2Z account", kx.text.slice(0, 200));
+    const kAudit = JSON.parse(db.prepare(`SELECT detail FROM audit_log WHERE action = 'payment.verified' AND entity_id = ? ORDER BY id DESC LIMIT 1`).get(String(k3.j.id))?.detail ?? "{}");
+    ok(kAudit.cross_company === true && kAudit.invoice_company === "azoo" && kAudit.received_company === "a2z" && /A2Z Maybank/.test(kAudit.cross_reason), "the audit says it is cross-company, whose invoice, whose account and why", JSON.stringify(kAudit));
+    const kMark = db.prepare(`SELECT bank_id, bank_note FROM cashbook_marks WHERE item_key = ?`).get(`PART:${db.prepare(`SELECT payment_id FROM invoice_payment_reports WHERE id = ?`).get(k3.j.id).payment_id}`);
+    ok(kMark?.bank_id === 1 && /cross-company/.test(kMark?.bank_note ?? ""), "the cash book mark records the account it really landed in, marked cross-company", JSON.stringify(kMark));
+    ok(n(`SELECT COUNT(*) AS n FROM invoice_payment_events WHERE event = 'verified' AND report_id = ? AND detail LIKE '%"cross_company":true%'`, k3.j.id) === 1, "the payment timeline carries the cross-company mark");
 
     /* ---------- v1.285.0 - the CEO's own Paid is final (the CEO, 12-11-2026) ----------
        "If I update the paid status, no further verification are required
@@ -407,8 +423,10 @@ const MUT = [
   [V, "any CEO-role account verifies", [["const verifier = (u: StaffUser) => can(u.role, \"payment_verify\") && isExecutiveOwner(u);", "const verifier = (u: StaffUser) => can(u.role, \"payment_verify\");"]]],
   [V, "the COO and CCO are not told of the CEO's own Paid", [["      for (const x of execs ?? []) await notify(", "      for (const x of [] as { id: number }[]) await notify("]]],
   [V, "the salesperson is not told it was on her behalf", [["      if (inv.salesperson_id && !ownSale) await notify(", "      if (false) await notify("]]],
-  [V, "any company's account takes the money", [["if (bank.company !== rep.issuer_code) {", "if (false) {"]]],
+  [V, "any company's account takes the money, unflagged", [["const crossCompany = bank.company !== rep.issuer_code;", "const crossCompany = false;"]]],
   [V, "an unassigned account takes the money", [["if (!bank.company) return err(\"bank_company_unknown\"", "if (false) return err(\"bank_company_unknown\""]]],
+  [V, "a cross-company receipt without its confirmation", [["if (crossCompany && (body?.cross_company !== true || crossReason.length < 10)) {", "if (false) {"]]],
+  [V, "a cross-company receipt not recorded", [["...sale, ...(cross ?? {}),\n    });", "...sale,\n    });"]]],
   [V, "a partial payment settles the invoice", [["  if (verified < inv.total_cents) return false;\n", ""]]],
   [V, "the invoice is never settled", [["    const paid = await settle(env, user, inv, bankId, rep.reference);", "    const paid = false;"]]],
   [V, "duplicates are not flagged", [["      if (refKey) {\n        const d1", "      if (false) {\n        const d1"]]],

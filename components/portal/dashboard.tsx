@@ -365,6 +365,11 @@ export function Dashboard({
   /* v1.294.0 - On Shift v2.0: whether this person is exempt from the
      outside flag (CEO, COO, CCO), from the same response */
   const [locExempt, setLocExempt] = useState(() => cacheRead<DashCache>(DASH_ATT)?.loc_exempt === true);
+  /* v1.297.0 - the site's point for the real map, from the person's own day */
+  const [mapSite, setMapSite] = useState<{ lat: number; lng: number } | null>(() => {
+    const f = cacheRead<DashCache>(DASH_ATT)?.fence;
+    return f && typeof f.lat === "number" && typeof f.lng === "number" ? { lat: f.lat, lng: f.lng } : null;
+  });
   /* v1.170.0 — the month's verdicts, from the same response. null = the
      worker did not send them (an older build, or the classifier could not
      run); the card is then simply not drawn rather than drawn wrong. */
@@ -481,6 +486,7 @@ export function Dashboard({
     setTodayOt((d.ot ?? []).filter((r) => mytDateOf(r.created_at) === mytToday()));
     setOtEligible(d.ot_eligible === true);
     setLocExempt(d.loc_exempt === true);
+    setMapSite(d.fence && typeof d.fence.lat === "number" && typeof d.fence.lng === "number" ? { lat: d.fence.lat, lng: d.fence.lng } : null);
     setAttKnown(true);
     setAttendanceError(false);
   }, []);
@@ -1631,7 +1637,7 @@ export function Dashboard({
      coordinates - and is judged by the punch gate's own rule. */
   const site = fence?.configured ? (fence.label ?? null) : null;
   const lastLocPunch = today.find((r) => (r.type === "clock_in" || r.type === "clock_out") && !!r.loc) ?? null;
-  const latestLoc = lastLocPunch?.loc ? { type: lastLocPunch.type, at: lastLocPunch.created_at, loc: lastLocPunch.loc } : null;
+  const latestLoc = lastLocPunch?.loc ? { type: lastLocPunch.type, at: lastLocPunch.created_at, loc: lastLocPunch.loc, pos: lastLocPunch.pos ?? null } : null;
   const slotMin = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const schedSlots = todayShift?.slots ?? [];
   const schedSpan = schedSlots.reduce((n, x) => n + Math.max(0, (x.end === "00:00" ? 1440 : slotMin(x.end)) - slotMin(x.start)), 0);
@@ -1787,7 +1793,7 @@ export function Dashboard({
       </section>
       <div className={shiftCss.aLoc}>
         <LocationCard fence={fenceFailed ? null : fence} fenceFailed={fenceFailed} latest={latestLoc} exempt={locExempt}
-          waiting={waitingPunches.length} known={attKnown}>
+          waiting={waitingPunches.length} known={attKnown} mapSite={mapSite}>
           {fenceStrip && (
             <div className={css.fenceCard}>
               {fenceStrip}

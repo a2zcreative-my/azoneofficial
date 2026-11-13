@@ -60,6 +60,7 @@ interface Rep {
   doc_number?: string; customer?: string | null; reporter?: string | null; reporter_role?: string | null; salesperson?: string | null; total_cents?: number;
   note?: string | null; answer?: string | null; reason?: string | null; evidence_note?: string | null; evidence_name?: string | null; evidence_at?: string | null;
   decided_name?: string | null; bank_name?: string | null; verify_method?: string | null; dup_reason?: string | null; reverse_reason?: string | null;
+  bank_id?: number | null;
 }
 interface OpenInv {
   id: number; doc_number: string; total_cents: number; customer: string | null; salesperson: string | null; salesperson_id?: number | null; company: string; created_at?: string;
@@ -483,8 +484,11 @@ function RecordSheet({ inv: fixed, invoices, additional = false, who = "staff", 
   const [bank, setBank] = useState<number | "">(companyBanks.length === 1 ? companyBanks[0]!.id : "");
   const [vm, setVm] = useState("bank_statement");
   const [code, setCode] = useState("");
+  const [crossOk, setCrossOk] = useState(false);
+  const [crossWhy, setCrossWhy] = useState("");
+  const bankCo = bank === "" ? null : banks.find((b) => b.id === bank)?.company ?? null;
   const cents = toCents(amount);
-  const detailsOk = !!inv && cents > 0 && !!on && (method === "cash" || ref.trim().length >= 3) && (!extra || sure) && (!owner || bank !== "");
+  const detailsOk = !!inv && cents > 0 && !!on && (method === "cash" || ref.trim().length >= 3) && (!extra || sure) && (!owner || (bank !== "" && crossReady(bankCo, inv.company, crossOk, crossWhy)));
   const full = !!inv && cents >= left && left > 0;
   const send = async () => {
     if (!inv) return;
@@ -497,7 +501,8 @@ function RecordSheet({ inv: fixed, invoices, additional = false, who = "staff", 
     if (owner) {
       /* v1.285.0 - the CEO's own payment: he verifies it himself, now; nobody else checks it */
       const v = await api<Err & { invoice_paid?: boolean }>(`/staff/payment-reports/${r.data.id}/verify`, {
-        method: "POST", body: JSON.stringify({ bank_id: bank === "" ? null : bank, verify_method: vm, amount_cents: Math.min(cents, inv.outstanding_cents), totp: code }),
+        method: "POST", body: JSON.stringify({ bank_id: bank === "" ? null : bank, verify_method: vm, amount_cents: Math.min(cents, inv.outstanding_cents), totp: code,
+          ...(bankCo && bankCo !== inv.company ? { cross_company: crossOk, cross_reason: crossWhy.trim() } : {}) }),
       });
       setBusy(false); setCode("");
       if (!v.ok) { onFail(L(`Recorded, but not marked paid: ${msg(v, "try again")} Open the invoice to finish.`, `Direkod, tetapi belum ditanda dibayar: ${msg(v, "cuba lagi")} Buka invois untuk selesaikan.`)); onDone(L("Payment recorded", "Bayaran direkod")); return; }
@@ -556,13 +561,14 @@ function RecordSheet({ inv: fixed, invoices, additional = false, who = "staff", 
             <label className={css.field}>{L("Received in account", "Diterima dalam akaun")}
               <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value ? Number(e.target.value) : "")}>
                 <option value="">{L("Choose the account", "Pilih akaun")}</option>
-                {banks.map((b) => <option key={b.id} value={b.id} disabled={b.company !== inv.company}>{b.name} {b.number_masked} {b.company ? `(${COMPANY[b.company] ?? b.company})` : L("(no company yet)", "(tiada syarikat lagi)")}</option>)}
+                {banks.map((b) => bankOption(b, inv.company))}
               </select>
             </label>
-            {!banks.some((b) => b.company === inv.company) && (
+            <CrossCompany bankCo={bankCo} invCo={inv.company} ok={crossOk} setOk={setCrossOk} why={crossWhy} setWhy={setCrossWhy} />
+            {!banks.some((b) => b.company) && (
               <p className={css.note} role="note" data-testid="bank-company-missing"><AppIcon name="info" />{L(
-                `No bank account is assigned to ${COMPANY[inv.company] ?? inv.company} yet, so none can be chosen. In Companies, open the Bank accounts register, review the account the money went into and choose ${COMPANY[inv.company] ?? inv.company}, then verify here. This keeps each company's money apart.`,
-                `Tiada akaun bank ditetapkan kepada ${COMPANY[inv.company] ?? inv.company} lagi, jadi tiada yang boleh dipilih. Dalam Syarikat, buka daftar Akaun bank, semak akaun yang menerima wang dan pilih ${COMPANY[inv.company] ?? inv.company}, kemudian sahkan di sini. Ini memastikan wang setiap syarikat berasingan.`)}</p>
+                `No bank account has a company yet, so none can be chosen. In Companies, open the Bank accounts register and give each account its company (one account at a time), then verify here.`,
+                `Tiada akaun bank mempunyai syarikat lagi, jadi tiada yang boleh dipilih. Dalam Syarikat, buka daftar Akaun bank dan tetapkan syarikat bagi setiap akaun (satu demi satu), kemudian sahkan di sini.`)}</p>
             )}
             <label className={css.field}>{L("Where you saw the money", "Di mana anda melihat wang")}
               <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
@@ -610,6 +616,29 @@ function RecordSheet({ inv: fixed, invoices, additional = false, who = "staff", 
 
 type Mode = "verify" | "reject" | "clarify" | "evidence" | "reverse" | "answer" | "proof";
 
+/* v1.297.0 (the CEO, 13-11-2026: "my payment will be received either one of
+   it", answer "Allow, flagged"). Money for one company's invoice may land in
+   the other company's account. It is still verified - but the CEO says so,
+   and why, and it is recorded as a cross-company receipt. An account with no
+   company yet stays unchoosable: the record must say whose account it is. */
+function bankOption(b: { id: number; name: string; number_masked: string; company: string | null }, invCo: string) {
+  const whose = b.company ? `(${COMPANY[b.company] ?? b.company}${b.company !== invCo ? L(" - other company", " - syarikat lain") : ""})` : L("(no company yet)", "(tiada syarikat lagi)");
+  return <option key={b.id} value={b.id} disabled={!b.company}>{b.name} {b.number_masked} {whose}</option>;
+}
+function CrossCompany({ bankCo, invCo, ok, setOk, why, setWhy }: { bankCo: string | null | undefined; invCo: string; ok: boolean; setOk: (v: boolean) => void; why: string; setWhy: (v: string) => void }) {
+  if (!bankCo || bankCo === invCo) return null;
+  const inv = COMPANY[invCo] ?? invCo, held = COMPANY[bankCo] ?? bankCo;
+  return (
+    <div className="erp-note erp-note-warning" role="note" data-testid="cross-company">
+      <p>{L(`This is ${inv}'s invoice, and the account you chose belongs to ${held}. It will be recorded as a cross-company receipt: ${held} holds this money for ${inv}.`,
+        `Ini invois ${inv}, dan akaun yang dipilih milik ${held}. Ia akan direkod sebagai penerimaan rentas syarikat: ${held} memegang wang ini untuk ${inv}.`)}</p>
+      <label className={css.check}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} data-testid="cross-company-ok" /> {L(`The customer paid into ${held}'s account`, `Pelanggan membayar ke akaun ${held}`)}</label>
+      <label className={css.field}>{L("Why (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)")}<input className={inputClassSm} value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} data-testid="cross-company-why" placeholder={L("e.g. Customer transferred to the AZ ONE Maybank by mistake", "cth. Pelanggan tersilap pindah ke Maybank AZ ONE")} /></label>
+    </div>
+  );
+}
+const crossReady = (bankCo: string | null | undefined, invCo: string, ok: boolean, why: string) => !bankCo || bankCo === invCo || (ok && why.trim().length >= 10);
+
 /** One invoice: its figures, its payments, the actions this person may take, the timeline. */
 function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail }: { invId: number; data: Data; userId: number; onClose: () => void; onReport: (i: OpenInv) => void; onDone: (m: string) => void; onFail: (m: string) => void }) {
   const [pic, setPic] = useState<Picture | null>(null);
@@ -621,6 +650,8 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
   const [vm, setVm] = useState("bank_statement");
   const [amt, setAmt] = useState("");
   const [dup, setDup] = useState("");
+  const [crossOk, setCrossOk] = useState(false);
+  const [crossWhy, setCrossWhy] = useState("");
   const [checked, setChecked] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -635,8 +666,9 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
     return () => { live = false; };
   }, [invId, tick]);
 
+  const drawerBankCo = bank === "" ? null : data.banks.find((b) => b.id === bank)?.company ?? null;
   const start = (rid: number, mode: Mode, rep?: Rep) => {
-    setAct({ rid, mode }); setText(""); setCode(""); setDup(""); setChecked(false); setFile(null);
+    setAct({ rid, mode }); setText(""); setCode(""); setDup(""); setChecked(false); setFile(null); setCrossOk(false); setCrossWhy("");
     if (mode === "verify" && rep && pic) {
       setAmt((Math.min(rep.amount_cents, pic.outstanding_cents) / 100).toFixed(2));
       const banks = data.banks.filter((b) => b.company === pic.invoice.company);
@@ -652,7 +684,8 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
       r = { ok: !bad, data: bad ? { error: { message: bad } } : null };
     } else {
       const body: Record<string, unknown> =
-        act.mode === "verify" ? { bank_id: bank === "" ? null : bank, verify_method: vm, amount_cents: toCents(amt), dup_reason: dup.trim() || undefined, totp: code }
+        act.mode === "verify" ? { bank_id: bank === "" ? null : bank, verify_method: vm, amount_cents: toCents(amt), dup_reason: dup.trim() || undefined, totp: code,
+          ...(drawerBankCo && pic && drawerBankCo !== pic.invoice.company ? { cross_company: crossOk, cross_reason: crossWhy.trim() } : {}) }
         : act.mode === "reject" ? { reason: text.trim(), totp: code }
         : act.mode === "reverse" ? { reason: text.trim(), totp: code }
         : act.mode === "clarify" ? { question: text.trim() }
@@ -672,7 +705,7 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
 
   const needsCode = act && ["verify", "reject", "reverse", "evidence"].includes(act.mode);
   const ready = act && !busy && (!needsCode || code.length === 6) && (
-    act.mode === "verify" ? bank !== "" && toCents(amt) > 0
+    act.mode === "verify" ? bank !== "" && toCents(amt) > 0 && !!pic && crossReady(drawerBankCo, pic.invoice.company, crossOk, crossWhy)
     : act.mode === "evidence" ? checked && text.trim().length >= 5
     : act.mode === "proof" ? !!file
     : act.mode === "clarify" ? text.trim().length >= 5
@@ -789,7 +822,9 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
                 {r.over_cents > 0 && <p className="erp-note erp-note-warning">{L(`Reported ${fmtRM(r.over_cents)} above the balance. At most the balance is verified; the rest is never applied to another invoice.`, `Dilapor ${fmtRM(r.over_cents)} melebihi baki. Paling banyak baki disahkan; selebihnya tidak digunakan untuk invois lain.`)}</p>}
                 {r.question && <p className="erp-note">{L("CEO's question:", "Soalan CEO:")} {r.question}{r.answer ? ` - ${L("Answer:", "Jawapan:")} ${r.answer}` : ""}</p>}
                 {r.state === "verified" && saleWords(verifiedEv) && <p className={css.sub} data-testid="sale-words"><b>{r.mine ? L("Marked paid by you", "Ditanda dibayar oleh anda") : L("Verified", "Disahkan")} · {saleWords(verifiedEv)}</b></p>}
-                {r.state === "verified" && <p className={css.sub}>{L("Verified", "Disahkan")} {fmtRM(r.verified_cents ?? 0)} {L("by", "oleh")} {r.decided_name ?? "-"} · {r.bank_name ?? ""} · {r.verify_method === "receipt_only" ? L("checked on the receipt only", "disemak pada resit sahaja") : r.verify_method === "bank_app" ? L("checked in the bank app", "disemak dalam aplikasi bank") : L("checked on the bank statement", "disemak pada penyata bank")}</p>}
+                {r.state === "verified" && <p className={css.sub}>{L("Verified", "Disahkan")} {fmtRM(r.verified_cents ?? 0)} {L("by", "oleh")} {r.decided_name ?? "-"} · {r.bank_name ?? ""} · {r.verify_method === "receipt_only" ? L("checked on the receipt only", "disemak pada resit sahaja") : r.verify_method === "bank_app" ? L("checked in the bank app", "disemak dalam aplikasi bank") : L("checked on the bank statement", "disemak pada penyata bank")}
+                  {(() => { const co = data.banks.find((b) => b.id === r.bank_id)?.company; return co && co !== pic.invoice.company
+                    ? <> · <span className="erp-chip erp-chip-sm erp-chip-warning" data-testid="cross-company-chip">{L(`Cross-company: in ${COMPANY[co] ?? co}'s account`, `Rentas syarikat: dalam akaun ${COMPANY[co] ?? co}`)}</span></> : null; })()}</p>}
                 {r.reason && <p className="erp-note erp-note-danger">{L("Reason:", "Sebab:")} {r.reason}</p>}
                 {r.reverse_reason && <p className="erp-note erp-note-warning">{L("Reversed:", "Dibatalkan:")} {r.reverse_reason}</p>}
                 <div className={css.actions}>
@@ -808,13 +843,14 @@ function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail 
                       <label className={css.field}>{L("Received in account", "Diterima dalam akaun")}
                         <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value ? Number(e.target.value) : "")}>
                           <option value="">{L("Choose the account", "Pilih akaun")}</option>
-                          {data.banks.map((b) => <option key={b.id} value={b.id} disabled={b.company !== pic.invoice.company}>{b.name} {b.number_masked} {b.company ? `(${COMPANY[b.company] ?? b.company})` : L("(no company yet)", "(tiada syarikat lagi)")}</option>)}
+                          {data.banks.map((b) => bankOption(b, pic.invoice.company))}
                         </select>
                       </label>
-                      {!data.banks.some((b) => b.company === pic.invoice.company) && (
+                      <CrossCompany bankCo={drawerBankCo} invCo={pic.invoice.company} ok={crossOk} setOk={setCrossOk} why={crossWhy} setWhy={setCrossWhy} />
+                      {!data.banks.some((b) => b.company) && (
                         <p className={css.note} role="note" data-testid="bank-company-missing"><AppIcon name="info" />{L(
-                          `No bank account is assigned to ${COMPANY[pic.invoice.company] ?? pic.invoice.company} yet, so none can be chosen. In Companies, open the Bank accounts register, review the account the money went into and choose ${COMPANY[pic.invoice.company] ?? pic.invoice.company}, then verify here. This keeps each company's money apart.`,
-                          `Tiada akaun bank ditetapkan kepada ${COMPANY[pic.invoice.company] ?? pic.invoice.company} lagi, jadi tiada yang boleh dipilih. Dalam Syarikat, buka daftar Akaun bank, semak akaun yang menerima wang dan pilih ${COMPANY[pic.invoice.company] ?? pic.invoice.company}, kemudian sahkan di sini. Ini memastikan wang setiap syarikat berasingan.`)}</p>
+                          `No bank account has a company yet, so none can be chosen. In Companies, open the Bank accounts register and give each account its company (one account at a time), then verify here.`,
+                          `Tiada akaun bank mempunyai syarikat lagi, jadi tiada yang boleh dipilih. Dalam Syarikat, buka daftar Akaun bank dan tetapkan syarikat bagi setiap akaun (satu demi satu), kemudian sahkan di sini.`)}</p>
                       )}
                       <label className={css.field}>{L("How you checked it", "Cara anda menyemak")}
                         <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
