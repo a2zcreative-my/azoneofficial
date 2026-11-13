@@ -26,7 +26,8 @@ const caps = () => {
   const r = ROLE();
   return { view: ["ceo", "coo", "cco", "sales_marketing"].includes(r), edit: ["ceo", "coo", "cco", "sales_marketing"].includes(r), decide: ["ceo", "coo", "cco"].includes(r), allocate: ["ceo", "coo"].includes(r) };
 };
-const LEGAL = { agreement: false, fee: false, disclosure: true, commission: false };
+/* v1.298.0 - the fee on by the CEO's decision (13-11-2026); the agreement and commission stay off */
+const LEGAL = { agreement: false, fee: true, disclosure: true, commission: false };
 const result1 = {
   income_net_cents: 500000, income_gross_cents: 560000, commitments_cents: 200000, instalment_cents: 50000, expenses_cents: 150000,
   current_dsr_bp: 4000, projected_dsr_bp: 5000, disposable_cents: 250000, consolidation: null, unverified_commitments: 1, arrears: false, missing: [],
@@ -50,6 +51,17 @@ function asg(id, banker_id, branch_id, branch, state, district, coverage, covera
 function bk(id, bank_id, full_name, position, work_email, work_phone, status_now, availability_now, assignments, products, facts) {
   return { id, bank_id, bank: bank_id === 1 ? "Fixture Bank A Berhad" : "Fixture Bank B", full_name, position, work_email, work_phone, preferred_channel: work_email ? "work_email" : "work_phone", relationship_type: id === 3 ? "central_unit" : "direct",
     owner_id: 9001, owner: "Fixture Person", case_limit: id === 1 ? 5 : null, open_cases: id === 1 ? 1 : 0, status_now, availability_now, registered_by: id === 2 ? 9001 : 9002, identity: facts.identity ?? null, referral: facts.referral ?? null, assignments, products };
+}
+const mytDay = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+/* v1.298.0 - the case list as the server builds it: next follow-up from the case's open tasks, the banker from its allocation, the review state */
+function caseRows() {
+  return fa.cases.map((k) => {
+    const open = (fa.tasks[k.id] ?? []).filter((x) => x.status !== "completed").sort((a, z) => (a.deadline ?? "9999").localeCompare(z.deadline ?? "9999"));
+    const al = (fa.allocations[k.id] ?? []).find((a) => !["cancelled", "reassigned"].includes(a.state));
+    const rv = (fa.reviews[k.id] ?? [])[0];
+    return { ...k, owner_id: 9001, current_dsr_bp: k.projected_dsr_bp == null ? null : k.projected_dsr_bp - 1000, next_follow_up: open.find((x) => x.deadline)?.deadline ?? null, next_task: open[0]?.title ?? null, next_task_owner: open[0]?.assignee ?? null,
+      banker: al ? `${al.bank} · ${al.banker}` : null, review_pending: rv?.action === "submitted" ? 1 : 0, review_at: rv?.created_at ?? null, review_action: rv?.action ?? null };
+  });
 }
 function freshState() {
   return {
@@ -96,7 +108,8 @@ function freshState() {
       2: [{ id: 5, event: "case_created", detail: null, created_at: "2026-11-09 02:00:00", actor: "Fixture Person" }],
       3: [{ id: 6, event: "case_created", detail: null, created_at: "2026-11-11 05:00:00", actor: "Fixture Person" }],
     },
-    tasks: { 1: [{ id: 1, title: "FA-000001: Request the EPF statement", deadline: "2026-11-14", status: "pending", assignee: "Fixture Person" }], 2: [], 3: [] },
+    /* v1.298.0 - case 3's follow-up is due TODAY (the browser's own Malaysian date), so "today's follow-ups" has a real row */
+    tasks: { 1: [{ id: 1, title: "FA-000001: Request the EPF statement", deadline: "2026-11-14", status: "pending", assignee: "Fixture Person" }], 2: [], 3: [{ id: 2, title: "FA-000003: Collect the latest payslip", deadline: mytDay(), status: "pending", assignee: "Fixture Person" }] },
     criteria: [
       { id: 1, family: "fixture-bank-a:personal_financing", version: 1, bank: "Fixture Bank A", product: "personal_financing", income_definition: "net", commitment_definition: "all", dsr_guideline_bp: 6000, min_income_cents: 300000, employment_categories: null, min_service_months: null, required_documents: JSON.stringify(["payslip", "epf"]), source: "Fixture: product sheet, 01-11-2026", last_verified_on: "2026-11-01", state: "verified" },
       { id: 2, family: "fixture-bank-b:debt_consolidation", version: 1, bank: "Fixture Bank B", product: "debt_consolidation", income_definition: "gross", commitment_definition: "exclude_ptptn", dsr_guideline_bp: null, min_income_cents: null, employment_categories: JSON.stringify(["permanent", "government"]), min_service_months: 6, required_documents: null, source: "Fixture: call with relationship manager, 05-11-2026", last_verified_on: null, state: "draft" },
@@ -158,9 +171,13 @@ export function faRoute(p, method, b) {
   if (method !== "GET") fa.posts.push({ path: p, method, body: b });
   if (p === "/staff/fa/summary") {
     const open = fa.cases.filter((x) => x.stage !== "closed");
-    return [200, { open: open.length, awaiting_banker: open.filter((x) => ["enquiry_sent", "under_review"].includes(x.banker_status)).length, incomplete: open.filter((x) => x.prescreen === "incomplete").length, official_decisions: 0, legal: LEGAL, can: { create: c.edit, decide: c.decide, criteria: c.decide } }];
+    const rows = caseRows().filter((x) => x.stage !== "closed");
+    const act = rows.filter((x) => x.prescreen === "incomplete" || x.banker_status === "documents_required" || ["request_info", "concern"].includes(x.review_action) || (x.next_follow_up && x.next_follow_up <= mytDay()));
+    return [200, { open: open.length, awaiting_banker: open.filter((x) => ["enquiry_sent", "under_review"].includes(x.banker_status)).length, incomplete: open.filter((x) => x.prescreen === "incomplete").length, official_decisions: 0,
+      active: open.length, requiring_action: act.length, reviews: rows.filter((x) => x.review_pending).length, banker_pending: open.filter((x) => ["enquiry_sent", "under_review"].includes(x.banker_status)).length,
+      legal: LEGAL, can: { create: c.edit, decide: c.decide, criteria: c.decide } }];
   }
-  if (p === "/staff/fa/cases" && method === "GET") return [200, { cases: fa.cases }];
+  if (p === "/staff/fa/cases" && method === "GET") return [200, { cases: caseRows(), me: ROLE() === "sales_marketing" ? 9001 : 1 }];
   /* v1.288.0 - the stateless pre-check: the real engine on the fixture's criteria; nothing kept */
   if (p === "/staff/fa/preview" && method === "POST") {
     if (!c.edit) return [403, { error: { code: "forbidden", message: "You cannot run a DSR pre-check" } }];
@@ -272,7 +289,8 @@ export function faRoute(p, method, b) {
       if (b.type === "banker") k.banker_status = b.status; else k.application_status = b.status;
       return [201, { ok: true }];
     }
-    if (["agreement", "fee"].includes(sub)) return [409, { error: { code: "legal_gate", message: "Switched off until counsel clears it." } }];
+    if (sub === "agreement") return [409, { error: { code: "legal_gate", message: "Switched off until legal review and the CEO's separate approval." } }];
+    if (sub === "fee") return [409, { error: { code: "fee_after_disbursement", message: "Billed only after a recorded disbursement, through Sales." } }];
     if (method !== "GET") return [method === "POST" ? 201 : 200, { ok: true }];
   }
   if (p === "/staff/fa/criteria" && method === "GET") return [200, { criteria: fa.criteria, can: { propose: c.edit, verify: c.decide } }];

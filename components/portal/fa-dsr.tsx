@@ -1,5 +1,10 @@
 "use client";
 
+/* v1.298.0 - FA 2.0 Phase 1 (the CEO approved the blueprint, 13-11-2026):
+   two columns on a desktop as in his photo - the inputs on the left, the
+   result with the case under it on the right; the directive's outcome words;
+   a flat or reducing illustrative rate (D-1); the bank fit snapshot says
+   Unknown when no verified rule exists; missing evidence in its own block. */
 /* v1.288.0 - FINANCIAL ADVISORY: THE DSR PRE-CHECK (the CEO approved DSR
    blueprint v1.2, 12-11-2026: D1-D4 as recommended, D5 "proceed without
    lawyers"; layout from his photo).
@@ -50,8 +55,10 @@ export interface DsrResult {
 }
 /* the directive's own words for the five outcomes - preliminary, never a bank decision */
 export const OUTCOME: Record<string, [string, string, string, string]> = {
-  potentially_suitable: ["Potential Match — Proceed to Review", "Padanan Berpotensi — Teruskan ke Semakan", "ok", "✓"],
-  manual_review: ["Manual Assessment Required", "Penilaian Manual Diperlukan", "warn", "!"],
+  /* v1.298.0 - FA 2.0 (the CEO, 13-11-2026): the directive's exact words; "Proceed" is never a
+     result - it exists only as a management decision (fa_reviews), never a loan approval */
+  potentially_suitable: ["Potentially Suitable — Subject to Review", "Berpotensi Sesuai — Tertakluk kepada Semakan", "ok", "✓"],
+  manual_review: ["Management Review Required", "Semakan Pengurusan Diperlukan", "warn", "!"],
   incomplete: ["Information Incomplete", "Maklumat Tidak Lengkap", "mute", "…"],
   affordability_concern: ["Affordability Concern", "Kebimbangan Kemampuan", "bad", "!"],
   no_product: ["No Suitable Product Currently Identified", "Tiada Produk Sesuai Dikenal Pasti", "mute", "–"],
@@ -67,13 +74,13 @@ const COMMIT: [string, string, string][] = [["housing", "Housing financing", "Pe
 interface Row { key: number; id: number | null; kind: string; monthly: string; lender: string; last4: string; remaining: string; settle: boolean; verified: boolean; dup: string }
 interface Form {
   product: string; gross: string; epf: string; socso: string; eis: string; tax: string; other: string; addinc: string; addVerified: boolean; incomeVerified: boolean;
-  rows: Row[]; amount: string; tenureYears: string; rate: string; living: string;
+  rows: Row[]; amount: string; tenureYears: string; rate: string; rateType: "flat" | "reducing"; living: string;
   ids: Partial<Record<"gross" | "epf" | "socso" | "eis" | "tax" | "other" | "addinc" | "living", number>>;
   verifiedIds: number[];
 }
 let rowKey = 1;
 const blankRow = (): Row => ({ key: rowKey++, id: null, kind: "personal_financing", monthly: "", lender: "", last4: "", remaining: "", settle: false, verified: false, dup: "" });
-const blankForm = (product = "personal_financing"): Form => ({ product, gross: "", epf: "", socso: "", eis: "", tax: "", other: "", addinc: "", addVerified: false, incomeVerified: false, rows: [blankRow()], amount: "", tenureYears: "5", rate: "", living: "", ids: {}, verifiedIds: [] });
+const blankForm = (product = "personal_financing"): Form => ({ product, gross: "", epf: "", socso: "", eis: "", tax: "", other: "", addinc: "", addVerified: false, incomeVerified: false, rows: [blankRow()], amount: "", tenureYears: "5", rate: "", rateType: "flat", living: "", ids: {}, verifiedIds: [] });
 
 interface CaseItem { id: number; side: string; kind: string; monthly_cents: number; state: string; voided_at: string | null; label: string | null }
 interface Meta { item_id: number; lender_name: string | null; account_last4: string | null; remaining_months: number | null; duplicate_reason: string | null }
@@ -154,7 +161,7 @@ function caseLines(f: Form) {
 const proposalOf = (f: Form) => {
   const years = Number(f.tenureYears) || 0;
   const rate = f.rate.trim() ? Math.round(Number(f.rate) * 100) : 0;
-  return { amount_cents: sen(f.amount), tenure_months: years > 0 ? years * 12 : null, rate_bp: Number.isFinite(rate) && rate >= 0 ? rate : 0 };
+  return { amount_cents: sen(f.amount), tenure_months: years > 0 ? years * 12 : null, rate_bp: Number.isFinite(rate) && rate >= 0 ? rate : 0, rate_type: f.rateType };
 };
 
 /* =============================== the workspace =============================== */
@@ -176,7 +183,7 @@ export function DsrWorkspace({ toast, openCase, newCase }: { toast: Toast; openC
   useEffect(() => {
     if (caseId == null) return;
     let live = true;
-    void api<DsrPic>(`/staff/fa/cases/${caseId}`).then((r) => { if (live && r.ok && r.data) { setPic(r.data); setF((old) => ({ ...formFromCase(r.data!), amount: old.amount, tenureYears: old.tenureYears, rate: old.rate })); } });
+    void api<DsrPic>(`/staff/fa/cases/${caseId}`).then((r) => { if (live && r.ok && r.data) { setPic(r.data); setF((old) => ({ ...formFromCase(r.data!), amount: old.amount, tenureYears: old.tenureYears, rate: old.rate, rateType: old.rateType })); } });
     return () => { live = false; };
   }, [caseId, tick]);
   /* the live result: the server's engine, a moment after the last keystroke; nothing is stored */
@@ -302,10 +309,11 @@ export function DsrWorkspace({ toast, openCase, newCase }: { toast: Toast; openC
             <label className={css.field}>{L("Requested amount (RM)", "Jumlah dimohon (RM)")}<input className={inputClassSm} inputMode="decimal" value={f.amount} onChange={(e) => set("amount", e.target.value)} data-testid="dsr-amount" /></label>
             <label className={css.field}>{L("Tenure (years)", "Tempoh (tahun)")}<select className={selectClassSm} value={f.tenureYears} onChange={(e) => set("tenureYears", e.target.value)}>{["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"].map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
             <label className={css.field}>{L("Illustrative rate % p.a.", "Kadar ilustrasi % setahun")}<input className={inputClassSm} inputMode="decimal" value={f.rate} onChange={(e) => set("rate", e.target.value)} data-testid="dsr-rate" /></label>
+            <label className={css.field}>{L("Rate type", "Jenis kadar")}<select className={selectClassSm} value={f.rateType} onChange={(e) => set("rateType", e.target.value === "reducing" ? "reducing" : "flat")} data-testid="dsr-rate-type"><option value="flat">{L("Flat rate", "Kadar rata")}</option><option value="reducing">{L("Reducing balance", "Baki berkurangan")}</option></select></label>
             <label className={css.field}>{L("Est. instalment (RM)", "Anggaran ansuran (RM)")}<input className={`${inputClassSm} ${css.dsrCalc}`} readOnly tabIndex={-1} value={rmIn(result?.instalment_cents)} data-testid="dsr-instalment" /></label>
             <label className={css.field}>{L("Living costs, declared (RM)", "Kos sara hidup, diisytihar (RM)")}<input className={inputClassSm} inputMode="decimal" value={f.living} onChange={(e) => set("living", e.target.value)} /></label>
           </div>
-          <p className={css.sub}><span className={chipSmWarn}>{L("Assumption", "Andaian")}</span> {L("The instalment is illustrated from the rate typed - not a bank's terms. Living costs are what the client declared; none is estimated for them.", "Ansuran diilustrasi daripada kadar ditaip - bukan terma bank. Kos sara hidup ialah yang diisytihar pelanggan; tiada anggaran dibuat.")}</p>
+          <p className={css.sub}><span className={chipSmWarn}>{L("Assumption", "Andaian")}</span> {f.rateType === "flat" ? L("Flat rate: interest on the whole amount for the whole tenure.", "Kadar rata: faedah atas seluruh jumlah untuk seluruh tempoh.") : L("Reducing balance: an annuity on the balance left.", "Baki berkurangan: anuiti atas baki.")} {L("The instalment is illustrated from the rate typed - not a bank quotation. Living costs are what the client declared; none is estimated for them.", "Ansuran diilustrasi daripada kadar ditaip - bukan sebut harga bank. Kos sara hidup ialah yang diisytihar pelanggan; tiada anggaran dibuat.")}</p>
         </div>
         <div className={`${css.row} ${css.dsrDeskOnly}`}>
           <button type="button" className={btnSm} onClick={() => setF(mode === "case" && pic ? formFromCase(pic) : blankForm(f.product))}>{mode === "case" && pic ? L("Undo changes", "Batal perubahan") : L("Clear", "Kosongkan")}</button>
@@ -339,15 +347,15 @@ export function DsrWorkspace({ toast, openCase, newCase }: { toast: Toast; openC
               {result.matches.filter((m) => m.fit === "fits" && !m.stale).map((m) => <li key={m.criterion_id} className={css.ok}>{L(`Projected DSR within ${m.bank}'s verified guideline`, `DSR unjuran dalam garis panduan disahkan ${m.bank}`)}</li>)}
               {result.residual_cents != null && <li className={result.residual_cents >= 0 ? css.ok : css.bad}>{L(`Residual after living cost ${fmtRM(result.residual_cents)}`, `Baki selepas kos sara hidup ${fmtRM(result.residual_cents)}`)}</li>}
               {result.unverified_commitments > 0 && <li className={css.unv}>{L(`${result.unverified_commitments} commitment(s) declared, not verified`, `${result.unverified_commitments} komitmen diisytihar, belum disahkan`)}</li>}
-              {result.missing.map((x) => <li key={x} className={css.unv}>{x}</li>)}
+              {result.matches.length === 0 && <li className={css.unv} data-testid="dsr-unknown">{L("No verified, current bank rule for this product - bank fit is Unknown, never assumed", "Tiada peraturan bank disahkan dan semasa untuk produk ini - kesesuaian bank Tidak Diketahui, tidak diandaikan")}</li>}
               {result.matches.some((m) => m.stale) && <li className={css.unv}>{L("A bank rule was last verified over 90 days ago - re-check it", "Peraturan bank disahkan lebih 90 hari lalu - semak semula")}</li>}
-              {result.instalment_cents != null && <li className={css.unv}>{L("Instalment is an assumption from the illustrative rate", "Ansuran ialah andaian daripada kadar ilustrasi")}</li>}
+              {result.instalment_cents != null && <li className={css.unv}>{f.rateType === "flat" ? L("Instalment is an assumption from the illustrative flat rate", "Ansuran ialah andaian daripada kadar rata ilustrasi") : L("Instalment is an assumption from the illustrative reducing-balance rate", "Ansuran ialah andaian daripada kadar baki berkurangan ilustrasi")}</li>}
               {result.confidence && <li>{L(`${result.confidence.verified} of ${result.confidence.verified + result.confidence.declared} figures verified`, `${result.confidence.verified} daripada ${result.confidence.verified + result.confidence.declared} angka disahkan`)}</li>}
             </ul>
           </div>
           <div className={css.dsrKa}>
-            <b>{L("Bank criteria comparison", "Perbandingan kriteria bank")} <span className={css.sub}>{L("verified criteria only · no score", "kriteria disahkan sahaja · tiada skor")}</span></b>
-            {result.matches.length === 0 ? <p className={css.sub}>{L("No verified bank criterion for this product yet - management verifies criteria in Bank Criteria.", "Belum ada kriteria bank disahkan untuk produk ini.")}</p> : (
+            <b>{L("Bank fit snapshot", "Gambaran kesesuaian bank")} <span className={css.sub}>{L("verified criteria only · no score", "kriteria disahkan sahaja · tiada skor")}</span></b>
+            {result.matches.length === 0 ? <p className={css.sub} data-testid="dsr-fit-unknown"><span className={chipSmNeutral}>{L("Unknown", "Tidak diketahui")}</span> {L("No verified bank criterion for this product yet - management verifies criteria in Bank Criteria. Unknown is never a yes.", "Belum ada kriteria bank disahkan untuk produk ini. Tidak diketahui bukan bermaksud ya.")}</p> : (
               <div className={css.dsrTableWrap}><table className={css.dsrTable}>
                 <thead><tr><th>{L("Bank", "Bank")}</th><th>{L("Rule", "Peraturan")}</th><th>{L("Status", "Status")}</th></tr></thead>
                 <tbody>{result.matches.map((m) => (
@@ -358,6 +366,15 @@ export function DsrWorkspace({ toast, openCase, newCase }: { toast: Toast; openC
                   </tr>
                 ))}</tbody>
               </table></div>
+            )}
+          </div>
+          <div className={css.dsrKa} data-testid="dsr-missing">
+            <b>{L("Missing information & evidence", "Maklumat & bukti tiada")}</b>
+            {result.missing.length === 0 && result.unverified_commitments === 0 ? <p className={css.sub}>{L("Nothing missing for this assessment.", "Tiada yang tiada untuk penilaian ini.")}</p> : (
+              <ul>
+                {result.missing.map((x) => <li key={x} className={css.unv}>{x}</li>)}
+                {result.unverified_commitments > 0 && <li className={css.unv}>{L(`Statements for ${result.unverified_commitments} declared commitment(s)`, `Penyata untuk ${result.unverified_commitments} komitmen diisytihar`)}</li>}
+              </ul>
             )}
           </div>
           <p className={css.sub}>{L("DSR = monthly debt commitments ÷ verified net monthly income × 100. Projected adds the proposed instalment.", "DSR = komitmen hutang bulanan ÷ pendapatan bersih bulanan disahkan × 100. Unjuran menambah ansuran dicadangkan.")} {result.engine_version ? `· engine ${result.engine_version}` : ""}</p>

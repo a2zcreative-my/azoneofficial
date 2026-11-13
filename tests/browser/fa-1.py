@@ -22,7 +22,7 @@ Servers (servers):
     ROLE=coo FA=1 ...4281   ROLE=sales_marketing FA=1 ...4282
     ROLE=cco FA=1 ...4283   ROLE=hr_admin FA=1 ...4284
 Invented fixture data only (tests/browser/fa-fixture.mjs)."""
-import os, json, urllib.request
+import os, json, re, urllib.request
 from playwright.sync_api import sync_playwright
 
 CEO, COO, SALES, CCO, HR = 4280, 4281, 4282, 4283, 4284
@@ -32,6 +32,16 @@ results = []
 def check(name, cond, detail=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{str(detail)[:300]}]"))
+
+
+def fa_view(pg, long):
+    """v1.298.0 - FA 2.0 Phase 1: the tab row on a wide screen, the Dashboard's view switch on a phone"""
+    row = pg.get_by_test_id("fa-tabs")
+    if row.count() and row.is_visible():
+        row.get_by_role("tab", name=re.compile("^" + re.escape(long))).first.click()
+    else:
+        pg.get_by_test_id("fa-view-bar").get_by_test_id("view-switch").click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(long))).first.click()
 
 def open_fa(b, port, w):
     urllib.request.urlopen(f"http://127.0.0.1:{port}/__reset").read()
@@ -47,7 +57,7 @@ sideways = lambda pg: pg.evaluate("document.scrollingElement.scrollWidth <= wind
 def short_buttons(pg, scope):
     return pg.evaluate(f"""[...document.querySelectorAll('{scope} button')].filter(b => b.offsetParent && b.getBoundingClientRect().height < 43.5 && !b.closest('[role=tablist]')).map(b => b.innerText.trim() + ':' + Math.round(b.getBoundingClientRect().height)).slice(0, 6)""")
 def open_case(pg, ref):
-    pg.get_by_role("tab", name="Clients & Cases").or_(pg.get_by_role("tab", name="Cases", exact=True)).first.click(); pg.wait_for_timeout(500)
+    fa_view(pg, "Clients & Cases"); pg.wait_for_timeout(500)
     pg.get_by_test_id("fa-case-row").filter(has_text=ref).first.click(); pg.wait_for_timeout(1200)
     return pg.get_by_test_id("fa-case")
 
@@ -59,10 +69,12 @@ with sync_playwright() as p:
         panel = pg.get_by_test_id("fa-panel")
         check(f"{tag}: the Financial Advisory panel opens", panel.count() == 1, pg.url)
         txt = panel.inner_text() if panel.count() else ""
-        check(f"{tag}: four counts (open, information missing, waiting on a banker, official decisions)", all(s in txt for s in ["Open cases", "Information missing", "Waiting on a banker", "Official bank decisions"]), txt[:400])
+        # v1.298.0 - FA 2.0 section 9: the directive's four figures
+        check(f"{tag}: four figures (active, requiring action, management reviews, banker responses pending)", all(s in txt for s in ["Active cases", "Cases requiring action", "Management reviews", "Banker responses pending"]), txt[:400])
         # v1.288.0 - the CEO's D5 (12-11-2026) opened sending documents to a banker under the client's consent; the other three stay off
         lg = pg.get_by_test_id("fa-legal").inner_text() if pg.get_by_test_id("fa-legal").count() == 1 else ""
-        check(f"{tag}: the switched-off list names the agreement, the proposed fee and commission", all(s in lg for s in ["agreement", "15% fee", "Commission"]), lg)
+        # v1.298.0 - the CEO switched the fee on (13-11-2026); agreements and commission stay off
+        check(f"{tag}: the legal line keeps agreements and commission off and says the fee is on, billed only after a disbursement", all(s in lg for s in ["agreements", "commission", "fee is ON", "disbursement", "No CTOS"]), lg)
         check(f"{tag}: sending documents is no longer listed as off, and says it needs the client's disclosure consent", "Sending client documents" not in lg and "disclosure consent" in lg, lg)
         check(f"{tag}: the disclaimer is on the page", "Indicative only. Subject to official bank approval." in txt and "not affiliated with any bank" in txt)
         check(f"{tag}: no word Eligible or Approved as a status on the overview", "Eligible" not in txt and "Bank Approved" not in txt)
@@ -76,7 +88,7 @@ with sync_playwright() as p:
         chips = pg.get_by_test_id("fa-statuses").inner_text() if pg.get_by_test_id("fa-statuses").count() else ""
         check(f"{tag}: three status chips - pre-screen, banker, application", "Potentially suitable" in chips and "Banker: under review" in chips and "Application: not submitted" in chips, chips)
         check(f"{tag}: the DSR reads 40.0% now and 50.0% projected, preliminary", "40.0%" in st and "50.0%" in st and "Preliminary only" in st, st[:500])
-        check(f"{tag}: the progress strip marks the agreement, application and fee as needing legal clearance", st.count("needs legal clearance") >= 3)
+        check(f"{tag}: the progress strip keeps the agreement and application behind legal clearance; the fee waits for a disbursement", st.count("needs legal clearance") >= 2 and "after a recorded disbursement" in st, st[:600])
         check(f"{tag}: no sideways page (case sheet)", sideways(pg))
         pg.screenshot(path=f"{OUT}/ceo-{w}-case.png", full_page=False)
         sheet.get_by_role("tab", name="DSR assessment").or_(sheet.get_by_role("tab", name="DSR", exact=True)).first.click(); pg.wait_for_timeout(500)
@@ -109,7 +121,7 @@ with sync_playwright() as p:
             pg.get_by_role("button", name="Cancel").click(); pg.wait_for_timeout(200)
         pg.get_by_role("tab", name="Agreement", exact=True).click(); pg.wait_for_timeout(300)
         ag = pg.get_by_test_id("fa-agreement").inner_text()
-        check(f"{tag}: the agreement is switched off and the fee reads 15% PROPOSED", "Switched off" in ag and "15% PROPOSED" in ag and "Nothing" in ag, ag[:300])
+        check(f"{tag}: the agreement is switched off; the fee is on by the CEO's decision and nothing is payable before a disbursement", "Switched off" in ag and "ON - CEO decision 13-11-2026" in ag and "Nothing" in ag and "15% PROPOSED" not in ag, ag[:400])
         if w < 500: check(f"{tag}: case sheet buttons at least 44 px on a phone", not short_buttons(pg, "[role=dialog]"), short_buttons(pg, "[role=dialog]"))
         pg.keyboard.press("Escape"); pg.wait_for_timeout(600)
 

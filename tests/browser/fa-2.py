@@ -24,7 +24,7 @@ in tests/fa-registry.mjs; here, the screens at the seven widths:
   - no sideways page; sheet buttons at least 44 px on a phone.
 Servers (servers): the FA=1 ones of tests/browser/fa-1.py.
 Invented fixture data only (tests/browser/fa-fixture.mjs)."""
-import os, json, urllib.request
+import os, json, re, urllib.request
 from playwright.sync_api import sync_playwright
 
 CEO, COO, SALES = 4280, 4281, 4282
@@ -35,6 +35,16 @@ def check(name, cond, detail=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{str(detail)[:300]}]"))
 
+
+def fa_view(pg, long):
+    """v1.298.0 - FA 2.0 Phase 1: the tab row on a wide screen, the Dashboard's view switch on a phone"""
+    row = pg.get_by_test_id("fa-tabs")
+    if row.count() and row.is_visible():
+        row.get_by_role("tab", name=re.compile("^" + re.escape(long))).first.click()
+    else:
+        pg.get_by_test_id("fa-view-bar").get_by_test_id("view-switch").click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(long))).first.click()
+
 def open_bankers(b, port, w):
     urllib.request.urlopen(f"http://127.0.0.1:{port}/__reset").read()
     phone = w < 500
@@ -43,7 +53,7 @@ def open_bankers(b, port, w):
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"http://127.0.0.1:{port}/portal?tab=Financial%20Advisory"); pg.wait_for_timeout(2600)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-    pg.get_by_test_id("fa-panel").get_by_role("tab", name="Bankers", exact=True).first.click(); pg.wait_for_timeout(900)
+    fa_view(pg, "Bankers"); pg.wait_for_timeout(900)
     return ctx, pg, errs
 
 posts = lambda port: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/__fixture-status").read())["fa_posts"]

@@ -35,11 +35,21 @@ def check(name, cond, detail=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{str(detail)[:300]}]"))
 
-OUTCOMES = ["Potential Match — Proceed to Review", "Manual Assessment Required", "Information Incomplete", "Affordability Concern", "No Suitable Product Currently Identified"]
+OUTCOMES = ["Potentially Suitable — Subject to Review", "Management Review Required", "Information Incomplete", "Affordability Concern", "No Suitable Product Currently Identified"]
 def posts(port): return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/__fixture-status").read())["fa_posts"]
 def preview(port, body):
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api/v1/staff/fa/preview", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
     return json.loads(urllib.request.urlopen(req).read())["result"]
+
+def fa_view(pg, long):
+    """v1.298.0 - FA 2.0 Phase 1: the tab row on a wide screen, the Dashboard's view switch on a phone"""
+    row = pg.get_by_test_id("fa-tabs")
+    if row.count() and row.is_visible():
+        row.get_by_role("tab", name=re.compile("^" + re.escape(long))).first.click()
+    else:
+        pg.get_by_test_id("fa-view-bar").get_by_test_id("view-switch").click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(long))).first.click()
+
 def open_fa(b, port, w):
     urllib.request.urlopen(f"http://127.0.0.1:{port}/__reset").read()
     phone = w < 500
@@ -52,7 +62,7 @@ def open_fa(b, port, w):
 sideways = lambda pg: pg.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1")
 visible = lambda loc: loc.count() > 0 and loc.first.is_visible()
 def tab(pg, long, short):
-    pg.get_by_test_id("fa-panel").get_by_role("tab", name=long).or_(pg.get_by_test_id("fa-panel").get_by_role("tab", name=short, exact=True)).first.click(); pg.wait_for_timeout(700)
+    fa_view(pg, long); pg.wait_for_timeout(700)
 def case_tab(pg, long, short):
     d = pg.get_by_test_id("fa-case")
     d.get_by_role("tab", name=long).or_(d.get_by_role("tab", name=short, exact=True)).first.click(); pg.wait_for_timeout(600)
@@ -86,7 +96,8 @@ with sync_playwright() as p:
         ws = pg.get_by_test_id("fa-dsr")
         check(f"{tag}: + New DSR Assessment opens the DSR Pre-Check", ws.count() == 1)
         panes = ws.evaluate("w => [...w.children].filter(c => c.tagName === 'SECTION' && c.offsetParent).map(c => { const r = c.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width)]; })")
-        check(f"{tag}: three columns side by side (figures, result, case)", len(panes) == 3 and panes[0][0] < panes[1][0] < panes[2][0] and abs(panes[0][1] - panes[2][1]) < 4, panes)
+        # v1.298.0 - FA 2.0 photo 1: the inputs on the left, the result on the right with the case under it
+        check(f"{tag}: two columns - figures left; result, then the case, on the right", len(panes) == 3 and panes[0][0] < panes[1][0] and panes[1][0] == panes[2][0] and panes[2][1] > panes[1][1] and abs(panes[0][1] - panes[1][1]) < 4, panes)
         check(f"{tag}: the phone steps and footer are not drawn on a desktop", not ws.get_by_test_id("dsr-next").is_visible())
 
         # ---- Quick Check ----
@@ -95,7 +106,7 @@ with sync_playwright() as p:
         out = ws.get_by_test_id("dsr-outcome").inner_text()
         check(f"{tag}: declared (unverified) income reads Information Incomplete, no DSR", "Information Incomplete" in out and ws.get_by_test_id("dsr-current").inner_text().strip() == "—", out)
         ws.get_by_label("Seen on a payslip").check(); pg.wait_for_timeout(1200)
-        eng = preview(CEO, {"product": "personal_financing", "items": [{"side": "income", "kind": "gross_salary", "monthly_cents": 500000, "verified": True}, {"side": "deduction", "kind": "epf", "monthly_cents": 55000}, {"side": "commitment", "kind": "personal_financing", "monthly_cents": 100000}], "proposal": {"amount_cents": 3000000, "tenure_months": 60, "rate_bp": 600}})
+        eng = preview(CEO, {"product": "personal_financing", "items": [{"side": "income", "kind": "gross_salary", "monthly_cents": 500000, "verified": True}, {"side": "deduction", "kind": "epf", "monthly_cents": 55000}, {"side": "commitment", "kind": "personal_financing", "monthly_cents": 100000}], "proposal": {"amount_cents": 3000000, "tenure_months": 60, "rate_bp": 600, "rate_type": "flat"}})
         pct = lambda bp: f"{bp / 100:.1f}%"
         cur, proj = ws.get_by_test_id("dsr-current").inner_text().strip(), ws.get_by_test_id("dsr-projected").inner_text().strip()
         check(f"{tag}: the screen shows the engine's own DSR ({pct(eng['current_dsr_bp'])} now, {pct(eng['projected_dsr_bp'])} projected)", cur == pct(eng["current_dsr_bp"]) and proj == pct(eng["projected_dsr_bp"]), (cur, proj, eng["current_dsr_bp"], eng["projected_dsr_bp"]))
@@ -171,7 +182,8 @@ with sync_playwright() as p:
     ctx, pg, errs = open_fa(b, COO, 1280)
     q = pg.get_by_test_id("fa-review-queue")
     check("COO: the queue says it waits for your review", q.count() == 1 and "Waiting for your review" in q.inner_text())
-    q.get_by_role("button", name="Review").first.click(); pg.wait_for_timeout(1400)
+    # v1.298.0 - the Overview's one list: the review row opens the case at its DSR assessment
+    pg.get_by_test_id("fa-action-row").filter(has_text="FA-000002").first.click(); pg.wait_for_timeout(1400)
     dc = pg.get_by_test_id("fa-decide")
     check("COO: the case opens at the DSR assessment with the decision form", dc.count() == 1 and "never a loan approval" in dc.inner_text())
     save = dc.get_by_test_id("fa-decide-save")

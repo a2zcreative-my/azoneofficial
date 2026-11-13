@@ -217,10 +217,12 @@ async function runtime(workerBundle) {
     /* v1.288.0 - sending to a bank opened by the CEO's decision D5, but only after a management Proceed (fa-dsr.mjs proves the rest) */
     const disc = await call(`/fa/cases/${id1}/disclosures`, 1, "POST", { enquiry_id: 1, document_ids: [1], channel: "work_email", purpose: "Assessment" });
     ok(disc.status === 409 && disc.j?.error?.code === "review_required", "nothing goes to a bank before Management decides Proceed - even for the CEO", disc.text);
-    for (const [path, body, what] of [[`/fa/cases/${id1}/agreement`, {}, "the client agreement"], [`/fa/cases/${id1}/fee`, {}, "the proposed fee"]]) {
-      const r = await call(path, 1, "POST", body);
-      ok(r.status === 409 && r.j?.error?.code === "legal_gate", `${what} is shut until counsel clears it - even for the CEO`);
-    }
+    const ag = await call(`/fa/cases/${id1}/agreement`, 1, "POST", {});
+    ok(ag.status === 409 && ag.j?.error?.code === "legal_gate", "the client agreement (sending, signing) is shut - even for the CEO");
+    /* v1.298.0 - the CEO switched the fee on (13-11-2026, without legal review); it still bills nothing from here */
+    const fin0 = finance();
+    const fe = await call(`/fa/cases/${id1}/fee`, 1, "POST", { percent: 15 });
+    ok(fe.status === 409 && fe.j?.error?.code === "fee_after_disbursement" && finance() === fin0, "the fee is on, but nothing is billed from an estimate - only after a recorded disbursement, through Sales", fe.text);
     ok((await call(`/fa/cases/${id2}`, 15, "PATCH", { stage: "application" })).j?.error?.code === "legal_gate", "a formal application step is shut too");
     ok((await call(`/fa/cases/${id2}`, 15, "PATCH", { stage: "decision" })).j?.error?.code === "invalid_transition", "stages move only by allowed transitions");
 
@@ -263,7 +265,8 @@ const MUT = [
   [F, "a banker may approve", [["const BANKER_STATUS = [\"enquiry_sent\",", "const BANKER_STATUS = [\"officially_approved\", \"enquiry_sent\","]]],
   [F, "a decision without evidence", [["      if (!ev) return err(\"evidence_required\"", "      if (false) return err(\"evidence_required\""]]],
   [F, "Sales verifies criteria", [["    if (!can(user.role, \"fa_criteria\")) return err(\"forbidden\", \"Only management verifies bank criteria\", 403);", ""]]],
-  [F, "the agreement gate open", [['if ((sub === "agreement" || sub === "fee") && method === "POST") {', "if (false) {"]]],
+  [F, "the agreement gate open", [['if (sub === "agreement" && method === "POST") {', "if (false) {"]]],
+  [F, "a fee billed from the case", [['if (sub === "fee" && method === "POST") {', "if (false) {"]]],
   [F, "a duplicate client by phone", [["      if (hit) return json(", "      if (false) return json("]]],
   [F, "an override with no reason", [["    if (reason.length < 20) return err(\"invalid_input\", \"Explain the override", "    if (false) return err(\"invalid_input\", \"Explain the override"]]],
   [F, "assisting members edit figures", [["const mayEdit = (u: StaffUser, c: Case) => can(u.role, \"fa_edit\") && (isAll(u) || c.owner_id === u.id);", "const mayEdit = (u: StaffUser, c: Case) => can(u.role, \"fa_edit\");"]]],

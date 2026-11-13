@@ -85,6 +85,7 @@ const docWord = (k: string) => DOC_KINDS.find((d) => d[0] === k)?.[1] ?? k;
 const STEPS: [string, string, string][] = [["intake", "Client intake", "Pengambilan"], ["prescreen", "DSR pre-screen", "Saringan DSR"], ["matching", "Bank matching", "Padanan bank"], ["agreement", "Agreement", "Perjanjian"], ["application", "Application", "Permohonan"], ["decision", "Decision", "Keputusan"], ["fee", "Fee", "Yuran"]];
 const STAGE_INDEX: Record<string, number> = { intake: 0, profile: 0, prescreen: 1, review: 1, matching: 2, agreement: 3, enquiry: 3, application: 4, decision: 5, disbursed: 5, fee: 6, closed: 7 };
 const LOCKED_STEPS = new Set(["agreement", "application", "fee"]);
+/* v1.298.0 - the fee step opens with the CEO's decision of 13-11-2026 (FA_LEGAL.fee); the agreement and the formal application stay locked */
 
 interface Item { id: number; side: string; kind: string; label: string | null; monthly_cents: number; outstanding_cents: number | null; arrears: number; settle_in_consolidation: number; settlement_doc_id: number | null; state: string; source: string; voided_at: string | null }
 interface Doc { id: number; kind: string; doc_date: string | null; verified: number; uploaded_at: string; by_name: string | null }
@@ -142,6 +143,7 @@ export function FaCase({ caseId, onClose, onChanged, toast, initialTab }: { case
   const latest: Result | null = pic?.assessments[0] ? (() => { try { return JSON.parse(pic.assessments[0].result) as Result; } catch { return null; } })() : null;
   const step = c ? STAGE_INDEX[c.stage] ?? 0 : 0;
 
+  const locked = (k: string) => LOCKED_STEPS.has(k) && !(k === "fee" && pic?.legal.fee);
   return (
     <SideDrawer open onClose={onClose} wide full dirty={dirty}
       title={pic ? `${pic.customer?.name ?? L("Client", "Pelanggan")} · ${c?.case_ref}` : L("Client case", "Kes pelanggan")}
@@ -158,8 +160,8 @@ export function FaCase({ caseId, onClose, onChanged, toast, initialTab }: { case
           <ol className={css.strip} aria-label={L("Case progress", "Kemajuan kes")}>
             {STEPS.map(([k, en, ms], i) => (
               <li key={k} className={i < step ? css.done : i === step ? css.now : css.todo}>
-                <span className={css.dot} aria-hidden="true"><AppIcon name={i < step ? "success" : LOCKED_STEPS.has(k) ? "lock" : "time"} /></span>
-                <span>{L(en, ms)}{LOCKED_STEPS.has(k) && i >= step ? <small>{L("needs legal clearance", "perlu kelulusan undang-undang")}</small> : null}</span>
+                <span className={css.dot} aria-hidden="true"><AppIcon name={i < step ? "success" : locked(k) ? "lock" : "time"} /></span>
+                <span>{L(en, ms)}{locked(k) && i >= step ? <small>{L("needs legal clearance", "perlu kelulusan undang-undang")}</small> : k === "fee" && i >= step ? <small>{L("after a recorded disbursement", "selepas pengeluaran direkod")}</small> : null}</span>
               </li>
             ))}
           </ol>
@@ -631,10 +633,13 @@ function Agreement({ pic }: { pic: Pic }) {
   return (
     <section className={`${card} ${css.sec}`} aria-label={L("Client agreement", "Perjanjian pelanggan")} data-testid="fa-agreement">
       <h3 className={css.h}><AppIcon name="lock" />{L("Client agreement", "Perjanjian pelanggan")} <span className={`${chipSmNeutral} ${css.chip}`}>{L("Switched off", "Dimatikan")}</span></h3>
-      <p>{L("The agreement and the proposed fee are switched off until a Malaysian lawyer clears them (Consumer Credit Act 2025 registration, the fee basis). Sending documents to a banker is open under the client's disclosure consent (CEO decision, 12-11-2026).", "Perjanjian dan yuran yang dicadangkan dimatikan sehingga peguam Malaysia meluluskannya (pendaftaran Akta Kredit Pengguna 2025, asas yuran). Penghantaran dokumen kepada pegawai bank dibuka di bawah persetujuan pendedahan pelanggan (keputusan CEO, 12-11-2026).")}</p>
+      <p>{pic.legal.fee ? L("Sending and signing the client agreement stay switched off until legal review and the CEO's separate approval. The advisory fee is on by the CEO's decision (13-11-2026). Sending documents to a banker is open under the client's disclosure consent (CEO decision, 12-11-2026).", "Penghantaran dan tandatangan perjanjian pelanggan kekal dimatikan sehingga semakan undang-undang dan kelulusan berasingan CEO. Yuran nasihat dihidupkan dengan keputusan CEO (13-11-2026). Penghantaran dokumen kepada pegawai bank dibuka di bawah persetujuan pendedahan pelanggan (keputusan CEO, 12-11-2026).")
+        : L("The agreement and the proposed fee are switched off until a Malaysian lawyer clears them (Consumer Credit Act 2025 registration, the fee basis). Sending documents to a banker is open under the client's disclosure consent (CEO decision, 12-11-2026).", "Perjanjian dan yuran yang dicadangkan dimatikan sehingga peguam Malaysia meluluskannya (pendaftaran Akta Kredit Pengguna 2025, asas yuran). Penghantaran dokumen kepada pegawai bank dibuka di bawah persetujuan pendedahan pelanggan (keputusan CEO, 12-11-2026).")}</p>
       <dl className={css.kv}>
-        <div><dt>{L("Fee", "Yuran")}</dt><dd><span className={`${chipSmWarn} ${css.chip}`}>{L("15% PROPOSED — subject to legal and commercial approval", "15% DICADANGKAN — tertakluk kepada kelulusan undang-undang dan komersial")}</span></dd></div>
-        <div><dt>{L("Payable now", "Perlu dibayar sekarang")}</dt><dd>{L("Nothing - no quotation or invoice is raised", "Tiada - tiada sebut harga atau invois")}</dd></div>
+        <div><dt>{L("Fee", "Yuran")}</dt><dd>{pic.legal.fee
+          ? <span className={`${chipSmSuccess} ${css.chip}`}>{L("ON - CEO decision 13-11-2026 (no legal review). The rate is set on the approved template; 15% is the CEO's proposal.", "HIDUP - keputusan CEO 13-11-2026 (tanpa semakan undang-undang). Kadar ditetapkan pada templat; 15% ialah cadangan CEO.")}</span>
+          : <span className={`${chipSmWarn} ${css.chip}`}>{L("15% PROPOSED — subject to legal and commercial approval", "15% DICADANGKAN — tertakluk kepada kelulusan undang-undang dan komersial")}</span>}</dd></div>
+        <div><dt>{L("Payable now", "Perlu dibayar sekarang")}</dt><dd>{L("Nothing - a fee is billed only after a disbursement is recorded with the bank's evidence, through a Sales quotation and invoice", "Tiada - yuran dibilkan hanya selepas pengeluaran direkod dengan bukti bank, melalui sebut harga dan invois Jualan")}</dd></div>
         <div><dt>{L("CTOS / blacklisting", "CTOS / senarai hitam")}</dt><dd>{L("Never used. Not built.", "Tidak sekali-kali digunakan. Tidak dibina.")}</dd></div>
         <div><dt>{L("Commission", "Komisen")}</dt><dd>{pic.legal.commission ? "" : L("None on advisory fees until you approve it", "Tiada atas yuran nasihat sehingga anda luluskan")}</dd></div>
       </dl>

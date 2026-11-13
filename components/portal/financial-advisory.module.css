@@ -37,7 +37,8 @@
 .stage { font-size: var(--type-caption-size); font-weight: 700; color: var(--muted-foreground); }
 .dsr { display: grid; font-size: var(--type-body-sm-size); font-weight: 700; font-variant-numeric: tabular-nums; }
 .dsr small { font-size: var(--type-caption-size); font-weight: 400; color: var(--muted-foreground); }
-.when { font-size: var(--type-caption-size); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.when { display: grid; gap: 0.125rem; justify-items: start; align-content: center; font-size: var(--type-caption-size); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.when small { font-size: var(--type-caption-size); }
 
 /* forms */
 .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
@@ -120,8 +121,8 @@
   .caseRow { grid-template-columns: minmax(12rem, 1.4fr) minmax(7rem, 0.6fr) minmax(0, 2fr) 6rem 6rem; align-items: center; }
 }
 
-/* v1.288.0 - the DSR Pre-Check workspace (fa-dsr.tsx). A desktop sees three
-   columns (figures, the live result, the case); a phone or tablet sees one
+/* v1.288.0 - the DSR Pre-Check workspace (fa-dsr.tsx). A desktop sees two
+   columns since v1.298.0 (figures | the live result over the case); a phone or tablet sees one
    step at a time (data-step 1-5 on the workspace, data-s on each block) with
    the DSR strip on top and Back / Next always within reach. */
 .dsrWs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--grid-gap, 1rem); min-width: 0; align-items: start; }
@@ -198,9 +199,11 @@
 @container (min-width: 38rem) {
   .dsrRow { grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 0.6fr) auto auto; }
 }
-/* a desktop: the three columns from the CEO's photo */
+/* a desktop: v1.298.0 - two columns from the CEO's FA 2.0 photo - the inputs
+   on the left (both rows), the result and then the case on the right */
 @media (min-width: 1024px) {
-  .dsrWs { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) minmax(0, 0.8fr); }
+  .dsrWs { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+  .dsrWs > .dsrIn { grid-row: span 2; }
   .dsrPhoneTop, .dsrPhoneFoot, .dsrPhoneOnly { display: none; }
   .dsrKpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -230,3 +233,52 @@
 .linkBtn { padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .linkBtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 @media (max-width: 767px) { .linkBtn { display: inline-flex; align-items: center; min-height: 2.75rem; } }
+
+/* v1.298.0 - FA 2.0 Phase 1. The phone's view switch (the Dashboard's), the
+   Overview's one list to act on, the quick filters, today's follow-ups and
+   the criteria fallback. Tokens only; 640 / 768 / 1024 / 1280. */
+.viewBar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.phoneNew {
+  display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.75rem; padding: 0 1rem; border: 0; border-radius: var(--radius-full);
+  background: var(--gold-solid); color: var(--primary); font: inherit; font-weight: 700; font-size: 0.875rem; cursor: pointer;
+}
+.phoneNew svg { width: 1rem; height: 1rem; }
+.phoneNew:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: 2px; }
+.actRow {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; width: 100%; padding: 0.75rem 1rem; text-align: left;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font: inherit; cursor: pointer;
+}
+.actRow:hover { background: var(--surface-hover); }
+.actRow:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.actWhat { font-size: var(--type-body-sm-size); font-weight: 600; color: var(--foreground); overflow-wrap: anywhere; }
+.actGo { justify-self: start; font-size: var(--type-caption-size); font-weight: 700; color: var(--foreground); text-decoration: underline; text-underline-offset: 2px; }
+.lockLine { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; margin: 0; padding: 0.625rem 0.875rem; border-radius: var(--radius-control); background: var(--secondary); font-size: var(--type-caption-size); line-height: var(--type-caption-lh); color: var(--muted-foreground); }
+.lockLine > span { flex: 1 1 18rem; min-width: 0; }
+.lockLine svg { flex: none; margin-top: 0.125rem; }
+.quick { display: flex; flex-wrap: wrap; gap: 0.375rem; min-width: 0; }
+.quick button {
+  display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.25rem; padding: 0.25rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-full);
+  background: var(--card); color: var(--muted-foreground); font: inherit; font-size: var(--type-caption-size); font-weight: 600; cursor: pointer;
+}
+.quick button span { font-variant-numeric: tabular-nums; color: var(--foreground); }
+.quick button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.quick .quickOn { border-color: var(--gold-solid); background: var(--tint-gold); color: var(--foreground); }
+.casesGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--grid-gap, 1rem); align-items: start; min-width: 0; }
+.fuRow {
+  display: grid; gap: 0.25rem; width: 100%; padding: 0.625rem 0.75rem; text-align: left; border: 1px solid var(--border); border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm); background: var(--card); color: var(--foreground); font: inherit; cursor: pointer;
+}
+.fuRow > span:last-child { justify-self: start; }
+.fuLate { border-left-color: var(--danger); }
+.fuRow:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.steps7 { margin: 0; padding-left: 1.25rem; display: grid; gap: 0.375rem; font-size: var(--type-body-sm-size); color: var(--foreground); }
+@media (max-width: 767px) {
+  .quick button { min-height: 2.75rem; }
+}
+@container (min-width: 46rem) {
+  .actRow { grid-template-columns: minmax(10rem, 1.1fr) minmax(0, 1.6fr) minmax(7rem, 0.8fr) 7rem 6rem; align-items: center; }
+  .actGo { justify-self: end; }
+}
+@media (min-width: 1280px) {
+  .casesGrid { grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr); }
+}

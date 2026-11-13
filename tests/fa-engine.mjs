@@ -86,6 +86,12 @@ ok("no declared living cost: no residual is invented", run(base, "personal_finan
 /* illustrative instalment */
 ok("annuity instalment (RM 30,000, 60 months, 8%): RM 608.30, rounded up to the sen", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }) === 60830, E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }));
 ok("a given instalment wins; nothing given = null", E.instalmentOf({ instalment_cents: 50000 }) === 50000 && E.instalmentOf({}) === null);
+/* v1.298.0 - D-1: a flat rate, as Malaysian personal financing is usually quoted */
+ok("flat instalment (RM 30,000, 5 years, 7%): (30,000 + 10,500) / 60 = RM 675.00", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 700, rate_type: "flat" }) === 67500, E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 700, rate_type: "flat" }));
+ok("flat instalment rounds UP to the sen (RM 10,000, 7 months, 5.55%)", E.instalmentOf({ amount_cents: 1000000, tenure_months: 7, rate_bp: 555, rate_type: "flat" }) === Math.ceil((1000000 * (120000 + 555 * 7)) / (120000 * 7)));
+ok("a very large flat amount keeps every sen (BigInt)", E.instalmentOf({ amount_cents: 9_999_999_999, tenure_months: 600, rate_bp: 5000, rate_type: "flat" }) === Number((9_999_999_999n * (120000n + 5000n * 600n) + 120000n * 600n - 1n) / (120000n * 600n)));
+ok("no rate type = the reducing annuity, as before", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }) === E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800, rate_type: "reducing" }));
+ok("the engine version says 1.298.0", E.ENGINE_VERSION === "1.298.0");
 
 /* debt consolidation: before, overlap, after - each settled facility removed once, only with evidence */
 const cons = [it("income", "gross_salary", 600000), it("commitment", "car", 65000), it("commitment", "personal_financing", 85000, "verified", { settle_in_consolidation: 1, settlement_doc_id: 7 }),

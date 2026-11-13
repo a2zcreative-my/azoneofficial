@@ -43,7 +43,15 @@ import { handleFaMatch } from "./fa-match";
    banker opens, behind the client's own disclosure consent naming that bank
    and those documents, a management Proceed and an approved allocation
    (worker/src/fa-match.ts). The agreement, the fee and commission stay off. */
-export const FA_LEGAL = { agreement: false, fee: false, disclosure: true, commission: false } as const;
+/* v1.298.0 - the CEO, 13-11-2026, FA 2.0 blueprint: "approve as per
+   recommendation, fees switched without waiting for lawyer". The FEE is on, by
+   his decision and without a legal review (recorded so). What still holds: no
+   rate is written in code (it is set on an agreement template, Phase 5); a fee
+   is billed only after a disbursement is recorded with the bank's evidence and
+   only through the existing quotation -> invoice -> CEO payment verification;
+   never from an estimated eligibility; no CTOS, blacklisting or penalty. The
+   client agreement (sending, signing) and commission stay OFF. */
+export const FA_LEGAL = { agreement: false, fee: true, disclosure: true, commission: false } as const;
 
 const PRODUCTS = ["personal_financing", "debt_consolidation", "advisory_only"] as const;
 const STAGES = ["intake", "profile", "prescreen", "review", "matching", "agreement", "enquiry", "application", "decision", "disbursed", "fee", "closed"] as const;
@@ -69,6 +77,8 @@ const DOC_MAX = 8 * 1024 * 1024;
 /** anything shaped like a credential is refused, wherever it sits in the body */
 const CREDENTIAL = /pass(word|wd)|otp|\bpin\b|tac\b|login|credential|secret|security.?(code|question)|online.?banking/i;
 
+/** v1.298.0 (D-1) - flat or reducing; anything else is the reducing annuity, as before */
+const rateType = (v: unknown): "flat" | "reducing" => (v === "flat" ? "flat" : "reducing");
 const mytToday = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 const validDay = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`));
 const skew = (e: unknown) => /no such (table|column)/i.test(String(e));
@@ -82,6 +92,11 @@ export interface Case {
 }
 
 const isAll = (u: StaffUser) => can(u.role, "fa_decide");
+/* v1.298.0 - FA 2.0: what "waiting for management review" and "requires action" mean, in SQL on fa_cases c (no figure, no name) */
+const REVIEW_PENDING = `COALESCE((SELECT r.action FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1), '') = 'submitted'`;
+const NEEDS_ACTION = `c.prescreen = 'incomplete' OR c.banker_status = 'documents_required'
+  OR COALESCE((SELECT r.action FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1), '') IN ('request_info', 'concern')
+  OR EXISTS (SELECT 1 FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' AND t.deadline IS NOT NULL AND substr(t.deadline, 1, 10) <= date('now', '+8 hours'))`;
 
 async function caseOf(env: Env, id: number): Promise<Case | null> {
   return env.DB.prepare(`SELECT * FROM fa_cases WHERE id = ?1`).bind(id).first<Case>();
@@ -205,6 +220,11 @@ async function route(env: Env, path: string, method: string, body: Record<string
       awaiting_banker: await one(`c.stage != 'closed' AND c.banker_status IN ('enquiry_sent', 'under_review')`),
       incomplete: await one(`c.stage != 'closed' AND c.prescreen = 'incomplete'`),
       official_decisions: await one(`c.application_status IN ('conditional_offer', 'officially_approved', 'declined', 'disbursed')`),
+      /* v1.298.0 - FA 2.0 Overview: the directive's four figures */
+      active: await one(`c.stage != 'closed'`),
+      requiring_action: await one(`c.stage != 'closed' AND (${NEEDS_ACTION})`),
+      reviews: await one(`c.stage != 'closed' AND ${REVIEW_PENDING}`),
+      banker_pending: await one(`c.stage != 'closed' AND c.banker_status IN ('enquiry_sent', 'under_review')`),
       legal: FA_LEGAL,
       can: { create: can(user.role, "fa_edit"), decide: can(user.role, "fa_decide"), criteria: can(user.role, "fa_criteria") },
     });
@@ -216,11 +236,22 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const { results } = await env.DB.prepare(
       `SELECT c.id, c.case_ref, c.product, c.stage, c.prescreen, c.banker_status, c.application_status, c.override_result, c.issuer_code, c.updated_at,
               cu.company AS client, ${PERSON("u")} AS owner,
-              (SELECT a.projected_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS projected_dsr_bp
+              (SELECT a.projected_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS projected_dsr_bp,
+              (SELECT a.current_dsr_bp FROM fa_assessments a WHERE a.case_id = c.id ORDER BY a.id DESC LIMIT 1) AS current_dsr_bp,
+              c.owner_id, c.created_at,
+              /* v1.298.0 - FA 2.0: the next follow-up is the case's earliest open TASK (the Tasks module, never a second engine) */
+              (SELECT t.deadline FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' AND t.deadline IS NOT NULL ORDER BY t.deadline, t.id LIMIT 1) AS next_follow_up,
+              (SELECT t.title FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' ORDER BY CASE WHEN t.deadline IS NULL THEN 1 ELSE 0 END, t.deadline, t.id LIMIT 1) AS next_task,
+              (SELECT ${PERSON("tu")} FROM tasks t JOIN users tu ON tu.id = t.assigned_to WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' ORDER BY CASE WHEN t.deadline IS NULL THEN 1 ELSE 0 END, t.deadline, t.id LIMIT 1) AS next_task_owner,
+              (SELECT bk.name || ' · ' || bb.full_name FROM fa_allocations al JOIN fa_bankers bb ON bb.id = al.banker_id JOIN fa_banks bk ON bk.id = al.bank_id
+                WHERE al.case_id = c.id AND al.state NOT IN ('cancelled', 'reassigned') ORDER BY CASE WHEN al.role = 'primary' THEN 0 ELSE 1 END, al.id DESC LIMIT 1) AS banker,
+              CASE WHEN ${REVIEW_PENDING} THEN 1 ELSE 0 END AS review_pending,
+              (SELECT r.created_at FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1) AS review_at,
+              (SELECT r.action FROM fa_reviews r WHERE r.case_id = c.id ORDER BY r.id DESC LIMIT 1) AS review_action
          FROM fa_cases c LEFT JOIN customers cu ON cu.id = c.customer_id LEFT JOIN users u ON u.id = c.owner_id
         WHERE 1 = 1${scope} ORDER BY CASE WHEN c.stage = 'closed' THEN 1 ELSE 0 END, c.updated_at DESC LIMIT 500`,
     ).bind(...(isAll(user) ? [] : [user.id])).all();
-    return json({ cases: results ?? [] });
+    return json({ cases: results ?? [], me: user.id });
   }
 
   if (path === "/fa/cases" && method === "POST") {
@@ -497,7 +528,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
         remaining_months: typeof r.remaining_months === "number" && Number.isInteger(r.remaining_months) && r.remaining_months >= 0 && r.remaining_months <= 600 ? r.remaining_months : null });
     }
     const p = (b.proposal ?? {}) as Record<string, unknown>;
-    const proposal = { instalment_cents: cents(p.instalment_cents), amount_cents: cents(p.amount_cents), tenure_months: typeof p.tenure_months === "number" && Number.isInteger(p.tenure_months) && p.tenure_months > 0 && p.tenure_months <= 600 ? p.tenure_months : null, rate_bp: typeof p.rate_bp === "number" && p.rate_bp >= 0 && p.rate_bp <= 5000 ? Math.round(p.rate_bp) : null };
+    const proposal = { instalment_cents: cents(p.instalment_cents), amount_cents: cents(p.amount_cents), tenure_months: typeof p.tenure_months === "number" && Number.isInteger(p.tenure_months) && p.tenure_months > 0 && p.tenure_months <= 600 ? p.tenure_months : null, rate_bp: typeof p.rate_bp === "number" && p.rate_bp >= 0 && p.rate_bp <= 5000 ? Math.round(p.rate_bp) : null, rate_type: rateType(p.rate_type) };
     const prof = (b.profile ?? null) as Record<string, unknown> | null;
     const profile = prof ? { employment_category: str(prof.employment_category, 40) ? String(prof.employment_category) : null, service_months: typeof prof.service_months === "number" ? prof.service_months : null, age_years: typeof prof.age_years === "number" ? prof.age_years : null } : null;
     const r = assess({ product, items, profile, proposal, criteria: await liveCriteria(env), verifiedDocKinds: [], today: mytToday() });
@@ -675,7 +706,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const items = ((await env.DB.prepare(`SELECT i.*, m.remaining_months FROM fa_items i LEFT JOIN fa_item_meta m ON m.item_id = i.id WHERE i.case_id = ?1`).bind(c.id).all<FaItem>()).results ?? []);
     const profile = await env.DB.prepare(`SELECT employment_category, service_months, age_years FROM fa_profiles WHERE case_id = ?1 ORDER BY version DESC LIMIT 1`).bind(c.id).first<{ employment_category: string | null; service_months: number | null; age_years: number | null }>();
     const docs = ((await env.DB.prepare(`SELECT DISTINCT kind FROM fa_documents WHERE case_id = ?1 AND verified = 1 AND removed_at IS NULL`).bind(c.id).all<{ kind: string }>()).results ?? []).map((d) => d.kind);
-    const proposal = { instalment_cents: cents(b.instalment_cents), amount_cents: cents(b.amount_cents), tenure_months: typeof b.tenure_months === "number" ? b.tenure_months : null, rate_bp: typeof b.rate_bp === "number" ? b.rate_bp : null };
+    const proposal = { instalment_cents: cents(b.instalment_cents), amount_cents: cents(b.amount_cents), tenure_months: typeof b.tenure_months === "number" ? b.tenure_months : null, rate_bp: typeof b.rate_bp === "number" ? b.rate_bp : null, rate_type: rateType(b.rate_type) };
     const r = assess({ product: c.product, items, profile, proposal, criteria: await liveCriteria(env), verifiedDocKinds: docs, today: mytToday() });
     const row = await env.DB.prepare(`INSERT INTO fa_assessments (case_id, ruleset, inputs, result, current_dsr_bp, projected_dsr_bp, outcome, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`)
       .bind(c.id, JSON.stringify(r.ruleset), JSON.stringify({ engine_version: ENGINE_VERSION, proposal, items: items.map((i) => ({ id: i.id, side: i.side, kind: i.kind, monthly_cents: i.monthly_cents, state: i.state, voided: !!i.voided_at, settle: i.settle_in_consolidation, settlement_doc: i.settlement_doc_id })), profile, docs }), JSON.stringify(r), r.current_dsr_bp, r.projected_dsr_bp, r.outcome, user.id).first<{ id: number }>();
@@ -929,8 +960,16 @@ async function route(env: Env, path: string, method: string, body: Record<string
   }
 
   /* v1.288.0 - disclosures moved to fa-match.ts (dispatched above), behind the allocation and the client's consent */
-  if ((sub === "agreement" || sub === "fee") && method === "POST") {
-    return err("legal_gate", "The client agreement and the proposed fee are switched off until counsel clears them.", 409);
+  if (sub === "agreement" && method === "POST") {
+    return err("legal_gate", "The client agreement is switched off: sending and signing stay off until legal review and the CEO's separate approval.", 409);
+  }
+  /* v1.298.0 - the fee is ON by the CEO's decision (13-11-2026), but nothing is
+     billed from here: no rate in code, no invoice from an estimated
+     eligibility. The fee follows a disbursement recorded with the bank's
+     evidence, through Sales (quotation -> invoice -> CEO payment
+     verification) - Phase 5 of the FA 2.0 blueprint. */
+  if (sub === "fee" && method === "POST") {
+    return err("fee_after_disbursement", "The advisory fee is approved, but it is billed only after a disbursement is recorded with the bank's evidence, through a Sales quotation and invoice (Phase 5). Nothing was billed.", 409);
   }
   return null;
 }

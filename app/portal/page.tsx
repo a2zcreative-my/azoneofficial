@@ -258,7 +258,7 @@ export default function PortalPage() {
           {activeTab === "Financial Advisory" && (
             <TabPage>
               <TabZone label={L("Loan pre-screening and banker relations", "Saringan pinjaman dan hubungan bank")}>
-                <FinancialAdvisoryPanel />
+                <FinancialAdvisoryPanel startView={startOf("Financial Advisory")} />
               </TabZone>
             </TabPage>
           )}

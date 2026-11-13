@@ -30,7 +30,7 @@
    confidence count, a criterion only from its effective date, and for a
    consolidation the monthly and total-repayment differences with the risks.
    ENGINE_VERSION is stored with every saved result. */
-export const ENGINE_VERSION = "1.288.0";
+export const ENGINE_VERSION = "1.298.0";
 
 export type Product = "personal_financing" | "debt_consolidation" | "advisory_only";
 export type Outcome = "incomplete" | "potentially_suitable" | "manual_review" | "affordability_concern" | "no_product";
@@ -47,7 +47,12 @@ export interface FaCriterion {
   min_age?: number | null; max_age?: number | null; min_amount_cents?: number | null; max_amount_cents?: number | null; min_tenure_months?: number | null; max_tenure_months?: number | null;
 }
 export interface FaProfile { employment_category?: string | null; service_months?: number | null; age_years?: number | null }
-export interface Proposal { instalment_cents?: number | null; amount_cents?: number | null; tenure_months?: number | null; rate_bp?: number | null }
+/* v1.298.0 - the CEO's decision D-1 (FA 2.0 blueprint, 13-11-2026): the
+   illustrative rate is either FLAT (the way Malaysian personal financing is
+   usually quoted: interest on the whole amount for the whole tenure) or
+   REDUCING (an annuity, as before). Both stay labelled an assumption. */
+export type RateType = "flat" | "reducing";
+export interface Proposal { instalment_cents?: number | null; amount_cents?: number | null; tenure_months?: number | null; rate_bp?: number | null; rate_type?: RateType | null }
 export type CheckState = "ok" | "unverified" | "failed";
 export interface Check { key: string; state: CheckState; text: string }
 export interface Match { criterion_id: number; family: string; version: number; bank: string; checks: Check[]; missing_documents: string[]; stale: boolean; last_verified_on: string | null; fit: "fits" | "near" | "fails" | "unknown" }
@@ -78,12 +83,18 @@ export function commitmentsOf(items: FaItem[], definition = "all", exclude: Read
   return sum(items.filter((i) => live(i) && i.side === "commitment" && !exclude.has(i.id) && !(definition === "exclude_ptptn" && i.kind === "ptptn")));
 }
 
-/** Illustrative monthly instalment: an annuity in sen, rounded up. Never an offer. */
+/** Illustrative monthly instalment in sen, rounded up: flat or an annuity. Never an offer. */
 export function instalmentOf(p: Proposal): number | null {
   if (p.instalment_cents != null && Number.isInteger(p.instalment_cents) && p.instalment_cents >= 0) return p.instalment_cents;
   const P = Number(p.amount_cents ?? 0), n = Number(p.tenure_months ?? 0), bp = Number(p.rate_bp ?? 0);
   if (!(P > 0) || !(n > 0) || !Number.isInteger(n)) return null;
   if (bp <= 0) return Math.ceil(P / n);
+  if (p.rate_type === "flat") {
+    /* (P + P x rate x years) / months, in whole sen, rounded up - BigInt so a large amount never loses a sen */
+    const num = BigInt(P) * (120000n + BigInt(bp) * BigInt(n));
+    const den = 120000n * BigInt(n);
+    return Number((num + den - 1n) / den);
+  }
   const r = bp / 10000 / 12;
   return Math.ceil((P * r) / (1 - Math.pow(1 + r, -n)));
 }

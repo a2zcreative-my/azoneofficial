@@ -102,7 +102,7 @@ async function runtime(workerBundle) {
     ok(r?.current_dsr_bp === 3741 && r?.instalment_cents === 103066 && r?.projected_dsr_bp === 5470, "current 37.41%, illustrative instalment RM 1,030.66, projected 54.70%", `${r?.current_dsr_bp} ${r?.instalment_cents} ${r?.projected_dsr_bp}`);
     ok(r?.remaining_cents === 269959 && r?.residual_cents === 129959 && r?.living_cents === 140000, "remaining RM 2,699.59; residual after the DECLARED living cost RM 1,299.59", `${r?.remaining_cents} ${r?.residual_cents}`);
     ok(r?.outcome === "potentially_suitable" && r.matches.length === 1 && r.matches[0].criterion_id === crit.j.id, "Potential Match against the current verified rule only - the future-dated rule is not applied", JSON.stringify(r?.matches?.map((m) => m.criterion_id)));
-    ok(r?.engine_version === "1.288.0" && r?.breakdown?.length === items.length && r?.confidence?.verified === 1, "the breakdown shows every figure, the engine version and the confidence");
+    ok(r?.engine_version === "1.298.0" && r?.breakdown?.length === items.length && r?.confidence?.verified === 1, "the breakdown shows every figure, the engine version and the confidence");
     ok(tables() === t0 && q.j?.stored === false, "a Quick Check stores nothing - no case, figure, assessment, customer or note");
     const ql = db.prepare(`SELECT detail FROM audit_log WHERE action = 'fa.quick_check'`).all();
     ok(ql.length === 1 && !/700000|596025|223000|gross/.test(ql[0].detail), "a pressed Calculate leaves one audit line with no figure in it", ql[0]?.detail);
@@ -155,10 +155,10 @@ async function runtime(workerBundle) {
 
     /* ---------- save, history, review ---------- */
     const a1 = await call(`/fa/cases/${cid}/assess`, 9, "POST", { amount_cents: 3000000, tenure_months: 60, rate_bp: 800 });
-    ok(a1.status === 201 && a1.j?.result?.engine_version === "1.288.0", "a saved assessment carries the engine version", a1.text.slice(0, 200));
+    ok(a1.status === 201 && a1.j?.result?.engine_version === "1.298.0", "a saved assessment carries the engine version", a1.text.slice(0, 200));
     const a2 = await call(`/fa/cases/${cid}/assess`, 9, "POST", { amount_cents: 2000000, tenure_months: 60, rate_bp: 800 });
     const hist = (await call(`/fa/cases/${cid}/assessments`, 9)).j?.assessments ?? [];
-    ok(hist.length === 2 && hist[0].id === a2.j.assessment_id && hist[0].engine_version === "1.288.0", "every saved assessment stays in the history, newest first");
+    ok(hist.length === 2 && hist[0].id === a2.j.assessment_id && hist[0].engine_version === "1.298.0", "every saved assessment stays in the history, newest first");
     ok((await call(`/fa/cases/${cid}`, 9, "PATCH", { stage: "matching" })).j?.error?.code === "review_required", "Sales cannot move a case to banker matching by themselves");
     ok((await call(`/fa/cases/${cid}/match`, 1, "POST", { state: "JOHOR" })).j?.error?.code === "review_required", "no banker matching before a Proceed - even for the CEO");
     const a3 = await call(`/fa/cases/${cid}/assess`, 9, "POST", {});
@@ -237,7 +237,7 @@ async function runtime(workerBundle) {
     ok((await dx([slip2.j.id])).j?.error?.code === "consent_required", "after the client withdraws, nothing more is sent");
     const fb = await call(`/fa/cases/${cid}/notes`, 9, "POST", { type: "banker", banker_id: b1.j.id, enquiry_id: enq.j.id, status: "indicatively_suitable", source: "email", body: "Banker says the profile looks acceptable" });
     ok(fb.status === 201 && db.prepare(`SELECT state FROM fa_enquiries WHERE id = ?`).get(enq.j.id).state === "feedback_received" && db.prepare(`SELECT application_status FROM fa_cases WHERE id = ?`).get(cid).application_status === "not_submitted", "banker feedback links to the enquiry and never becomes an approval");
-    ok((await call(`/fa/cases/${cid}/agreement`, 1, "POST", {})).j?.error?.code === "legal_gate" && (await call(`/fa/cases/${cid}/fee`, 1, "POST", {})).j?.error?.code === "legal_gate", "the agreement and the fee stay switched off");
+    ok((await call(`/fa/cases/${cid}/agreement`, 1, "POST", {})).j?.error?.code === "legal_gate" && (await call(`/fa/cases/${cid}/fee`, 1, "POST", {})).j?.error?.code === "fee_after_disbursement", "the agreement stays off; the fee (on since 13-11-2026) bills nothing from a case");
     ok(n(`SELECT COUNT(*) AS n FROM users`) === 9 && n(`SELECT COUNT(*) AS n FROM customers`) === 2, "no banker became a User; no second customer was created");
     ok(finance() === before, "Finance, invoices, payments, commission and journals untouched", `${before} -> ${finance()}`);
   } catch (e) {
