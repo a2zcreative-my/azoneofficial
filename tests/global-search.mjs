@@ -172,7 +172,8 @@ const kinds = (r) => [...new Set(r.hits.map((h) => h.kind))].sort();
   const writes = [...bell.matchAll(/api\("([^"]+)", \{ method: "POST"/g)].map((m) => m[1]);
   ok("the bell's only write is the existing mark-read", writes.length === 1 && writes[0] === "/staff/notifications/read" && !/csrfFetch|method: "(?:PUT|PATCH|DELETE)"/.test(bell));
   ok("Approvals is the Desk's own list, read-only", /const desk = useDeskData\(\);/.test(bell) && /splitDesk\(desk\.data\?\.items \?\? \[\]\)\.decide/.test(bell) && !/<DeskQueue|\/decide|\/approve/.test(bell));
-  ok("the Desk page is still where the queue is worked", /<DeskQueue/.test(read("components/portal/desk-page.tsx")));
+  /* v1.293.0 - the Desk's queue is its Action Inbox (the consolidation, 12-11-2026) */
+  ok("the Desk page is still where the queue is worked", /function Inbox\(/.test(read("components/portal/desk-page.tsx")) && /data-testid="action-inbox"/.test(read("components/portal/desk-page.tsx")));
 }
 
 /* ---- 4. every line opens its record ---- */

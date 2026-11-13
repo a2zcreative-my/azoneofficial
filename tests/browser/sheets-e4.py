@@ -22,6 +22,7 @@ Servers (servers.txt): 4213 ROLE=ceo TASKP=1, 4262 ROLE=ceo OWNER=1 PAYV=1.
 Invented people only."""
 import json, urllib.request
 from playwright.sync_api import sync_playwright
+import re
 
 results = []
 def check(name, cond, detail=""):
@@ -37,6 +38,16 @@ def page(b, port, tab, w, h):
     pg.goto(f"http://127.0.0.1:{port}/portal?tab={tab}"); pg.wait_for_timeout(3000)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
     return ctx, pg, errs
+
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -70,7 +81,7 @@ with sync_playwright() as p:
 
         # ================= the payment verification sheet =================
         ctx, pg, errs = page(b, 4262, "Sales", w, h)
-        pg.get_by_role("tab", name="Payments", exact=True).first.click(); pg.wait_for_timeout(1500)
+        sales_view(pg, "Payments", "Payments"); pg.wait_for_timeout(1500)
         posts0 = len(fx(4262, "/__payments")["posts"])
         pg.get_by_test_id("payment-row").first.get_by_role("button", name="Review").click(); pg.wait_for_timeout(1200)
         dlg = pg.get_by_role("dialog").last

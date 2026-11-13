@@ -82,6 +82,11 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* v1.292.0 (Sales Workspace 4.0) - a phone's touch target is 44 px */
+@media (max-width: 767px) {
+  .scope button,
+  .periods button { min-height: 2.75rem; }
+}
 
 /* the collected trend */
 .chart {

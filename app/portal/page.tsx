@@ -51,6 +51,7 @@ import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { Announcements } from "@/components/portal/announcements";
 import { Dashboard } from "@/components/portal/dashboard";
 import { DeskPage } from "@/components/portal/desk-page";
+import { AutomationRulesPage } from "@/components/portal/automation-rules"; // v1.293.0
 import { Leave } from "@/components/portal/leave";
 import { L, MANAGE_ROLES } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
@@ -81,7 +82,10 @@ export default function PortalPage() {
         {/* v1.176.0 — THE DESK IS A PAGE. It was a bottom-bar stop that
             scrolled this Dashboard to a zone, so the header named the wrong
             place. Same data, its own destination. */}
-        {activeTab === "Desk" && <DeskPage user={user} go={(t) => setTab(t as TabName)} />}
+        {/* v1.293.0 - two views (Overview, Action Inbox), the view in the address */}
+        {activeTab === "Desk" && <DeskPage user={user} go={(t) => setTab(t as TabName)} startView={startOf("Desk")} />}
+        {/* v1.293.0 - the watcher rules, moved whole from the Desk (D4) */}
+        {activeTab === "Automation & Rules" && <AutomationRulesPage role={user.role} go={(t) => setTab(t as TabName)} />}
           {activeTab === "Dashboard" && (
             <>
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put
@@ -137,19 +141,16 @@ export default function PortalPage() {
                (the month's figures, the work, the customers); the map and
                the long view follow as two more. */
             <TabPage>
-              {/* v1.214.0 - the map and the longer view are the workspace's
-                  Reports tab: the same three cards, one tab instead of the
-                  bottom of a long page */}
+              {/* v1.292.0 (Sales Workspace 4.0) - the map and the live-hour
+                  economics are two of the workspace's reports, shown ONE AT A
+                  TIME (the map only when Sales by State is chosen); the public
+                  rate card is a setting, so it sits with the packages (S6) */}
               <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} startView={startOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />}
-                reports={<>
-                  <TabZone label={L("This month", "Bulan ini")}>
-                    <SalesMap />
-                  </TabZone>
-                  <TabZone label={L("The longer view", "Pandangan lebih jauh")} cols={2}>
-                    <LiveEconomicsCard />
-                    <PackagesEditorCard role={user.role} />
-                  </TabZone>
-                </>} />
+                packagesExtra={<PackagesEditorCard role={user.role} />}
+                reports={[
+                  { key: "state", label: L("Sales by State", "Jualan mengikut Negeri"), node: <SalesMap /> },
+                  { key: "live", label: L("Live-hour Economics", "Ekonomi Jam Live"), node: <LiveEconomicsCard /> },
+                ]} />
             </TabPage>
           )}
           {/* v1.21.0: the Pipeline tab is retired (CEO: "Sales pipeline is

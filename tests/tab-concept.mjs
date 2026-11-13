@@ -126,6 +126,7 @@ const BODY = {
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
   "Profile": ["components/portal/profile.tsx"], // v1.220.0 - Profile 2.0: the page is its own tabbed panel
   "Users": ["components/portal/users-panel.tsx"], // v1.189.0 - the page is its own tabbed panel
+  "Automation & Rules": ["components/portal/automation-rules.tsx"], // v1.293.0 - the watcher rules, out of the Desk
   "Stokis": ["components/portal/stokis-panel.tsx"],
   "Content": ["components/portal/content-panel.tsx"],
 };
@@ -159,7 +160,7 @@ for (const tab of allTabs) {
 const SUMMARY = ["Ecommerce", "Sales", "Inventory", "Assets", "Hotels", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Accounting", "Stokis", "Content"];
 for (const tab of SUMMARY) {
   const body = bodyOf(tab);
-  ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|<KpiRow|erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
+  ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / MetricStrip / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|<KpiRow|<MetricStrip |erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
 }
 /* v1.183.0 - the Enquiries "figure is a door" check left with the panel;
    Claims below carries the same rule */

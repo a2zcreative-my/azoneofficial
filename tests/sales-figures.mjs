@@ -51,7 +51,8 @@ const between = (s, a, b) => { const i = s.indexOf(a); return i < 0 ? "" : s.sli
 const staff = read("worker/src/staff.ts");
 const staffCode = strip(staff);
 const route = between(staffCode, 'if (path === "/docs/summary" && method === "GET") {', 'if (path === "/docs" && method === "GET") {');
-const sales = strip(read("components/portal/sales.tsx"));
+/* v1.292.0 - Sales Workspace 4.0 moved the month figures into Reports -> Sales Performance (sales-views.tsx); the screen is both files */
+const sales = strip(read("components/portal/sales.tsx")) + "\n" + strip(read("components/portal/sales-views.tsx"));
 const ws = strip(read("components/portal/sales-workspace.tsx"));
 const enqCard = strip(read("components/portal/sales-enquiries.tsx"));
 const enq = strip(read("worker/src/enquiries.ts"));

@@ -47,8 +47,15 @@ with sync_playwright() as p:
         card = pg.get_by_test_id("company-basis").first
         check(f"{tag}: the target & pace card says all channels, the parts in its title", card.count() == 1 and "all channels" in card.inner_text() and card.get_attribute("title") == PARTS, [lines, card.get_attribute("title") if card.count() else None])
         check(f"{tag}: no sideways page (Dashboard)", no_sideways(pg))
-        pg.goto("http://127.0.0.1:4264/portal?tab=Sales"); pg.wait_for_timeout(2800)
+        # v1.292.0 (Sales Workspace 4.0, S5) - the weekly scorecard is Reports -> Consultant Performance & Weekly Target;
+        # the month tiles are Reports -> Sales Performance: both are read
+        pg.goto("http://127.0.0.1:4264/portal?tab=Sales&view=reports"); pg.wait_for_timeout(2800)
         body = pg.inner_text("body")
+        pg.get_by_test_id("report-type").select_option("team"); pg.wait_for_timeout(1800)
+        body += "\n" + pg.inner_text("body")
+        pg.get_by_test_id("report-type").select_option("collected"); pg.wait_for_timeout(1500)  # the month's collected trend says what it leaves out
+        body += "\n" + pg.inner_text("body")
+        pg.get_by_test_id("report-type").select_option("team"); pg.wait_for_timeout(1500)
         lines = [x.inner_text() for x in pg.get_by_test_id("company-basis").all()]
         check(f"{tag}: the Sales weekly scorecard names the same parts", PARTS in lines, lines)
         check(f"{tag}: ...and says the company target counts every channel", "the company target counts every channel" in body)

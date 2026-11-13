@@ -134,6 +134,10 @@ export const ALL_TABS = [
   "ELFIA Traffic",
   "Companies",
   "Users",
+  /* v1.293.0 - the Desk consolidation (the CEO, 12-11-2026, K3 / D4): the
+     watcher RULES leave the Desk for a page of their own under System. The
+     findings stay in the Desk's Action Inbox; only the rules live here. */
+  "Automation & Rules",
   /* v1.129.0 - the three officers' digital business cards, to share with a
      client. Placed HERE, next to Profile, for two reasons and neither is
      taste: the phone bottom bar uses a fixed primary set, so a tab this far
@@ -175,7 +179,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { id: "people", title: "People", tabs: ["HR", "Staff Details", "Attendance", "On Shift", "Leave", "Claims", "Payroll"] },
   { id: "finance", title: "Finance", tabs: ["Finance", "Accounting", "Commission"] },
   { id: "elfia", title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
-  { id: "system", title: "System", tabs: ["Companies", "Users"] },
+  { id: "system", title: "System", tabs: ["Companies", "Users", "Automation & Rules"] },
   { id: "account", title: "Account", tabs: ["Cards", "Profile"], placement: "account-menu" },
 ];
 /** the group a tab belongs to (undefined for a parked tab) */
@@ -387,6 +391,9 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      worker/src/permissions.ts, which is the matrix actually enforced. */
   Hotels: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
   Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14)
+  /* v1.293.0 (D4) - the five roles that read the watchers today (worker/src/watchers.ts);
+     only the CEO and the super admin change a rule, the server's own rule */
+  "Automation & Rules": ["ceo", "coo", "cco", "super_admin", "admin"],
   /* v1.129.0 (CEO, 06-09-2026: *"only ceo, coo, cco can share their business
      card to client and the other staff cant access this tabs"*). The three
      officers, and nobody else - deliberately NOT admin, who is on most other
@@ -466,6 +473,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Stokis: { en: "reseller network", ms: "rangkaian pengedar" },
   Assets: { en: "equipment register", ms: "daftar peralatan" },
   Users: { en: "accounts — keep tight", ms: "akaun — kawal ketat" },
+  "Automation & Rules": { en: "watcher rules — the CEO changes them", ms: "peraturan pemerhati — CEO mengubahnya" },
   Cards: { en: "share a director's card", ms: "kongsi kad pengarah" },
 };
 
@@ -653,6 +661,7 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   Cards: { slug: "cards" },
   Profile: { slug: "profile" },
   Users: { slug: "users" },
+  "Automation & Rules": { slug: "automation" }, // v1.293.0
 };
 
 /** v1.287.0 - the navigation manifest, DERIVED (never hand-written): one

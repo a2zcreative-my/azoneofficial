@@ -94,9 +94,11 @@ const salesCode = strip(sales);
 
 /* ---- 5. one panel ---- */
 {
-  ok("the workspace tabs are the shared underline tabs", /<LineTabs value=\{wsView\} onChange=\{\(k\) => setWsView\(k\)\} label=\{L\("Sales", "Jualan"\)\}/.test(salesCode));
+  /* v1.292.0 - the shared underline tabs, drawn by the Sales shell (SalesViewBar) on a wide screen; a phone has the one selector */
+  ok("the workspace tabs are the shared underline tabs", /<LineTabs value=\{view\} onChange=\{onView\} label=\{L\("Sales", "Jualan"\)\}/.test(read("components/portal/sales-shell.tsx")) && /<SalesViewBar view=\{wsView\} onView=\{setWsView\}/.test(salesCode));
   ok("bodies are hidden, never unmounted (a half-written quotation survives)",
-     /<section id="sales-work" className="[^"]*" hidden=\{wsView !== "documents"\}>/.test(salesCode) && /<section id="sales-customers" className="[^"]*" hidden=\{wsView !== "customers"\}>/.test(salesCode));
+     /<section id="sales-work" className="[^"]*" hidden=\{wsView !== "documents"\}>/.test(salesCode) && /* v1.292.0 - the customers list is one of Customers & Follow-ups' filters: still hidden, never unmounted */
+     /<section id="sales-customers" className="[^"]*" hidden=\{wsView !== "customers" \|\| custFilter !== "all"\}>/.test(salesCode));
   ok("\"Mine\" is the salesperson, or the follow-up's owner; management opens on everyone",
      /const sDocs = scope === "mine" \? docs\.filter\(\(d\) => d\.salesperson_id === user\.id\) : docs;/.test(salesCode)
      && /const sFollowups = scope === "mine" \? crm\.followups\.filter\(\(f\) => f\.owner_id === user\.id\) : crm\.followups;/.test(salesCode)

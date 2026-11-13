@@ -25,7 +25,7 @@ import {
   AtSign, BadgePercent, Handshake, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, Landmark, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
-  Receipt, ScrollText, Settings2, ShieldCheck,
+  Receipt, ScrollText, Settings2, ShieldCheck, SlidersHorizontal,
   ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet, LayoutGrid, TrendingUp, Boxes, Users, Coins, ShoppingBag, Cog,
   type LucideIcon,
@@ -71,6 +71,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Cards: Contact, // v1.129.0 - the digital business cards. Unused on every rail; a contact card IS the tab.
   Profile: UserRound,
   Users: ShieldCheck,
+  "Automation & Rules": SlidersHorizontal, // v1.293.0 - rules and thresholds; unused on every rail
   // ---- admin (names not shared with the portal) ----
   Website: Globe,
   Enquiries: Inbox,

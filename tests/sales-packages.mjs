@@ -207,7 +207,8 @@ async function source() {
   /* v1.246.1 - Clear selection takes the package lines and discount out */
   ok(/onClear=\{\(\) => void clearPackage\(\)\}/.test(s) && /const clearPackage = async \(\) => \{[\s\S]{0,1600}?setDoc\(\(d\) => \{[\s\S]{0,300}?items: back, discount_cents:[\s\S]{0,400}?setPkgRef\(null\);/.test(s), "F6 Clear selection removes the package lines (descriptions included) and its discount, not only the label");
   ok(/pkgUndo\.current = pkgRef && pkgUndo\.current/.test(s) && /title: L\("Remove the package lines\?"/.test(s), "F7 clearing restores the lines from before the package and asks first when they were edited");
-  ok(/role="tab" aria-selected=\{workTab === "packages"\}/.test(s) && /\["outstanding", L\("Outstanding", "Tertunggak"\)\]/.test(s), "F5 the Packages pill sits beside the existing seven");
+  /* v1.292.0 (Sales Workspace 4.0) - the document views beyond All / Quotations / Invoices sit under the pill row's More, Packages among them */
+  ok(/\{ key: "packages", label: L\("Packages", "Pakej"\), on: workTab === "packages", go: \(\) => setWorkTab\("packages"\) \}/.test(s) && /\{ key: "outstanding", label: L\("Outstanding", "Tertunggak"\)/.test(s) && /<DocsMore items=\{\[/.test(s), "F5 Packages sits with the other document views (More), beside the outstanding report");
   return out;
 }
 

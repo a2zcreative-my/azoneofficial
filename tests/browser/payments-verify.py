@@ -15,6 +15,7 @@ Servers (servers):
 Invented people only."""
 import json, os, tempfile, urllib.request
 from playwright.sync_api import sync_playwright
+import re
 
 SALES, CEO = 4261, 4262
 results = []
@@ -32,7 +33,7 @@ def open_page(b, port, w=1440, h=1000):
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales"); pg.wait_for_timeout(2600)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-    pg.get_by_role("tab", name="Payments", exact=True).first.click(); pg.wait_for_timeout(1200)
+    sales_view(pg, "Payments", "Payments"); pg.wait_for_timeout(1200)
     return ctx, pg, errs
 
 def no_sideways(pg):
@@ -46,6 +47,16 @@ def on_screen(pg, loc):
 png = os.path.join(tempfile.mkdtemp(), "slip.png")
 with open(os.path.join(os.path.dirname(__file__), "..", "..", "public", "icon-192.png"), "rb") as src, open(png, "wb") as dst:
     dst.write(src.read())
+
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
 
 with sync_playwright() as p:
     b = p.chromium.launch()

@@ -32,11 +32,21 @@ def open_docs(b, port, w, h):
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales"); pg.wait_for_timeout(2600)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
+    sales_view(pg, "Quotations & Invoices", "Documents"); pg.wait_for_timeout(1500)
     return ctx, pg, errs
 
 def row(pg, number):
     return pg.locator(f"[role='row']:has-text('{number}')").first
+
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -54,7 +64,7 @@ with sync_playwright() as p:
         btn.scroll_into_view_if_needed(); btn.click(); pg.wait_for_timeout(1500)
         dlg = pg.get_by_role("dialog").last
         check(f"{tag}: Request paid opens Payments with that invoice's sheet",
-              pg.get_by_role("tab", name="Payments", exact=True).first.get_attribute("aria-selected") == "true" and dlg.count() == 1 and "Request paid - INV-AZO050926-3" in dlg.inner_text(),
+              ("view=payments" in pg.url) and dlg.count() == 1 and "Request paid - INV-AZO050926-3" in dlg.inner_text(),
               dlg.inner_text()[:200] if dlg.count() else "no dialog")
         check(f"{tag}: ...the sheet still asks for the reference (then the proof) before it moves on (the 1.272.0 rules)", dlg.get_by_role("button", name="Next: proof").count() == 1 and dlg.get_by_role("button", name="Next: proof").is_disabled())
         dlg.get_by_role("button", name="Close").first.click(); pg.wait_for_timeout(500)

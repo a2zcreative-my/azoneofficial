@@ -165,18 +165,23 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("the customer form prints top to bottom: company, contact, address, phone, email; website and logo under 'not printed'", cb > 0 && fields.every((x) => x > 0) && fields.every((x, i) => i === 0 || x > fields[i - 1]), fields.join(" < "));
   /* the tab's zones */
   const st = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
-  const z = [st.indexOf("<Sales user={user}"), st.indexOf('L("This month"'), st.indexOf("<SalesMap />"), st.indexOf('L("The longer view"')];
-  ok("the Sales workspace precedes the map and longer view", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st));
+  /* v1.292.0 (Sales Workspace 4.0, the CEO's "approve" 12-11-2026) - the map
+     and the live-hour economics are two of the workspace's REPORTS, shown one
+     at a time; the public rate card sits with the packages it prices (S6) */
+  const z = [st.indexOf("<Sales user={user}"), st.indexOf("packagesExtra={<PackagesEditorCard role={user.role} />}"), st.indexOf('{ key: "state", label: L("Sales by State"'), st.indexOf("node: <SalesMap />"), st.indexOf('{ key: "live", label: L("Live-hour Economics"'), st.indexOf("node: <LiveEconomicsCard />")];
+  ok("the map and the live-hour economics are Sales reports (one at a time); the rate card sits with the packages", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st)
+     && /\{wsView === "reports" && <ReportPicker reports=\{reportDefs\} \/>\}/.test(comp) && /\.\.\.\(p\.extra \?\? \[\]\)/.test(read("components/portal/sales-views.tsx")), z.join(" < "));
   /* v1.191.0 - the work card has no caption (the owner's photo); its Documents head opens it */
-  const inner = [comp.indexOf('Documents (All)'), comp.indexOf("{editingDoc ? ("), comp.indexOf("cloneElement(workExtra"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
+  const inner = [comp.indexOf('L(`All Documents`'), comp.indexOf("{editingDoc ? ("), comp.indexOf("cloneElement(workExtra"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
   ok("THE WORK precedes CUSTOMERS without duplicating their forms", inner.every((x) => x > 0) && inner.every((x, i) => i === 0 || x > inner[i - 1]), inner.join(" < "));
   ok("Sales opens records by default and keeps explicit creation intent", comp.includes('initialView = "documents"') && comp.includes('(initialView)') && page.includes('setSalesStart("create")') && read("components/portal/dashboard-overview.tsx").includes('onCreateQuotation()')); // v1.213.0 - Create quotation lives in the Overview's Quick Actions
   ok("editing a document opens its mounted form and scrolls the workspace", /setEditingDoc\(\{\s*id: d\.id, doc_number: d\.doc_number,[\s\S]{0,200}?\}\);\s*setWorkTab\("create"\)/.test(comp) && comp.includes('getElementById("sales-work")?.scrollIntoView'));
   /* v1.191.0 - the work's three bodies are reached from the Documents pill
      row (documents and the money views) and the top bar (Create document) */
   ok("Customers has two tabs, and the work's three bodies each have a way in", /value=\{custTab\} onChange=\{setCustTab\}/.test(comp) && ["add", "clients"].every((k) => comp.includes(`["${k}", L(`))
-     && /setWorkTab\("create"\)/.test(comp) && /setWorkTab\("documents"\); setDocType\(v\)/.test(comp) && /setWorkTab\("receipts"\); setMoney\(v\)/.test(comp)
-     && ["receipts", "credit", "outstanding"].every((k) => comp.includes(`["${k}", L(`)));
+     && /setWorkTab\("create"\)/.test(comp) && /setWorkTab\("documents"\); setDocType\(v\)/.test(comp)
+     /* v1.292.0 - the three money views are under the Documents pill row's More (DocsMore), each still opening its body */
+     && ["receipts", "credit", "outstanding"].every((k) => comp.includes(`{ key: "${k}", label: L(`) && comp.includes(`setWorkTab("receipts"); setMoney("${k}");`)) && /<DocsMore items=\{\[/.test(comp));
   ok("every Sales tab body is hidden, never unmounted", ["add", "clients"].every((k) => comp.includes(`custTab === "${k}" ? "mt-3" : "hidden"`)) && ["create", "documents", "receipts"].every((k) => comp.includes(`workTab === "${k}" ? "mt-3" : "hidden"`)),
      "a half-written quotation must survive a look at the documents list");
 }

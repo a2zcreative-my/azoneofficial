@@ -464,3 +464,127 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   for (const i of items) counts[i.bucket] = (counts[i.bucket] ?? 0) + 1;
   return { items, counts, missing };
 }
+
+/* ===================== v1.293.0 - COMPLETED (read only) =====================
+ * The Desk consolidation (the CEO, 12-11-2026, decisions K3 and D5): the
+ * Action Inbox's Completed filter lists what THE PERSON LOOKING decided in the
+ * last 30 days. It is read from the records the modules already keep about a
+ * decision, and from nothing else:
+ *   - leave steps        leave_decisions (actor_id = me), the leave chain's own log
+ *   - everything else    audit_log (user_id = me), the action each decide route
+ *                        writes: claim steps, overtime, forgotten punches,
+ *                        quotation approvals, probation, advisory reviews
+ * It writes nothing, decides nothing and lists nobody else's decisions, so a
+ * person can never see another company's or another approver's work here.
+ * Each row names the record so the screen can open it in its module. */
+export interface DeskDone {
+  id: string;
+  /** the module tab the record lives in */
+  tab: string;
+  title: string;
+  /** whose request it was, when it was somebody's */
+  who: string | null;
+  /** what the person did, in one word */
+  decision: "approved" | "rejected" | "returned" | "reviewed" | "verified" | "flagged" | "decided" | "overridden";
+  at: string;
+  /** the record focus the module understands, or null (the module opens at its list) */
+  record: { kind: string; id: number } | null;
+}
+const DONE_ACTIONS: Record<string, { tab: string; decision: DeskDone["decision"]; word: string }> = {
+  "claim.approve": { tab: "Claims", decision: "approved", word: "Claim" },
+  "claim.reject": { tab: "Claims", decision: "rejected", word: "Claim" },
+  "claim.hr_review": { tab: "Claims", decision: "reviewed", word: "Claim (HR review)" },
+  "claim.preapprove": { tab: "Claims", decision: "approved", word: "Claim (pre-approval)" },
+  "claim.return": { tab: "Claims", decision: "returned", word: "Claim" },
+  "ot.decide": { tab: "Attendance", decision: "decided", word: "Overtime" },
+  "attendance.forgot_approve": { tab: "Attendance", decision: "approved", word: "Forgotten punch" },
+  "attendance.forgot_reject": { tab: "Attendance", decision: "rejected", word: "Forgotten punch" },
+  "sales.quote_approve": { tab: "Sales", decision: "approved", word: "Quotation" },
+  "staff.probation_decide": { tab: "HR", decision: "decided", word: "Probation" },
+  "fa.review_submit": { tab: "Financial Advisory", decision: "reviewed", word: "Advisory review" },
+};
+const LEAVE_DONE: Record<string, DeskDone["decision"]> = {
+  approved: "approved", rejected: "rejected", returned: "returned", hr_verified: "verified", hr_flagged: "flagged", override: "overridden",
+};
+export async function deskCompleted(env: Env, user: { id: number }, days = 30): Promise<{ items: DeskDone[]; days: number; missing: string[] }> {
+  const span = Math.min(90, Math.max(1, Math.floor(days)));
+  const since = `-${span} days`;
+  const items: DeskDone[] = [];
+  const missing: string[] = [];
+  const person = (a: string) => `COALESCE(NULLIF(TRIM(${a}.full_name), ''), ${a}.name)`;
+  /* leave - the chain's own decision log */
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT d.id, d.leave_id, d.kind, d.created_at, l.type, l.days, l.start_date, ${person("u")} AS name
+         FROM leave_decisions d JOIN leave_requests l ON l.id = d.leave_id LEFT JOIN users u ON u.id = l.user_id
+        WHERE d.actor_id = ?1 AND d.kind IN ('approved', 'rejected', 'returned', 'hr_verified', 'hr_flagged', 'override')
+          AND d.created_at >= datetime('now', ?2)
+        ORDER BY d.id DESC LIMIT 200`,
+    ).bind(user.id, since).all<{ id: number; leave_id: number; kind: string; created_at: string; type: string; days: number; start_date: string; name: string | null }>();
+    for (const r of results ?? []) {
+      items.push({ id: `done:leave:${r.id}`, tab: "Leave", title: `${r.type} leave · ${r.days} day${r.days === 1 ? "" : "s"} from ${dmy(r.start_date)}`,
+        who: r.name, decision: LEAVE_DONE[r.kind] ?? "decided", at: r.created_at, record: { kind: "leave", id: r.leave_id } });
+    }
+  } catch { missing.push("leave"); }
+  /* the other modules - the audit trail each decide route writes */
+  try {
+    const acts = Object.keys(DONE_ACTIONS);
+    const { results } = await env.DB.prepare(
+      `SELECT id, action, entity_id, detail, created_at FROM audit_log
+        WHERE user_id = ?1 AND action IN (${acts.map((_, i) => `?${i + 3}`).join(", ")})
+          AND created_at >= datetime('now', ?2)
+        ORDER BY id DESC LIMIT 300`,
+    ).bind(user.id, since, ...acts).all<{ id: number; action: string; entity_id: string | null; detail: string | null; created_at: string }>();
+    for (const r of results ?? []) {
+      const a = DONE_ACTIONS[r.action];
+      if (!a) continue;
+      const rid = Number(r.entity_id);
+      let detail: Record<string, unknown> = {};
+      try { detail = r.detail ? JSON.parse(r.detail) as Record<string, unknown> : {}; } catch { detail = {}; }
+      let title = a.word;
+      let who: string | null = null;
+      let record: DeskDone["record"] = null;
+      let decision = a.decision;
+      try {
+        if (r.action.startsWith("claim.") && Number.isInteger(rid)) {
+          const c = await env.DB.prepare(`SELECT c.amount_cents, ${person("u")} AS name FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`)
+            .bind(rid).first<{ amount_cents: number; name: string | null }>();
+          if (c) { title = `${a.word} · ${rm(c.amount_cents)}`; who = c.name; }
+          record = { kind: "claim", id: rid };
+        } else if (r.action === "ot.decide" && Number.isInteger(rid)) {
+          const u = await env.DB.prepare(`SELECT ${person("u")} AS name FROM users u WHERE u.id = ?1`).bind(rid).first<{ name: string | null }>();
+          who = u?.name ?? null;
+          const day = typeof detail.date === "string" ? detail.date : null;
+          if (day) title = `${a.word} on ${dmy(day)}`;
+          /* the route's three words: approved (paid), replacement (paid in leave days), rejected */
+          if (detail.decision === "rejected") decision = "rejected";
+          else if (detail.decision === "approved" || detail.decision === "replacement") decision = "approved";
+          if (detail.decision === "replacement") title = `${title} · replacement leave`;
+        } else if (r.action.startsWith("attendance.") && Number.isInteger(rid)) {
+          const p = await env.DB.prepare(`SELECT a.type, a.created_at, ${person("u")} AS name FROM attendance_records a LEFT JOIN users u ON u.id = a.user_id WHERE a.id = ?1`)
+            .bind(rid).first<{ type: string; created_at: string; name: string | null }>();
+          who = p?.name ?? (typeof detail.name === "string" ? detail.name : null);
+          if (p) title = `${a.word} · ${p.type === "clock_in" ? "clock in" : "clock out"} ${dmy(p.created_at.slice(0, 10))}`;
+        } else if (r.action === "sales.quote_approve" && Number.isInteger(rid)) {
+          const d = await env.DB.prepare(`SELECT d.doc_number, k.company FROM sales_documents d LEFT JOIN customers k ON k.id = d.customer_id WHERE d.id = ?1`)
+            .bind(rid).first<{ doc_number: string; company: string | null }>();
+          if (d) { title = `${a.word} ${d.doc_number}`; who = d.company; }
+          record = { kind: "document", id: rid };
+        } else if (r.action === "staff.probation_decide" && Number.isInteger(rid)) {
+          const u = await env.DB.prepare(`SELECT ${person("u")} AS name FROM users u WHERE u.id = ?1`).bind(rid).first<{ name: string | null }>();
+          who = u?.name ?? null;
+          if (typeof detail.outcome === "string") title = `${a.word} · ${detail.outcome}`;
+        } else if (r.action === "fa.review_submit") {
+          if (typeof detail.case === "string") title = `${a.word} · ${detail.case}`;
+        }
+      } catch { /* a record a later migration removed: the row still says what was done */ }
+      items.push({ id: `done:audit:${r.id}`, tab: a.tab, title, who, decision, at: r.created_at, record });
+    }
+  } catch { missing.push("audit"); }
+  items.sort((x, y) => (y.at > x.at ? 1 : y.at < x.at ? -1 : 0));
+  return { items: items.slice(0, 300), days: span, missing };
+}
+export async function handleDeskCompleted(env: Env, user: { id: number }, params: URLSearchParams): Promise<Response> {
+  const d = Number(params.get("days") ?? "30");
+  return json(await deskCompleted(env, user, Number.isFinite(d) ? d : 30));
+}

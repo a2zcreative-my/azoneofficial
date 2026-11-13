@@ -255,6 +255,11 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      and a crashed tab can only haunt one browser session, never every
      visit (v1.22.7). Old localStorage keys from the retired scheme are
      cleaned up. */
+  /* v1.292.0 - a deep link is taken ONCE per page load: Sales now writes
+     its own view into the address (tab and view), and this effect re-runs
+     whenever the account record or openRecord changes - it must not read
+     that address as a new link, wipe it and send the person back */
+  const linkTaken = useRef(false);
   useEffect(() => {
     let live = true;
     const settle = () => { if (live) setEntryReady(true); };
@@ -267,16 +272,24 @@ export function PortalProvider({ children }: { children: ReactNode }) {
          dragging the person back to it. The visibility clamp below still
          applies: a tab this account cannot see snaps to the Dashboard. */
       const wanted = new URL(window.location.href).searchParams.get("tab");
-      if (wanted && (ALL_TABS as readonly string[]).includes(wanted)) {
+      if (wanted && !linkTaken.current && (ALL_TABS as readonly string[]).includes(wanted)) {
+        linkTaken.current = true;
         /* v1.247.0 - a task email deep-links to its task (/portal?tab=Tasks&task=123):
            the Tasks tab opens on that record through the same focus a bell
            uses, with every task permission still the server's */
         const taskId = Number(new URL(window.location.href).searchParams.get("task") ?? 0);
         if (wanted === "Tasks" && Number.isInteger(taskId) && taskId > 0) openRecord("Tasks", "task", taskId);
         else setTabState(wanted as TabName);
+        /* v1.292.0 (Sales Workspace 4.0, decision S2) - a link may also name
+           the view inside the tab (/portal?tab=Sales&view=payments): a short
+           word handed to the tab as its start view, never a record or a person.
+           The tab decides what the word means; an unknown word changes nothing. */
+        const startAt = new URL(window.location.href).searchParams.get("view");
+        if (startAt && /^[a-z_]{1,24}$/.test(startAt)) setTabStart({ tab: wanted as TabName, view: startAt });
         const clean = new URL(window.location.href);
         clean.searchParams.delete("tab");
         clean.searchParams.delete("task");
+        clean.searchParams.delete("view");
         window.history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
         settle();
         return;
@@ -299,6 +312,20 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       }).catch(() => {}).finally(() => { window.clearTimeout(timeout); settle(); });
     return () => { live = false; controller.abort(); window.clearTimeout(timeout); };
   }, [user, openRecord]);
+  /* v1.292.0 (decision S2) - Back or Forward onto an entry that names a tab
+     and a view (Sales writes one per view): the tab opens at that view. The
+     visibility clamp (activeTab) still decides whether the tab may mount. */
+  useEffect(() => {
+    const onPop = () => {
+      const u = new URL(window.location.href);
+      const t = u.searchParams.get("tab"), v = u.searchParams.get("view");
+      if (!t || !(ALL_TABS as readonly string[]).includes(t)) return;
+      setTabState(t as TabName);
+      if (v && /^[a-z_]{1,24}$/.test(v)) setTabStart({ tab: t as TabName, view: v });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   useEffect(() => {
     try {
       if (user && entryReady) window.sessionStorage.setItem(`azone-tab:${user.id}`, tab);

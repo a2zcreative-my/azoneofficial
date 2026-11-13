@@ -35,6 +35,7 @@ const FILES = {
   users: "components/portal/users-panel.tsx",
   weekly: "components/portal/weekly-sales.tsx",
   sales: "components/portal/sales.tsx",
+  salesViews: "components/portal/sales-views.tsx", // v1.292.0 - Sales Workspace 4.0 moved the chart into Reports
   desk: "components/portal/one-desk.tsx",
 };
 
@@ -104,7 +105,11 @@ function checks(src) {
   ok("R10 - System health lives in Users -> Security & Sessions, and the alert band opens it", /<SystemHealthCard \/>/.test(strip(src.users)) && /openAt\("Users", "security"\)/.test(ovBlock));
   ok("R10 - pace, advice, the team and the pipeline live in Sales -> Weekly target; the chart in Sales",
     /<CommandStrip o=\{d\.outlook\}/.test(strip(src.weekly)) && /<AdviceList cards=\{adv\.cards\}/.test(strip(src.weekly)) && /<Opportunities rows=\{adv\.opps\}/.test(strip(src.weekly))
-    && /aria-label=\{L\("Staff this week"/.test(src.weekly) && /\{companyView && <SalesPerformanceCard /.test(strip(src.sales)));
+    && /aria-label=\{L\("Staff this week"/.test(src.weekly) && /\{companyView && <SalesPerformanceCard /.test(strip(src.salesViews)));
+  /* v1.292.0 - the CEO (12-11-2026): no "Executive Command Center 4.0" and no line under it on the Dashboard */
+  const eh = ov.slice(ov.indexOf("export function ExecHeader("), ov.indexOf("export type { MyShift"));
+  ok("the Dashboard carries no Command Center title and no subtitle; the header is the phone's view switch only",
+    eh.length > 200 && !/Command Center|key decisions and next actions/.test(ov + cards + dash) && /className=\{`\$\{x\.execHead\} erp-phone-only`\} data-testid="exec-header"/.test(eh) && !/<h1|<h2/.test(eh));
   ok("the source module of each decision is named in words", /export const deskBucketWord = /.test(src.desk) && /source: deskBucketWord\(d\.bucket\)/.test(ovBlock));
   return res;
 }
@@ -125,6 +130,8 @@ const MUT = [
   ["more than four actions", "ov", "<div className={x.span3} style={o(5)}><QuickActionsStrip actions={quick} max={4} /></div>", "<div className={x.span3} style={o(5)}><QuickActionsStrip actions={quick} /></div>"],
   ["the attendance chart dropped from Attendance", "att", "<DailyAttendanceChart role={user.role} />", ""],
   ["the pace worked out in the browser", "cards", 'if (w.risk === "high") return { text: L("Below target"', 'if ((w.pct ?? 0) < 50) return { text: L("Below target"'],
+  ["the Command Center title brought back", "ov", '<div className={`${x.execHead} erp-phone-only`} data-testid="exec-header">', '<div className={`${x.execHead} erp-phone-only`} data-testid="exec-header"><h1>Executive Command Center 4.0</h1>'],
+  ["the header drawn on a wide screen too", "ov", '<div className={`${x.execHead} erp-phone-only`} data-testid="exec-header">', '<div className={x.execHead} data-testid="exec-header">'],
   ["a company figure on My Day", "ov", "<NextActionsCard rows={rows} loaded={tasksLoaded} />", "<NextActionsCard rows={rows} loaded={tasksLoaded} />{fmtRM(c.basis_cents)}"],
 ];
 let caught = 0;

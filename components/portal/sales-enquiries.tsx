@@ -18,6 +18,7 @@ import type { ApiResult } from "@/lib/api";
 import { PanelTitle } from "@/components/ui/app-icon";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { api } from "@/lib/api";
+import { useCachedApi } from "@/lib/cached-api";
 import { dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
@@ -37,6 +38,13 @@ const STATUS_LABEL: Record<string, [string, string]> = {
   new: ["New", "Baharu"], contacted: ["Contacted", "Dihubungi"], qualified: ["Qualified", "Layak"], closed: ["Closed", "Ditutup"],
 };
 const chipOf = (s: string) => s === "new" ? "erp-chip-warning" : s === "qualified" ? "erp-chip-success" : s === "closed" ? "erp-chip-neutral" : "erp-chip-info";
+
+/** v1.292.0 - the enquiry list through the shared cache, for the Sales
+    worklist and its board (the same GET /enquiries this file owns; the
+    server decides who may read it, a 403 reads as an empty list) */
+export function useEnquiryList(): Enquiry[] {
+  return useCachedApi<{ enquiries: Enquiry[] }>("/enquiries", true, ["enquiries"]).data?.enquiries ?? [];
+}
 
 export function SalesEnquiries({ scope, userId, onQuote }: { scope: WsScope; userId: number; onQuote: (e: Enquiry) => void }) {
   const [rows, setRows] = useState<Enquiry[] | null>(null);

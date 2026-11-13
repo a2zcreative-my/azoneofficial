@@ -1356,6 +1356,10 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     recurring: [{ id: 2, customer_id: 1, source_doc_id: 3, source_number: "INV-AZO050926-3", total_cents: 300000, day_of_month: 5, note: null, due_on: D + "05", raised: false, raised_number: null, due: true }],
     invoices: [{ id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, created_at: D + "05 02:00:00" }],
     owners: [{ id: 9001, name: "Fixture Person" }, { id: 9002, name: "Nur Aisyah" }], me: 9001, today: D + "18", can_write: true };
+  /* v1.292.0 - the Sales Worklist's Follow up on a quotation opens its customer's file (QT-0042 is customer 52): the same shape, nothing booked */
+  if (p === "/staff/customers/52/file") data = { customer: { id: 52, company: "Aina Boutique (Melaka)", contact_person: "Aina Rahman", phone: "0174761019", email: null },
+    contacts: [], tags: [], all_tags: ["f&b", "hijab", "retainer"], terms_days: null, followups: [], recurring: [], invoices: [],
+    owners: [{ id: 9001, name: "Fixture Person" }, { id: 9002, name: "Nur Aisyah" }], me: 9001, today: D + "18", can_write: true };
   /* v1.181.16 - a shared quotation the customer can accept (the public page) */
   if (/^\/public\/doc\/[a-f0-9]{32}$/.test(p)) data = { doc: { ...docs[0], company: "Aina Boutique", contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
     items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }, { name: "Product photography - 20 photos", qty: 1, unit_price_cents: 150000, uom: "SET" }]),
@@ -1399,6 +1403,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       discount_cents: 0, tax_percent: 0, delivery_cents: 0, issuer_code: "a2z", revision: 0 } }; }
   /* v1.214.0 - the paid invoice's payments read (the workspace opens it) */
   if (p === "/staff/docs/2/payments") data = { invoice: { id: 2, doc_number: "INV-AZO100926-2", total_cents: 280000, payment_status: "paid", paid_at: D + "12 10:00:00", created_at: D + "10 10:00:00" }, can_record: true, payments: [], received_cents: 0, balance_cents: 280000 };
+  /* v1.292.0 - the Sales Worklist opens INV-AZO200826-4 itself: its part-payment panel, nothing received */
+  if (p === "/staff/docs/4/payments") data = { invoice: { id: 4, doc_number: "INV-AZO200826-4", total_cents: 120000, payment_status: "unpaid" }, can_record: true, received_cents: 0, balance_cents: 120000, payments: [] };
   if (p === "/staff/docs/3/payments") data = { invoice: { id: 3, doc_number: "INV-AZO050926-3", total_cents: 990000, payment_status: "unpaid" }, can_record: true,
     received_cents: 400000, balance_cents: 590000, payments: [
       { id: 1, amount_cents: 250000, received_on: D + "08", method: "bank_transfer", reference: "MBB080926-4471", note: null, created_at: D + "08 03:00:00", voided_at: null, void_reason: null, recorded_by: "Nur Aisyah", voided_by_name: null },
@@ -1579,6 +1585,12 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     for (const i of deskItems) deskCounts[i.bucket] = (deskCounts[i.bucket] ?? 0) + 1;
     data = { items: deskItems, counts: deskCounts, total: deskItems.length, missing: [] };
   }
+  /* v1.293.0 - the Action Inbox's Completed filter: what the signed-in person decided (invented records) */
+  if (p === "/staff/desk/completed") data = { days: 30, missing: [], items: [
+    { id: "done:leave:41", tab: "Leave", title: "annual leave · 2 days from 08-09-2026", who: "Farid Zulkifli", decision: "approved", at: "2026-09-20 06:02:00", record: { kind: "leave", id: 11 } },
+    { id: "done:audit:907", tab: "Claims", title: "Claim · RM 86.40", who: "Aina Rahman", decision: "rejected", at: "2026-09-19 01:31:00", record: { kind: "claim", id: 7 } },
+    { id: "done:audit:905", tab: "Attendance", title: "Forgotten punch · clock in 08-09-2026", who: "Hakim Rosli", decision: "approved", at: "2026-09-18 10:12:00", record: null },
+  ] };
   /* v1.176.0 - the watchers, so the Desk page's "Needs attention" zone has
      GROUPED findings to draw (eleven low-stock SKUs under one row). */
   if (p === "/staff/watchers") data = {

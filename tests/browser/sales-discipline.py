@@ -40,8 +40,11 @@ def page(b, port, w=1440, h=1000, dark=False):
     ctx = b.new_context(viewport={"width": w, "height": h}, is_mobile=w < 500, has_touch=w < 500, reduced_motion="reduce", color_scheme="dark" if dark else "light")
     pg = ctx.new_page(); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales"); pg.wait_for_timeout(3000)
+    # v1.292.0 (Sales Workspace 4.0, S5) - the team's week is Sales -> Reports -> Consultant Performance & Weekly Target
+    pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales&view=reports"); pg.wait_for_timeout(3000)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
+    if pg.get_by_test_id("report-type").count():
+        pg.get_by_test_id("report-type").select_option("team"); pg.wait_for_timeout(1800)
     return ctx, pg, errs
 
 def card(pg):

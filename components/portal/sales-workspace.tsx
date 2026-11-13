@@ -33,9 +33,12 @@ import { WeeklySales } from "@/components/portal/weekly-sales";
 import { CommissionCard } from "@/components/portal/commission-card";
 import { actionFor, type PayActor } from "@/components/portal/payment-parts"; // v1.282.0
 import css from "./sales-workspace.module.css";
+import { MetricStrip } from "@/components/portal/sales-shell"; // v1.292.0
+import { downloadCsv } from "@/lib/csv";
 import { Chip, ExecCard, type Tone } from "@/components/portal/executive-cards";
 import xc from "./executive.module.css";
 import { SkelRows } from "@/components/ui/skeleton";
+import { useCachedApi } from "@/lib/cached-api"; // v1.292.0 - the Payout column reads the Commission module
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -79,6 +82,26 @@ const ymd = (ts?: string | null) => (ts ? mytDateOf(ts) : "");
 /* v1.215.0 - PAYROLL 2.0, PHASE A: the CEO/COO confirm that the money of an
    invoice paid in full arrived. Only a confirmed invoice will count toward
    commission once the owner sets a policy; nothing is calculated here. */
+/* v1.292.0 - the fourth fact on Closed Sales: the payout, word for word as the
+   Commission module's ledger records it (/staff/commission/entries). The server
+   decides whose rows a viewer reads (management everyone's, a consultant their
+   own); nothing is worked out here and nothing is written. */
+interface PayoutEntry { invoice_id: number; kind: "earn" | "reverse"; status: "eligible" | "review" | "included" | "paid" | "void"; recipient_role?: "closer" | "agent"; payroll_month: string | null }
+const PAYOUT_WORD: Record<PayoutEntry["status"], [string, string, string]> = {
+  eligible: ["Eligible", "Layak", "erp-chip-info"], review: ["Under review", "Dalam semakan", "erp-chip-warning"],
+  included: ["In payroll", "Dalam gaji", "erp-chip-info"], paid: ["Paid out", "Telah dibayar", "erp-chip-success"], void: ["Void", "Batal", "erp-chip-neutral"],
+};
+function payoutState(rows: PayoutEntry[] | null, invoiceId: number): { label: string; chip: string } | null {
+  if (rows === null) return { label: L("Not available", "Tiada data"), chip: "erp-chip-neutral" };
+  const mine = rows.filter((e) => e.invoice_id === invoiceId && e.kind === "earn" && e.status !== "void");
+  if (mine.length === 0) return null;
+  const word = (e: PayoutEntry) => `${L(PAYOUT_WORD[e.status][0], PAYOUT_WORD[e.status][1])}${e.status === "included" && e.payroll_month ? ` · ${e.payroll_month}` : ""}`;
+  const [only] = mine;
+  const label = only && mine.length === 1 ? word(only)
+    : mine.map((e) => `${e.recipient_role === "agent" ? L("Agent", "Ejen") : L("Closer", "Penutup")}: ${word(e)}`).join(" · ");
+  return { label, chip: mine.every((e) => e.status === "paid") ? PAYOUT_WORD.paid[2] : mine.some((e) => e.status === "review") ? PAYOUT_WORD.review[2] : PAYOUT_WORD.eligible[2] };
+}
+
 function confirmState(d: WsDoc): { label: string; chip: string } | null {
   if (d.doc_type !== "INV" || d.payment_status !== "paid") return null;
   if (d.paid_confirmed_at) {
@@ -267,26 +290,26 @@ function LatestInvoices({ docs, partPaid, onOpen, onAll }: { docs: WsDoc[]; part
   );
 }
 
-export function SalesOverviewCards(p: {
-  docs: WsDoc[]; partPaid: Record<number, number>; followups: WsFollowUp[]; monthKey: string; today: string; summary?: SalesSummary | null; scope?: WsScope;
-  onOpenDocs: (filter: "QT" | "INV") => void; onOpenDoc: (d: WsDoc) => void; onOpenCustomer: (f: WsFollowUp) => void; onClosed: () => void;
+/** v1.292.0 (SALES WORKSPACE 4.0) - the cards the Overview carried, each a
+    REPORT now, shown one at a time (Sales -> Reports). The same components,
+    the same reads; the two that only repeated another list (Follow-ups due,
+    which is the worklist's; and nothing else) are not drawn twice. */
+export function SalesReportPart(p: {
+  part: "team" | "commission" | "collected" | "ageing";
+  docs: WsDoc[]; partPaid: Record<number, number>; monthKey: string; today: string; summary?: SalesSummary | null; scope?: WsScope;
+  onOpenDocs: (filter: "QT" | "INV") => void; onOpenDoc: (d: WsDoc) => void; onClosed: () => void;
 }) {
+  /* v1.223.0 - the weekly scorecard (approved weekly targets); the v1.216.0
+     card stays as the fallback for a worker without /sales/week */
+  if (p.part === "team") return <WeeklySales scope={p.scope ?? "mine"} fallback={p.summary ? <WeekCard s={p.summary} /> : null} />;
+  /* v1.224.0 - commission, a separate thing from the weekly target */
+  if (p.part === "commission") return <CommissionCard scope={p.scope ?? "mine"} />;
+  if (p.part === "ageing") return <QuoteFunnel docs={p.docs} partPaid={p.partPaid} monthKey={p.monthKey} today={p.today} onOpen={() => p.onOpenDocs("QT")} server={p.summary?.month === p.monthKey ? p.summary.funnel : undefined} />;
   return (
-    <>
-      {/* v1.223.0 - the weekly scorecard (approved weekly targets); the v1.216.0
-          card stays as the fallback for a worker without /sales/week */}
-      <WeeklySales scope={p.scope ?? "mine"} fallback={p.summary ? <WeekCard s={p.summary} /> : null} />
-      {/* v1.224.0 - commission, a separate thing from the weekly target */}
-      <CommissionCard scope={p.scope ?? "mine"} />
-      <div className={css.grid2}>
-        <CollectedTrend docs={p.docs} monthKey={p.monthKey} today={p.today} daily={p.summary?.month === p.monthKey ? p.summary.daily : undefined} />
-        <QuoteFunnel docs={p.docs} partPaid={p.partPaid} monthKey={p.monthKey} today={p.today} onOpen={() => p.onOpenDocs("QT")} server={p.summary?.month === p.monthKey ? p.summary.funnel : undefined} />
-      </div>
-      <div className={css.grid2}>
-        <FollowUps rows={p.followups} today={p.today} onOpen={p.onOpenCustomer} />
-        <LatestInvoices docs={p.docs} partPaid={p.partPaid} onOpen={p.onOpenDoc} onAll={p.onClosed} />
-      </div>
-    </>
+    <div className={css.grid2}>
+      <CollectedTrend docs={p.docs} monthKey={p.monthKey} today={p.today} daily={p.summary?.month === p.monthKey ? p.summary.daily : undefined} />
+      <LatestInvoices docs={p.docs} partPaid={p.partPaid} onOpen={p.onOpenDoc} onAll={p.onClosed} />
+    </div>
   );
 }
 
@@ -345,6 +368,9 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
   const [page, setPage] = useState(1);
   const [fix, setFix] = useState<WsDoc | null>(null);
   const [conf, setConf] = useState<{ doc: WsDoc; mode: "confirm" | "revoke" } | null>(null);
+  /* v1.292.0 - the Payout column: the ledger as far as the server shows this viewer (scope=all is honoured only for management) */
+  const ledger = useCachedApi<{ entries: PayoutEntry[] }>("/staff/commission/entries?scope=all", true, ["commission", "docs"]);
+  const payouts = ledger.data ? ledger.data.entries : ledger.loading ? [] : null;
   /* the confirm / take-back control for one row: never on the confirmer's own sale */
   const confirmBtn = (d: WsDoc) => {
     if (!canConfirm || d.doc_type !== "INV" || d.payment_status !== "paid") return null;
@@ -367,6 +393,10 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
   const collected = rows.filter((d) => d.payment_status === "paid").reduce((a, d) => a + d.total_cents, 0);
   const paidN = rows.filter((d) => d.payment_status === "paid").length;
   const confirmedN = rows.filter((d) => d.payment_status === "paid" && d.paid_confirmed_at).length;
+  /* v1.292.0 - the list on screen, as a file: what the columns say, nothing more */
+  const exportCsv = () => downloadCsv(`closed-sales-${period === "all" ? "all" : period === "month" ? monthKey : lastKey}.csv`,
+    [["Invoice", "Customer", "Closer", "Total (RM)", "Settlement", "Paid on", "Commission eligibility", "Payout"],
+      ...rows.map((d) => [d.doc_number, d.company, d.salesperson_name ?? "", (d.total_cents / 100).toFixed(2), payState(d, partPaid).label, d.payment_status === "paid" && d.paid_at ? dmy(ymd(d.paid_at)) : "", confirmState(d)?.label ?? "", payoutState(payouts, d.id)?.label ?? ""])]);
   return (
     <section className={card} aria-label={L("Closed sales", "Jualan ditutup")}>
       <div className={css.head}>
@@ -380,14 +410,21 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
           ))}
         </div>
       </div>
-      <p className={css.sum}>{L(`${rows.length} invoice${rows.length === 1 ? "" : "s"} · ${fmtRM(collected)} collected (paid in full)`, `${rows.length} invois · ${fmtRM(collected)} dikutip (dibayar penuh)`)}
-        {paidN > 0 && <> · {L(`${confirmedN} of ${paidN} confirmed by the CEO/COO`, `${confirmedN} daripada ${paidN} disahkan oleh CEO/COO`)}</>}</p>
+      {/* v1.292.0 - the period in one slim strip: the settlement, what is confirmed for commission, what still waits */}
+      <MetricStrip label={L("Closed sales in this period", "Jualan ditutup dalam tempoh ini")} cells={[
+        { key: "paid", icon: "paid", tone: "ok", label: L("Paid in full", "Dibayar penuh"), value: fmtRM(collected), sub: L(`${paidN} invoice${paidN === 1 ? "" : "s"} · official settlement`, `${paidN} invois · penyelesaian rasmi`) },
+        { key: "conf", icon: "verify", tone: "info", label: L("Confirmed for commission", "Disahkan untuk komisen"), value: L(`${confirmedN} of ${paidN}`, `${confirmedN} daripada ${paidN}`), sub: L("the money confirmed by the CEO/COO", "wang disahkan oleh CEO/COO") },
+        { key: "wait", icon: "pending", tone: "gold", label: L("Awaiting confirmation", "Menunggu pengesahan"), value: paidN - confirmedN, sub: L("paid, not yet confirmed - no commission yet", "dibayar, belum disahkan - belum ada komisen") },
+      ]} />
+      <p className={css.sum}>{L(`${rows.length} invoice${rows.length === 1 ? "" : "s"} with money recorded in this period. The payout is the Commission module's own record.`, `${rows.length} invois dengan bayaran direkodkan dalam tempoh ini. Bayaran komisen ialah rekod modul Komisen.`)}
+        {rows.length > 0 && <> <button type="button" className={css.link} data-testid="closed-export" onClick={exportCsv}>{L("Export CSV", "Eksport CSV")}</button></>}</p>
       {rows.length === 0 ? <p className={css.empty}>{L("No closed sales in this period.", "Tiada jualan ditutup dalam tempoh ini.")}</p> : (
         <>
           <ul className={css.cards}>
             {shown.map((d) => {
               const ps = payState(d, partPaid);
               const cs = confirmState(d);
+              const po = payoutState(payouts, d.id);
               return (
                 <li key={d.id} className={css.cardRow}>
                   <button type="button" className={css.cardOpen} onClick={() => onOpenDoc(d)}>
@@ -400,6 +437,7 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
                     <span className="erp-num">{fmtRM(d.total_cents)}</span>
                   </span>
                   {cs && <span className={`erp-chip erp-chip-sm ${cs.chip}`}>{cs.label}</span>}
+                  {po && <span className={`erp-chip erp-chip-sm ${po.chip}`} data-testid="closed-payout">{L("Payout", "Bayaran komisen")}: {po.label}</span>}
                   {(canFix || confirmBtn(d)) && <span className={css.rowActs}>
                     {confirmBtn(d)}
                     {canFix && <button type="button" className={btnSm} onClick={() => setFix(d)}>{L("Correct closer", "Betulkan penutup")}</button>}
@@ -412,14 +450,16 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
             <table className={css.table}>
               <thead><tr>
                 <th>{L("Invoice", "Invois")}</th><th>{L("Customer", "Pelanggan")}</th><th>{L("Quotation", "Sebut harga")}</th>
-                <th>{L("Closer", "Penutup")}</th><th className={css.num}>{L("Total", "Jumlah")}</th><th>{L("Payment", "Bayaran")}</th><th>{L("Paid on", "Dibayar pada")}</th>
-                <th>{L("Confirmed", "Disahkan")}</th>
+                {/* v1.292.0 - four facts, never one: the settlement, the closer, the commission eligibility, the payout */}
+                <th>{L("Closer", "Penutup")}</th><th className={css.num}>{L("Total", "Jumlah")}</th><th>{L("Settlement", "Penyelesaian")}</th><th>{L("Paid on", "Dibayar pada")}</th>
+                <th>{L("Commission eligibility", "Kelayakan komisen")}</th><th>{L("Payout", "Bayaran komisen")}</th>
                 {(canFix || canConfirm) && <th><span className="erp-sr-only">{L("Actions", "Tindakan")}</span></th>}
               </tr></thead>
               <tbody>
                 {shown.map((d) => {
                   const ps = payState(d, partPaid);
                   const cs = confirmState(d);
+                  const po = payoutState(payouts, d.id);
                   return (
                     <tr key={d.id}>
                       <td><button type="button" className={css.link} onClick={() => onOpenDoc(d)}>{d.doc_number}</button></td>
@@ -430,6 +470,7 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
                       <td><span className={`erp-chip erp-chip-sm ${ps.chip}`}>{ps.label}</span></td>
                       <td className="erp-num">{d.payment_status === "paid" && d.paid_at ? dmy(ymd(d.paid_at)) : <span className={css.dim}>—</span>}</td>
                       <td>{cs ? <span className={`erp-chip erp-chip-sm ${cs.chip}`}>{cs.label}</span> : <span className={css.dim} title={L("Only an invoice paid in full is confirmed", "Hanya invois dibayar penuh disahkan")}>—</span>}</td>
+                      <td data-testid="closed-payout">{po ? <span className={`erp-chip erp-chip-sm ${po.chip}`}>{po.label}</span> : <span className={css.dim} title={L("No commission entry yet - it is written when the money is confirmed", "Belum ada entri komisen - ia ditulis apabila wang disahkan")}>—</span>}</td>
                       {(canFix || canConfirm) && <td><span className={css.rowActs}>
                         {confirmBtn(d)}
                         {canFix && <button type="button" className={btnSm} onClick={() => setFix(d)}>{L("Correct closer", "Betulkan penutup")}</button>}

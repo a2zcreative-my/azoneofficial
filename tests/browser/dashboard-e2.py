@@ -112,13 +112,15 @@ with sync_playwright() as p:
     ctx.close()
 
     # ---- the week / month / YTD chart: Sales' own (sales.tsx, management on Everyone) ----
-    ctx, pg, errs = page(b, 4177, 1440, 900, tab="Sales")
+    # v1.292.0 (Sales Workspace 4.0) - the chart is Sales -> Reports -> Sales Performance (the first report)
+    ctx, pg, errs = page(b, 4177, 1440, 900, tab="Sales&view=reports")
     perf = pg.get_by_test_id("sales-performance")
     if perf.count() == 0:
         ev = pg.get_by_role("radio", name="Everyone")
+        if not ev.count(): ev = pg.get_by_role("button", name="Everyone", exact=True)
         if ev.count(): ev.first.click(); pg.wait_for_timeout(1500)
         perf = pg.get_by_test_id("sales-performance")
-    check("the Sales Performance chart is in Sales", perf.count() == 1)
+    check("the Sales Performance chart is in Sales (Reports -> Sales Performance)", perf.count() == 1 and pg.get_by_test_id("report-type").input_value() == "performance")
     labels = pg.evaluate("() => [...document.querySelectorAll('[data-testid=sales-performance] svg text')].map(t => t.textContent)")
     check("the week is drawn by day, Monday to Sunday", all(d in labels for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]), labels)
     rows = pg.evaluate("() => [...document.querySelectorAll('[data-testid=sales-performance] table tbody tr')].map(r => r.innerText.replace(/\\s+/g, ' ').trim())")

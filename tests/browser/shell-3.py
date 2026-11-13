@@ -65,10 +65,14 @@ with sync_playwright() as p:
     check("the icon-only rail is one icon per group (v1.287.0, the CEO's choice D2)", pg.locator(".erp-rail-nav button[data-group-icon]").count() == 7)
     pg.get_by_role("button", name="Expand navigation").click(); pg.wait_for_timeout(400)
     for tab in ["Sales", "Tasks"]:
-        pg.goto(f"http://127.0.0.1:4177/portal?tab={tab}"); pg.wait_for_timeout(2600)
+        # v1.292.0 (Sales Workspace 4.0) - Sales' KPI tiles are Reports -> Sales Performance; the Overview's strip is held to the same ceiling
+        pg.goto(f"http://127.0.0.1:4177/portal?tab={tab}" + ("&view=reports" if tab == "Sales" else "")); pg.wait_for_timeout(2600)
         size = pg.evaluate(MAX_KPI_JS)
         check(f"{tab}: no KPI figure above the one tile size (22 px)", 0 < size <= 22.01, size)
         check(f"{tab}: no sideways page", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
+    pg.goto("http://127.0.0.1:4177/portal?tab=Sales&view=overview"); pg.wait_for_timeout(2600)
+    strip = pg.evaluate("() => Math.max(0, ...[...document.querySelectorAll('[data-testid=metric-strip] [class*=cellValue]')].map(e => parseFloat(getComputedStyle(e).fontSize)))")
+    check("Sales Overview: the strip's figures stay under the one tile size (22 px)", 0 < strip <= 22.01, strip)
     check("no page errors (desktop)", not errs, errs)
     ctx.close()
 

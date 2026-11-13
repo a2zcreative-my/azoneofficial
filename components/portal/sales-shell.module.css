@@ -1,0 +1,590 @@
+/* v1.292.0 - SALES WORKSPACE 4.0 (sales-shell.tsx). Tokens only. */
+
+/* ---------- the slim strip: one row of figures, never two ---------- */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card-v2);
+  background: var(--card);
+  overflow: hidden;
+}
+.strip[data-cells="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+}
+.cell:first-child {
+  border-left: 0;
+}
+button.cell {
+  cursor: pointer;
+}
+button.cell:hover {
+  background: var(--secondary);
+}
+button.cell:focus-visible,
+.openBtn:focus-visible,
+.menuBtn:focus-visible,
+.boardCard:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.well {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-sm);
+}
+.well :global(.erp-icon) {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.w_gold {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+  color: var(--brand-accent-deep);
+}
+.w_ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.w_bad {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.w_info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+.w_neutral {
+  background: var(--secondary);
+  color: var(--muted-foreground);
+}
+.cellText {
+  display: grid;
+  min-width: 0;
+}
+.cellLabel {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.cellValue {
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.cellSub {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.71875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 1023px) {
+  .strip,
+  .strip[data-cells="3"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cell:nth-child(odd) {
+    border-left: 0;
+  }
+  .cell:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
+}
+@media (max-width: 767px) {
+  .cell {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.625rem 0.75rem;
+  }
+  .well {
+    display: none;
+  }
+  .cellValue {
+    font-size: 0.9375rem;
+  }
+  .cellSub {
+    white-space: normal;
+  }
+}
+
+/* ---------- the worklist ---------- */
+.work {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 1rem 1.25rem;
+}
+.workHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+.workTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+.workTitle :global(.erp-icon) {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.count {
+  color: var(--brand-accent-deep);
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.pick {
+  width: auto;
+  min-height: 2.25rem;
+  padding-block: 0.25rem;
+  border-radius: var(--radius-full);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+.search:focus-within {
+  border-color: var(--gold-solid);
+}
+.search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.875rem;
+}
+.table {
+  display: grid;
+  min-width: 0;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0.625rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+.row:last-child {
+  border-bottom: 0;
+}
+.custTable .row {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.8fr) minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.9fr);
+}
+.headRow {
+  padding-block: 0.5rem;
+  border-bottom: 0;
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.num {
+  text-align: right;
+}
+.act {
+  text-align: right;
+}
+.openBtn {
+  display: grid;
+  gap: 0.0625rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.openBtn strong,
+.openBtn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.openBtn span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.openBtn:hover strong {
+  text-decoration: underline;
+}
+.cOwner,
+.cLinked,
+.cLast {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cStatus small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.71875rem;
+}
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 1rem 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+/* the phone: each row is a card - who, what it is and its state, then the
+   amount beside its one action; nothing scrolls sideways */
+@media (max-width: 767px) {
+  .work {
+    padding: 0.875rem;
+  }
+  .filters {
+    width: 100%;
+  }
+  .pick {
+    flex: 1 1 8rem;
+    min-height: 2.75rem;
+  }
+  .headRow {
+    display: none;
+  }
+  .row,
+  .custTable .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.375rem 0.75rem;
+    margin-bottom: var(--space-2);
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .row:last-child {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0;
+  }
+  .cWho {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .cStatus {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    text-align: right;
+  }
+  .cKind {
+    display: none;
+  }
+  .cOwner,
+  .cLinked,
+  .cLast {
+    grid-column: 1 / -1;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  .cAmt {
+    grid-column: 1;
+    align-self: center;
+    font-weight: 700;
+    text-align: left;
+  }
+  .cAct {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .custTable .cAct {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+  .cAct :global(button) {
+    min-height: 2.75rem;
+  }
+  .custTable .cAct :global(button) {
+    width: 100%;
+  }
+  .openBtn {
+    min-height: 2.75rem;
+    align-content: center;
+  }
+}
+
+/* ---------- More on a row ---------- */
+.menuWrap {
+  position: relative;
+  display: inline-flex;
+}
+.menuBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.menuBtn[aria-expanded="true"] {
+  border-color: var(--gold-solid);
+  color: var(--foreground);
+}
+.menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  display: grid;
+  gap: 0.125rem;
+  min-width: 12.5rem;
+  padding: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card-v2);
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
+}
+/* the row's own buttons, drawn as the menu's lines */
+.menu :global(button),
+.menu :global(a) {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 2.25rem;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu :global(button:hover) {
+  background: var(--secondary);
+}
+@media (pointer: coarse) {
+  .menuBtn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .menu :global(button) {
+    min-height: 2.75rem;
+  }
+}
+/* a phone: the menu is a sheet at the foot of the screen, above the bar */
+@media (max-width: 767px) {
+  .menu {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 0.75rem 0.75rem calc(5.25rem + env(safe-area-inset-bottom, 0px));
+    border-radius: var(--radius-card-v2) var(--radius-card-v2) 0 0;
+  }
+}
+
+/* ---------- Reports: one at a time ---------- */
+.reports {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.reportBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: 0.75rem 1rem;
+}
+.reportPick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+.reportPick :global(select) {
+  width: auto;
+  min-width: 15rem;
+  min-height: 2.5rem;
+  border-color: color-mix(in srgb, var(--gold-solid) 45%, var(--border));
+  border-radius: var(--radius-full);
+  background-color: color-mix(in srgb, var(--gold-solid) 10%, var(--card));
+  font-weight: 600;
+}
+.reportBody {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .reportPick {
+    display: grid;
+    width: 100%;
+    gap: 0.25rem;
+  }
+  .reportPick :global(select) {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+  }
+}
+
+/* ---------- the board (read-only) ---------- */
+.board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.col {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 10rem;
+  padding-bottom: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--secondary);
+}
+.colHead {
+  display: grid;
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: 0.8125rem;
+}
+.colHead span {
+  color: var(--info);
+  font-weight: 700;
+}
+.col_enquiry .colHead,
+.col_quotation .colHead {
+  background: var(--info-soft);
+}
+.col_negotiating .colHead {
+  background: var(--warning-soft);
+}
+.col_accepted .colHead {
+  background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
+}
+.col_closed .colHead {
+  background: var(--success-soft);
+}
+.colCards {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-2);
+  list-style: none;
+}
+.boardCard {
+  display: grid;
+  gap: 0.0625rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+.boardCard strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.boardCard small,
+.colMore {
+  color: var(--muted-foreground);
+  font-size: 0.71875rem;
+}
+.colNone {
+  margin: 0 var(--space-2);
+  padding: 1.25rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-align: center;
+}
+@media (max-width: 1023px) {
+  .board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .col {
+    min-height: 0;
+  }
+}
+
+/* ---------- the views: tabs on a wide screen, one selector on a phone ---------- */
+.viewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.customerFilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.moreDocs {
+  position: relative;
+  display: inline-flex;
+}
+/* a phone card says only what it has: no dash for a missing amount or owner */
+@media (max-width: 767px) {
+  .row [data-empty] {
+    display: none;
+  }
+}
+.moreOn {
+  border-color: var(--gold-solid);
+  font-weight: 600;
+}

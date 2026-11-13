@@ -231,15 +231,17 @@ function fakeEnv(fixture) {
      summary card and links. */
   {
     const deskPage = read("components/portal/desk-page.tsx");
-    ok("the findings are the Desk's attention zone, and the rules are its setup zone",
-       /<WatchersCard role=\{user\.role\} go=\{go\} section="findings" \/>/.test(deskPage)
-       && /<WatchersCard role=\{user\.role\} go=\{go\} section="rules" bare \/>/.test(deskPage)
-       && deskPage.indexOf('section="findings"') < deskPage.indexOf('section="rules"'));
-    ok("rule configuration is out of the queue: it is the last zone on the page",
-       /* v1.190.0 - its own tab, Watcher Settings, the last of the five */
-       deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Watcher rules"')
-       && deskPage.indexOf('L("Needs attention"') < deskPage.indexOf('L("Watcher rules"')
-       && /\["settings", L\("Watcher Settings", "Tetapan Pemerhati"\)\]/.test(deskPage));
+    /* v1.293.0 (the Desk consolidation, the CEO 12-11-2026, K3 / D4) - the findings are
+       worked in the Desk (the Alerts summary and the Action Inbox's Alerts filter, over
+       the card's own cached read); the rules left the Desk for System -> Automation & Rules */
+    const autoPage = read("components/portal/automation-rules.tsx");
+    ok("the findings are the Desk's alerts, and the rules are System -> Automation & Rules",
+       /const watch = useWatcherData\(user\.role\);/.test(deskPage) && /\.\.\.findings\.map\(fromFinding\)/.test(deskPage)
+       && /<WatchersCard role=\{role\} go=\{go\} section="rules" bare \/>/.test(autoPage)
+       && !/section="rules"/.test(deskPage));
+    ok("rule configuration is out of the queue: a page of its own under System, not a Desk tab",
+       /\{ id: "system", title: "System", tabs: \["Companies", "Users", "Automation & Rules"\] \}/.test(read("lib/portal-tabs.ts"))
+       && !/L\("Watcher Settings"/.test(deskPage) && /<TabZone label=\{L\("Watcher rules"/.test(autoPage));
     ok("the Dashboard no longer carries the watchers list", !/<WatchersCard/.test(read("components/portal/dashboard.tsx")));
     ok("findings are grouped by rule with a count, not one row per finding",
        /\[\.\.\.new Set\(open\.map\(\(f\) => f\.watcher\)\)\](?:\.slice\(0, limit \?\? Infinity\))?\.map/.test(card)
@@ -247,7 +249,9 @@ function fakeEnv(fixture) {
        && /aria-expanded=\{isOpen\}/.test(card),
        "eleven low-stock SKUs were eleven rows of a queue meant to be read in one screen");
   }
-  ok("the card is remembered and live", /useCachedApi<Data>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(card) && /bumpVersion\(env, "watchers"\)/.test(src));
+  ok("the card is remembered and live", /useCachedApi<WatcherData>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(card)
+     /* v1.293.0 - the Desk reads the very same cached request */
+     && /return useCachedApi<WatcherData>\("\/staff\/watchers", WATCHER_ROLES\.includes\(role\), \["watchers"\]\);/.test(card) && /bumpVersion\(env, "watchers"\)/.test(src));
   ok("only the CEO changes a rule", /if \(user\.role !== "ceo" && user\.role !== "super_admin"\) return json\(\{ error: \{ code: "forbidden", message: "Only the CEO changes a watcher"/.test(src));
   ok("a rule change is audited", /audit\(env, user\.id, "watcher\.update", "watcher_settings"/.test(staff));
   ok("the two new push kinds land on the Dashboard", /watch: "Dashboard", brief: "Dashboard"/.test(staff));

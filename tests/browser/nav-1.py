@@ -33,14 +33,14 @@ def check(name, cond, detail=""):
 LABEL = {"Announcements": "News", "Staff Details": "Staff", "Users": "Users & Security"}
 GROUPS = [("Workspace", ["Dashboard", "Desk", "Announcements"]), ("Revenue", ["Sales", "Ecommerce", "Agents", "Financial Advisory"]),
           ("Operations", ["Tasks", "Inventory", "Assets", "Hotels"]), ("People", ["HR", "Staff Details", "Attendance", "On Shift", "Leave", "Claims", "Payroll"]),
-          ("Finance", ["Finance", "Accounting", "Commission"]), ("ELFIA", ["ELFIA Store", "ELFIA Traffic"]), ("System", ["Companies", "Users"])]
+          ("Finance", ["Finance", "Accounting", "Commission"]), ("ELFIA", ["ELFIA Store", "ELFIA Traffic"]), ("System", ["Companies", "Users", "Automation & Rules"])]  # v1.293.0 - the watcher rules (Desk consolidation, D4)
 ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"]
 # the 1.286.0 defaults (tests/navigation.mjs holds the same, from the registry itself)
 M = {"Dashboard": "YYYYYYYY", "Desk": "YYYYYYYY", "Announcements": "YYYYYYYY", "Sales": "YYYYY---", "Ecommerce": "YYYYYY--", "Agents": "YYY-Y---",
      "Financial Advisory": "YYY-Y---", "Tasks": "YYYYYYYY", "Inventory": "YYYYYY--", "Assets": "YYYY----", "Hotels": "YYYY----", "HR": "YYYY----",
      "Staff Details": "YYYY----", "Attendance": "YYYYYYYY", "On Shift": "YYYYYYYY", "Leave": "YYYYYYYY", "Claims": "YYYYYYYY", "Payroll": "YY------",
      "Finance": "YY------", "Accounting": "Y-------", "Commission": "YYY-Y---", "ELFIA Store": "YYYYYY--", "ELFIA Traffic": "YYYYYY--",
-     "Companies": "YYY-----", "Users": "YY------"}
+     "Companies": "YYY-----", "Users": "YY------", "Automation & Rules": "YYY-----"}  # v1.293.0 - CEO, COO, CCO (and admin tiers)
 PORT = {"ceo": 4177, "coo": 4179, "cco": 4185, "hr_admin": 4181, "sales_marketing": 4182, "marketing": 4291, "editor": 4194, "live_host": 4180}
 RAIL_JS = """() => [...document.querySelectorAll('.erp-rail-nav .erp-rail-group')].map(g => [g.dataset.group,
   [...g.querySelectorAll('button[data-nav-item]')].map(b => b.innerText.trim())])"""
@@ -98,7 +98,8 @@ with sync_playwright() as p:
             grp_open = pg.locator(f".erp-rail-group[data-group='{g}'] .erp-rail-item[aria-current=page]").count() == 1
             check(f"CEO: {lab} opens from {g} and is the one gold item", on == [lab] and grp_open and title(pg) in (lab, t, "News" if t == "Announcements" else lab), f"{on} title={title(pg)}")
     pg.reload(); pg.wait_for_timeout(2600)
-    check("a refresh keeps the open module (Users & Security)", gold(pg) == ["Users & Security"] and "Users" in title(pg), gold(pg))
+    # v1.293.0 - the last module the loop opens is now System -> Automation & Rules
+    check("a refresh keeps the open module (Automation & Rules, the last one opened)", gold(pg) == ["Automation & Rules"] and "Automation" in title(pg), gold(pg))
     for t in ("Assets", "Hotels", "Staff Details", "On Shift", "Companies", "ELFIA Traffic", "Announcements", "Financial Advisory"):
         pg.goto(f"http://127.0.0.1:4177/portal?tab={urllib.parse.quote(t)}"); pg.wait_for_timeout(2200)
         check(f"the existing deep link ?tab={t} still opens it, gold in its group", gold(pg) == [LABEL.get(t, t)], gold(pg))

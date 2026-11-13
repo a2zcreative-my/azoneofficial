@@ -38,13 +38,33 @@ def signing_tab(pg):
 
 def open_quotation(pg):
     tab(pg, "Sales")
-    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
-    btn = pg.locator("[role='row']:has-text('QT-AZO150926-1')").first.get_by_test_id("open-quotation")
+    sales_view(pg, "Quotations & Invoices", "Documents"); pg.wait_for_timeout(1500)
+    btn = open_more(pg.locator("[role='row']:has-text('QT-AZO150926-1')").first).get_by_test_id("open-quotation")
     if btn.count() != 1: return False
     btn.click(); pg.wait_for_timeout(2200)
     ov = pg.get_by_test_id("quotation-page").get_by_role("tab", name="Overview", exact=True)
     if ov.count(): ov.first.click(); pg.wait_for_timeout(1200)
     return True
+
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
+
+
+def open_more(r):
+    """v1.292.0 (Sales Workspace 4.0) - a document row keeps one action; the rest are under its ⋯ menu, opened here"""
+    m = r.get_by_test_id("row-more")
+    if r.page.get_by_test_id("row-menu").count() and m.count() and m.first.get_attribute("aria-expanded") != "true":
+        r.page.keyboard.press("Escape"); r.page.wait_for_timeout(150)  # another row's menu is open: close it first, as a person would
+    if m.count() and m.first.get_attribute("aria-expanded") != "true":
+        m.first.click(); r.page.wait_for_timeout(250)
+    return r
 
 with sync_playwright() as p:
     b = p.chromium.launch()

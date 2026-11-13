@@ -57,7 +57,10 @@ with sync_playwright() as p:
         phone = w < 768
         tag = f"CEO {w}"
         ctx, pg, errs = open_page(b, 4177, w)
-        check(f"{tag}: the Command Center's title", "Executive Command Center" in pg.get_by_test_id("exec-header").inner_text())
+        # v1.292.0 - the CEO had the title and its line removed from the Dashboard (12-11-2026)
+        body_txt = pg.locator("main").inner_text()
+        check(f"{tag}: no Command Center title and no subtitle on the Dashboard", "Executive Command Center" not in body_txt and "key decisions and next actions" not in body_txt)
+        check(f"{tag}: the view switch is the phone's only header; a wide screen draws none", vis(pg, "view-switch") if phone else not pg.get_by_test_id("exec-header").is_visible())
         check(f"{tag}: no sideways page (Overview)", no_hscroll(pg))
         check(f"{tag}: the alert band says what is wrong (backup 55 days in the fixture)", vis(pg, "alert-band") and "backup" in pg.get_by_test_id("alert-band").inner_text())
         figs = pg.locator("[data-row=figures]").filter(visible=True)

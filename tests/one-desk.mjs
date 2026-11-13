@@ -195,40 +195,50 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
     const watchSrc = read("components/portal/watchers-card.tsx");
     ok("the attention figure counts the watcher findings on BOTH surfaces",
        /export function useWatcherOpenCount/.test(watchSrc)
-       && /useCachedApi<Data>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(watchSrc)
+       && /useCachedApi<WatcherData>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(watchSrc)
        && /const attentionCount = watching == null \? null : attention\.length \+ watching;/.test(deskSrc)
-       && /const attentionCount = watching == null \? null : attention\.length \+ watching;/.test(read("components/portal/desk-page.tsx")),
+       /* v1.293.0 - the Desk page shows the two halves as two figures (the directive: Overdue
+          Actions and Active Alerts), each the length of the list it opens, over the same reads */
+       && /p\.exec && figure\("alerts", "warning", "info", p\.watchKnown \? p\.findings : null/.test(read("components/portal/desk-page.tsx"))
+       && /findings=\{findings\.length\}/.test(read("components/portal/desk-page.tsx"))
+       && /const overdueN = work\.filter\(\(i\) => i\.overdue\)\.length;/.test(read("components/portal/desk-page.tsx")),
        "a figure that ignores what is rendered under it is a wrong figure");
     ok("neither figure strip strands a tile on a row of its own",
        !/erp-tiles-3/.test(deskSrc) && /erp-tiles-2/.test(deskSrc)
-       /* v1.190.0 - the Desk's three figure cards: one column on a phone,
-          three across from 768px, never 2 + 1 */
-       && /\.figures \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\);/.test(read("components/portal/desk-page.module.css"))
-       && /@media \(min-width: 768px\) \{\s*\.figures \{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/.test(read("components/portal/desk-page.module.css")),
+       /* v1.190.0 - the Desk's three figure cards: one column on a phone, three across
+          from 768px, never 2 + 1. v1.293.0 - four figures (management) are 2 + 2, then four across */
+       && /\.figures\[data-figures="3"\] \{\s*grid-template-columns: minmax\(0, 1fr\);/.test(read("components/portal/desk-page.module.css"))
+       && /@media \(min-width: 768px\) \{\s*\.figures\[data-figures="3"\] \{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/.test(read("components/portal/desk-page.module.css"))
+       && /\.figures \{\s*display: grid;\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/.test(read("components/portal/desk-page.module.css")),
        "three tiles wrap to 2 + 1 at 390px; the third sat alone at half width");
     ok("a zone caption and the card title inside it are never the same words",
        /bare\?: boolean;/.test(deskSrc) && /\{!bare && <PanelTitle icon="orders">/.test(deskSrc)
-       && /which="decide" bare/.test(read("components/portal/desk-page.tsx")),
+       /* v1.293.0 - the Desk's captions say what a list is, never a card's own title */
+       && !/<TabZone label=\{L\("(Priority Actions|Alerts & Watchers|My Tasks)"/.test(read("components/portal/desk-page.tsx")),
        "\"NEEDS YOUR DECISION\" printed directly above \"Needs your decision - 1\"");
   }
   {
     const deskPage = read("components/portal/desk-page.tsx");
     ok("the Desk is a registered tab with its own page, so its header names it",
        /"Desk",/.test(tabsSrc) && /ALWAYS_VISIBLE: readonly string\[\] = \["Dashboard", "Desk"/.test(tabsSrc)
-       && /\{activeTab === "Desk" && <DeskPage user=\{user\} go=\{\(t\) => setTab\(t as TabName\)\} \/>\}/.test(page));
+       && /\{activeTab === "Desk" && <DeskPage user=\{user\} go=\{\(t\) => setTab\(t as TabName\)\} startView=\{startOf\("Desk"\)\} \/>\}/.test(page));
+    /* v1.293.0 - the consolidation keeps the split: decisions and responses are separate filters */
     ok("the Desk separates the decisions from the exceptions",
-       /which="decide"/.test(deskPage) && /which="attention"/.test(deskPage)
-       && deskPage.indexOf('L("Needs your decision"') < deskPage.indexOf('L("Needs attention"'));
+       /\.\.\.decide\.map\(\(i\) => fromItem\(i, "decide"\)\), \.\.\.attention\.map\(\(i\) => fromItem\(i, "respond"\)\)/.test(deskPage)
+       && deskPage.indexOf('L("Awaiting My Decision"') < deskPage.indexOf('L("Requires My Response"'));
     /* v1.190.0 - the owner's brief, 22-10-2026, asks for "assigned tasks,
        deadlines, statuses, and links to the existing Tasks module" on the
        Desk's My Tasks tab. The list is drawn READ-ONLY with the queue's own
        row, so every task opens the Tasks tab and Tasks keeps the detail, the
        checklist and every progress action - the Desk changes no task. */
+    /* v1.293.0 - My Tasks: three, read-only, each opening the task itself in Tasks */
     ok("the Desk lists your tasks read-only: every row opens Tasks, none acts on a task",
-       /L\("Your tasks", "Tugasan anda"\)/.test(deskPage)
-       && /go\("Tasks"\)/.test(deskPage)
-       && /\(all \? myTasks : myTasks\.slice\(0, 3\)\)\.map\(\(t\) => <DeskRow key=\{t\.id\} item=\{t\} go=\{go\} \/>\)/.test(deskPage)
-       && !/\bapi\b|csrfFetch|method: "(?:PATCH|POST|PUT|DELETE)"/.test(deskPage),
+       /L\("My Tasks", "Tugasan Saya"\)/.test(deskPage)
+       && /p\.go\("Tasks"\)/.test(deskPage)
+       && /p\.myTasks\.slice\(0, MY_TASKS\)\.map\(\(t\) => <DeskRow key=\{t\.id\} item=\{t\} go=\{\(tab\) => p\.openItem\(t\.id, tab, t\.bucket\)\} \/>\)/.test(deskPage)
+       && /const MY_TASKS = 3;/.test(deskPage)
+       /* v1.293.0 - the page READS (useCachedApi, GET only); it never writes */
+       && !/\bapi\(|makeApi|csrfFetch|method: "(?:PATCH|POST|PUT|DELETE)"/.test(deskPage),
        "a desk that also runs your to-do list is two products in one scroll");
     ok("one request serves both surfaces, so the counts cannot disagree",
        /export function useDeskData\(\)/.test(card)
@@ -317,12 +327,13 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
      the Global Search page); the badge and mark-on-close stayed in the shell */
   const bellSrc = read("components/portal/notifications-panel.tsx");
 
+  /* v1.293.0 - the queue is the Desk's Action Inbox; nowhere else draws one */
   ok("the Desk page is the only place the queue is listed",
-     /<DeskQueue/.test(deskPage) && !/<DeskQueue/.test(dashSrc) && !/<DeskQueue/.test(pageSrc));
+     /function Inbox\(/.test(deskPage) && !/<DeskQueue/.test(dashSrc) && !/<DeskQueue/.test(pageSrc) && !/<DeskQueue/.test(deskPage));
   ok("the Dashboard links to the Desk rather than repeating it",
      /go\("Desk"\)/.test(deskCard) && /L\(`Open the Desk/.test(deskCard));
   ok("Tasks owns the task WORK: the Desk lists your tasks read-only (v1.190.0) and the desk card lists none",
-     !/\bapi\b|csrfFetch/.test(deskPage) && !/myTasks\.map/.test(deskCard));
+     !/\bapi\(|makeApi|csrfFetch|method: "(?:PATCH|POST|PUT|DELETE)"/.test(deskPage) && !/myTasks\.map/.test(deskCard));
   ok("the bell is not a second approval queue: it links, it never decides",
      /const NOTIF_WHERE: Record<string, \{ tab: string; anchor\?: string \}>/.test(bellSrc)
      && !/notifications\/decide|notifications\/approve|\/decide"|\/approve"/.test(shellSrc + bellSrc),

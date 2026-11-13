@@ -51,7 +51,7 @@ with sync_playwright() as p:
     want = [["Workspace", ["Dashboard", "Desk", "News"]], ["Revenue", ["Sales", "Ecommerce", "Agents", "Financial Advisory"]],
             ["Operations", ["Projects", "Tasks", "Inventory", "Assets", "Hotels"]],
             ["People", ["HR", "Staff", "Attendance", "On Shift", "Leave", "Claims", "Payroll"]], ["Finance", ["Finance", "Accounting", "Commission"]],
-            ["ELFIA", ["ELFIA Store", "ELFIA Traffic"]], ["System", ["Companies", "Users & Security"]]]
+            ["ELFIA", ["ELFIA Store", "ELFIA Traffic"]], ["System", ["Companies", "Users & Security", "Automation & Rules"]]]  # v1.293.0 (D4)
     check("the CEO's rail is the seven groups with every module in its own place, and no More", rail == want, rail)
     check("the wordmark reads A2Z OS", "A2Z OS" in pg.locator(".erp-rail-brand").inner_text())
     check("the Workspace group has a visible heading", pg.locator(".erp-rail-group[data-group=Workspace] > button").inner_text().strip().upper() == "WORKSPACE")
@@ -94,7 +94,8 @@ with sync_playwright() as p:
     pg.keyboard.press("Escape"); pg.wait_for_timeout(300)
     check("Escape closes the menu and gives focus back to the card", pg.locator("#rail-account-menu").count() == 0 and pg.evaluate("document.activeElement?.getAttribute('aria-label')") == "Your account: Fixture Person")
     # ---------- the KPI tile ----------
-    pg.goto("http://127.0.0.1:4177/portal?tab=Sales"); pg.wait_for_timeout(2600)
+    # v1.292.0 (Sales Workspace 4.0) - Sales' row of five is Reports -> Sales Performance
+    pg.goto("http://127.0.0.1:4177/portal?tab=Sales&view=reports"); pg.wait_for_timeout(2600)
     well = pg.evaluate("() => { const w = document.querySelector('[class*=kpi-tile_well]'); return w ? w.getBoundingClientRect().width : 0; }")
     fig = pg.evaluate("() => Math.max(...[...document.querySelectorAll('[class*=kpi-tile_value]')].map(e => parseFloat(getComputedStyle(e).fontSize)))")
     # v1.281.0 - Sales is five across now (the photo's Sales Overview): a tile that narrow keeps its well beside the words at 44px

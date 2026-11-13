@@ -87,7 +87,9 @@ with sync_playwright() as p:
     check("no page error (CEO)", not errs, errs)
 
     # the cards of the old More, where they live now: Sales -> Weekly target
-    ctx, pg, errs = page(b, CEO, tab="Sales")
+    # v1.292.0 (Sales Workspace 4.0, S5) - which is Sales -> Reports -> Consultant Performance & Weekly Target
+    ctx, pg, errs = page(b, CEO, tab="Sales&view=reports")
+    pg.get_by_test_id("report-type").select_option("team"); pg.wait_for_timeout(1800)
     strip_ = pg.locator("[aria-label='This week at a glance']").first
     st = strip_.inner_text() if strip_.count() else ""
     check("Sales -> Weekly target: the pace strip - invoiced, required pace, best week, confidence, recovery risk and cover", all(x in st for x in ["Invoiced", "Required pace", "Best week", "Not enough data", "0.71× the gap"]), st[:400])

@@ -978,26 +978,21 @@ export function WelcomeHeader({ user, lang: _lang, myShift, shift, onOpenDay }: 
   );
 }
 
-/** v1.291.0 (4.0) - management's header: the Command Center's name and its
-    line; on a phone the photo's "CEO View" chip switches Overview and My Day
-    (decision D2) where a wide screen keeps the two tabs. */
+/** v1.291.0 (4.0) - management's header. v1.292.0 (the CEO, 12-11-2026:
+    "on the Dashboard remove words Executive Command Center 4.0 / Company
+    performance, key decisions and next actions at a glance") - no title and
+    no line: the page is already named Dashboard in the top bar. What is
+    left is the phone's view switch (decision D2), where a wide screen keeps
+    the two tabs; a wide screen draws nothing here. */
 export function ExecHeader({ user, view, onView }: { user: User; view: "overview" | "day"; onView: (v: "overview" | "day") => void }) {
   const roleWord = ({ ceo: "CEO", coo: "COO", cco: "CCO" } as Record<string, string>)[user.role] ?? L("Management", "Pengurusan");
   return (
-    <header className={x.execHead} data-testid="exec-header">
-      <div>
-        <h2 className={x.execTitle}><span className="erp-desktop-only">Executive Command Center 4.0</span><span className="erp-phone-only">Executive Command Center</span></h2>
-        <p className={x.execSub}>{view === "day"
-          ? L("Your shift, tasks and appointments today.", "Syif, tugasan dan temujanji anda hari ini.")
-          : L("Company performance, key decisions and next actions at a glance.", "Prestasi syarikat, keputusan utama dan tindakan seterusnya sepintas lalu.")}</p>
-      </div>
-      <div className="erp-phone-only">
-        <ViewSwitch value={view} onChange={onView} options={[
-          ["overview", L(`${roleWord} View`, `Paparan ${roleWord}`), L("The company: figures, decisions, recovery", "Syarikat: angka, keputusan, pemulihan")],
-          ["day", L("My Day", "Hari Saya"), L("Only yours: tasks, follow-ups, schedule", "Milik anda: tugasan, susulan, jadual")],
-        ] as const} />
-      </div>
-    </header>
+    <div className={`${x.execHead} erp-phone-only`} data-testid="exec-header">
+      <ViewSwitch value={view} onChange={onView} options={[
+        ["overview", L(`${roleWord} View`, `Paparan ${roleWord}`), L("The company: figures, decisions, recovery", "Syarikat: angka, keputusan, pemulihan")],
+        ["day", L("My Day", "Hari Saya"), L("Only yours: tasks, follow-ups, schedule", "Milik anda: tugasan, susulan, jadual")],
+      ] as const} />
+    </div>
   );
 }
 

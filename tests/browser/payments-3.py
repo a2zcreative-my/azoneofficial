@@ -43,7 +43,7 @@ def open_pay(b, port, w):
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales"); pg.wait_for_timeout(2400)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-    pg.get_by_role("tab", name="Payments", exact=True).first.click(); pg.wait_for_timeout(1100)
+    sales_view(pg, "Payments", "Payments"); pg.wait_for_timeout(1100)
     return ctx, pg, errs
 
 sideways = lambda pg: pg.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1")
@@ -57,6 +57,16 @@ def drawer_for(pg, invoice):
     pg.get_by_test_id("pay-tab-needs").click(); pg.wait_for_timeout(300)
     pg.get_by_test_id("payment-row").filter(has_text=invoice).get_by_role("button").first.click(); pg.wait_for_timeout(1000)
     return pg.get_by_role("dialog").last
+
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
 
 with sync_playwright() as p:
     b = p.chromium.launch()

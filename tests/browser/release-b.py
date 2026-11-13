@@ -39,19 +39,42 @@ def tab(pg, name):
 
 def row(pg, number): return pg.locator(f"[role='row']:has-text('{number}')").first
 
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
+
+
+def open_more(r):
+    """v1.292.0 (Sales Workspace 4.0) - a document row keeps one action; the rest are under its ⋯ menu, opened here"""
+    m = r.get_by_test_id("row-more")
+    if r.page.get_by_test_id("row-menu").count() and m.count() and m.first.get_attribute("aria-expanded") != "true":
+        r.page.keyboard.press("Escape"); r.page.wait_for_timeout(150)  # another row's menu is open: close it first, as a person would
+    if m.count() and m.first.get_attribute("aria-expanded") != "true":
+        m.first.click(); r.page.wait_for_timeout(250)
+    return r
+
 with sync_playwright() as p:
     b = p.chromium.launch()
 
     # ---------------- B2: Sales -> Quotations & Invoices ----------------
     pg, errs, reqs = page(b, 4204)
     check("Sales opens", tab(pg, "Sales"))
-    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
+    sales_view(pg, "Quotations & Invoices", "Documents"); pg.wait_for_timeout(1500)
     unpaid = row(pg, "INV-AZO050926-3"); paid = row(pg, "INV-AZO100926-2"); qt = row(pg, "QT-AZO150926-1")
+    open_more(unpaid)
     check("an UNPAID invoice offers Void and not Delete", unpaid.get_by_role("button", name="Void", exact=True).count() == 1 and unpaid.get_by_role("button", name="Delete", exact=True).count() == 0)
+    open_more(paid)
     check("a PAID invoice offers neither Void nor Delete", paid.get_by_role("button", name="Void", exact=True).count() == 0 and paid.get_by_role("button", name="Delete", exact=True).count() == 0)
+    open_more(qt)
     check("a quotation still offers Delete", qt.get_by_role("button", name="Delete", exact=True).count() == 1)
     # void with too short a reason -> the server refuses, nothing changes
-    unpaid.get_by_role("button", name="Void", exact=True).click(); pg.wait_for_timeout(500)
+    open_more(unpaid).get_by_role("button", name="Void", exact=True).click(); pg.wait_for_timeout(500)
     dlg = pg.get_by_role("dialog").filter(has_text="Void INV-AZO050926-3")
     check("Void asks for a reason, says the row stays and the quotation reopens", dlg.count() == 1 and "struck through" in dlg.inner_text() and "open to invoice again" in dlg.inner_text())
     dlg.get_by_label(re.compile("Reason")).fill("too short")
@@ -60,7 +83,7 @@ with sync_playwright() as p:
     voids = lambda: [r for r in reqs if r[0] == "POST" and r[1].endswith("/docs/3/void")]
     check("one POST /void was sent for it", len(voids()) == 1 and json.loads(voids()[0][2])["reason"] == "too short")
     # a proper void
-    unpaid.get_by_role("button", name="Void", exact=True).click(); pg.wait_for_timeout(400)
+    open_more(unpaid).get_by_role("button", name="Void", exact=True).click(); pg.wait_for_timeout(400)
     dlg = pg.get_by_role("dialog").filter(has_text="Void INV-AZO050926-3")
     dlg.get_by_label(re.compile("Reason")).fill("Raised by mistake, the customer cancelled the order")
     dlg.get_by_role("button", name="Void invoice", exact=True).click(); pg.wait_for_timeout(2000)
@@ -68,6 +91,7 @@ with sync_playwright() as p:
     check("the toast says Voided and that it stays on record", "Voided" in body and "stays on record" in body)
     unpaid = row(pg, "INV-AZO050926-3")
     check("after the reload the row is still there, marked void (struck through), with the Void chip", unpaid.count() == 1 and unpaid.get_attribute("data-void") == "1" and unpaid.locator(".erp-chip", has_text="Void").count() >= 1)
+    open_more(unpaid)
     check("a voided row has no payment pick, no Void, no Edit and no Delete - PDF stays", unpaid.get_by_role("combobox").count() == 0 and unpaid.get_by_role("button", name="Void", exact=True).count() == 0 and unpaid.get_by_role("button", name="Edit", exact=True).count() == 0 and unpaid.get_by_role("button", name="Delete", exact=True).count() == 0 and unpaid.get_by_role("button", name="PDF", exact=True).count() == 1)
     struck = unpaid.locator("span[role='cell']").first.evaluate("e => getComputedStyle(e).textDecorationLine")
     check("the number cell is struck through", "line-through" in struck, struck)

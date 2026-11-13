@@ -30,13 +30,13 @@ import css from "./watchers-card.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 const api = makeApi("/staff");
 
-interface WatcherRow {
+export interface WatcherRow {
   key: string; label: string; audience: string[]; tab: string;
   threshold_label: string | null; default_threshold: number | null;
   enabled: boolean; threshold: number | null; open: number;
 }
-interface Finding { ref: string; watcher: string; title: string; first_seen: string }
-interface Data { watchers: WatcherRow[]; open: Finding[]; pending_migration?: boolean }
+export interface Finding { ref: string; watcher: string; title: string; first_seen: string }
+export interface WatcherData { watchers: WatcherRow[]; open: Finding[]; pending_migration?: boolean }
 
 const LABEL_MS: Record<string, string> = {
   "Stock below the line": "Stok di bawah garis",
@@ -68,6 +68,14 @@ function since(sqlite: string): string {
    decide whether to frame the desk and the watchers together (the CEO chose
    "One Desk + Watchers merged") without keeping a second copy of this list. */
 export const WATCHER_ROLES = ["ceo", "coo", "cco", "super_admin", "admin"];
+/** v1.293.0 - the same cached read the card makes (one request, keyed on the
+    path), for the Desk's alert summary and the Action Inbox's Alerts filter */
+export function useWatcherData(role: string) {
+  return useCachedApi<WatcherData>("/staff/watchers", WATCHER_ROLES.includes(role), ["watchers"]);
+}
+/** a rule's own words, in the reader's language */
+export const watcherLabel = (label: string): string => L(label, LABEL_MS[label] ?? label);
+export const watcherIcon = (key: string): AppIconName => RULE_ICON[key] ?? "warning";
 
 /* v1.171.0 - `bare`: drawn under the desk inside the Dashboard's own frame;
    a rule separates the two, and the card brings no frame of its own. */
@@ -95,7 +103,7 @@ export const WATCHER_ROLES = ["ceo", "coo", "cco", "super_admin", "admin"];
  */
 export function useWatcherOpenCount(role: string): number | null {
   const exec = WATCHER_ROLES.includes(role);
-  const view = useCachedApi<Data>("/staff/watchers", exec, ["watchers"]);
+  const view = useCachedApi<WatcherData>("/staff/watchers", exec, ["watchers"]);
   if (!exec) return 0;
   if (!view.data) return null;
   return view.data.open.length;
@@ -110,7 +118,7 @@ export function WatchersCard({ role, go, bare = false, section = "both", limit, 
 }) {
   const exec = WATCHER_ROLES.includes(role);
   const canEdit = role === "ceo" || role === "super_admin";
-  const view = useCachedApi<Data>("/staff/watchers", exec, ["watchers"]);
+  const view = useCachedApi<WatcherData>("/staff/watchers", exec, ["watchers"]);
   const { show: toast, node: toastNode } = useSaveToast();
   const [rules, setRules] = useState(false);
   /* which watcher groups the reader has opened, on the findings view */

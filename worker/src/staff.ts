@@ -30,7 +30,7 @@ import { handleHankeis } from "./hankeis";
 import { SP_TRACKING_REQUIRED } from "./sp-rules"; // v1.155.0 - shipped without a tracking number is not a shipment
 import { clientAt } from "./outbox"; // v1.105.0 - when the phone said the button was pressed
 import { HR_STAGE_ROLES, PREAPP_ROLES, FINAL_ROLES, leaveNextStage, leaveCanActAt, leaveStageLabel, leaveSeesAll, leaveTimeline, leaveWaitingOn, leaveDecider, leaveRoute, leaveAbove, leaveNextStep, parseLeaveRoute, leaveRoutedTimeline, LEAVE_ROUTE_VERSION, type LeaveTimelineRow, type LeaveRoute, type LeaveDecisionRow } from "./leave-chain"; // v1.106.0; leaveSeesAll v1.205.0; the timeline v1.252.0
-import { handleDesk } from "./desk"; // v1.106.0 - One Desk
+import { handleDesk, handleDeskCompleted } from "./desk"; // v1.106.0 - One Desk; v1.293.0 - Completed (read only)
 import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News & Announcements 2.0
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
 import { handlePayments, paymentVerificationOn } from "./payment-verify"; // v1.272.0 - report, then the CEO verifies
@@ -3043,6 +3043,11 @@ async function handleStaffRoutes(
      pending work, filtered to what THIS person may act on. ---- */
   if (path === "/desk" && method === "GET") {
     return handleDesk(env, user);
+  }
+  /* v1.293.0 (Desk consolidation, K3 / D5) - what THIS person decided in the
+     last 30 days, read from the modules' own decision records. Read only. */
+  if (path === "/desk/completed" && method === "GET") {
+    return handleDeskCompleted(env, user, new URL(request.url).searchParams);
   }
 
   /* ---- Hotel directory (v1.100.0) — see hotels.ts. A door, not a
@@ -8955,7 +8960,7 @@ async function handleStaffRoutes(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users", "Automation & Rules"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
   /* v1.234.0 - what the SERVER lets a role read behind a tab, where one rule
      decides it (the same checks the routes make). A tab absent here has no
@@ -8975,6 +8980,7 @@ async function handleStaffRoutes(
     "ELFIA Traffic": (r) => can(r, "revenue_view"),
     Sales: (r) => can(r, "sales"),
     Companies: (r) => can(r, "company_review"),
+    "Automation & Rules": (r) => ["ceo", "coo", "cco", "super_admin", "admin"].includes(r), // v1.293.0 - GET /staff/watchers (watchers.ts EXEC + admin tier)
     Claims: (r) => can(r, "claims_submit"),
   };
 

@@ -35,12 +35,22 @@ def open_pay(b, port, w):
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales"); pg.wait_for_timeout(2400)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-    pg.get_by_role("tab", name="Payments", exact=True).first.click(); pg.wait_for_timeout(1100)
+    sales_view(pg, "Payments", "Payments"); pg.wait_for_timeout(1100)
     pg.get_by_test_id("pay-tab-balances").click(); pg.wait_for_timeout(400)
     return ctx, pg, errs
 
 sideways = lambda pg: pg.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1")
 act = lambda pg, inv: pg.get_by_test_id("inv-row").filter(has_text=inv).get_by_test_id("inv-action")
+
+
+def sales_view(pg, wide, short):
+    """v1.292.0 (Sales Workspace 4.0) - a Sales view: the tab on a wide screen, the Views selector on a phone"""
+    t = pg.get_by_test_id("sales-tabs").get_by_role("tab", name=wide, exact=True)
+    if t.count() and t.first.is_visible():
+        t.first.click()
+    else:
+        pg.get_by_test_id("view-switch").filter(visible=True).first.click(); pg.wait_for_timeout(250)
+        pg.get_by_role("menuitemradio", name=re.compile("^" + re.escape(short))).first.click()
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -106,7 +116,7 @@ with sync_playwright() as p:
     urllib.request.urlopen(f"http://127.0.0.1:{CCO}/__reset").read()
     pg.goto(f"http://127.0.0.1:{CCO}/portal?tab=Sales"); pg.wait_for_timeout(2600)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
-    pg.get_by_role("tab", name=re.compile(r"^(Quotations & Invoices|Documents)$")).first.click(); pg.wait_for_timeout(1500)
+    sales_view(pg, "Quotations & Invoices", "Documents"); pg.wait_for_timeout(1500)
     r = pg.locator("[role='row']:has-text('INV-AZO050926-3')").first
     btn = r.get_by_test_id("pv-record")
     check("CCO: the Sales list offers Request paid", btn.count() == 1 and btn.inner_text().strip() == "Request paid", btn.inner_text() if btn.count() else r.inner_text()[:200])

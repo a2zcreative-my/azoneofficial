@@ -8,14 +8,16 @@ import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-
 import { RevenueData } from "@/components/portal/dashboard";
 import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL, withStepUp } from "@/components/portal/page-shared";
-import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
-import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
-import { ClosedSales, FollowUps, NeedsActionCard, SalesOverviewCards, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
-import { SalesPerformanceCard } from "@/components/portal/executive-cards"; // v1.281.0
+import { TabAction } from "@/components/ui/line-tabs";
+import { ClosedSales, FollowUps, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
+import { CustomerBoard, CustomerFilterBar, CustomerNeeds, DocsMore, MetricStrip, ReportPicker, RowMenu, SalesViewBar, SalesWorklist, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
+import { useCachedApi } from "@/lib/cached-api";
+import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-views"; // v1.292.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
+import type { Opportunity } from "@/components/portal/sales-discipline";
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
 import { InvoicePayAction, payActorOf } from "@/components/portal/payment-parts"; // v1.282.0 - one action per invoice
-import { SalesEnquiries, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
+import { SalesEnquiries, useEnquiryList, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -1185,18 +1187,26 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
   );
 }
 
-export function Sales({ user, workExtra, customersExtra, reports, initialView = "documents", createRequest = 0, focus, startView }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode; reports?: ReactNode; initialView?: "documents" | "create"; createRequest?: number; focus?: RecordFocus | null;
+export function Sales({ user, workExtra, customersExtra, reports, packagesExtra, initialView = "documents", createRequest = 0, focus, startView }: { user: User; workExtra?: ReactNode; customersExtra?: ReactNode;
+  /** v1.292.0 - the page's own reports (the map, the live-hour economics), each shown one at a time with Sales' own */
+  reports?: ReportDef[];
+  /** v1.292.0 - the public rate card, beside the packages it prices (decision S6) */
+  packagesExtra?: ReactNode; initialView?: "documents" | "create"; createRequest?: number; focus?: RecordFocus | null;
   /** v1.263.0 - where the Dashboard's View all sent you: "open_quotations" = the Documents list filtered to open quotations */
   startView?: string }) {
   /* v1.123.0 - one area at a time (CEO, 06-09-2026) */
   const [custTab, setCustTab] = useState<"add" | "clients">("clients");
+  /* v1.292.0 - Customers & Follow-ups is ONE workspace: what needs action, the enquiries, the follow-ups, every customer, or the same records as a read-only board */
+  const [custFilter, setCustFilter] = useState<CustFilter>("action");
+  const [fileTick, setFileTick] = useState(0); // v1.292.0 - a customer file closed from the worklist: reload
   const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts" | "packages">(initialView);
   /* v1.214.0 - THE SALES WORKSPACE: one panel, five tabs over the same
      records (sales-workspace.tsx). The bodies stay mounted and are hidden,
      so a half-written quotation survives a look at another tab. "Mine" is
      the screen's filter over records every sales role may already read: a
      consultant opens on their own sales, management on everyone's. */
-  const [wsView, setWsView] = useState<"overview" | "documents" | "payments" | "closed" | "customers" | "reports">(initialView === "create" ? "documents" : "overview");
+  const [wsView, setWsView] = useState<SalesView>(initialView === "create" ? "documents" : isSalesView(startView) ? startView : "overview");
+  useSalesViewHistory(wsView, setWsView); // v1.292.0 (S2) - the view is in the address: Back and Forward move between the six
   const [scope, setScope] = useState<WsScope>(MANAGE_ROLES.includes(user.role) ? "all" : "mine");
   /* v1.216.0 - the figures over the whole table (GET /staff/docs/summary),
      for the scope on screen; refreshed with every load */
@@ -1211,6 +1221,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   useEffect(() => { scopeRef.current = scope; void loadSummary(); }, [scope, loadSummary]);
   const jump = (id: "sales-work" | "sales-customers") => {
     setWsView(id === "sales-work" ? "documents" : "customers");
+    if (id === "sales-customers") setCustFilter("all"); // v1.292.0 - the customers list is one of the workspace's filters
     requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" })));
   };
   useEffect(() => {
@@ -1325,12 +1336,13 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      create form as an invoice, Payments, Add customer, Customers & Follow-ups;
      no second form anywhere. The server still decides every save. */
   useEffect(() => {
-    if (!startView || !["create_invoice", "payments", "add_customer", "followups"].includes(startView)) return;
+    if (!startView || !(["create_invoice", "payments", "add_customer", "followups"].includes(startView) || isSalesView(startView))) return;
     const frame = requestAnimationFrame(() => {
       if (startView === "create_invoice") { setWsView("documents"); setWorkTab("create"); setDoc((d) => ({ ...d, doc_type: "INV" })); requestAnimationFrame(() => document.getElementById("sales-work")?.scrollIntoView({ block: "start" })); }
       else if (startView === "payments") setWsView("payments");
-      else if (startView === "add_customer") { setWsView("customers"); setCustTab("add"); requestAnimationFrame(() => document.getElementById("sales-customers")?.scrollIntoView({ block: "start" })); }
-      else setWsView("customers");
+      else if (startView === "add_customer") { setWsView("customers"); setCustFilter("all"); setCustTab("add"); requestAnimationFrame(() => document.getElementById("sales-customers")?.scrollIntoView({ block: "start" })); }
+      else if (startView === "followups") { setWsView("customers"); setCustFilter("followups"); }
+      else if (isSalesView(startView)) setWsView(startView);
     });
     return () => cancelAnimationFrame(frame);
   }, [startView]);
@@ -1463,7 +1475,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   }, [loadSummary, paysByReport]);
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, fileTick]); // v1.292.0 - fileTick: a customer file opened from the worklist was closed
   /* v1.65.0 live: Sales reads customers, documents and the orders behind them. */
   useLiveRefresh(["customers", "docs", "orders"], load);
 
@@ -2245,18 +2257,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const unpaidInv = sDocs.filter((d) => d.doc_type === "INV" && d.payment_status !== "paid");
   /* v1.216.0 - the server's figures, when they are for this month and this scope */
   const sm = summary && summary.month === monthKey && summary.scope === scope ? summary : null;
-  const cents = (list: SalesDoc[]) => list.reduce((a, d) => a + d.total_cents, 0);
   /* v1.186.0 (the owner's reference): last month's figures beside this
      month's, by the same two rules - raised by created_at, paid by paid_at */
   const lastKey = (() => { const d = new Date(`${monthKey}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); })();
   const lastPaid = sDocs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid" && mytYm(d.paid_at ?? d.created_at) === lastKey);
-  /* v1.279.0 - the photo's change pill: the signed percentage in the pill,
-     the comparison beside it */
-  const vsLast = (now: number, before: number): { pct: number | null; text: string; vs: string } | undefined => {
-    if (!before) return undefined;
-    const pct = Math.round(((now - before) / before) * 100);
-    return { pct, text: `${pct >= 0 ? "+" : "−"}${Math.abs(pct)}%`, vs: L("vs last month", "berbanding bulan lepas") };
-  };
   /* v1.186.0 - the documents list: a type pill, a search, a status pick and
      ten a page. Filters only; every row keeps every action it had. */
   const docRows = docs.filter((d) =>
@@ -2278,10 +2282,32 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const overdueInv = unpaidInv.filter((d) => d.payment_status === "overdue");
   const dueFollow = sFollowups.filter((f) => f.due_on <= today);
   /* Needs action: unpaid invoices and follow-ups due, the overdue first (sales-workspace.tsx needRowsFor) */
+  /* v1.292.0 - an unpaid invoice whose status cell already carries its payment action (Report / Request / View) */
+  const payCell = (d: SalesDoc) => d.doc_type === "INV" && paysByReport && pv?.on === true && d.payment_status !== "void" && d.payment_status !== "paid" ? pv.inv[d.id] ?? null : null;
   const openDocRow = (d: SalesDoc) => { setWsView("documents"); setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); };
   /* the company's week beside it, for the people who read the company figure */
   const weekDash = useWeekDash().data;
   const companyView = Boolean(weekDash?.outlook) && scope === "all";
+
+  /* v1.292.0 - SALES WORKSPACE 4.0 (claude/SALES-WORKSPACE-4.0-BLUEPRINT.md): only ARRANGES records Sales already reads
+     (documents, follow-ups, the Payments queue, the week engine's open quotations, enquiries) - see sales-views.tsx */
+  const oppView = useCachedApi<{ rows: Opportunity[] }>("/staff/sales/week/opportunities", true, ["docs", "sales", "followups", "customers"]);
+  const enqAll = useEnquiryList();
+  const opps = (oppView.data?.rows ?? []).filter((o) => scope === "all" || o.owner.id === user.id);
+  const enquiries = enqAll.filter((e) => e.status !== "closed" && (scope === "all" || e.assigned_to === user.id || e.assigned_to === null));
+  const openDocById = (id: number) => { const d = docs.find((x) => x.id === id); if (d) openDocRow(d); else setWsView("documents"); };
+  const toPayment = (id: number, record: boolean) => { if (record) setRecordInv(id); else setViewInv(id); setWsView("payments"); };
+  const toEnquiries = () => { setCustFilter("enquiries"); setWsView("customers"); };
+  /* the customer file refreshes Sales when it closes: a tick the loader watches, so no render-time code touches a ref */
+  const followCustomer = (customerId: number, company: string) => openCustomerFile(customerId, company, () => setFileTick((t) => t + 1));
+
+  const { stripCells, workRows, custNeeds, boardColumns } = buildSalesViews({ unpaidInv, sDocs, overdueInv, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport,
+    weekDash, sm, scope, loaded, today, monthKey, toPayment, openDocRow, openDocById, followCustomer, toEnquiries, setWsView, setCustFilter: (f) => setCustFilter(f),
+    openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
+
+  const reportDefs = salesReportDefs({ sDocs, partPaid, monthKey, today, sm, scope, setScope, pv, loaded, paidThisMonth, lastPaid, unpaidInv, overdueInv, openQt, monthQt, monthInv, dueFollow, sFollowups,
+    companyView, weekDash, extra: reports, openDocById, setWsView, setCustFilter, openDocs: (t, status) => { setWorkTab("documents"); setDocType(t); setDocStatus(status); setDocPage(1); jump("sales-work"); },
+    openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
 
   return (
     /* The page's TabPage is the stack; these are its zones: AT A GLANCE
@@ -2291,82 +2317,23 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       {/* v1.214.0 - THE SALES WORKSPACE (the owner's brief, 27-10-2026): the
           shared underline tabs, the month and "Create document" at the
           right; the breadcrumb they replace said the same thing twice. */}
-      <LineTabs value={wsView} onChange={(k) => setWsView(k)} label={L("Sales", "Jualan")} tabs={[
-        ["overview", L("Overview", "Gambaran")],
-        /* v1.281.0 - the photo's counts: what waits behind each tab; "Documents" on a phone (decision 6) */
-        ["documents", L("Quotations & Invoices", "Sebut Harga & Invois"), loaded ? openQt.length + unpaidInv.filter((d) => d.payment_status !== "void").length : null, L("Documents", "Dokumen")],
-        ["payments", L("Payments", "Bayaran"), pv?.on ? pv.pend?.n ?? null : null], // v1.272.0 - report, then the CEO verifies
-        ["closed", L("Closed Sales", "Jualan Ditutup")],
-        ["customers", L("Customers & Follow-ups", "Pelanggan & Susulan"), loaded ? dueFollow.length : null],
-        ...(reports ? ([["reports", L("Reports", "Laporan")]] as const) : []),
-      ]} aside={
-        <TabAside>
-          <TabPeriod>{(() => { const [y, m] = monthKey.split("-").map(Number) as [number, number]; return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-MY", { month: "long", year: "numeric", timeZone: "UTC" }); })()}</TabPeriod>
-          {/* v1.282.0 (Payment Verification 3.0) - on Payments the gold action is Report payment */}
-          {wsView === "payments" && pv?.on && Object.values(pv.inv).some((v) => v.can_report) ? (
-            <TabAction icon="add" onClick={() => setPayReport((n) => n + 1)}>{L("Report payment", "Lapor bayaran")}</TabAction>
-          ) : (
-            <TabAction icon="add" onClick={() => { setWorkTab("create"); jump("sales-work"); }}>
-              <span className="erp-desktop-only">{L("Create document", "Buat dokumen")}</span><span className="erp-phone-only">{L("Create", "Cipta")}</span>
-            </TabAction>
-          )}
-        </TabAside>
-      } />
+      {/* v1.292.0 - SIX VIEWS, ONE SWITCH (sales-shell.tsx SalesViewBar): the tab row on a wide screen, one selector on a phone; ONE gold action, the one this view is for */}
+      <SalesViewBar view={wsView} onView={setWsView} waiting={{ documents: loaded ? openQt.length + unpaidInv.filter((d) => d.payment_status !== "void").length : null, payments: pv?.on ? pv.pend?.n ?? null : null, customers: loaded ? custNeeds.length : null }}
+        action={wsView === "payments" && pv?.on && Object.values(pv.inv).some((v) => v.can_report) ? (
+          /* v1.282.0 (Payment Verification 3.0) - on Payments the gold action is Report payment */
+          <TabAction icon="add" onClick={() => setPayReport((x) => x + 1)}>{L("Report payment", "Lapor bayaran")}</TabAction>
+        ) : wsView === "customers" ? (
+          <TabAction icon="add" onClick={() => { setCustFilter("all"); setCustTab("add"); jump("sales-customers"); }}>{L("Add customer", "Tambah pelanggan")}</TabAction>
+        ) : wsView === "closed" || wsView === "reports" ? null : (
+          <TabAction icon="add" onClick={() => { setWorkTab("create"); jump("sales-work"); }}>
+            <span className="erp-desktop-only">{L("Create document", "Buat dokumen")}</span><span className="erp-phone-only">{L("Create", "Cipta")}</span>
+          </TabAction>
+        )} />
       {wsView === "overview" && (
         <>
-          <div className={sc.scopeRow}>
-            <ScopeSwitch scope={scope} onChange={setScope} />
-            <span className="erp-meta">{scope === "mine"
-              ? L("Your sales: documents where you are the salesperson, follow-ups you own.", "Jualan anda: dokumen di mana anda jurujual, susulan milik anda.")
-              : L("Everyone's sales.", "Jualan semua orang.")}</span>
-          </div>
-          <div className={sc.tiles}>
-          {/* v1.216.0 - the figures come from GET /staff/docs/summary (every
-              row, the same rules); the screen's own sums over the documents it
-              holds are the fallback for a worker without that route. */}
-          <KpiRow label={L("Sales this month", "Jualan bulan ini")}>
-            {/* v1.281.0 - the photo's five: Collected (Verified when the CEO
-                verifies payments), what waits for the CEO, what is owed, the
-                open quotations and the follow-ups due */}
-            <KpiTile icon="paid" tone="green" label={pv?.on ? L("Collected (Verified)", "Dikutip (Disahkan)") : L("Collected", "Dikutip")} value={fmtRM(sm ? sm.collected.cents : cents(paidThisMonth))} busy={!loaded}
-              sub={L(`This month · ${sm ? sm.collected.n : paidThisMonth.length} paid in full, by payment date`, `Bulan ini · ${sm ? sm.collected.n : paidThisMonth.length} dibayar penuh, ikut tarikh bayaran`)}
-              delta={sm ? vsLast(sm.collected.cents, sm.collected_last.cents) : vsLast(cents(paidThisMonth), cents(lastPaid))}
-              onClick={() => setWsView("closed")} title={L("Open the closed sales", "Buka jualan ditutup")} />
-            {pv?.on && pv.pend ? (
-              <KpiTile icon="time" tone="gold" label={L("Reported, not verified", "Dilaporkan, belum disahkan")} value={fmtRM(pv.pend.cents)}
-                sub={L(`${pv.pend.n} payment${pv.pend.n === 1 ? "" : "s"} wait${pv.pend.n === 1 ? "s" : ""} for the CEO`, `${pv.pend.n} bayaran menunggu CEO`)}
-                onClick={() => setWsView("payments")} title={L("Open Payments", "Buka Bayaran")} />
-            ) : sm ? (
-              <KpiTile icon="money" tone="green" label={L("Cash received", "Wang diterima")} value={fmtRM(sm.cash_cents)}
-                sub={L("This month · part payments included", "Bulan ini · termasuk bayaran separa")} delta={vsLast(sm.cash_cents, sm.cash_last_cents)}
-                title={L("Money received this month: part payments on the day they arrived, and what was left on each invoice marked paid this month. Collected is unchanged: it counts an invoice once it is paid in full.", "Wang diterima bulan ini: bayaran separa pada hari ia tiba, dan baki setiap invois yang ditanda dibayar bulan ini. Dikutip tidak berubah: ia mengira invois setelah dibayar penuh.")} />
-            ) : null}
-            <KpiTile icon="pending" tone="red" label={L("Outstanding", "Tertunggak")} value={fmtRM(sm ? sm.outstanding.balance_cents : cents(unpaidInv))} busy={!loaded}
-              sub={sm ? L(`${sm.outstanding.n} invoice${sm.outstanding.n === 1 ? "" : "s"} · ${overdueInv.length} overdue · ${fmtRM(sm.outstanding.total_cents)} invoiced · any month${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} not yet invoiced` : ""}`, `${sm.outstanding.n} invois · ${overdueInv.length} lewat · ${fmtRM(sm.outstanding.total_cents)} diinvois · mana-mana bulan${sm.to_invoice?.n ? ` · + ${fmtRM(sm.to_invoice.cents)} belum diinvois` : ""}`)
-                : L(`${unpaidInv.length} invoice${unpaidInv.length === 1 ? "" : "s"} · ${overdueInv.length} overdue · any month`, `${unpaidInv.length} invois · ${overdueInv.length} lewat · mana-mana bulan`)}
-              onClick={() => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); }} title={L("Open the outstanding report", "Buka laporan tertunggak")} />
-            <KpiTile icon="document" tone="purple" label={L("Open Quotations", "Sebut Harga Terbuka")} value={openQt.length} busy={!loaded}
-              sub={L(`${fmtRM(cents(openQt))} · not yet invoiced`, `${fmtRM(cents(openQt))} · belum diinvois`)}
-              onClick={() => { setWorkTab("documents"); setDocType("QT"); setDocStatus("open"); setDocPage(1); jump("sales-work"); }} title={L("Open the quotations not yet invoiced", "Buka sebut harga yang belum diinvois")} />
-            <KpiTile icon="date" tone="blue" label={L("Follow-ups due", "Susulan perlu dibuat")} value={dueFollow.length} busy={!loaded}
-              sub={L(`Today or earlier · ${sFollowups.filter((f) => f.due_on < today).length} overdue`, `Hari ini atau lebih awal · ${sFollowups.filter((f) => f.due_on < today).length} lewat`)}
-              onClick={() => setWsView("customers")} title={L("Open the customers and follow-ups", "Buka pelanggan dan susulan")} />
-          </KpiRow>
-          </div>
-          {/* v1.281.0 - this month in one line: the two month figures the
-              photo's tiles gave way to (the funnel and trend below hold the detail) */}
-          <p className="erp-meta" data-testid="sales-month-line">{L(`This month: ${sm ? sm.quotations.n : monthQt.length} quotation${(sm ? sm.quotations.n : monthQt.length) === 1 ? "" : "s"} (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invoice${(sm ? sm.invoiced.n : monthInv.length) === 1 ? "" : "s"} raised (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`,
-            `Bulan ini: ${sm ? sm.quotations.n : monthQt.length} sebut harga (${fmtRM(sm ? sm.quotations.cents : cents(monthQt))}) · ${sm ? sm.invoiced.n : monthInv.length} invois dikeluarkan (${fmtRM(sm ? sm.invoiced.cents : cents(monthInv))})`)}</p>
-          <div className={companyView ? sc.needGrid : undefined}>
-            <NeedsActionCard loaded={loaded} data={{ unpaid: unpaidInv, followups: dueFollow, pv, partPaid, canPay: paysByReport, today, who: payWho }}
-              onRecord={(d) => { setRecordInv(d.id); setWsView("payments"); }} onView={(d) => { setViewInv(d.id); setWsView("payments"); }} onOpenDoc={(d) => openDocRow(d as SalesDoc)} onFollow={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
-            {companyView && <SalesPerformanceCard onOpen={() => setWsView("closed")} pace={weekDash?.outlook ? { cents: weekDash.outlook.required_per_day_cents, allChannels: weekDash.company.basis_kind === "all_channels" } : undefined} />}
-          </div>
-          <SalesOverviewCards docs={sDocs} partPaid={partPaid} followups={sFollowups} monthKey={monthKey} today={mytToday()} summary={sm} scope={scope}
-            onOpenDocs={(t) => { setWorkTab("documents"); setDocType(t); setDocStatus("all"); setDocPage(1); jump("sales-work"); }}
-            onOpenDoc={(d) => { setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); }}
-            onOpenCustomer={(f) => openCustomerFile(f.customer_id, f.company, () => void load())}
-            onClosed={() => setWsView("closed")} />
+          {/* v1.292.0 - SALES WORKSPACE 4.0: one slim strip, then the one worklist */}
+          <MetricStrip label={L("Sales at a glance", "Jualan sepintas lalu")} cells={stripCells} />
+          <SalesWorklist rows={workRows} loaded={loaded} mine={scope === "mine"} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />} />
         </>
       )}
       {wsView === "closed" && (
@@ -2382,7 +2349,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             onFixed={() => { void load(); showToast(L("Closer corrected", "Penutup dibetulkan"), L("Recorded in the audit trail with your reason.", "Direkodkan dalam jejak audit dengan sebab anda.")); }} />
         </>
       )}
-      {wsView === "reports" && reports}
+      {/* v1.292.0 - ONE report at a time; only the chosen one is mounted */}
+      {wsView === "reports" && <ReportPicker reports={reportDefs} />}
       {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
       {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} reportTick={payReport} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
@@ -2432,21 +2400,22 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 <AppIcon name="refresh" />{L("Refresh", "Muat semula")}
               </button>
             </div>
+            {/* v1.292.0 - three pills and More: the other five document views are one press away, unchanged */}
             <div role="tablist" className={`erp-pill-row ${sc.pills}`}>
-              {([["all", L(`Documents (All)`, `Dokumen (Semua)`)], ["QT", L("Quotations", "Sebut harga")], ["INV", L("Invoices", "Invois")], ["DO", L("Delivery orders", "Pesanan penghantaran")]] as const).map(([v, label]) => (
+              {([["all", L(`All Documents`, `Semua Dokumen`), null], ["QT", L("Quotations", "Sebut harga"), docs.filter((x) => x.doc_type === "QT").length], ["INV", L("Invoices", "Invois"), docs.filter((x) => x.doc_type === "INV").length]] as const).map(([v, label, count]) => (
                 <button key={v} type="button" role="tab" aria-selected={workTab === "documents" && docType === v} className={workTab === "documents" && docType === v ? tabPillOn : tabPill}
-                  onClick={() => { setWorkTab("documents"); setDocType(v); setDocPage(1); }}>{label}</button>
+                  onClick={() => { setWorkTab("documents"); setDocType(v); setDocPage(1); }}>{label}{loaded && count !== null ? ` (${count})` : ""}</button>
               ))}
-              {([["receipts", L("Receipts", "Resit")], ["credit", L("Credit notes", "Nota kredit")], ["outstanding", L("Outstanding", "Tertunggak")]] as const).map(([v, label]) => (
-                <button key={v} type="button" role="tab" aria-selected={workTab === "receipts" && money === v} className={workTab === "receipts" && money === v ? tabPillOn : tabPill}
-                  onClick={() => { setWorkTab("receipts"); setMoney(v); }}>{label}</button>
-              ))}
-              {/* v1.231.0 - the packages library, beside the documents it fills */}
-              <button type="button" role="tab" aria-selected={workTab === "packages"} className={workTab === "packages" ? tabPillOn : tabPill}
-                onClick={() => setWorkTab("packages")}>{L("Packages", "Pakej")}</button>
+              <DocsMore items={[
+                { key: "DO", label: L("Delivery orders", "Pesanan penghantaran"), on: workTab === "documents" && docType === "DO", go: () => { setWorkTab("documents"); setDocType("DO"); setDocPage(1); } },
+                { key: "receipts", label: L("Receipts", "Resit"), on: workTab === "receipts" && money === "receipts", go: () => { setWorkTab("receipts"); setMoney("receipts"); } },
+                { key: "credit", label: L("Credit notes", "Nota kredit"), on: workTab === "receipts" && money === "credit", go: () => { setWorkTab("receipts"); setMoney("credit"); } },
+                { key: "outstanding", label: L("Outstanding", "Tertunggak"), on: workTab === "receipts" && money === "outstanding", go: () => { setWorkTab("receipts"); setMoney("outstanding"); } },
+                { key: "packages", label: L("Packages", "Pakej"), on: workTab === "packages", go: () => setWorkTab("packages") },
+              ]} />
             </div>
           </div>
-          {workTab === "packages" && <div className="mt-3"><PackagesPanel role={user.role} /></div>}
+          {workTab === "packages" && <div className="mt-3"><PackagesPanel role={user.role} />{packagesExtra /* v1.292.0 (S6) - the public rate card, beside the packages */}</div>}
           <div className={workTab === "create" ? "mt-3" : "hidden"}>
           <p className="text-sm font-semibold">
             {editingDoc ? (
@@ -3551,6 +3520,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 {/* ACTIONS: the same buttons, the same gates (v1.181.4's
                     phone rule still holds - the buttons sit together) */}
                 <span className={`erp-row-actions ${sc.cActions}`} role="cell">
+                  {/* v1.292.0 - ONE ACTION A ROW, the one this document's state calls
+                      for: invoice an open quotation (or its balance); open a
+                      quotation already invoiced; an unpaid invoice's payment
+                      action sits in its status; everything else prints. The
+                      other actions are the same buttons, under More. */}
                   {d.doc_type === "QT" && !d.invoiced_as && canInvoice && (
                     <button
                       type="button"
@@ -3566,17 +3540,28 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       → {busyDoc === d.id ? L("Invoicing…", "Menginvois…") : L("Invoice", "Invois")}
                     </button>
                   )}
+                  {partly(d) && canInvoice && (
+                    <button type="button" className={rowBtnPrimary} disabled={busyDoc === d.id} onClick={() => void convertQt(d)}
+                      title={L(`Invoice the ${fmtRM(leftToInvoice(d))} left on this quotation`, `Invois baki ${fmtRM(leftToInvoice(d))} sebut harga ini`)}>
+                      → {L("Invoice balance", "Invois baki")} {fmtRM(leftToInvoice(d))}
+                    </button>
+                  )}
+                  {d.doc_type === "QT" && !(canInvoice && (!d.invoiced_as || partly(d))) && (
+                    <button type="button" className={rowBtn} data-testid="open-quotation"
+                      title={L("Open the quotation page - overview, client, items, financial, Project Task, files and activity", "Buka halaman sebut harga - gambaran, pelanggan, item, kewangan, Tugasan Projek, fail dan aktiviti")}
+                      onClick={() => { setQtPage(d.id); jump("sales-work"); }}>
+                      {L("Open", "Buka")}
+                    </button>
+                  )}
+                  {d.doc_type !== "QT" && !(d.doc_type === "INV" && !!payCell(d)) && (
+                    <button type="button" className={rowBtn} onClick={() => void printDoc(d.id)}>PDF</button>
+                  )}
+                  <RowMenu label={L(`More actions for ${d.doc_number}`, `Tindakan lain untuk ${d.doc_number}`)}>
                   {/* v1.273.0 - a service quotation: invoice a part (a deposit), then the balance */}
                   {d.doc_type === "QT" && d.kind === "service" && canInvoice && (!d.invoiced_as || partly(d)) && (
                     <button type="button" className={rowBtn} disabled={busyDoc === d.id} onClick={() => void askPart(d)}
                       title={L("Invoice a deposit or progress payment: a percent or an amount of this quotation", "Invois deposit atau bayaran berperingkat: peratus atau amaun sebut harga ini")}>
                       {L("Invoice part", "Invois sebahagian")}
-                    </button>
-                  )}
-                  {partly(d) && canInvoice && (
-                    <button type="button" className={rowBtnPrimary} disabled={busyDoc === d.id} onClick={() => void convertQt(d)}
-                      title={L(`Invoice the ${fmtRM(leftToInvoice(d))} left on this quotation`, `Invois baki ${fmtRM(leftToInvoice(d))} sebut harga ini`)}>
-                      → {L("Invoice balance", "Invois baki")} {fmtRM(leftToInvoice(d))}
                     </button>
                   )}
                   {/* v1.242.0 (go-live audit B2/B5, the owner's decision D-2):
@@ -3647,7 +3632,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       keeps the version the customer was sent. Only an open
                       quotation: an invoiced one has become the invoice. */}
                   {/* v1.245.0 - the quotation page: its tabs and its Project Task */}
-                  {d.doc_type === "QT" && (
+                  {d.doc_type === "QT" && canInvoice && (!d.invoiced_as || partly(d)) && (
                     <button type="button" className={rowBtn} data-testid="open-quotation"
                       title={L("Open the quotation page - overview, client, items, financial, Project Task, files and activity", "Buka halaman sebut harga - gambaran, pelanggan, item, kewangan, Tugasan Projek, fail dan aktiviti")}
                       onClick={() => { setQtPage(d.id); jump("sales-work"); }}>
@@ -3680,6 +3665,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     {L("Edit", "Sunting")}
                   </button>
                   )}
+                  {(d.doc_type === "QT" || (d.doc_type === "INV" && !!payCell(d))) && (
                   <button
                     type="button"
                     className={rowBtn}
@@ -3687,6 +3673,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   >
                     PDF
                   </button>
+                  )}
                   {/* v1.4.258: NOT primary. A quotation row already has → Invoice
                 filled, and v1.4.253's own rule is at most ONE fill per row —
                 two dark blocks and neither reads as the main action. */}
@@ -3774,6 +3761,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       {L("Delete", "Padam")}
                     </button>
                   )}
+                  </RowMenu>
                 </span>
               </div>
               {openDoc === d.id && (
@@ -4078,21 +4066,29 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       </section>
       {wsView === "customers" && (
         <>
-          <div className={sc.scopeRow}><ScopeSwitch scope={scope} onChange={setScope} /></div>
+          {/* v1.292.0 - ONE workspace: what needs action, the enquiries, the
+              follow-ups or every customer - one at a time - and the same
+              records as a read-only board (decision S3) */}
+          <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />}
+            counts={loaded ? { action: custNeeds.length, enquiries: enquiries.length, followups: sFollowups.length, all: customers.length } : null} />
+          {custFilter === "action" && <CustomerNeeds rows={custNeeds} loaded={loaded} />}
+          {custFilter === "board" && <CustomerBoard columns={boardColumns} loaded={loaded} />}
           {/* v1.216.0 - new enquiries from the website and customer accounts
               (the owner, 28-10-2026: "Show on Sales, notify"); the server
               decides who may see them (enquiry_manage) */}
-          <SalesEnquiries scope={scope} userId={user.id} onQuote={(e: Enquiry) => {
-            /* v1.225.0 (the owner, 29-10-2026: "Enquiry owner -> closer") - the
-               consultant the enquiry is assigned to is the quotation's closer
-               from the start (still changeable on the form) */
-            applyPrefill({ source: "enquiry", company: (e.company ?? "").trim() || e.name, contact_person: e.name, phone: e.phone ?? "", reference: `Enquiry #${e.id}`, salesperson_id: e.assigned_to ?? undefined });
-            if (customers.some((c) => c.company.trim().toLowerCase() === ((e.company ?? "").trim() || e.name).toLowerCase())) setWsView("documents");
-          }} />
-          <FollowUps all rows={sFollowups} today={mytToday()} onOpen={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />
+          <div hidden={custFilter !== "enquiries"}>
+            <SalesEnquiries scope={scope} userId={user.id} onQuote={(e: Enquiry) => {
+              /* v1.225.0 (the owner, 29-10-2026: "Enquiry owner -> closer") - the
+                 consultant the enquiry is assigned to is the quotation's closer
+                 from the start (still changeable on the form) */
+              applyPrefill({ source: "enquiry", company: (e.company ?? "").trim() || e.name, contact_person: e.name, phone: e.phone ?? "", reference: `Enquiry #${e.id}`, salesperson_id: e.assigned_to ?? undefined });
+              if (customers.some((c) => c.company.trim().toLowerCase() === ((e.company ?? "").trim() || e.name).toLowerCase())) setWsView("documents");
+            }} />
+          </div>
+          {custFilter === "followups" && <FollowUps all rows={sFollowups} today={mytToday()} onOpen={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />}
         </>
       )}
-      <section id="sales-customers" className="erp-stack-tight erp-tab-zone scroll-mt-36" hidden={wsView !== "customers"}>
+      <section id="sales-customers" className="erp-stack-tight erp-tab-zone scroll-mt-36" hidden={wsView !== "customers" || custFilter !== "all"}>
         <ZoneLabel>{L("Customers", "Pelanggan")}</ZoneLabel>
         <div className={card}>
           <SectionTabs value={custTab} onChange={setCustTab} tabs={[
