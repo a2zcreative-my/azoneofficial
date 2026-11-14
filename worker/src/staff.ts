@@ -64,6 +64,11 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    is no named permission for this in permissions.ts and inventing one for a
    summary field would be the wrong way round - the route owns the rule, this
    is simply that rule with a name. */
+/* v1.300.0 - on an invoice: the quotation it was converted from, and which live invoice of that quotation it is (part n of m) */
+const FROM_QT = `(SELECT q.doc_number FROM sales_documents q WHERE q.id = d.converted_from) AS converted_from_number,
+              CASE WHEN d.converted_from IS NULL OR d.doc_type != 'INV' THEN NULL ELSE (SELECT COUNT(*) FROM sales_documents s WHERE s.converted_from = d.converted_from AND s.doc_type = 'INV' AND COALESCE(s.payment_status, '') != 'void' AND s.id <= d.id) END AS part_no,
+              CASE WHEN d.converted_from IS NULL OR d.doc_type != 'INV' THEN NULL ELSE (SELECT COUNT(*) FROM sales_documents s WHERE s.converted_from = d.converted_from AND s.doc_type = 'INV' AND COALESCE(s.payment_status, '') != 'void') END AS part_of`;
+
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
 import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList } from "./permissions";
@@ -10789,7 +10794,12 @@ async function handleStaffRoutes(
               (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id,
               /* v1.273.0 - a service quotation billed in parts: how much of it is invoiced, in how many invoices */
               (SELECT COALESCE(SUM(i.total_cents), 0) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoiced_cents,
-              (SELECT COUNT(*) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoice_count
+              (SELECT COUNT(*) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoice_count,
+              /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear") -
+                 EVERY live invoice a quotation became, oldest first, not only the latest; and on an invoice, the
+                 quotation it came from and which part it is */
+              (SELECT GROUP_CONCAT(x.doc_number, ' + ') FROM (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_list,
+              ${FROM_QT}
        FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
        JOIN customers c ON c.id = d.customer_id ${typed ? "WHERE d.doc_type = ?1" : ""}
@@ -10805,7 +10815,7 @@ async function handleStaffRoutes(
       try {
         const have = new Set((results as { id: number }[]).map((r) => r.id));
         const { results: more } = await env.DB.prepare(
-          `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name, NULL AS invoiced_as, NULL AS invoiced_as_id
+          `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name, NULL AS invoiced_as, NULL AS invoiced_as_id, ${FROM_QT}
              FROM sales_documents d
              LEFT JOIN users sp ON sp.id = d.salesperson_id
              JOIN customers c ON c.id = d.customer_id

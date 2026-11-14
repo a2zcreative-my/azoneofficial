@@ -230,7 +230,11 @@ function bytes(s: string): Uint8Array {
   return out;
 }
 
-export function assemblePdf(content: string, images: Img[], title: string, landscape = false): Uint8Array {
+/* v1.302.0 - `content` may be one page or a list of pages (a draft agreement runs over
+   several). Page 1 keeps objects 3 and 4; every further page takes two slots after the
+   images (its page, then its contents), so a one-page document is byte-for-byte as before. */
+export function assemblePdf(content: string | string[], images: Img[], title: string, landscape = false): Uint8Array {
+  const pages = Array.isArray(content) ? (content.length ? content : [""]) : [content];
   /* Object numbers are FIXED, never positional. An earlier draft appended the
      image before the fonts, so a document without a signature shifted /F1 and
      /F2 onto the wrong objects and printed bold and regular swapped. Layout:
@@ -249,10 +253,15 @@ export function assemblePdf(content: string, images: Img[], title: string, lands
   const slot = (i: number) => 8 + i * 2;                  // image i lives here
   const xres = images.map((im, i) => `/${im.id} ${slot(i)} 0 R`).join(" ");
   put(1, `<< /Type /Catalog /Pages 2 0 R >>`);
-  put(2, `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`);
-  put(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${landscape ? PAGE_H : PAGE_W} ${landscape ? PAGE_W : PAGE_H}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${images.length ? ` /XObject << ${xres} >>` : ""} >> /Contents 4 0 R >>`);
-  const cbytes = bytes(content);
-  put(4, streamObj(`<< /Length ${cbytes.length} >>`, cbytes));
+  const extra = (k: number) => 8 + images.length * 2 + (k - 1) * 2; // page k (k >= 1, 0-based) lives here
+  const pageNo = (k: number) => (k === 0 ? 3 : extra(k));
+  put(2, `<< /Type /Pages /Kids [${pages.map((_, k) => `${pageNo(k)} 0 R`).join(" ")}] /Count ${pages.length} >>`);
+  pages.forEach((pc, k) => {
+    const contentsNo = k === 0 ? 4 : extra(k) + 1;
+    put(pageNo(k), `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${landscape ? PAGE_H : PAGE_W} ${landscape ? PAGE_W : PAGE_H}] /Resources << /Font << /F1 5 0 R /F2 6 0 R >>${images.length ? ` /XObject << ${xres} >>` : ""} >> /Contents ${contentsNo} 0 R >>`);
+    const cbytes = bytes(pc);
+    put(contentsNo, streamObj(`<< /Length ${cbytes.length} >>`, cbytes));
+  });
   put(5, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
   put(6, `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
   put(7, `<< /Title (${esc(title)}) /Producer (A2Z staff portal) >>`);

@@ -30,7 +30,7 @@
    confidence count, a criterion only from its effective date, and for a
    consolidation the monthly and total-repayment differences with the risks.
    ENGINE_VERSION is stored with every saved result. */
-export const ENGINE_VERSION = "1.298.0";
+export const ENGINE_VERSION = "1.301.0";
 
 export type Product = "personal_financing" | "debt_consolidation" | "advisory_only";
 export type Outcome = "incomplete" | "potentially_suitable" | "manual_review" | "affordability_concern" | "no_product";
@@ -44,6 +44,9 @@ export interface FaCriterion {
   id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string;
   dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null;
   required_documents: string | null; last_verified_on: string | null; state: string; bank_id?: number | null; effective_from?: string | null;
+  /* v1.301.0 - FA 2.0 phase 4 (0191 fa_criteria_meta): an indicative banker entry never matches; an expired rule never
+     matches; a rule past its review-due day is matched but flagged for re-checking, like one verified over 90 days ago */
+  category?: string | null; review_due_on?: string | null; expires_on?: string | null;
   min_age?: number | null; max_age?: number | null; min_amount_cents?: number | null; max_amount_cents?: number | null; min_tenure_months?: number | null; max_tenure_months?: number | null;
 }
 export interface FaProfile { employment_category?: string | null; service_months?: number | null; age_years?: number | null }
@@ -137,7 +140,8 @@ export function assess(input: {
 }): Assessment {
   const { product, items, profile, proposal, today } = input;
   /* v1.288.0 - a rule counts from its effective date, never before */
-  const inForce = input.criteria.filter((c) => c.state === "verified" && c.product === product && (!c.effective_from || c.effective_from <= today));
+  const inForce = input.criteria.filter((c) => c.state === "verified" && c.product === product && (!c.effective_from || c.effective_from <= today)
+    && (c.category ?? "official") === "official" && !(c.expires_on && c.expires_on < today));
   /* one version per family: the newest that is in force today (a verified future version waits for its date) */
   const criteria = inForce.filter((c) => !inForce.some((o) => o.family === c.family && o.version > c.version));
   const net = incomeOf(items, "net");
@@ -211,7 +215,7 @@ export function assess(input: {
     if (unverified > 0) checks.push({ key: "commitments", state: "unverified", text: `${unverified} commitment${unverified === 1 ? " is" : "s are"} declared, not verified` });
     const hardFail = checks.some((k) => k.state === "failed" && k.key !== "dsr");
     if (hardFail) fit = "fails";
-    const stale = !c.last_verified_on || daysBetween(c.last_verified_on, today) > STALE_DAYS;
+    const stale = !c.last_verified_on || daysBetween(c.last_verified_on, today) > STALE_DAYS || (!!c.review_due_on && c.review_due_on < today);
     return { criterion_id: c.id, family: c.family, version: c.version, bank: c.bank, checks, missing_documents: parseList(c.required_documents).filter((d) => !docs.has(d)), stale, last_verified_on: c.last_verified_on, fit };
   }).sort((a, b) => a.checks.filter((k) => k.state === "failed").length - b.checks.filter((k) => k.state === "failed").length
     || a.checks.filter((k) => k.state === "unverified").length - b.checks.filter((k) => k.state === "unverified").length || a.bank.localeCompare(b.bank));

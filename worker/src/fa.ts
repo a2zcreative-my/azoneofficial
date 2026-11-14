@@ -31,12 +31,13 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify } from "./staff";
 import { json, err, audit, str, putGuarded } from "./shared";
-import { can } from "./permissions";
+import { can, rolesFor } from "./permissions";
 import { handleFaRegistry } from "./fa-registry";
 import { assess, ENGINE_VERSION, type FaItem, type FaCriterion, type Product } from "./fa-engine";
 import { isExecutiveOwner } from "./decision-policy";
 import { handleFaMatch } from "./fa-match";
 import { priorityOf, PRIORITIES, type Priority } from "./fa-priority";
+import { handleFaTemplates } from "./fa-templates";
 
 /** Off until counsel clears each one (blueprint section 4). A constant on purpose. */
 /* v1.288.0 - the CEO, 12-11-2026, decision D5 of DSR blueprint v1.2: "proceed
@@ -146,11 +147,27 @@ async function docOnCase(env: Env, caseId: number, docId: unknown): Promise<numb
   return r?.id ?? null;
 }
 async function liveCriteria(env: Env): Promise<FaCriterion[]> {
-  /* v1.286.0 - the registry bank and the ranges live beside the criterion (0184 fa_criteria_terms) */
-  return ((await env.DB.prepare(
-    `SELECT c.*, t.bank_id, t.bank_product_id, t.min_age, t.max_age, t.min_amount_cents, t.max_amount_cents, t.min_tenure_months, t.max_tenure_months
-       FROM fa_criteria c LEFT JOIN fa_criteria_terms t ON t.criterion_id = c.id ORDER BY c.bank, c.family, c.version`,
-  ).all<FaCriterion>()).results ?? []);
+  /* v1.286.0 - the registry bank and the ranges live beside the criterion (0184 fa_criteria_terms)
+     v1.301.0 - FA 2.0 phase 4: the category, confidence and dates beside it (0191 fa_criteria_meta); the ONE engine
+     reads them (an indicative entry or an expired rule never matches). Before 0191 every rule reads as official. */
+  const sql = (meta: boolean) => `SELECT c.*, t.bank_id, t.bank_product_id, t.min_age, t.max_age, t.min_amount_cents, t.max_amount_cents, t.min_tenure_months, t.max_tenure_months${meta ? `,
+       COALESCE(m.category, 'official') AS category, m.confidence, m.review_due_on, m.expires_on, m.banker_id AS source_banker_id, m.heard_on, m.channel, m.exact_feedback,
+       (SELECT bb.full_name FROM fa_bankers bb WHERE bb.id = m.banker_id) AS source_banker` : `, 'official' AS category`},
+       ${PERSON("vu")} AS verified_by_name, ${PERSON("cu")} AS created_by_name
+       FROM fa_criteria c LEFT JOIN fa_criteria_terms t ON t.criterion_id = c.id${meta ? " LEFT JOIN fa_criteria_meta m ON m.criterion_id = c.id" : ""}
+       LEFT JOIN users vu ON vu.id = c.verified_by LEFT JOIN users cu ON cu.id = c.created_by ORDER BY c.bank, c.family, c.version`;
+  try { return ((await env.DB.prepare(sql(true)).all<FaCriterion>()).results ?? []); }
+  catch (e) { if (!skew(e)) throw e; return ((await env.DB.prepare(sql(false)).all<FaCriterion>()).results ?? []); }
+}
+/** v1.301.0 - a criterion's state as the repository shows it (directive 6C): stored draft / verified / retired, plus what the dates and category say */
+export function criterionShows(c: { state: string; category?: string | null; last_verified_on: string | null; review_due_on?: string | null; expires_on?: string | null }, today: string): "draft" | "indicative" | "verified" | "review_required" | "expired" | "archived" {
+  if (c.state === "retired") return "archived";
+  if ((c.category ?? "official") === "banker_indicative") return "indicative";
+  if (c.state === "draft") return "draft";
+  if (c.expires_on && c.expires_on < today) return "expired";
+  const old = !c.last_verified_on || (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${c.last_verified_on}T00:00:00Z`)) / 864e5 > 90;
+  if (old || (c.review_due_on && c.review_due_on < today)) return "review_required";
+  return "verified";
 }
 
 /** v1.288.0 - where a case stands with Management: the last submission, and the decision on it (if any) */
@@ -359,7 +376,8 @@ async function route(env: Env, path: string, method: string, body: Record<string
 
   /* ---- bank criteria (the one verified directory) ---- */
   if (path === "/fa/criteria" && method === "GET") {
-    return json({ criteria: await liveCriteria(env), can: { propose: can(user.role, "fa_edit"), verify: can(user.role, "fa_criteria") } });
+    const today = mytToday();
+    return json({ criteria: (await liveCriteria(env)).map((c) => ({ ...c, shows: criterionShows(c as never, today) })), can: { propose: can(user.role, "fa_edit"), verify: can(user.role, "fa_criteria") }, me: user.id });
   }
   if (path === "/fa/criteria" && method === "POST") {
     if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
@@ -372,9 +390,27 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const bp = await env.DB.prepare(`SELECT id FROM fa_bank_products WHERE bank_id = ?1 AND product = ?2 AND status = 'active'`).bind(bk.id, product).first<{ id: number }>();
     if (!bp) return err("invalid_input", `${bk.name} has no ${product.replace(/_/g, " ")} in the registry - management adds the product first.`, 400);
     if (source.length < 5) return err("invalid_input", "Say where this rule comes from (document or contact, and date).", 400);
+    /* v1.301.0 - FA 2.0 phase 4: every rule says what it is and how sure we are (directive 6A, 6B) */
+    const category = b.category === "banker_indicative" ? "banker_indicative" : "official";
+    const confidence = ["high", "medium", "low"].includes(String(b.confidence)) ? String(b.confidence) : null;
+    if (!confidence) return err("invalid_input", "Say how sure this rule is: high, medium or low confidence.", 400);
+    const reviewDue = validDay(b.review_due_on) ? b.review_due_on : null, expires = validDay(b.expires_on) ? b.expires_on : null;
+    if (expires && expires < mytToday()) return err("invalid_input", "The expiry day has already passed.", 400);
+    let srcBanker: { id: number; bank_id: number } | null = null, heardOn: string | null = null, channel: string | null = null, words = "";
+    if (category === "banker_indicative") {
+      srcBanker = typeof b.banker_id === "number" ? await env.DB.prepare(`SELECT id, bank_id FROM fa_bankers WHERE id = ?1`).bind(b.banker_id).first<{ id: number; bank_id: number }>() : null;
+      if (!srcBanker || srcBanker.bank_id !== bk.id) return err("invalid_input", "An indicative rule names the banker who said it - a banker of this bank, from the registry.", 400);
+      heardOn = validDay(b.heard_on) && b.heard_on <= mytToday() ? b.heard_on : null;
+      if (!heardOn) return err("invalid_input", "Give the day the banker said it (today or earlier).", 400);
+      channel = ["work_email", "work_phone", "whatsapp_work", "in_person"].includes(String(b.channel)) ? String(b.channel) : null;
+      if (!channel) return err("invalid_input", "Say how the banker said it (work email, work phone, WhatsApp, in person).", 400);
+      words = str(b.exact_feedback, 1000) ? String(b.exact_feedback).trim() : "";
+      if (words.length < 10) return err("invalid_input", "Write the banker's own words (at least 10 characters).", 400);
+    }
     const pct = typeof b.dsr_guideline_pct === "number" && b.dsr_guideline_pct > 0 && b.dsr_guideline_pct < 100 ? Math.round(b.dsr_guideline_pct * 100) : null;
     const bank = bk.name;
-    const family = `bank-${bk.id}:${product}`;
+    /* v1.301.0 - a banker's indicative words keep their own family, so they never become a "newer version" of the bank's official rule */
+    const family = `bank-${bk.id}:${product}${category === "banker_indicative" ? ":indicative" : ""}`;
     const last = await env.DB.prepare(`SELECT MAX(version) AS v FROM fa_criteria WHERE family = ?1`).bind(family).first<{ v: number | null }>();
     const list = (v: unknown) => (Array.isArray(v) ? JSON.stringify(v.map(String).filter((x) => x.length <= 60).slice(0, 20)) : null);
     const int = (v: unknown, lo: number, hi: number) => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? Math.round(v) : null);
@@ -391,19 +427,47 @@ async function route(env: Env, path: string, method: string, body: Record<string
     await env.DB.prepare(
       `INSERT INTO fa_criteria_terms (criterion_id, bank_id, bank_product_id, min_age, max_age, min_amount_cents, max_amount_cents, min_tenure_months, max_tenure_months) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
     ).bind(Number(row?.id), bk.id, bp.id, ...range).run();
-    await audit(env, user.id, "fa.criteria_draft", "fa_criteria", String(row?.id), { bank, bank_id: bk.id, product, family, dsr_guideline_bp: pct });
+    try {
+      await env.DB.prepare(`INSERT INTO fa_criteria_meta (criterion_id, category, confidence, review_due_on, expires_on, banker_id, heard_on, channel, exact_feedback, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`)
+        .bind(Number(row?.id), category, confidence, reviewDue, expires, srcBanker?.id ?? null, heardOn, channel, words || null, user.id).run();
+    } catch (e) { if (!skew(e)) throw e; if (category !== "official") return err("not_ready", "Indicative entries open once the database update (0191) is applied.", 503); }
+    await audit(env, user.id, category === "banker_indicative" ? "fa.criteria_indicative" : "fa.criteria_draft", "fa_criteria", String(row?.id), { bank, bank_id: bk.id, product, family, dsr_guideline_bp: pct, category, confidence });
     return json({ ok: true, id: row?.id }, 201);
+  }
+  /* v1.301.0 - anyone who may propose asks management to verify a draft (a notification, nothing changes on the rule) */
+  const mRq = path.match(/^\/fa\/criteria\/(\d+)\/request-verification$/);
+  if (mRq && method === "POST") {
+    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
+    const c = (await liveCriteria(env)).find((x) => x.id === Number(mRq[1]));
+    if (!c) return err("not_found", "Criterion not found", 404);
+    if (c.state !== "draft") return err("invalid_state", "Only a draft or indicative entry waits for verification.", 409);
+    const who = ((await env.DB.prepare(`SELECT id, role FROM users WHERE is_active = 1`).all<{ id: number; role: string }>()).results ?? []).filter((u) => (rolesFor("fa_criteria") as readonly string[]).includes(u.role) && u.id !== user.id);
+    for (const u of who) await notify(env, u.id, "fa", `A bank criterion (${c.bank}) waits for your verification.`, `fa_crit_rq:${c.id}`, { once: true });
+    await audit(env, user.id, "fa.criteria_verify_requested", "fa_criteria", String(c.id), { family: c.family, version: c.version, notified: who.length });
+    return json({ ok: true, notified: who.length });
   }
   const mCr = path.match(/^\/fa\/criteria\/(\d+)\/(verify|retire)$/);
   if (mCr && method === "POST") {
     if (!can(user.role, "fa_criteria")) return err("forbidden", "Only management verifies bank criteria", 403);
-    const c = await env.DB.prepare(`SELECT * FROM fa_criteria WHERE id = ?1`).bind(Number(mCr[1])).first<FaCriterion>();
+    const c = (await liveCriteria(env)).find((x) => x.id === Number(mCr[1])) as (FaCriterion & { created_by: number }) | undefined;
     if (!c) return err("not_found", "Criterion not found", 404);
     if (mCr[2] === "verify") {
+      /* v1.301.0 - FA 2.0 phase 4 (directive 6A-6D): a banker's indicative words are never published as the bank's rule -
+         management writes an OFFICIAL entry with its source instead; and nobody verifies a rule they proposed (the owner account apart) */
+      if ((c.category ?? "official") === "banker_indicative") return err("indicative_not_official", "A banker's indicative words are not the bank's official rule. Add an official criterion with its source document to use it in matching.", 409);
+      if (c.created_by === user.id && !isExecutiveOwner(user)) {
+        await audit(env, user.id, "auth.self_approval_refused", "fa_criteria", String(c.id), { action: "fa.criteria_verify" });
+        return err("self_approval", "You proposed this rule - another manager verifies it.", 403);
+      }
       if (!validDay(b.last_verified_on) || b.last_verified_on > mytToday()) return err("invalid_input", "Give the date you confirmed this rule with its source.", 400);
       const r = await env.DB.prepare(`UPDATE fa_criteria SET state = 'verified', last_verified_on = ?1, verified_by = ?2, verified_at = datetime('now') WHERE id = ?3 AND state = 'draft'`)
         .bind(b.last_verified_on, user.id, c.id).run();
       if (!Number(r.meta?.changes ?? 0)) return err("invalid_state", "Only a draft criterion can be verified.", 409);
+      /* v1.301.0 - the next review day may be set at verification (directive 6B, review due) */
+      if (validDay(b.review_due_on) && b.review_due_on > mytToday()) {
+        try { await env.DB.prepare(`INSERT INTO fa_criteria_meta (criterion_id, category, review_due_on, created_by) VALUES (?1, 'official', ?2, ?3) ON CONFLICT(criterion_id) DO UPDATE SET review_due_on = excluded.review_due_on`).bind(c.id, b.review_due_on, user.id).run(); }
+        catch (e) { if (!skew(e)) throw e; }
+      }
       /* one verified version per family: the older one retires - v1.288.0: when the new one is in force; a
          version effective later leaves the current one in force until its date (the engine takes the newest in force) */
       const eff = (c as unknown as { effective_from?: string | null }).effective_from ?? null;
@@ -602,6 +666,12 @@ async function route(env: Env, path: string, method: string, body: Record<string
   /* ---- v1.288.0 banker matching, allocation, enquiry and disclosure (fa-match.ts) ---- */
   if (path.startsWith("/fa/allocations/") || /^\/fa\/cases\/\d+\/(match|allocations|enquiries|disclosures)$/.test(path)) {
     return handleFaMatch(env, path, method, b, user, { caseOf, mayOpen, mayEdit, event, touch, reviewState, liveCriteria, consentsReady, docOnCase });
+  }
+
+  /* ---- v1.302.0 FA 2.0 phase 5: the agreement template library, the auto-filled draft and the fee after a recorded disbursement (fa-templates.ts).
+     Sending and signing stay here, switched off (POST /fa/cases/:id/agreement -> legal_gate). ---- */
+  if (path.startsWith("/fa/templates") || path === "/fa/fees" || /^\/fa\/cases\/\d+\/(agreement\/preview|fee)$/.test(path) || (/^\/fa\/cases\/\d+\/agreement$/.test(path) && method === "GET")) {
+    return handleFaTemplates(env, path, method, b, user, { caseOf, mayOpen, mayEdit, event, touch, icHash, legal: FA_LEGAL });
   }
 
   /* ---- one case ---- */
@@ -1106,13 +1176,9 @@ async function route(env: Env, path: string, method: string, body: Record<string
   if (sub === "agreement" && method === "POST") {
     return err("legal_gate", "The client agreement is switched off: sending and signing stay off until legal review and the CEO's separate approval.", 409);
   }
-  /* v1.298.0 - the fee is ON by the CEO's decision (13-11-2026), but nothing is
-     billed from here: no rate in code, no invoice from an estimated
-     eligibility. The fee follows a disbursement recorded with the bank's
-     evidence, through Sales (quotation -> invoice -> CEO payment
-     verification) - Phase 5 of the FA 2.0 blueprint. */
-  if (sub === "fee" && method === "POST") {
-    return err("fee_after_disbursement", "The advisory fee is approved, but it is billed only after a disbursement is recorded with the bank's evidence, through a Sales quotation and invoice (Phase 5). Nothing was billed.", 409);
-  }
+  /* v1.298.0 - the fee is ON by the CEO's decision (13-11-2026); v1.302.0 - it is
+     prepared in fa-templates.ts (POST /fa/cases/:id/fee, dispatched above) only
+     after a disbursement recorded with the bank's evidence, at the rate of a
+     published template version, as a Sales quotation - nothing is billed here. */
   return null;
 }

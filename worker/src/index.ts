@@ -300,7 +300,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0190_fa_case_updates";
+const LATEST_MIGRATION = "0192_fa_templates";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5662,6 +5662,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0185 (financial advisory: DSR pre-check management review and commitment details)", `SELECT r.action, r.assessment_id, m.lender_name, m.remaining_months FROM fa_reviews r LEFT JOIN fa_item_meta m ON m.item_id = r.id LIMIT 0`],
       ["0186 (financial advisory: banker contact changes and note facts)", `SELECT c.field, c.from_value, f.contact_on, f.tenure_months FROM fa_banker_contact_changes c LEFT JOIN fa_note_facts f ON f.note_id = c.id LIMIT 0`],
       ["0189-0190 (financial advisory 2.0: case priority, waiting-on and blockers, append-only case updates)", `SELECT o.waiting_on, o.blocker_urgent, o.closed_kind, o.priority_override, u.kind, u.task_id FROM fa_case_ops o LEFT JOIN fa_case_updates u ON u.case_id = o.case_id LIMIT 0`],
+      ["0191 (financial advisory 2.0: bank criteria category, confidence, review and expiry dates, banker-indicative entries)", `SELECT m.category, m.confidence, m.review_due_on, m.expires_on, m.banker_id, m.exact_feedback FROM fa_criteria_meta m LIMIT 0`],
+      ["0192 (financial advisory 2.0: agreement templates and versions, draft agreements, the advisory fee after a recorded disbursement)", `SELECT v.state, v.fee_bp, v.legal_basis, d.text_sha256, d.full_ic, f.decision_note_id, f.fee_cents FROM fa_template_versions v, fa_agreement_drafts d, fa_fee_bills f LIMIT 0`],
       ["0182 (deposit billing: one live invoice per PRODUCT quotation; a service quotation billed in parts)", `SELECT id FROM sales_documents INDEXED BY ux_inv_live_per_product_qt WHERE converted_from = 0 AND doc_type = 'INV' AND voided_at IS NULL AND COALESCE(kind, 'product') != 'service' LIMIT 0`],
       ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
@@ -5873,6 +5875,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0186_fa_banker_pic",
       "0189_fa_case_ops",
       "0190_fa_case_updates",
+      "0191_fa_criteria_meta",
+      "0192_fa_templates",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

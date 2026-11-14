@@ -60,6 +60,10 @@ with sync_playwright() as p:
         qrow = lambda: pg.locator("[role=row]").filter(has=pg.get_by_test_id("qt-partly")).first
         open_more(qrow()); part = pg.get_by_role("button", name="Invoice part").first
         check(f"{tag}: it offers Invoice balance and Invoice part", bal.count() == 1 and part.count() == 1)
+        # v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear")
+        both = pg.locator("[role=row]").filter(has_text="QT-AZOO091126-1").get_by_test_id("qt-invoiced")
+        bt = both.first.inner_text() if both.count() else ""
+        check(f"{tag}: a quotation billed in two invoices names BOTH, oldest first", "INV-AZOO091126-1" in bt and "INV-AZOO111126-1" in bt and bt.index("INV-AZOO091126-1") < bt.index("INV-AZOO111126-1") and "(2)" in bt, bt)
         check(f"{tag}: no sideways page", pg.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1"))
         bal.scroll_into_view_if_needed(); bal.click(); pg.wait_for_timeout(900)
         pc = posts()

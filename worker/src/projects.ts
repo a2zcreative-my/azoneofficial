@@ -82,12 +82,15 @@ async function loadQt(env: Env, id: number): Promise<QtRow | null> {
 export async function quotationState(env: Env, qt: QtRow): Promise<{ accepted: boolean; accepted_at: string | null; accepted_name: string | null; invoiced: boolean; invoice: string | null; expired: boolean; label: string }> {
   const acc = await env.DB.prepare(`SELECT accepted_at, accepted_name FROM quotation_acceptances WHERE doc_id = ?1 AND revision = ?2`)
     .bind(qt.id, Number(qt.revision ?? 0)).first<{ accepted_at: string; accepted_name: string }>().catch(() => null);
+  /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear") -
+     a quotation billed in parts names EVERY live invoice it became, oldest first ("A + B"), not only the latest */
   const inv = await env.DB.prepare(
-    `SELECT doc_number FROM sales_documents WHERE doc_type = 'INV' AND converted_from = ?1 AND COALESCE(payment_status, '') != 'void' ORDER BY id DESC LIMIT 1`,
-  ).bind(qt.id).first<{ doc_number: string }>().catch(() => null);
-  const expired = !inv && !!qt.valid_until && qt.valid_until.slice(0, 10) < myt();
-  const label = inv ? "invoiced" : acc ? "accepted" : expired ? "expired" : "open";
-  return { accepted: !!acc, accepted_at: acc?.accepted_at ?? null, accepted_name: acc?.accepted_name ?? null, invoiced: !!inv, invoice: inv?.doc_number ?? null, expired, label };
+    `SELECT GROUP_CONCAT(doc_number, ' + ') AS list FROM (SELECT doc_number FROM sales_documents WHERE doc_type = 'INV' AND converted_from = ?1 AND COALESCE(payment_status, '') != 'void' ORDER BY id)`,
+  ).bind(qt.id).first<{ list: string | null }>().catch(() => null);
+  const invoice = inv?.list ?? null;
+  const expired = !invoice && !!qt.valid_until && qt.valid_until.slice(0, 10) < myt();
+  const label = invoice ? "invoiced" : acc ? "accepted" : expired ? "expired" : "open";
+  return { accepted: !!acc, accepted_at: acc?.accepted_at ?? null, accepted_name: acc?.accepted_name ?? null, invoiced: !!invoice, invoice, expired, label };
 }
 
 export interface Access { view: boolean; manage: boolean; owner: boolean; assigned: boolean; ownerAssign: boolean; complete: boolean; prices: boolean; contact: boolean; mgmt: boolean }

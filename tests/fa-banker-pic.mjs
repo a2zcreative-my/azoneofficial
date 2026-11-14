@@ -157,6 +157,29 @@ async function runtime(workerBundle) {
     ok((await call(`/fa/bankers/${b1}/cases`, 7)).status === 403 && (await call(`/fa/bankers/${b1}/cases`, 21)).status === 403, "HR and an agent cannot read a banker's cases");
     ok((await one(b1))?.last_contact_at, "the banker shows the last contact (the feedback just linked)");
     ok((await inList(b1))?.last_contact_at, "...in the directory too");
+    /* v1.300.0 - FA 2.0 phase 3, the CEO's D-3: a MEASURED reply time - from an enquiry sent to the first banker feedback linked
+       to it - shown only from three answered enquiries; never estimated, never an approval rate. Invented times. */
+    const cidR = db.prepare(`SELECT case_id FROM fa_enquiries WHERE banker_id = ? LIMIT 1`).get(b1)?.case_id ?? db.prepare(`SELECT id FROM fa_cases LIMIT 1`).get().id;
+    let allocSeq = 0;
+    const enq = (sent, replyHours) => {
+      const e = db.prepare(`INSERT INTO fa_enquiries (allocation_id, case_id, banker_id, state, sent_at, created_by) VALUES (?, ?, ?, 'feedback_received', ?, 1) RETURNING id`).get(900000 + (++allocSeq), cidR, b1, sent).id;
+      if (replyHours == null) return;
+      const at = new Date(Date.parse(sent.replace(" ", "T") + "Z") + replyHours * 36e5).toISOString().replace("T", " ").slice(0, 19);
+      const nid = db.prepare(`INSERT INTO fa_notes (case_id, note_type, body, created_at) VALUES (?, 'banker', 'Fixture reply', ?) RETURNING id`).get(cidR, at).id;
+      db.prepare(`INSERT INTO fa_note_links (note_id, banker_id, enquiry_id) VALUES (?, ?, ?)`).run(nid, b1, e);
+    };
+    const before3 = (await inList(b1))?.reply?.n ?? 0;
+    for (let k = before3; k < 2; k++) enq(`2026-09-2${k} 02:00:00`, 2 + k);
+    const r1 = (await inList(b1))?.reply;
+    ok(r1 && r1.n === 2 && r1.median_hours === null, "with two answered enquiries there is no reply time yet - 'not enough history', never a guess", JSON.stringify(r1));
+    enq("2026-10-01 02:00:00", 2); enq("2026-10-02 02:00:00", 10); enq("2026-10-03 02:00:00", 4); enq("2026-10-04 02:00:00", 30); enq("2026-10-05 02:00:00", null);
+    const r2 = (await inList(b1))?.reply;
+    ok(r2 && r2.n >= 4 && typeof r2.median_hours === "number" && r2.median_hours > 0, "with answered enquiries the directory carries the measured median and how many it rests on", JSON.stringify(r2));
+    const all = db.prepare(`SELECT e.sent_at, (SELECT MIN(n.created_at) FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id WHERE l.enquiry_id = e.id AND n.note_type = 'banker' AND n.created_at >= e.sent_at) AS r FROM fa_enquiries e WHERE e.banker_id = ? AND e.sent_at IS NOT NULL`).all(b1)
+      .filter((x) => x.r).map((x) => (Date.parse(x.r.replace(" ", "T") + "Z") - Date.parse(x.sent_at.replace(" ", "T") + "Z")) / 36e5).sort((a, z) => a - z);
+    const mid = Math.floor(all.length / 2), med = all.length % 2 ? all[mid] : (all[mid - 1] + all[mid]) / 2;
+    ok(r2?.n === all.length && Math.abs(r2.median_hours - Math.round(med * 10) / 10) < 0.01, "the median is the true median of the measured gaps (an unanswered enquiry is not counted)", JSON.stringify({ r2, all }));
+    ok(!/rate|percent|score/i.test(JSON.stringify(r2)), "the reply figure carries no rate, percentage or score");
     ok((await call(`/fa/bankers/${b1}`, 1)).j?.can?.edit === true && (await call(`/fa/bankers/${b1}`, 15)).j?.can?.edit === false && (await call(`/fa/bankers/${b1}`, 9)).j?.can?.edit === true, "the record says who may edit: the owner and CEO/COO, not another salesperson");
 
     /* ---------- a banker who left is kept as they were ---------- */
@@ -178,6 +201,8 @@ report(await runtime(join(dir, "worker.mjs")));
 const checks = n;
 const R = "worker/src/fa-registry.ts", F = "worker/src/fa.ts";
 const MUT = [
+  [R, "a reply time from too little history", [["export const REPLY_MIN_N = 3;", "export const REPLY_MIN_N = 1;"]]],
+  [R, "the mean instead of the median", [["  const med = n % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;", "  const med = s.reduce((a, x) => a + x, 0) / n;"]]],
   [R, "anyone edits a banker", [["    if (!(manage || (register && bk.owner_id === user.id))) return err(\"forbidden\", \"The banker's relationship owner, the CEO or the COO edits these details\", 403);", ""]]],
   [R, "the owner hands the relationship on", [["      if (!manage) return err(\"forbidden\", \"Only the CEO or COO changes the relationship owner\", 403);", ""]]],
   [R, "a changed contact keeps its verification", [["  return identity.created_at && identity.created_at > contactChangedAt ? identity : null;", "  return identity;"]]],

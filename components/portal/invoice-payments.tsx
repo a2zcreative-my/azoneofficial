@@ -124,10 +124,11 @@ export function InvoicePayments({ docId, onChanged }: { docId: number; onChanged
       <div className={css.figures}>
         <span className={css.figure}><span className={css.figureLabel}>{L("Total", "Jumlah")}</span>{fmtRM(data.invoice.total_cents)}</span>
         <span className={css.figure}><span className={css.figureLabel}>{L("Received in parts", "Diterima separa")}</span>{fmtRM(data.received_cents)}</span>
-        <span className={css.figure}><span className={css.figureLabel}>{L("Left", "Baki")}</span>{fmtRM(data.balance_cents)}</span>
+        {/* v1.300.0 - a PAID invoice owes nothing: never "Left RM 37.50" beside a Paid chip */}
+        <span className={css.figure}><span className={css.figureLabel}>{L("Left", "Baki")}</span>{fmtRM(paid ? 0 : data.balance_cents)}</span>
       </div>
       {data.payments.length === 0 ? (
-        <span className={css.empty}>{L("No part payments recorded.", "Tiada bayaran separa direkod.")}</span>
+        <span className={css.empty}>{paid ? L("Paid in full - no part payments were needed.", "Dibayar penuh - tiada bayaran separa diperlukan.") : L("No part payments recorded.", "Tiada bayaran separa direkod.")}</span>
       ) : (
         <ul className={css.list} aria-label={L("Part payments", "Bayaran separa")}>
           {data.payments.map((p) => (

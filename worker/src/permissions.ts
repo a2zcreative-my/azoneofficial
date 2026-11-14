@@ -299,6 +299,8 @@ export const PERMS: Record<string, readonly Role[]> = {
   fa_registry: ["ceo", "coo"], // v1.286.0 - add and verify banks, branches and bankers (blueprint v1.1, B9)
   fa_allocate: ["ceo", "coo"], // v1.288.0 - approve a banker allocation (banker blueprint v1.1, B9)
   fa_priority: ["ceo", "coo", "cco"], // v1.299.0 - override a case's priority with a reason (FA 2.0 blueprint, D-6)
+  fa_templates: ["ceo", "coo", "cco"], // v1.302.0 - draft agreement templates and submit them for review (FA 2.0 blueprint, D-6)
+  fa_templates_publish: ["ceo"], // v1.302.0 - publish (or archive) an agreement template version (FA 2.0 blueprint, D-6: the CEO publishes)
   /** view and process payroll (was PAYROLL_PROC) */
   payroll_process: ["super_admin", "admin", "ceo", "coo"],
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
@@ -516,6 +518,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Financial Advisory", key: "fa_registry", en: "Add and verify banks, branches and bankers", ms: "Tambah dan sahkan bank, cawangan dan pegawai bank", cap: "fa_registry", note_en: "Never a banker they registered themselves (the owner apart)", note_ms: "Tidak pegawai bank yang didaftar sendiri (kecuali pemilik)" },
   { module: "Financial Advisory", key: "fa_allocate", en: "Approve a banker allocation for a case", ms: "Luluskan peruntukan pegawai bank untuk kes", cap: "fa_allocate", note_en: "After a management Proceed; never on an allocation they proposed (the owner apart)", note_ms: "Selepas keputusan Teruskan; tidak pada peruntukan yang dicadang sendiri (kecuali pemilik)" },
   { module: "Financial Advisory", key: "fa_priority", en: "Override a case's priority, with a reason", ms: "Mengatasi keutamaan kes, dengan sebab", cap: "fa_priority", note_en: "The computed priority stays visible beside it; never on a case they own (the owner apart)", note_ms: "Keutamaan dikira kekal kelihatan; tidak pada kes milik sendiri (kecuali pemilik)" },
+  { module: "Financial Advisory", key: "fa_templates", en: "Draft agreement templates and submit a version for review", ms: "Draf templat perjanjian dan hantar versi untuk semakan", cap: "fa_templates", note_en: "Every change is a new version; a published text is never replaced", note_ms: "Setiap perubahan ialah versi baharu; teks yang diterbitkan tidak diganti" },
+  { module: "Financial Advisory", key: "fa_templates_publish", en: "Publish or archive an agreement template version (sets its fee rate in force)", ms: "Terbitkan atau arkibkan versi templat perjanjian (kadar yuran berkuat kuasa)", cap: "fa_templates_publish", note_en: "Never a version they drafted (the owner apart); sending and signing stay off", note_ms: "Tidak pada versi yang didraf sendiri (kecuali pemilik); hantar dan tandatangan kekal ditutup" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },
   { module: "Finance", key: "expenses", en: "View and record expenses", ms: "Lihat dan rekod perbelanjaan", cap: "expenses" },
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },

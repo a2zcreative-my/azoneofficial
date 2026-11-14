@@ -20,13 +20,15 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { atLeast, onBreakpoint } from "@/lib/breakpoints";
-import { api } from "@/lib/api";
+import { api, type ApiResult } from "@/lib/api";
 import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { AppIcon } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { BankerMatching, type DsrPic } from "./fa-dsr";
 import { btnSm, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import css from "./financial-advisory.module.css";
 
@@ -45,7 +47,15 @@ interface Banker {
   owner_id: number | null; owner: string | null; case_limit: number | null; open_cases: number; status_now: string; availability_now: string; registered_by: number;
   identity: { verified_on: string; next_review_on: string; method: string; due: boolean } | null; referral: { verified_on: string; next_review_on: string; restrictions: string | null; due: boolean } | null;
   assignments: Assignment[]; products: string[]; last_contact_at?: string | null;
+  /** v1.300.0 (D-3) - measured, never estimated: the median hours from an enquiry to the first feedback recorded on it; null below 3 */
+  reply?: { median_hours: number | null; n: number };
 }
+/* v1.300.0 - the measured reply time in words, or why there is none */
+const replyText = (b: Banker) => !b.reply || b.reply.n === 0 ? L("No enquiry answered yet", "Belum ada pertanyaan dijawab")
+  : b.reply.median_hours == null ? L(`Not enough history (${b.reply.n} of 3 enquiries)`, `Sejarah belum cukup (${b.reply.n} daripada 3 pertanyaan)`)
+    : b.reply.median_hours < 24 ? L(`Feedback ~${Math.max(1, Math.round(b.reply.median_hours))} h after an enquiry (median of ${b.reply.n})`, `Maklum balas ~${Math.max(1, Math.round(b.reply.median_hours))} j selepas pertanyaan (median ${b.reply.n})`)
+      : L(`Feedback ~${Math.round(b.reply.median_hours / 24)} day(s) after an enquiry (median of ${b.reply.n})`, `Maklum balas ~${Math.round(b.reply.median_hours / 24)} hari selepas pertanyaan (median ${b.reply.n})`);
+const PAGE = 20;
 interface Registry { banks: Bank[]; products: BankProduct[]; localities: Place[]; branches: Branch[]; bankers: Banker[]; states: string[]; today: string; can: { register: boolean; manage: boolean } }
 
 const PRODUCTS: [string, string, string][] = [["personal_financing", "Personal financing", "Pembiayaan peribadi"], ["debt_consolidation", "Debt consolidation", "Penyatuan hutang"]];
@@ -147,6 +157,11 @@ function Directory({ data, toast, reload, openCase }: { data: Registry; toast: T
   const [status, setStatus] = useState<DirFilter>("all");
   const [open, setOpen] = useState<number | null>(null);
   const [registering, setRegistering] = useState(false);
+  /* v1.300.0 - FA 2.0 phase 3 (photo 3): the directory on the left, client-to-banker matching (or the banker's profile) on the right */
+  const [right, setRight] = useState<"match" | "profile">("match");
+  const [page, setPage] = useState(0);
+  const [compare, setCompare] = useState<number[]>([]);
+  const [comparing, setComparing] = useState(false);
   const xl = useXl();
   const base = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -157,10 +172,22 @@ function Directory({ data, toast, reload, openCase }: { data: Registry; toast: T
   }, [data.bankers, q, bank, state, product]);
   const count = (f: DirFilter) => base.filter((b) => (f === "all" ? b.status_now !== "no_longer_available" : dirGroup(b) === f)).length;
   const rows = base.filter((b) => (status === "all" ? b.status_now !== "no_longer_available" : dirGroup(b) === status));
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const pg = Math.min(page, pages - 1);
+  const shown = rows.slice(pg * PAGE, pg * PAGE + PAGE);
+  const pick = (id: number) => { setOpen(id); setRight("profile"); };
+  const toggleCompare = (id: number) => setCompare((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= 3 ? c : [...c, id]));
   /* a large desktop: the directory, the profile and the cases side by side (G1); smaller: the record opens as a sheet */
   const selected = xl ? (open != null && rows.some((b) => b.id === open) ? open : rows[0]?.id ?? null) : open;
   return (
-    <div className={xl ? css.bkWs : css.stack} data-testid="fa-banker-ws">
+    <div className={css.stack}>
+    <KpiRow label={L("Banker counts", "Kiraan pegawai bank")}>
+      <KpiTile icon="users" tone="navy" label={L("Total bankers", "Jumlah pegawai bank")} value={count("all")} onClick={() => { setStatus("all"); setPage(0); }} />
+      <KpiTile icon="success" tone="green" label={L("Ready", "Sedia")} value={count("ready")} sub={L("Verified and available", "Disahkan dan ada")} onClick={() => { setStatus("ready"); setPage(0); }} />
+      <KpiTile icon="pending" tone="gold" label={L("On hold", "Ditahan")} value={count("hold")} sub={L("Unavailable or at their case limit", "Tiada atau had kes penuh")} onClick={() => { setStatus("hold"); setPage(0); }} />
+      <KpiTile icon="warning" tone="red" label={L("Needs verification", "Perlu pengesahan")} value={count("verify")} onClick={() => { setStatus("verify"); setPage(0); }} />
+    </KpiRow>
+    <div className={xl ? css.bkWs2 : css.stack} data-testid="fa-banker-ws">
     <section className={`${card} ${css.sec}`} aria-label={L("Banker directory", "Direktori pegawai bank")} data-testid="fa-directory">
       <div className={css.head}>
         <h3 className={css.h}><AppIcon name="users" />{L("Banker directory", "Direktori pegawai bank")} <span className={css.sub}>{rows.length} / {data.bankers.length}</span></h3>
@@ -173,33 +200,132 @@ function Directory({ data, toast, reload, openCase }: { data: Registry; toast: T
         <select className={selectClassSm} value={state} onChange={(e) => setState(e.target.value)} aria-label={L("State", "Negeri")}><option value="">{L("All states", "Semua negeri")}</option>{data.states.map((s) => <option key={s} value={s}>{s}</option>)}</select>
         <select className={selectClassSm} value={product} onChange={(e) => setProduct(e.target.value)} aria-label={L("Product", "Produk")}><option value="">{L("All products", "Semua produk")}</option>{PRODUCTS.map(([k]) => <option key={k} value={k}>{productWord(k)}</option>)}</select>
       </div>
-      <LineTabs value={status} onChange={setStatus} label={L("Show bankers", "Tunjuk pegawai bank")} tabs={[
+      <LineTabs value={status} onChange={(v) => { setStatus(v); setPage(0); }} label={L("Show bankers", "Tunjuk pegawai bank")} tabs={[
         ["all", L("All", "Semua"), count("all")], ["ready", L("Ready", "Sedia"), count("ready")], ["verify", L("Needs verification", "Perlu pengesahan"), count("verify") || null, L("Verify", "Sahkan")],
         ["hold", L("On hold", "Ditahan"), count("hold") || null], ["inactive", L("Inactive", "Tidak aktif"), count("inactive") || null],
       ]} />
       {data.bankers.length === 0 ? <p className={css.empty}>{data.banks.length === 0 ? L("No bank in the registry yet. Management adds the banks first (Bank registry), then their branches.", "Belum ada bank dalam daftar. Pengurusan menambah bank dahulu (Daftar bank), kemudian cawangan.") : L("No banker registered yet.", "Belum ada pegawai bank didaftarkan.")}</p>
         : rows.length === 0 ? <p className={css.empty}>{L("No banker matches these filters.", "Tiada pegawai bank sepadan dengan penapis ini.")}</p> : (
-          <ul className={css.rows}>{rows.map((b) => {
+          <ul className={css.rows}>{shown.map((b) => {
             const primary = b.assignments.find((a) => a.is_primary) ?? b.assignments[0];
             return (
-              <li key={b.id}>
-                <button type="button" className={`${css.bankerRow} ${xl ? css.bankerRowSm : ""} ${selected === b.id ? css.bankerOn : ""}`} aria-current={selected === b.id ? "true" : undefined} onClick={() => setOpen(b.id)} data-testid="fa-banker">
+              <li key={b.id} className={css.bkLi}>
+                <button type="button" className={`${css.bankerRow} ${xl ? css.bankerRowSm : ""} ${xl && right === "profile" && selected === b.id ? css.bankerOn : ""}`} aria-current={xl && right === "profile" && selected === b.id ? "true" : undefined} onClick={() => pick(b.id)} data-testid="fa-banker">
                   <span className={css.who}><b>{b.full_name}</b><span className={css.sub}>{bkId(b.id)} · {[b.position, b.bank].filter(Boolean).join(" · ")}</span></span>
                   <span className={css.who}><span className={css.sub}>{primary ? whereText(primary) : L("No current branch", "Tiada cawangan semasa")}</span><span className={css.sub}>{b.products.map(productWord).join(" · ")}</span></span>
                   <span className={css.chips}>{chip(BANKER_STATUS, b.status_now)}{b.status_now === "verified" || b.status_now === "requires_reverification" ? chip(AVAIL, b.availability_now) : null}</span>
-                  <span className={css.when}>{b.owner ? `${L("Owner", "Pemilik")}: ${b.owner}` : ""}</span>
+                  <span className={css.when}><span>{b.last_contact_at ? `${L("Last contact", "Hubungan terakhir")} ${dmyMYT(b.last_contact_at)}` : L("Not contacted yet", "Belum dihubungi")}</span><span data-testid="fa-banker-reply">{replyText(b)}</span></span>
                 </button>
+                <label className={css.bkCmp} title={L("Compare up to three bankers", "Banding sehingga tiga pegawai bank")}><input type="checkbox" checked={compare.includes(b.id)} disabled={!compare.includes(b.id) && compare.length >= 3} onChange={() => toggleCompare(b.id)} data-testid="fa-compare-pick" /> {L("Compare", "Banding")}</label>
               </li>
             );
           })}</ul>
         )}
+      {rows.length > PAGE && (
+        <div className={css.pager} data-testid="fa-banker-pager">
+          <span className={css.sub}>{L(`Showing ${pg * PAGE + 1}-${Math.min(rows.length, pg * PAGE + PAGE)} of ${rows.length}`, `Menunjukkan ${pg * PAGE + 1}-${Math.min(rows.length, pg * PAGE + PAGE)} daripada ${rows.length}`)}</span>
+          <span className={css.inline}><button type="button" className={btnSm} disabled={pg === 0} onClick={() => setPage(pg - 1)}>{L("Previous", "Sebelum")}</button><button type="button" className={btnSm} disabled={pg >= pages - 1} onClick={() => setPage(pg + 1)}>{L("Next", "Seterusnya")}</button></span>
+        </div>
+      )}
+      {compare.length > 0 && (
+        <div className={css.row} data-testid="fa-compare-bar">
+          <button type="button" className={btnSmPrimary} disabled={compare.length < 2} onClick={() => setComparing(true)} data-testid="fa-compare-open">{L(`Compare ${compare.length}`, `Banding ${compare.length}`)}</button>
+          <button type="button" className={btnSmQuiet} onClick={() => setCompare([])}>{L("Clear", "Kosongkan")}</button>
+          {compare.length < 2 && <span className={css.sub}>{L("Pick at least two.", "Pilih sekurang-kurangnya dua.")}</span>}
+        </div>
+      )}
+      {comparing && <Compare bankers={data.bankers.filter((b) => compare.includes(b.id))} onClose={() => setComparing(false)} />}
       {registering && <Register data={data} toast={toast} onClose={() => setRegistering(false)} done={(id) => { setRegistering(false); reload(); setOpen(id); }} openExisting={(id) => { setRegistering(false); setOpen(id); }} />}
       {!xl && open != null && <BankerRecord id={open} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} openCase={openCase} />}
     </section>
-    {xl && (selected != null
-      ? <BankerRecord key={selected} id={selected} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} openCase={openCase} inline />
-      : <section className={`${card} ${css.sec}`}><p className={css.empty}>{L("Choose a banker.", "Pilih pegawai bank.")}</p></section>)}
+    {/* the right side: client-to-banker matching (the photo) or the chosen banker's profile; below xl the matching sits under the directory and a profile opens as a sheet */}
+    <div className={css.stack}>
+      {xl && (
+        <div className={css.seg} role="group" aria-label={L("Right panel", "Panel kanan")} data-testid="fa-bk-right">
+          <button type="button" aria-pressed={right === "match"} className={right === "match" ? css.segOn : ""} onClick={() => setRight("match")}>{L("Client-to-banker matching", "Padanan pelanggan-pegawai bank")}</button>
+          <button type="button" aria-pressed={right === "profile"} className={right === "profile" ? css.segOn : ""} onClick={() => setRight("profile")}>{L("Banker profile", "Profil pegawai bank")}</button>
+        </div>
+      )}
+      {(!xl || right === "match") && <MatchPanel toast={toast} openCase={openCase} />}
+      {xl && right === "profile" && (selected != null
+        ? <BankerRecord key={selected} id={selected} data={data} toast={toast} onClose={() => setOpen(null)} changed={reload} openCase={openCase} inline />
+        : <section className={`${card} ${css.sec}`}><p className={css.empty}>{L("Choose a banker.", "Pilih pegawai bank.")}</p></section>)}
     </div>
+    </div>
+    </div>
+  );
+}
+
+/* v1.300.0 - FA 2.0 phase 3: COMPARE two or three bankers side by side - the
+   registry's own facts only (bank, branch, products, coverage, verification,
+   availability and case load, last contact, the measured reply time). No
+   score, no approval rate. */
+function Compare({ bankers, onClose }: { bankers: Banker[]; onClose: () => void }) {
+  const rowsOf: [string, (b: Banker) => React.ReactNode][] = [
+    [L("Bank", "Bank"), (b) => b.bank],
+    [L("Branch / coverage", "Cawangan / liputan"), (b) => b.assignments.map(whereText).join("; ") || L("No current branch", "Tiada cawangan semasa")],
+    [L("Products", "Produk"), (b) => b.products.map(productWord).join(", ") || "—"],
+    [L("Verification", "Pengesahan"), (b) => <>{chip(BANKER_STATUS, b.status_now)} <span className={css.sub}>{b.identity ? `${L("identity to", "identiti hingga")} ${dmy(b.identity.next_review_on)}` : ""}{b.referral ? ` · ${L("referral to", "rujukan hingga")} ${dmy(b.referral.next_review_on)}` : ""}</span></>],
+    [L("Availability", "Ketersediaan"), (b) => <>{chip(AVAIL, b.availability_now)} <span className={css.sub}>{b.open_cases}{b.case_limit != null ? ` / ${b.case_limit}` : ""} {L("open cases", "kes terbuka")}</span></>],
+    [L("Last contact", "Hubungan terakhir"), (b) => (b.last_contact_at ? dmyMYT(b.last_contact_at) : L("Not contacted yet", "Belum dihubungi"))],
+    [L("Reply time (measured)", "Masa balas (diukur)"), (b) => replyText(b)],
+    [L("Relationship owner", "Pemilik hubungan"), (b) => b.owner ?? "—"],
+  ];
+  return (
+    <SideDrawer open onClose={onClose} wide title={L("Compare bankers", "Banding pegawai bank")} subtitle={L("Registry facts only - no score, no approval rate", "Fakta daftar sahaja - tiada skor, tiada kadar kelulusan")}>
+      <div className={css.dsrTableWrap} data-testid="fa-compare">
+        <table className={css.dsrTable}>
+          <thead><tr><th>{L("Fact", "Fakta")}</th>{bankers.map((b) => <th key={b.id}>{b.full_name}<br /><span className={css.sub}>{bkId(b.id)}</span></th>)}</tr></thead>
+          <tbody>{rowsOf.map(([k, f]) => <tr key={k}><td><b>{k}</b></td>{bankers.map((b) => <td key={b.id}>{f(b)}</td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    </SideDrawer>
+  );
+}
+
+/* v1.300.0 - FA 2.0 phase 3 (photo 3, right side): CLIENT-TO-BANKER MATCHING
+   beside the directory. Pick a case whose DSR assessment Management decided
+   Proceed on; the case's own Banker matching (fa-dsr.tsx BankerMatching - the
+   ONE matching screen, reused) runs here: verified criteria, coverage,
+   verification, availability, tiers and reasons - never a percentage.
+   Proposing sends nothing; documents go only under the client's consent. */
+interface MatchRow { id: number; case_ref: string; client: string | null; product: string; stage: string; projected_dsr_bp: number | null; review_action?: string | null; banker?: string | null }
+function MatchPanel({ toast, openCase }: { toast: Toast; openCase?: (id: number, tab?: string) => void }) {
+  const [cases, setCases] = useState<MatchRow[] | null>(null);
+  const [id, setId] = useState<number | null>(null);
+  const [pic, setPic] = useState<DsrPic | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => { let live = true; void api<{ cases: MatchRow[] }>("/staff/fa/cases").then((r) => { if (live && r.ok && r.data) setCases(r.data.cases.filter((c) => c.stage !== "closed" && c.review_action === "proceed")); }); return () => { live = false; }; }, [tick]);
+  useEffect(() => { if (id == null) return; let live = true; void api<DsrPic>(`/staff/fa/cases/${id}`).then((r) => { if (live && r.ok && r.data) setPic(r.data); }); return () => { live = false; }; }, [id, tick]);
+  const post = async (call: Promise<ApiResult<Err>>, done: string) => {
+    const r = await call;
+    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), (r.data as Err | null)?.error?.message ?? L("Try again", "Cuba lagi"), "notice"); return false; }
+    toast(L("Saved", "Disimpan"), done); setTick((x) => x + 1); return true;
+  };
+  const row = cases?.find((c) => c.id === id) ?? null;
+  return (
+    <section className={`${card} ${css.sec}`} aria-label={L("Client-to-banker matching", "Padanan pelanggan-pegawai bank")} data-testid="fa-match-panel">
+      <h3 className={css.h}><AppIcon name="target" />{L("Client-to-banker matching", "Padanan pelanggan-pegawai bank")}</h3>
+      <p className={css.sub}>{L("Recommended from the case's verified bank criteria, the banker's coverage, verification and availability - in tiers with reasons, never a match percentage or an approval chance.", "Disyorkan daripada kriteria bank disahkan, liputan, pengesahan dan ketersediaan pegawai - dalam tahap dengan sebab, tidak sekali-kali peratusan padanan atau peluang kelulusan.")}</p>
+      {!cases ? <SkelRows rows={2} /> : cases.length === 0 ? <p className={css.empty}>{L("No case is ready for matching. A case opens here after Management decides Proceed on its DSR assessment.", "Tiada kes sedia untuk padanan. Kes dibuka di sini selepas Pengurusan memutuskan Teruskan pada penilaian DSR.")}</p> : (
+        <label className={css.field}>{L("Case ready for matching", "Kes sedia untuk padanan")}
+          <select className={selectClassSm} value={id ?? ""} onChange={(e) => { setPic(null); setId(e.target.value ? Number(e.target.value) : null); }} data-testid="fa-match-case">
+            <option value="">—</option>
+            {cases.map((c) => <option key={c.id} value={c.id}>{c.case_ref} · {c.client ?? ""}</option>)}
+          </select>
+        </label>
+      )}
+      {row && (
+        <dl className={css.bkCaseHead} data-testid="fa-match-head">
+          <div><dt>{L("Client", "Pelanggan")}</dt><dd>{row.client ?? "—"} · {row.case_ref}</dd></div>
+          <div><dt>{L("Case type", "Jenis kes")}</dt><dd>{productWord(row.product)}</dd></div>
+          <div><dt>DSR</dt><dd>{row.projected_dsr_bp == null ? "—" : `${(row.projected_dsr_bp / 100).toFixed(1)}%`} <span className={css.sub}>{L("projected", "unjuran")}</span></dd></div>
+          <div><dt>{L("Banker", "Pegawai bank")}</dt><dd>{row.banker ?? L("None yet", "Belum ada")}</dd></div>
+        </dl>
+      )}
+      {id != null && (!pic ? <SkelRows rows={3} /> : <BankerMatching pic={pic} post={post} toast={toast} />)}
+      {id != null && openCase && <button type="button" className={btnSmQuiet} onClick={() => openCase(id, "matching")}>{L("Open the whole case", "Buka seluruh kes")}</button>}
+    </section>
   );
 }
 

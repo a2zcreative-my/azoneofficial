@@ -89,6 +89,8 @@ export interface SalesDoc {
   /* v1.273.0 - on a QT: what its live invoices add up to, and how many (a service quotation may be billed in parts) */
   invoiced_cents?: number | null;
   invoice_count?: number | null;
+  /* v1.300.0 - every live invoice of a QT ("A + B", oldest first); on an INV: its quotation and which part it is */
+  invoiced_list?: string | null; converted_from_number?: string | null; part_no?: number | null; part_of?: number | null;
   /* v1.181.11 - a revised quotation (0139); 0 = the original */
   revision?: number | null;
   revised_at?: string | null;
@@ -1553,6 +1555,7 @@ export function Sales({ user, workExtra, customersExtra, reports, packagesExtra,
      the whole quotation, or what is left of it. */
   const leftToInvoice = (d: SalesDoc) => Math.max(0, d.total_cents - Number(d.invoiced_cents ?? 0));
   const partly = (d: SalesDoc) => d.doc_type === "QT" && d.kind === "service" && !!d.invoiced_as && leftToInvoice(d) > 0;
+  const invList = (d: SalesDoc) => d.invoiced_list || d.invoiced_as || ""; // v1.300.0 - every live invoice, oldest first
   const askPart = async (d: SalesDoc) => {
     const left = leftToInvoice(d);
     const got = await askText({
@@ -1712,7 +1715,7 @@ export function Sales({ user, workExtra, customersExtra, reports, packagesExtra,
      with no `source` behaves exactly as before. */
   type Prefill = {
     company?: string; contact_person?: string; phone?: string; reference?: string;
-    source?: "enquiry" | "recurring" | "agent_request"; // v1.250.0 - an agent's request (Agents > Create quotation in Sales)
+    source?: "enquiry" | "recurring" | "agent_request" | "fa_fee"; // v1.250.0 - an agent's request (Agents > Create quotation in Sales); v1.302.0 - the advisory fee after a recorded disbursement (Financial Advisory > Agreements)
     customer_id?: number; doc_type?: string; kind?: string; items?: DocItem[];
     email?: string; package_id?: number | null; package_version?: number | null; package_name?: string;
     discount_cents?: number; tax_percent?: number; delivery_cents?: number; issuer?: string; salesperson_id?: number;
@@ -1755,7 +1758,7 @@ export function Sales({ user, workExtra, customersExtra, reports, packagesExtra,
       salesperson_id: pf.salesperson_id && staffList.some((u) => u.id === pf.salesperson_id) ? pf.salesperson_id : d.salesperson_id,
       /* v1.250.0 - an agent request brings its package lines and its issuing company;
          everything after this is the normal form (pricing, approval, numbering) */
-      ...(pf.source === "agent_request" ? {
+      ...(pf.source === "agent_request" || pf.source === "fa_fee" ? {
         items: Array.isArray(pf.items) && pf.items.length ? pf.items : d.items,
         issuer: pf.issuer ?? d.issuer,
         kind: pf.issuer === "azoo" ? "service" : d.kind,
@@ -1770,14 +1773,14 @@ export function Sales({ user, workExtra, customersExtra, reports, packagesExtra,
         phone: pf.phone ?? "",
         ...(pf.email ? { email: pf.email } : {}), // v1.250.0 - an agent request carries the client's email
       }));
-    if (pf.source === "enquiry" || pf.source === "agent_request") {
+    if (pf.source === "enquiry" || pf.source === "agent_request" || pf.source === "fa_fee") {
       setWorkTab("create");
       if (!existing) setCustTab("add");
       jump(existing ? "sales-work" : "sales-customers");
     }
     showToast(
-      pf.source === "agent_request"
-        ? L(`Prefilled from agent request ${pf.reference ?? ""}`, `Diisi awal daripada permintaan ejen ${pf.reference ?? ""}`)
+      pf.source === "agent_request" || pf.source === "fa_fee"
+        ? L(`Prefilled from ${pf.source === "fa_fee" ? "the advisory fee" : "agent request"} ${pf.reference ?? ""}`, `Diisi awal daripada ${pf.source === "fa_fee" ? "yuran nasihat" : "permintaan ejen"} ${pf.reference ?? ""}`)
         : pf.source === "enquiry"
         ? L("Prefilled from the enquiry", "Diisi awal daripada pertanyaan")
         : L("Prefilled from prospect", "Diisi awal daripada prospek"),
@@ -3495,14 +3498,15 @@ export function Sales({ user, workExtra, customersExtra, reports, packagesExtra,
                   {/* v1.273.0 - a service quotation billed in part says how much is left to invoice */}
                   {partly(d) && (
                     <span className={chipSmWarn} data-testid="qt-partly"
-                      title={L(`${d.invoice_count ?? 1} invoice(s) so far, latest ${d.invoiced_as}. ${fmtRM(leftToInvoice(d))} of ${fmtRM(d.total_cents)} is not invoiced yet.`, `${d.invoice_count ?? 1} invois setakat ini, terkini ${d.invoiced_as}. ${fmtRM(leftToInvoice(d))} daripada ${fmtRM(d.total_cents)} belum diinvois.`)}>
+                      title={L(`${d.invoice_count ?? 1} invoice(s) so far: ${d.invoiced_list ?? d.invoiced_as}. ${fmtRM(leftToInvoice(d))} of ${fmtRM(d.total_cents)} is not invoiced yet.`, `${d.invoice_count ?? 1} invois setakat ini: ${d.invoiced_list ?? d.invoiced_as}. ${fmtRM(leftToInvoice(d))} daripada ${fmtRM(d.total_cents)} belum diinvois.`)}>
                       {L("Partly invoiced", "Diinvois sebahagian")} · {Math.round((Number(d.invoiced_cents ?? 0) / Math.max(1, d.total_cents)) * 100)}% · {fmtRM(leftToInvoice(d))} {L("left", "baki")}
                     </span>
                   )}
                   {d.doc_type === "QT" && d.invoiced_as && !partly(d) && (
-                    <span className={chipSmSuccess}
-                      title={L(`Invoiced as ${d.invoiced_as} — this quotation is a sale now. Undo on the invoice reopens it.`, `Diinvois sebagai ${d.invoiced_as} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
-                      <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")} · {d.invoiced_as}
+                    /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded...") - EVERY invoice it became, not only the latest */
+                    <span className={chipSmSuccess} data-testid="qt-invoiced"
+                      title={L(`Invoiced as ${invList(d)} — this quotation is a sale now. Undo on an invoice reopens it.`, `Diinvois sebagai ${invList(d)} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
+                      <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")}{(d.invoice_count ?? 1) > 1 ? ` (${d.invoice_count})` : ""} · {invList(d)}
                     </span>
                   )}
                   {d.doc_type === "QT" && !d.invoiced_as && (
@@ -3910,10 +3914,10 @@ export function Sales({ user, workExtra, customersExtra, reports, packagesExtra,
                       wide: true,
                       value:
                         d.converted_from != null
-                          ? L(
-                              "Converted from a quotation",
-                              "Ditukar daripada sebut harga"
-                            )
+                          ? /* v1.300.0 - which quotation, and which part of it this invoice is */
+                            d.converted_from_number
+                            ? `${L("Converted from", "Ditukar daripada")} ${d.converted_from_number}${d.part_of && d.part_of > 1 && d.part_no ? ` · ${L(`invoice ${d.part_no} of ${d.part_of}`, `invois ${d.part_no} daripada ${d.part_of}`)}` : ""}`
+                            : L("Converted from a quotation", "Ditukar daripada sebut harga")
                           : "",
                     },
                   ]}

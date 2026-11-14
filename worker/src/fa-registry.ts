@@ -40,6 +40,18 @@ const COVERAGE = ["branch", "districts", "states", "national"];
 const VERIFY_METHODS = ["call_branch_line", "bank_domain_email", "in_person", "written_letter", "other"];
 const CHANNELS = ["work_email", "work_phone", "whatsapp_work", "in_person"];
 const ACTIVE_ALLOC = ["draft", "pending_review", "assigned", "awaiting_consent", "ready"];
+/** v1.300.0 (D-3) - how many measured replies a banker needs before a reply time is shown */
+export const REPLY_MIN_N = 3;
+/** the median hours from an enquiry sent to the first feedback recorded on it; null below REPLY_MIN_N - never a guess */
+export function replyStats(hours: number[]): { median_hours: number | null; n: number } {
+  const n = hours.length;
+  if (n < REPLY_MIN_N) return { median_hours: null, n };
+  const s = [...hours].sort((a, z) => a - z);
+  const mid = Math.floor(n / 2);
+  const med = n % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+  return { median_hours: Math.round(med * 10) / 10, n };
+}
+
 export const REVIEW_MONTHS = 12; // B4
 export const AVAILABILITY_STALE_DAYS = 30; // B5
 
@@ -161,6 +173,17 @@ export async function handleFaRegistry(env: Env, path: string, method: string, b
          UNION ALL SELECT l.banker_id, n.created_at FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id WHERE l.banker_id IS NOT NULL
        ) GROUP BY banker_id`,
     ).all<{ banker_id: number; at: string }>()).results ?? []) lastContact.set(r.banker_id, r.at);
+    /* v1.300.0 - FA 2.0 phase 3, the CEO's D-3: a MEASURED reply time, never an estimate - from each enquiry sent to the first
+       feedback recorded against that enquiry. Shown only once there are at least REPLY_MIN_N of them. Never an approval rate. */
+    const replies = new Map<number, { hours: number[] }>();
+    for (const r of (await env.DB.prepare(
+      `SELECT e.banker_id, e.sent_at, (SELECT MIN(n.created_at) FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id WHERE l.enquiry_id = e.id AND n.note_type = 'banker' AND n.created_at >= e.sent_at) AS first_reply
+         FROM fa_enquiries e WHERE e.sent_at IS NOT NULL`,
+    ).all<{ banker_id: number; sent_at: string; first_reply: string | null }>()).results ?? []) {
+      if (!r.first_reply) continue;
+      const h = (Date.parse(`${r.first_reply.replace(" ", "T")}Z`) - Date.parse(`${r.sent_at.replace(" ", "T")}Z`)) / 36e5;
+      if (Number.isFinite(h) && h >= 0) (replies.get(r.banker_id) ?? replies.set(r.banker_id, { hours: [] }).get(r.banker_id)!).hours.push(h);
+    }
     const assigns = (await env.DB.prepare(
       `SELECT a.id, a.banker_id, a.branch_id, a.is_primary, a.coverage, a.coverage_areas, a.effective_from, br.name AS branch, l.state, l.district
          FROM fa_banker_branches a LEFT JOIN fa_branches br ON br.id = a.branch_id LEFT JOIN fa_localities l ON l.id = br.locality_id
@@ -172,6 +195,7 @@ export async function handleFaRegistry(env: Env, path: string, method: string, b
       const referral = verifs.find((v) => v.banker_id === bk.id && v.fact === "referral") ?? null;
       return {
         ...bk, status_now: bankerStatus(bk, identity, referral, today), availability_now: availabilityNow(bk, today), last_contact_at: lastContact.get(bk.id) ?? null,
+        reply: replyStats(replies.get(bk.id)?.hours ?? []),
         identity: identity ? { verified_on: identity.verified_on, next_review_on: identity.next_review_on, method: identity.method, due: identity.next_review_on < today } : null,
         referral: referral ? { verified_on: referral.verified_on, next_review_on: referral.next_review_on, restrictions: referral.restrictions, due: referral.next_review_on < today } : null,
         assignments: assigns.filter((a) => a.banker_id === bk.id),

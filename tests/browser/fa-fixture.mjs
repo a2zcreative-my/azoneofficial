@@ -27,6 +27,13 @@ async function bundlePriority() {
   return import(pathToFileURL(join(d, "p.mjs")).href);
 }
 const PRIO = process.env.FA ? await bundlePriority() : null;
+/* v1.302.0 - phase 5: the merge, the template check and the fee rounding are the server's own (worker/src/fa-templates.ts), bundled the same way */
+async function bundleTemplates() {
+  const d = mkdtempSync(join(tmpdir(), "fa-tpl-"));
+  execSync(`npx esbuild "${join(import.meta.dirname, "..", "..", "worker/src/fa-templates.ts")}" --bundle --format=esm --platform=neutral --outfile="${join(d, "t.mjs")}" --log-level=error`, { stdio: "inherit" });
+  return import(pathToFileURL(join(d, "t.mjs")).href);
+}
+const TPL = process.env.FA ? await bundleTemplates() : null;
 
 const ROLE = () => process.env.ROLE ?? "ceo";
 const caps = () => {
@@ -57,7 +64,9 @@ const people = { owner: { id: 9001, name: "Fixture Person" } };
 function asg(id, banker_id, branch_id, branch, state, district, coverage, coverage_areas) { return { id, banker_id, branch_id, is_primary: 1, coverage, coverage_areas, effective_from: "2026-11-01", branch, state, district }; }
 function bk(id, bank_id, full_name, position, work_email, work_phone, status_now, availability_now, assignments, products, facts) {
   return { id, bank_id, bank: bank_id === 1 ? "Fixture Bank A Berhad" : "Fixture Bank B", full_name, position, work_email, work_phone, preferred_channel: work_email ? "work_email" : "work_phone", relationship_type: id === 3 ? "central_unit" : "direct",
-    owner_id: 9001, owner: "Fixture Person", case_limit: id === 1 ? 5 : null, open_cases: id === 1 ? 1 : 0, status_now, availability_now, registered_by: id === 2 ? 9001 : 9002, identity: facts.identity ?? null, referral: facts.referral ?? null, assignments, products };
+    owner_id: 9001, owner: "Fixture Person", case_limit: id === 1 ? 5 : null, open_cases: id === 1 ? 1 : 0, status_now, availability_now, registered_by: id === 2 ? 9001 : 9002, identity: facts.identity ?? null, referral: facts.referral ?? null, assignments, products,
+    /* v1.300.0 (D-3) - a MEASURED reply time, invented: Satu has four answered enquiries, Dua one (not enough), the rest none */
+    reply: id === 1 ? { median_hours: 5, n: 4 } : id === 2 ? { median_hours: null, n: 1 } : { median_hours: null, n: 0 }, last_contact_at: id === 1 ? "2026-11-11 03:00:00" : null };
 }
 const mytDay = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 const mytNow = () => new Date().toISOString().replace("T", " ").slice(0, 19);
@@ -125,8 +134,13 @@ function freshState() {
     /* v1.298.0 - case 3's follow-up is due TODAY (the browser's own Malaysian date), so "today's follow-ups" has a real row */
     tasks: { 1: [{ id: 1, title: "FA-000001: Request the EPF statement", deadline: "2026-11-14", status: "pending", assignee: "Fixture Person" }], 2: [], 3: [{ id: 2, title: "FA-000003: Collect the latest payslip", deadline: mytDay(), status: "pending", assignee: "Fixture Person" }] },
     criteria: [
-      { id: 1, family: "fixture-bank-a:personal_financing", version: 1, bank: "Fixture Bank A", product: "personal_financing", income_definition: "net", commitment_definition: "all", dsr_guideline_bp: 6000, min_income_cents: 300000, employment_categories: null, min_service_months: null, required_documents: JSON.stringify(["payslip", "epf"]), source: "Fixture: product sheet, 01-11-2026", last_verified_on: "2026-11-01", state: "verified" },
-      { id: 2, family: "fixture-bank-b:debt_consolidation", version: 1, bank: "Fixture Bank B", product: "debt_consolidation", income_definition: "gross", commitment_definition: "exclude_ptptn", dsr_guideline_bp: null, min_income_cents: null, employment_categories: JSON.stringify(["permanent", "government"]), min_service_months: 6, required_documents: null, source: "Fixture: call with relationship manager, 05-11-2026", last_verified_on: null, state: "draft" },
+      { id: 1, family: "fixture-bank-a:personal_financing", version: 1, bank: "Fixture Bank A", product: "personal_financing", income_definition: "net", commitment_definition: "all", dsr_guideline_bp: 6000, min_income_cents: 300000, employment_categories: null, min_service_months: null, required_documents: JSON.stringify(["payslip", "epf"]), source: "Fixture: product sheet, 01-11-2026", last_verified_on: "2026-11-01", state: "verified",
+        category: "official", confidence: "high", review_due_on: "2027-02-01", expires_on: null, verified_by_name: "Fixture Manager", created_by_name: "Fixture Person", created_by: 9001, effective_from: "2026-11-01" },
+      { id: 2, family: "fixture-bank-b:debt_consolidation", version: 1, bank: "Fixture Bank B", product: "debt_consolidation", income_definition: "gross", commitment_definition: "exclude_ptptn", dsr_guideline_bp: null, min_income_cents: null, employment_categories: JSON.stringify(["permanent", "government"]), min_service_months: 6, required_documents: null, source: "Fixture: call with relationship manager, 05-11-2026", last_verified_on: null, state: "draft",
+        category: "official", confidence: "medium", created_by_name: "Fixture Person", created_by: 9001 },
+      /* v1.301.0 - a banker's indicative words (invented): kept for review, never matched */
+      { id: 3, family: "fixture-bank-a:personal_financing:indicative", version: 1, bank: "Fixture Bank A", product: "personal_financing", income_definition: "net", commitment_definition: "all", dsr_guideline_bp: 7000, min_income_cents: null, employment_categories: null, min_service_months: null, required_documents: null, source: "Fixture: phone call", last_verified_on: null, state: "draft",
+        category: "banker_indicative", confidence: "medium", source_banker: "Fixture Banker Satu", heard_on: "2026-11-10", channel: "work_phone", exact_feedback: "Fixture: usually accepts up to 70% for government staff", created_by_name: "Fixture Person", created_by: 9001 },
     ],
     /* v1.286.0 - the registry: invented banks, branches and bankers only */
     banks: [
@@ -169,6 +183,14 @@ function freshState() {
     matchSeq: 0,
     /* v1.299.0 - FA 2.0 phase 2: the case's operations row and its update history (invented) */
     ops: { 1: {}, 2: {}, 3: {} },
+    /* v1.302.0 - FA 2.0 phase 5: one published template (A2Z, personal financing, an invented rate), one under review, and one disbursement on case 1 (invented) */
+    templates: [{ id: 1, name: "Fixture personal financing agreement", issuer_code: "a2z", service_type: "personal_financing", created_by_name: "Fixture Manager" }, { id: 2, name: "Fixture consolidation agreement", issuer_code: "azoo", service_type: "debt_consolidation", created_by_name: "Fixture Manager" }],
+    versions: [
+      { id: 11, template_id: 1, version: 2, format: "docx", source_name: "Fixture agreement.docx", source_sha256: "ab".repeat(32), body: "# FIXTURE ADVISORY AGREEMENT\n\nThis fixture agreement is between {{company_name}} ({{company_registration}}) and {{client_name}}, IC {{ic_number}}, dated {{agreement_date}}.\n\nCase {{case_ref}}. Service fee {{fee_rate}} of the disbursed amount.\n\nContact: {{client_email}}", fee_bp: 1500, state: "approved", created_by: 9002, created_at: "2026-11-12 03:00:00", created_by_name: "Fixture Manager", submitted_at: "2026-11-12 03:10:00", submitted_by_name: "Fixture Manager", legal_basis: "ceo_without_review", legal_reviewer: null, legal_firm: null, legal_reviewed_on: null, legal_reference: null, published_at: "2026-11-12 04:00:00", published_by_name: "Fixture Owner", archived_at: null, archived_reason: null },
+      { id: 10, template_id: 1, version: 1, format: "text", source_name: null, source_sha256: null, body: "# OLD FIXTURE TEXT\n\n{{client_name}} agrees with the fixture company on the old fixture terms.", fee_bp: 1500, state: "archived", created_by: 9002, created_at: "2026-11-11 03:00:00", created_by_name: "Fixture Manager", submitted_at: null, submitted_by_name: null, legal_basis: null, legal_reviewer: null, legal_firm: null, legal_reviewed_on: null, legal_reference: null, published_at: null, published_by_name: null, archived_at: "2026-11-12 04:00:00", archived_reason: "Superseded by version 2" },
+      { id: 12, template_id: 2, version: 1, format: "text", source_name: null, source_sha256: null, body: "# FIXTURE CONSOLIDATION AGREEMENT\n\n{{client_name}} and {{company_name}} agree on the fixture consolidation advisory for case {{case_ref}} at {{fee_rate}}.", fee_bp: 1200, state: "review", created_by: 9002, created_at: "2026-11-12 05:00:00", created_by_name: "Fixture Manager", submitted_at: "2026-11-12 05:10:00", submitted_by_name: "Fixture Manager", legal_basis: null, legal_reviewer: null, legal_firm: null, legal_reviewed_on: null, legal_reference: null, published_at: null, published_by_name: null, archived_at: null, archived_reason: null },
+    ],
+    fees: [{ note_id: 77, case_id: 1, bank: "Fixture Bank A", approved_cents: 3333333, has_evidence: 1, recorded_at: "2026-11-12 06:00:00", corrected: 0, case_ref: "FA-000001", product: "personal_financing", issuer_code: "a2z", client: "Fixture Client Satu", bill_id: null, fee_bp: null, base_cents: null, fee_cents: null, reference: null, prepared_at: null, prepared_by: null }],
     updates: { 1: [{ id: 1, kind: "comment", body: "Fixture: client confirmed the EPF statement is coming", old_value: null, new_value: null, task_id: null, document_id: null, author: "Fixture Person", author_role: "sales_marketing", created_at: "2026-11-11 03:00:00" }], 2: [], 3: [] },
   };
 }
@@ -186,6 +208,9 @@ export function faRoute(p, method, b) {
   const c = caps();
   if (!c.view) return [403, { error: { code: "forbidden", message: "You cannot open Financial Advisory" } }];
   if (method !== "GET") fa.posts.push({ path: p, method, body: b });
+  /* v1.302.0 - FA 2.0 phase 5: the agreement library, the draft and the fee (rules proven by tests/fa-agreements.mjs) */
+  const p5 = p5Route(p, method, b, c);
+  if (p5) return p5;
   if (p === "/staff/fa/summary") {
     const open = fa.cases.filter((x) => x.stage !== "closed");
     const rows = caseRows().filter((x) => x.stage !== "closed");
@@ -334,7 +359,31 @@ export function faRoute(p, method, b) {
     if (sub === "fee") return [409, { error: { code: "fee_after_disbursement", message: "Billed only after a recorded disbursement, through Sales." } }];
     if (method !== "GET") return [method === "POST" ? 201 : 200, { ok: true }];
   }
-  if (p === "/staff/fa/criteria" && method === "GET") return [200, { criteria: fa.criteria, can: { propose: c.edit, verify: c.decide } }];
+  /* v1.301.0 - FA 2.0 phase 4: the state as the server shows it (worker/src/fa.ts criterionShows), and the routes' answers (rules proven by tests/fa-criteria2.mjs) */
+  const shows = (x) => x.state === "retired" ? "archived" : x.category === "banker_indicative" ? "indicative" : x.state === "draft" ? "draft" : x.expires_on && x.expires_on < mytDay() ? "expired"
+    : (!x.last_verified_on || (Date.parse(mytDay()) - Date.parse(x.last_verified_on)) / 864e5 > 90 || (x.review_due_on && x.review_due_on < mytDay())) ? "review_required" : "verified";
+  if (p === "/staff/fa/criteria" && method === "GET") return [200, { criteria: fa.criteria.map((x) => ({ ...x, shows: shows(x) })), can: { propose: c.edit, verify: c.decide }, me: ROLE() === "sales_marketing" ? 9001 : 1 }];
+  if (p === "/staff/fa/criteria" && method === "POST") {
+    if (!["high", "medium", "low"].includes(b.confidence)) return [400, { error: { code: "invalid_input", message: "Say how sure this rule is." } }];
+    const bank = fa.banks.find((x) => x.id === b.bank_id);
+    const id = 10 + fa.criteria.length;
+    fa.criteria.push({ id, family: `bank-${b.bank_id}:${b.product}${b.category === "banker_indicative" ? ":indicative" : ""}`, version: 1, bank: bank?.name ?? "?", product: b.product, income_definition: b.income_definition ?? "net", commitment_definition: b.commitment_definition ?? "all", dsr_guideline_bp: b.dsr_guideline_pct ? Math.round(b.dsr_guideline_pct * 100) : null, min_income_cents: b.min_income_cents ?? null,
+      employment_categories: null, min_service_months: null, required_documents: null, source: b.source, last_verified_on: null, state: "draft", category: b.category ?? "official", confidence: b.confidence, review_due_on: b.review_due_on ?? null, expires_on: b.expires_on ?? null,
+      source_banker: b.banker_id ? fa.bankers.find((x) => x.id === b.banker_id)?.full_name ?? null : null, heard_on: b.heard_on ?? null, channel: b.channel ?? null, exact_feedback: b.exact_feedback ?? null, created_by_name: "Fixture Person", created_by: ROLE() === "sales_marketing" ? 9001 : 1 });
+    return [201, { ok: true, id }];
+  }
+  const cr = p.match(/^\/staff\/fa\/criteria\/(\d+)\/(verify|retire|request-verification)$/);
+  if (cr && method === "POST") {
+    const x = fa.criteria.find((y) => y.id === Number(cr[1]));
+    if (!x) return [404, { error: { code: "not_found", message: "Criterion not found" } }];
+    if (cr[2] === "request-verification") return x.state === "draft" ? [200, { ok: true, notified: 2 }] : [409, { error: { code: "invalid_state", message: "Only a draft waits for verification." } }];
+    if (!c.decide) return [403, { error: { code: "forbidden", message: "Only management verifies bank criteria" } }];
+    if (cr[2] === "verify") {
+      if (x.category === "banker_indicative") return [409, { error: { code: "indicative_not_official", message: "A banker's indicative words are not the bank's official rule." } }];
+      Object.assign(x, { state: "verified", last_verified_on: b.last_verified_on, verified_by_name: "Fixture Manager", ...(b.review_due_on ? { review_due_on: b.review_due_on } : {}) });
+    } else x.state = "retired";
+    return [200, { ok: true }];
+  }
   /* v1.286.0 - the registry (rules proven by tests/fa-registry.mjs) */
   if (p === "/staff/fa/registry" && method === "GET") return [200, { banks: fa.banks, products: fa.products, localities: fa.localities, branches: fa.branches, bankers: fa.bankers, states: STATES, today: "2026-11-12", can: { register: c.edit, manage: c.allocate } }];
   if (p === "/staff/fa/registry/events" && method === "GET") return [200, { events: fa.regEvents }];
@@ -387,4 +436,60 @@ export function faRoute(p, method, b) {
   }
   if (method !== "GET") return [method === "POST" ? 201 : 200, { ok: true }];
   return null;
+}
+
+/* v1.302.0 - phase 5 answers: management drafts (CEO, COO, CCO), the CEO publishes; Sales see published versions only */
+function p5Route(p, method, b, c) {
+  const drafter = ["ceo", "coo", "cco"].includes(ROLE()), publisher = ROLE() === "ceo";
+  const withCheck = (v) => ({ ...v, check: TPL.checkTemplate(v.body, v.fee_bp) });
+  if (p === "/staff/fa/templates" && method === "GET") return [200, { templates: fa.templates, versions: fa.versions.filter((v) => drafter || v.state === "approved").map(withCheck), fields: TPL.MERGE_FIELDS, me: 1, owner: ROLE() === "ceo", can: { draft: drafter, publish: publisher }, legal: LEGAL }];
+  if (p === "/staff/fa/templates" && method === "POST") {
+    if (!drafter) return [403, { error: { code: "forbidden", message: "Only management drafts agreement templates" } }];
+    const id = 1 + Math.max(...fa.templates.map((t) => t.id));
+    fa.templates.push({ id, name: b.name, issuer_code: b.issuer_code, service_type: b.service_type, created_by_name: "Fixture Person" });
+    return [201, { ok: true, id }];
+  }
+  const nv = p.match(/^\/staff\/fa\/templates\/(\d+)\/versions$/);
+  if (nv && method === "POST") {
+    if (!drafter) return [403, { error: { code: "forbidden", message: "Only management drafts agreement templates" } }];
+    const tid = Number(nv[1]), id = 1 + Math.max(...fa.versions.map((v) => v.id)), version = 1 + Math.max(0, ...fa.versions.filter((v) => v.template_id === tid).map((v) => v.version));
+    const from = fa.versions.find((v) => v.id === b.from_version_id);
+    const body = from ? from.body : b.docx_base64 ? "# UPLOADED FIXTURE\n\nThe uploaded fixture text for {{client_name}}." : String(b.body ?? "");
+    fa.versions.unshift({ ...fa.versions[0], id, template_id: tid, version, format: b.docx_base64 ? "docx" : "text", body, fee_bp: from?.fee_bp ?? b.fee_bp ?? null, state: "draft", created_by: 1, created_by_name: "Fixture Person", legal_basis: null, published_at: null, archived_at: null, archived_reason: null });
+    return [201, { ok: true, id, version, check: TPL.checkTemplate(body, from?.fee_bp ?? null) }];
+  }
+  const ov = p.match(/^\/staff\/fa\/templates\/versions\/(\d+)(?:\/(submit|publish|archive))?$/);
+  if (ov) {
+    const v = fa.versions.find((x) => x.id === Number(ov[1]));
+    if (!v) return [404, { error: { code: "not_found", message: "Template version not found" } }];
+    if (!ov[2] && method === "PUT") { if (v.state !== "draft") return [409, { error: { code: "invalid_state", message: "Only a draft is edited." } }]; Object.assign(v, { body: b.body ?? v.body, fee_bp: b.fee_bp === undefined ? v.fee_bp : b.fee_bp }); return [200, { ok: true, check: TPL.checkTemplate(v.body, v.fee_bp) }]; }
+    if (ov[2] === "submit") { const ck = TPL.checkTemplate(v.body, v.fee_bp); if (!ck.ok) return [422, { error: { code: "template_check", message: "The template is not ready.", check: ck } }]; v.state = "review"; return [200, { ok: true }]; }
+    if (ov[2] === "publish") {
+      if (!publisher) return [403, { error: { code: "forbidden", message: "Only the CEO publishes an agreement template" } }];
+      for (const x of fa.versions) if (x.template_id === v.template_id && x.state === "approved") Object.assign(x, { state: "archived", archived_reason: `Superseded by version ${v.version}` });
+      Object.assign(v, { state: "approved", legal_basis: b.legal_basis, legal_reviewer: b.legal_reviewer ?? null, legal_firm: b.legal_firm ?? null, legal_reviewed_on: b.legal_reviewed_on ?? null, legal_reference: b.legal_reference ?? null, published_by_name: "Fixture Owner", published_at: mytNow() });
+      return [200, { ok: true }];
+    }
+    if (ov[2] === "archive") { Object.assign(v, { state: "archived", archived_reason: b.reason }); return [200, { ok: true }]; }
+  }
+  if (p === "/staff/fa/fees" && method === "GET") return [200, { fees: fa.fees.map((f) => ({ ...f, billable: !!f.has_evidence && f.approved_cents > 0 && !f.corrected })), fee_line: TPL.FEE_LINE, legal: LEGAL }];
+  const ag = p.match(/^\/staff\/fa\/cases\/(\d+)\/(agreement\/preview|fee)$/);
+  if (!ag) return null;
+  const k = fa.cases.find((x) => x.id === Number(ag[1]));
+  if (!k) return [404, { error: { code: "not_found", message: "Case not found" } }];
+  if (ag[2] === "fee") {
+    const f = fa.fees.find((x) => x.case_id === k.id);
+    if (!f) return [409, { error: { code: "fee_after_disbursement", message: "Billed only after a recorded disbursement, through Sales." } }];
+    const v = fa.versions.find((x) => x.id === b.version_id) ?? fa.versions.find((x) => x.id === f.version_id);
+    if (!f.bill_id) Object.assign(f, { bill_id: 1, version_id: v.id, fee_bp: v.fee_bp, base_cents: f.approved_cents, fee_cents: TPL.feeOf(f.approved_cents, v.fee_bp), reference: `FA-FEE ${k.case_ref}`, prepared_at: mytNow(), prepared_by: "Fixture Person" });
+    return [201, { ok: true, bill: f, prefill: { source: "fa_fee", company: k.client, reference: f.reference, doc_type: "QT", issuer: k.issuer_code, items: [{ name: TPL.FEE_LINE, qty: 1, unit_price_cents: f.fee_cents, sub: [`Case ${k.case_ref}`] }] } }];
+  }
+  const v = fa.versions.find((x) => x.id === b.version_id);
+  if (!v) return [400, { error: { code: "invalid_input", message: "Choose a published template version." } }];
+  let ic = k.id === 1 ? "••••••-••-5678" : null;
+  if (b.full_ic) { if (String(b.full_ic).replace(/\D/g, "") !== "880101145678") return [400, { error: { code: "ic_mismatch", message: "That IC is not the one on the client's profile." } }]; ic = "880101-14-5678"; }
+  const values = { client_name: k.client, ic_number: ic, client_phone: null, client_email: k.id === 1 ? "satu@fixture-client.test" : null, client_address: null, case_ref: k.case_ref, service_type: "Personal financing advisory", company_name: k.issuer_code === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL", company_registration: "Fixture SSM 000000", company_address: null, agreement_date: "13-11-2026", fee_rate: v.fee_bp ? `${(v.fee_bp / 100).toFixed(2)}%` : null, bank_name: null, disbursed_amount: null, fee_amount: null };
+  const m = TPL.mergeBlocks(v.body, values);
+  const fields = TPL.fieldsIn(v.body).map((key) => ({ key, label: TPL.MERGE_FIELDS[key], value: values[key] ?? null, masked: key === "ic_number" && !b.full_ic && !!values[key], missing: !values[key] }));
+  return [200, { blocks: m.blocks, fields, missing: m.missing, ready: v.state === "approved" && !m.missing.length, draft: true, draft_id: null, sha256: null, version: { id: v.id, version: v.version, name: fa.templates.find((t) => t.id === v.template_id)?.name, state: v.state, fee_bp: v.fee_bp }, company: { name: values.company_name, registration: values.company_registration }, case_ref: k.case_ref, legal: LEGAL }];
 }

@@ -198,6 +198,20 @@ async function activePolicies(env: Env): Promise<Policy[]> {
 }
 /** The version in force on a day (the day the money landed). */
 const inForce = (list: Policy[], day: string) => list.find((p) => p.effective_from <= day) ?? null;
+/** v1.302.0 - FA 2.0 phase 5: commission on the advisory fee stays OFF (FA_LEGAL.commission).
+    A fee line is prepared for Sales only when, under the policy in force today AND every
+    active version dated later, a line with this name earns nothing (a package rule of none).
+    No policy at all is not "nothing": the answer is then no. */
+export async function earnsNothing(env: Env, lineName: string, day: string): Promise<{ ok: boolean; checked: number[]; missing: number[] }> {
+  const list = await activePolicies(env);
+  const now = inForce(list, day);
+  const relevant = list.filter((p) => p === now || p.effective_from > day);
+  if (!relevant.length) return { ok: false, checked: [], missing: [] };
+  const rules = await packagesOf(env, relevant.map((p) => p.id));
+  const key = matchKey(lineName);
+  const missing = relevant.filter((p) => !(rules.get(p.id) ?? []).some((r) => r.match_key === key && r.rule === "none")).map((p) => p.version);
+  return { ok: missing.length === 0, checked: relevant.map((p) => p.version), missing };
+}
 
 export async function syncSwitch(env: Env): Promise<boolean> {
   try {

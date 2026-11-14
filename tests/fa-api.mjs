@@ -151,10 +151,12 @@ async function runtime(workerBundle) {
     /* v1.286.0 - the bank comes from the one bank registry */
     const bankA = await call("/fa/banks", 1, "POST", { name: "Bank A", kind: "commercial" });
     await call(`/fa/banks/${bankA.j.id}/products`, 1, "POST", { product: "personal_financing", channel: "branch", source: "Invented test bank, test data" });
-    ok((await call("/fa/criteria", 9, "POST", { bank: "Bank A", product: "personal_financing", source: "Typed bank name only" })).status === 400, "a criterion's bank cannot be typed - it is chosen from the registry");
-    const dr = await call("/fa/criteria", 9, "POST", { bank_id: bankA.j.id, product: "personal_financing", dsr_guideline_pct: 60, required_documents: ["payslip", "epf"], source: "Bank A RM email, 01-11-2026" });
+    ok((await call("/fa/criteria", 9, "POST", { confidence: "high", bank: "Bank A", product: "personal_financing", source: "Typed bank name only" })).status === 400, "a criterion's bank cannot be typed - it is chosen from the registry");
+    const dr = await call("/fa/criteria", 9, "POST", { confidence: "high", bank_id: bankA.j.id, product: "personal_financing", dsr_guideline_pct: 60, required_documents: ["payslip", "epf"], source: "Bank A RM email, 01-11-2026" });
     ok(dr.status === 201, "Sales may propose a criterion (a draft)");
-    ok((await call(`/fa/criteria/${dr.j.id}/verify`, 9, "POST", { last_verified_on: "2026-11-01" })).status === 403, "...but only management verifies it");
+    /* v1.301.0 - asked by ANOTHER salesperson, so the refusal is the role's, not the "your own proposal" rule */
+    const sv = await call(`/fa/criteria/${dr.j.id}/verify`, 15, "POST", { last_verified_on: "2026-11-01" });
+    ok(sv.status === 403 && sv.j?.error?.code === "forbidden", "...but only management verifies it", sv.text);
     ok((await call(`/fa/cases/${id1}/assess`, 9, "POST", { instalment_cents: 50000 })).j?.result?.outcome === "manual_review", "a draft criterion is never matched or treated as official");
     ok((await call(`/fa/criteria/${dr.j.id}/verify`, 1, "POST", { last_verified_on: "2026-11-01" })).status === 200, "the CEO verifies it, with the date");
     const a2 = await call(`/fa/cases/${id1}/assess`, 9, "POST", { instalment_cents: 50000 });
@@ -266,7 +268,7 @@ const MUT = [
   [F, "a decision without evidence", [["      if (!ev) return err(\"evidence_required\"", "      if (false) return err(\"evidence_required\""]]],
   [F, "Sales verifies criteria", [["    if (!can(user.role, \"fa_criteria\")) return err(\"forbidden\", \"Only management verifies bank criteria\", 403);", ""]]],
   [F, "the agreement gate open", [['if (sub === "agreement" && method === "POST") {', "if (false) {"]]],
-  [F, "a fee billed from the case", [['if (sub === "fee" && method === "POST") {', "if (false) {"]]],
+  ["worker/src/fa-templates.ts", "a fee billed from the case", [['if (!d || !usable(d)) {', "if (false) {"]]], // v1.302.0 - the fee route lives in fa-templates.ts
   [F, "a duplicate client by phone", [["      if (hit) return json(", "      if (false) return json("]]],
   [F, "an override with no reason", [["    if (reason.length < 20) return err(\"invalid_input\", \"Explain the override", "    if (false) return err(\"invalid_input\", \"Explain the override"]]],
   [F, "assisting members edit figures", [["const mayEdit = (u: StaffUser, c: Case) => can(u.role, \"fa_edit\") && (isAll(u) || c.owner_id === u.id);", "const mayEdit = (u: StaffUser, c: Case) => can(u.role, \"fa_edit\");"]]],

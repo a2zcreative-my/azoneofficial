@@ -15,6 +15,12 @@ tests/fa2.mjs; the older FA suites (fa-1, fa-2, fa-3) still run. Here:
   counts and fallback; Agreements with the fee on and the agreement off; eight
   widths with no sideways page and nothing under the bottom bar.
 
+  v1.302.0 Phase 5: the agreement builder beside its preview (fields from the
+  records, the IC masked, a typed IC checked, missing fields listed, the DRAFT
+  PDF, e-sign locked); the fee after a recorded disbursement handed to Sales;
+  the library (states, hash, legal basis; the CEO publishes, Sales see only
+  published versions); phones at 390 / 360.
+
 The fixture answers are invented (tests/browser/fa-fixture.mjs). Servers:
 4280 CEO · 4282 Sales & Marketing (FA=1).
 """
@@ -211,6 +217,167 @@ with sync_playwright() as p:
         check(f"P2 phone {w}: the update form's controls are 44 px targets", not short, short)
         check(f"P2 phone {w}: no sideways page in the case sheet", no_hscroll(pg))
         check(f"P2 phone {w}: no page error", not errs, errs[:2])
+        c.close()
+
+    # ---------------- v1.300.0 - Phase 3 (photo 3): the directory beside client-to-banker matching ----------------
+    c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+    go(pg, CEO, "&view=bankers")
+    bt = pg.get_by_test_id("fa-panel").inner_text()
+    check("P3 bankers: the photo's counts (total, ready, on hold, needs verification)", all(s in bt for s in ["Total bankers", "Ready", "On hold", "Needs verification"]), bt[:300])
+    d0 = pg.get_by_test_id("fa-directory").bounding_box(); m0 = pg.get_by_test_id("fa-match-panel").bounding_box()
+    check("P3 bankers: the directory on the left, client-to-banker matching on the right", d0 and m0 and m0["x"] > d0["x"] + d0["width"] - 5 and abs(m0["y"] - d0["y"]) < 80, (d0, m0))
+    rp = pg.get_by_test_id("fa-banker-reply").all_inner_texts()
+    check("P3 bankers: a MEASURED reply time, only with enough history - never an estimate", any("~5 h after an enquiry (median of 4)" in x for x in rp) and any("Not enough history (1 of 3" in x for x in rp), rp)
+    mp = pg.get_by_test_id("fa-match-panel")
+    mp.get_by_test_id("fa-match-case").select_option("1"); pg.wait_for_timeout(1300)
+    mt = mp.inner_text()
+    check("P3 matching: the case header (client, case type, DSR, banker)", "Fixture Client Satu" in pg.get_by_test_id("fa-match-head").inner_text() and "50.0%" in pg.get_by_test_id("fa-match-head").inner_text())
+    check("P3 matching: the case's own banker matching runs here (the one matching screen)", mp.get_by_test_id("fa-matching").count() == 1, mt[:300])
+    claims = re.sub(r"never a match percentage or an approval chance\.?", "", mt, flags=re.I)  # the panel's own promise is not a claim
+    check("P3 matching: no match percentage and no approval chance anywhere", not re.search(r"\d+\s*%\s*match|approval (rate|chance|success)|probab", claims, re.I), claims[:500])
+    picks = pg.get_by_test_id("fa-compare-pick")
+    picks.nth(0).check(); picks.nth(1).check(); pg.wait_for_timeout(200)
+    pg.get_by_test_id("fa-compare-open").click(); pg.wait_for_timeout(600)
+    cmp = pg.get_by_test_id("fa-compare").inner_text() if pg.get_by_test_id("fa-compare").count() else ""
+    check("P3 compare: two bankers side by side, registry facts only - no score, no approval rate", "Reply time (measured)" in cmp and "Verification" in cmp and not re.search(r"score|approval rate|\d+\s*% match", cmp, re.I), cmp[:400])
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    pg.get_by_test_id("fa-banker").filter(has_text="Banker Satu").first.click(); pg.wait_for_timeout(1000)
+    check("P3 bankers: choosing a banker shows the profile on the right", pg.get_by_test_id("fa-banker-record").count() == 1)
+    check("no page error (P3 CEO)", not errs, errs[:2])
+    c.close()
+    for w in (390, 768):
+        c = ctx_for(b, w, 844); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+        go(pg, CEO, "&view=bankers")
+        check(f"P3 @{w}: matching sits under the directory, no sideways page", pg.get_by_test_id("fa-match-panel").count() == 1 and no_hscroll(pg))
+        small = pg.evaluate("[...document.querySelectorAll('[data-testid=fa-compare-pick]')].map(x => x.closest('label').getBoundingClientRect().height).filter(h => h < 43.5).length")
+        check(f"P3 @{w}: the compare tick is a 44 px target", w >= 768 or small == 0, small)
+        check(f"P3 @{w}: no page error", not errs, errs[:2])
+        c.close()
+
+    # ---------------- v1.301.0 - Phase 4 (photo 4): Bank Criteria 2.0 ----------------
+    c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+    go(pg, CEO, "&view=criteria")
+    rows = pg.get_by_test_id("fa-criterion")
+    states = [x.strip() for x in pg.get_by_test_id("fa-crit-state").all_inner_texts()]
+    check("P4: the repository shows each rule's state - Verified, Draft, Indicative", rows.count() == 3 and "Verified" in states and "Draft" in states and any("Indicative" in s for s in states), states)
+    ind = rows.filter(has_text="Banker-indicative").first
+    it = ind.inner_text() if ind.count() else ""
+    check("P4: an indicative rule shows the banker, the day, the channel and their own words", "Fixture Banker Satu" in it and "10-11-2026" in it and "Work phone" in it and "usually accepts up to 70%" in it, it[:300])
+    check("P4: an indicative rule offers no Verify (a banker's words are never published as the bank's rule)", ind.get_by_role("button", name="Verify", exact=True).count() == 0)
+    check("P4: every rule shows its confidence and who approved or proposed it", all(any(k in x for k in ("High", "Medium", "Low")) for x in rows.all_inner_texts()) and "Approved by Fixture Manager" in pg.get_by_test_id("fa-criteria").inner_text())
+    pg.get_by_test_id("fa-crit-filter").select_option("indicative"); pg.wait_for_timeout(200)
+    check("P4: the Indicative filter shows only the banker's words", rows.count() == 1 and "Banker-indicative" in rows.first.inner_text())
+    pg.get_by_test_id("fa-crit-filter").select_option("live"); pg.wait_for_timeout(200)
+    check("P4: the four kinds of criteria are explained", all(s in pg.get_by_test_id("fa-crit-kinds").inner_text() for s in ["internal baseline", "Official bank criteria", "Banker-provided indicative", "Case-specific"]))
+    # add an official criterion
+    pg.get_by_test_id("fa-crit-add").click(); pg.wait_for_timeout(600)
+    fm = pg.get_by_test_id("fa-crit-form")
+    fm.get_by_test_id("fa-crit-bank").select_option("1"); fm.get_by_test_id("fa-crit-source").fill("Fixture: product sheet 12-11-2026")
+    check("P4 add: a rule without a confidence cannot be saved", fm.get_by_test_id("fa-crit-save").is_disabled())
+    fm.get_by_test_id("fa-crit-confidence").select_option("high")
+    n0 = len(posts(CEO)); fm.get_by_test_id("fa-crit-save").click(); pg.wait_for_timeout(900)
+    sp = [x for x in posts(CEO)[n0:] if x["path"] == "/staff/fa/criteria"]
+    check("P4 add: it posts an OFFICIAL draft with its confidence", len(sp) == 1 and sp[0]["body"].get("category") == "official" and sp[0]["body"].get("confidence") == "high" and sp[0]["body"].get("bank_id") == 1, sp)
+    # record a banker update
+    pg.get_by_test_id("fa-crit-banker-update").click(); pg.wait_for_timeout(600)
+    fm = pg.get_by_test_id("fa-crit-form")
+    fm.get_by_test_id("fa-crit-bank").select_option("1"); fm.get_by_test_id("fa-crit-source").fill("Fixture: phone call note"); fm.get_by_test_id("fa-crit-confidence").select_option("low")
+    check("P4 banker update: needs the banker and their words", fm.get_by_test_id("fa-crit-save").is_disabled())
+    fm.get_by_test_id("fa-crit-banker").select_option("1"); fm.get_by_test_id("fa-crit-words").fill("Fixture: prefers six months of statements")
+    n0 = len(posts(CEO)); fm.get_by_test_id("fa-crit-save").click(); pg.wait_for_timeout(900)
+    sp = [x for x in posts(CEO)[n0:] if x["path"] == "/staff/fa/criteria"]
+    check("P4 banker update: it posts a banker-indicative entry with the banker, day, channel and words", len(sp) == 1 and sp[0]["body"].get("category") == "banker_indicative" and sp[0]["body"].get("banker_id") == 1 and sp[0]["body"].get("channel") and sp[0]["body"].get("heard_on") and "six months" in sp[0]["body"].get("exact_feedback", ""), sp)
+    # verify the draft from Bank B
+    drow = pg.get_by_test_id("fa-criterion").filter(has_text="Fixture Bank B").first
+    drow.get_by_role("button", name="Verify", exact=True).click(); pg.wait_for_timeout(300)
+    vf = pg.get_by_test_id("fa-crit-verify-form")
+    n0 = len(posts(CEO)); vf.get_by_role("button", name="Verify and publish").click(); pg.wait_for_timeout(900)
+    sv = [x for x in posts(CEO)[n0:] if x["path"].endswith("/verify")]
+    check("P4 verify: management verifies with the day it was confirmed", len(sv) == 1 and sv[0]["path"] == "/staff/fa/criteria/2/verify" and sv[0]["body"].get("last_verified_on"), sv)
+    check("no page error (P4 CEO)", not errs, errs[:2])
+    c.close()
+    c = ctx_for(b, 1280); pg = c.new_page(); go(pg, SALES, "&view=criteria")
+    check("P4 Sales: no Verify on any rule", pg.get_by_test_id("fa-criteria").get_by_role("button", name="Verify", exact=True).count() == 0)
+    n0 = len(posts(SALES)); pg.get_by_test_id("fa-crit-ask").first.click(); pg.wait_for_timeout(700)
+    sr = [x for x in posts(SALES)[n0:] if x["path"].endswith("/request-verification")]
+    check("P4 Sales: asks management to verify a draft", len(sr) == 1, sr)
+    c.close()
+    for w in (390, 360):
+        c = ctx_for(b, w, 800); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+        go(pg, CEO, "&view=criteria")
+        short = pg.evaluate("[...document.querySelectorAll('[data-testid=fa-criterion] button')].filter(x => x.offsetParent && x.getBoundingClientRect().height < 43.5).length")
+        check(f"P4 phone {w}: compact rule cards, 44 px actions, no sideways page", short == 0 and no_hscroll(pg), short)
+        check(f"P4 phone {w}: no page error", not errs, errs[:2])
+        c.close()
+
+    # ---------------- v1.302.0 - Phase 5 (photo 5): the agreement builder, the fee after a disbursement, the library ----------------
+    c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+    go(pg, CEO, "&view=agreements"); n0 = len(posts(CEO))
+    bd = pg.get_by_test_id("fa-agr-builder")
+    check("P5: the builder sits beside its preview on a wide screen", bd.is_visible() and pg.get_by_test_id("fa-agr-preview").bounding_box()["x"] > pg.get_by_test_id("fa-agr-case").bounding_box()["x"] + 300)
+    pg.get_by_test_id("fa-agr-case").select_option("1"); pg.wait_for_timeout(900)
+    vt = pg.get_by_test_id("fa-agr-version").evaluate("s => s.options[s.selectedIndex].text")
+    check("P5: the case's published template is chosen for it", "Fixture personal financing agreement v2" in vt and "Published" in vt, vt)
+    fl = pg.get_by_test_id("fa-agr-fields").inner_text()
+    check("P5: the fields fill from the records - the client, the company, the rate; the IC MASKED", "Fixture Client Satu" in fl and "A2Z CREATIVE MARKETING" in fl and "15.00%" in fl and "••••••-••-5678" in fl and "Masked" in fl, fl[:400])
+    pv = pg.get_by_test_id("fa-agr-preview").inner_text()
+    check("P5: the preview is the draft - DRAFT watermark, not for signing or sending", "DRAFT" in pv and "Draft - not for signing or sending" in pv and "Fixture Client Satu" in pv, pv[:300])
+    tr = pg.get_by_test_id("fa-agr-track").inner_text()
+    check("P5: the tracker ends with e-sign switched off", "E-sign: switched off" in tr, tr)
+    check("P5: Send for e-sign is locked, with the reason", pg.get_by_test_id("fa-agr-send").is_disabled() and "Locked: sending and signing stay off" in bd.inner_text())
+    with pg.expect_download() as dl:
+        pg.get_by_test_id("fa-agr-pdf").click()
+    path = dl.value.path(); pdf = open(path, "rb").read()
+    check("P5: Prepare draft PDF downloads a real PDF with the DRAFT watermark and the IC masked", dl.value.suggested_filename.startswith("DRAFT-FA-000001") and pdf[:5] == b"%PDF-" and b"(DRAFT) Tj" in pdf and b"XXXXXX" in pdf and b"880101" not in pdf, dl.value.suggested_filename)
+    rec = [x for x in posts(CEO)[n0:] if x["path"].endswith("/agreement/preview") and x["body"].get("record")]
+    check("P5: preparing the PDF records the draft on the case", len(rec) == 1 and rec[0]["body"].get("version_id") == 11, rec)
+    pg.get_by_test_id("fa-agr-ic").fill("880101-14-5679"); pg.get_by_test_id("fa-agr-ic-use").click(); pg.wait_for_timeout(900)
+    check("P5: a typed IC that is not the client's is refused - the draft stays masked", "••••••-••-5678" in pg.get_by_test_id("fa-agr-fields").inner_text() and "not the one on the client's profile" in pg.locator("body").inner_text())
+    pg.get_by_test_id("fa-agr-ic").fill("880101145678"); pg.get_by_test_id("fa-agr-ic-use").click(); pg.wait_for_timeout(900)
+    check("P5: the client's own IC, typed for this document, fills it in full", "880101-14-5678" in pg.get_by_test_id("fa-agr-fields").inner_text() and "880101-14-5678" in pg.get_by_test_id("fa-agr-preview").inner_text())
+    pg.get_by_test_id("fa-agr-case").select_option("3"); pg.wait_for_timeout(900)
+    check("P5: another case forgets the typed IC", pg.get_by_test_id("fa-agr-ic").input_value() == "" and "880101-14-5678" not in pg.get_by_test_id("fa-agr-builder").inner_text())
+    ms = pg.get_by_test_id("fa-agr-missing").inner_text()
+    check("P5: missing fields are listed and the draft cannot be prepared - nothing invented", "IC number" in ms and "Client email" in ms and "nothing is invented" in ms and pg.get_by_test_id("fa-agr-pdf").is_disabled(), ms)
+    check("P5: a missing field shows in the preview, marked", pg.get_by_test_id("fa-agr-preview").locator("mark[data-field=ic_number]").count() == 1)
+    pg.get_by_test_id("fa-agr-case").select_option("2"); pg.wait_for_timeout(500)
+    check("P5: nothing published for that company and service - nothing chosen for it", pg.get_by_test_id("fa-agr-version").input_value() == "")
+    pg.get_by_test_id("fa-agr-version").select_option("12"); pg.wait_for_timeout(900)
+    check("P5: management may check a version under review against a case - never prepare from it", "not published - a check only" in bd.inner_text() and pg.get_by_test_id("fa-agr-pdf").is_disabled())
+    fr = pg.get_by_test_id("fa-fee-row").first; ft = fr.inner_text()
+    opt = fr.locator("select").evaluate("s => s.options[s.selectedIndex].text")
+    check("P5 fee: the recorded disbursement with the bank's evidence, and the fee at the published rate (half up)", "RM 33,333.33" in ft and "Bank evidence" in ft and "15.00% = RM 5,000.00" in opt, [ft[:200], opt])
+    fr.get_by_test_id("fa-fee-prepare").click(); pg.wait_for_timeout(1500)
+    pf = pg.evaluate("localStorage.getItem('azone-qt-prefill')"); fp = [x for x in posts(CEO)[n0:] if x["path"] == "/staff/fa/cases/1/fee"]
+    check("P5 fee: Prepare fee quotation hands one fee line to Sales and opens Sales", len(fp) == 1 and fp[0]["body"].get("version_id") == 11 and fp[0]["body"].get("decision_note_id") == 77 and "Sales" in pg.url and (pf is None or '"source":"fa_fee"' in pf), [fp, pg.url, pf])
+    go(pg, CEO, "&view=agreements")
+    lb = pg.get_by_test_id("fa-agr-library")
+    check("P5 library: management adds templates; every version with its state, source hash and legal basis", pg.get_by_test_id("fa-tpl-add").is_visible() and lb.get_by_test_id("fa-tpl-version").count() == 3 and all(s in lb.inner_text() for s in ["Published", "Archived", "Waiting for publishing", "SHA-256 abababababab", "WITHOUT a legal review"]), lb.inner_text()[:500])
+    pg.get_by_test_id("fa-tpl-publish").click(); fm = pg.get_by_test_id("fa-tpl-publish-form")
+    check("P5 library: publishing names the legal basis", "Reviewed by counsel" in fm.inner_text() and "without a legal review" in fm.inner_text())
+    fm.get_by_test_id("fa-tpl-no-review").check()
+    check("P5 library: without a legal review, the owner must confirm it", fm.get_by_test_id("fa-tpl-publish-save").is_disabled())
+    fm.get_by_test_id("fa-tpl-ack").check(); fm.get_by_test_id("fa-tpl-publish-save").click(); pg.wait_for_timeout(900)
+    pp = [x for x in posts(CEO)[n0:] if x["path"].endswith("/12/publish")]
+    check("P5 library: the CEO publishes with the basis recorded", len(pp) == 1 and pp[0]["body"] == {"legal_basis": "ceo_without_review", "acknowledge": True}, pp)
+    check("no page error (P5 CEO)", not errs, errs[:2])
+    c.close()
+    c = ctx_for(b, 1280, 1000); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+    go(pg, SALES, "&view=agreements")
+    lb = pg.get_by_test_id("fa-agr-library")
+    check("P5 Sales: no New template, only the published version, no Publish", pg.get_by_test_id("fa-tpl-add").count() == 0 and lb.get_by_test_id("fa-tpl-version").count() == 1 and pg.get_by_test_id("fa-tpl-publish").count() == 0 and pg.get_by_test_id("fa-tpl-upload").count() == 0, lb.inner_text()[:300])
+    pg.get_by_test_id("fa-agr-case").select_option("2"); pg.wait_for_timeout(700)
+    check("P5 Sales: a case with no published template is told so", "No published template for this company and service" in pg.get_by_test_id("fa-agr-version").inner_text())
+    check("no page error (P5 Sales)", not errs, errs[:2])
+    c.close()
+    for w in (390, 360):
+        c = ctx_for(b, w, 800); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
+        go(pg, CEO, "&view=agreements"); pg.get_by_test_id("fa-agr-case").select_option("1"); pg.wait_for_timeout(900)
+        short = pg.evaluate("[...document.querySelectorAll('[data-testid=fa-agr-builder] button, [data-testid=fa-fee-bills] button, [data-testid=fa-agr-library] button, [data-testid=fa-agr-library] label[class]')].filter(x => x.offsetParent && x.getBoundingClientRect().height < 43.5).map(x => x.innerText)")
+        wide = pg.evaluate("[...document.querySelectorAll('[data-testid=fa-fee-row] *, [data-testid=fa-agr-builder] *')].filter(x => !x.closest('[aria-hidden=true]') && x.getBoundingClientRect().right > window.innerWidth + 1).length")
+        check(f"P5 phone {w}: builder, preview, fee and library stacked, 44 px actions, nothing past the edge", short == [] and wide == 0 and no_hscroll(pg), [short, wide])
+        check(f"P5 phone {w}: the preview follows the fields (one column)", pg.get_by_test_id("fa-agr-preview").bounding_box()["y"] > pg.get_by_test_id("fa-agr-fields").bounding_box()["y"])
+        check(f"P5 phone {w}: no page error", not errs, errs[:2])
         c.close()
 
     for w in WIDTHS:

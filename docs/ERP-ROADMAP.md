@@ -461,3 +461,17 @@ update with its author and time, append only). A follow-up is an ordinary row
 in tasks. The priority itself is never stored. No table that carries money,
 pay or people. 0187 and 0188 stay unused (Report Live and Asset Register are
 paused); when they resume they take numbers after 0190.
+1.301.0 (Financial Advisory 2.0, phase 4) adds `0191_fa_criteria_meta`
+(additive, IF NOT EXISTS only, no ALTER): one row per bank criterion - its
+category (official, or a banker's indicative words with the banker, day,
+channel and words), its confidence, its review-due and expiry days. Only an
+official, verified, in-date criterion is matched. No table that carries money,
+pay or people.
+1.302.0 (Financial Advisory 2.0, phase 5) adds `0192_fa_templates`
+(additive, IF NOT EXISTS only, no ALTER): agreement templates and their
+versions (text, fields, fee rate, source hash - locked past draft, never
+deleted), the drafts prepared from them (a masked-text hash and a flag that a
+full IC was typed - never the IC) and fa_fee_bills, one advisory fee prepared
+per recorded disbursement. fa_fee_bills is not a ledger: the quotation, the
+invoice, the payment and the CEO verification are the Sales documents, and no
+commission is earned on the fee line.

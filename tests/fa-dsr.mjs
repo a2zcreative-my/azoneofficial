@@ -80,9 +80,9 @@ async function runtime(workerBundle) {
     const bank = await call("/fa/banks", 1, "POST", { name: "Bank A", kind: "commercial" });
     await call(`/fa/banks/${bank.j.id}/products`, 1, "POST", { product: "personal_financing", channel: "branch", source: "Invented test bank" });
     await call(`/fa/banks/${bank.j.id}/products`, 1, "POST", { product: "debt_consolidation", channel: "branch", source: "Invented test bank" });
-    const crit = await call("/fa/criteria", 9, "POST", { bank_id: bank.j.id, product: "personal_financing", dsr_guideline_pct: 60, source: "Invented test bank, test data" });
+    const crit = await call("/fa/criteria", 9, "POST", { confidence: "high", bank_id: bank.j.id, product: "personal_financing", dsr_guideline_pct: 60, source: "Invented test bank, test data" });
     await call(`/fa/criteria/${crit.j.id}/verify`, 1, "POST", { last_verified_on: today });
-    const future = await call("/fa/criteria", 9, "POST", { bank_id: bank.j.id, product: "personal_financing", dsr_guideline_pct: 90, effective_from: tomorrow, source: "Invented test bank, future rule" });
+    const future = await call("/fa/criteria", 9, "POST", { confidence: "high", bank_id: bank.j.id, product: "personal_financing", dsr_guideline_pct: 90, effective_from: tomorrow, source: "Invented test bank, future rule" });
     ok(future.status === 201, "a future-dated rule can be drafted", future.text);
     ok(db.prepare(`SELECT state FROM fa_criteria WHERE id = ?`).get(crit.j.id).state === "verified", "verifying a version effective tomorrow leaves today's version in force");
     await call(`/fa/criteria/${future.j.id}/verify`, 1, "POST", { last_verified_on: today });
@@ -102,7 +102,7 @@ async function runtime(workerBundle) {
     ok(r?.current_dsr_bp === 3741 && r?.instalment_cents === 103066 && r?.projected_dsr_bp === 5470, "current 37.41%, illustrative instalment RM 1,030.66, projected 54.70%", `${r?.current_dsr_bp} ${r?.instalment_cents} ${r?.projected_dsr_bp}`);
     ok(r?.remaining_cents === 269959 && r?.residual_cents === 129959 && r?.living_cents === 140000, "remaining RM 2,699.59; residual after the DECLARED living cost RM 1,299.59", `${r?.remaining_cents} ${r?.residual_cents}`);
     ok(r?.outcome === "potentially_suitable" && r.matches.length === 1 && r.matches[0].criterion_id === crit.j.id, "Potential Match against the current verified rule only - the future-dated rule is not applied", JSON.stringify(r?.matches?.map((m) => m.criterion_id)));
-    ok(r?.engine_version === "1.298.0" && r?.breakdown?.length === items.length && r?.confidence?.verified === 1, "the breakdown shows every figure, the engine version and the confidence");
+    ok(r?.engine_version === "1.301.0" && r?.breakdown?.length === items.length && r?.confidence?.verified === 1, "the breakdown shows every figure, the engine version and the confidence");
     ok(tables() === t0 && q.j?.stored === false, "a Quick Check stores nothing - no case, figure, assessment, customer or note");
     const ql = db.prepare(`SELECT detail FROM audit_log WHERE action = 'fa.quick_check'`).all();
     ok(ql.length === 1 && !/700000|596025|223000|gross/.test(ql[0].detail), "a pressed Calculate leaves one audit line with no figure in it", ql[0]?.detail);
@@ -155,10 +155,10 @@ async function runtime(workerBundle) {
 
     /* ---------- save, history, review ---------- */
     const a1 = await call(`/fa/cases/${cid}/assess`, 9, "POST", { amount_cents: 3000000, tenure_months: 60, rate_bp: 800 });
-    ok(a1.status === 201 && a1.j?.result?.engine_version === "1.298.0", "a saved assessment carries the engine version", a1.text.slice(0, 200));
+    ok(a1.status === 201 && a1.j?.result?.engine_version === "1.301.0", "a saved assessment carries the engine version", a1.text.slice(0, 200));
     const a2 = await call(`/fa/cases/${cid}/assess`, 9, "POST", { amount_cents: 2000000, tenure_months: 60, rate_bp: 800 });
     const hist = (await call(`/fa/cases/${cid}/assessments`, 9)).j?.assessments ?? [];
-    ok(hist.length === 2 && hist[0].id === a2.j.assessment_id && hist[0].engine_version === "1.298.0", "every saved assessment stays in the history, newest first");
+    ok(hist.length === 2 && hist[0].id === a2.j.assessment_id && hist[0].engine_version === "1.301.0", "every saved assessment stays in the history, newest first");
     ok((await call(`/fa/cases/${cid}`, 9, "PATCH", { stage: "matching" })).j?.error?.code === "review_required", "Sales cannot move a case to banker matching by themselves");
     ok((await call(`/fa/cases/${cid}/match`, 1, "POST", { state: "JOHOR" })).j?.error?.code === "review_required", "no banker matching before a Proceed - even for the CEO");
     const a3 = await call(`/fa/cases/${cid}/assess`, 9, "POST", {});

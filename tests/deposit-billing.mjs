@@ -185,6 +185,14 @@ async function runtime(workerBundle) {
     ok(r7?.invoiced_cents === 3750 && r7?.invoiced_as, "the quotation shows RM 37.50 of RM 75.00 invoiced");
     const bal = await conv(307);
     ok(bal.status === 201 && doc(bal.j.id).total_cents === 3750 && billed(307) === 7500 && lines(bal.j.id)[0].name === "Video Promosi Produk", "the balance RM 37.50 is invoiced from it, with the quotation's own line", bal.text.slice(0, 200));
+    /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear") */
+    const r7b = await row(307), inv1 = doc(w.j.id).doc_number, inv2 = doc(bal.j.id).doc_number;
+    ok(r7b?.invoice_count === 2 && r7b?.invoiced_list === `${inv1} + ${inv2}`, "the fully invoiced quotation names BOTH invoices, oldest first - not only the latest", JSON.stringify({ list: r7b?.invoiced_list, inv1, inv2 }));
+    const qp = await call("/projects/by-quotation/307", 6);
+    ok(qp.status === 200 && qp.j?.quotation_state?.invoice === `${inv1} + ${inv2}` && qp.j?.quotation_state?.label === "invoiced", "the quotation page names both invoices too", qp.text.slice(0, 240));
+    const invs = (await call("/docs?type=INV", 6)).j?.docs ?? [];
+    const i7a = invs.find((d) => d.id === w.j.id), i7b = invs.find((d) => d.id === bal.j.id);
+    ok(i7a?.converted_from_number === doc(307).doc_number && i7b?.converted_from_number === doc(307).doc_number && i7a.part_no === 1 && i7a.part_of === 2 && i7b.part_no === 2 && i7b.part_of === 2, "each invoice says which quotation it came from and which part it is (1 of 2, 2 of 2)", JSON.stringify([i7a?.converted_from_number, i7a?.part_no, i7a?.part_of, i7b?.part_no, i7b?.part_of]));
 
     /* ---------- commission per paid part ---------- */
     ok((await payAndConfirm(i1)).join() === "200,201" && (await payAndConfirm(i2)).join() === "200,201", "both parts of QT-T-301 are paid and confirmed");
@@ -214,6 +222,9 @@ const checks = n;
 
 const S = "worker/src/staff.ts", C = "worker/src/commission.ts";
 const MUT = [
+  ["worker/src/projects.ts", "the quotation page names only the latest invoice", [["`SELECT GROUP_CONCAT(doc_number, ' + ') AS list FROM (SELECT doc_number FROM sales_documents WHERE doc_type = 'INV' AND converted_from = ?1 AND COALESCE(payment_status, '') != 'void' ORDER BY id)`", "`SELECT doc_number AS list FROM sales_documents WHERE doc_type = 'INV' AND converted_from = ?1 AND COALESCE(payment_status, '') != 'void' ORDER BY id DESC LIMIT 1`"]]],
+  [S, "only the latest invoice named on the quotation", [["COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_list", "COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) x) AS invoiced_list"]]],
+  [S, "an invoice forgets its quotation", [["(SELECT q.doc_number FROM sales_documents q WHERE q.id = d.converted_from) AS converted_from_number", "NULL AS converted_from_number"]]],
   [S, "the sum rule is not in the insert", [["? `(SELECT COALESCE(SUM(x.total_cents), 0) FROM sales_documents x WHERE x.converted_from = ?11 AND x.doc_type = 'INV' AND COALESCE(x.payment_status, '') != 'void') + ?7 <= ${qtTotalC}`", "? `1 = 1`"]]],
   [S, "a product quotation is billed in parts", [["    if (!splitQ && (askShare !== undefined || askAmount !== undefined)) {", "    if (false) {"]]],
   [S, "more than is left is accepted", [["    if (splitQ && billC > leftQ) {", "    if (false) {"]]],

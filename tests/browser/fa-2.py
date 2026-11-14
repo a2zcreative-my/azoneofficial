@@ -105,7 +105,8 @@ with sync_playwright() as p:
         panel = pg.get_by_test_id("fa-banker-panel")
         if w >= 1280:
             boxes = [pg.get_by_test_id(t).bounding_box() for t in ("fa-directory", "fa-banker-profile", "fa-banker-panel")]
-            check(f"{tag}: directory, profile and cases side by side (G1)", all(boxes) and boxes[0]["x"] < boxes[1]["x"] < boxes[2]["x"] and abs(boxes[0]["y"] - boxes[2]["y"]) < 4, boxes)
+            # v1.300.0 - FA 2.0 phase 3 (photo 3): the directory on the left; the chosen banker's profile and cases on the right, one under the other
+            check(f"{tag}: directory left; the banker's profile and cases on the right (photo 3)", all(boxes) and boxes[0]["x"] < boxes[1]["x"] and abs(boxes[1]["x"] - boxes[2]["x"]) < 4 and boxes[2]["y"] > boxes[1]["y"], boxes)
         else:
             check(f"{tag}: the record opens as a sheet, with the banker's cases inside it", pg.get_by_role("dialog").count() == 1 and panel.count() == 1)
         pt = panel.inner_text() if panel.count() else ""

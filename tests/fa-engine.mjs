@@ -83,6 +83,13 @@ const rr = run([...base, it("expense", "food", 100000)], "personal_financing", [
 ok("remaining = net - commitments - instalment; residual = remaining - declared living costs", rr.remaining_cents === rr.income_net_cents - rr.commitments_cents - rr.instalment_cents && rr.residual_cents === rr.remaining_cents - 100000, `${rr.remaining_cents} ${rr.residual_cents}`);
 ok("no declared living cost: no residual is invented", run(base, "personal_financing", [crit()]).residual_cents === null);
 
+/* v1.301.0 - FA 2.0 phase 4: the criteria category and dates */
+ok("an indicative banker entry never matches, even if somehow verified", run(base, "personal_financing", [crit({ category: "banker_indicative" })]).matches.length === 0);
+ok("an expired rule never matches", run(base, "personal_financing", [crit({ expires_on: "2026-11-10" })]).matches.length === 0 && run(base, "personal_financing", [crit({ expires_on: "2026-11-11" })]).matches.length === 1);
+ok("a rule past its review-due day still matches but is flagged for re-checking", (() => { const m = run(base, "personal_financing", [crit({ review_due_on: "2026-11-10" })]).matches; return m.length === 1 && m[0].stale === true; })());
+ok("a rule within its review day is not flagged", run(base, "personal_financing", [crit({ review_due_on: "2026-12-31" })]).matches[0]?.stale === false);
+ok("an expired newer version leaves no rule matching (never falls back to a guess)", run(base, "personal_financing", [crit({ id: 1, version: 1, state: "retired" }), crit({ id: 2, version: 2, expires_on: "2026-11-01" })]).matches.length === 0);
+
 /* illustrative instalment */
 ok("annuity instalment (RM 30,000, 60 months, 8%): RM 608.30, rounded up to the sen", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }) === 60830, E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }));
 ok("a given instalment wins; nothing given = null", E.instalmentOf({ instalment_cents: 50000 }) === 50000 && E.instalmentOf({}) === null);
@@ -91,7 +98,7 @@ ok("flat instalment (RM 30,000, 5 years, 7%): (30,000 + 10,500) / 60 = RM 675.00
 ok("flat instalment rounds UP to the sen (RM 10,000, 7 months, 5.55%)", E.instalmentOf({ amount_cents: 1000000, tenure_months: 7, rate_bp: 555, rate_type: "flat" }) === Math.ceil((1000000 * (120000 + 555 * 7)) / (120000 * 7)));
 ok("a very large flat amount keeps every sen (BigInt)", E.instalmentOf({ amount_cents: 9_999_999_999, tenure_months: 600, rate_bp: 5000, rate_type: "flat" }) === Number((9_999_999_999n * (120000n + 5000n * 600n) + 120000n * 600n - 1n) / (120000n * 600n)));
 ok("no rate type = the reducing annuity, as before", E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800 }) === E.instalmentOf({ amount_cents: 3000000, tenure_months: 60, rate_bp: 800, rate_type: "reducing" }));
-ok("the engine version says 1.298.0", E.ENGINE_VERSION === "1.298.0");
+ok("the engine version says 1.301.0", E.ENGINE_VERSION === "1.301.0");
 
 /* debt consolidation: before, overlap, after - each settled facility removed once, only with evidence */
 const cons = [it("income", "gross_salary", 600000), it("commitment", "car", 65000), it("commitment", "personal_financing", 85000, "verified", { settle_in_consolidation: 1, settlement_doc_id: 7 }),

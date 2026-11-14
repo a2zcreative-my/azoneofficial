@@ -176,7 +176,7 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
             {Number(d.delivery_cents) > 0 && <><dt>{L("Delivery", "Penghantaran")}</dt><dd>{fmtRM(Number(d.delivery_cents))}</dd></>}
             <dt className={pw.finTotal}>{L("Total", "Jumlah")}</dt><dd className={pw.finTotal}>{fmtRM(d.total_cents)}</dd>
           </dl>
-          <p className={pw.note}>{invoiced ? L(`Payments are recorded on the invoice ${st?.invoice ?? ""} in Sales.`, `Bayaran direkodkan pada invois ${st?.invoice ?? ""} dalam Jualan.`) : L("Not invoiced yet. Payments are recorded on the invoice once this quotation is converted.", "Belum diinvois. Bayaran direkodkan pada invois selepas sebut harga ini ditukar.")}</p>
+          <p className={pw.note}>{invoiced ? L(`Payments are recorded on the invoice${st?.invoice?.includes(" + ") ? "s" : ""} ${st?.invoice ?? ""} in Sales.`, `Bayaran direkodkan pada invois ${st?.invoice ?? ""} dalam Jualan.`) : L("Not invoiced yet. Payments are recorded on the invoice once this quotation is converted.", "Belum diinvois. Bayaran direkodkan pada invois selepas sebut harga ini ditukar.")}</p>
         </section>
       </div>
 

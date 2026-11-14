@@ -1000,7 +1000,14 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/staff/docs") data = {
     docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d)
       /* v1.273.0 - DEPOSIT=1: the service quotation QT 1 is half invoiced (a 50% deposit) */
-      : process.env.DEPOSIT ? docs.map((d) => d.id === 1 ? { ...d, invoiced_as: "INV-AZOO311026-8", invoiced_as_id: 9099, invoiced_cents: 225000, invoice_count: 1 } : d) : docs,
+      : process.env.DEPOSIT ? [...docs.map((d) => d.id === 1 ? { ...d, invoiced_as: "INV-AZOO311026-8", invoiced_as_id: 9099, invoiced_cents: 225000, invoice_count: 1 } : d),
+        /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear") - a
+           RM 75.00 service quotation billed as two RM 37.50 invoices, both paid: the quotation names BOTH */
+        { id: 60, doc_type: "QT", doc_number: "QT-AZOO091126-1", company: "Fixture Kedai Dua Bahagian", total_cents: 7500, payment_status: null, delivery_status: null, created_at: D + "09 10:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002, kind: "service",
+          invoiced_as: "INV-AZOO111126-1", invoiced_as_id: 62, invoiced_cents: 7500, invoice_count: 2, invoiced_list: "INV-AZOO091126-1 + INV-AZOO111126-1" },
+        { id: 61, doc_type: "INV", doc_number: "INV-AZOO091126-1", company: "Fixture Kedai Dua Bahagian", total_cents: 3750, payment_status: "paid", delivery_status: null, created_at: D + "09 11:00:00", paid_at: D + "09 12:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002, kind: "service", converted_from: 60, converted_from_number: "QT-AZOO091126-1", part_no: 1, part_of: 2 },
+        { id: 62, doc_type: "INV", doc_number: "INV-AZOO111126-1", company: "Fixture Kedai Dua Bahagian", total_cents: 3750, payment_status: "paid", delivery_status: null, created_at: D + "11 11:00:00", paid_at: D + "11 12:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002, kind: "service", converted_from: 60, converted_from_number: "QT-AZOO091126-1", part_no: 2, part_of: 2 },
+      ] : docs,
     can_confirm_paid: ["ceo", "coo", "super_admin"].includes(ROLE),
     can_confirm_own: ROLE === "ceo", // v1.216.2
   };

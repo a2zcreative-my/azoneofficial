@@ -13,7 +13,8 @@
  *      or reducing illustrative rate, always an assumption; no verified rule
  *      means Unknown, never a yes
  *   D  the next follow-up is the case's own Task (no second follow-up engine)
- *   E  the fee is on by the CEO's decision but bills nothing from the case: no
+ *   E  the fee is on by the CEO's decision but bills nothing from the case (v1.302.0:
+ *      only from a recorded disbursement, fa-templates.ts): no
  *      rate in code, nothing from an estimate; the agreement and commission
  *      stay off; no CTOS, blacklisting or penalty
  */
@@ -26,7 +27,7 @@ const read = (p) => readFileSync(join(root, p), "utf8");
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
 const FILES = {
   panel: "components/portal/financial-advisory.tsx", dsr: "components/portal/fa-dsr.tsx", kase: "components/portal/fa-case.tsx",
-  css: "components/portal/financial-advisory.module.css", portal: "app/portal/page.tsx", fa: "worker/src/fa.ts", engine: "worker/src/fa-engine.ts",
+  css: "components/portal/financial-advisory.module.css", portal: "app/portal/page.tsx", fa: "worker/src/fa.ts", engine: "worker/src/fa-engine.ts", tpl: "worker/src/fa-templates.ts",
 };
 
 function checks(f) {
@@ -53,7 +54,9 @@ function checks(f) {
   ok("D the next follow-up is the case's own open Task", /\(SELECT t\.deadline FROM tasks t WHERE t\.link_kind = 'fa_case' AND t\.link_id = c\.id AND t\.status != 'completed'[^)]*\) AS next_follow_up/.test(w) && !/CREATE TABLE[^;]*follow/i.test(f.fa));
 
   ok("E the fee is on, the agreement and commission off", /export const FA_LEGAL = \{ agreement: false, fee: true, disclosure: true, commission: false \} as const;/.test(f.fa));
-  ok("E the fee route bills nothing from a case", /if \(sub === "fee" && method === "POST"\) \{\s*return err\("fee_after_disbursement"/.test(w) && /if \(sub === "agreement" && method === "POST"\) \{\s*return err\("legal_gate"/.test(w));
+  /* v1.302.0 - phase 5: the fee is prepared in fa-templates.ts, only from a recorded disbursement (tests/fa-agreements.mjs proves it by request) */
+  const t = strip(f.tpl);
+  ok("E the fee route bills nothing from a case", !/sub === "fee"/.test(w) && w.includes("return handleFaTemplates(env, path, method, b, user, { caseOf, mayOpen, mayEdit, event, touch, icHash, legal: FA_LEGAL });") && /if \(!d \|\| !usable\(d\)\) \{\s*return err\("fee_after_disbursement"/.test(t) && /if \(sub === "agreement" && method === "POST"\) \{\s*return err\("legal_gate"/.test(w));
   ok("E no fee rate written in code", !/0\.15\b|1500\b|15\s*%|fee_bp|fee_percent/.test(w) && !/15%/.test(strip(f.panel).replace(/\(15% (is your proposal|ialah cadangan anda)\)/g, "")));
   ok("E no CTOS reporting, blacklisting or penalty built", !/ctos_report|blacklist\(|penalty_/i.test(w));
   ok("E the case's progress strip opens only the fee step", /const locked = \(k: string\) => LOCKED_STEPS\.has\(k\) && !\(k === "fee" && pic\?\.legal\.fee\);/.test(k));
@@ -76,7 +79,7 @@ const MUT = [
   ["a second follow-up engine", "fa", "FROM tasks t WHERE t.link_kind = 'fa_case' AND t.link_id = c.id AND t.status != 'completed' AND t.deadline IS NOT NULL ORDER BY t.deadline, t.id LIMIT 1) AS next_follow_up", "FROM fa_followups t WHERE t.case_id = c.id ORDER BY t.due LIMIT 1) AS next_follow_up"],
   ["the agreement switched on", "fa", "export const FA_LEGAL = { agreement: false, fee: true,", "export const FA_LEGAL = { agreement: true, fee: true,"],
   ["commission switched on", "fa", "disclosure: true, commission: false } as const;", "disclosure: true, commission: true } as const;"],
-  ["the fee billed from the case", "fa", 'if (sub === "fee" && method === "POST") {\n    return err("fee_after_disbursement"', 'if (sub === "fee" && method === "POST") {\n    const rate = 0.15;\n    return err("fee_after_disbursement"'],
+  ["the fee billed from the case", "tpl", 'if (!d || !usable(d)) {\n      return err("fee_after_disbursement"', 'if (false) {\n      return err("fee_after_disbursement"'],
   ["the agreement gate gone", "fa", 'if (sub === "agreement" && method === "POST") {\n    return err("legal_gate"', 'if (sub === "agreement" && method === "POST") {\n    return json({ ok: true }); return err("legal_gate"'],
   ["every locked step opened", "kase", '!(k === "fee" && pic?.legal.fee)', "!pic?.legal.fee"],
 ];

@@ -34,7 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
+import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SideDrawer } from "@/components/ui/side-drawer";
@@ -44,10 +44,12 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { ViewSwitch } from "@/components/portal/executive-cards";
 import { useTabViewAddress } from "@/lib/tab-view";
-import { btnSm, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import { APPLICATION, BANKER, Chip, FaCase, PRESCREEN, PRIORITY, PRODUCT } from "./fa-case";
 import { BankerRegistry } from "./fa-registry";
 import { DsrWorkspace, OUTCOME } from "./fa-dsr";
+import { Criteria } from "./fa-criteria"; // v1.301.0 - FA 2.0 phase 4: Bank Criteria 2.0 in its own file
+import { Agreements } from "./fa-agreements"; // v1.302.0 - FA 2.0 phase 5: the template library, the auto-filled draft, the fee after a disbursement
 import type { Tab as CaseTab } from "./fa-case";
 import css from "./financial-advisory.module.css";
 
@@ -86,12 +88,10 @@ function PriorityChip({ r }: { r: Row }) {
   const w = PRIORITY[r.priority] ?? [r.priority, r.priority, chipSmNeutral];
   return <span className={`${w[2]} ${css.chip}`} title={[...(r.priority_why ?? []), r.priority_override ? `${L("Set by", "Oleh")} ${r.priority_by ?? ""}: ${r.priority_reason ?? ""}` : ""].filter(Boolean).join(" · ")} data-testid="fa-row-priority">{L(w[0], w[1])}{r.priority_override ? " *" : ""}</span>;
 }
-interface Criterion { id: number; family: string; version: number; bank: string; product: string; income_definition: string; commitment_definition: string; dsr_guideline_bp: number | null; min_income_cents: number | null; employment_categories: string | null; min_service_months: number | null; required_documents: string | null; source: string; last_verified_on: string | null; state: string }
 const STAGE_WORD: Record<string, [string, string]> = {
   intake: ["Intake", "Pengambilan"], profile: ["Financial information pending", "Maklumat kewangan belum lengkap"], prescreen: ["Pre-assessment", "Pra-penilaian"], review: ["Awaiting management review", "Menunggu semakan pengurusan"], matching: ["Banker matching", "Padanan pegawai bank"],
   agreement: ["Agreement", "Perjanjian"], enquiry: ["Banker enquiry", "Pertanyaan bank"], application: ["Application processing", "Permohonan diproses"], decision: ["Outcome received", "Keputusan diterima"], disbursed: ["Disbursed", "Dikeluarkan"], fee: ["Fee", "Yuran"], closed: ["Closed", "Ditutup"],
 };
-const list = (s: string | null) => { try { return s ? (JSON.parse(s) as string[]) : []; } catch { return []; } };
 const pctOf = (bp: number | null | undefined) => (bp == null ? "—" : `${(bp / 100).toFixed(1)}%`);
 /** the task's own words, without the "FA-000001: " the server puts in front */
 const taskWords = (t: string | null | undefined) => (t ?? "").replace(/^FA-\d+:\s*/, "");
@@ -179,7 +179,7 @@ export function FinancialAdvisoryPanel({ startView }: { startView?: string }) {
           {view === "clients" && <Clients rows={rows} me={me} can={sum?.can.create ?? false} openCase={openCase} create={() => setCreating(true)} />}
           {view === "bankers" && <BankerRegistry toast={show} openCase={openCase} />}
           {view === "criteria" && <Criteria toast={show} />}
-          {view === "agreements" && <Agreements legal={sum?.legal ?? null} />}
+          {view === "agreements" && <Agreements legal={sum?.legal ?? null} rows={rows} toast={show} />}
         </>
       )}
       <p className={css.disclaimer}><AppIcon name="info" /><span><b>{L("Indicative only. Subject to official bank approval.", "Indikatif sahaja. Tertakluk kepada kelulusan rasmi bank.")}</b> {L("A2Z is not affiliated with any bank. Eligibility, terms and approval are decided by the bank. Never ask a client for a password, OTP, PIN or online-banking login.", "A2Z tidak bergabung dengan mana-mana bank. Kelayakan, terma dan kelulusan ditentukan oleh bank. Jangan sekali-kali minta kata laluan, OTP, PIN atau log masuk perbankan dalam talian.")}</span></p>
@@ -383,164 +383,3 @@ function NewCase({ onClose, toast, opened }: { onClose: () => void; toast: (t: s
   );
 }
 
-const EMP = ["permanent", "contract", "government", "glc", "private", "business_owner", "commission_based"];
-const REQ_DOCS: [string, string][] = [["payslip", "Payslip"], ["bank_statement", "Bank statement"], ["epf", "EPF statement"], ["facility_statement", "Facility statement"], ["ccris_by_client", "CCRIS"], ["ic", "IC copy"]];
-
-function Criteria({ toast }: { toast: (t: string, m: string, v?: "notice") => void }) {
-  const [data, setData] = useState<{ criteria: Criterion[]; can: { propose: boolean; verify: boolean } } | null>(null);
-  const [tick, setTick] = useState(0);
-  const [adding, setAdding] = useState(false);
-  const [show, setShow] = useState<"live" | "all">("live");
-  const [verifying, setVerifying] = useState<Criterion | null>(null);
-  const [on, setOn] = useState(mytToday());
-  useEffect(() => { let live = true; void api<typeof data>("/staff/fa/criteria").then((r) => { if (live && r.ok) setData(r.data); }); return () => { live = false; }; }, [tick]);
-  const act = async (id: number, what: "verify" | "retire", body: unknown) => {
-    const r = await api<Err>(`/staff/fa/criteria/${id}/${what}`, { method: "POST", body: JSON.stringify(body) });
-    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), (r.data as Err | null)?.error?.message ?? "", "notice"); return; }
-    toast(what === "verify" ? L("Criterion verified", "Kriteria disahkan") : L("Criterion retired", "Kriteria ditamatkan"), ""); setVerifying(null); setTick((t) => t + 1);
-  };
-  const rows = (data?.criteria ?? []).filter((c) => show === "all" || c.state !== "retired");
-  /* v1.298.0 - FA 2.0 (photo 4): counted from the records, never typed */
-  const all = data?.criteria ?? [];
-  const staleOn = new Date(Date.parse(`${mytToday()}T00:00:00Z`) - 90 * 864e5).toISOString().slice(0, 10);
-  const verified = all.filter((c) => c.state === "verified");
-  const recheck = verified.filter((c) => !c.last_verified_on || c.last_verified_on < staleOn).length;
-  const banks = new Set(verified.map((c) => c.bank)).size;
-  return (
-    <div className={css.stack}>
-    <KpiRow label={L("Bank criteria counts", "Kiraan kriteria bank")}>
-      <KpiTile icon="verify" tone="green" label={L("Verified rules", "Peraturan disahkan")} value={verified.length} busy={!data} sub={L("Used by the DSR engine", "Digunakan enjin DSR")} />
-      <KpiTile icon="document" tone="gold" label={L("Draft rules", "Peraturan draf")} value={all.filter((c) => c.state === "draft").length} busy={!data} sub={L("Never used until verified", "Tidak digunakan sehingga disahkan")} />
-      <KpiTile icon="warning" tone="red" label={L("Need re-check", "Perlu semak semula")} value={recheck} busy={!data} sub={L("Verified over 90 days ago", "Disahkan lebih 90 hari lalu")} />
-      <KpiTile icon="balance" tone="blue" label={L("Banks covered", "Bank diliputi")} value={banks} busy={!data} sub={L("With a verified rule", "Dengan peraturan disahkan")} />
-    </KpiRow>
-    <section className={`${card} ${css.sec}`} aria-label={L("Bank criteria", "Kriteria bank")} data-testid="fa-criteria">
-      <div className={css.head}>
-        <h3 className={css.h}><AppIcon name="balance" />{L("Bank criteria", "Kriteria bank")}</h3>
-        <span className={css.inline}>
-          <select className={selectClassSm} value={show} onChange={(e) => setShow(e.target.value as typeof show)} aria-label={L("Show", "Tunjuk")}><option value="live">{L("Draft and verified", "Draf dan disahkan")}</option><option value="all">{L("Include retired", "Termasuk ditamatkan")}</option></select>
-          {data?.can.propose && <button type="button" className={btnSmPrimary} onClick={() => setAdding(true)}><AppIcon name="add" />{L("Propose a criterion", "Cadang kriteria")}</button>}
-        </span>
-      </div>
-      <p className={css.sub}>{L("No limit is built in: each bank's rule is written here with its source, and counts only after management verifies it. A rule older than 90 days is flagged for re-checking.", "Tiada had terbina: peraturan setiap bank ditulis di sini dengan sumbernya, dan dikira hanya selepas pengurusan mengesahkannya. Peraturan lebih 90 hari ditanda untuk disemak semula.")}</p>
-      {!data ? <SkelRows rows={3} /> : rows.length === 0 ? <p className={css.empty}>{L("No bank criterion yet. Until one is verified, every pre-screen goes to manual review.", "Belum ada kriteria bank. Sehingga satu disahkan, setiap saringan ke semakan manual.")}</p> : (
-        <ul className={css.items}>{rows.map((c) => (
-          <li key={c.id} className={css.item} data-testid="fa-criterion">
-            <span className={css.itemMain}>
-              <b>{c.bank} · {L(...(PRODUCT[c.product] ?? [c.product, c.product]))} <span className={css.sub}>v{c.version}</span></b>
-              <span className={css.sub}>
-                {L("DSR guideline", "Garis panduan DSR")} {c.dsr_guideline_bp == null ? "—" : `${c.dsr_guideline_bp / 100}%`} {L("of", "daripada")} {c.income_definition} {L("income", "pendapatan")}
-                {c.commitment_definition === "exclude_ptptn" ? ` · ${L("PTPTN excluded", "PTPTN dikecualikan")}` : ""}
-                {c.min_income_cents ? ` · ${L("min income", "pendapatan min")} ${fmtRM(c.min_income_cents)}` : ""}
-                {c.min_service_months != null ? ` · ${c.min_service_months} ${L("months' service", "bulan berkhidmat")}` : ""}
-                {list(c.employment_categories).length ? ` · ${list(c.employment_categories).join(", ")}` : ""}
-                {list(c.required_documents).length ? ` · ${L("needs", "perlu")} ${list(c.required_documents).join(", ")}` : ""}
-              </span>
-              <span className={css.sub}>{L("Source", "Sumber")}: {c.source}{c.last_verified_on ? ` · ${L("verified", "disahkan")} ${dmy(c.last_verified_on)}` : ""}</span>
-            </span>
-            <span className={c.state === "verified" ? chipSmSuccess : c.state === "draft" ? chipSmWarn : chipSmNeutral}>{c.state === "verified" ? L("Verified", "Disahkan") : c.state === "draft" ? L("Draft - not used", "Draf - tidak digunakan") : L("Retired", "Ditamatkan")}</span>
-            {data.can.verify && c.state !== "retired" && (
-              <span className={css.inline}>
-                {c.state === "draft" && <button type="button" className={btnSm} onClick={() => { setVerifying(c); setOn(mytToday()); }}>{L("Verify", "Sahkan")}</button>}
-                <button type="button" className={btnSmQuiet} onClick={() => void act(c.id, "retire", {})}>{L("Retire", "Tamatkan")}</button>
-              </span>
-            )}
-            {verifying?.id === c.id && (
-              <span className={css.inline}>
-                <label className={css.field}>{L("Confirmed with the source on", "Disahkan dengan sumber pada")}<input className={inputClassSm} type="date" value={on} max={mytToday()} onChange={(e) => setOn(e.target.value)} /></label>
-                <button type="button" className={btnSmPrimary} onClick={() => void act(c.id, "verify", { last_verified_on: on })}>{L("Confirm", "Sahkan")}</button>
-              </span>
-            )}
-          </li>
-        ))}</ul>
-      )}
-      {adding && <NewCriterion onClose={() => setAdding(false)} toast={toast} saved={() => { setAdding(false); setTick((t) => t + 1); }} />}
-    </section>
-    <div className={css.grid2}>
-      <section className={`${card} ${css.sec}`} aria-label={L("When no verified rule exists", "Apabila tiada peraturan disahkan")} data-testid="fa-fallback">
-        <h3 className={css.h}><AppIcon name="info" />{L("When no verified rule exists", "Apabila tiada peraturan disahkan")}</h3>
-        <ol className={css.steps7}>
-          {[["Calculate the general assessment", "Kira penilaian umum"], ["Show preliminary affordability only", "Tunjuk kemampuan awal sahaja"], ["Bank fit: Unknown - never a yes", "Kesesuaian bank: Tidak diketahui - bukan ya"], ["Send it to management review", "Hantar ke semakan pengurusan"], ["Ask a verified banker, lawfully and with the client's consent", "Tanya pegawai bank disahkan, secara sah dan dengan persetujuan pelanggan"], ["Record the answer as a draft, with its source", "Rekod jawapan sebagai draf, dengan sumbernya"], ["Management verifies it before it counts", "Pengurusan mengesahkannya sebelum dikira"]].map(([en, ms]) => <li key={en}>{L(en!, ms!)}</li>)}
-        </ol>
-      </section>
-      <section className={`${card} ${css.sec}`} aria-label={L("Minimum fields per rule", "Medan minimum setiap peraturan")}>
-        <h3 className={css.h}><AppIcon name="success" />{L("Minimum fields per rule", "Medan minimum setiap peraturan")}</h3>
-        <ul className={css.list}>
-          {[["Bank and product (from the registry)", "Bank dan produk (daripada daftar)"], ["Source - document or contact, and date", "Sumber - dokumen atau kenalan, dan tarikh"], ["Income measured on (net or gross) and what commitments count", "Pendapatan diukur atas (bersih atau kasar) dan komitmen yang dikira"], ["DSR guideline, only if the source states one", "Garis panduan DSR, hanya jika sumber menyatakannya"], ["Employment accepted and documents required", "Pekerjaan diterima dan dokumen diperlukan"], ["The date management confirmed it with the source", "Tarikh pengurusan mengesahkannya dengan sumber"]].map(([en, ms]) => <li key={en}><AppIcon name="success" /><span>{L(en!, ms!)}</span></li>)}
-        </ul>
-        <p className={css.sub}>{L("Category, confidence and review dates per rule come with Phase 4.", "Kategori, keyakinan dan tarikh semakan setiap peraturan datang dengan Fasa 4.")}</p>
-      </section>
-    </div>
-    </div>
-  );
-}
-
-function NewCriterion({ onClose, toast, saved }: { onClose: () => void; toast: (t: string, m: string, v?: "notice") => void; saved: () => void }) {
-  /* v1.286.0 - the bank comes from the one bank registry */
-  const [banks, setBanks] = useState<{ id: number; name: string; status: string }[] | null>(null);
-  const [offers, setOffers] = useState<{ bank_id: number; product: string; status: string }[]>([]);
-  useEffect(() => { let live = true; void api<{ banks: NonNullable<typeof banks>; products: typeof offers }>("/staff/fa/registry").then((r) => { if (live && r.ok && r.data) { setBanks(r.data.banks.filter((b) => b.status !== "retired")); setOffers(r.data.products.filter((p) => p.status === "active")); } }); return () => { live = false; }; }, []);
-  const [f, setF] = useState({ bank: "", product: "personal_financing", min_age: "", max_age: "", min_tenure: "", max_tenure: "", income_definition: "net", commitment_definition: "all", dsr: "", min_income: "", min_service: "", source: "", emp: [] as string[], docs: [] as string[] });
-  const toggle = (k: "emp" | "docs", v: string, on: boolean) => setF({ ...f, [k]: on ? [...f[k], v] : f[k].filter((x) => x !== v) });
-  const save = async () => {
-    const dsr = Number(f.dsr), inc = Number(f.min_income.replace(/,/g, ""));
-    const r = await api<Err>("/staff/fa/criteria", { method: "POST", body: JSON.stringify({
-      bank_id: Number(f.bank), product: f.product,
-      min_age: f.min_age ? Number(f.min_age) : undefined, max_age: f.max_age ? Number(f.max_age) : undefined, min_tenure_months: f.min_tenure ? Number(f.min_tenure) : undefined, max_tenure_months: f.max_tenure ? Number(f.max_tenure) : undefined, income_definition: f.income_definition, commitment_definition: f.commitment_definition, source: f.source,
-      dsr_guideline_pct: f.dsr.trim() && Number.isFinite(dsr) ? dsr : undefined, min_income_cents: f.min_income.trim() && Number.isFinite(inc) ? Math.round(inc * 100) : undefined,
-      min_service_months: f.min_service.trim() ? Number(f.min_service) : undefined, employment_categories: f.emp.length ? f.emp : undefined, required_documents: f.docs.length ? f.docs : undefined,
-    }) });
-    if (!r.ok) { toast(L("Not saved", "Tidak disimpan"), (r.data as Err | null)?.error?.message ?? "", "notice"); return; }
-    toast(L("Draft saved", "Draf disimpan"), L("Management verifies it before it is used.", "Pengurusan mengesahkannya sebelum digunakan.")); saved();
-  };
-  return (
-    <SideDrawer open onClose={onClose} dirty={!!(f.bank || f.source)} title={L("Propose a bank criterion", "Cadang kriteria bank")} subtitle={L("A draft is never used for matching", "Draf tidak digunakan untuk padanan")}>
-      {!banks ? <SkelRows rows={4} /> : <div className={css.stack}>
-        <div className={css.form}>
-          <label className={css.field}>{L("Bank (from the registry)", "Bank (daripada daftar)")}<select className={selectClassSm} value={f.bank} data-testid="fa-crit-bank" onChange={(e) => setF({ ...f, bank: e.target.value })}><option value="">—</option>{(banks ?? []).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-          <label className={css.field}>{L("Product", "Produk")}<select className={selectClassSm} value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}><option value="personal_financing">{L("Personal financing", "Pembiayaan peribadi")}</option><option value="debt_consolidation">{L("Debt consolidation", "Penyatuan hutang")}</option></select></label>
-          {f.bank && !offers.some((o) => String(o.bank_id) === f.bank && o.product === f.product) && <p className={`erp-note ${css.wide}`}>{L("This bank has no such product in the registry yet - management adds it in Bankers, Bank registry.", "Bank ini belum ada produk tersebut dalam daftar - pengurusan menambahnya dalam Pegawai bank, Daftar bank.")}</p>}
-          <label className={css.field}>{L("Age from - to (optional)", "Umur dari - hingga (pilihan)")}<span className={css.inline}><input className={inputClassSm} inputMode="numeric" aria-label={L("Minimum age", "Umur minimum")} value={f.min_age} onChange={(e) => setF({ ...f, min_age: e.target.value.replace(/\D/g, "") })} /><input className={inputClassSm} inputMode="numeric" aria-label={L("Maximum age", "Umur maksimum")} value={f.max_age} onChange={(e) => setF({ ...f, max_age: e.target.value.replace(/\D/g, "") })} /></span></label>
-          <label className={css.field}>{L("Tenure months from - to (optional)", "Tempoh bulan dari - hingga (pilihan)")}<span className={css.inline}><input className={inputClassSm} inputMode="numeric" aria-label={L("Minimum tenure", "Tempoh minimum")} value={f.min_tenure} onChange={(e) => setF({ ...f, min_tenure: e.target.value.replace(/\D/g, "") })} /><input className={inputClassSm} inputMode="numeric" aria-label={L("Maximum tenure", "Tempoh maksimum")} value={f.max_tenure} onChange={(e) => setF({ ...f, max_tenure: e.target.value.replace(/\D/g, "") })} /></span></label>
-          <label className={css.field}>{L("DSR guideline (%)", "Garis panduan DSR (%)")}<input className={inputClassSm} inputMode="decimal" value={f.dsr} onChange={(e) => setF({ ...f, dsr: e.target.value })} /></label>
-          <label className={css.field}>{L("Measured on", "Diukur atas")}<select className={selectClassSm} value={f.income_definition} onChange={(e) => setF({ ...f, income_definition: e.target.value })}><option value="net">{L("Net income", "Pendapatan bersih")}</option><option value="gross">{L("Gross income", "Pendapatan kasar")}</option></select></label>
-          <label className={css.field}>{L("Commitments counted", "Komitmen dikira")}<select className={selectClassSm} value={f.commitment_definition} onChange={(e) => setF({ ...f, commitment_definition: e.target.value })}><option value="all">{L("All", "Semua")}</option><option value="exclude_ptptn">{L("All except PTPTN", "Semua kecuali PTPTN")}</option></select></label>
-          <label className={css.field}>{L("Minimum income (RM, optional)", "Pendapatan minimum (RM, pilihan)")}<input className={inputClassSm} inputMode="decimal" value={f.min_income} onChange={(e) => setF({ ...f, min_income: e.target.value })} /></label>
-          <label className={css.field}>{L("Minimum service (months, optional)", "Tempoh minimum (bulan, pilihan)")}<input className={inputClassSm} inputMode="numeric" value={f.min_service} onChange={(e) => setF({ ...f, min_service: e.target.value.replace(/\D/g, "") })} /></label>
-          <label className={`${css.field} ${css.wide}`}>{L("Source (document or contact, and date)", "Sumber (dokumen atau kenalan, dan tarikh)")}<input className={inputClassSm} value={f.source} maxLength={300} onChange={(e) => setF({ ...f, source: e.target.value })} /></label>
-        </div>
-        <fieldset className={css.fieldset}><legend>{L("Employment accepted (none ticked = not stated)", "Pekerjaan diterima (tiada = tidak dinyatakan)")}</legend>{EMP.map((x) => <label key={x} className={css.check}><input type="checkbox" checked={f.emp.includes(x)} onChange={(e) => toggle("emp", x, e.target.checked)} /> {x.replace("_", " ")}</label>)}</fieldset>
-        <fieldset className={css.fieldset}><legend>{L("Documents the bank requires", "Dokumen yang diperlukan bank")}</legend>{REQ_DOCS.map(([k, w]) => <label key={k} className={css.check}><input type="checkbox" checked={f.docs.includes(k)} onChange={(e) => toggle("docs", k, e.target.checked)} /> {w}</label>)}</fieldset>
-        <button type="button" className={btnSmPrimary} disabled={!f.bank || !offers.some((o) => String(o.bank_id) === f.bank && o.product === f.product) || f.source.trim().length < 5} onClick={() => void save()}>{L("Save draft", "Simpan draf")}</button>
-      </div>}
-    </SideDrawer>
-  );
-}
-
-/* v1.298.0 - the fee is ON by the CEO's decision (13-11-2026, without legal
-   review). The agreement itself - generating for a client, sending, signing -
-   stays OFF, and the template library is Phase 5. No rate is written here: it
-   is set on the approved template; the fee is billed only after a recorded
-   disbursement, through Sales (quotation -> invoice -> CEO verification). */
-function Agreements({ legal }: { legal: Record<string, boolean> | null }) {
-  const feeOn = !!legal?.fee;
-  return (
-    <div className={css.stack}>
-      <section className={`${card} ${css.sec}`} aria-label={L("Advisory fee", "Yuran nasihat")} data-testid="fa-fee">
-        <h3 className={css.h}><AppIcon name="money" />{L("Advisory fee", "Yuran nasihat")} <span className={`${feeOn ? chipSmSuccess : chipSmNeutral} ${css.chip}`}>{feeOn ? L("On - CEO decision 13-11-2026", "Hidup - keputusan CEO 13-11-2026") : L("Switched off", "Dimatikan")}</span></h3>
-        <dl className={css.kv}>
-          <div><dt>{L("Rate", "Kadar")}</dt><dd>{L("Set on the approved agreement template (15% is your proposal) - never written in the system's code", "Ditetapkan pada templat perjanjian yang diluluskan (15% ialah cadangan anda) - tidak ditulis dalam kod sistem")}</dd></div>
-          <div><dt>{L("When it is billed", "Bila dibilkan")}</dt><dd>{L("Only after a disbursement is recorded with the bank's evidence - never from an estimated eligibility", "Hanya selepas pengeluaran direkod dengan bukti bank - tidak sekali-kali daripada anggaran kelayakan")}</dd></div>
-          <div><dt>{L("How", "Bagaimana")}</dt><dd>{L("Sales quotation -> invoice -> your payment verification (no second invoice engine)", "Sebut harga Jualan -> invois -> pengesahan bayaran anda (tiada enjin invois kedua)")}</dd></div>
-          <div><dt>{L("Legal review", "Semakan undang-undang")}</dt><dd>{L("Not done - switched on by your decision. Counsel is still advised before the first client is billed (Consumer Credit Act 2025).", "Belum dibuat - dihidupkan dengan keputusan anda. Peguam masih dinasihatkan sebelum pelanggan pertama dibilkan (Akta Kredit Pengguna 2025).")}</dd></div>
-          <div><dt>{L("Commission", "Komisen")}</dt><dd>{legal?.commission ? "" : L("None on advisory fees until you approve it", "Tiada atas yuran nasihat sehingga anda luluskan")}</dd></div>
-          <div><dt>{L("CTOS / blacklisting / penalties", "CTOS / senarai hitam / penalti")}</dt><dd>{L("Never used. Not built.", "Tidak sekali-kali digunakan. Tidak dibina.")}</dd></div>
-        </dl>
-      </section>
-      <section className={`${card} ${css.sec}`} aria-label={L("Agreements", "Perjanjian")} data-testid="fa-agreements">
-        <h3 className={css.h}><AppIcon name="lock" />{L("Client agreements", "Perjanjian pelanggan")} <span className={`${chipSmNeutral} ${css.chip}`}>{L("Sending and signing switched off", "Penghantaran dan tandatangan dimatikan")}</span></h3>
-        <p>{L("The template library - upload your approved Word agreement once, pick a case, and the client's name and IC fill in (IC masked) with a draft PDF - is Phase 5. Sending an agreement to a client and signing stay off until legal review and your separate approval.", "Pustaka templat - muat naik perjanjian Word yang diluluskan sekali, pilih kes, dan nama serta IC pelanggan diisi (IC bertopeng) dengan PDF draf - ialah Fasa 5. Menghantar perjanjian kepada pelanggan dan tandatangan kekal dimatikan sehingga semakan undang-undang dan kelulusan berasingan anda.")}</p>
-      </section>
-    </div>
-  );
-}

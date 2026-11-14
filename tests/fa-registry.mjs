@@ -214,7 +214,7 @@ async function runtime(workerBundle) {
     ok((await vf(1, dua.j.id)).j?.error?.code === "invalid_state", "a banker who left is not verified");
 
     /* ---------- criteria and notes come from the registry ---------- */
-    const crit = await call("/fa/criteria", 9, "POST", { bank_id: ba.j.id, product: "personal_financing", dsr_guideline_pct: 60, min_age: 21, max_age: 60, min_tenure_months: 12, max_tenure_months: 120, source: "Invented test bank, test data" });
+    const crit = await call("/fa/criteria", 9, "POST", { confidence: "high", bank_id: ba.j.id, product: "personal_financing", dsr_guideline_pct: 60, min_age: 21, max_age: 60, min_tenure_months: 12, max_tenure_months: 120, source: "Invented test bank, test data" });
     const terms = db.prepare(`SELECT bank_id, min_age, max_age, max_tenure_months FROM fa_criteria_terms WHERE criterion_id = ?`).get(crit.j?.id);
     ok(crit.status === 201 && db.prepare(`SELECT bank FROM fa_criteria WHERE id = ?`).get(crit.j.id).bank === "Bank A Berhad" && terms?.bank_id === ba.j.id && terms?.min_age === 21 && terms?.max_tenure_months === 120, "a criterion's bank is the registry's name; its bank and ranges are kept beside it", crit.text);
     const listed = (await call("/fa/criteria", 9)).j?.criteria?.find((c) => c.id === crit.j.id);
@@ -223,9 +223,9 @@ async function runtime(workerBundle) {
     const cs = await call("/fa/cases", 9, "POST", { product: "personal_financing", issuer_code: "a2z", new_customer: { name: "Encik Registry", phone: "013-222 3333" } });
     const bn = await call(`/fa/cases/${cs.j?.id}/notes`, 9, "POST", { type: "banker", banker_id: s1.j.id, source: "call", status: "under_review", body: "Banker is reviewing the profile" });
     ok(bn.status === 201 && db.prepare(`SELECT bank FROM fa_notes WHERE id = ?`).get(bn.j.id)?.bank === "Bank A Berhad" && db.prepare(`SELECT banker_id FROM fa_note_links WHERE note_id = ?`).get(bn.j.id)?.banker_id === s1.j.id, "a banker note takes the bank from the banker and links the banker", bn.text);
-    ok((await call("/fa/criteria", 9, "POST", { bank: "Bank A Berhad", product: "personal_financing", source: "Typed bank name only" })).status === 400, "a criterion's bank cannot be typed in");
-    ok((await call("/fa/criteria", 9, "POST", { bank_id: bb.j.id, product: "debt_consolidation", source: "Invented test bank" })).status === 400, "...and only for a product the bank offers");
-    ok((await call("/fa/criteria", 9, "POST", { bank_id: ba.j.id, product: "personal_financing", min_age: 60, max_age: 21, source: "Invented test bank" })).status === 400, "a minimum above its maximum is refused");
+    ok((await call("/fa/criteria", 9, "POST", { confidence: "high", bank: "Bank A Berhad", product: "personal_financing", source: "Typed bank name only" })).status === 400, "a criterion's bank cannot be typed in");
+    ok((await call("/fa/criteria", 9, "POST", { confidence: "high", bank_id: bb.j.id, product: "debt_consolidation", source: "Invented test bank" })).status === 400, "...and only for a product the bank offers");
+    ok((await call("/fa/criteria", 9, "POST", { confidence: "high", bank_id: ba.j.id, product: "personal_financing", min_age: 60, max_age: 21, source: "Invented test bank" })).status === 400, "a minimum above its maximum is refused");
 
     /* ---------- the registry's own history ---------- */
     const ev = await call("/fa/registry/events", 3);
