@@ -381,7 +381,10 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
   // Employee records: IDs, position, department, staff list, birth dates.
   "Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
   // v1.4.213: asset register — same tier as Staff Details (HR keeps it).
-  Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],
+  /* v1.304.0 - Assets 4.0 phase 2 (the CEO, D-4): every staff member opens the tab
+     for the assets they hold (My assets) and to acknowledge a hand-over; the
+     register itself is still only for asset_view (the server decides). */
+  Assets: ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin", "sales_marketing", "marketing", "editor", "live_host"],
   /* v1.89.0 — the Threads workspace. Mirrors threads_view in
      worker/src/permissions.ts; connecting an account is threads_manage
      (management tier) and is gated inside the tab, not here. */

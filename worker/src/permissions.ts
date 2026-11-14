@@ -299,6 +299,15 @@ export const PERMS: Record<string, readonly Role[]> = {
   fa_registry: ["ceo", "coo"], // v1.286.0 - add and verify banks, branches and bankers (blueprint v1.1, B9)
   fa_allocate: ["ceo", "coo"], // v1.288.0 - approve a banker allocation (banker blueprint v1.1, B9)
   fa_priority: ["ceo", "coo", "cco"], // v1.299.0 - override a case's priority with a reason (FA 2.0 blueprint, D-6)
+  /* v1.303.0 - ASSETS WORKSPACE 4.0 (the CEO, 14-11-2026, D-1 and A3): the same people who
+     read the register today (hr_manage + exec_view); the keepers of it plus the COO; the
+     company of an asset changed (once set) only by the CEO or COO */
+  asset_view: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
+  asset_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo"],
+  asset_company_change: ["ceo", "coo"],
+  /* v1.304.0 - phase 2 (D-4): every staff member sees the assets they hold and acknowledges a hand-over; a manager (reports_to) sees their team's */
+  asset_self: ["super_admin", "admin", "editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco"],
+  asset_dispose_approve: ["ceo", "coo"], // v1.305.0 - phase 3 (D-6): approve or reject a disposal, never one they requested (the owner apart)
   fa_templates: ["ceo", "coo", "cco"], // v1.302.0 - draft agreement templates and submit them for review (FA 2.0 blueprint, D-6)
   fa_templates_publish: ["ceo"], // v1.302.0 - publish (or archive) an agreement template version (FA 2.0 blueprint, D-6: the CEO publishes)
   /** view and process payroll (was PAYROLL_PROC) */
@@ -518,6 +527,11 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Financial Advisory", key: "fa_registry", en: "Add and verify banks, branches and bankers", ms: "Tambah dan sahkan bank, cawangan dan pegawai bank", cap: "fa_registry", note_en: "Never a banker they registered themselves (the owner apart)", note_ms: "Tidak pegawai bank yang didaftar sendiri (kecuali pemilik)" },
   { module: "Financial Advisory", key: "fa_allocate", en: "Approve a banker allocation for a case", ms: "Luluskan peruntukan pegawai bank untuk kes", cap: "fa_allocate", note_en: "After a management Proceed; never on an allocation they proposed (the owner apart)", note_ms: "Selepas keputusan Teruskan; tidak pada peruntukan yang dicadang sendiri (kecuali pemilik)" },
   { module: "Financial Advisory", key: "fa_priority", en: "Override a case's priority, with a reason", ms: "Mengatasi keutamaan kes, dengan sebab", cap: "fa_priority", note_en: "The computed priority stays visible beside it; never on a case they own (the owner apart)", note_ms: "Keutamaan dikira kekal kelihatan; tidak pada kes milik sendiri (kecuali pemilik)" },
+  { module: "Assets", key: "asset_view", en: "Open the asset register, reports and asset history", ms: "Buka daftar aset, laporan dan sejarah aset", cap: "asset_view" },
+  { module: "Assets", key: "asset_manage", en: "Add and edit assets, set an asset's company the first time, remove an entry typed by mistake", ms: "Tambah dan sunting aset, tetapkan syarikat aset kali pertama, buang entri tersilap", cap: "asset_manage" },
+  { module: "Assets", key: "asset_company_change", en: "Move an asset to the other company (with a reason)", ms: "Pindahkan aset ke syarikat lain (dengan sebab)", cap: "asset_company_change" },
+  { module: "Assets", key: "asset_self", en: "See the assets you hold, acknowledge a hand-over, return your own; a manager sees the team's and requests a hand-over", ms: "Lihat aset yang anda pegang, sahkan serahan, pulangkan aset sendiri; pengurus melihat aset pasukan dan memohon serahan", cap: "asset_self" },
+  { module: "Assets", key: "asset_dispose_approve", en: "Approve or reject an asset disposal", ms: "Luluskan atau tolak pelupusan aset", cap: "asset_dispose_approve", note_en: "Never a disposal they requested (the owner apart); nothing is written off or posted", note_ms: "Tidak pada pelupusan yang dimohon sendiri (kecuali pemilik); tiada hapus kira atau catatan" },
   { module: "Financial Advisory", key: "fa_templates", en: "Draft agreement templates and submit a version for review", ms: "Draf templat perjanjian dan hantar versi untuk semakan", cap: "fa_templates", note_en: "Every change is a new version; a published text is never replaced", note_ms: "Setiap perubahan ialah versi baharu; teks yang diterbitkan tidak diganti" },
   { module: "Financial Advisory", key: "fa_templates_publish", en: "Publish or archive an agreement template version (sets its fee rate in force)", ms: "Terbitkan atau arkibkan versi templat perjanjian (kadar yuran berkuat kuasa)", cap: "fa_templates_publish", note_en: "Never a version they drafted (the owner apart); sending and signing stay off", note_ms: "Tidak pada versi yang didraf sendiri (kecuali pemilik); hantar dan tandatangan kekal ditutup" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },

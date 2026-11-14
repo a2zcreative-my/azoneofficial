@@ -37,7 +37,7 @@ GROUPS = [("Workspace", ["Dashboard", "Desk", "Announcements"]), ("Revenue", ["S
 ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"]
 # the 1.286.0 defaults (tests/navigation.mjs holds the same, from the registry itself)
 M = {"Dashboard": "YYYYYYYY", "Desk": "YYYYYYYY", "Announcements": "YYYYYYYY", "Sales": "YYYYY---", "Ecommerce": "YYYYYY--", "Agents": "YYY-Y---",
-     "Financial Advisory": "YYY-Y---", "Tasks": "YYYYYYYY", "Inventory": "YYYYYY--", "Assets": "YYYY----", "Hotels": "YYYY----", "HR": "YYYY----",
+     "Financial Advisory": "YYY-Y---", "Tasks": "YYYYYYYY", "Inventory": "YYYYYY--", "Assets": "YYYYYYYY", "Hotels": "YYYY----", "HR": "YYYY----",
      "Staff Details": "YYYY----", "Attendance": "YYYYYYYY", "On Shift": "YYYYYYYY", "Leave": "YYYYYYYY", "Claims": "YYYYYYYY", "Payroll": "YY------",
      "Finance": "YY------", "Accounting": "Y-------", "Commission": "YYY-Y---", "ELFIA Store": "YYYYYY--", "ELFIA Traffic": "YYYYYY--",
      "Companies": "YYY-----", "Users": "YY------", "Automation & Rules": "YYY-----"}  # v1.293.0 - CEO, COO, CCO (and admin tiers)

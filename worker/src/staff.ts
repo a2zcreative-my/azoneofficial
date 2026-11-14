@@ -36,6 +36,7 @@ import { handleNews, annForMeSql, viewerOf } from "./news"; // v1.217.0 - News &
 import { handleBusiness } from "./business"; // v1.181.13 - the ERP roadmap
 import { handlePayments, paymentVerificationOn } from "./payment-verify"; // v1.272.0 - report, then the CEO verifies
 import { handleFa } from "./fa"; // v1.284.0 - Financial Advisory (internal release 1)
+import { handleAssetHistory, readProfile, writeProfile, changesOf, handleCustody, custodyLive, PENDING_SQL, handleCare, careLive, CARE_STATUSES } from "./assets"; // v1.303.0 - Assets Workspace 4.0 phase 1; v1.304.0 - phase 2 custody; v1.305.0 - phase 3 care
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
 import { claimScope } from "./claims-scope"; // v1.205.0 - one claims scope for the list and the search
@@ -8938,25 +8939,48 @@ async function handleStaffRoutes(
      the same tier (HR keeps the register). Assets are never deleted —
      status moves to lost/disposed so history and audit survive. */
 
+  /* v1.303.0 - Assets 4.0 (the CEO, 14-11-2026): the asset history (D-7), in assets.ts */
+  /* v1.304.0 - Assets 4.0 phase 2: custody - My assets, the queue, requests, one asset's steps and actions (assets.ts) */
+  if (path === "/assets/mine" || path === "/assets/custody" || path === "/assets/custody/requests" || /^\/assets\/custody\/requests\/(\d+)\/decide$/.test(path) || /^\/assets\/(\d+)\/custody$/.test(path)) {
+    const cust = await handleCustody(env, path, method, body, user);
+    if (cust) return cust;
+  }
+  /* v1.305.0 - Assets 4.0 phase 3: maintenance and disposal - the board, one asset's records and actions (assets.ts) */
+  if (path === "/assets/care" || /^\/assets\/(\d+)\/care$/.test(path)) {
+    const care = await handleCare(env, path, method, body, user);
+    if (care) return care;
+  }
+  if (path === "/assets/history") {
+    const assetHist = await handleAssetHistory(env, path, method, user, new URL(request.url).searchParams);
+    if (assetHist) return assetHist;
+  }
+
   if (path === "/assets" && method === "GET") {
-    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) return err("forbidden", "HR access required", 403);
+    /* v1.303.0 - asset_view: the same people as hr_manage + exec_view */
+    if (!can(user.role, "asset_view")) return err("forbidden", "HR access required", 403);
     /* v1.153.0 - a removed row (a typo, 0126) leaves the register. The
-       unfiltered read is the deploy-before-migrate fallback. */
-    const sqlA = (filtered: boolean) =>
+       unfiltered read is the deploy-before-migrate fallback.
+       v1.303.0 - with the company and the shared label (0193); before 0193
+       every asset reads "Company not set". */
+    /* v1.304.0 - with the hand-over waiting for its holder's acknowledgement (0194) */
+    const live = await custodyLive(env);
+    const sqlA = (filtered: boolean, prof = filtered) =>
       /* v1.210.0 - the holder's FULL name, as the staff list and the picker
          show it (the owner's Assets brief: one person, one name) */
       `SELECT a.*, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS assigned_name FROM assets a
        LEFT JOIN users u ON u.id = a.assigned_to
        ${filtered ? "WHERE a.deleted_at IS NULL" : ""}
-       ORDER BY a.status = 'disposed', a.status = 'lost', a.asset_tag`;
+       ORDER BY a.status = 'disposed', a.status = 'lost', a.asset_tag`.replace(" FROM assets a", `${prof && live ? `, ${PENDING_SQL("a")} AS pending_custody_id` : ""}${prof ? ", p.issuer_code, p.shared_label FROM assets a LEFT JOIN asset_profile p ON p.asset_id = a.id" : " FROM assets a"}`);
     let results: Record<string, unknown>[] = [];
     try { results = (await env.DB.prepare(sqlA(true)).all<Record<string, unknown>>()).results ?? []; }
-    catch { results = (await env.DB.prepare(sqlA(false)).all<Record<string, unknown>>()).results ?? []; }
-    return json({ assets: results, can_remove: can(user.role, "hr_manage") });
+    catch { try { results = (await env.DB.prepare(sqlA(true, false)).all<Record<string, unknown>>()).results ?? []; } catch { results = (await env.DB.prepare(sqlA(false)).all<Record<string, unknown>>()).results ?? []; } }
+    return json({ assets: results, can_remove: can(user.role, "asset_manage"), can: { edit: can(user.role, "asset_manage"), company_change: can(user.role, "asset_company_change"), dispose_approve: can(user.role, "asset_dispose_approve") }, custody_live: live, care_live: await careLive(env) });
   }
 
   if (path === "/assets" && method === "POST") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "asset_manage")) return err("forbidden", "HR access required", 403);
+    const profA = readProfile(body); // v1.303.0 - the company and the shared label (0193)
+    if ("error" in profA) return profA.error;
     const nameA = str(body?.name, 120) ? (body!.name as string).trim() : null;
     if (!nameA) return err("invalid_input", "Asset name is required", 400);
     const CATS = ["electronics", "furniture", "vehicle", "studio", "other"];
@@ -8974,6 +8998,9 @@ async function handleStaffRoutes(
       ? Math.round(Number(body.purchase_price) * 100) : null;
     if (priceC !== null && (!Number.isFinite(priceC) || priceC < 0)) return err("invalid_input", "purchase_price must be a number", 400);
     const asgn = body?.assigned_to != null && String(body.assigned_to) !== "" ? Number(body.assigned_to) : null;
+    /* v1.305.0 - once 0195 is applied a new asset starts In use or Spare; repair, lost and disposed come from their records */
+    if ((CARE_STATUSES as readonly string[]).includes(String(body?.status)) && (await careLive(env))) return err("use_care", "A new asset starts In use or Spare - send it for repair, report it lost or request its disposal from its record.", 409);
+    if (profA.want.shared_label && asgn != null) return err("invalid_input", "A shared-use asset has no single holder - clear Assigned to, or clear the shared label.", 400);
     try {
       const r = await env.DB.prepare(
         `INSERT INTO assets (asset_tag, name, category, brand_model, serial_no, purchase_date, purchase_price_cents, vendor, warranty_until, location, assigned_to, status, condition_note, created_by)
@@ -8993,6 +9020,16 @@ async function handleStaffRoutes(
         user.id,
       ).run();
       await audit(env, user.id, "asset.create", "assets", String(r.meta.last_row_id), { tag });
+      /* v1.304.0 - a holder named on a new asset is a hand-over: one assign step, waiting for their acknowledgement */
+      if (asgn != null && (await custodyLive(env))) {
+        await env.DB.prepare(`INSERT INTO asset_custody (asset_id, kind, from_holder, to_holder, location, actor_id, actor_role) VALUES (?1, 'assign', NULL, ?2, ?3, ?4, ?5)`)
+          .bind(Number(r.meta.last_row_id), asgn, str(body?.location, 120) ? (body!.location as string).trim() : null, user.id, user.role).run();
+        await notify(env, asgn, "asset", `${tag} was handed to you - open Assets to acknowledge it.`, `asset_ho:${r.meta.last_row_id}:${asgn}:new`, { once: true });
+      }
+      if (profA.any) {
+        const refusedP = await writeProfile(env, user, Number(r.meta.last_row_id), tag, profA.want, asgn);
+        if (refusedP) return json({ ok: true, id: r.meta.last_row_id, asset_tag: tag, profile_error: await refusedP.json() }, 201);
+      }
       return json({ ok: true, id: r.meta.last_row_id, asset_tag: tag });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -9081,7 +9118,7 @@ async function handleStaffRoutes(
     Payroll: (r) => can(r, "payroll_process"), // = PERMS.payroll_process, GET /payroll
     Finance: (r) => can(r, "expenses"),
     Accounting: (r) => can(r, "accounting_manage"),
-    Assets: (r) => can(r, "hr_manage") || can(r, "exec_view"),
+    Assets: (r) => can(r, "asset_self"), // v1.304.0 - My assets for every staff member (D-4); the register stays asset_view
     "Staff Details": (r) => can(r, "hr_manage") || can(r, "exec_view"),
     Users: (r) => can(r, "hr_manage") || can(r, "exec_view"),
     Hotels: (r) => can(r, "hotels_view"),
@@ -9214,8 +9251,22 @@ async function handleStaffRoutes(
 
   const assetPatch = path.match(/^\/assets\/(\d+)$/);
   if (assetPatch && method === "PATCH") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "asset_manage")) return err("forbidden", "HR access required", 403);
     const idA = assetPatch[1]!;
+    /* v1.303.0 - the row BEFORE, so the audit keeps what changed (before and after) */
+    const beforeA = await env.DB.prepare(`SELECT * FROM assets WHERE id = ?1`).bind(idA).first<Record<string, unknown>>();
+    if (!beforeA || beforeA.deleted_at) return err("not_found", "Asset not found", 404);
+    const profP = readProfile(body);
+    if ("error" in profP) return profP.error;
+    /* v1.304.0 - D-5: once custody is live the holder changes only through Assign / Transfer / Return - never by an edit */
+    if (body && "assigned_to" in body) {
+      const want = body.assigned_to != null && String(body.assigned_to) !== "" ? Number(body.assigned_to) : null;
+      if (want !== (beforeA.assigned_to ?? null) && (await custodyLive(env))) return err("use_custody", "Change who holds it with Assign, Transfer or Return - each step is kept in the asset's history.", 409);
+    }
+    /* v1.305.0 - phase 3: once 0195 is applied, In repair, Lost and Disposed are reached and left only through their records (a repair, a loss, an approved disposal) */
+    if (typeof body?.status === "string" && body.status !== beforeA.status && ((CARE_STATUSES as readonly string[]).includes(body.status) || (CARE_STATUSES as readonly string[]).includes(String(beforeA.status))) && (await careLive(env))) {
+      return err("use_care", "In repair, Lost and Disposed change through Maintenance & Disposal - send for repair, report lost or found, or request a disposal. Only In use and Spare change here.", 409);
+    }
     const sets: string[] = []; const vals: (string | number | null)[] = [];
     const put = (col: string, v: string | number | null) => { sets.push(`${col} = ?${sets.length + 1}`); vals.push(v); };
     for (const f of ["name", "brand_model", "serial_no", "purchase_date", "vendor", "warranty_until", "location", "condition_note"] as const) {
@@ -9229,11 +9280,23 @@ async function handleStaffRoutes(
       if (pc !== null && !Number.isFinite(pc)) return err("invalid_input", "purchase_price must be a number", 400);
       put("purchase_price_cents", pc);
     }
-    if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-    put("updated_at", new Date().toISOString().slice(0, 19).replace("T", " "));
-    vals.push(idA);
-    await env.DB.prepare(`UPDATE assets SET ${sets.join(", ")} WHERE id = ?${vals.length}`).bind(...vals).run();
-    await audit(env, user.id, "asset.update", "assets", idA, body as Record<string, unknown>);
+    if (sets.length === 0 && !profP.any) return err("invalid_input", "Nothing to update", 400);
+    const holderA = body && "assigned_to" in body ? (body.assigned_to != null && String(body.assigned_to) !== "" ? Number(body.assigned_to) : null) : (beforeA.assigned_to as number | null);
+    if (profP.any) {
+      const refusedP = await writeProfile(env, user, Number(idA), String(beforeA.asset_tag), profP.want, holderA);
+      if (refusedP) return refusedP;
+    } else if (holderA != null && body && "assigned_to" in body) {
+      /* a holder named on a shared-use asset: the shared label goes (one holder, or shared - never both) */
+      await env.DB.prepare(`UPDATE asset_profile SET shared_label = NULL, updated_by = ?1, updated_at = datetime('now') WHERE asset_id = ?2 AND shared_label IS NOT NULL`).bind(user.id, idA).run().catch(() => null);
+    }
+    if (sets.length) {
+      put("updated_at", new Date().toISOString().slice(0, 19).replace("T", " "));
+      vals.push(idA);
+      await env.DB.prepare(`UPDATE assets SET ${sets.join(", ")} WHERE id = ?${vals.length}`).bind(...vals).run();
+      const afterA = await env.DB.prepare(`SELECT * FROM assets WHERE id = ?1`).bind(idA).first<Record<string, unknown>>();
+      const changes = changesOf(beforeA, afterA ?? {}, ["name", "category", "brand_model", "serial_no", "purchase_date", "purchase_price_cents", "vendor", "warranty_until", "location", "assigned_to", "status", "condition_note"]);
+      await audit(env, user.id, "asset.update", "assets", idA, { tag: beforeA.asset_tag, changes });
+    }
     return json({ ok: true });
   }
   /* v1.153.0 (CEO: "need to have an option to delete if there is a typo
@@ -9244,11 +9307,16 @@ async function handleStaffRoutes(
      entry can reuse it; the original tag is in the audit snapshot. "Lost"
      and "disposed" stay what they are - the row for a thing that existed. */
   if (assetPatch && method === "DELETE") {
-    if (!can(user.role, "hr_manage")) return err("forbidden", "HR access required", 403);
+    if (!can(user.role, "asset_manage")) return err("forbidden", "HR access required", 403);
     const idD = assetPatch[1]!;
     const row = await env.DB.prepare(`SELECT * FROM assets WHERE id = ?1`).bind(idD).first<Record<string, unknown>>();
     if (!row) return err("not_found", "Asset not found", 404);
     if (row.deleted_at) return err("invalid_input", "This asset was already removed", 400);
+    /* v1.305.0 - an asset with a repair, loss or disposal record is real - it is never removed as a typo */
+    if (await careLive(env)) {
+      const realD = await env.DB.prepare(`SELECT 1 AS x FROM asset_issues WHERE asset_id = ?1 UNION ALL SELECT 1 FROM asset_repairs WHERE asset_id = ?1 UNION ALL SELECT 1 FROM asset_incidents WHERE asset_id = ?1 UNION ALL SELECT 1 FROM asset_disposals WHERE asset_id = ?1 LIMIT 1`).bind(idD).first();
+      if (realD) return err("has_records", "This asset has maintenance or disposal records - it is a real asset and stays in the register. Only an entry typed by mistake is removed.", 409);
+    }
     const tagD = String(row.asset_tag ?? "");
     const reasonD = str(body?.reason, 200) ? (body!.reason as string).trim() : null;
     try {

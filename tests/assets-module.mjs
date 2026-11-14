@@ -47,21 +47,24 @@ const watchers = read("worker/src/watchers.ts");
 /* ---- 1. one API ---- */
 {
   const calls = [...code.matchAll(/api(?:<[^>]*>)?\(\s*`([^`]+)`/g)].map((m) => m[1]);
-  const allowed = [/^\/staff\/assets$/, /^\/staff\/assets\/\$\{editId\}$/, /^\/staff\/assets\/\$\{a\.id\}$/, /^\/audit\?action=asset\.&limit=300$/];
+  const allowed = [/^\/staff\/assets$/, /^\/staff\/assets\/\$\{editId\}$/, /^\/staff\/assets\/\$\{a\.id\}$/, /^\/staff\/assets\/history\?limit=300$/]; // v1.303.0 - the asset history (D-7) replaces the system audit read
   const odd = calls.filter((c) => !allowed.some((re) => re.test(c)));
-  ok("the page calls /staff/assets and the audit read, nothing else", calls.length >= 5 && odd.length === 0, odd.join(", "));
-  ok("…reads the register and the staff list through the shared cached reads", /useCachedApi<\{ assets: Asset\[\]; can_remove\?: boolean \}>\("\/staff\/assets", true, \["assets"\]\)/.test(code) && /useCachedApi<\{ staff: StaffLite\[\] \}>\("\/staff\/staff-list", true, \["users"\]\)/.test(code));
+  ok("the page calls /staff/assets and the asset history, nothing else", calls.length >= 5 && odd.length === 0, odd.join(", "));
+  ok("…reads the register and the staff list through the shared cached reads", /useCachedApi<\{ assets: Asset\[\]; can_remove\?: boolean; can\?: \{ edit: boolean; company_change: boolean \}; custody_live\?: boolean; care_live\?: boolean \}>\("\/staff\/assets", true, \["assets"\]\)/.test(code) && /useCachedApi<\{ staff: StaffLite\[\] \}>\("\/staff\/staff-list", true, \["users"\]\)/.test(code));
   ok("no inventory, expense or purchase write from the page", !/\/staff\/(inventory|expenses|purchases|finance|accounting)/.test(code));
   const routes = staff.split("path.match(/^\\/assets").slice(1).map((x) => x.slice(0, x.indexOf("$/"))).sort();
-  ok("the worker's per-asset route is the one there was (no history route)", JSON.stringify(routes) === JSON.stringify(["\\/(\\d+)"]), JSON.stringify(routes));
+  ok("the worker's per-asset route is the one there was (the history is /assets/history, D-7)", JSON.stringify(routes) === JSON.stringify(["\\/(\\d+)"]), JSON.stringify(routes));
   ok("…and an asset creates no expense", !/INSERT INTO (expenses|journal|purchases)/.test(staff.slice(staff.indexOf('if (path === "/assets" && method === "POST")'), staff.indexOf('if (path === "/assets" && method === "POST")') + 4000)));
 }
 
 /* ---- 2. no new money ---- */
 {
-  ok("the value is the recorded price, lost and disposed excluded", /const totalValue = assets\.filter\(\(a\) => a\.status !== "disposed" && a\.status !== "lost"\)\s*\.reduce\(\(s, a\) => s \+ \(a\.purchase_price_cents \?\? 0\), 0\);/.test(code) && /const active = \(a: Asset\) => a\.status !== "disposed" && a\.status !== "lost";/.test(code));
-  ok("no depreciation is computed", !/deprec[a-z]*\s*[=*(]|net book|book value|nbv/i.test(code) && /No depreciation is calculated\./.test(src));
-  ok("the drawer's value is the field itself", /<dt>\{L\("Recorded value", "Nilai direkodkan"\)\}<\/dt><dd>\{a\.purchase_price_cents != null \? rm\(a\.purchase_price_cents\)/.test(code));
+  /* v1.303.0 - Assets 4.0: the money is the RECORDED PURCHASE COST from the one figure source (lib/asset-figures.ts) */
+  const figs = strip(read("lib/asset-figures.ts"));
+  ok("the cost is the recorded price, lost and disposed excluded, from the one figure source", /const totalValue = all\.active_cost_cents;/.test(code) && /const all = lineOf\("all", assets\);/.test(code) && /export const isActive = \(a: Pick<FigAsset, "status">\) => a\.status !== "disposed" && a\.status !== "lost";/.test(figs) && /const active = \(a: Asset\) => a\.status !== "disposed" && a\.status !== "lost";/.test(code));
+  ok("an asset with no price is never RM 0 - it is counted apart", /if \(a\.purchase_price_cents == null\) continue;/.test(figs) && /unpriced: list\.length - priced/.test(figs) && /without a price/.test(src) && !/purchase_price_cents \?\? 0\)/.test(code));
+  ok("no depreciation is computed and no book value is claimed", !/deprec[a-z]*\s*[=*(]|nbv|netBook|net book/i.test(code + figs) && (src.match(/book value/gi) ?? []).length === (src.match(/(not|bukan) a book value|Not a book value|no book value|not a value/gi) ?? []).filter((x) => /book value/i.test(x)).length && /No depreciation is calculated\./.test(src));
+  ok("the drawer's cost is the field itself", /<dt>\{L\("Recorded purchase cost", "Kos belian direkodkan"\)\}<\/dt><dd>\{a\.purchase_price_cents != null \? rm\(a\.purchase_price_cents\)/.test(code));
 }
 
 /* ---- 3. five statuses ---- */
@@ -75,8 +78,10 @@ const watchers = read("worker/src/watchers.ts");
   const at = code.indexOf("const warr = a.warranty_until");
   const drawer = at < 0 ? "" : code.slice(at, code.indexOf("</SideDrawer>", at));
   ok("the drawer makes no request of its own except reading the audit log", drawer.length > 500 && !/api\(|csrfFetch|method:/.test(drawer) && /onClick=\{\(\) => void loadAudit\(\)\}/.test(drawer));
-  ok("its commands are the page's own, behind the page's own gates", /\{canEdit && <button type="button" className=\{btnClass\} onClick=\{\(\) => startEdit\(a\)\}>/.test(drawer) && /\{canEdit && <button type="button" className=\{btnSm\} onClick=\{\(\) => openStatusChange\(a\)\}>/.test(drawer) && /\{canRemove && <button type="button" className=\{rowBtnDanger\} onClick=\{\(\) => \{ setDetailId\(null\); void remove\(a\); \}\}>/.test(drawer));
-  ok("the gates are the server's hr_manage answer", /const canRemove = register\.data\?\.can_remove === true;/.test(code) && /const canEdit = canRemove;/.test(code) && /can_remove: can\(user\.role, "hr_manage"\)/.test(staff));
+  ok("its commands are the page's own, behind the page's own gates", /\{canEdit && <button type="button" className=\{btnClass\} onClick=\{\(\) => startEdit\(a\)\}>/.test(drawer) && /\{canEdit && \(!careLive \|\| !CARE\.includes\(a\.status\)\) && <button type="button" className=\{btnSm\} onClick=\{\(\) => openStatusChange\(a\)\}>/.test(drawer) && /\{canRemove && <button type="button" className=\{rowBtnDanger\} onClick=\{\(\) => \{ setDetailId\(null\); void remove\(a\); \}\}>/.test(drawer));
+  /* v1.303.0 - asset_manage: the register's keepers plus the COO (A3, approved 12-11-2026) */
+  const perms = read("worker/src/permissions.ts");
+  ok("the gates are the server's asset_manage answer", /const canRemove = register\.data\?\.can_remove === true;/.test(code) && /const canEdit = canRemove;/.test(code) && /can_remove: can\(user\.role, "asset_manage"\)/.test(staff) && /asset_manage: \["super_admin", "admin", "hr_admin", "ceo", "coo"\],/.test(perms));
   ok("lost and disposed still ask first", /if \(nextStatus !== a\.status && \(nextStatus === "lost" \|\| nextStatus === "disposed"\)\) \{/.test(code));
   ok("Add and Edit are the same save() in a drawer", (code.match(/const save = async/g) ?? []).length === 1 && /<SideDrawer\s+open=\{openForm && canEdit\}/.test(code) && /onClick=\{\(\) => void save\(\)\}/.test(code));
   ok("a search hit opens the asset's drawer", /useRecordFocus\(focus, loaded, \(f\) => \{[\s\S]{0,400}?if \(a\) openDetail\(a\);/.test(code));

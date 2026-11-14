@@ -12,6 +12,7 @@ import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChan
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
+import { assetAckSweep, assetRepairSweep } from "./assets"; // v1.304.0 - Assets 4.0 phase 2; v1.305.0 - phase 3 repair follow-up
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 / v1.226.0 - 15 minutes before a shift, 15 before its end, and at the end
 import { drainMailOutbox, taskMailSweep, taskDigest } from "./task-mail"; // v1.247.0 - task emails: the outbox drains on the five-minute tick, reminders ride the hourly pass, the digest at 08:30 MYT
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
@@ -300,7 +301,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0192_fa_templates";
+const LATEST_MIGRATION = "0195_asset_care";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -2281,6 +2282,9 @@ export default {
         try { await taskMailSweep(env); } catch (e) { await logError(env, "task_mail_sweep", e instanceof Error ? e.message : String(e)); }
         /* v1.260.0 - routed leave waiting too long for its start date: tell the approver's manager and HR (never approves) */
         try { await leaveEscalationSweep(env); } catch (e) { await logError(env, "leave_escalation", e instanceof Error ? e.message : String(e)); }
+        /* v1.304.0 - an asset hand-over unacknowledged for 3 days: an ordinary Task for whoever issued it (once) */
+        try { await assetAckSweep(env); } catch (e) { await logError(env, "asset_ack_sweep", e instanceof Error ? e.message : String(e)); }
+        try { await assetRepairSweep(env); } catch (e) { await logError(env, "asset_repair_sweep", e instanceof Error ? e.message : String(e)); }
       }
       /* v1.163.0 - Hankei's reservations lapse on the five-minute tick.
          The STATIC QR does not expire with them: a customer who pays late
@@ -5664,6 +5668,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0189-0190 (financial advisory 2.0: case priority, waiting-on and blockers, append-only case updates)", `SELECT o.waiting_on, o.blocker_urgent, o.closed_kind, o.priority_override, u.kind, u.task_id FROM fa_case_ops o LEFT JOIN fa_case_updates u ON u.case_id = o.case_id LIMIT 0`],
       ["0191 (financial advisory 2.0: bank criteria category, confidence, review and expiry dates, banker-indicative entries)", `SELECT m.category, m.confidence, m.review_due_on, m.expires_on, m.banker_id, m.exact_feedback FROM fa_criteria_meta m LIMIT 0`],
       ["0192 (financial advisory 2.0: agreement templates and versions, draft agreements, the advisory fee after a recorded disbursement)", `SELECT v.state, v.fee_bp, v.legal_basis, d.text_sha256, d.full_ic, f.decision_note_id, f.fee_cents FROM fa_template_versions v, fa_agreement_drafts d, fa_fee_bills f LIMIT 0`],
+      ["0193 (assets 4.0: the owning company and the shared-use team or place of an asset)", `SELECT p.asset_id, p.issuer_code, p.shared_label FROM asset_profile p LIMIT 0`],
+      ["0194 (assets 4.0: custody - assign, acknowledge, transfer, return, cancel, manager requests)", `SELECT c.asset_id, c.kind, c.from_holder, c.to_holder, c.condition, c.request_id FROM asset_custody c LIMIT 0`],
+      ["0195 (assets 4.0: maintenance and disposal - issues, repairs, lost incidents, disposals)", `SELECT i.asset_id, i.kind, r.outcome, r.expense_id, n.last_seen_place, d.method, d.proceeds_cents FROM asset_issues i, asset_repairs r, asset_incidents n, asset_disposals d LIMIT 0`],
       ["0182 (deposit billing: one live invoice per PRODUCT quotation; a service quotation billed in parts)", `SELECT id FROM sales_documents INDEXED BY ux_inv_live_per_product_qt WHERE converted_from = 0 AND doc_type = 'INV' AND voided_at IS NULL AND COALESCE(kind, 'product') != 'service' LIMIT 0`],
       ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
@@ -5877,6 +5884,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0190_fa_case_updates",
       "0191_fa_criteria_meta",
       "0192_fa_templates",
+      "0193_asset_profile",
+      "0194_asset_custody",
+      "0195_asset_care",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

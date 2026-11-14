@@ -10,6 +10,53 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.305.0] - 2026-11-14 - Assets Workspace 4.0, Phase 3: maintenance and disposal - BUILT, NOT DEPLOYED (MIGRATION 0195)
+
+The CEO, 14-11-2026: "Phase 3" (claude/ASSETS-WORKSPACE-4.0-BLUEPRINT.md section 6; D-6, D-8 as approved). **One additive migration** (0195_asset_care - four tables, CREATE IF NOT EXISTS, append-only triggers, no ALTER, no data written). **One new permission** `asset_dispose_approve` (CEO, COO). No other access changed.
+
+- **Issues:** the register's readers, the holder or the holder's manager report what is wrong (and since when). An issue is a report, not a status. It closes when a repair sent for it comes back fixed, when a keeper resolves it with a note, or when the asset is disposed. A damaged return (phase 2) is also recorded as an issue.
+- **Repairs:** the keepers send an asset for repair (repairer, reference, expected back) - it goes In repair; a passed expected-back date becomes one ordinary Task for whoever sent it. Back from repair: **fixed** returns it to its holder (In use) or to Spare; **not repairable** leaves it In repair until a disposal. The **repair cost is a note**; an expense number is only a **read-only link**, checked against Finance → Expenses - nothing is created or posted.
+- **Lost:** reported by the same people as an issue (last seen where and when, what happened, police report ref) - it goes Lost and **stays in the register**. Found again (the keepers) returns it to its holder or Spare.
+- **Disposal:** the keepers request it once nobody holds it (sold / scrapped / donated / returned to vendor / written off - a record only; reason; proceeds as a note). **The CEO or COO approves or rejects - never the person who asked** (the verified owner apart); approval marks it Disposed, the record stays. **No write-off, journal, cash or income row is written.**
+- **No silent status changes:** once 0195 is applied, In repair, Lost and Disposed are reached and left only through their records - a plain edit or Change status moves only between In use and Spare (`use_care`), a new asset starts In use or Spare, and an asset with maintenance or disposal records can no longer be removed as a typo (`has_records`). Statuses set before 4.0 are the starting point; nothing earlier is invented.
+- **Screens:** Maintenance & Disposal now shows In Repair / Lost / Disposed counts, what is waiting (open issues, disposals to decide), + Report Issue, and the sub-tabs In Repair · Lost · Disposed · Service History. The asset's detail has a **Maintenance** tab with its records and actions. My assets: Report issue / Report lost (also for a manager's team). Reports: **Maintenance History** and **Lost & Disposal**, with CSV and PDF.
+- **Who sees money:** the holder and their manager see what happened, never a cost or proceeds note.
+- **Tests:** new `tests/asset-care.mjs` (by direct request, with and without 0195, with mutations); browser `assets4.py` Phase 3.
+
+## [1.304.0] - 2026-11-14 - Assets Workspace 4.0, Phase 2: custody - assign, acknowledge, transfer, return - BUILT, NOT DEPLOYED (MIGRATION 0194)
+
+The CEO, 14-11-2026: "Phase 2 now" (claude/ASSETS-WORKSPACE-4.0-BLUEPRINT.md section 5; D-2, D-4, D-5 as approved). **One additive migration** (0194_asset_custody - CREATE IF NOT EXISTS, append-only triggers, no ALTER, no data written). **Access change (approved, D-4):** the Assets tab now opens for every staff member - on **My assets** only; the register, its costs and its reports stay with the same people as before (server-checked). New cap `asset_self`.
+
+- **Custody workflow** (`worker/src/assets.ts`): **Assign** a free asset → the holder **Acknowledges** it from their own account (nobody else can - not management, not the CEO) → **Transfer** to someone else (with a reason; the previous holder is kept and told) or **Return** (by the holder or the keepers, with its condition; damaged goes to In repair) → **Cancel** an unacknowledged hand-over. Each step is one append-only row, written in the same batch as the register's holder, so the two never disagree.
+- **No more silent holder changes (D-5):** once 0194 is applied, editing the holder in the asset form is refused (`use_custody`) - the form says to use Assign / Transfer / Return. A new asset added with a holder starts as a hand-over waiting for acknowledgement.
+- **Holders from before 4.0** are the starting point; no earlier step is invented (their history stays in the audit trail).
+- **My assets (D-4):** every member of staff sees what they hold (no cost), acknowledges a hand-over, returns their own.
+- **Managers (D-2):** someone with people reporting to them (`reports_to`) also sees the team's assets and **requests** a hand-over inside the team (an asset the team holds, or a spare one). The keepers approve or decline - never their own request (the verified owner apart); a request whose asset has changed hands since is refused as stale.
+- **The keepers' queue** on Assignments: hand-overs not yet acknowledged, and requests waiting.
+- **The asset's detail:** Assign / Transfer / Return / Cancel hand-over, and every custody step with who, when, where and why. The register shows "Waiting for acknowledgement".
+- **Three days unacknowledged:** the issuer gets one ordinary Task (the hourly sweep; no second engine).
+- **Notifications** carry the asset tag only, never a cost.
+- **A test that checked nothing:** `tests/navigation.mjs` had its `ok()` arguments the wrong way round, so its 34 checks always passed. Fixed; it then flagged two real, earlier changes (Automation & Rules in System, its /portal/automation address - both approved in 1.293.0) and the new Assets access, all now written in.
+- **Tests:** new `tests/asset-custody.mjs` (46 checks by direct request, with and without 0194, 11 mutations); `assets4.mjs` follows D-5; browser `assets4.py` Phase 2 added (the keepers, Sales and a manager at desktop and phone width).
+
+## [1.303.0] - 2026-11-14 - Assets Workspace 4.0, Phase 1: layout, honest figures, company and shared use - BUILT, NOT DEPLOYED (MIGRATION 0193)
+
+The CEO, 14-11-2026: "approve as recommendation" on claude/ASSETS-WORKSPACE-4.0-BLUEPRINT.md (D-0 ... D-10). **One additive migration** (0193_asset_profile - CREATE IF NOT EXISTS, no ALTER of `assets`, no data written). **Permission change (approved):** the COO now adds and edits assets (A3, D-1); new caps `asset_view` (the same people as before), `asset_manage` (the register's keepers + the COO), `asset_company_change` (CEO, COO). The CCO keeps read-only access.
+
+- **The five tabs stay**, each in the address (Back / Forward, a link opens it). A phone gets the Dashboard's view switch with **+ Add** beside it, never the cut-off tab row.
+- **Overview (photo 1):** the status strip; Asset by Status with the **Recorded purchase cost** (renamed from "Total Asset Value": it is a purchase-cost sum, not a book value - A2Z OS keeps no depreciation) and "**n without a price - not counted**" (an unknown price is no longer silently RM 0); **Recent Activities** from the asset history; Needing Attention; Quick Actions. Category and location charts moved to Reports (no wall of cards).
+- **One figure source:** `lib/asset-figures.ts` computes every count and cost for the Overview and every report.
+- **Company (A2Z / AZ ONE):** every asset may carry its owning company. Existing assets read "**Company not set**" until a person sets it (A5, never guessed). Once set, only the CEO or COO moves it to the other company, with a reason (audited `asset.company_change`).
+- **Shared use (D-3):** an asset can be kept by a team or a place (e.g. "Studio team") - In Use with nobody named; never both a holder and a shared label. Assignments gets a Shared Use list; such assets are no longer "Unassigned".
+- **Register:** Company column and filter; "Shared · team" in Assigned to; **No price** instead of a blank or RM 0; the total says how many have no price; cards instead of a sideways table on a phone.
+- **Asset Detail:** company and recorded purchase cost; Assignment / History tabs (Maintenance and Documents come with phases 3 and 4).
+- **Edits audited before and after:** an edit now records what changed, old and new values (before: the request only).
+- **Asset history (D-7):** `GET /assets/history` - the asset events of the audit log only, for everyone who may open the register (the CEO, COO, CCO, HR admin, admins). Previously the trail used the whole system log, open to super admin, admin and CEO only.
+- **Reports & Audit:** one report selector - Status Summary, by Category, by Location, by Company, Assignment Summary, **Missing Information**, Warranty, Audit Trail. Each company's money in its own column (never one total across A2Z and AZ ONE). **CSV** (opens in Excel) and **PDF** from the same rows the screen shows (`lib/asset-report-pdf.ts`).
+- **Before 0193 is applied:** the register answers as before; a company or shared label answers 503 `not_ready`.
+- **Not in this phase (as approved):** the custody workflow (phase 2), maintenance and disposal records (phase 3, needs your separate approval), documents and photos (phase 4). The screens say so.
+- **Tests:** new `tests/assets4.mjs` (33 checks by direct request, with and without 0193, 12 mutations); `assets-module.mjs` and `asset-remove.mjs` follow the approved COO edit and the history route; new browser `tests/browser/assets4.py`.
+
 ## [1.302.0] - 2026-11-13 - Financial Advisory 2.0, Phase 5: agreement templates, the auto-filled draft, the fee after a recorded disbursement - BUILT, NOT DEPLOYED (MIGRATION 0192)
 
 The CEO, 13-11-2026: "Phase 5 now" (claude/FINANCIAL-ADVISORY-2.0-BLUEPRINT.md sections 10-11, photo 5; D-5 option A, D-6, D-7 as recommended; the fee on by his decision without a legal review). **One additive migration** (0192_fa_templates - CREATE IF NOT EXISTS, no ALTER, no data written). **Two new permissions (D-6):** `fa_templates` (CEO, COO, CCO - draft and submit) and `fa_templates_publish` (CEO - publish, archive a published version). No other role or permission changed.

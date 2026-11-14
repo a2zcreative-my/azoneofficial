@@ -243,7 +243,7 @@ export default function PortalPage() {
             <EcommercePanel user={user} lang={lang} go={setTab} canOpen={canOpen} startView={startOf("Ecommerce")} />
           )}
           {/* v1.5.0: Social tab removed on the CEO's direction. */}
-          {activeTab === "Assets" && <AssetsPanel focus={focusOf("Assets")} />}
+          {activeTab === "Assets" && <AssetsPanel focus={focusOf("Assets")} startView={startOf("Assets")} />}
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel focus={focusOf("Hotels")} />}
           {activeTab === "Agents" && (

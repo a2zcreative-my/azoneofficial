@@ -475,3 +475,19 @@ full IC was typed - never the IC) and fa_fee_bills, one advisory fee prepared
 per recorded disbursement. fa_fee_bills is not a ledger: the quotation, the
 invoice, the payment and the CEO verification are the Sales documents, and no
 commission is earned on the fee line.
+1.303.0 (Assets Workspace 4.0, phase 1) adds `0193_asset_profile` (additive,
+IF NOT EXISTS only, no ALTER of assets): one row per asset at most - the owning
+company (A2Z or AZ ONE; Company not set until a person sets it) and, for a
+shared-use asset, the team or place that keeps it. No table that carries money,
+pay or people.
+1.304.0 (Assets Workspace 4.0, phase 2) adds `0194_asset_custody` (additive,
+IF NOT EXISTS only, append-only triggers): every custody step of an asset -
+assign, acknowledge, transfer, return, cancel, a manager's request and its
+decision. The register's holder stays in assets.assigned_to and is written in
+the same batch as the step. No table that carries money or pay.
+1.305.0 (Assets Workspace 4.0, phase 3) adds `0195_asset_care` (additive,
+IF NOT EXISTS only, append-only triggers): four step tables - asset_issues,
+asset_repairs, asset_incidents and asset_disposals. A repair cost and disposal
+proceeds are notes; an expense is only linked, read only. Nothing is written to
+expenses, journals, cash, payments or commission. The asset status stays in
+assets.status and is written in the same batch as the step.

@@ -83,8 +83,8 @@ const route = staff.slice(staff.indexOf('if (assetPatch && method === "DELETE")'
 
 /* ---- 5. the register-keeper's power, asked first, both outcomes said ---- */
 {
-  ok("only hr_manage may remove", /if \(!can\(user\.role, "hr_manage"\)\) return err\("forbidden"/.test(route) && !/exec_view/.test(route));
-  ok("the register says who may remove", /can_remove: can\(user\.role, "hr_manage"\)/.test(staff));
+  ok("only the register's keepers may remove (asset_manage: hr_manage + the COO, v1.303.0)", /if \(!can\(user\.role, "asset_manage"\)\) return err\("forbidden"/.test(route) && !/exec_view|asset_view/.test(route));
+  ok("the register says who may remove", /can_remove: can\(user\.role, "asset_manage"\)/.test(staff));
   ok("the button appears only for them", /\{canRemove && \(/.test(panel));
   ok("it asks first, in red", /await confirm\(\{[\s\S]*?variant: "danger"/.test(panel));
   ok("success toasts and reloads", /showToast\(L\("Entry removed", "Entri dibuang"\)[\s\S]*?load\(\);/.test(panel));
