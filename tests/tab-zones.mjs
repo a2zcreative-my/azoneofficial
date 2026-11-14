@@ -332,14 +332,16 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Hotels: filters and contact work before the map, the call log in the hotel's drawer", ordered(hotelsFn, ['L("Search the directory"', 'L("Filter by state"', 'L("Show hotels that are"', 'label={L("The map", "Peta")}', '================= THE MAP', '<HotelPipeline key={openHotel.id}']));
   ok("Hotels: Add hotel only for the roles that may edit, the toast and the question outside every zone", /aside=\{canManage \? \(\s*<TabAside>\s*<TabAction icon="add" onClick=\{startAdd\}>/.test(hotelsFn) && hotelsFn.indexOf("{confirmNode}") < hotelsFn.indexOf("<TabZone"));
   ok("Hotels: no contracts, staffing or allowance on the page (the directory has no such data)", !/allowance|contract(?:ed)?\b|staff assigned/i.test(hotelsFn.replace(/\/\*[\s\S]*?\*\//g, "")));
-  /* v1.192.0 - the HR page is six tabs (hr-page.tsx): the brief's order, the
-     administration gate the page used (now HR_ADMIN_ROLES inside it), the
-     task report, the holidays and payslip cards behind that gate, the
-     lifecycle, and the birthdays */
+  /* v1.306.0 - HR Workspace 4.0 (the CEO, 14-11-2026, H-0 ... H-10): four tabs
+     in the reference's order, the view in the address; the keepers' gate is
+     the same four roles; the written task report lives in Tasks (H-1), the
+     payslip summary is gone from HR (H-2), the holidays card and the
+     lifecycle stay behind the gate, the one company calendar is reused */
   const hr = read("components/portal/hr-page.tsx");
-  ok("HR: six tabs in the brief's order", ordered(hr, ['L("Overview"', 'L("Reports"', 'L("Calendar & Holidays"', 'L("Employee Lifecycle"', 'L("Payroll & Payslips"', 'L("HR Administration"']));
-  ok("HR: the administration gate is the four roles it was", hr.includes('export const HR_ADMIN_ROLES = ["hr_admin", "ceo", "super_admin", "admin"];') && /\{admin \? <HolidaysCard \/> : <PermissionPlaceholder/.test(hr) && /\{admin && has\("payroll"\)/.test(hr) && /\{admin && has\("lifecycle"\)/.test(hr));
-  ok("HR: task report, birthdays and lifecycle are all still on the page", hr.includes('L("Task report"') && hr.includes('L("Staff birthdays"') && hr.includes("<PeoplePanel ") && page.includes('<HrPage user={user} go={setTab} canOpen={canOpen} />'));
+  const tasksSrc = read("components/portal/tasks.tsx");
+  ok("HR: four tabs in the reference's order", ordered(hr, ['L("Overview"', 'L("Employee Lifecycle"', 'L("Calendar & Holidays"', 'L("HR Policies & Settings"']) && !/L\("Reports", "Laporan"\)|L\("Payroll & Payslips"|L\("HR Administration"/.test(hr) && /useTabViewAddress\("HR", view, setView, isView\)/.test(hr));
+  ok("HR: the keepers' gate is the four roles it was", hr.includes('export const HR_ADMIN_ROLES = ["hr_admin", "ceo", "super_admin", "admin"];') && /\{admin \? <HolidaysCard \/> : <PermissionPlaceholder/.test(hr) && /\{admin\s*\? <PeoplePanel /.test(hr));
+  ok("HR: the task report is in Tasks, the payslip summary and the launcher are gone, the calendar is the one company calendar", !/TaskReports|task-reports|PayslipCard|HrAdministration/.test(hr.replace(/\/\*[\s\S]*?\*\//g, "")) && /<TaskReports \/>/.test(tasksSrc) && /<UpcomingEventsCard role=\{user\.role\} \/>/.test(hr) && page.includes('<HrPage user={user} go={setTab} canOpen={canOpen} startView={startOf("HR")} />'));
   ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
   const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));
   /* v1.198.0 - five tabs in the brief's order: the register and Save all

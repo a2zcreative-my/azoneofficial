@@ -19,6 +19,12 @@
  *   Training           courses attended, cost and who paid.
  *
  * hr_manage only. For anyone else the zone does not render at all.
+ *
+ * v1.306.0 - HR Workspace 4.0 (the CEO, 14-11-2026, H-3): the HR tab's
+ * Employee Lifecycle. Five segments - Joining · Probation · Letters ·
+ * Training · Leaving - and the joining checklist is EDITED HERE now (the one
+ * editor; Staff Details shows it read-only). Same data (users.onboarding_json)
+ * and the same route (POST /staff/users/:id/onboarding, hr_manage).
  */
 
 import { useEffect, useState } from "react";
@@ -40,7 +46,7 @@ import css from "./business.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
-const JOINING_LABEL: Record<string, [string, string]> = {
+export const JOINING_LABEL: Record<string, [string, string]> = {
   offer_letter: ["Offer letter signed", "Surat tawaran ditandatangani"],
   contract: ["Employment contract signed", "Kontrak pekerjaan ditandatangani"],
   bank: ["Bank details collected", "Butiran bank dikumpul"],
@@ -48,7 +54,7 @@ const JOINING_LABEL: Record<string, [string, string]> = {
   badge: ["ID badge printed", "Lencana ID dicetak"],
   groups: ["Added to team WhatsApp group", "Ditambah ke kumpulan WhatsApp pasukan"],
 };
-const LEAVING_LABEL: Record<string, [string, string]> = {
+export const LEAVING_LABEL: Record<string, [string, string]> = {
   assets_returned: ["Company assets returned", "Aset syarikat dipulangkan"],
   access_removed: ["Portal access and accounts removed", "Akses portal dan akaun dibuang"],
   claims_settled: ["Claims and advances settled", "Tuntutan dan pendahuluan diselesaikan"],
@@ -56,11 +62,11 @@ const LEAVING_LABEL: Record<string, [string, string]> = {
   exit_letter: ["Resignation acceptance letter issued", "Surat penerimaan peletakan jawatan dikeluarkan"],
   groups_removed: ["Removed from team WhatsApp groups", "Dibuang daripada kumpulan WhatsApp pasukan"],
 };
-const OUTCOME: Record<string, [string, string]> = { confirmed: ["confirmed", "disahkan"], extended: ["extended", "dilanjutkan"], ended: ["ended", "ditamatkan"] };
+export const OUTCOME: Record<string, [string, string]> = { confirmed: ["confirmed", "disahkan"], extended: ["extended", "dilanjutkan"], ended: ["ended", "ditamatkan"] };
 
 interface Overview {
   today: string;
-  joining: { id: number; name: string; position: string | null; joined_on: string; open: string[] }[];
+  joining: { id: number; name: string; position: string | null; joined_on: string; items?: Record<string, boolean>; open: string[] }[];
   leaving: { id: number; name: string; position: string | null; left_on: string; items: Record<string, boolean>; open: string[]; assets_held: number }[];
   probation: { id: number; name: string; position: string | null; joined_on: string | null; suggested_ends_on: string | null; review: { id: number; ends_on: string; outcome: string | null } | null }[];
   decided: { id: number; user_id: number; name: string | null; ends_on: string; outcome: string; note: string | null; decided_at: string; decided_by_name: string | null }[];
@@ -73,12 +79,12 @@ interface Overview {
 
 const errOf = (r: { data?: unknown }) => (r.data as { error?: { message?: string } } | null)?.error?.message;
 
-export type PeopleTab = "lifecycle" | "probation" | "letters" | "training";
+export type PeopleTab = "joining" | "probation" | "letters" | "training" | "leaving";
 
 /* v1.192.0 - the HR page's Employee Lifecycle tab may hold the pill (its
    Overview opens Training or Probation directly); alone it holds its own. */
-export function PeoplePanel({ tab: tabProp, onTab }: { tab?: PeopleTab; onTab?: (t: PeopleTab) => void } = {}) {
-  const [tabOwn, setTabOwn] = useState<PeopleTab>("lifecycle");
+export function PeoplePanel({ tab: tabProp, onTab, openRecord }: { tab?: PeopleTab; onTab?: (t: PeopleTab) => void; openRecord?: (userId: number) => void } = {}) {
+  const [tabOwn, setTabOwn] = useState<PeopleTab>("joining");
   const tab = tabProp ?? tabOwn;
   const setTab = (t: PeopleTab) => { setTabOwn(t); onTab?.(t); };
   const [data, setData] = useState<Overview | null>(null);
@@ -104,6 +110,9 @@ export function PeoplePanel({ tab: tabProp, onTab }: { tab?: PeopleTab; onTab?: 
   /* ---- letters ---- */
   const [lt, setLt] = useState({ user: "", kind: "offer" as LetterKind, on: mytToday(), signer: "", signerPos: "", subject: "", body: "" });
   const [person, setPerson] = useState<LetterPerson | null>(null);
+  /* ---- joining: anyone's checklist, read from their record (GET /staff/users/:id/documents) ---- */
+  const [pick, setPick] = useState("");
+  const [picked, setPicked] = useState<{ id: number; items: Record<string, boolean>; docs: number } | null>(null);
   /* ---- training ---- */
   const [tr, setTr] = useState({ user: "", title: "", provider: "", on: "", hours: "", cost: "", paid: "company" });
 
@@ -123,6 +132,30 @@ export function PeoplePanel({ tab: tabProp, onTab }: { tab?: PeopleTab; onTab?: 
       : null;
   if (body) return <TabZone label={L("Joining, leaving and letters", "Masuk, keluar dan surat")}>{body}</TabZone>;
   const d = data!;
+
+  const loadPick = async (id: string) => {
+    setPick(id); setPicked(null);
+    if (!id) return;
+    const r = await api<{ documents?: unknown[]; onboarding?: Record<string, boolean> }>(`/staff/users/${id}/documents`);
+    if (r.ok && r.data) setPicked({ id: Number(id), items: r.data.onboarding ?? {}, docs: r.data.documents?.length ?? 0 });
+    else toast(L("No changes", "Tiada perubahan"), errOf(r) ?? L("Could not read the record", "Tidak dapat membaca rekod"), "notice");
+  };
+  /* one editor (H-3): the whole object goes back, so a step this screen does not list is kept */
+  const toggleJoining = async (id: number, items: Record<string, boolean>, key: string, on: boolean) => {
+    const ok = await send(`/staff/users/${id}/onboarding`, "POST", { items: { ...items, [key]: on } }, on ? L("Step ticked", "Langkah ditanda") : L("Step reopened", "Langkah dibuka semula"));
+    if (ok && picked?.id === id) setPicked({ ...picked, items: { ...items, [key]: on } });
+  };
+  const joinBoxes = (id: number, items: Record<string, boolean>) => (
+    <div className={css.form}>
+      {d.joining_keys.map((k) => (
+        <label key={k} className={css.check}>
+          <input type="checkbox" checked={!!items[k]} disabled={busy} onChange={(e) => void toggleJoining(id, items, k, e.target.checked)} data-testid="hr-joining-step" />
+          {L(JOINING_LABEL[k]?.[0] ?? k, JOINING_LABEL[k]?.[1] ?? k)}
+        </label>
+      ))}
+    </div>
+  );
+  const recordBtn = (id: number) => openRecord ? <button type="button" className={rowBtn} onClick={() => openRecord(id)}>{L("View employee record", "Lihat rekod pekerja")}</button> : null;
 
   const toggleLeaving = (u: Overview["leaving"][number], key: string, on: boolean) =>
     void send(`/staff/people/${u.id}/leaving`, "PUT", { items: { ...u.items, [key]: on } }, on ? L("Step ticked", "Langkah ditanda") : L("Step reopened", "Langkah dibuka semula"));
@@ -186,29 +219,54 @@ export function PeoplePanel({ tab: tabProp, onTab }: { tab?: PeopleTab; onTab?: 
       <div className={card}>
         {promptNode}{toastNode}
         <SectionTabs value={tab} onChange={setTab} tabs={[
-          ["lifecycle", `${L("Joining & leaving", "Masuk & keluar")}${openJoin.length + d.leaving.filter((x) => x.open.length).length ? ` · ${openJoin.length + d.leaving.filter((x) => x.open.length).length}` : ""}`],
+          ["joining", `${L("Joining", "Masuk")}${openJoin.length ? ` · ${openJoin.length}` : ""}`],
           ["probation", `${L("Probation", "Percubaan")}${d.probation.length ? ` · ${d.probation.length}` : ""}`],
           ["letters", L("Letters", "Surat")],
           ["training", L("Training", "Latihan")],
+          ["leaving", `${L("Leaving", "Keluar")}${d.leaving.filter((x) => x.open.length).length ? ` · ${d.leaving.filter((x) => x.open.length).length}` : ""}`],
         ] as const} />
 
-        {/* ---- joining & leaving ---- */}
-        <div className={`${css.stack} erp-mt-3`} hidden={tab !== "lifecycle"}>
-          <p className={css.sub}>{L("Joining - the last 90 days", "Masuk - 90 hari lepas")}</p>
-          {openJoin.length === 0 ? <p className={css.empty}>{L("Every joining checklist is complete.", "Setiap senarai semak kemasukan lengkap.")}</p> : (
-            <ul className={css.list} aria-label={L("Joining steps open", "Langkah kemasukan terbuka")}>
-              {openJoin.map((j) => (
-                <li key={j.id} className={css.tlItem}>
-                  <span className={css.when}>{dmy(j.joined_on)}</span>
-                  <span className={css.what}><span className={css.whatTitle}>{j.name}{j.position ? ` · ${j.position}` : ""}</span>
-                    <span className={css.whatDetail}>{L("Open: ", "Terbuka: ")}{j.open.map((k) => L(JOINING_LABEL[k]?.[0] ?? k, JOINING_LABEL[k]?.[1] ?? k)).join(" · ")}</span></span>
-                  <span className={chipSmWarn}>{j.open.length}/{d.joining_keys.length}</span>
+        {/* ---- joining (H-3: the one editor of the joining checklist) ---- */}
+        <div className={`${css.stack} erp-mt-3`} hidden={tab !== "joining"} data-testid="hr-joining">
+          <p className={css.sub}>{L("Joined in the last 90 days", "Masuk dalam 90 hari lepas")}</p>
+          {d.joining.length === 0 ? <p className={css.empty}>{L("Nobody joined in the last 90 days.", "Tiada sesiapa masuk dalam 90 hari lepas.")}</p> : (
+            <ul className={css.list} aria-label={L("Joining checklists", "Senarai semak kemasukan")}>
+              {d.joining.map((j) => (
+                <li key={j.id} className={css.monthRow}>
+                  <div className={css.monthHead}>
+                    <span className={css.whatTitle}>{j.name}{j.position ? ` · ${j.position}` : ""}</span>
+                    <span className={j.open.length ? chipSmWarn : chipSmSuccess}>{d.joining_keys.length - j.open.length}/{d.joining_keys.length}</span>
+                    <span className={css.whatDetail}>{L(`joined ${dmy(j.joined_on)}`, `masuk ${dmy(j.joined_on)}`)}</span>
+                    {recordBtn(j.id)}
+                  </div>
+                  {joinBoxes(j.id, j.items ?? Object.fromEntries(d.joining_keys.filter((k) => !j.open.includes(k)).map((k) => [k, true])))}
                 </li>
               ))}
             </ul>
           )}
-          <p className={css.hiddenNote}>{L("Joining steps are ticked in Staff Details → the person → Documents & onboarding.", "Langkah kemasukan ditanda di Butiran Kakitangan → orang itu → Dokumen & onboarding.")}</p>
+          <div className={css.form}>
+            <label className={css.field}>{L("Anyone else's checklist", "Senarai semak orang lain")}
+              <select className={selectClassSm} value={pick} onChange={(e) => void loadPick(e.target.value)} data-testid="hr-joining-pick">
+                <option value="">{L("- pick a person -", "- pilih orang -")}</option>
+                {d.staff.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </label>
+          </div>
+          {picked && (
+            <div className={css.monthRow}>
+              <div className={css.monthHead}>
+                <span className={css.whatTitle}>{d.staff.find((x) => x.id === picked.id)?.name ?? ""}</span>
+                <span className={css.whatDetail}>{L(`${picked.docs} document(s) in their Staff record`, `${picked.docs} dokumen dalam rekod Kakitangan mereka`)}</span>
+                {recordBtn(picked.id)}
+              </div>
+              {joinBoxes(picked.id, picked.items)}
+            </div>
+          )}
+          <p className={css.hiddenNote}>{L("The joining checklist is kept here. Contracts, offer letters and other uploaded documents stay in the person's Staff record.", "Senarai semak kemasukan disimpan di sini. Kontrak, surat tawaran dan dokumen lain yang dimuat naik kekal dalam rekod Kakitangan orang itu.")}</p>
+        </div>
 
+        {/* ---- leaving ---- */}
+        <div className={`${css.stack} erp-mt-3`} hidden={tab !== "leaving"}>
           <p className={css.sub}>{L("Leaving", "Keluar")}</p>
           {d.leaving.length === 0 ? <p className={css.empty}>{L("Nobody is leaving. A last day set in Staff Details brings the person here.", "Tiada sesiapa keluar. Hari terakhir yang ditetapkan di Butiran Kakitangan membawa orang itu ke sini.")}</p> : (
             <ul className={css.list} aria-label={L("Leaving checklists", "Senarai semak keluar")}>

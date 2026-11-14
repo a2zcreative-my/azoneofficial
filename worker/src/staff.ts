@@ -2994,7 +2994,7 @@ async function handleStaffRoutes(
     || /^\/books\/(?:months|close|reopen|position|audit)$/.test(path) || /^\/stock-counts(?:\/\d+(?:\/(?:lines|post|cancel))?)?$/.test(path)
     || path === "/customers/crm" || /^\/customers\/\d+\/(?:file|contacts|tags|terms|followups)$/.test(path) || /^\/customers\/\d+\/contacts\/\d+\/remove$/.test(path)
     || /^\/followups\/\d+\/(?:done|cancel)$/.test(path) || path === "/customers/recurring" || /^\/customers\/recurring\/\d+\/(?:stop|prefill)$/.test(path) || /^\/docs\/\d+\/acceptance$/.test(path)
-    || path === "/people/overview" || path === "/people/leave-calendar" || /^\/people\/\d+\/(?:leaving|probation|probation\/decide|letter-fields|letters|training)$/.test(path)
+    || path === "/people/overview" || path === "/people/history" || path === "/people/leave-calendar" || /^\/people\/\d+\/(?:leaving|probation|probation\/decide|letter-fields|letters|training)$/.test(path)
     || /^\/people\/letters\/\d+(?:\/void)?$/.test(path) || /^\/people\/training\/\d+\/remove$/.test(path)
     || path === "/quotes/approval" || path === "/quotes/approval/limit" || /^\/docs\/\d+\/approve$/.test(path)) {
     const biz = await handleBusiness(env, path, method, body, user, new URL(request.url).searchParams);

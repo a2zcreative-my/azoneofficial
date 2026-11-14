@@ -1414,6 +1414,12 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       { id: 1, user_id: 9007, kind: "offer", ref_no: "A2Z/HR/2026/001", issued_on: "2026-08-20", subject: "Offer of employment - Sales Executive", voided_at: "2026-08-21 02:00:00", void_reason: "Wrong salary", name: "Farid Zulkifli", issued_by_name: "Fixture Person" }],
     training: [{ id: 1, user_id: 9003, name: "Farid Zul", title: "TikTok Shop live selling masterclass", provider: "TikTok Shop Academy", on_date: D + "12", hours: 6, cost_cents: 45000, paid_by: "company" }],
     staff: staff.map((x) => ({ id: x.id, name: x.name, position: x.position ?? null })) };
+  /* v1.306.0 - HR 4.0 (H-9): the HR events of the audit log, hr_manage only */
+  if (p === "/staff/people/history") data = !["hr_admin", "ceo", "super_admin", "admin"].includes(ROLE) ? { error: { code: "forbidden", message: "HR access required" } } : { entries: [
+    { id: 812, action: "staff.letter_issue", entity: "hr_letters", entity_id: "2", detail: null, created_at: D + "01 02:00:00", user_name: "Fixture Person" },
+    { id: 811, action: "holiday.create", entity: "holidays", entity_id: "3", detail: null, created_at: "2026-08-20 02:00:00", user_name: "Mei Ling" },
+    { id: 810, action: "staff.onboarding", entity: "users", entity_id: "9005", detail: null, created_at: "2026-07-02 02:00:00", user_name: "Mei Ling" },
+  ] };
   if (/^\/staff\/people\/\d+\/letter-fields$/.test(p)) data = { person: { id: 9005, name: "Siti Nur Aisyah binti Abdullah", ic_number: "990101-01-1234", position: "Live Host", department: "Live", employment_status: "probation", joined_on: "2026-07-01", left_on: null, base_salary_cents: 220000, address: null } };
   if (p === "/staff/people/leave-calendar") {
     /* the month asked for, with the same three people in it */

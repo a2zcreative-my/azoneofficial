@@ -190,7 +190,7 @@ export default function PortalPage() {
               Overview, Reports, Calendar & Holidays, Employee Lifecycle,
               Payroll & Payslips, HR Administration. The administration gate
               (hr_admin, ceo, super_admin, admin) moved inside it, unchanged. */}
-          {activeTab === "HR" && <HrPage user={user} go={setTab} canOpen={canOpen} />}
+          {activeTab === "HR" && <HrPage user={user} go={setTab} canOpen={canOpen} startView={startOf("HR")} />}
           {activeTab === "Payroll" && <PayrollPanel role={user.role} />}
           {activeTab === "Staff Details" && (
             /* v1.173.0: the zones are the panel's own (staff-directory.tsx). */
@@ -216,6 +216,8 @@ export default function PortalPage() {
                 canOpen={canOpen}
                 initialView={startOf("Staff Details")}
                 recordFocus={focusOf("Staff Details")}
+                /* v1.306.0 - HR 4.0 (H-3): the joining checklist is edited in HR > Employee Lifecycle */
+                openHrLifecycle={canOpen("HR") ? () => { setTabStart({ tab: "HR", view: "lifecycle" }); setTab("HR"); } : undefined}
               />
               {/* v1.19.0 C1: the Birthdays tab folded in here; v1.93.0 (CEO:
                   "the birthday should be embedded into the staff card!") — and

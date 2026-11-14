@@ -462,7 +462,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
   Sales: { en: "documents + map", ms: "dokumen + peta" },
   Announcements: { en: "feed + publish", ms: "suapan + terbit" },
-  HR: { en: "docs, leave admin", ms: "dokumen, pentadbiran cuti" },
+  HR: { en: "lifecycle, probation, holidays", ms: "kitaran, percubaan, cuti umum" }, // v1.306.0 - HR 4.0: only what HR owns
   "Staff Details": { en: "records + birthdays", ms: "rekod + hari lahir" },
   Payroll: { en: "salaries — keep tight", ms: "gaji — kawal ketat" },
   Finance: { en: "cash flow + P&L", ms: "aliran tunai + P&L" },

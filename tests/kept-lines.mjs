@@ -104,8 +104,8 @@ const modulePre = (src, open) => {
   const tasks = read("components/portal/tasks.tsx");
   ok("a task's description is SHOWN on its row", /\{t\.description && \([\s\S]*?<p[^>]*whitespace-pre-line[^>]*>\{t\.description\}<\/p>/.test(tasks));
   /* v1.192.0 - the task report moved to the HR page's Reports tab */
-  const hr = read("components/portal/hr-page.tsx");
-  ok("an HR task report opens to its full text, lines kept", /setOpenReport\(\(o\) => \(o === r\.id \? null : r\.id\)\)/.test(hr) && /className=\{`\$\{css\.reportText\} \$\{openReport === r\.id \? "" : css\.clamp\}`\}>\{r\.content\}/.test(hr) && /\.reportText \{[^}]*white-space: pre-line/.test(read("components/portal/hr-page.module.css")));
+  const hr = read("components/portal/task-reports.tsx"); /* v1.306.0 - moved to Tasks > Reports & Archive (HR 4.0, H-1) */
+  ok("a task report opens to its full text, lines kept", /setOpenReport\(\(o\) => \(o === r\.id \? null : r\.id\)\)/.test(hr) && /className=\{`\$\{css\.reportText\} \$\{openReport === r\.id \? "" : css\.clamp\}`\}>\{r\.content\}/.test(hr) && /\.reportText \{[^}]*white-space: pre-line/.test(read("components/portal/task-reports.module.css")));
   const grid = read("components/ui/record-row.tsx");
   ok("DetailGrid keeps lines for every value", /<dd className="[^"]*whitespace-pre-line[^"]*">\{i\.value\}<\/dd>/.test(grid));
   const leave = read("components/portal/leave.tsx");

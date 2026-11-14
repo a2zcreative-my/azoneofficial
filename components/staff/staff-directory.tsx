@@ -684,7 +684,9 @@ const DEPT_COLORS = [
   "color-mix(in oklab, var(--gold-solid) 45%, var(--primary))", "var(--danger)",
 ];
 
-export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false, go, canOpen, recordFocus, initialView }: {
+export function StaffDirectory({ canAmend = false, readOnly = false, role = "", canEditResponsibilities = false, go, canOpen, recordFocus, initialView, openHrLifecycle }: {
+  /** v1.306.0 - HR 4.0 (H-3): the joining checklist's one editor is HR > Employee Lifecycle */
+  openHrLifecycle?: () => void;
   /** v1.233.0 - the Dashboard's reporting-line card opens the Organisation tab directly */
   initialView?: string;
   /** v1.205.0 - a search hit or a link opened this person (lib/record-focus.ts) */
@@ -1195,7 +1197,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           </section>
         )}
 
-        {peekTab === "documents" && <StaffVault userId={u.id} name={displayName(u)} />}
+        {peekTab === "documents" && <StaffVault userId={u.id} name={displayName(u)} onOpenHr={openHrLifecycle ? () => { setPeek(null); openHrLifecycle(); } : undefined} />}
 
         {peekTab === "leave" && (
           <section className={sp.block} aria-label={L("Leave", "Cuti")}>
@@ -2209,7 +2211,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                   setStaff(merge); setAllStaff(merge); void load();
                 }} />
             )}
-            {open.has(u.id) && <StaffVault userId={u.id} name={displayName(u)} />}
+            {open.has(u.id) && <StaffVault userId={u.id} name={displayName(u)} onOpenHr={openHrLifecycle} />}
             {open.has(u.id) && preview === u.id && (
               <div className="mt-3 overflow-x-auto">
                 <p className="text-muted-foreground mb-2 text-xs">
@@ -2437,7 +2439,7 @@ const ONBOARDING_MS: Record<string, string> = {
   badge: "Lencana ID dicetak",
   groups: "Ditambah ke kumpulan WhatsApp pasukan",
 };
-function StaffVault({ userId, name }: { userId: number; name: string }) {
+function StaffVault({ userId, name, onOpenHr }: { userId: number; name: string; onOpenHr?: () => void }) {
   interface Doc { id: number; kind: string; label?: string | null; filename?: string | null; size?: number | null; created_at: string; uploaded_by_name?: string | null }
   const [docs, setDocs] = useState<Doc[]>([]);
   const [onb, setOnb] = useState<Record<string, boolean>>({});
@@ -2469,25 +2471,6 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
       res.ok ? `${f.name} — ${name}` : L("The file did not save — try again", "Fail tidak disimpan — cuba lagi"),
       res.ok ? undefined : "notice");
     void load();
-  };
-  const toggle = async (key: string) => {
-    const before = onb;
-    const next = { ...onb, [key]: !onb[key] };
-    setOnb(next);
-    const res = await api(`/users/${userId}/onboarding`, { method: "POST", body: JSON.stringify({ items: next }) });
-    /* v1.78.0 — the tick was set on screen and the save was never checked.
-       A refused request left the box ticked and nothing saved: the one state
-       where the screen actively lies about a staff member's onboarding. Put
-       it back and say so. A successful tick needs no toast — the box moving
-       is the receipt — but a failed one has no other tell. */
-    if (!res.ok) {
-      setOnb(before);
-      vaultToast(
-        L("Not saved", "Tidak disimpan"),
-        L("That tick did not reach the server — try again", "Tanda itu tidak sampai ke pelayan — cuba lagi"),
-        "notice",
-      );
-    }
   };
   if (!loaded) {
     /* v1.77.0 — skeleton until the first fetch lands, in the vault's own
@@ -2566,15 +2549,17 @@ function StaffVault({ userId, name }: { userId: number; name: string }) {
           ))}
         </div>
       )}
-      <p className="text-muted-foreground mt-3 text-[11px] font-semibold tracking-wide uppercase">{L("Onboarding checklist", "Senarai semak onboarding")}</p>
-      <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+      {/* v1.306.0 - HR 4.0 (H-3): read here; ticked in HR > Employee Lifecycle, the checklist's one editor */}
+      <p className="text-muted-foreground mt-3 text-[11px] font-semibold tracking-wide uppercase">{L("Onboarding checklist", "Senarai semak onboarding")} · {ONBOARDING_ITEMS.filter(([k]) => onb[k]).length}/{ONBOARDING_ITEMS.length}</p>
+      <ul className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3" aria-label={L("Onboarding checklist", "Senarai semak onboarding")} data-testid="staff-onboarding-readonly">
         {ONBOARDING_ITEMS.map(([k, l]) => (
-          <label key={k} className="flex items-center gap-1.5 text-xs">
-            <input type="checkbox" checked={!!onb[k]} onChange={() => void toggle(k)} />
-            <span className={onb[k] ? "text-muted-foreground line-through" : ""}>{L(l, ONBOARDING_MS[k] ?? l)}</span>
-          </label>
+          <li key={k} className="flex items-center gap-1.5 text-xs">
+            <AppIcon name={onb[k] ? "success" : "pending"} className="h-3.5 w-3.5" />
+            <span className={onb[k] ? "text-muted-foreground" : ""}>{L(l, ONBOARDING_MS[k] ?? l)}</span>
+          </li>
         ))}
-      </div>
+      </ul>
+      {onOpenHr && <button type="button" className={`${btnSm} mt-2`} onClick={onOpenHr} data-testid="staff-open-hr-joining"><AppIcon name="external" />{L("Tick steps in HR > Employee Lifecycle", "Tanda langkah di HR > Kitaran Pekerja")}</button>}
     </div>
   );
 }

@@ -144,7 +144,7 @@ ok("no file outside the palette's owners spells a brand colour as hex",
 /* the print builders take it from the module, not from a copy */
 for (const f of ["lib/doc-template.ts", "lib/receipt-print.ts", "components/portal/sales.tsx",
                  "components/portal/leave.tsx", "components/portal/role-panels.tsx",
-                 "components/staff/staff-directory.tsx", "components/admin/hr-admin-panel.tsx"]) {
+                 "components/staff/staff-directory.tsx"]) { /* v1.306.0 - hr-admin-panel.tsx no longer prints (the payslip summary left, HR 4.0 H-2) */
   const s = read(f);
   ok(`${relative(".", f)} builds its document from DOC`,
      /from "@\/lib\/doc-theme"/.test(s) && /\$\{DOC\.\w+\}/.test(s));

@@ -60,6 +60,8 @@ const canInvoiceMoney = (u: StaffUser) => can(u.role, "invoice_payment");
     (components/staff/staff-directory.tsx ONBOARDING_ITEMS) writes them */
 export const JOINING_KEYS = ["offer_letter", "contract", "bank", "twofa", "badge", "groups"];
 /** v1.181.17 - the leaving checklist */
+/* v1.306.0 - the HR events GET /people/history reads (H-9) */
+export const HR_HISTORY_ACTIONS = ["staff.onboarding", "staff.leaving_checklist", "staff.probation_set", "staff.probation_decide", "staff.letter_issue", "staff.letter_void", "staff.training_add", "staff.training_remove", "holiday.create", "holiday.delete", "event.create", "event.update", "event.delete"];
 export const LEAVING_KEYS = ["assets_returned", "access_removed", "claims_settled", "final_pay", "exit_letter", "groups_removed"];
 /** v1.181.17 - the letters HR issues */
 export const LETTER_KINDS = ["offer", "confirmation", "extension", "warning", "resignation_acceptance", "employment_verification"];
@@ -1317,6 +1319,20 @@ export async function handleBusiness(
   const addDays = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   const addMonths = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10); };
 
+  /* v1.306.0 - HR Workspace 4.0 (the CEO, 14-11-2026, H-9): the HR events of the
+     audit log - checklists, probation, letters, training, holidays and company
+     events - never the rest of the log. hr_manage, the same people who keep them. */
+  if (path === "/people/history" && method === "GET") {
+    if (!HR) return err("forbidden", "HR access required", 403);
+    const { results } = await env.DB.prepare(
+      `SELECT l.id, l.action, l.entity, l.entity_id, l.detail, l.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
+         FROM audit_log l LEFT JOIN users u ON u.id = l.user_id
+        WHERE l.action IN (${HR_HISTORY_ACTIONS.map((_, i) => `?${i + 1}`).join(", ")})
+        ORDER BY l.id DESC LIMIT 300`,
+    ).bind(...HR_HISTORY_ACTIONS).all();
+    return json({ entries: results ?? [] });
+  }
+
   if (path === "/people/overview" && method === "GET") {
     if (!HR) return err("forbidden", "HR access required", 403);
     const today = mytToday();
@@ -1334,7 +1350,7 @@ export async function handleBusiness(
         .all<{ user_id: number; n: number }>().catch(() => env.DB.prepare(`SELECT assigned_to AS user_id, COUNT(*) AS n FROM assets WHERE assigned_to IS NOT NULL GROUP BY assigned_to`).all<{ user_id: number; n: number }>())).results ?? []);
       const parse = (j: string | null) => { try { return j ? (JSON.parse(j) as Record<string, boolean>) : {}; } catch { return {}; } };
       const joining = staff.filter((u) => u.joined_on && u.joined_on >= addDays(today, -90) && !u.left_on)
-        .map((u) => { const done = parse(u.onboarding_json); return { id: u.id, name: u.name, position: u.position, joined_on: u.joined_on, open: JOINING_KEYS.filter((k) => !done[k]) }; });
+        .map((u) => { const done = parse(u.onboarding_json); return { id: u.id, name: u.name, position: u.position, joined_on: u.joined_on, items: done, open: JOINING_KEYS.filter((k) => !done[k]) }; });
       const leaving = staff.filter((u) => u.left_on && u.left_on >= addDays(today, -60))
         .map((u) => { const done = parse(leavingRows.find((r) => r.user_id === u.id)?.items ?? null); return { id: u.id, name: u.name, position: u.position, left_on: u.left_on, items: done, open: LEAVING_KEYS.filter((k) => !done[k]), assets_held: assets.find((a) => a.user_id === u.id)?.n ?? 0 }; });
       const probation = staff.filter((u) => u.employment_status === "probation" && !u.left_on).map((u) => {

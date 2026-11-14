@@ -10,6 +10,22 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.306.0] - 2026-11-14 - HR Workspace 4.0: one function, one module - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 14-11-2026: "STRICT CEO DIRECTIVE - REMOVE DUPLICATION", then "proceed as per recommend" on claude/HR-WORKSPACE-4.0-BLUEPRINT.md (H-0 ... H-10). **No migration, no permission change, no tab-access change, no data touched.**
+
+- **Four HR tabs, in the address** (`/portal?tab=HR&view=...`, Back/Forward; the Dashboard's view switch on a phone): **Overview · Employee Lifecycle · Calendar & Holidays · HR Policies & Settings**.
+- **Overview:** Staff on record (from Staff) · Probation reviews due · Leaving / exit records; the HR lifecycle worklist (open joining checklists, probation reviews, offboarding records, the document templates); the upcoming people milestones (birthdays as day and month only); the boundary note (Leave / Attendance / Tasks → Reports & Archive). **Gone from HR:** the Leave, Claims and Payroll tiles, the leave chart, the Desk's leave / claims / OT items, Approve Leave / Approve Claims / Process Payroll.
+- **H-1 - the written daily / weekly / monthly task reports moved to Tasks → Reports & Archive** (`task-reports.tsx`), the same route, table and permission; every old report is listed there. The old HR Reports address opens Tasks → Reports & Archive.
+- **H-2 / H-6 - the payslip summary card is gone** from HR and from the old admin console (Payroll already has the attendance and leave days and the payslip); the admin console links to HR → Calendar and to Payroll. The `/payslip` route is unchanged.
+- **H-3 - the joining checklist has one editor: HR → Employee Lifecycle → Joining** (any staff member's, not only the last 90 days). Staff Details shows it read-only with a link. The editor sends the whole checklist back, so no step is lost.
+- **Employee Lifecycle:** Joining · Probation · Letters · Training · Leaving; "View employee record" opens the person in Staff Details.
+- **Calendar & Holidays:** the one company calendar (the Dashboard's), the holiday controls as they really are (Johor, one calendar - H-8; the gazette source; the weekend-to-Monday company rule), and the holiday list.
+- **HR Policies & Settings:** the policy library as it exists, marked built-in (no versioned library - H-5); links to Leave, Payroll, Attendance and Users; **HR audit history** (H-9) - a new read-only route `GET /staff/people/history`, hr_manage only, HR events only (checklists, probation, letters, training, holidays, company events).
+- **Removed:** the HR Administration launcher and the "Your HR access" table (Users & Security owns access).
+- **Sales (system health, 14-11-2026 05:31, "error on this system!"):** the ui_overflow report - the Sales worklist's header, filters, Mine / Everyone switch and selects ran ~50 px past a 344 px screen. On a phone the header and filters are now a grid that can only be as wide as the card (the switch on its own row, the two selects side by side, a long option cut with an ellipsis).
+- **Tests:** new `tests/hr4.mjs` (24 checks by direct request and on the source, 7 mutations); browser `hr4.py` (62, eight widths, plus the Sales worklist at 320 / 344 / 360). `tab-zones`, `business-joins`, `kept-lines` and `doc-theme` follow the move (the same rules, at the new home).
+
 ## [1.305.0] - 2026-11-14 - Assets Workspace 4.0, Phase 3: maintenance and disposal - BUILT, NOT DEPLOYED (MIGRATION 0195)
 
 The CEO, 14-11-2026: "Phase 3" (claude/ASSETS-WORKSPACE-4.0-BLUEPRINT.md section 6; D-6, D-8 as approved). **One additive migration** (0195_asset_care - four tables, CREATE IF NOT EXISTS, append-only triggers, no ALTER, no data written). **One new permission** `asset_dispose_approve` (CEO, COO). No other access changed.

@@ -588,3 +588,49 @@ button.cell:focus-visible,
   border-color: var(--gold-solid);
   font-weight: 600;
 }
+
+/* v1.306.0 - the system-health ui_overflow report of 14-11-2026 05:31 (the
+   CEO: "error on this system!"): on a 344 px phone the worklist's head, its
+   filter row, the Mine / Everyone switch and the "pick" selects ran ~50 px
+   past the card. A grid item and a select keep their min-content width
+   unless told otherwise, and a select's min-content is its longest option
+   in the phone's own font size - so on a phone the head and its filters are
+   a two-column grid that can only be as wide as the card: the switch takes
+   its own row, each select half of the next, and a long option is cut with
+   an ellipsis instead of pushing the row out. */
+.work > *,
+.workHead > * {
+  min-width: 0;
+}
+@media (max-width: 767px) {
+  .workHead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .filters {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-auto-flow: row dense;
+    width: 100%;
+  }
+  .filters > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .filters > [role="group"] {
+    display: flex;
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .filters > [role="group"] > button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .pick {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

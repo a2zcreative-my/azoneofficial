@@ -29,6 +29,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
 import { TaskMailPanel } from "@/components/portal/task-mail-panel"; // v1.247.0
+import { TaskReports } from "@/components/portal/task-reports"; // v1.306.0 - HR 4.0 (H-1): the written reports' one home
 import { StateChip, TaskProgressTabs, day, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
@@ -101,6 +102,13 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
 
   /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
   const [view, setView] = useState<TaskView>(() => (["overview", "mine", "all", "projects", "calendar", "reports"].includes(initialView ?? "") ? initialView as TaskView : "overview"));
+  /* v1.306.0 - HR 4.0 (H-1): the written daily / weekly / monthly reports live
+     here now. Mounted the first time Reports & Archive opens, then kept, so a
+     half-typed report survives a look at another view. Shown to the roles the
+     server lets submit them (task_reports - unchanged). */
+  const [reportsSeen, setReportsSeen] = useState(view === "reports");
+  if (view === "reports" && !reportsSeen) setReportsSeen(true);
+  const canTaskReports = holds("task_reports", ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"].includes(user.role));
   /* the Dashboard's "Create task" still opens the form: it is a drawer now */
   const [createOpen, setCreateOpen] = useState(() => initialView === "create");
   const [projOpen, setProjOpen] = useState<number | null>(null); // v1.245.0 - the project open in Tasks > Projects
@@ -1147,6 +1155,11 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         {progress}
         {/* v1.247.0 - task emails: settings, preview, delivery log (CEO, COO, CCO; the server decides) */}
         {["ceo", "coo", "cco", "super_admin"].includes(user.role) && view === "reports" && <TaskMailPanel />}
+        {canTaskReports && reportsSeen && (
+          <div id="task-reports" data-testid="task-reports">
+            <TaskReports />
+          </div>
+        )}
         {canManage && (
           <section className={card} aria-label={L("Staff task performance", "Prestasi tugasan kakitangan")}>
             {head("trophy", tk.goldWell, L("Staff Task Performance", "Prestasi Tugasan Kakitangan"), L("From the tasks on the board: closed out of total, and what is late.", "Daripada tugasan pada papan: ditutup daripada jumlah, dan yang lewat."))}
