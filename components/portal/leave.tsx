@@ -40,6 +40,7 @@ import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-t
 import lv from "./leave-page.module.css"; // v1.196.0 - the Leave page's tabs
 import { usePortal } from "@/components/portal/portal-provider"; // v1.206.0 - the drawer's related links
 import { SideDrawer } from "@/components/ui/side-drawer";
+import { AttendanceAdminPanel } from "@/components/portal/lazy-panels"; // v1.307.0 - Attendance 4.0: unpaid days moved here from Attendance > Settings
 import { Avatar } from "@/components/ui/avatar";
 import { StageDots, StageTimeline, type Stage, type StageState } from "@/components/ui/stage-timeline"; // v1.252.0
 import { RecordActivity, RecordComments } from "@/components/portal/record-thread"; // v1.254.0 - one thread for Leave and Claims
@@ -1649,6 +1650,15 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
           );
         })()}
       </TabZone>
+      )}
+      {/* v1.307.0 - ATTENDANCE 4.0: Attendance's Settings tab is gone; its
+          unpaid-day editor (an APPROVED unpaid leave record, what payroll
+          reads) is a leave record, so it lives with the company's leave. The
+          same card, the same gate as before: unpaid_leave, the CEO's. */}
+      {view === "manage" && holds("unpaid_leave", ["ceo", "super_admin"].includes(user.role)) && (
+        <TabZone label={L("Unpaid leave days", "Hari cuti tanpa gaji")} hint={L("Record or correct a full or half unpaid day - it is stored as an approved unpaid leave record.", "Rekod atau betulkan hari tanpa gaji penuh atau separuh - disimpan sebagai rekod cuti tanpa gaji yang diluluskan.")}>
+          <AttendanceAdminPanel role={user.role} areas={["unpaid"]} showPending={false} />
+        </TabZone>
       )}
       {/* v1.196.0 - THE TEAM CALENDAR: the month at a glance for everyone
           (leave-overview.tsx), then - managers only, as before - who is

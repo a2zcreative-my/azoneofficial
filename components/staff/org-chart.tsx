@@ -43,6 +43,7 @@ import { displayName, givenNames } from "@/lib/names";
 import { Skel } from "@/components/ui/skeleton";
 import { getLang } from "@/lib/i18n";
 import { card, inputClassSm } from "@/lib/ui-styles";
+import oc from "./org-chart.module.css"; // v1.308.0 - search, focus, folding, the phone's list
 /* The tree, the division walk and the loop-safety live in lib/org-tree.ts,
    with no React in them, so tests/org-chart.mjs can RUN them against a cycle
    instead of reading regexes off this file. Re-exported here so the one
@@ -101,13 +102,20 @@ function Face({ u, size }: { u: OrgPerson; size: number }) {
    because a button inside a button is invalid HTML that browsers silently
    un-nest, and the card is already a button that opens the record. Two
    affordances, two elements, one row. */
-function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onEdit }: {
+function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onEdit, dim = false, hit = false, collapsed = null, onToggle }: {
   node: OrgNode; ink: string; headcount: number; onOpen: (u: OrgPerson) => void; isRoot: boolean;
   canAssign: boolean; editing: boolean; onEdit: (u: OrgPerson | null) => void;
+  /** v1.308.0 - outside the focused department, or not the person searched */
+  dim?: boolean;
+  /** v1.308.0 - the person searched for */
+  hit?: boolean;
+  /** v1.308.0 - null: no branch below; true / false: the branch is folded / open */
+  collapsed?: boolean | null;
+  onToggle?: () => void;
 }) {
   const u = node.u;
   return (
-    <span className={`bg-card border-border/70 relative flex items-center rounded-xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${editing ? "ring-primary ring-2" : ""} ${isRoot ? "min-w-[13rem]" : "min-w-[11rem]"}`}>
+    <span data-org-id={u.id} data-hit={hit || undefined} data-dim={dim || undefined} className={`bg-card border-border/70 relative flex items-center rounded-xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${editing ? "ring-primary ring-2" : ""} ${hit ? oc.hit : ""} ${dim ? oc.dim : ""} ${isRoot ? "min-w-[13rem]" : "min-w-[11rem]"}`}>
       <span aria-hidden className="absolute inset-y-1.5 left-0 w-1 rounded-full" style={{ background: ink }} />
       <button type="button" onClick={() => onOpen(u)}
         title={`${displayName(u)}${u.position ? ` · ${u.position}` : ""} — ${L("press to open the profile", "tekan untuk buka profil")}`}
@@ -125,10 +133,18 @@ function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onE
         </span>
       </button>
       {headcount > 0 && (
-        <span className="bg-secondary text-foreground/75 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
-          title={L(`${headcount} people below`, `${headcount} orang di bawah`)}>
-          {headcount}
-        </span>
+        collapsed !== null && onToggle ? (
+          <button type="button" onClick={onToggle} aria-expanded={!collapsed}
+            title={collapsed ? L(`Show the ${headcount} below`, `Tunjuk ${headcount} di bawah`) : L("Fold this branch", "Lipat cabang ini")}
+            className={oc.fold}>
+            {headcount} {collapsed ? "+" : "−"}
+          </button>
+        ) : (
+          <span className="bg-secondary text-foreground/75 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+            title={L(`${headcount} people below`, `${headcount} orang di bawah`)}>
+            {headcount}
+          </span>
+        )
       )}
       {/* Nobody sits above the top of the chart, so the root has no line to
           change - offering one there is offering a control that can only be
@@ -150,27 +166,68 @@ function OrgCard({ node, ink, headcount, onOpen, isRoot, canAssign, editing, onE
     this portal recursion is the honest shape. The connector lines are CSS on
     the children (see the <style> block in OrgChart), not SVG, so the tree
     reflows with the text and needs no measuring pass. */
-function OrgBranch({ node, byId, counts, onOpen, canAssign, editingId, onEdit }: {
+function OrgBranch({ node, byId, counts, onOpen, canAssign, editingId, onEdit, view }: {
   node: OrgNode; byId: Map<number, OrgPerson>; counts: Map<number, number>; onOpen: (u: OrgPerson) => void;
   canAssign: boolean; editingId: number | null; onEdit: (u: OrgPerson | null) => void;
+  view: TreeView;
 }) {
   const ink = inkFor(divisionOf(node.u, byId));
+  const folded = view.collapsed.has(node.u.id);
   return (
     <div className="org-branch">
       <OrgCard node={node} ink={ink} headcount={counts.get(node.u.id) ?? 0} onOpen={onOpen} isRoot={node.depth === 0}
-        canAssign={canAssign} editing={editingId === node.u.id} onEdit={onEdit} />
-      {node.children.length > 0 && (
+        canAssign={canAssign} editing={editingId === node.u.id} onEdit={onEdit}
+        dim={view.dims(node.u)} hit={view.hit === node.u.id}
+        collapsed={node.children.length > 0 && node.depth > 0 ? folded : null} onToggle={() => view.toggle(node.u.id)} />
+      {node.children.length > 0 && !folded && (
         <>
           <span aria-hidden className="org-drop" />
           <div className="org-kids">
             {node.children.map((c) => (
               <OrgBranch key={c.u.id} node={c} byId={byId} counts={counts} onOpen={onOpen}
-                canAssign={canAssign} editingId={editingId} onEdit={onEdit} />
+                canAssign={canAssign} editingId={editingId} onEdit={onEdit} view={view} />
             ))}
           </div>
         </>
       )}
     </div>
+  );
+}
+
+/* v1.308.0 - STAFF WORKSPACE 4.0 (reference 03): search a person, focus a
+   department, fold a branch - on the same tree, nothing stored */
+interface TreeView { collapsed: Set<number>; toggle: (id: number) => void; dims: (u: OrgPerson) => boolean; hit: number | null }
+
+/** v1.308.0 - the phone's chart: an indented, foldable list (a shrunken
+    desktop tree is unreadable on 360 px) */
+function OrgList({ node, byId, counts, onOpen, view }: {
+  node: OrgNode; byId: Map<number, OrgPerson>; counts: Map<number, number>; onOpen: (u: OrgPerson) => void; view: TreeView;
+}) {
+  const folded = view.collapsed.has(node.u.id);
+  const n = counts.get(node.u.id) ?? 0;
+  return (
+    <li>
+      <span className={`${oc.row} ${view.hit === node.u.id ? oc.hit : ""} ${view.dims(node.u) ? oc.dim : ""}`}
+        style={{ borderLeft: `3px solid ${inkFor(divisionOf(node.u, byId))}` }}>
+        <button type="button" onClick={() => onOpen(node.u)} className={oc.who}>
+          <Face u={node.u} size={30} />
+          <span>
+            <strong>{displayName(node.u)}</strong>
+            <small>{[node.u.position || ROLE_LABEL(node.u.role), (node.u.department ?? "").trim()].filter(Boolean).join(" · ")}</small>
+          </span>
+        </button>
+        {node.children.length > 0 && (
+          <button type="button" aria-expanded={!folded} onClick={() => view.toggle(node.u.id)} className={oc.open}>
+            {n} {folded ? "+" : "−"}
+          </button>
+        )}
+      </span>
+      {node.children.length > 0 && !folded && (
+        <ul className={oc.kids}>
+          {node.children.map((c) => <OrgList key={c.u.id} node={c} byId={byId} counts={counts} onOpen={onOpen} view={view} />)}
+        </ul>
+      )}
+    </li>
   );
 }
 
@@ -199,6 +256,15 @@ function ManagerPicker({ person, people, disabled, onPick }: {
   );
 }
 
+/** the ids above a person, walked up the line with a hop limit (a search hit
+    unfolds every branch on its way down) */
+function upLine(id: number, byId: Map<number, OrgPerson>): number[] {
+  const out: number[] = [];
+  let cur = byId.get(id)?.reports_to ?? null;
+  for (let hop = 0; cur !== null && cur !== undefined && hop < 64; hop++) { out.push(cur); cur = byId.get(cur)?.reports_to ?? null; }
+  return out;
+}
+
 export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }: {
   people: OrgPerson[];
   loaded: boolean;
@@ -212,6 +278,10 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
      asked for a way to change a line, which is the clearest possible report
      that a control behind a "Show" link is a control nobody found. */
   const [showAll, setShowAll] = useState(true);
+  /* v1.308.0 - search, department focus and folded branches (reference 03) */
+  const [q, setQ] = useState("");
+  const [dept, setDept] = useState("");
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   /* Who is being re-pointed right now. One at a time: the picker appears in a
      bar under the chart rather than inside the branch, so opening it never
      shifts the tree under the hand that pressed it. */
@@ -254,6 +324,16 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
     return m;
   }, [byId]);
 
+  const needle = q.trim().toLowerCase();
+  const hit = needle ? [...byId.values()].find((u) => displayName(u).toLowerCase().includes(needle))?.id ?? null : null;
+  const depts = [...new Set([...byId.values()].map((u) => (u.department ?? "").trim()).filter(Boolean))].sort();
+  const view: TreeView = {
+    collapsed: hit !== null ? new Set([...collapsed].filter((id) => !upLine(hit, byId).includes(id))) : collapsed,
+    toggle: (id) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; }),
+    dims: (u) => (dept !== "" && (u.department ?? "").trim() !== dept) || (hit !== null && u.id !== hit),
+    hit,
+  };
+
   if (!loaded) {
     return (
       <div className={card}>
@@ -294,10 +374,10 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
             <p className="text-sm font-semibold">{L("Organisation", "Organisasi")}</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
               {canAssign
-                ? L("Who each person answers to. The stripe is the division; the number is how many sit below. Press the pencil on a box to change who they report to.",
-                    "Setiap orang melapor kepada siapa. Jalur ialah bahagian; nombor ialah bilangan di bawahnya. Tekan pensel pada kotak untuk menukar siapa mereka melapor kepada.")
-                : L("Who each person answers to. The stripe is the division; the number is how many sit below.",
-                    "Setiap orang melapor kepada siapa. Jalur ialah bahagian; nombor ialah bilangan di bawahnya.")}
+                ? L("Company hierarchy and reporting structure - leaders, their positions and the staff under them. The stripe is the division; the number is how many sit below (press it to fold the branch). Press the pencil on a box to change who they report to.",
+                    "Hierarki syarikat dan struktur pelaporan - pemimpin, jawatan mereka dan kakitangan di bawahnya. Jalur ialah bahagian; nombor ialah bilangan di bawahnya (tekan untuk melipat cabang). Tekan pensel pada kotak untuk menukar siapa mereka melapor kepada.")
+                : L("Company hierarchy and reporting structure - leaders, their positions and the staff under them. The stripe is the division; the number is how many sit below (press it to fold the branch).",
+                    "Hierarki syarikat dan struktur pelaporan - pemimpin, jawatan mereka dan kakitangan di bawahnya. Jalur ialah bahagian; nombor ialah bilangan di bawahnya (tekan untuk melipat cabang).")}
             </p>
           </div>
           <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -318,18 +398,34 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
           </span>
         </div>
 
+        {root && (
+          <div className={oc.tools} data-testid="org-tools">
+            <input type="search" className={`${inputClassSm} ${oc.search}`} value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder={L("Search person", "Cari orang")} aria-label={L("Search person on the chart", "Cari orang pada carta")} />
+            <select className={`${inputClassSm} ${oc.focus}`} value={dept} onChange={(e) => setDept(e.target.value)} aria-label={L("Focus department", "Fokus jabatan")}>
+              <option value="">{L("All departments", "Semua jabatan")}</option>
+              {depts.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            {collapsed.size > 0 && <button type="button" className={oc.link} onClick={() => setCollapsed(new Set())}>{L("Expand all", "Kembangkan semua")}</button>}
+            {needle && hit === null && <span className={oc.note}>{L("Nobody on the chart matches.", "Tiada sesiapa pada carta sepadan.")}</span>}
+          </div>
+        )}
         {root ? (
           /* The tree is as wide as the widest level, which on a growing
              company is wider than a laptop. It scrolls in its own box so the
              page never does. */
           <>
-            <div className="mt-4 overflow-x-auto pb-2">
+            <div className="erp-desktop-only mt-4 overflow-x-auto pb-2">
               <div className="flex min-w-max justify-center px-2">
                 <OrgBranch node={root} byId={byId} counts={counts} onOpen={onOpen}
                   canAssign={canAssign} editingId={editing?.id ?? null}
-                  onEdit={(u) => setEditing(u)} />
+                  onEdit={(u) => setEditing(u)} view={view} />
               </div>
             </div>
+            {/* v1.308.0 - the phone's chart: the same tree as a foldable list */}
+            <ul className={`erp-phone-only ${oc.list}`} data-testid="org-list">
+              <OrgList node={root} byId={byId} counts={counts} onOpen={onOpen} view={view} />
+            </ul>
             {/* The bar. Fixed to the bottom of the CARD, not floating over the
                 tree: the chart scrolls sideways and a popover pinned to a box
                 would sail off with it. */}
@@ -395,7 +491,7 @@ export function OrgChart({ people, loaded, canAssign, saving, onAssign, onOpen }
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold">{L("Reporting lines", "Garis pelaporan")}</p>
+              <p className="text-sm font-semibold">{L("Change reporting lines", "Tukar garis pelaporan")}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">
                 {L("Every active person and who they answer to. Changing one moves them on the chart at once.",
                    "Setiap orang aktif dan kepada siapa mereka melapor. Menukarnya akan memindahkan mereka pada carta serta-merta.")}

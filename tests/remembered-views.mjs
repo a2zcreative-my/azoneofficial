@@ -182,7 +182,7 @@ const ok = (label, cond, why = "") => {
     "components/staff/staff-directory.tsx": "/staff/users",
     "components/portal/assets-panel.tsx": "/staff/assets",
     "components/portal/elfia-traffic-panel.tsx": "/staff/web-traffic",
-    "components/portal/verification-card.tsx": "/staff/attendance/verification",
+    "components/portal/attendance-reports.tsx": "/staff/attendance/verification", // v1.307.0 - the month report's home (verification-card retired)
   };
   for (const [file, path] of Object.entries(files)) {
     const whole = read(file);
@@ -211,9 +211,9 @@ const ok = (label, cond, why = "") => {
 
 /* ---- 4. money says so ---- */
 {
-  const v = read("components/portal/verification-card.tsx");
+  const v = read("components/portal/attendance-reports.tsx"); // v1.307.0 - Attendance 4.0 Reports
   ok("the reconciliation wears the StaleHint while remembered figures refresh",
-     /<StaleHint show=\{report\.stale\}/.test(v),
+     /<StaleHint show=\{v\.stale\} \/>/.test(v),
      "instant everywhere, but MONEY says so - the CEO's rule since v1.25.0");
 }
 

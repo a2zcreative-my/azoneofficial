@@ -276,8 +276,10 @@ const ok = (label, cond, extra = "") => {
   ok("it takes a second, deliberate tap", /setForgotArmed\(true\)/.test(page) && /punch\("clock_out", forgotArmed\)/.test(page));
   ok("the person is told it does not count yet",
      /does not count towards your hours until the CEO approves/.test(page));
+  /* v1.307.0 - Attendance 4.0: the pending list is drawn by Exceptions &
+     Approvals; the card's own copy is behind showPending, still CEO-only */
   ok("the approvals card is CEO-only, like the route",
-     /\{canUnpaid && pending\.length > 0 && \(/.test(panels));
+     /\{showPending && canUnpaid && pending\.length > 0 && \(/.test(panels));
   ok("the schedule editor writes minutes, not text",
      /half_day_minutes: toMins\(editP\.half\) \?\? 720/.test(panels));
   ok("an empty day means a rest day, and says so",
@@ -392,7 +394,8 @@ const ok = (label, cond, extra = "") => {
      /const dayMinutes = /.test(panels) && /Week: \$\{hLabel\(/.test(panels),
      "eight hours split across two blocks is not a sum to do in your head");
   ok("the card opens one section at a time",
-     /const \[section, setSection\] = useState<"find" \| "add" \| "unpaid" \| "hours" \| "ot">/.test(panels),
+     /export type AttendanceAdminArea = "find" \| "add" \| "unpaid" \| "hours" \| "ot";/.test(panels)
+     && /const \[section, setSection\] = useState<AttendanceAdminArea>\(\(\) => areas\?\.\[0\] \?\? "find"\);/.test(panels),
      "the CEO: I want minimalist interface for me to easier to choose which area that I want to update");
   ok("the register can filter to assigned-work punches",
      /<option value="assigned">/.test(panels));
@@ -495,7 +498,7 @@ const ok = (label, cond, extra = "") => {
      require and a must!" The old card printed every punch and nothing added
      up; somebody on medical leave for a week had NO ROWS, which on that
      screen is indistinguishable from somebody who never came in. */
-  const vcard = read("components/portal/verification-card.tsx");
+  const vcard = read("components/portal/attendance-reports.tsx"); // v1.307.0 - the report's home
   ok("there is a verification report", /path === "\/attendance\/verification" && method === "GET"/.test(staff));
   ok("the month reconciles on every row",
      /balances: partialReviewDates\.length === 0 && worked \+ leaveTotal \+ absent === scheduled,/.test(staff),
@@ -519,19 +522,21 @@ const ok = (label, cond, extra = "") => {
   ok("the holidays table is read by its real column name",
      /SELECT holiday_date FROM holidays WHERE holiday_date LIKE/.test(staff),
      "the first draft asked for `date`, which the catch would have swallowed into a month with no public holidays at all");
+  /* v1.307.0 - Attendance 4.0: the month report is Attendance > Reports
+     (attendance-report.tsx reads the same route); the old card retired */
   ok("the card is on the Attendance tab, not HR",
-     /<VerificationCard \/>/.test(page) && !/AttendanceRow\[\]>\(\[\]\)/.test(panels),
+     /<AttendanceReports canExport=\{canExport\} \/>/.test(page) && !/AttendanceRow\[\]>\(\[\]\)/.test(panels),
      "the CEO asked for it on Attendance, and a copy left behind on HR is two reports that will disagree");
   /* ---- the pills are the filter (v1.84.1) ----
      The CEO: "pill above there should clickable to get the data". The three
      figures answered "is anything wrong this month" and then left him to
      read every row looking for it. */
   ok("a pill with something behind it is a button",
-     /aria-pressed=\{active\}/.test(vcard) && /onPick: \(\) => void/.test(vcard),
+     /onClick=\{\(\) => togglePill\("absent"\)\} pressed=\{pill === "absent"\}/.test(vcard) && /aria-pressed=\{pressed\}/.test(read("components/ui/kpi-tile.tsx")),
      "a summary that cannot be opened is a summary you have to verify by hand");
   ok("the table, the dates and the CSV follow the same filter",
-     /const shown = \(\): VRow\[\] =>/.test(vcard) &&
-     /\{shown\(\)\.map\(\(r\) => \(/.test(vcard) &&
+     /const shown = \(\): Row\[\] =>/.test(vcard) &&
+     /\{shown\(\)\.map\(\(r, i\) => \{/.test(vcard) && /\{shown\(\)\.map\(\(r\) => \(/.test(vcard) &&
      /const list = shown\(\);/.test(vcard),
      "two definitions of what is on screen disagree the first time a filter is added, and the file then holds something other than what was looked at");
   ok("filtering to a thing opens its dates",

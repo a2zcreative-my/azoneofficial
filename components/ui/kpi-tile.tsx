@@ -18,7 +18,7 @@ export function KpiRow({ children, label }: { children: ReactNode; label?: strin
   return <div className={css.row} role={label ? "group" : undefined} aria-label={label}>{children}</div>;
 }
 
-export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title }: {
+export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title, pressed }: {
   icon: AppIconName;
   tone: KpiTone;
   label: ReactNode;
@@ -41,6 +41,8 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
   link?: { label: string; onClick: () => void };
   onClick?: () => void;
   title?: string;
+  /** v1.307.0 - a pressable tile that is also a filter says whether it is on */
+  pressed?: boolean;
 }) {
   const max = spark && spark.length > 0 ? Math.max(1, ...spark) : 1;
   const body = (
@@ -79,6 +81,6 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
     </>
   );
   return onClick
-    ? <button type="button" className={`erp-card ${css.tile} ${css.press}`} onClick={onClick} title={title}>{body}</button>
+    ? <button type="button" className={`erp-card ${css.tile} ${css.press}`} onClick={onClick} title={title} aria-pressed={pressed}>{body}</button>
     : <div className={`erp-card ${css.tile}`} title={title}>{body}</div>;
 }

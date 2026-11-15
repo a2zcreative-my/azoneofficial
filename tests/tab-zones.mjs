@@ -261,21 +261,26 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      verification card) · Schedule & Roster · Management (OT approvals, the
      corrections panel). The page hands the tab to the panel. */
   const attendance = read("components/portal/attendance-panel.tsx");
-  ok("the Attendance block hands the tab to its panel", /\{activeTab === "Attendance" && \([\s\S]{0,400}?<AttendancePanel user=\{user\} go=\{setTab\} \/>/.test(page));
-  /* v1.191.0 - the owner's photo's seven tabs: Overview, Attendance, On
-     Shift (opens the On Shift page), Roster, Team, Reports, Settings */
-  ok("Attendance: overview, my records, the roster, the team's, the report, then the settings - in that order",
-    ordered(attendance, ['<AttendanceOverview', '<Attendance user={user} view="mine"', '<TodayAssignmentsCard', '<RosterBoard', '<OtApprovalsCard', '<Attendance user={user} view="team"', '<VerificationCard', '<AttendanceAdminPanel']));
-  ok("the seven tabs are the shared underline tabs, On Shift opens its page, and every body stays mounted (hidden, never unmounted)",
-    /<LineTabs value=\{view\} onChange=\{pick\} tabs=\{tabs\}/.test(attendance)
-    && /const pick = \(k: View\) => \(k === "onshift" \? go\("On Shift"\) : setView\(k\)\);/.test(attendance)
-    && ['"overview"', '"mine"', '"roster"', '"team"', '"reports"', '"settings"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
-  ok("the assignments card's Open roster opens the roster tab and scrolls to the board",
-    /<div id="roster-board" className=\{css\.rosterAnchor\} ref=\{rosterRef\}>\s*<RosterBoard/.test(attendance)
-    && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("components/portal/attendance-panel.module.css"))
-    && /onOpenRoster=\{\(\) => \{ setView\("roster"\); revealAnchor\("roster-board"\); \}\}/.test(attendance)
+  /* v1.307.0 - ATTENDANCE WORKSPACE 4.0 (the CEO, 14-11-2026, A-0 / A-3):
+     five views in the address, the phone's view switch, every view mounted
+     on first open and kept (hidden, never unmounted); the operational
+     roster board moved to Tasks > Calendar, the anchors to Exceptions. */
+  ok("the Attendance block hands the tab to its panel", /\{activeTab === "Attendance" && \([\s\S]{0,400}?<AttendancePanel user=\{user\} go=\{setTab\} startView=\{startOf\("Attendance"\)\} \/>/.test(page));
+  ok("Attendance: overview, the records, the roster, the exceptions, then the reports - in that order",
+    ordered(attendance, ['<AttendanceOverview', '<AttendanceRecords', '<Attendance user={user} view="team"', '<Attendance user={user} view="mine"', '<ShiftRoster', '<AttendanceExceptions', '<AttendanceReports'])
+    && !/<RosterBoard|<VerificationCard|<OtApprovalsCard/.test(attendance));
+  ok("the five views are the shared underline tabs (a view switch on a phone), in the address, and a seen view stays mounted (hidden, never unmounted)",
+    /<LineTabs value=\{view\} onChange=\{\(k\) => setView\(k\)\}/.test(attendance)
+    && /<ViewSwitch value=\{view\}/.test(attendance)
+    && /useTabViewAddress\("Attendance", view, setView, isView\);/.test(attendance)
+    && ['"overview"', '"records"', '"roster"', '"exceptions"', '"reports"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
+  const tasksSrc = read("components/portal/tasks.tsx");
+  ok("the assignments card's Open roster scrolls to the board, now in Tasks > Calendar; the Desk's anchors open Exceptions",
+    /<div id="roster-board" className=\{tk\.rosterAnchor\}>\s*<RosterBoard/.test(tasksSrc)
+    && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("components/portal/tasks-page.module.css"))
+    && /onOpenRoster=\{\(\) => revealAnchor\("roster-board"\)\}/.test(tasksSrc)
     && /window\.dispatchEvent\(new CustomEvent\("azone:reveal", \{ detail: id \}\)\)/.test(read("components/portal/page-shared.tsx"))
-    && /"ot-approvals": "team", "pending-punches": "settings", "roster-board": "roster"/.test(attendance));
+    && /"ot-approvals": "exceptions", "pending-punches": "exceptions"/.test(attendance));
   /* v1.189.0 - the Users page is its own tabbed panel (users-panel.tsx):
      Overview, Staff Accounts, Customer Accounts, Roles & Permissions,
      Security & Settings; every body stays mounted and hidden. */
@@ -378,8 +383,22 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Staff: six tabs in the brief's order, zones hidden not unmounted", [["overview", "Overview"], ["directory", "Directory"], ["org", "Organisation"], ["team", "Team Map"], ["roles", "Departments & Roles"], ["records", "Staff Records"]].map(([k, t]) => staffFn.indexOf(`["${k}", L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (staffFn.match(/className=\{tab !== "[a-z]+" \? sp\.off : ""\}/g) ?? []).length === 6);
   ok("Staff: Add staff on the tab row, never for the read-only roles", /aside=\{!readOnly \? \(\s*<TabAside>\s*<TabAction icon="add" onClick=\{\(\) => setShowCreate\(true\)\}>/.test(staffFn) && /open=\{!readOnly && showCreate\}/.test(staffFn));
   ok("Staff: the toast and the question render outside every zone", staffFn.indexOf("{toastNode}{promptNode}") > 0 && staffFn.indexOf("{toastNode}{promptNode}") < staffFn.indexOf("<TabZone"));
-  ok("Staff: the record keeps its gates (Save and photo for the writers, Offboard for the amenders, role for the CEO and COO)", /open\.has\(u\.id\) && !readOnly && \(/.test(staffFn) && /open\.has\(u\.id\) && canAmend && !\["resigned", "terminated"\]/.test(staffFn) && /sec\.title === "Employment" && canSetRole && \(/.test(staffFn) && /const isLocked = \(u: Staff, key: keyof Staff\) =>\s*readOnly \|\| \(!canAmend && /.test(staffFn));
-  ok("Staff: badges print one or many, from the record, the drawer and the selection", /onClick=\{\(\) => printBadge\(merged\)\}/.test(staffFn) && /printBadge\(\{ \.\.\.u, \.\.\.draft\[u\.id\] \} as Staff\)/.test(staffFn.slice(staffFn.indexOf("const profileFooter"))) && /printBadges\(staff\.filter\(\(u\) => selected\.has\(u\.id\)\)/.test(staffFn));
+  /* v1.308.0 - Staff Workspace 4.0 (reference 06): View, then Edit / Cancel /
+     Save for the writers; Offboard for the amenders (Employment); the role for
+     the CEO and COO (Role & Access); the lock is worked out on the record */
+  ok("Staff: the record keeps its gates (Save and photo for the writers, Offboard for the amenders, role for the CEO and COO)",
+    /\{!readOnly && editing && <button type="button" className=\{btnSmPrimary\} disabled=\{!dirty\} onClick=\{\(\) => void save\(u\.id, displayName\(u\)\)\}/.test(staffFn)
+    && /\{!readOnly && \(\s*<label className=\{`\$\{btnSm\} \$\{sp\.photoBtn\}`\}>/.test(staffFn)
+    && /recSection === "employment" && canAmend && !\["resigned", "terminated"\]/.test(staffFn)
+    && /canSetRole && !readOnly \? \(/.test(staffFn)
+    && /const lockedF = \(key: keyof Staff\) => readOnly \|\| !editing \|\| \(!canAmend && Boolean\(String\(base\[key\] \?\? ""\)\.trim\(\)\)\);/.test(staffFn));
+  /* v1.308.0 (S-1) - the badge prints the NRIC, so it prints from the private
+     block, and only for those who may read it */
+  ok("Staff: badges print one or many, from the record, the drawer and the selection",
+    /\{canPrivate && <button type="button" className=\{btnSm\} onClick=\{\(\) => void printWithPrivate\(\[u\]\)\}><AppIcon name="print" \/>\{L\("Print ID"/.test(staffFn)
+    && /void printWithPrivate\(\[u\]\)/.test(staffFn.slice(staffFn.indexOf("const profileFooter")))
+    && /void printWithPrivate\(staff\.filter\(\(u\) => selected\.has\(u\.id\)\)\)/.test(staffFn)
+    && /if \(full\.length === 1\) printBadge\(full\[0\]!\); else printBadges\(full\);/.test(staffFn));
   /* v1.201.1 - a leaver's status says the sign-in is blocked, which is true only
      while the worker's login still refuses resigned and terminated */
   ok("Staff: a leaver reads \"Sign-in blocked\", and the login still refuses leavers", /if \(s === "left"\) \{[\s\S]{0,1200}?L\("Sign-in blocked", "Log masuk disekat"\)/.test(staffFn) && /AND COALESCE\(employment_status, ''\) NOT IN \('resigned', 'terminated'\)/.test(read("worker/src/index.ts")));

@@ -32,6 +32,8 @@ export type AttendanceMonitor = {
   staff: {
     id: number; name: string; role: string; employment_status?: string | null;
     in_at?: string | null; out_at?: string | null; last_type?: string | null; shifts?: number;
+    /** v1.307.0 - THE day verdict (worker/src/attendance-day.ts) */
+    status?: string; late?: boolean; late_minutes?: number;
   }[];
 };
 export type AttendanceMine = { month: string; days: number; totalMs: number; missingOut: number; loaded: boolean };

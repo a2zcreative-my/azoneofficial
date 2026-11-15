@@ -1686,9 +1686,13 @@ export function Dashboard({
             <p className={shiftCss.cardSub}>{L("Your current shift and attendance status", "Syif semasa dan status kehadiran anda")}</p>
           </div>
           {attKnown && (
-            <span className={chipForState(shiftState)} role="status">
+            <span className={!openNow && !hasOut && (todayKind === "rest" || todayKind === "holiday" || todayKind === "leave") ? chipForState("done") : chipForState(shiftState)} role="status">
               {openNow ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
                 : hasOut ? L(`Clocked out at ${lastOut ?? ""}`, `Daftar keluar ${lastOut ?? ""}`)
+                /* v1.307.0 - Attendance 4.0: a rest day, a holiday or leave is never "not clocked in" */
+                : todayKind === "rest" ? L("Rest day", "Hari rehat")
+                : todayKind === "holiday" ? L("Public holiday", "Cuti umum")
+                : todayKind === "leave" ? L("On leave", "Bercuti")
                 : L("Not clocked in yet", "Belum daftar masuk")}
             </span>
           )}
@@ -2121,6 +2125,18 @@ export const GEOFENCE_EXEMPT_ROLES = ["ceo", "coo", "cco"];
    "lat,lng[,acc]"; distance is measured against the CONFIGURED fence when
    the caller has one (monitor ships it), falling back to SITE_CONFIG.
    Accuracy grace mirrors the server: radius + min(acc, 150). */
+/** v1.307.0 - Attendance 4.0 (A-8): the same label from the server's outcome, for a
+    reader who is not sent raw coordinates (only the CEO is). */
+export function locLabel(loc?: { status: string; distance_m: number | null } | null): { text: string; ok: boolean | null; dist: number | null } {
+  if (!loc || loc.status === "none") return { text: L("no location", "tiada lokasi"), ok: null, dist: null };
+  const d = loc.distance_m;
+  const shown = d == null ? "" : d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${d} m`;
+  if (loc.status === "verified") return { text: L(`in office (${shown})`, `di pejabat (${shown})`), ok: true, dist: d };
+  if (loc.status === "outside") return { text: L(`outside office (${shown})`, `di luar pejabat (${shown})`), ok: false, dist: d };
+  if (loc.status === "denied" || loc.status === "unavailable") return { text: L("NO LOCATION", "TIADA LOKASI"), ok: false, dist: null };
+  return { text: L(`location recorded (${shown})`, `lokasi direkod (${shown})`), ok: null, dist: d };
+}
+
 export function gpsLabel(
   gps?: string | null,
   fence?: { lat: number; lng: number; radius_m: number; label?: string } | null
@@ -2187,6 +2203,7 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
     role?: string;
     in_at?: string | null;
     in_gps?: string | null;
+    in_loc?: { status: string; distance_m: number | null } | null;
   };
   const [data, setData] = useState<MonRow[]>([]);
   const [fence, setFence] = useState<{
@@ -2284,7 +2301,7 @@ export function InTodaySummary({ inModal }: { inModal?: boolean } = {}) {
                  ("outside office"); CEO/COO/CCO are exempt from the flag —
                  their distance shows neutrally. Missing location on a staff
                  punch is amber (older rows predate the requirement). */
-              const g = gpsLabel(u.in_gps, fence);
+              const g = u.in_gps !== undefined ? gpsLabel(u.in_gps, fence) : locLabel(u.in_loc);
               const exempt = GEOFENCE_EXEMPT_ROLES.includes(u.role ?? "");
               if (g.ok === null)
                 return (

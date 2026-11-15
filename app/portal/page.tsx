@@ -116,7 +116,7 @@ export default function PortalPage() {
             /* v1.188.0 - the page is its own tabbed panel (attendance-panel.tsx):
                Overview · My Attendance · Team Attendance · Schedule & Roster ·
                Management, the same cards under the same gates. */
-            <AttendancePanel user={user} go={setTab} />
+            <AttendancePanel user={user} go={setTab} startView={startOf("Attendance")} />
           )}
           {/* v1.172.0 - Reconciliation, Ads Fund and Purchasing retired: no
              block here, no tab in the registry, no panel in the bundle.

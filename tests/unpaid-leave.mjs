@@ -232,8 +232,12 @@ ok("the delete button is CEO-only in the browser too",
    /const canDelete = holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)/ /* v1.237.0 - the server's answer (matrix edits), this rule until it arrives */.test(page));
 ok("the unpaid control is CEO-only in the browser too",
    /const canUnpaid = holds\("unpaid_leave", \["ceo", "super_admin"\]\.includes\(role\)\)/.test(panels)); // v1.237.0
+/* v1.307.0 - Attendance 4.0: the card is drawn in three homes, each given the role -
+   the unpaid area in Leave, corrections in Exceptions & Approvals, hours in Shift Templates */
 ok("the attendance panel is actually given the role",
-   /<AttendanceAdminPanel role=\{user\.role\} \/>/.test(page),
+   /<AttendanceAdminPanel role=\{user\.role\} areas=\{\["unpaid"\]\} showPending=\{false\} \/>/.test(read("components/portal/leave.tsx"))
+   && /<AttendanceAdminPanel role=\{user\.role\} areas=\{\["find", "add", "ot"\]\} showPending=\{false\} \/>/.test(read("components/portal/attendance-exceptions.tsx"))
+   && /<AttendanceAdminPanel role=\{role\} areas=\{\["hours"\]\} showPending=\{false\} bare \/>/.test(read("components/portal/shift-roster.tsx")),
    "without the prop the control renders for nobody, silently");
 
 /* ---- v1.83.0: a leave you can correct or take back ----
@@ -294,8 +298,11 @@ ok("the attendance panel is actually given the role",
      "COO and CCO would be handed the card and shown their own punches");
   ok("approving a forgotten punch is still the CEO's",
      /"\/attendance\/pending\/decide" && method === "POST"[\s\S]{0,400}?can\(user\.role, "unpaid_leave"\)/.test(staff));
+  /* v1.307.0 - the corrections card is drawn in Exceptions & Approvals for attendance_correct */
   ok("the page draws the card for the same tier",
-     /\["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"\]\.includes\(user\.role\) \? \(\s*\n?\s*<AttendanceAdminPanel/.test(page));
+     /const CORRECT_ROLES = \["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"\];/.test(read("components/portal/attendance-exceptions.tsx"))
+     && /const canCorrect = holds\("attendance_correct", CORRECT_ROLES\.includes\(user\.role\)\);/.test(read("components/portal/attendance-exceptions.tsx"))
+     && /\{canCorrect && \(/.test(read("components/portal/attendance-exceptions.tsx")));
   const panels = read("components/portal/role-panels.tsx");
   ok("the unpaid area of the card stays the CEO's",
      /const canUnpaid = holds\("unpaid_leave", \["ceo", "super_admin"\]\.includes\(role\)\);/.test(panels) && /\{canUnpaid && section === "unpaid"/.test(panels));

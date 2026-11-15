@@ -127,44 +127,31 @@ const ok = (label, cond, extra = "") => {
        && /const openRecord = \(id: number\) => \{[\s\S]{0,120}?setOpen\(new Set\(\[id\]\)\);\s*setTab\("records"\)/.test(src)
        && /onClick=\{\(\) => openRecord\((?:peekU|u)\.id\)\}/.test(src),
      "a circle that is only a picture is the old list with the words removed"],
-    /* v1.99.2 — asserted as a property over EVERY <StaffBubble …/> in the
-       file, not as one window that a new prop can widen past. Whatever the
-       layouts are, each one's face must press the single `press` handler. */
-    ["every face on the circle and on the phone row presses that handler", "components/staff/staff-directory.tsx",
+    /* v1.308.0 - STAFF WORKSPACE 4.0: the orbit became the Team Map of
+       reference 04 (components/staff/team-map.tsx). The same properties, on
+       the new map: every face presses ONE handler (the page's press), the
+       field is a square and capped, one radius feeds both axes, a birthday is
+       working staff only and never the year. */
+    ["every face on the map and on the phone grid presses that handler", "components/staff/team-map.tsx",
      (src) => {
-       const tags = [...src.matchAll(/<StaffBubble[\s\S]*?\/>/g)].map((m) => m[0]);
-       return tags.length >= 2 && tags.every((t) => /onPress=\{\(\) => press\(/.test(t));
+       /* every <button> that draws a <Face> presses onOpen - the circle, the
+          CEO, the phone grid, the birthday and leave lists */
+       const btns = [...src.matchAll(/<button[^>]*>(?:(?!<\/button>)[\s\S])*?<Face u=\{[^}]+\}(?:(?!<\/button>)[\s\S])*?<\/button>/g)].map((m) => m[0]);
+       return btns.length >= 4 && btns.every((t) => /onClick=\{\(\) => onOpen\((?:u|ceo)\)\}/.test(t))
+         && /onOpen=\{\(u\) => press\(u as Staff\)\}/.test(readFileSync(path.join(root, "components/staff/staff-directory.tsx"), "utf8"));
      }, "two layouts, one door"],
-    /* v1.94.1 — the field is a square, so a ring is a circle. Percentages
-       of a 1600x460 strip drew a flat ellipse and ran the outer ring into
-       the labels below it. */
-    /* v1.99.1 — asserted as PROPERTIES now, not as the 34rem cap and the
-       exact radius list the first draft pinned (which a correct redraw had
-       to move). A circle is: a square field, and one radius that feeds both
-       the x and the y of every face and both the width and the height of
-       every ring. */
-    ["the circle is laid out on a square field", "components/staff/staff-directory.tsx",
-     (src) => {
-       /* The field must be square (percentages of a wide strip are an
-          ellipse) and capped, whether the cap is a class or a style - v1.99.4
-          sizes it against the viewport so it is never taller than the screen
-          it is drawn on. */
-       const m = src.match(/className="sd-orbit[^"]*"/);
-       if (!m || !/aspect-square/.test(m[0])) return false;
-       const after = src.slice(src.indexOf(m[0]), src.indexOf(m[0]) + 600);
-       return /max-w-\[\d+rem\]/.test(m[0]) || /maxWidth: "min\(/.test(after);
-     }, "percentages of a wide strip are an ellipse, not a circle"],
-    ["one radius per ring, not one per axis", "components/staff/staff-directory.tsx",
-     /left: 50 \+ r \* Math\.cos\(angle\), top: 50 \+ r \* Math\.sin\(angle\)/, "two radii is how a circle becomes an ellipse the day the container changes shape"],
-    ["a ring is drawn with one number for width and height", "components/staff/staff-directory.tsx",
-     /width: `\$\{r \* 2\}%`, height: `\$\{r \* 2\}%`/, "a ring drawn from two numbers is an ellipse waiting for a resize"],
-    ["a face within a fortnight of a birthday carries the cake", "components/staff/staff-directory.tsx",
-     /* v1.230.0 - a leaver is the one staff rule's "left" (staff-headcount.mjs) */
-     /return b && b\.days <= 14 && !isGone\(u\) \? b : null;/, "the separate Birthdays card was retired for this"],
+    ["the map is laid out on a square, capped field", "components/staff/team-map.module.css",
+     /\.field \{[^}]*max-width: 35rem;[^}]*aspect-ratio: 1 \/ 1;/, "percentages of a wide strip are an ellipse, not a circle"],
+    ["one radius per ring, not one per axis", "components/staff/team-map.tsx",
+     /left: 50 \+ r \* 100 \* Math\.cos\(a\), top: 50 \+ r \* 100 \* Math\.sin\(a\)/, "two radii is how a circle becomes an ellipse the day the container changes shape"],
+    ["a sector holds no more faces than its arc fits, and says +n for the rest", "components/staff/team-map.tsx",
+     /const cap = Math\.max\(1, Math\.floor\(\(span \* r \* fieldPx\) \/ CELL\)\);[\s\S]{0,900}?more\.push\(\{ dept, n: rest\.length/, "overlapping faces are the thing the reference does not do"],
+    ["next birthdays are working staff within a week, day and month only", "components/staff/team-map.tsx",
+     /const birthdays = people\.filter\(\(u\) => !gone\(u\)\)[\s\S]{0,200}?x\.b!\.days <= 7\)[\s\S]*?const dayMonth = \(next: string\) =>/, "a birthday shows the day, never the year or the age"],
     ["a closed record draws nothing but its face", "components/staff/staff-directory.tsx",
      /if \(!open\.has\(u\.id\)\) return null;/, "the cards were the clutter the faces replace"],
-    ["the face says which mode it is in", "components/staff/staff-directory.tsx",
-     /aria-pressed=\{selectMode \? selected : open\}/, "a face that ticks when you expected it to open teaches distrust"],
+    ["a face on the map names the person it opens", "components/staff/team-map.tsx",
+     /aria-label=\{L\(`\$\{displayName\(u\)\} - open the profile`/, "a face that says nothing is a picture, not a control"],
     ["the detail carries the approval trail", "components/portal/leave.tsx",
      /* v1.252.0 - the trail is the server's timeline (leave-chain.ts), drawn by the shared StageTimeline */
      /function leaveStages\([\s\S]{0,1500}?L\("HR review"[\s\S]{0,300}?L\("Pre-approval - COO or CCO"[\s\S]{0,300}?L\("CEO decision"[\s\S]*?function LeaveDetail\([\s\S]{0,3500}?<StageTimeline stages=\{leaveStages\(l\)\}/, "who decided it, and when, is what a manager opens a leave to see"],

@@ -704,6 +704,48 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     ];
     data = { users: us, staff: us };
   }
+  /* v1.308.0 - STAFF WORKSPACE 4.0 (STAFF4=1): nine invented people across
+     three departments, the shape the worker sends since S-1 - the private
+     block (NRIC, bank, statutory, address, emergency, blood type) is NOT in
+     the list, only private_set; the payroll processors (CEO, COO) keep the
+     payslip's three. One person resigned with the account on (sign-in
+     blocked), one on notice, one on probation, one with no department. */
+  const S4 = [
+    { id: 9301, name: "Alif", full_name: "Rahim Ahmad bin Kassim", role: "ceo", employee_id: "STF-001", position: "Chief Executive Officer", department: "Management", employment_status: "permanent", joined_on: "2020-02-17", birthday: "1990-11-17", phone: "+60 11-0000 0001", reports_to: null },
+    { id: 9302, name: "Zul", full_name: "Zulkarnain bin Hassan", role: "coo", employee_id: "STF-002", position: "Chief Operating Officer", department: "Management", employment_status: "permanent", joined_on: "2021-01-04", birthday: "1988-11-20", phone: "+60 11-0000 0002", reports_to: 9301 },
+    { id: 9303, name: "Izz", full_name: "Izzat bin Rahman", role: "cco", employee_id: "STF-003", position: "Chief Commercial Officer", department: "Management", employment_status: "permanent", joined_on: "2021-03-01", birthday: "1989-05-02", phone: "+60 11-0000 0003", reports_to: 9301 },
+    { id: 9304, name: "Syaz", full_name: "Syazana binti Omar", role: "hr_admin", employee_id: "STF-004", position: "Administrative Executive", department: "HR and Admin", employment_status: "contract", joined_on: "2023-06-01", birthday: "1996-03-03", phone: "+60 11-0000 0004", reports_to: 9303 },
+    { id: 9305, name: "Nasha", full_name: "Natasha binti Zainal", role: "sales_marketing", employee_id: "STF-005", position: "Sales Executive", department: "Sales and Marketing", employment_status: "resigned", joined_on: "2024-01-08", left_on: "2026-10-15", birthday: "1998-07-07", phone: "+60 11-0000 0005", reports_to: 9302 },
+    { id: 9306, name: "Fasha", full_name: "Farhana binti Shahrul", role: "editor", employee_id: "STF-006", position: "Creative", department: "Sales and Marketing", employment_status: "permanent", joined_on: "2024-04-01", birthday: "1997-11-18", phone: "+60 11-0000 0006", reports_to: 9302, role_title: "Creative Executive", responsibilities: "Design campaign visuals\nEdit live recordings", responsibilities_updated_at: "2026-10-20 03:00:00", responsibilities_updated_by_name: "Rahim Ahmad bin Kassim" },
+    { id: 9307, name: "Suaidah", full_name: "Suaidah binti Mohd Yusof", role: "marketing", employee_id: "STF-007", position: "Designer", department: "Sales and Marketing", employment_status: "probation", joined_on: "2026-09-01", birthday: "1999-01-01", phone: "+60 11-0000 0007", reports_to: 9303 },
+    { id: 9308, name: "Hisyam", full_name: "Hisyam bin Amran", role: "marketing", employee_id: "STF-008", position: "Marketing Executive", department: "Sales and Marketing", employment_status: "resigned", joined_on: "2025-02-01", left_on: "2026-12-31", birthday: "1995-02-02", phone: "+60 11-0000 0008", reports_to: 9302 },
+    { id: 9309, name: "Dini", full_name: "Dini Farhana binti Nazri", role: "live_host", employee_id: "STF-009", position: "Live Host", department: null, employment_status: "part_time", joined_on: "2026-05-01", birthday: null, phone: null, reports_to: null },
+  ];
+  const S4_PRIVATE = {
+    9301: { ic_number: "900101-01-0001", bank_name: "Maybank", bank_account: "100000000001", epf_no: "E1", socso_no: "S1", tax_no: "T1", address: "1, Jalan Contoh, 81100 Johor Bahru", emergency_name: "Contoh Satu", emergency_phone: "+60 12-000 0001", emergency_relation: "spouse", blood_type: "O" },
+    9302: { ic_number: "880101-01-0002", bank_name: "CIMB Bank", bank_account: "100000000002", epf_no: "E2", socso_no: "S2", tax_no: null, address: "2, Jalan Contoh", emergency_name: "Contoh Dua", emergency_phone: "+60 12-000 0002", emergency_relation: "mother", blood_type: null },
+    9306: { ic_number: "970101-01-0006", bank_name: "Maybank", bank_account: "100000000006", epf_no: null, socso_no: null, tax_no: null, address: null, emergency_name: null, emergency_phone: null, emergency_relation: null, blood_type: null },
+  };
+  if (process.env.STAFF4 && p === "/staff/users") {
+    const pay = ROLE === "ceo" || ROLE === "coo" || ROLE === "super_admin" || ROLE === "admin";
+    const us = S4.map((x) => {
+      const pv = S4_PRIVATE[x.id] ?? {};
+      return { ...x, email: `${x.name.toLowerCase()}@example.test`, is_active: 1, photo_key: null,
+        private_set: Object.entries(pv).filter(([, v]) => v).map(([k]) => k),
+        ...(pay ? { ic_number: pv.ic_number ?? null, bank_name: pv.bank_name ?? null, bank_account: pv.bank_account ?? null } : {}) };
+    });
+    data = { users: us, staff: us };
+  }
+  if (process.env.STAFF4 && /^\/staff\/users\/\d+\/private$/.test(p)) {
+    const id = Number(p.split("/")[3]);
+    data = ["ceo", "hr_admin", "super_admin", "admin"].includes(ROLE) ? { private: { id, ...(S4_PRIVATE[id] ?? {}) } } : { error: { code: "forbidden", message: "Private staff details are open to HR and the CEO only" } };
+  }
+  if (process.env.STAFF4 && /^\/staff\/users\/\d+\/history$/.test(p)) data = { entries: [
+    { id: 3, action: "staff.reports_to", created_at: "2026-11-02 03:00:00", by_name: "Rahim Ahmad bin Kassim", detail: { from_name: null, to_name: "Zulkarnain bin Hassan", effective_on: "2026-11-02", reason: "Joined the COO's team" } },
+    { id: 2, action: "staff.hr_update", created_at: "2026-10-20 03:00:00", by_name: "Syazana binti Omar", detail: { fields: ["position", "bank_account"], changes: { position: ["Junior Creative", "Creative"] } } },
+    { id: 1, action: "staff.create", created_at: "2024-04-01 01:00:00", by_name: "Rahim Ahmad bin Kassim", detail: { role: "editor" } },
+  ] };
+  if (process.env.STAFF4 && p === "/staff/leave/calendar") data = { leave: [{ user_id: 9306, name: "Farhana binti Shahrul", start_date: "2020-01-01", end_date: "2099-12-31" }] };
   /* v1.238.0 - the Sign-in & recovery sheet (worker: staff.ts
      /accounts/:id) for the owner and the super admin; a waiting Google-route
      change, two devices and a short history. Invented people and addresses. */
@@ -1628,6 +1670,69 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     overtime: [],
   };
   /* v1.181.4 - the names behind the Attendance today donut. */
+  /* v1.307.0 - ATTENDANCE WORKSPACE 4.0: the one verdict's routes, invented
+     people with long Malaysian names (what the columns have to hold). A
+     Saturday or Sunday is a rest day for everyone, 09-11-2026 the Deepavali
+     replacement holiday; any other day carries every status the screens draw. */
+  const ATT4 = [
+    [9101, "NUR NASUHA BINTI ZAINAL ABIDIN", "sales_marketing", "Sales Executive", "Sales"],
+    [9102, "NURUL FASEHAH BINTI SHAHRUDDIN", "hr_admin", "Administrative Executive", "HR"],
+    [9103, "NURFARAH SUAIDAH BINTI MOHD SAIFUDDIN", "editor", "Designer", "Creative"],
+    [9104, "MOHAMAD IZZUDIN BIN AMDAN", "cco", "Chief Commercial Officer", "Management"],
+    [9105, "Farid Zulkifli", "live_host", "Live Host", "Live"],
+    [9106, "Tan Mei Ling", "marketing", "Marketing Executive", "Marketing"],
+    [9107, "Aina Sofea", "sales_marketing", "Sales Executive", "Sales"],
+  ];
+  const att4Kind = (d) => { const wd = new Date(`${d}T00:00:00Z`).getUTCDay(); return d === "2026-11-09" ? "holiday" : wd === 0 || wd === 6 ? "rest" : "work"; };
+  const att4Day = (d) => {
+    const kind = att4Kind(d);
+    const plan = kind === "holiday" ? Array(7).fill("holiday") : kind === "rest" ? Array(7).fill("rest_day") : ["late", "present", "on_shift", "pending", "leave", "absent", "not_due"];
+    const utc = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return `${d} ${String(h - 8).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`; };
+    return ATT4.map(([id, name, role, position, department], i) => {
+      const st = plan[i];
+      const ins = { late: "10:17", present: "09:52", on_shift: "09:58" }[st] ?? null;
+      const out = st === "late" || st === "present" ? "18:04" : null;
+      const work = kind === "work";
+      return {
+        id, name, role, position, department,
+        verdict: { status: st, late: st === "late", lateMinutes: st === "late" ? 17 : 0, workedOffDay: false, start: work ? 600 : null, end: work ? 1080 : null },
+        shift_label: work ? (i === 4 ? null : "10:00-18:00") : null, pattern: "Office (10:00-18:00, Fri 17:30)",
+        holiday_name: kind === "holiday" ? "Hari Deepavali (Replacement)" : null, leave_type: st === "leave" ? "medical" : null,
+        first_in: ins ? utc(ins) : null, last_out: out ? utc(out) : null, worked_minutes: st === "late" ? 467 : st === "present" ? 492 : 0, sessions: ins ? 1 : 0, pending: st === "pending" ? 1 : 0,
+        punches: [
+          ...(ins ? [{ id: id * 10 + 1, type: "clock_in", at: utc(ins), pending: false, source: "punch", loc: i === 0 ? { status: "outside", distance_m: 1320, accuracy_m: 25 } : { status: "verified", distance_m: 24, accuracy_m: 12 }, ...(ROLE === "ceo" ? { gps: "1.5601,103.7201,12" } : {}) }] : []),
+          ...(out ? [{ id: id * 10 + 2, type: "clock_out", at: utc(out), pending: false, source: i === 1 ? "amended" : "punch", loc: { status: "verified", distance_m: 31, accuracy_m: 12 } }] : []),
+          ...(st === "pending" ? [{ id: id * 10 + 3, type: "clock_in", at: utc("10:00"), pending: true, source: "punch", loc: { status: "none", distance_m: null, accuracy_m: null } }] : []),
+        ],
+      };
+    });
+  };
+  if (p === "/staff/attendance/day") { const d = q.get("date") || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10); data = { date: d, grace_minutes: d >= "2026-11-16" ? 10 : 0, site: { label: "Setia Tropika office", radius_m: 150 }, staff: att4Day(d) }; }
+  if (p === "/staff/attendance/roster") {
+    const from = q.get("from") || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), to = q.get("to") || from;
+    const days = []; for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`) && days.length < 42; t += 86400000) days.push(new Date(t).toISOString().slice(0, 10));
+    const own = !["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(ROLE);
+    data = { from: days[0], to: days[days.length - 1], days, scope: own ? "own" : "team", staff: (own ? ATT4.slice(0, 1) : ATT4).map(([id, name, role, position, department], i) => ({ id, name, role, position, department,
+      days: days.map((d) => { const k = att4Kind(d); return k === "holiday" ? { d, kind: "holiday", holiday: "Hari Deepavali (Replacement)", label: null, pattern: "Office", minutes: 0 }
+        : k === "rest" ? { d, kind: "rest", label: null, pattern: "Office", minutes: 0 }
+        : i === 4 && d.endsWith("2") ? { d, kind: "leave", leave_type: "medical", label: null, pattern: "Office", minutes: 0 }
+        : { d, kind: "work", label: i === 3 ? "13:00-22:00" : "10:00-18:00", pattern: "Office", minutes: 480, partial_leave: null, assigned: i === 3 }; }) })) };
+  }
+  if (p === "/staff/attendance/month-days") { const m = q.get("month") || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 7); const last = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+    data = { month: m, days: Array.from({ length: last }, (_, i) => { const d = `${m}-${String(i + 1).padStart(2, "0")}`; const k = att4Kind(d); return k !== "work" ? { d, due: 0, on_time: 0, late: 0, leave: 0, absent: 0 } : { d, due: 7, on_time: 4 + (i % 2), late: 1, leave: 1, absent: i % 2 ? 0 : 1 }; }) }; }
+  if (p === "/staff/attendance/decided-today") data = { decided_today: 2 };
+  if (p === "/staff/attendance/policy") data = { grace: [{ from: "2026-11-16", minutes: 10 }], grace_today: 10, missing_out_after_minutes: 60, ot_auto_approved: false, ot_to_leave_automatic: false };
+  if (p === "/staff/attendance/audit") data = { entries: [
+    { id: 3, action: "attendance.amend", entity: "attendance_records", entity_id: "91012", detail: "{\"user_id\":9102,\"reason\":\"Clock-out set from the door log\"}", created_at: "2026-11-10 10:30:00", user_name: "Fixture Person" },
+    { id: 2, action: "attendance.forgot_approve", entity: "attendance_records", entity_id: "91013", detail: "{\"user_id\":9102}", created_at: "2026-11-03 02:00:00", user_name: "Fixture Person" }] };
+  if (p === "/staff/attendance/pending") data = { pending: [
+    { id: 91043, user_id: 9104, type: "clock_in", created_at: "2026-11-13 02:00:00", offline_sent_at: null, name: "MOHAMAD IZZUDIN BIN AMDAN" },
+    { id: 91074, user_id: 9107, type: "clock_out", created_at: "2026-11-11 10:30:00", offline_sent_at: "2026-11-11 10:31:00", name: "Aina Sofea" }] };
+  if (p === "/staff/attendance/verification") { const m = q.get("month") || "2026-11";
+    data = { month: m, days: 30, staff: ATT4.map(([user_id, name, role, position], i) => ({ user_id, name, role, position, scheduled: 10, worked: [8, 10, 9, 7, 9, 10, 6][i], leave_total: i === 3 ? 2 : i === 6 ? 1 : 0, absent: i === 0 ? 2 : i === 2 ? 1 : i === 3 ? 1 : i === 6 ? 3 : 0, late: [3, 0, 1, 0, 0, 2, 1][i],
+      no_clock_out: i === 5 ? 1 : 0, open_dates: i === 5 ? [`${m}-05`] : [], partial_review_dates: [], absent_dates: i === 0 ? [`${m}-03`, `${m}-04`] : i === 2 ? [`${m}-06`] : i === 3 ? [`${m}-10`] : i === 6 ? [`${m}-02`, `${m}-03`, `${m}-04`] : [],
+      leave_dates: i === 3 ? [{ d: `${m}-11`, type: "annual" }, { d: `${m}-12`, type: "annual" }] : i === 6 ? [{ d: `${m}-05`, type: "medical" }] : [],
+      scheduled_minutes: 4800, worked_minutes: [3820, 4810, 4300, 3360, 4320, 4790, 2880][i], balances: i !== 6 })) }; }
   if (p === "/staff/dashboard/attendance-today") data = {
     date: "2026-09-24", cutoff: "10:00",
     on_time: [
@@ -1812,5 +1917,6 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   }
   if (/^\/staff\/agent\/requests\/\d+\/prefill$/.test(p0)) data = isAg ? { error: { code: "not_found" } } : { prefill: { source: "agent_request", agent_request_id: 3, company: "Lina Spa", contact_person: "Cik Lina", phone: "0111112222", email: "", reference: "AGR-0003", doc_type: "QT", items: [{ name: "Video Content 30s", qty: 10, unit_price_cents: 7000 }], package_id: 11, package_version: 1, issuer: "azoo", salesperson_id: 9002 } };
   if (data === undefined) { onMissing(p0); return {}; }
+  if (process.env.STAFF4 && p === "/staff/people/overview" && data) data = { ...data, probation: [{ id: 9307, name: "Suaidah binti Mohd Yusof", position: "Designer", joined_on: "2026-09-01", suggested_ends_on: "2026-12-01", review: { ends_on: new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10), outcome: null } }] };
   return data;
 }

@@ -38,6 +38,9 @@ import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { dmy } from "@/lib/format";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 import { SideDrawer } from "@/components/ui/side-drawer";
+import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards"; // v1.307.0 - Attendance 4.0 (A-3): the operational roster's home
+import { RosterBoard } from "@/components/portal/lazy-panels";
+import { revealAnchor } from "@/components/portal/page-shared";
 import tk from "./tasks-page.module.css";
 
 /* v1.209.0 - Create left the tab row for a drawer from the + button (the
@@ -1134,13 +1137,41 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       ))}
                     </ul>
                   )}
-                  <p className={tk.hint}>{L("Projects show on their due date (the folder mark); tasks on their deadline. A task without a deadline is not on the calendar. The days a task is booked for work are on the Roster (Attendance).", "Projek dipaparkan pada tarikh siapnya (tanda folder); tugasan pada tarikh akhirnya. Tugasan tanpa tarikh akhir tiada dalam kalendar. Hari tugasan ditempah untuk kerja ada dalam Roster (Kehadiran).")}</p>
+                  <p className={tk.hint}>{L("Projects show on their due date (the folder mark); tasks on their deadline. A task without a deadline is not on the calendar. The days a task is booked for work are on the roster board below.", "Projek dipaparkan pada tarikh siapnya (tanda folder); tugasan pada tarikh akhirnya. Tugasan tanpa tarikh akhir tiada dalam kalendar. Hari tugasan ditempah untuk kerja ada pada papan roster di bawah.")}</p>
                 </>
               )}
             </section>
           );
         })()}
       </TabZone>
+
+      {/* v1.307.0 - ATTENDANCE 4.0 (A-3, the CEO 14-11-2026): the operational
+          roster - lives, task blocks, sales duty - left Attendance (whose Shift
+          Roster is now the expected working schedule only) and lives here
+          beside the deadlines it plans. The same board, the same gates as on
+          Attendance: canManage, canEdit, and task_delete (the CEO alone). */}
+      {view === "calendar" && (
+        <>
+          {canManage && (
+            <TabZone label={L("Today's assignments", "Tugasan hari ini")}>
+              <TodayAssignmentsCard canManage={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)}
+                onOpenRoster={() => revealAnchor("roster-board")} />
+            </TabZone>
+          )}
+          <TabZone label={L("Roster board", "Papan roster")} hint={L("Lives, task blocks and sales duty by week; the board the Dashboard's assignments open.", "Live, blok tugasan dan tugas jualan mengikut minggu; papan yang dibuka oleh tugasan di Dashboard.")}>
+            <div id="roster-board" className={tk.rosterAnchor}>
+              <RosterBoard
+                canManage={["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)}
+                canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)}
+                /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task
+                   should be able to delete!") - mirrors task_delete in
+                   worker/src/permissions.ts, which is the CEO alone. */
+                canDeleteTask={holds("task_delete", ["ceo", "super_admin"].includes(user.role))}
+              />
+            </div>
+          </TabZone>
+        </>
+      )}
 
       {/* ============================== PROJECTS ============================== */}
       {/* v1.245.0 - the project briefs: no new sidebar item, they live here

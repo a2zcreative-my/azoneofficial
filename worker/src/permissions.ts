@@ -326,6 +326,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   commission_settle: ["super_admin", "ceo"],
   /** set the office geofence (was GEOFENCE_ADMIN_ROLES) */
   geofence_admin: ["super_admin", "ceo", "coo"],
+  attendance_location_raw: ["ceo"], // v1.307.0 - Attendance 4.0 (A-8, the CEO 14-11-2026): raw punch coordinates; everyone else reads the outcome word and the distance
 
   /* === v1.238.0 - ACCOUNT MANAGEMENT AND RECOVERY (the owner, 31-10-2026,
      claude/ACCOUNT-RECOVERY-AUDIT.md: "Owner + Super Admin" - each with an
@@ -532,6 +533,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Assets", key: "asset_company_change", en: "Move an asset to the other company (with a reason)", ms: "Pindahkan aset ke syarikat lain (dengan sebab)", cap: "asset_company_change" },
   { module: "Assets", key: "asset_self", en: "See the assets you hold, acknowledge a hand-over, return your own; a manager sees the team's and requests a hand-over", ms: "Lihat aset yang anda pegang, sahkan serahan, pulangkan aset sendiri; pengurus melihat aset pasukan dan memohon serahan", cap: "asset_self" },
   { module: "Assets", key: "asset_dispose_approve", en: "Approve or reject an asset disposal", ms: "Luluskan atau tolak pelupusan aset", cap: "asset_dispose_approve", note_en: "Never a disposal they requested (the owner apart); nothing is written off or posted", note_ms: "Tidak pada pelupusan yang dimohon sendiri (kecuali pemilik); tiada hapus kira atau catatan" },
+  { module: "Attendance", key: "attendance_location_raw", en: "See raw punch coordinates", ms: "Lihat koordinat ketukan mentah", cap: "attendance_location_raw", note_en: "Everyone else sees where a punch was made as a word and a distance", note_ms: "Yang lain melihat lokasi ketukan sebagai perkataan dan jarak" },
   { module: "Financial Advisory", key: "fa_templates", en: "Draft agreement templates and submit a version for review", ms: "Draf templat perjanjian dan hantar versi untuk semakan", cap: "fa_templates", note_en: "Every change is a new version; a published text is never replaced", note_ms: "Setiap perubahan ialah versi baharu; teks yang diterbitkan tidak diganti" },
   { module: "Financial Advisory", key: "fa_templates_publish", en: "Publish or archive an agreement template version (sets its fee rate in force)", ms: "Terbitkan atau arkibkan versi templat perjanjian (kadar yuran berkuat kuasa)", cap: "fa_templates_publish", note_en: "Never a version they drafted (the owner apart); sending and signing stay off", note_ms: "Tidak pada versi yang didraf sendiri (kecuali pemilik); hantar dan tandatangan kekal ditutup" },
   { module: "Sales", key: "credit_refund", en: "Credit notes and refunds", ms: "Nota kredit dan bayaran balik", cap: "credit_refund" },

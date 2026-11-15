@@ -2416,6 +2416,8 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
 /* ================= Attendance corrections (CEO + admin) ================= */
 
 interface AttRecord {
+  /* v1.307.0 - Attendance 4.0 (A-8): the outcome, for readers without raw coordinates */
+  loc?: { status: string; distance_m: number | null; accuracy_m: number | null };
   id: number;
   name: string;
   user_id: number;
@@ -2447,6 +2449,17 @@ interface AttRecord {
    pre-GPS history show nothing. Same maths as the server gate. */
 function attLoc(r: AttRecord): { text: string; tone: "ok" | "flag" | "muted" } | null {
   if (r.manual_by || r.amended_by) return null; // typed by HR, no device GPS
+  /* v1.307.0 - A-8: only the CEO receives raw coordinates; everyone else is sent the
+     server's own outcome (punch-location.ts) and reads it as words and a distance */
+  if (r.gps === undefined && r.loc) {
+    const d = r.loc.distance_m;
+    const shownL = d == null ? "" : d >= 1000 ? ` (${(d / 1000).toFixed(1)} km)` : ` (${d} m)`;
+    if (r.loc.status === "none") return { text: L("no location", "tiada lokasi"), tone: "muted" };
+    if (r.loc.status === "verified") return { text: `${L("at office", "di pejabat")}${shownL}`, tone: "ok" };
+    if (r.loc.status === "recorded" || r.loc.status === "low_accuracy") return { text: `${L("location recorded", "lokasi direkod")}${shownL}`, tone: "muted" };
+    if (r.loc.status === "outside") return ["ceo", "coo", "cco"].includes(r.role ?? "") ? { text: shownL.trim().replace(/[()]/g, ""), tone: "muted" } : { text: `${L("OUTSIDE", "DI LUAR")}${shownL}`, tone: "flag" };
+    return { text: L("NO LOCATION", "TIADA LOKASI"), tone: "flag" };
+  }
   /* v1.25.3: a punch taken while the phone blocked location is stored as
      "no_location:<reason>" — that is an EXCEPTION and reads red, unlike the
      muted blank of records that predate the GPS requirement. */
@@ -2592,7 +2605,13 @@ const hLabel = (mins: number): string =>
 /* v1.78.0 — the UnpaidDay row type left with the month's unpaid-day list: this
    card records a day, the Staff tab is where the recorded days are reviewed. */
 
-export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
+/* v1.307.0 - Attendance Workspace 4.0 (A-0): this card is split across its owners, not
+   copied - the same component, asked for one area at a time: corrections (find, add,
+   OT amendments) under Exceptions & Approvals, working hours under Shift Roster ->
+   Shift Templates, unpaid days under Leave. The forgotten-punch list is drawn by
+   Exceptions & Approvals itself (showPending false there). */
+export type AttendanceAdminArea = "find" | "add" | "unpaid" | "hours" | "ot";
+export function AttendanceAdminPanel({ role = "", areas, showPending = true, bare = false }: { role?: string; areas?: readonly AttendanceAdminArea[]; showPending?: boolean; bare?: boolean }) {
   const [month, setMonth] = useState(new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7));
   const [rows, setRows] = useState<AttRecord[]>([]);
   const [leave, setLeave] = useState<LeaveDay[]>([]);
@@ -2640,7 +2659,9 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
      which area that I want to update") — four full forms were stacked open at
      once and the card ran off the screen before the records began. One area
      at a time, chosen from the row of buttons at the top. */
-  const [section, setSection] = useState<"find" | "add" | "unpaid" | "hours" | "ot">("find");
+  const [section, setSection] = useState<AttendanceAdminArea>(() => areas?.[0] ?? "find");
+  const allowArea = (a: AttendanceAdminArea) => !areas || areas.includes(a);
+  const showRecords = allowArea("find");
   /* v1.134.0 - the month's overtime, and the CEO's amendment drafts. */
   const [otRows, setOtRows] = useState<OtRow[]>([]);
   const [otDraft, setOtDraft] = useState<Record<string, { ot_in: string; ot_out: string }>>({});
@@ -2854,13 +2875,13 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
 
   return (
     /* v1.173.0: the Attendance tab's SETUP zone spaces this card; no margin of its own. */
-    <div className={card}>
+    <div className={bare ? "" : card}>
       {toastNode}
       {askPatNode}
-      <p className="text-sm font-semibold">{L("Staff attendance — corrections & back-entry", "Kehadiran kakitangan — pembetulan & kemasukan lampau")}</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">
+      {!bare && <p className="text-sm font-semibold">{L("Staff attendance — corrections & back-entry", "Kehadiran kakitangan — pembetulan & kemasukan lampau")}</p>}
+      {!bare && <p className="text-muted-foreground mt-0.5 text-xs">
         {L("Amend a wrong punch or add clock in/out for days worked before this system existed. Times are Malaysia time. Manual and amended records are marked and audit-logged.", "Pinda ketukan yang salah atau tambah daftar masuk/keluar untuk hari bekerja sebelum sistem ini wujud. Masa ialah waktu Malaysia. Rekod manual dan pindaan ditanda dan dilog audit.")}
-      </p>
+      </p>}
 
       {/* v1.78.0 (CEO: "Working hour pattern seem like not so professional
           with that interface which is to me ugly! use globally format
@@ -2880,13 +2901,13 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
       {/* v1.123.0 - the pill row this card introduced in v1.80.0 is now the
           portal's one tab component (page-shared SectionTabs, lib/ui-styles
           tabPill), so Inventory, Ecommerce and Sales read the same way. */}
-      <SectionTabs className="mt-3" value={section} onChange={setSection} tabs={([
+      {(!areas || areas.length > 1) && <SectionTabs className="mt-3" value={section} onChange={setSection} tabs={([
         ["find", L("Find & filter", "Cari & tapis")],
         ["add", L("Add record", "Tambah rekod")],
         ...(canUnpaid ? [["unpaid", L("Unpaid leave", "Cuti tanpa gaji")] as const] : []),
         ...(canHours ? [["hours", L("Working hours", "Waktu bekerja")] as const] : []),
         ["ot", L("Overtime", "OT")],
-      ] as [typeof section, string][])} />
+      ] as [typeof section, string][]).filter(([k]) => allowArea(k))} />}
 
       {/* v1.134.0 (CEO: "OT ... recorded at attendance for me to perform a
           manual update or amendment if needed (ceo only)") - the month's
@@ -3058,7 +3079,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           recorded — it just counts for nothing until this. Correct the time
           in the box before approving; leaving it blank accepts the time
           claimed. */}
-      {canUnpaid && pending.length > 0 && (
+      {showPending && canUnpaid && pending.length > 0 && (
         <>
           <span id="pending-punches" className="text-warning mt-4 block scroll-mt-16 text-[11px] font-semibold tracking-wide uppercase">
             {L(`Forgotten punches waiting for you (${pending.length})`, `Ketukan terlupa menunggu anda (${pending.length})`)}
@@ -3748,6 +3769,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
       </div>
       )}
 
+      {showRecords && (<>
       {/* The records themselves are always here — the chooser above decides
           which FORM is open, never whether he can see the month. */}
       {/* v1.181.4 - ...so a filter set under Find & filter must be SAID when
@@ -3978,6 +4000,7 @@ export function AttendanceAdminPanel({ role = "" }: { role?: string }) {
           </tbody>
         </table>
       </div>
+      </>)}
     </div>
   );
 }

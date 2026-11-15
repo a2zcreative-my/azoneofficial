@@ -99,7 +99,7 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
   const people = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(role); // hr_manage or exec_view
   const access = useCachedApi<{ overrides?: Record<string, string[]> }>("/staff/tabs/access");
   const fence = useCachedApi<{ configured?: boolean }>("/staff/attendance/geofence");
-  const today = useCachedApi<{ cutoff?: string; late?: { id: number; name: string; first_in: string }[] }>(people ? "/staff/dashboard/attendance-today" : null);
+  const today = useCachedApi<{ cutoff?: string; late?: { id: number; name: string; first_in: string; late_minutes?: number }[] }>(people ? "/staff/dashboard/attendance-today" : null);
   const monitor = useCachedApi<AttendanceMonitor>(people ? "/staff/attendance/monitor" : null);
   const leave = useCachedApi<{ leave?: LeaveRow[] }>("/staff/leave/month");
 
@@ -119,15 +119,19 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
   const [openedAt] = useState(() => Date.now());
   const nowMYT = new Date(openedAt + 8 * 3600 * 1000);
   const todayLabel = `${nowMYT.getUTCDate()} ${MON[nowMYT.getUTCMonth()]}`;
-  if (monitor.data && nowMYT.getUTCHours() >= 18) {
+  /* v1.307.0 - Attendance 4.0: "missing clock-out" is the monitor's verdict
+     (an hour past the person's own shift end), not a fixed 18:00; older
+     rows without a verdict keep the old rule */
+  if (monitor.data) {
     for (const s of monitor.data.staff) {
-      const stillIn = s.last_type ? s.last_type === "clock_in" : Boolean(s.in_at && !s.out_at);
+      const stillIn = s.status !== undefined ? s.status === "missing_out"
+        : nowMYT.getUTCHours() >= 18 && (s.last_type ? s.last_type === "clock_in" : Boolean(s.in_at && !s.out_at));
       if (stillIn) items.push({ key: `out-${s.id}`, name: properName(s.name), photo: byId.get(s.id)?.photo_key, what: L("No clock-out record", "Tiada rekod daftar keluar"), day: todayLabel, chip: L("Missing out", "Tiada keluar"), tone: "danger" });
     }
   }
   const cutoff = today.data?.cutoff ?? "10:00";
   for (const p of today.data?.late ?? []) {
-    const late = dur(minutesAfter(p.first_in, cutoff));
+    const late = dur(p.late_minutes ?? minutesAfter(p.first_in, cutoff)); // v1.307.0 - minutes past the person's own start + grace
     items.push({ key: `late-${p.id}`, name: properName(p.name), photo: byId.get(p.id)?.photo_key, what: L(`Late arrival (${late})`, `Lewat tiba (${late})`), day: todayLabel, chip: L("Late", "Lewat"), tone: "warn" });
   }
   for (const l of (leave.data?.leave ?? []).filter((x) => x.status === "pending")) {

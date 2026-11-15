@@ -65,7 +65,8 @@ const chipFiles = {
   "components/portal/payroll-panel.tsx": /\$\{chipSmWarn\} \$\{chipAction\}/g,
 };
 for (const [p, re] of Object.entries(chipFiles)) ok(`${p} uses the shared chip tokens`, (read(p).match(re) ?? []).length >= 1);
-ok("Staff Details' status chips are all tokens", (read("components/staff/staff-directory.tsx").match(/className=\{chipSm(Warn|Danger|Success)\}/g) ?? []).length >= 3);
+/* v1.308.0 - Staff Records' header and section completeness chips (Staff 4.0) */
+ok("Staff Details' status chips are all tokens", (read("components/staff/staff-directory.tsx").match(/className=\{[^}]*chipSm(Warn|Danger|Success)[^}]*\}/g) ?? []).length >= 2 && !/className="[^"]*rounded-full px-2 py-0\.5[^"]*bg-(red|green|amber)/.test(read("components/staff/staff-directory.tsx")));
 
 ok("the guard is registered", /\["page-frame", "/.test(read("scripts/run-guards.mjs")));
 

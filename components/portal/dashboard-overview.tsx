@@ -189,7 +189,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   /* v1.263.0 - the week (Sales' own engine), one shared request for the KPI strip and rows 2-4 */
   const weekView = useWeekDash();
   const wk = weekView.data;
-  const { openRecord, dashDate, setDashDate } = usePortal();
+  const { openRecord, dashDate, setDashDate, setTabStart } = usePortal();
   /* v1.280.0 - MINIMAL EXECUTIVE WORKSPACE (E2): management - the people the
      week engine gives the company outlook (exec_view) - reads the photo's
      dashboard; the same people may read the company figure by day */
@@ -447,7 +447,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   const upcomingLives = (sessions ?? []).filter((s) => s.status === "scheduled" && s.session_date >= today).slice(0, 4);
   const livesCard = (
     <section className={`${card} ${ov.card}`} aria-label={L("Live sessions", "Sesi live")}>
-      {head(L("Live Sessions", "Sesi Live"), can("Attendance") ? viewAll(() => go("Attendance")) : undefined,
+      {head(L("Live Sessions", "Sesi Live"), can("Tasks") ? viewAll(() => { setTabStart({ tab: "Tasks", view: "calendar" }); go("Tasks"); }) : undefined, /* v1.307.0 (A-3) - the roster board lives in Tasks > Calendar */
         manage ? L("Upcoming lives on the roster.", "Live akan datang dalam roster.") : L("Your upcoming lives.", "Live anda akan datang."))}
       {sessions === null ? <SkelRows rows={3} /> : upcomingLives.length === 0 ? empty("live", L("No live session is scheduled.", "Tiada sesi live dijadualkan.")) : (
         <ul className={ov.rows}>
@@ -575,7 +575,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   addSum("pending_ot", L("Overtime to approve", "OT untuk diluluskan"), "Attendance");
   addSum("outstanding_invoices", L("Unpaid invoices", "Invois belum dibayar"), "Sales");
   addSum("low_stock", L("Items low or out of stock", "Item stok rendah atau habis"), "Inventory");
-  addSum("lives_today", L("Live sessions today", "Sesi live hari ini"), "Attendance", 9999);
+  addSum("lives_today", L("Live sessions today", "Sesi live hari ini"), "Tasks", 9999); // v1.307.0 (A-3) - the roster board is in Tasks
   addSum("clients", L("Clients on file", "Pelanggan dalam rekod"), "Sales", 999999);
   const maxSum = Math.max(1, ...sumRows.map((r) => r.n));
   const summaryCard = (

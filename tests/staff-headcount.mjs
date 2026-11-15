@@ -104,13 +104,15 @@ async function checks(f) {
   const d = f.dir.replace(/\/\*[\s\S]*?\*\//g, " ");
   ok(/const stateOf = \(u: Staff\): StaffState => staffState\(u, todayS\);/.test(d) && /const headcount = staff\.filter\(isHead\);\s*const activeCount = headcount\.length;/.test(d), "B Active is the headcount set");
   ok(!/staff\.filter\(\(u\) => u\.is_active\)\.length/.test(d) && !/u\.is_active && !writtenOf/.test(d) && !/u\.is_active && \(\(u\.role_title/.test(d), "B no figure counts the account switch as headcount");
-  ok(/const writtenCount = headcount\.filter\(/.test(d) && /const notWritten = headcount\.filter\(/.test(d) && /of \$\{activeCount\} working/.test(d), "B Roles written and Needs Attention use the same people as Active");
+  ok(/const writtenCount = headcount\.filter\(/.test(d) && /const notWritten = headcount\.filter\(/.test(d) && /L\(`\$\{writtenCount\} of \$\{activeCount\}`/.test(d), "B Roles written and Needs Attention use the same people as Active");
   ok(/const working = list\.filter\(isHead\);/.test(d) && /list\.filter\(\(u\) => isHead\(u\) && !writtenOf\(u\)\)/.test(d), "B Departments & Roles use them too");
   ok(/const typeCounts = typeKeys\.map\(\(k\) => \[k, headcount\.filter\(\(u\) => typeOf\(u\) === k\)/.test(d) && !/"resigned"|"terminated"/.test((d.match(/const TYPE_ORDER = \[[^\]]*\]/) ?? [""])[0])
      && /const typeOf = \(u: Staff\) => \(DEPARTURE_STATUSES\.includes\(u\.employment_status \?\? ""\) \? "" :/.test(d), "B employment type counts current staff; a departure is never a type (notice or re-joined: Not set)");
   ok(/\.map\(\(k\) => \[k, staff\.filter\(\(u\) => stateOf\(u\) === k\)\.length\] as const\)/.test(d) && /\(\["active", "starting", "inactive", "left", "system"\] as const\)/.test(d), "B Staff Status puts every record in exactly one state");
-  ok(/onClick=\{\(\) => showDirectory\("", "active"\)\}/.test(d) && /\.filter\(\(u\) => !stateF \|\| stateOf\(u\) === stateF\)/.test(d), "B the Active tile opens the same people");
-  ok(!/\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \? b : null/.test(d) && /const gone = \(u: Staff\) => staffState\(u\) === "left";/.test(d), "B Team Map and the orbit read the rule, not the status alone");
+  ok(/onClick=\{\(\) => showDirectory\("", "active"\)\}/.test(d) && /\.filter\(\(u\) => !stateF \|\| stateOf\(u\) === stateF \|\| statusKeyOf\(u\) === stateF\)/.test(d), "B the Active tile opens the same people");
+  /* v1.308.0 - the Team Map (team-map.tsx) is handed the page's own isGone (the rule) */
+  ok(!/\["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \? b : null/.test(d) && /gone=\{\(u\) => isGone\(u as Staff\)\}/.test(d) && /const isGone = \(u: Staff\) => stateOf\(u\) === "left";/.test(d)
+     && /const birthdays = people\.filter\(\(u\) => !gone\(u\)\)/.test(readFileSync(root + "components/staff/team-map.tsx", "utf8")), "B Team Map reads the rule, not the status alone");
   ok(/export const isHere = \(u: OrgPerson\): boolean => isCurrentStaff\(u\);/.test(f.org), "B the Organisation chart reads the rule");
   if (typeof staffState === "function") {
     const shot = [..."PPPPPCT"].map((t) => ({ is_active: 1, role: "sales_marketing", employment_status: { P: "permanent", C: "contract", T: "part_time" }[t] }))
@@ -123,8 +125,13 @@ async function checks(f) {
 
   /* C */
   ok(/staff_total: await n\(`SELECT COUNT\(\*\) AS c FROM users WHERE is_active = 1 AND \$\{headcountSql\(\)\}/.test(f.staff), "C the Dashboard's Active staff tile is the same headcount");
-  ok(/WHERE u\.is_active = 1 AND \$\{headcountSql\("u\."\)\} AND u\.role NOT IN \('customer', 'agent', 'super_admin', 'admin'\)\s*ORDER BY \$\{STAFF_ORDER_SQL\}`,\s*\)\.all<\{ id: number; name: string; position: string \| null; leave_type/.test(f.staff), "C ...and its not-clocked-in list");
-  ok(/path === "\/staff-list"[\s\S]{0,500}?\$\{currentStaffSql\("u\."\)\}/.test(f.staff) && (f.staff.match(/\$\{headcountSql\(/g) ?? []).length === 3
+  /* v1.307.0 - Attendance 4.0: the not-clocked-in list is THE day verdict
+     (attendanceDay), whose people are the same headcount read for the day -
+     employedOnDay: started, not past a last day unless re-joined, never a
+     Resigned / Terminated record with no last day (headcountSql for today) */
+  ok(/export function employedOnDay\(day: string, u: \{[^}]*\}\): boolean \{\s*if \(employedDays\(\[day\], u\.joined_on, u\.left_on, u\.rejoined_on\)\.length === 0\) return false;\s*const gone = !u\.left_on && \["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\);/.test(f.staff)
+     && /const employed = employedOnDay\(day, u\);/.test(f.staff) && /not_in: rowsT\.filter\(\(r\) => r\.verdict\.status === "not_in"/.test(f.staff), "C ...and its not-clocked-in list");
+  ok(/path === "\/staff-list"[\s\S]{0,500}?\$\{currentStaffSql\("u\."\)\}/.test(f.staff) && (f.staff.match(/\$\{headcountSql\(/g) ?? []).length === 2
      && /AND \$\{headcountSql\("u\."\)\}\s*ORDER BY \$\{STAFF_ORDER_SQL\}`,\s*\)\.bind\(todayM\)\.all\(\); \/\/ v1\.243\.0 \(D9\)/.test(f.staff),
    "C pickers keep currentStaffSql (a starter can be rostered); headcount is used for the two counts and, since 1.243.0 (go-live D9), the attendance monitor - the same not-clocked-in question");
   ok(/export function payrollMonthStaffSql\(month: string, alias = ""\): string \{/.test(f.staff) && /substr\(\$\{alias\}left_on, 1, 7\) >= '\$\{month\}'/.test(f.staff), "C payroll keeps its month rule - a leaver is paid for every month worked");

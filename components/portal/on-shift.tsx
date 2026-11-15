@@ -250,17 +250,33 @@ export interface TeamRow extends MonitorRow {
   punches?: TeamPunch[];
   in_loc?: LocOutcome | null; out_loc?: LocOutcome | null;
   loc_exempt?: boolean;
+  /** v1.307.0 - THE day verdict (worker/src/attendance-day.ts), sent by the monitor */
+  status?: string;
 }
-type TeamState = "on" | "out" | "none" | "leave" | "off";
+/* v1.307.0 - ATTENDANCE 4.0 (A-1 / A-9, the CEO 14-11-2026: "correct it the
+   error issue"). The row's state is no longer decided here: an open punch is
+   on shift and a closed one is out, as before, and every other row takes the
+   monitor's verdict - the one rule Attendance uses. So a Saturday rest day,
+   a holiday or approved leave is never "not yet clocked in", and a person
+   whose shift has not started (or is inside the grace) is "shift not started",
+   not a missing clock-in. A forgotten punch waiting for approval counts as no
+   punch until it is approved. Older rows without a verdict keep the old rule. */
+type TeamState = "on" | "out" | "none" | "due" | "leave" | "off";
+const VERDICT_STATE: Record<string, TeamState> = {
+  on_shift: "on", missing_out: "on", present: "out", late: "out",
+  not_in: "none", absent: "none", pending: "none", not_due: "due",
+  leave: "leave", rest_day: "off", holiday: "off", not_employed: "off",
+};
 const stateOf = (m: TeamRow): TeamState =>
   m.last_type === "clock_in" ? "on" : m.out_at || m.last_type === "clock_out" ? "out"
+    : m.status && VERDICT_STATE[m.status] ? VERDICT_STATE[m.status]!
     : m.on_leave ? "leave" : m.holiday || (m.shift && !m.shift.scheduled) ? "off" : "none";
 const STATE_WORD: Record<TeamState, [string, string]> = {
   on: ["On Shift", "Sedang Syif"], out: ["Clocked Out", "Daftar Keluar"], none: ["Not Yet Clocked In", "Belum Daftar Masuk"],
-  leave: ["On Leave", "Bercuti"], off: ["Not Scheduled", "Tiada Jadual"],
+  due: ["Shift Not Started", "Syif Belum Bermula"], leave: ["On Leave", "Bercuti"], off: ["Not Scheduled", "Tiada Jadual"],
 };
-const STATE_CHIP: Record<TeamState, string> = { on: chipSmSuccess, out: chipSmNeutral, none: chipSmWarn, leave: chipSmInfo, off: chipSmNeutral };
-const STATE_RANK: Record<TeamState, number> = { none: 0, on: 1, out: 2, leave: 3, off: 4 };
+const STATE_CHIP: Record<TeamState, string> = { on: chipSmSuccess, out: chipSmNeutral, none: chipSmWarn, due: chipSmNeutral, leave: chipSmInfo, off: chipSmNeutral };
+const STATE_RANK: Record<TeamState, number> = { none: 0, on: 1, due: 2, out: 3, leave: 4, off: 5 };
 type LocFilter = "" | "verified" | "outside" | "low" | "noloc" | "nopunch";
 const locKey = (m: TeamRow): Exclude<LocFilter, ""> => {
   const all = (m.punches ?? []).map((p) => p.loc.status);
@@ -295,7 +311,7 @@ export function TeamOnShift({ rows, onOpenAttendance, site = null }: {
     const c = { scheduled: 0, on: 0, notIn: 0, out: 0, exceptions: 0 };
     for (const m of rows ?? []) {
       const st = stateOf(m);
-      const sched = m.shift ? m.shift.scheduled && !m.on_leave : true;
+      const sched = st === "leave" || st === "off" ? false : m.shift ? m.shift.scheduled && !m.on_leave : true;
       if (sched) c.scheduled++;
       if (st === "on") c.on++;
       if (st === "out") c.out++;

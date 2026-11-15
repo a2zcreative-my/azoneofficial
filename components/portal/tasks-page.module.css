@@ -1094,3 +1094,8 @@ td .who > span:first-child { flex-shrink: 0; }
 
 /* v1.256.0 - the status cell: the state, when it closed, one Update action */
 .statusCell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.5rem; min-width: 0; }
+
+/* v1.307.0 - Attendance 4.0 (A-3): the roster board moved here; the Dashboard assignments card scrolls to it */
+.rosterAnchor {
+  scroll-margin-top: 4rem;
+}

@@ -1,385 +1,208 @@
 "use client";
 
-/* v1.191.0 - THE ATTENDANCE OVERVIEW, laid out as the owner's reference photo
-   (22-10-2026: "should follow exactly as per previous photo shared"):
+/* v1.307.0 - THE ATTENDANCE OVERVIEW, ATTENDANCE WORKSPACE 4.0 (the CEO,
+   14-11-2026: "approve as the recommendation and correct it the error issue";
+   reference image 1). Real-time attendance, today's status and what needs
+   attention - every word from THE verdict (worker/src/attendance-day.ts) via
+   GET /staff/attendance/day, never a rule of this screen's own:
 
-     five tiles        On time · Late · Not clocked in (the dashboard summary's
-                       own verdicts, with their share bars), Currently on shift
-                       (the monitor's latest punch per person) and Total
-                       working hours today (first clock-in to last clock-out
-                       per person - the rule the records table uses - with the
-                       open shifts counted to now)
-     today's table     every active person: clock in, clock out, hours, status
-                       and where the first punch was made, with a search, a
-                       role filter and a status filter over the same rows
-     right column      the attendance donut and the quick actions (unchanged)
-     calendar strip    the month, one cell a day: how many people clocked in
-                       of the staff count, coloured good / partial / low; the
-                       arrows move the month (the report the Team tab reads)
-     issues            today's late arrivals and the people not clocked in
-     recent activity   today's clock-ins and clock-outs, newest first
+     four figures       Present today (of the people DUE today, never of the
+                        headcount), Late arrivals, Missing punches (no
+                        clock-out, or a forgotten punch waiting), On leave
+     requires attention who is due and not in, yesterday's and today's open
+                        clock-outs, forgotten punches waiting for a decision
+     today's schedule   the viewer's own shift, today's holiday, the grace
+     today's attendance one row a person: shift, in, out, hours, status and
+                        where the first punch was made - as a word and a
+                        distance, never a position
+     quick actions      the other four views
 
-   Everything comes from GETs the managers already call: /staff/attendance/
-   monitor, /staff/dashboard/attendance-today, /staff/attendance/report and the
-   dashboard summary handed in. Nothing here writes; no rule changed. The
-   colour of a calendar day is a reading aid, not an attendance verdict. */
+   The fix this release is for: on Saturday 14 November 2026 the old
+   Overview counted the seven staff on their rest day as "Not clocked in". A
+   rest day, a holiday, approved leave and the time before a shift starts are
+   none of them "not clocked in" now. Nothing here writes. */
 
-import { useEffect, useMemo, useState } from "react";
-import { L } from "@/components/portal/page-shared";
-import { mytTime } from "@/components/portal/page-shared";
-import { gpsLabel, type DashSummary } from "@/components/portal/dashboard";
-import { AttendanceTodayCard } from "@/components/portal/dashboard-cards";
+import { useMemo, useState } from "react";
+import { L, type User } from "@/components/portal/page-shared";
 import { Avatar } from "@/components/ui/avatar";
-import { AppIcon } from "@/components/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
-import { mytDateOf, mytToday } from "@/lib/format";
+import { mytToday } from "@/lib/format";
 import { properName } from "@/lib/names";
-import { btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
-import type { TabName } from "@/lib/portal-tabs";
-import css from "./attendance-panel.module.css";
+import { btnSm, card, chipSmDanger, chipSmInfo, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { STATUS, StatusChip, addDays, dayLabel, hhmm, hm, locText, mytHm, type DayRegister, type DayStatus, type PersonDay } from "./attendance-shared";
+import css from "./attendance4.module.css";
 
-type MonStaff = {
-  id: number; name: string; role: string; employment_status?: string | null;
-  in_at?: string | null; out_at?: string | null; last_type?: string | null; shifts?: number; in_gps?: string | null;
-};
-type Monitor = { date: string; staff: MonStaff[]; geofence?: { lat: number; lng: number; radius_m: number; label?: string } | null };
-type Today = {
-  cutoff?: string;
-  on_time?: { id: number; first_in: string }[];
-  late?: { id: number; name: string; first_in: string }[];
-  not_in?: { id: number; name: string; position?: string | null; leave_type?: string | null }[];
-};
-type Report = { records?: { user_id?: number; type: string; created_at: string }[] };
-export type OverviewTab = "mine" | "roster" | "team" | "reports" | "settings";
+export type AttView = "overview" | "records" | "roster" | "exceptions" | "reports";
+const IN = new Set<DayStatus>(["present", "late", "on_shift", "missing_out"]);
+const OFF = new Set<DayStatus>(["rest_day", "holiday"]);
 
-const ROLE: Record<string, string> = {
-  ceo: "CEO", coo: "COO", cco: "CCO", hr_admin: "HR Admin", sales_marketing: "Sales & Marketing",
-  marketing: "Marketing", editor: "Editor", live_host: "Live Host",
-};
-const roleName = (r: string) => ROLE[r] ?? r.replace(/_/g, " ");
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const minutesBetween = (a: string, b: string) =>
-  Math.max(0, Math.round((new Date(b.replace(" ", "T") + "Z").getTime() - new Date(a.replace(" ", "T") + "Z").getTime()) / 60000));
-const hm = (min: number) => `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
-const toMin = (s: string) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5));
-const shiftMonth = (ym: string, d: number) => {
-  const [y, m] = ym.split("-").map(Number) as [number, number];
-  const t = new Date(Date.UTC(y, m - 1 + d, 1));
-  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`;
-};
+export function AttendanceOverview({ user, open, openPerson }: { user: User; open: (v: AttView) => void; openPerson: (id: number, day: string) => void }) {
+  const today = mytToday();
+  const reg = useCachedApi<DayRegister>(`/staff/attendance/day?date=${today}`, true, ["attendance"]);
+  const prev = useCachedApi<DayRegister>(`/staff/attendance/day?date=${addDays(today, -1)}`, true, ["attendance"]);
+  const pend = useCachedApi<{ pending?: { id: number; user_id: number; name: string; type: string; created_at: string }[] }>("/staff/attendance/pending", true, ["attendance"]);
+  const staff = useMemo(() => reg.data?.staff ?? [], [reg.data]);
+  const due = staff.filter((p) => !OFF.has(p.verdict.status));
+  const present = staff.filter((p) => IN.has(p.verdict.status));
+  const late = staff.filter((p) => p.verdict.late);
+  const onLeave = staff.filter((p) => p.verdict.status === "leave");
+  const pendingList = pend.data?.pending ?? [];
+  const missing = staff.filter((p) => p.verdict.status === "missing_out").length + pendingList.length;
+  const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 100) : 0);
+  const busy = reg.loading && !reg.data;
+  const grace = reg.data?.grace_minutes ?? 0;
 
-type Status = "on_time" | "late" | "on_shift" | "not_in" | "leave";
-
-export function AttendanceOverview({ summary, open, go }: {
-  summary: DashSummary | null;
-  open: (t: OverviewTab) => void;
-  go: (t: TabName) => void;
-}) {
-  const mon = useCachedApi<Monitor>("/staff/attendance/monitor", true, ["attendance"]);
-  const today = useCachedApi<Today>("/staff/dashboard/attendance-today", true, ["attendance"]);
-  const [calMonth, setCalMonth] = useState(() => mytToday().slice(0, 7));
-  const report = useCachedApi<Report>(`/staff/attendance/report?month=${calMonth}`, true, ["attendance"]);
-  /* the clock the hours are counted to: read when the page opens (render
-     stays pure) and again with the monitor every two minutes */
-  const [now, setNow] = useState<number>(() => Date.now());
-  const refreshMon = mon.refresh;
-  const refreshToday = today.refresh;
-  useEffect(() => {
-    const t = setInterval(() => { setNow(Date.now()); refreshMon(); refreshToday(); }, 120000);
-    return () => clearInterval(t);
-  }, [refreshMon, refreshToday]);
-
-  const [q, setQ] = useState("");
-  const [roleF, setRoleF] = useState("");
-  const [statusF, setStatusF] = useState<"" | Status>("");
-
-  const staff = useMemo(() => mon.data?.staff ?? [], [mon.data]);
-  const fence = mon.data?.geofence ?? null;
-  const cutoff = today.data?.cutoff ?? "10:00";
-  const lateIds = new Set((today.data?.late ?? []).map((p) => p.id));
-  const leaveIds = new Set((today.data?.not_in ?? []).filter((p) => p.leave_type).map((p) => p.id));
-  const stillIn = (s: MonStaff) => (s.last_type ? s.last_type === "clock_in" : Boolean(s.in_at && !s.out_at));
-  const statusOf = (s: MonStaff): Status =>
-    !s.in_at ? (leaveIds.has(s.id) ? "leave" : "not_in") : stillIn(s) ? "on_shift" : lateIds.has(s.id) ? "late" : "on_time";
-  const minutesOf = (s: MonStaff) => {
-    if (!s.in_at) return 0;
-    /* an open shift counts to now only on the monitor's own day */
-    if (stillIn(s)) return mon.data?.date !== mytToday() ? 0 : minutesBetween(s.in_at, new Date(now).toISOString().replace("T", " ").slice(0, 19));
-    return s.out_at ? minutesBetween(s.in_at, s.out_at) : 0;
-  };
-
-  /* ---- the five tiles ---- */
-  const onTime = summary?.attendance_on_time ?? null;
-  const late = summary?.attendance_late ?? null;
-  const total = summary?.staff_total ?? 0;
-  const notIn = onTime != null && late != null ? Math.max(0, total - onTime - late) : null;
-  const pct = (n: number | null) => (n != null && total > 0 ? Math.round((n / total) * 100) : 0);
-  const onShift = mon.data ? staff.filter(stillIn).length : null;
-  const totalMin = staff.reduce((a, s) => a + minutesOf(s), 0);
-
-  /* ---- today's table ---- */
-  const needle = q.trim().toLowerCase();
-  const rows = staff.filter((s) =>
-    (!needle || s.name.toLowerCase().includes(needle))
-    && (!roleF || s.role === roleF)
-    && (!statusF || statusOf(s) === statusF));
-  const roles = [...new Set(staff.map((s) => s.role))];
-  const STATUS_CHIP: Record<Status, [string, string]> = {
-    on_time: [chipSmSuccess, L("On time", "Tepat waktu")],
-    late: [chipSmWarn, L("Late", "Lewat")],
-    on_shift: [chipSmInfo, L("On shift", "Sedang syif")],
-    not_in: [chipSmDanger, L("Not clocked in", "Belum masuk")],
-    leave: [chipSmNeutral, L("On leave", "Bercuti")],
-  };
-  const placeOf = (s: MonStaff) => {
-    if (!s.in_at) return "—";
-    const g = gpsLabel(s.in_gps, fence);
-    return g.ok === true ? L("Office", "Pejabat") : g.ok === false ? L("Outside", "Di luar") : "—";
-  };
-  const todayLabel = (() => {
-    const d = mon.data?.date ?? mytToday();
-    const [y, m, dd] = d.split("-").map(Number) as [number, number, number];
-    return `${dd} ${MONTHS[m - 1]} ${y}`;
-  })();
-
-  /* ---- the month strip ---- */
-  const days = useMemo(() => {
-    const [y, m] = calMonth.split("-").map(Number) as [number, number];
-    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    const todayS = mytToday();
-    const byDay = new Map<string, Set<number>>();
-    for (const r of report.data?.records ?? []) {
-      if (r.type !== "clock_in" || r.user_id == null) continue;
-      const d = mytDateOf(r.created_at);
-      const set = byDay.get(d) ?? new Set<number>();
-      set.add(r.user_id);
-      byDay.set(d, set);
-    }
-    const out: { date: string; dow: number; day: number; n: number; future: boolean; today: boolean }[] = [];
-    for (let i = 1; i <= last; i++) {
-      const date = `${calMonth}-${String(i).padStart(2, "0")}`;
-      if (date > todayS) break;
-      out.push({ date, dow: new Date(`${date}T00:00:00Z`).getUTCDay(), day: i, n: byDay.get(date)?.size ?? 0, future: false, today: date === todayS });
-    }
-    return out;
-  }, [calMonth, report.data]);
-  const dayTone = (n: number, dow: number) =>
-    n === 0 ? (dow === 0 || dow === 6 ? css.dayOff : css.dayLow)
-      : total > 0 && n >= total ? css.dayGood : total > 0 && n / total >= 0.5 ? css.dayPart : css.dayLow;
-  const monthTitle = (() => { const [y, m] = calMonth.split("-").map(Number) as [number, number]; return `${MONTHS[m - 1]} ${y}`; })();
-
-  /* ---- issues and recent activity ---- */
-  const weekend = [0, 6].includes(new Date(`${mytToday()}T00:00:00Z`).getUTCDay());
-  const issues = [
-    ...(today.data?.late ?? []).map((p) => ({
-      key: `late-${p.id}`, id: p.id, name: p.name, chip: chipSmWarn, word: L("Late arrival", "Lewat tiba"),
-      time: `${p.first_in} (${minutesAfter(p.first_in, cutoff)} ${L("mins late", "minit lewat")})`,
-    })),
-    ...(weekend ? [] : (today.data?.not_in ?? []).filter((p) => !p.leave_type).map((p) => ({
-      key: `in-${p.id}`, id: p.id, name: p.name, chip: chipSmDanger, word: L("Not clocked in", "Belum masuk"), time: "—",
-    }))),
+  /* ---- requires attention ---- */
+  type Att = { key: string; p: Pick<PersonDay, "id" | "name" | "position">; chip: [string, string]; what: string; when: string; day: string; action: "record" | "exceptions" };
+  const attention: Att[] = [
+    ...staff.filter((p) => p.verdict.status === "not_in").map((p): Att => ({ key: `n${p.id}`, p, chip: [chipSmDanger, L("Not yet clocked in", "Belum daftar masuk")], what: L(`No clock-in by ${hhmm((p.verdict.start ?? 0) + grace)}`, `Tiada daftar masuk menjelang ${hhmm((p.verdict.start ?? 0) + grace)}`), when: L(`${dayLabel(today)} (today)`, `${dayLabel(today)} (hari ini)`), day: today, action: "record" })),
+    ...staff.filter((p) => p.verdict.status === "missing_out").map((p): Att => ({ key: `o${p.id}`, p, chip: [chipSmWarn, L("Missing clock-out", "Tiada daftar keluar")], what: L(`Checked in at ${mytHm(p.first_in)}, no check-out yet`, `Masuk pada ${mytHm(p.first_in)}, belum keluar`), when: L(`${dayLabel(today)} (today)`, `${dayLabel(today)} (hari ini)`), day: today, action: "record" })),
+    ...(prev.data?.staff ?? []).filter((p) => p.verdict.status === "missing_out").map((p): Att => ({ key: `y${p.id}`, p, chip: [chipSmWarn, L("Missing clock-out", "Tiada daftar keluar")], what: L(`Checked in at ${mytHm(p.first_in)}, no check-out`, `Masuk pada ${mytHm(p.first_in)}, tiada daftar keluar`), when: L(`${dayLabel(addDays(today, -1))} (yesterday)`, `${dayLabel(addDays(today, -1))} (semalam)`), day: addDays(today, -1), action: "record" })),
+    ...pendingList.map((x): Att => ({ key: `p${x.id}`, p: { id: x.user_id, name: x.name, position: null }, chip: [chipSmInfo, L("Pending correction", "Pembetulan menunggu")], what: L(`Forgotten ${x.type === "clock_in" ? "clock-in" : "clock-out"} claimed for ${mytHm(x.created_at)}`, `${x.type === "clock_in" ? "Daftar masuk" : "Daftar keluar"} terlupa dituntut untuk ${mytHm(x.created_at)}`), when: dayLabel(x.created_at.slice(0, 10)), day: x.created_at.slice(0, 10), action: "exceptions" })),
   ];
-  const activity = staff.flatMap((s) => [
-    ...(s.in_at ? [{ at: s.in_at, s, what: lateIds.has(s.id) ? "in_late" as const : "in" as const }] : []),
-    ...(s.out_at && !stillIn(s) ? [{ at: s.out_at, s, what: "out" as const }] : []),
-  ]).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
+
+  /* ---- today's schedule: the viewer's own day ---- */
+  const me = staff.find((p) => p.id === user.id) ?? null;
+  const holidayToday = staff.find((p) => p.holiday_name)?.holiday_name ?? null;
+
+  /* ---- today's attendance ---- */
+  const [q, setQ] = useState("");
+  const [team, setTeam] = useState("");
+  const [st, setSt] = useState<"" | DayStatus>("");
+  const teams = [...new Set(staff.map((p) => p.department || p.position || "").filter(Boolean))].sort();
+  const needle = q.trim().toLowerCase();
+  const rows = staff.filter((p) => (!needle || p.name.toLowerCase().includes(needle)) && (!team || (p.department || p.position) === team) && (!st || p.verdict.status === st));
+  const quick: [AppIconName, string, AttView][] = [
+    ["users", L("View Team Today", "Lihat Pasukan Hari Ini"), "records"],
+    ["chart", L("Attendance Report", "Laporan Kehadiran"), "reports"],
+    ["verify", L("Exceptions & Approvals", "Pengecualian & Kelulusan"), "exceptions"],
+    ["date", L("Shift Roster", "Roster Syif"), "roster"],
+  ];
 
   return (
     <>
+      <div className={css.intro}>
+        <div className={css.headText}>
+          <p className={css.pageTitle}>{L("Attendance Overview", "Gambaran Kehadiran")}</p>
+          <p className={css.sub}>{L("Real-time attendance, today's status and items that require your attention.", "Kehadiran masa nyata, status hari ini dan perkara yang memerlukan perhatian anda.")}</p>
+        </div>
+        <span className={css.dateChip}><AppIcon name="date" />{dayLabel(today)}</span>
+      </div>
+
       <KpiRow label={L("Today", "Hari ini")}>
-        <KpiTile icon="person" tone="green" label={L("On Time", "Tepat Waktu")} value={onTime ?? 0} busy={onTime == null}
-          sub={total > 0 ? L(`${pct(onTime)}% of ${total} staff`, `${pct(onTime)}% daripada ${total} kakitangan`) : undefined}
-          bar={{ pct: pct(onTime), tone: "green" }} />
-        <KpiTile icon="time" tone="gold" label={L("Late", "Lewat")} value={late ?? 0} busy={late == null}
-          sub={total > 0 ? L(`${pct(late)}% of ${total} staff`, `${pct(late)}% daripada ${total} kakitangan`) : undefined}
-          bar={{ pct: pct(late), tone: "gold" }} />
-        <KpiTile icon="error" tone="red" label={L("Not Clocked In", "Belum Daftar Masuk")} value={notIn ?? 0} busy={notIn == null}
-          sub={total > 0 ? L(`${pct(notIn)}% of ${total} staff`, `${pct(notIn)}% daripada ${total} kakitangan`) : undefined}
-          bar={{ pct: pct(notIn), tone: "red" }} />
-        <KpiTile icon="time" tone="blue" label={L("Currently On Shift", "Sedang Bersyif")} value={onShift ?? 0} busy={onShift == null}
-          link={{ label: L("View live status", "Lihat status langsung"), onClick: () => document.getElementById("attendance-monitor")?.scrollIntoView({ behavior: "smooth", block: "start" }) }} />
-        <KpiTile icon="chart" tone="gold" label={L("Total Working Hours", "Jumlah Jam Bekerja")} value={hm(totalMin)} busy={!mon.data}
-          sub={L("today, first clock-in to last clock-out", "hari ini, masuk pertama ke keluar terakhir")} />
+        <KpiTile icon="users" tone="green" label={L("Present Today", "Hadir Hari Ini")} value={`${present.length} / ${due.length}`} busy={busy}
+          sub={due.length ? L(`${pct(present.length, due.length)}% of staff due today`, `${pct(present.length, due.length)}% kakitangan yang bertugas`) : L("Nobody is due at work today", "Tiada sesiapa bertugas hari ini")} />
+        <KpiTile icon="time" tone="gold" label={L("Late Arrivals", "Lewat Tiba")} value={late.length} busy={busy}
+          sub={L(`${pct(late.length, due.length)}% of staff due · after ${grace} min grace`, `${pct(late.length, due.length)}% · selepas tempoh ihsan ${grace} min`)} />
+        <KpiTile icon="warning" tone="red" label={L("Missing Punches", "Ketukan Tertinggal")} value={missing} busy={busy}
+          sub={L("Pending action", "Menunggu tindakan")} onClick={() => open("exceptions")} />
+        <KpiTile icon="holiday" tone="blue" label={L("On Leave Today", "Bercuti Hari Ini")} value={onLeave.length} busy={busy}
+          sub={L(`${pct(onLeave.length, staff.length)}% of staff`, `${pct(onLeave.length, staff.length)}% kakitangan`)} />
       </KpiRow>
 
       <div className={css.split}>
-        <section id="attendance-monitor" className={`${card} ${css.monitor}`}>
+        <section className={card} aria-label={L("Requires attention", "Perlu perhatian")} data-testid="att-attention">
           <div className={css.head}>
-            <div className={css.lead}>
-              <span className={`${css.well} ${css.gold}`}><AppIcon name="time" /></span>
-              <div className={css.headText}>
-                <p className={css.title}>{L(`Today's attendance — ${todayLabel}`, `Kehadiran hari ini — ${todayLabel}`)} <span className={chipSmSuccess}>● {L("Live", "Langsung")}</span></p>
-                <p className={css.sub}>{L("Real-time snapshot of all active staff. Refreshes every 2 minutes.", "Paparan langsung semua kakitangan aktif. Dimuat semula setiap 2 minit.")}</p>
-              </div>
-            </div>
-            <div className={css.filters}>
-              <label className={css.search}>
-                <AppIcon name="search" className={css.searchIcon} />
-                <input className={inputClassSm} value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search staff…", "Cari kakitangan…")} aria-label={L("Search staff", "Cari kakitangan")} />
-              </label>
-              <select className={selectClassSm} value={roleF} onChange={(e) => setRoleF(e.target.value)} aria-label={L("Role", "Peranan")}>
-                <option value="">{L("All roles", "Semua peranan")}</option>
-                {roles.map((r) => <option key={r} value={r}>{roleName(r)}</option>)}
-              </select>
-              <select className={selectClassSm} value={statusF} onChange={(e) => setStatusF(e.target.value as "" | Status)} aria-label={L("Status", "Status")}>
-                <option value="">{L("All status", "Semua status")}</option>
-                {(Object.keys(STATUS_CHIP) as Status[]).map((k) => <option key={k} value={k}>{STATUS_CHIP[k][1]}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className={css.tWrap}>
-            <table className={css.t}>
-              <thead>
-                <tr>
-                  <th>{L("No.", "No.")}</th><th>{L("Name", "Nama")}</th><th>{L("Role", "Peranan")}</th>
-                  <th>{L("Clock In", "Masuk")}</th><th>{L("Clock Out", "Keluar")}</th><th>{L("Hours", "Jam")}</th>
-                  <th>{L("Status", "Status")}</th><th>{L("Location", "Lokasi")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!mon.data ? (
-                  <tr><td colSpan={8}><SkelRows rows={5} /></td></tr>
-                ) : rows.length === 0 ? (
-                  <tr><td colSpan={8} className={css.none}>{staff.length === 0 ? L("No active staff.", "Tiada kakitangan aktif.") : L("Nobody matches that.", "Tiada yang sepadan.")}</td></tr>
-                ) : rows.map((s, i) => {
-                  const st = statusOf(s);
-                  const min = minutesOf(s);
-                  return (
-                    <tr key={s.id}>
-                      <td className={css.muted}>{i + 1}</td>
-                      <td><span className={css.who}><Avatar name={properName(s.name)} size="sm" /><span className={css.name}>{properName(s.name)}</span></span></td>
-                      <td className={css.muted}>{roleName(s.role)}</td>
-                      <td>{s.in_at ? <span className={lateIds.has(s.id) ? chipSmWarn : chipSmSuccess}>{mytTime(s.in_at)}</span> : <span className={css.muted}>—</span>}</td>
-                      <td>{s.out_at && !stillIn(s) ? mytTime(s.out_at) : <span className={css.muted}>—</span>}</td>
-                      <td>{s.in_at && (min > 0) ? hm(min) : <span className={css.muted}>—</span>}</td>
-                      <td><span className={STATUS_CHIP[st][0]}>{STATUS_CHIP[st][1]}</span></td>
-                      <td className={css.muted}>{placeOf(s)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <div className={css.aside}>
-          {!summary ? (
-            <div className={card} aria-busy="true"><SkelRows rows={3} /></div>
-          ) : summary.attendance_on_time == null || summary.attendance_late == null ? null : (
-            <AttendanceTodayCard onTime={summary.attendance_on_time} late={summary.attendance_late} staffTotal={summary.staff_total ?? 0} />
-          )}
-          <section className={card}>
-            <p className={css.title}>{L("Quick actions", "Tindakan pantas")}</p>
-            <div className={css.quick}>
-              <button type="button" className={css.qa} onClick={() => go("On Shift")}><span className={`${css.qaIcon} ${css.gold}`}><AppIcon name="time" /></span>{L("Clock in / out", "Daftar masuk / keluar")}</button>
-              <button type="button" className={css.qa} onClick={() => go("Leave")}><span className={`${css.qaIcon} ${css.blue}`}><AppIcon name="holiday" /></span>{L("Apply leave", "Mohon cuti")}</button>
-              <button type="button" className={css.qa} onClick={() => open("roster")}><span className={`${css.qaIcon} ${css.blue}`}><AppIcon name="date" /></span>{L("View roster", "Lihat roster")}</button>
-              <button type="button" className={css.qa} onClick={() => open("reports")}><span className={`${css.qaIcon} ${css.red}`}><AppIcon name="chart" /></span>{L("Team report", "Laporan pasukan")}</button>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <section className={card}>
-        <div className={css.head}>
-          <div className={css.lead}>
-            <span className={`${css.well} ${css.gold}`}><AppIcon name="date" /></span>
             <div className={css.headText}>
-              <p className={css.title}>{L("Attendance calendar — ", "Kalendar kehadiran — ")}<span className={css.month}>{monthTitle}</span></p>
-              <p className={css.sub}>{L("People clocked in each day, of today's staff count. Green = everyone, yellow = half or more, red = fewer.", "Orang yang daftar masuk setiap hari, daripada bilangan kakitangan hari ini. Hijau = semua, kuning = separuh atau lebih, merah = kurang.")}</p>
+              <p className={css.title}>{L("Requires Attention", "Perlu Perhatian")}</p>
+              <p className={css.sub}>{L("Attendance items that need your review or follow up.", "Perkara kehadiran yang perlu disemak atau disusuli.")}</p>
             </div>
+            <button type="button" className={btnSm} onClick={() => open("exceptions")}>{L("View all", "Lihat semua")} <AppIcon name="next" /></button>
           </div>
-          <div className={css.calNav}>
-            <button type="button" className={btnSm} aria-label={L("Previous month", "Bulan sebelumnya")} onClick={() => setCalMonth((m) => shiftMonth(m, -1))}><AppIcon name="previous" /></button>
-            <button type="button" className={btnSm} aria-label={L("Next month", "Bulan seterusnya")} disabled={calMonth >= mytToday().slice(0, 7)} onClick={() => setCalMonth((m) => shiftMonth(m, 1))}><AppIcon name="next" /></button>
-            <button type="button" className={btnSm} onClick={() => setCalMonth(mytToday().slice(0, 7))}>{L("Today", "Hari ini")}</button>
-          </div>
-        </div>
-        <div className={css.cal}>
-          {report.loading ? <SkelRows rows={1} /> : days.map((d) => (
-            <div key={d.date} className={`${css.day} ${d.today ? css.dayToday : ""}`}>
-              <span className={css.dow}>{DOW[d.dow]}</span>
-              <span className={css.dnum}>{d.day}</span>
-              {d.n === 0 && (d.dow === 0 || d.dow === 6)
-                ? <span className={css.dcount}>–</span>
-                : <><span aria-hidden className={`${css.dot} ${dayTone(d.n, d.dow)}`} /><span className={`${css.dcount} ${dayTone(d.n, d.dow)}`}>{d.n}/{total || "?"}</span></>}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <div className={css.split2}>
-        <section className={card}>
-          <div className={css.head}>
-            <div className={css.lead}>
-              <span className={`${css.well} ${css.red}`}><AppIcon name="warning" /></span>
-              <div className={css.headText}>
-                <p className={css.title}>{L("Attendance issues", "Isu kehadiran")} {issues.length > 0 && <span className={chipSmDanger}>{L(`${issues.length} issue${issues.length === 1 ? "" : "s"} today`, `${issues.length} isu hari ini`)}</span>}</p>
-                <p className={css.sub}>{L("Staff with attendance issues that need attention.", "Kakitangan dengan isu kehadiran yang perlu perhatian.")}</p>
-              </div>
-            </div>
-          </div>
-          {!today.data ? <SkelRows rows={3} /> : issues.length === 0 ? (
-            <p className={css.none}>{L("No attendance issues today.", "Tiada isu kehadiran hari ini.")}</p>
-          ) : (
-            <div className={css.tWrap}>
-              <table className={css.t}>
-                <thead><tr><th>{L("Name", "Nama")}</th><th>{L("Issue", "Isu")}</th><th>{L("Time", "Masa")}</th><th>{L("Action", "Tindakan")}</th></tr></thead>
-                <tbody>
-                  {issues.map((it) => (
-                    <tr key={it.key}>
-                      <td><span className={css.who}><Avatar name={properName(it.name)} size="sm" /><span className={css.name}>{properName(it.name)}</span></span></td>
-                      <td><span className={it.chip}>{it.word}</span></td>
-                      <td className={css.muted}>{it.time}</td>
-                      <td><button type="button" className={btnSm} onClick={() => open("team")}>{L("View", "Lihat")}</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {busy ? <SkelRows rows={3} /> : attention.length === 0 ? <p className={css.empty}>{L("Nothing needs attention — everyone due is in, and no punch is waiting.", "Tiada yang perlu perhatian — semua yang bertugas sudah masuk, tiada ketukan menunggu.")}</p> : (
+            <ul className={css.list}>
+              {attention.slice(0, 8).map((a) => (
+                <li key={a.key} data-testid="att-attention-row">
+                  <Avatar name={a.p.name} size="sm" />
+                  <span className={css.listText}><strong>{properName(a.p.name)}</strong><span className={css.sub}>{a.p.position ?? ""}</span></span>
+                  <span className={a.chip[0]}>{a.chip[1]}</span>
+                  <span className={css.listText}><span>{a.what}</span><span className={css.sub}>{a.when}</span></span>
+                  <button type="button" className={btnSm} onClick={() => (a.action === "exceptions" ? open("exceptions") : openPerson(a.p.id, a.day))}>{a.action === "exceptions" ? L("Review", "Semak") : L("Open record", "Buka rekod")}</button>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
 
-        <section className={card}>
-          <div className={css.head}>
-            <div className={css.lead}>
-              <span className={`${css.well} ${css.gold}`}><AppIcon name="refresh" /></span>
-              <div className={css.headText}>
-                <p className={css.title}>{L("Recent activity", "Aktiviti terkini")}</p>
-                <p className={css.sub}>{L("Today's clock-ins and clock-outs, newest first.", "Daftar masuk dan keluar hari ini, terbaru dahulu.")}</p>
-              </div>
-            </div>
-            <button type="button" className={btnSm} onClick={() => open("team")}>{L("View all", "Lihat semua")}</button>
+        <section className={card} aria-label={L("Today's schedule", "Jadual hari ini")} data-testid="att-schedule">
+          <div className={css.headText}>
+            <p className={css.title}>{L("Today's Schedule", "Jadual Hari Ini")}</p>
+            <p className={css.sub}>{L("Your published working hours for today.", "Waktu bekerja anda yang diterbitkan untuk hari ini.")}</p>
           </div>
-          {!mon.data ? <SkelRows rows={4} /> : activity.length === 0 ? (
-            <p className={css.none}>{L("No punches yet today.", "Belum ada punch hari ini.")}</p>
-          ) : (
-            <div className={css.tWrap}>
-              <table className={css.t}>
-                <thead><tr><th>{L("Time", "Masa")}</th><th>{L("Staff", "Kakitangan")}</th><th>{L("Activity", "Aktiviti")}</th><th>{L("Location", "Lokasi")}</th></tr></thead>
-                <tbody>
-                  {activity.map((a, i) => (
-                    <tr key={i}>
-                      <td className={css.muted}>{mytTime(a.at)}</td>
-                      <td><span className={css.who}><Avatar name={properName(a.s.name)} size="sm" /><span className={css.name}>{properName(a.s.name)}</span></span></td>
-                      <td><span aria-hidden className={`${css.dot} ${a.what === "out" ? css.dayOff : a.what === "in_late" ? css.dayPart : css.dayGood}`} />
-                        {a.what === "out" ? L("Clocked out", "Daftar keluar") : a.what === "in_late" ? L("Clocked in (late)", "Daftar masuk (lewat)") : L("Clocked in", "Daftar masuk")}</td>
-                      <td className={css.muted}>{a.what === "out" ? "—" : placeOf(a.s)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div className={css.kv}><span>{L("Work hours", "Waktu kerja")}</span><strong>{me ? (me.shift_label ?? (me.verdict.status === "rest_day" ? L("Rest day", "Hari rehat") : "—")) : "—"}</strong></div>
+          <div className={css.kv}><span>{L("Working pattern", "Corak kerja")}</span><strong>{me?.pattern ?? "—"}</strong></div>
+          <div className={css.kv}><span>{L("Public holiday", "Cuti umum")}</span><strong>{holidayToday ?? "—"}</strong></div>
+          <div className={css.kv}><span>{L("Late after", "Lewat selepas")}</span><strong>{L(`start + ${grace} min`, `mula + ${grace} min`)}</strong></div>
+          <div className={css.quick}>
+            {quick.map(([icon, label, v]) => <button key={v} type="button" className={css.qa} onClick={() => open(v)}><AppIcon name={icon} />{label}</button>)}
+          </div>
         </section>
       </div>
+
+      <section className={card} aria-label={L("Today's attendance", "Kehadiran hari ini")} data-testid="att-today">
+        <div className={css.head}>
+          <div className={css.headText}>
+            <p className={css.title}>{L("Today's Attendance", "Kehadiran Hari Ini")}</p>
+            <p className={css.sub}>{L("Every person against their own published shift. Where a punch was made shows as a word and a distance.", "Setiap orang berbanding syif mereka sendiri. Lokasi ketukan ditunjuk sebagai perkataan dan jarak.")}</p>
+          </div>
+        </div>
+        <div className={css.filters}>
+          <input type="search" className={`${inputClassSm} ${css.wide}`} value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search staff…", "Cari kakitangan…")} aria-label={L("Search staff", "Cari kakitangan")} />
+          <select className={selectClassSm} value={team} onChange={(e) => setTeam(e.target.value)} aria-label={L("Team", "Pasukan")}>
+            <option value="">{L("All teams", "Semua pasukan")}</option>
+            {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select className={selectClassSm} value={st} onChange={(e) => setSt(e.target.value as "" | DayStatus)} aria-label={L("Status", "Status")} data-testid="att-status-filter">
+            <option value="">{L("All status", "Semua status")}</option>
+            {(Object.keys(STATUS) as DayStatus[]).map((k) => <option key={k} value={k}>{L(STATUS[k][0], STATUS[k][1])}</option>)}
+          </select>
+        </div>
+        {busy ? <SkelRows rows={5} /> : <TodayRows rows={rows} openPerson={(id) => openPerson(id, today)} />}
+      </section>
     </>
   );
 }
 
-function minutesAfter(hhmm: string, cutoff: string) {
-  return Math.max(0, toMin(hhmm) - toMin(cutoff));
+/** One row a person - a table on a wide screen, cards on a phone. */
+export function TodayRows({ rows, openPerson }: { rows: PersonDay[]; openPerson: (id: number) => void }) {
+  if (rows.length === 0) return <p className={css.empty}>{L("Nobody matches.", "Tiada yang sepadan.")}</p>;
+  const loc = (p: PersonDay) => { const l = locText(p.punches?.find((x) => x.type === "clock_in" && !x.pending)?.loc); return <span className={l.tone === "ok" ? css.locOk : l.tone === "warn" ? css.locWarn : css.muted}>{l.text}</span>; };
+  return (
+    <>
+      <div className={`${css.tableWrap} erp-desktop-only`}>
+        <table className={css.table} data-testid="att-table">
+          <thead><tr><th>{L("No.", "No.")}</th><th>{L("Staff", "Kakitangan")}</th><th>{L("Team / Role", "Pasukan / Peranan")}</th><th>{L("Shift (today)", "Syif (hari ini)")}</th><th>{L("Clock In", "Masuk")}</th><th>{L("Clock Out", "Keluar")}</th><th className={css.num}>{L("Working Hours", "Jam Bekerja")}</th><th>{L("Status", "Status")}</th><th>{L("Location", "Lokasi")}</th><th><span className="erp-sr-only">{L("Open", "Buka")}</span></th></tr></thead>
+          <tbody>
+            {rows.map((p, i) => (
+              <tr key={p.id} data-testid="att-row">
+                <td>{i + 1}</td>
+                <td><span className={css.who}><strong>{properName(p.name)}</strong></span></td>
+                <td className={css.muted}>{p.department || p.position || "—"}</td>
+                <td>{p.shift_label ?? "—"}</td>
+                <td>{p.first_in ? <span className={`${css.time} ${p.verdict.late ? css.timeLate : css.timeOk}`}>{mytHm(p.first_in)}</span> : "—"}</td>
+                <td>{p.last_out ? <span className={`${css.time} ${css.timeOk}`}>{mytHm(p.last_out)}</span> : "—"}</td>
+                <td className={css.num}>{hm(p.worked_minutes)}</td>
+                <td><StatusChip p={p} /></td>
+                <td>{loc(p)}</td>
+                <td><button type="button" className={btnSm} onClick={() => openPerson(p.id)}>{L("View", "Lihat")}</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul className={`${css.cards} erp-phone-only`}>
+        {rows.map((p) => (
+          <li key={p.id}>
+            <button type="button" className={css.cardRow} onClick={() => openPerson(p.id)} data-testid="att-card">
+              <span className={css.cardTop}><strong>{properName(p.name)}</strong><StatusChip p={p} /></span>
+              <span className={css.cardMeta}><span>{p.shift_label ?? "—"}</span><span>{L("In", "Masuk")} {mytHm(p.first_in)}</span><span>{L("Out", "Keluar")} {mytHm(p.last_out)}</span><span>{hm(p.worked_minutes)}</span>{loc(p)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 }

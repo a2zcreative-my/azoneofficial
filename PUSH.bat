@@ -239,8 +239,12 @@ REM  "Calendar and team overview" fold is gone. v1.183.0 - the Commission,
 REM  Enquiries, Sales Performance, Hankei's and Web Orders tabs are retired:
 REM  their panels and the two guard files that read them. The worker routes
 REM  and tables stay (dormant), so nothing under worker\ is listed here.
+REM  v1.307.0 / v1.308.0 - verification-card.tsx (the month report is
+REM  Attendance > Reports now) and attendance-panel.module.css (the
+REM  Attendance page uses attendance4.module.css): no legacy-utility budget
+REM  entry, so a stale copy FAILS tailwind-retired (the 15-11-2026 push).
 echo   [3c/7] Removing the files of retired features...
-for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx" "components\staff\leave-review-card.tsx" "components\portal\next-event-card.tsx" "components\portal\side-columns.tsx" "components\ui\mini-calendar.tsx" "components\portal\commission.tsx" "components\portal\commission-panels.tsx" "components\portal\enquiries-panel.tsx" "components\portal\sales-performance-panel.tsx" "components\portal\hankeis-panel.tsx" "components\portal\web-orders-panel.tsx" "components\portal\web-orders-panel.module.css" "tests\enquiries.mjs" "tests\sales-performance.mjs") do (
+for %%F in ("components\portal\criscikee-panel.tsx" "lib\criscikee.ts" "worker\src\criscikee.ts" "tests\criscikee.mjs" "scratch\criscikee-demo.sql" "components\portal\advisors-panel.tsx" "components\portal\advisors-shared.tsx" "components\portal\team-bar.tsx" "components\portal\floor-ticker.tsx" "lib\advisors-presence.ts" "worker\src\advisors.ts" "tests\advisors.mjs" "components\portal\purchasing-panels.tsx" "components\staff\leave-review-card.tsx" "components\portal\next-event-card.tsx" "components\portal\side-columns.tsx" "components\ui\mini-calendar.tsx" "components\portal\commission.tsx" "components\portal\commission-panels.tsx" "components\portal\enquiries-panel.tsx" "components\portal\sales-performance-panel.tsx" "components\portal\hankeis-panel.tsx" "components\portal\web-orders-panel.tsx" "components\portal\web-orders-panel.module.css" "tests\enquiries.mjs" "tests\sales-performance.mjs" "components\portal\verification-card.tsx" "components\portal\attendance-panel.module.css") do (
   if exist %%F del /f /q %%F
 )
 

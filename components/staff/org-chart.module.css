@@ -1,0 +1,25 @@
+/* v1.308.0 - Staff Workspace 4.0 (reference 03): the chart's search, department
+   focus, folding and the phone's list. Tokens only (the legacy utilities in
+   org-chart.tsx are frozen - nothing new is added to them). */
+.dim { opacity: 0.4; }
+.hit { box-shadow: 0 0 0 2px var(--primary); }
+.fold { flex: none; padding: 0.125rem 0.375rem; border: 0; border-radius: var(--radius-full); background: var(--secondary); color: var(--foreground); font: inherit; font-size: 0.625rem; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; }
+.fold:hover { background: color-mix(in srgb, var(--secondary) 70%, var(--border)); }
+.fold:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
+.search { flex: 1 1 100%; min-width: 0; }
+.focus { flex: 1 1 auto; min-width: 0; }
+.link { padding: 0; border: 0; background: none; color: var(--muted-foreground); font: inherit; font-size: var(--type-caption-size); text-decoration: underline; cursor: pointer; }
+.note { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.list { display: grid; gap: 0.375rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.row { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-card); }
+.who { display: flex; flex: 1 1 auto; align-items: center; gap: 0.5rem; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.who > span:last-child { display: grid; min-width: 0; }
+.who strong { font-size: var(--type-caption-size); overflow-wrap: anywhere; }
+.who small { font-size: 0.625rem; line-height: 1rem; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.open { display: inline-flex; flex: none; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; border: 0; border-radius: var(--radius-control); background: var(--secondary); color: var(--foreground); font: inherit; font-size: var(--type-caption-size); font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; }
+.kids { display: grid; gap: 0.375rem; margin: 0.375rem 0 0 0.75rem; padding: 0 0 0 0.625rem; border-left: 1px solid var(--border); list-style: none; }
+@media (min-width: 640px) {
+  .search { flex: 0 1 20rem; }
+  .focus { flex: 0 0 auto; }
+}

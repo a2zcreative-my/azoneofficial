@@ -48,7 +48,8 @@ import {
   pairSessions, sessionMinutes, firstIn, lastOut, isOpen, mytMinutes, earlyAgainst, overtimeSegments,
   daySlots, canClockIn, claimedSlots, slotsLabel,
   type Punch, type Session,
-} from "./clock-day"; // v1.133.0 - a day is a list of sessions; overtime is what lies outside the schedule
+} from "./clock-day";
+import { dayVerdict, graceOn, LATE_GRACE, MISSING_OUT_AFTER_MINUTES, mytNow, type DayVerdict } from "./attendance-day"; // v1.307.0 - Attendance 4.0: the one verdict
 import { logError as sharedLogError, readVersions, putGuarded, ensureShareToken } from "./shared";
 import { bookCash, reverseLive, handleCashbook } from "./cashbook"; // v1.219.0 - Finance 2.0
 import { fillM2eTemplate, type M2eRow } from "./m2e";
@@ -437,6 +438,14 @@ export const payrollBaseStaffSql = (alias = "") =>
     lib/staff-order.ts `staffState`); every picker keeps currentStaffSql so a
     starter can be rostered for day one, and payroll keeps its own month
     rule. Read only - nothing is written from it. */
+/** v1.308.0 - STAFF WORKSPACE 4.0 (S-1): the private block of a staff record.
+    Never in the staff list; one person at a time from GET /users/:id/private,
+    for hr_manage. The payroll processors keep the payslip's three. */
+export const STAFF_PRIVATE_FIELDS = ["ic_number", "bank_name", "bank_account", "epf_no", "socso_no", "tax_no", "address", "emergency_name", "emergency_phone", "emergency_relation", "blood_type"] as const;
+export const PAYSLIP_PRIVATE_FIELDS: readonly string[] = ["ic_number", "bank_name", "bank_account"];
+/** v1.308.0 (S-12) - the record fields whose before / after the history keeps */
+export const STAFF_HISTORY_VALUE_FIELDS = ["employee_id", "position", "department", "employment_status", "joined_on", "left_on", "rejoined_on", "id_issued_on", "full_name"] as const;
+
 export const headcountSql = (alias = "") =>
   `(${currentStaffSql(alias)} AND (${alias}joined_on IS NULL OR ${alias}joined_on = '' OR substr(${alias}joined_on, 1, 10) <= date('now', '+8 hours')))`;
 
@@ -547,11 +556,11 @@ export interface DayShift {
    proration, no two days' ORP for working it, and a missing punch on it is
    a missing punch. 0130 records the original date; an older row without it
    takes the nearest public holiday in the seven days before as the original. */
-export interface HolidayRow { holiday_date: string; kind: string | null; replaces_date?: string | null }
+export interface HolidayRow { holiday_date: string; kind: string | null; replaces_date?: string | null; name?: string | null }
 export async function holidayRows(env: Env, fromIso: string, toIso: string): Promise<HolidayRow[]> {
   try {
     return (await env.DB.prepare(
-      `SELECT holiday_date, kind, replaces_date FROM holidays WHERE holiday_date BETWEEN ?1 AND ?2 ORDER BY holiday_date`,
+      `SELECT holiday_date, kind, replaces_date, name FROM holidays WHERE holiday_date BETWEEN ?1 AND ?2 ORDER BY holiday_date`,
     ).bind(fromIso, toIso).all<HolidayRow>()).results ?? [];
   } catch {
     try {
@@ -3481,32 +3490,24 @@ async function handleStaffRoutes(
     if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR access required", 403);
     }
-    const { results: inRows } = await env.DB.prepare(
-      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.position,
-              MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS first_in
-         FROM attendance_records a
-         JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
-        WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours')
-        GROUP BY u.id
-        ORDER BY first_in`,
-    ).all<{ id: number; name: string; position: string | null; first_in: string }>();
-    const clockedIn = new Set(inRows.map((r) => r.id));
-    const { results: staffRows } = await env.DB.prepare(
-      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.position,
-              (SELECT l.type FROM leave_requests l
-                WHERE l.user_id = u.id AND l.status = 'approved'
-                  AND date('now', '+8 hours') BETWEEN l.start_date AND l.end_date
-                LIMIT 1) AS leave_type
-         FROM users u
-        WHERE u.is_active = 1 AND ${headcountSql("u.")} AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
-        ORDER BY ${STAFF_ORDER_SQL}`,
-    ).all<{ id: number; name: string; position: string | null; leave_type: string | null }>();
+    /* v1.307.0 - Attendance 4.0 (A-1): from THE verdict. Before, "not in" was
+       everybody without a clock-in and "late" was after a fixed 10:00 - so a
+       Saturday showed the whole company as not clocked in. Now: only people
+       due at work today, each against their own shift plus the grace. */
+    const dayT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const rowsT = await attendanceDay(env, dayT);
+    const hhmmOf = (at: string | null) => (at ? new Date(Date.parse(`${at.replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(11, 16) : "");
+    const clocked = rowsT.filter((r) => ["present", "late", "on_shift", "missing_out"].includes(r.verdict.status));
     return json({
-      date: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
-      cutoff: "10:00",
-      on_time: inRows.filter((r) => r.first_in <= "10:00"),
-      late: inRows.filter((r) => r.first_in > "10:00"),
-      not_in: staffRows.filter((r) => !clockedIn.has(r.id)),
+      date: dayT,
+      grace_minutes: graceOn(dayT),
+      on_time: clocked.filter((r) => !r.verdict.late).map((r) => ({ id: r.id, name: r.name, position: r.position, first_in: hhmmOf(r.first_in) })),
+      late: clocked.filter((r) => r.verdict.late).map((r) => ({ id: r.id, name: r.name, position: r.position, first_in: hhmmOf(r.first_in), late_minutes: r.verdict.lateMinutes })),
+      /* due now and not in - never someone on a rest day, a holiday, leave, or before their start */
+      not_in: rowsT.filter((r) => r.verdict.status === "not_in" || r.verdict.status === "absent" || r.verdict.status === "pending").map((r) => ({ id: r.id, name: r.name, position: r.position, leave_type: null, status: r.verdict.status })),
+      on_leave: rowsT.filter((r) => r.verdict.status === "leave").map((r) => ({ id: r.id, name: r.name, position: r.position, leave_type: r.leave_type })),
+      off_today: rowsT.filter((r) => r.verdict.status === "rest_day" || r.verdict.status === "holiday").length,
+      scheduled: rowsT.filter((r) => !["rest_day", "holiday", "not_employed"].includes(r.verdict.status)).length,
     });
   }
 
@@ -3556,23 +3557,25 @@ async function handleStaffRoutes(
       active_stokis: await gated(can(user.role, "inventory"), `SELECT COUNT(*) AS c FROM stokis WHERE status = 'active'`),
 
       attendance_today: await gated(people, `SELECT COUNT(DISTINCT user_id) AS c FROM attendance_records WHERE type = 'clock_in' AND date(created_at, '+8 hours') = date('now', '+8 hours')`),
-      /* v1.8.0 — the attendance donut: on-time (first clock-in <= 10:00 MYT,
-         same rule the punch flag uses), late (after 10:00). */
-      attendance_on_time: await gated(people, `SELECT COUNT(*) AS c FROM (
-        SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
-        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
-        WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
-      ) WHERE t <= '10:00'`),
-      attendance_late: await gated(people, `SELECT COUNT(*) AS c FROM (
-        SELECT a.user_id, MIN(strftime('%H:%M', a.created_at, '+8 hours')) AS t FROM attendance_records a
-        JOIN users u ON u.id = a.user_id AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
-        WHERE a.type = 'clock_in' AND date(a.created_at, '+8 hours') = date('now', '+8 hours') GROUP BY a.user_id
-      ) WHERE t > '10:00'`),
-
+      /* v1.8.0 — the attendance donut's on time and late: since v1.307.0 counted
+         below from the day verdict (each person's own shift plus the grace). */
       // Cash flow proxy for the month: cash IN (paid invoices) - cash OUT (expenses).
       cash_in_cents: await gated(can(user.role, "revenue_view"), `SELECT COALESCE(SUM(total_cents), 0) AS c FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid' AND strftime('%Y-%m', COALESCE(paid_at, created_at), '+8 hours') = strftime('%Y-%m', 'now', '+8 hours')`),
       cash_out_cents: await gated(can(user.role, "expenses"), `SELECT COALESCE(SUM(amount_cents), 0) AS c FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now', '+8 hours')`),
     };
+    /* v1.307.0 - Attendance 4.0 (A-1): the donut's on time and late from THE verdict -
+       each person's own shift plus the grace - not a fixed 10:00 for everyone */
+    if (people) {
+      try {
+        const vs = await attendanceDay(env, todayS);
+        const inNow = vs.filter((r) => ["present", "late", "on_shift", "missing_out"].includes(r.verdict.status));
+        out.attendance_on_time = inNow.filter((r) => !r.verdict.late).length;
+        out.attendance_late = inNow.filter((r) => r.verdict.late).length;
+        out.attendance_scheduled = vs.filter((r) => !["rest_day", "holiday", "not_employed"].includes(r.verdict.status)).length;
+        out.attendance_not_in = vs.filter((r) => ["not_in", "absent", "pending"].includes(r.verdict.status)).length;
+        out.attendance_on_leave = vs.filter((r) => r.verdict.status === "leave").length;
+      } catch { out.attendance_on_time = null; out.attendance_late = null; }
+    }
     /* drop the undefined keys rather than serialising them: JSON.stringify
        would omit them anyway, and being explicit keeps the intent readable */
     for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
@@ -3678,7 +3681,58 @@ async function handleStaffRoutes(
       }
     }
     }
-    return json({ users: results, staff: results });
+    /* v1.308.0 - STAFF WORKSPACE 4.0 (the CEO, 15-11-2026, S-1): the private
+       block - NRIC, bank, statutory numbers, home address, emergency contact,
+       blood type - no longer travels in the list. One person's block is read
+       from GET /users/:id/private (hr_manage, audited). The list says only WHICH
+       private fields are filled (private_set), so completeness still counts.
+       The payroll processors keep the three fields a payslip prints (NRIC, bank,
+       account) - Payroll reads this list to print them, and nothing else. */
+    const keepPay = can(user.role, "payroll_process");
+    const shaped = (results as Record<string, unknown>[]).map((r) => {
+      const o: Record<string, unknown> = { ...r };
+      o.private_set = STAFF_PRIVATE_FIELDS.filter((k) => String(o[k] ?? "").trim() !== "");
+      for (const k of STAFF_PRIVATE_FIELDS) if (!(keepPay && PAYSLIP_PRIVATE_FIELDS.includes(k))) delete o[k];
+      return o;
+    });
+    return json({ users: shaped, staff: shaped });
+  }
+  /* v1.308.0 (S-1) - one person's private block, for the HR tier and the CEO
+     (hr_manage) only. Every read is audited by field NAME, never value. */
+  const privMatch = path.match(/^\/users\/(\d+)\/private$/);
+  if (privMatch && method === "GET") {
+    if (!can(user.role, "hr_manage")) return err("forbidden", "Private staff details are open to HR and the CEO only", 403);
+    let row: Record<string, string | null> | null = null;
+    try {
+      row = await env.DB.prepare(`SELECT id, ${STAFF_PRIVATE_FIELDS.join(", ")} FROM users WHERE id = ?1 AND role <> 'customer'`).bind(privMatch[1]).first<Record<string, string | null>>();
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
+      row = await env.DB.prepare(`SELECT id, ic_number, bank_name, bank_account, blood_type FROM users WHERE id = ?1 AND role <> 'customer'`).bind(privMatch[1]).first<Record<string, string | null>>();
+    }
+    if (!row) return err("not_found", "Staff not found", 404);
+    await audit(env, user.id, "staff.private_view", "users", privMatch[1]!, { fields: STAFF_PRIVATE_FIELDS.filter((k) => String(row![k] ?? "").trim() !== "") });
+    return json({ private: row });
+  }
+  /* v1.308.0 (S-12) - one person's change history: their staff.* events, newest
+     first. Sensitive values are never in these rows (the record update keeps
+     before / after for non-sensitive fields only); a phone change keeps its
+     values for the HR tier alone. Who opened the private block is not a change. */
+  const histMatch = path.match(/^\/users\/(\d+)\/history$/);
+  if (histMatch && method === "GET") {
+    if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) return err("forbidden", "HR access required", 403);
+    const { results: rowsH } = await env.DB.prepare(
+      `SELECT l.id, l.action, l.detail, l.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name
+         FROM audit_log l LEFT JOIN users u ON u.id = l.user_id
+        WHERE l.entity = 'users' AND l.entity_id = ?1 AND l.action LIKE 'staff.%' AND l.action <> 'staff.private_view'
+        ORDER BY l.id DESC LIMIT 100`,
+    ).bind(histMatch[1]).all<{ id: number; action: string; detail: string | null; created_at: string; by_name: string | null }>();
+    const hr = can(user.role, "hr_manage");
+    return json({ entries: (rowsH ?? []).map((r) => {
+      let d: Record<string, unknown> | null = null;
+      try { d = r.detail ? JSON.parse(r.detail) as Record<string, unknown> : null; } catch { d = null; }
+      if (d && r.action === "staff.profile_update" && !hr) { delete d.from; delete d.to; }
+      return { id: r.id, action: r.action, created_at: r.created_at, by_name: r.by_name, detail: d };
+    }) });
   }
   const staffUser = path.match(/^\/users\/(\d+)$/);
   if (staffUser && method === "PATCH") {
@@ -3716,18 +3770,28 @@ async function handleStaffRoutes(
     try {
       current = await env.DB.prepare(
         `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type,
-                address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no
+                address, emergency_name, emergency_phone, emergency_relation, epf_no, socso_no, tax_no,
+                bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on
          FROM users WHERE id = ?1`,
       ).bind(id).first<Record<string, string | null>>();
     } catch (e) {
       // v1.4.218 migration-skew armor — see GET /users above.
       if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
       current = await env.DB.prepare(
-        `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type
+        `SELECT employee_id, position, department, employment_status, birthday, id_issued_on, full_name, phone, blood_type,
+                bank_name, bank_account, joined_on, ic_number, left_on, rejoined_on
          FROM users WHERE id = ?1`,
       ).bind(id).first<Record<string, string | null>>();
     }
     if (!current) return err("not_found", "Staff not found", 404);
+    /* v1.308.0 (Staff 4.0) - TWO PEOPLE, ONE RECORD. The screen sends the values
+       it started from (expect); a field somebody else changed since is refused
+       rather than silently overwritten. Only the fields sent are ever written. */
+    const expect = body?.expect && typeof body.expect === "object" && !Array.isArray(body.expect) ? body.expect as Record<string, unknown> : null;
+    if (expect) {
+      const moved = Object.keys(expect).filter((f) => (fields as readonly string[]).includes(f) && (current![f] ?? "").trim() !== String(expect[f] ?? "").trim());
+      if (moved.length > 0) return err("changed_since", `Changed by someone else since you opened it: ${moved.join(", ")}. Reload the record and try again.`, 409);
+    }
     const sets: string[] = [];
     const vals: string[] = [];
     const locked: string[] = [];
@@ -3771,7 +3835,15 @@ async function handleStaffRoutes(
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
     await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?${sets.length + 1}`)
       .bind(...vals, id).run();
-    await audit(env, user.id, "staff.hr_update", "users", id, { fields: fields.filter((f) => str(body?.[f], 200)) }); // v1.243.0 (D10) - which fields, so a set status is known to have been set
+    /* v1.308.0 (S-12) - before / after for the non-sensitive fields only; the
+       private block is named, never valued */
+    const changes: Record<string, [string | null, string]> = {};
+    for (const f of fields) {
+      if (!str(body?.[f], 200) || !(STAFF_HISTORY_VALUE_FIELDS as readonly string[]).includes(f)) continue;
+      const after = (body![f] as string).trim();
+      if ((current[f] ?? "") !== after) changes[f] = [current[f] ?? null, after];
+    }
+    await audit(env, user.id, "staff.hr_update", "users", id, { fields: fields.filter((f) => str(body?.[f], 200)), ...(Object.keys(changes).length ? { changes } : {}) }); // v1.243.0 (D10) - which fields, so a set status is known to have been set
     return json({ ok: true });
   }
 
@@ -3863,6 +3935,12 @@ async function handleStaffRoutes(
        the other depending on how the browser feels about an empty value. */
     const raw = (body as Record<string, unknown> | null)?.reports_to;
     const managerId = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    /* v1.308.0 (S-8) - why, and from when: recorded with the change (the line
+       itself changes on save; nothing is scheduled) */
+    const reasonRT = typeof (body as Record<string, unknown> | null)?.reason === "string" ? String((body as Record<string, unknown>).reason).trim().slice(0, 300) : "";
+    const effRaw = (body as Record<string, unknown> | null)?.effective_on;
+    const effectiveRT = typeof effRaw === "string" && effRaw.trim() ? effRaw.trim() : null;
+    if (effectiveRT && !validDay(effectiveRT)) return err("invalid_input", "effective_on must be a real date, YYYY-MM-DD", 400);
     if (managerId !== null && (!Number.isInteger(managerId) || managerId <= 0)) {
       return err("invalid_input", "reports_to must be a staff id, or null to clear it", 400);
     }
@@ -3928,6 +4006,7 @@ async function handleStaffRoutes(
       staff_name: person.name,
       from_id: before, from_name: beforeName,
       to_id: managerId, to_name: manager?.name ?? null,
+      ...(reasonRT ? { reason: reasonRT } : {}), ...(effectiveRT ? { effective_on: effectiveRT } : {}),
     });
     /* v1.260.0 - A PENDING LEAVE KEEPS ITS ROUTE. The new line decides this
        person's next requests; one already waiting stays with the approver it
@@ -5818,6 +5897,11 @@ async function handleStaffRoutes(
     });
   }
 
+  /* v1.307.0 - Attendance Workspace 4.0 reads (the day register, a person's audit, the roster, today's decisions) */
+  if (path === "/attendance/day" || path === "/attendance/audit" || path === "/attendance/roster" || path === "/attendance/decided-today" || path === "/attendance/month-days" || path === "/attendance/policy") {
+    const a4 = await handleAttendance4(env, path, method, user, new URL(request.url));
+    if (a4) return a4;
+  }
   if (path === "/attendance/monitor" && method === "GET") {
     /* v1.4.173 (CEO: "monitoring of the Staff who is not clock in or clock
        out for me to aware"): today's snapshot per active staff member —
@@ -5827,25 +5911,27 @@ async function handleStaffRoutes(
       return err("forbidden", "HR access required", 403);
     }
     const todayM = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    /* v1.307.0 - Attendance 4.0 (A-1): a forgotten punch waiting for approval counts for nothing here either */
+    const npM = await notPendingSql(env, "a.");
     const { results } = await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.employment_status,
               /* v1.4.177 HOTFIX: punches are stored as clock_in/clock_out —
                  v1.4.173 filtered on 'in'/'out', matched nothing, and showed
                  EVERYONE as not clocked in despite real data. */
               (SELECT MIN(a.created_at) FROM attendance_records a
-                WHERE a.user_id = u.id AND a.type = 'clock_in'  AND date(a.created_at, '+8 hours') = ?1) AS in_at,
+                WHERE a.user_id = u.id AND a.type = 'clock_in'  AND date(a.created_at, '+8 hours') = ?1${npM}) AS in_at,
               (SELECT MAX(a.created_at) FROM attendance_records a
-                WHERE a.user_id = u.id AND a.type = 'clock_out' AND date(a.created_at, '+8 hours') = ?1) AS out_at,
+                WHERE a.user_id = u.id AND a.type = 'clock_out' AND date(a.created_at, '+8 hours') = ?1${npM}) AS out_at,
               /* v1.133.0 — a day is sessions now. "in_at" and "out_at" are the
                  first and last of the day; this is what the person is doing
                  RIGHT NOW, which is the question the monitor exists to answer:
                  somebody back for the evening shift is clocked in, not "out
                  since 17:00". */
               (SELECT a.type FROM attendance_records a
-                WHERE a.user_id = u.id AND date(a.created_at, '+8 hours') = ?1
+                WHERE a.user_id = u.id AND date(a.created_at, '+8 hours') = ?1${npM}
                 ORDER BY a.created_at DESC LIMIT 1) AS last_type,
               (SELECT COUNT(*) FROM attendance_records a
-                WHERE a.user_id = u.id AND a.type = 'clock_in' AND date(a.created_at, '+8 hours') = ?1) AS shifts,
+                WHERE a.user_id = u.id AND a.type = 'clock_in' AND date(a.created_at, '+8 hours') = ?1${npM}) AS shifts,
               /* v1.18.1 (CEO: "get user clock in accurately without cheating"):
                  the position stored on the FIRST clock-in of the day, so
                  management sees where each punch happened. */
@@ -5929,7 +6015,17 @@ async function handleStaffRoutes(
         });
       }
     } catch { /* the snapshot still answers without the additions */ }
-    const staffM = (results as Record<string, unknown>[]).map((r) => ({ ...r, ...(extra.get(r.id as number) ?? {}) }));
+    /* v1.307.0 - Attendance 4.0: every row carries THE verdict (attendance-day.ts), so no
+       screen decides "not clocked in" for itself; raw coordinates only for
+       attendance_location_raw (A-8) - everyone else has in_loc, the outcome */
+    const verdictsM = new Map((await attendanceDay(env, todayM).catch(() => [] as PersonDay[])).map((p) => [p.id, p]));
+    const rawGps = can(user.role, "attendance_location_raw");
+    const staffM = (results as Record<string, unknown>[]).map((r) => {
+      const v = verdictsM.get(r.id as number);
+      const row: Record<string, unknown> = { ...r, ...(extra.get(r.id as number) ?? {}), ...(v ? { status: v.verdict.status, late: v.verdict.late, late_minutes: v.verdict.lateMinutes, worked_off_day: v.verdict.workedOffDay, shift_label: v.shift_label, holiday_name: v.holiday_name, leave_type: v.leave_type, pending_punches: v.pending } : {}) };
+      if (!rawGps) delete row.in_gps;
+      return row;
+    });
     return json({
       date: todayM, staff: staffM, geofence: fenceM,
       /* the site the outcomes are judged against, as words (v1.294.0) */
@@ -6045,6 +6141,14 @@ async function handleStaffRoutes(
            (scheduled_ahead, scheduled_minutes) but not in the days the row
            must add up to, so a row balances on the days that have happened. */
         if (d > todayV) { scheduledAhead++; schedMins += workMinutes(sh); continue; }
+        /* v1.307.0 - Attendance 4.0 (A-1): TODAY is not reconciled before it is
+           over. "d <= today" counted a person absent the moment the report was
+           opened at 08:00 for a 09:00 shift. Until the last block has ended, a
+           day with no clock-in and no leave is still ahead, like tomorrow. */
+        if (d === todayV && !firstIn(clockMap.get(`${u.id}|${d}`) ?? []) && dayLeave.length === 0
+          && mytNow(Date.now()).nowMin <= (sh.windows.length ? sh.windows[sh.windows.length - 1]!.end : 24 * 60)) {
+          scheduledAhead++; schedMins += workMinutes(sh); continue;
+        }
         scheduled++;
         schedMins += workMinutes(sh);
         if (lv) {
@@ -6074,7 +6178,7 @@ async function handleStaffRoutes(
         worked++;
         const inMin = mytMinutes(cIn);
         if (assignedAtV(u.id, d, inMin) && !windowAt(sh, inMin)) assignedDays++;
-        else if (inMin > (lateAgainst(sh, inMin) ?? 0)) late++;
+        else if (inMin > (lateAgainst(sh, inMin) ?? 0) + graceOn(d)) late++; // v1.307.0 - A-5: the grace, from 16-11-2026 only
         /* v1.133.0 — a day is a list of sessions. "No clock-out" means the
            LAST one is still open; the hours are the sum of the closed ones
            inside the schedule, so the three hours between two shifts are
@@ -6178,6 +6282,8 @@ async function handleStaffRoutes(
     const assignedAtR = await assignedResolver(env, `${month}-01`, `${month}-31`);
     const shiftAtR = await shiftResolver(env, assignedAtR); // v1.159.0 - the roster is the day where it speaks
     const annotated: Record<string, unknown>[] = [];
+    const rawGpsR = can(user.role, "attendance_location_raw");
+    const fenceR = rawGpsR ? null : await getGeofence(env);
     for (const r of results as { user_id: number; role: string; employment_status: string | null; created_at: string; type: string; pending_approval?: number | null }[]) {
       const myt = new Date(new Date(r.created_at + "Z").getTime() + 8 * 3600 * 1000);
       const minutes = myt.getUTCHours() * 60 + myt.getUTCMinutes();
@@ -6189,8 +6295,12 @@ async function handleStaffRoutes(
          day worked is paid by the clock. Marking a Saturday punch "rest day"
          for her was the pattern speaking about somebody it does not govern. */
       const hourly = isHourlyUser(r.role, r.employment_status);
+      /* v1.307.0 - Attendance 4.0 (A-8): raw coordinates to attendance_location_raw
+         only; every other reader gets the outcome (a word, the distance) */
+      const { gps: gpsR, ...rest } = r as typeof r & { gps?: string | null };
       annotated.push({
-        ...r,
+        ...rest,
+        ...(rawGpsR ? { gps: gpsR } : { gps: gpsR == null ? null : undefined, loc: locOutcome(gpsR, fenceR) }),
         myt_time: myt.toISOString().slice(0, 16).replace("T", " "),
         workday: hourly ? true : shR.kind === "workday",
         day_kind: hourly ? "hourly" : shR.kind,
@@ -20136,4 +20246,235 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
   }
 
   return null; // not a staff route
+}
+
+/* =====================================================================
+   v1.307.0 - ATTENDANCE WORKSPACE 4.0: one day, every person, ONE verdict
+   (attendance-day.ts). The Overview, the Dashboard, the monitor, the day
+   register and the Desk all read this - never a rule of their own. Approved
+   punches only: a forgotten punch waiting for the CEO counts for nothing
+   until it is approved (it is reported as "pending"). */
+export const ATTENDANCE_STAFF_ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"] as const;
+export interface PersonDay {
+  id: number; name: string; role: string; position: string | null; department: string | null;
+  verdict: DayVerdict; shift_label: string | null; pattern: string | null;
+  holiday_name: string | null; leave_type: string | null;
+  first_in: string | null; last_out: string | null; worked_minutes: number; sessions: number; pending: number;
+}
+export async function attendanceDay(env: Env, day: string, nowMs = Date.now()): Promise<PersonDay[]> {
+  return (await attendanceRange(env, day, day, nowMs)).get(day) ?? [];
+}
+/** Every person, every day from..to (at most a month), each with THE verdict - the
+    resolvers, holidays, leave and sessions read ONCE for the whole range. */
+/** v1.307.0 - who is on staff on a given day: headcountSql read for that day
+    (currentStaffSql + started) - employedDays for joined / left / re-joined,
+    and a Resigned or Terminated record with no last day is not on staff. */
+export function employedOnDay(day: string, u: { joined_on: string | null; left_on: string | null; rejoined_on?: string | null; employment_status?: string | null }): boolean {
+  if (employedDays([day], u.joined_on, u.left_on, u.rejoined_on).length === 0) return false;
+  const gone = !u.left_on && ["resigned", "terminated"].includes(u.employment_status ?? "");
+  return !gone || Boolean(u.rejoined_on && u.rejoined_on.slice(0, 10) <= day);
+}
+
+export async function attendanceRange(env: Env, from: string, to: string, nowMs = Date.now()): Promise<Map<string, PersonDay[]>> {
+  const { today, nowMin } = mytNow(nowMs);
+  const days: string[] = [];
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`) && days.length < 31; t += 86400000) days.push(new Date(t).toISOString().slice(0, 10));
+  const out = new Map<string, PersonDay[]>();
+  if (!days.length) return out;
+  const people = ((await env.DB.prepare(
+    `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.department, u.joined_on, u.left_on, u.rejoined_on, u.employment_status
+       FROM users u
+      WHERE u.role IN (${ATTENDANCE_STAFF_ROLES.map((r) => `'${r}'`).join(", ")})
+        AND (u.is_active = 1 OR (u.left_on IS NOT NULL AND u.left_on >= ?1))
+      ORDER BY ${STAFF_ORDER_SQL}`,
+  ).bind(from).all<{ id: number; name: string; role: string; position: string | null; department: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);
+  const asg = await assignedResolver(env, from, to);
+  const shiftAt = await shiftResolver(env, asg);
+  const months = [...new Set(days.map((d) => d.slice(0, 7)))];
+  const hols = (await Promise.all(months.map((m) => holidaysAround(env, m)))).flat();
+  let leave: (LeaveCoverage & { user_id: number; type: string })[] = [];
+  try {
+    leave = ((await env.DB.prepare(
+      `SELECT user_id, type, start_date, end_date, days, day_part, coverage_json FROM leave_requests
+        WHERE status = 'approved' AND start_date <= ?2 AND end_date >= ?1`,
+    ).bind(from, to).all<LeaveCoverage & { user_id: number; type: string }>()).results) ?? [];
+  } catch { /* pre-leave_requests */ }
+  const sessions = new Map<string, Session[]>();
+  for (const m of months) for (const [k, v] of await clockedSessions(env, { month: m })) sessions.set(k, v);
+  const pendingRows = await (async () => {
+    try {
+      return ((await env.DB.prepare(
+        `SELECT user_id, date(created_at, '+8 hours') AS d, COUNT(*) AS n FROM attendance_records
+          WHERE pending_approval = 1 AND date(created_at, '+8 hours') BETWEEN ?1 AND ?2 GROUP BY user_id, d`,
+      ).bind(from, to).all<{ user_id: number; d: string; n: number }>()).results) ?? [];
+    } catch { return []; }
+  })();
+  for (const day of days) {
+    const hol = hols.find((h) => h.holiday_date === day) ?? null;
+    out.set(day, people.map((u) => {
+      const sh = shiftAt(u.id, day);
+      const mine = leave.filter((l) => l.user_id === u.id && l.start_date <= day && l.end_date >= day);
+      const full = mine.find((l) => !isPartialLeave(l)) ?? null;
+      const sess = sessions.get(`${u.id}|${day}`) ?? [];
+      const holidayOk = Boolean(hol && holidayEntitles(hol, hols, u.joined_on));
+      /* THE HEADCOUNT RULE, by day (headcountSql is this rule for today): started,
+         not past a last day unless re-joined (employedDays, the month report's
+         own), and not marked resigned or terminated with no last day */
+      const employed = employedOnDay(day, u);
+      const pend = pendingRows.find((r) => r.user_id === u.id && r.d === day)?.n ?? 0;
+      const verdict = dayVerdict({
+        day, today, nowMin, employed,
+        restDay: sh.kind === "rest_day",
+        holiday: holidayOk ? (hol!.name || "Holiday") : null,
+        fullLeave: full ? full.type : null,
+        partialLeave: mine.some(isPartialLeave),
+        pattern: sh.kind === "rest_day" ? [] : sh.windows.map((w) => ({ start: w.start, end: w.end })),
+        assigned: asg.list(u.id, day).map((a) => ({ start: a.start, end: a.end })),
+        sessions: sess.map((x) => ({ inMin: mytMinutes(x.in), outMin: x.out ? mytMinutes(x.out) : null })),
+        pendingPunches: pend,
+      });
+      const slots = daySlots(sh.kind === "rest_day" ? [] : sh.windows, asg.list(u.id, day).map((a) => ({ start: a.start, end: a.end, what: a.what })));
+      return {
+        id: u.id, name: u.name, role: u.role, position: u.position, department: u.department,
+        verdict, shift_label: slots.length ? slotsLabel(slots) : null, pattern: sh.pattern ?? null,
+        holiday_name: holidayOk ? (hol!.name || "Holiday") : null, leave_type: full ? full.type : mine[0]?.type ?? null,
+        first_in: firstIn(sess), last_out: sess.length && sess[sess.length - 1]!.out ? sess[sess.length - 1]!.out : null,
+        worked_minutes: sess.reduce((n, x) => n + (x.out ? x.minutes : 0), 0), sessions: sess.length, pending: pend,
+      };
+    }).filter((r) => r.verdict.status !== "not_employed"));
+  }
+  return out;
+}
+
+/* v1.307.0 - ATTENDANCE WORKSPACE 4.0 reads (A-0 ... A-12). Read only, every one:
+     GET /attendance/day?date=       the day register: every person's verdict, shift,
+                                     punches (location as the outcome; raw only for
+                                     attendance_location_raw)          hr_manage | exec_view
+     GET /attendance/audit?user_id=  that person's attendance and overtime events from
+                                     the audit log (never the rest of it)  hr_manage | exec_view
+     GET /attendance/roster?from=&to= the computed roster - patterns, roster commitments,
+                                     approved leave and holidays (one roster, nothing
+                                     copied); the team for its readers, otherwise your own
+     GET /attendance/decided-today   decisions made today on forgotten punches and OT
+                                     (attendance_correct | the OT deciders)
+     GET /attendance/policy          the rule itself, read-only, for any signed-in
+                                     staff: the grace periods (effective-dated) and
+                                     the missing-clock-out margin - the same
+                                     constants the verdict uses, never a copy */
+export async function handleAttendance4(env: Env, path: string, method: string, user: StaffUser, url: URL): Promise<Response | null> {
+  if (method !== "GET") return null;
+  const team = can(user.role, "hr_manage") || can(user.role, "exec_view");
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("date") ?? "") ? url.searchParams.get("date")! : mytNow(Date.now()).today;
+
+  if (path === "/attendance/policy") {
+    return json({ grace: LATE_GRACE, grace_today: graceOn(day), missing_out_after_minutes: MISSING_OUT_AFTER_MINUTES, ot_auto_approved: false, ot_to_leave_automatic: false });
+  }
+
+  if (path === "/attendance/day") {
+    if (!team) return err("forbidden", "HR access required", 403);
+    const rows = await attendanceDay(env, day);
+    const raw = can(user.role, "attendance_location_raw");
+    const fence = await getGeofence(env);
+    const punches = ((await env.DB.prepare(
+      `SELECT id, user_id, type, created_at, gps, pending_approval, manual_by, amended_by FROM attendance_records
+        WHERE date(created_at, '+8 hours') = ?1 ORDER BY created_at`,
+    ).bind(day).all<{ id: number; user_id: number; type: string; created_at: string; gps: string | null; pending_approval: number | null; manual_by: number | null; amended_by: number | null }>()).results) ?? [];
+    return json({
+      date: day, grace_minutes: graceOn(day), site: fence ? { label: fence.label, radius_m: fence.radius_m } : null,
+      staff: rows.map((r) => ({
+        ...r,
+        punches: punches.filter((p) => p.user_id === r.id).map((p) => ({
+          id: p.id, type: p.type, at: p.created_at, pending: p.pending_approval === 1,
+          source: p.manual_by ? "manual" : p.amended_by ? "amended" : "punch",
+          loc: locOutcome(p.gps, fence), ...(raw ? { gps: p.gps } : {}),
+        })),
+      })),
+    });
+  }
+
+  if (path === "/attendance/audit") {
+    if (!team) return err("forbidden", "HR access required", 403);
+    const uid = Number(url.searchParams.get("user_id"));
+    if (!Number.isInteger(uid) || uid <= 0) return err("invalid_input", "user_id required", 400);
+    const { results } = await env.DB.prepare(
+      `SELECT l.id, l.action, l.entity, l.entity_id, l.detail, l.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
+         FROM audit_log l LEFT JOIN users u ON u.id = l.user_id
+        WHERE (l.action LIKE 'attendance.%' OR l.action LIKE 'ot.%')
+          AND ((l.entity = 'attendance_records' AND l.entity_id IN (SELECT CAST(id AS TEXT) FROM attendance_records WHERE user_id = ?1))
+            OR (l.entity = 'users' AND l.entity_id = CAST(?1 AS TEXT))
+            OR l.detail LIKE '%"user_id":' || ?1 || ',%' OR l.detail LIKE '%"user_id":' || ?1 || '}%')
+        ORDER BY l.id DESC LIMIT 100`,
+    ).bind(uid).all();
+    return json({ entries: results ?? [] });
+  }
+
+  if (path === "/attendance/roster") {
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("from") ?? "") ? url.searchParams.get("from")! : day;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("to") ?? "") ? url.searchParams.get("to")! : from;
+    const days: string[] = [];
+    for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`) && days.length < 42; t += 86400000) days.push(new Date(t).toISOString().slice(0, 10));
+    if (!days.length) return err("invalid_input", "from must be on or before to (at most 42 days)", 400);
+    const people = ((await env.DB.prepare(
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.department, u.joined_on, u.left_on, u.rejoined_on, u.employment_status
+         FROM users u
+        WHERE u.role IN (${ATTENDANCE_STAFF_ROLES.map((r) => `'${r}'`).join(", ")}) AND (u.is_active = 1 OR (u.left_on IS NOT NULL AND u.left_on >= ?1))
+          ${team ? "" : "AND u.id = ?2"}
+        ORDER BY ${STAFF_ORDER_SQL}`,
+    ).bind(...(team ? [from] : [from, user.id])).all<{ id: number; name: string; role: string; position: string | null; department: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);
+    const asg = await assignedResolver(env, days[0]!, days[days.length - 1]!);
+    const shiftAt = await shiftResolver(env, asg);
+    const months = [...new Set(days.map((d) => d.slice(0, 7)))];
+    const hols = (await Promise.all(months.map((m) => holidaysAround(env, m)))).flat();
+    let leave: (LeaveCoverage & { user_id: number; type: string })[] = [];
+    try {
+      leave = ((await env.DB.prepare(
+        `SELECT user_id, type, start_date, end_date, days, day_part, coverage_json FROM leave_requests
+          WHERE status = 'approved' AND start_date <= ?2 AND end_date >= ?1`,
+      ).bind(days[0], days[days.length - 1]).all<LeaveCoverage & { user_id: number; type: string }>()).results) ?? [];
+    } catch { /* pre-leave_requests */ }
+    const staff = people.map((u) => ({
+      id: u.id, name: u.name, role: u.role, position: u.position, department: u.department,
+      days: days.map((d) => {
+        if (!employedOnDay(d, u)) return { d, kind: "not_employed" };
+        const sh = shiftAt(u.id, d);
+        const lv = leave.find((l) => l.user_id === u.id && l.start_date <= d && l.end_date >= d);
+        const h = hols.find((x) => x.holiday_date === d);
+        const hOk = Boolean(h && holidayEntitles(h, hols, u.joined_on));
+        const slots = daySlots(sh.kind === "rest_day" ? [] : sh.windows, asg.list(u.id, d).map((a) => ({ start: a.start, end: a.end, what: a.what })));
+        const base = { d, label: slots.length ? slotsLabel(slots) : null, pattern: sh.pattern ?? null, minutes: sh.kind === "rest_day" ? 0 : workMinutes(sh) };
+        if (lv && !isPartialLeave(lv)) return { ...base, kind: "leave", leave_type: lv.type, minutes: 0 };
+        if (hOk) return { ...base, kind: "holiday", holiday: h!.name || "Holiday", minutes: 0 };
+        if (!slots.length) return { ...base, kind: "rest", minutes: 0 };
+        return { ...base, kind: "work", partial_leave: lv ? lv.type : null, assigned: asg.list(u.id, d).length > 0 };
+      }),
+    }));
+    return json({ from: days[0], to: days[days.length - 1], days, staff, scope: team ? "team" : "own" });
+  }
+
+  /* the month, day by day, as counts of THE verdict - the daily attendance chart */
+  if (path === "/attendance/month-days") {
+    if (!team) return err("forbidden", "HR access required", 403);
+    const m = /^\d{4}-\d{2}$/.test(url.searchParams.get("month") ?? "") ? url.searchParams.get("month")! : day.slice(0, 7);
+    const [y, mo] = m.split("-").map(Number) as [number, number];
+    const last = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+    const range = await attendanceRange(env, `${m}-01`, last);
+    return json({ month: m, days: [...range.entries()].map(([d, rows]) => ({
+      d,
+      due: rows.filter((r) => !["rest_day", "holiday"].includes(r.verdict.status)).length,
+      on_time: rows.filter((r) => ["present", "on_shift", "missing_out"].includes(r.verdict.status) && !r.verdict.late).length,
+      late: rows.filter((r) => r.verdict.late).length,
+      leave: rows.filter((r) => r.verdict.status === "leave").length,
+      absent: rows.filter((r) => r.verdict.status === "absent").length,
+    })) });
+  }
+
+  if (path === "/attendance/decided-today") {
+    if (!can(user.role, "attendance_correct") && !OT_DECIDE_ROLES.includes(user.role)) return err("forbidden", "Not open to your role", 403);
+    const r = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM audit_log WHERE action IN ('attendance.forgot_approve', 'attendance.forgot_reject', 'ot.decide', 'ot.replacement_leave')
+          AND date(created_at, '+8 hours') = date('now', '+8 hours')`,
+    ).first<{ n: number }>();
+    return json({ decided_today: r?.n ?? 0 });
+  }
+  return null;
 }

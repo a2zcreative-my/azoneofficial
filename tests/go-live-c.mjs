@@ -101,7 +101,8 @@ async function runtime(workerBundle) {
     /* ---------- D5: days still ahead are not reconciled yet ---------- */
     ver = (await call("/staff/attendance/verification?month=2026-10", U.hr)).j;
     const nb = ver?.staff?.find((r) => r.user_id === U.nobank);
-    ok(nb && nb.scheduled_ahead === 1 && nb.balances === true, "D5 Friday 30-10 is scheduled ahead, not owed: the row adds up on the days that have happened", JSON.stringify({ a: nb?.scheduled_ahead, s: nb?.scheduled, b: nb?.balances }));
+    /* v1.307.0 - Attendance 4.0 (A-1): today (Thu 29-10, 10:00, no clock-in, the shift not over) is not absent yet either */
+    ok(nb && nb.scheduled_ahead === 2 && nb.balances === true && !nb.absent_dates.includes("2026-10-29"), "D5 today before its shift is over (Thu 29-10) and Friday 30-10 are scheduled ahead, not owed: the row adds up on the days that have happened", JSON.stringify({ a: nb?.scheduled_ahead, s: nb?.scheduled, b: nb?.balances }));
 
     /* ---------- D7: approved leave closes the shift ---------- */
     db.exec(`INSERT INTO leave_requests (user_id, type, start_date, end_date, days, status, stage) VALUES (6, 'annual', '2026-10-29', '2026-10-29', 1, 'approved', 'approved')`);

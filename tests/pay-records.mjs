@@ -115,10 +115,15 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("C1. the drill-down route exists", drill.length > 0);
   ok("C1. gated like the donut (hr_manage or exec_view)",
     /if \(!can\(user\.role, "hr_manage"\) && !can\(user\.role, "exec_view"\)\)/.test(drill));
-  ok("C1. on time is in by 10:00, like the donut", /r\.first_in <= "10:00"/.test(drill) && /r\.first_in > "10:00"/.test(drill)
-    && /WHERE t <= '10:00'`\)/.test(staff) && /WHERE t > '10:00'`\)/.test(staff));
+  /* v1.307.0 - Attendance 4.0 (A-1, A-5): on time / late is the day verdict -
+     each person's own start plus the dated grace - for the names AND the
+     donut's counts, read from the same attendanceDay (the same people) */
+  ok("C1. on time is the verdict's, like the donut", /const rowsT = await attendanceDay\(env, dayT\);/.test(drill) && /on_time: clocked\.filter\(\(r\) => !r\.verdict\.late\)/.test(drill) && /late: clocked\.filter\(\(r\) => r\.verdict\.late\)/.test(drill)
+    && /out\.attendance_on_time = inNow\.filter\(\(r\) => !r\.verdict\.late\)\.length;/.test(staff) && /out\.attendance_late = inNow\.filter\(\(r\) => r\.verdict\.late\)\.length;/.test(staff)
+    && !/'10:00'/.test(drill));
   ok("C1. the same staff filter as the donut's counts",
-    /JOIN users u ON u\.id = a\.user_id AND u\.is_active = 1 AND u\.role NOT IN \('customer', 'agent', 'super_admin', 'admin'\)/.test(drill));
+    /const vs = await attendanceDay\(env, todayS\);/.test(staff) && /const clocked = rowsT\.filter\(\(r\) => \["present", "late", "on_shift", "missing_out"\]\.includes\(r\.verdict\.status\)\);/.test(drill)
+    && /const inNow = vs\.filter\(\(r\) => \["present", "late", "on_shift", "missing_out"\]\.includes\(r\.verdict\.status\)\);/.test(staff));
   ok("C1. the card asks for the names", /api<AttWho>\("\/dashboard\/attendance-today"\)/.test(cards));
   ok("C1. the old do-nothing card button is gone", !/export function AttendanceDonutCard/.test(cards));
 }

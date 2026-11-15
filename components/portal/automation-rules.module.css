@@ -9,3 +9,32 @@
 .card {
   padding: 1rem 1.25rem;
 }
+
+/* v1.307.0 - the attendance policy, read-only */
+.policy {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+.policy li {
+  display: grid;
+  grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  min-width: 0;
+}
+.policyKey {
+  color: var(--muted-foreground);
+}
+.policyVal {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .policy li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}

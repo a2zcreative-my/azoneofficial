@@ -1140,3 +1140,131 @@
     display: none;
   }
 }
+
+/* ===================== v1.308.0 - STAFF WORKSPACE 4.0 =====================
+   The six references (claude/STAFF-WORKSPACE-4.0-BLUEPRINT.md). Tokens only;
+   breakpoints 640 / 768 / 1024 / 1280. */
+.viewBar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+
+/* Overview (ref 01) */
+.halves { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.halves .groupLabel { display: flex; align-items: center; gap: 0.375rem; }
+.halves .groupLabel svg { width: 1rem; height: 1rem; color: var(--primary); }
+.attn button { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.attn button > svg:last-child { width: 1rem; height: 1rem; color: var(--muted-foreground); flex: none; }
+.attn .attnNum { min-width: 2rem; padding: 0.125rem 0.5rem; border-radius: var(--radius-full); background: var(--secondary); font-size: var(--type-body-sm-size); text-align: center; }
+.halves .bars li > button,
+.halves .bars li > div { grid-template-columns: minmax(4.5rem, 6rem) minmax(0, 1fr) 2rem; }
+.attn li > div { display: flex; align-items: center; gap: 0.75rem; width: 100%; padding: 0.5rem; }
+.quick { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.quickBtn { display: flex; align-items: center; gap: 0.625rem; width: 100%; min-height: 3.25rem; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.quickBtn:hover { background: var(--secondary); }
+.quickBtn > svg:last-child { width: 1rem; height: 1rem; margin-left: auto; color: var(--muted-foreground); flex: none; }
+.quickBtn > svg:first-child:not(:last-child) { width: 1.125rem; height: 1.125rem; color: var(--gold-solid); flex: none; }
+@media (min-width: 768px) {
+  .halves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .halves > div + div { padding-left: 1rem; border-left: 1px solid var(--border); }
+  .quick { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1280px) {
+  .quick { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+/* Organisation (ref 03) */
+.leader { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; margin-top: 0.75rem; }
+.leaderWho { display: flex; align-items: center; gap: 0.875rem; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.leaderWho strong { font-size: var(--type-section-size); }
+.leaderFacts { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.leaderFacts li { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.leaderLinks { display: grid; gap: 0.5rem; align-content: center; }
+.lineStrip { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.lineStrip button { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3.25rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.lineStrip button:hover { background: var(--secondary); }
+.lineStrip button > span:last-child { margin-left: auto; white-space: nowrap; }
+@media (min-width: 1024px) {
+  .leader { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 0.9fr); align-items: center; }
+  .leader > * + * { padding-left: 1rem; border-left: 1px solid var(--border); }
+  .lineStrip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* Departments & Roles (ref 05) */
+.coverage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-items: center; }
+.coverFig { display: grid; gap: 0.125rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.coverFig strong { font-size: 1.375rem; line-height: 1.2; color: var(--foreground); font-variant-numeric: tabular-nums; }
+.coverage .track { min-width: 8rem; }
+.rolesBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.pills { display: flex; gap: 0.5rem; overflow-x: auto; max-width: 100%; padding-bottom: 0.125rem; }
+.pills button { flex: none; min-height: 2.75rem; padding: 0 1rem; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--card); color: inherit; font: inherit; font-size: var(--type-body-sm-size); cursor: pointer; }
+.pills button[aria-pressed="true"] { border-color: var(--gold-solid); background: color-mix(in srgb, var(--gold-solid) 12%, var(--card)); font-weight: 600; }
+@media (min-width: 1024px) {
+  .coverage { grid-template-columns: minmax(0, 1.6fr) auto auto minmax(8rem, 1.2fr); gap: 1.5rem; }
+  .coverage > .coverFig { padding-left: 1.5rem; border-left: 1px solid var(--border); }
+}
+
+/* Staff Records (ref 06) */
+.recordsList { min-width: 0; }
+.filledDone { color: var(--success); }
+.backBtn { justify-self: start; margin-bottom: 0.5rem; }
+.recHead { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.875rem; align-items: center; }
+.recPhoto { width: 4.5rem; height: 4.5rem; border-radius: var(--radius-full); object-fit: cover; box-shadow: 0 0 0 3px var(--card), 0 0 0 5px var(--gold-solid); }
+.recWho { display: grid; gap: 0.25rem; min-width: 0; }
+.recName { font-size: var(--type-page-size); line-height: 1.2; overflow-wrap: anywhere; }
+.recMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.875rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.recMeta > span { display: inline-flex; align-items: center; gap: 0.25rem; }
+.recMeta svg { width: 0.875rem; height: 0.875rem; }
+.recActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.okText { margin: 0.5rem 0 0; font-size: var(--type-caption-size); font-weight: 600; color: var(--success); }
+.secTabs { display: flex; gap: 0.25rem; margin-top: 1rem; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.secTabs button { display: inline-flex; flex: none; align-items: center; gap: 0.375rem; min-height: 2.75rem; padding: 0 0.625rem; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: inherit; font-size: var(--type-body-sm-size); cursor: pointer; }
+.secTabs button[aria-selected="true"] { border-bottom-color: var(--gold-solid); color: var(--foreground); font-weight: 600; }
+.secTabs svg { width: 1rem; height: 1rem; }
+.secBody { display: grid; gap: 1rem; margin-top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: color-mix(in srgb, var(--secondary) 35%, var(--card)); min-width: 0; }
+.secTitle { display: flex; align-items: center; gap: 0.625rem; margin: 0; }
+.secTitle > svg { width: 1.25rem; height: 1.25rem; color: var(--gold-solid); flex: none; }
+.secTitle > span { display: grid; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.secTitle strong { font-size: var(--type-body-size); color: var(--foreground); }
+.personal { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.photoCol { display: grid; justify-items: center; gap: 0.5rem; align-content: start; }
+.bigPhoto { width: 9rem; height: 10.5rem; border-radius: var(--radius-card); object-fit: cover; background: var(--secondary); }
+.photoBtn { position: relative; cursor: pointer; }
+.fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; }
+.field { display: grid; gap: 0.25rem; min-width: 0; }
+.fieldLabel { display: inline-flex; align-items: center; gap: 0.25rem; font-size: var(--type-caption-size); font-weight: 600; color: var(--muted-foreground); }
+.fieldLabel svg { width: 0.75rem; height: 0.75rem; }
+.restricted { display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.5rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.restricted svg { width: 0.875rem; height: 0.875rem; }
+.badgeRow { grid-column: 1 / -1; display: grid; gap: 0.5rem; justify-items: start; }
+.badgePreview { overflow-x: auto; max-width: 100%; }
+.actionsRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0; }
+.secRows { display: grid; gap: 0.5rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.secRows button { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3.25rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.secRows button:hover { background: var(--secondary); }
+.secRows button > span:nth-last-child(2) { margin-left: auto; white-space: nowrap; }
+.secRows button > svg:last-child { width: 1rem; height: 1rem; color: var(--muted-foreground); flex: none; }
+.history { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.history li { display: grid; gap: 0.125rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
+.history li:last-child { border-bottom: 0; }
+@media (min-width: 640px) {
+  .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1280px) {
+  .recHead { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .recActions { grid-column: auto; justify-content: flex-end; max-width: 26rem; }
+}
+@media (min-width: 1024px) {
+  .personal { grid-template-columns: 10rem minmax(0, 1fr); }
+  .fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* a phone: the list, then one record full width with a way back */
+@media (max-width: 767px) {
+  .recordsOpen > .recordsList { display: none; }
+}
+/* the header's photo placeholder stays on a phone (the empty-frame rule above
+   is for the large personal-details frame) */
+.recPhoto.photoNone { display: grid; place-items: center; background: var(--secondary); color: var(--muted-foreground); }
+.recPhoto.photoNone svg { width: 1.75rem; height: 1.75rem; }
+.secRows button > .attnText,
+.lineStrip button > .attnText,
+.quickBtn > .attnText { flex: 1 1 auto; min-width: 0; }
+.secRows .attnText > span,
+.lineStrip .attnText > span { overflow-wrap: anywhere; }

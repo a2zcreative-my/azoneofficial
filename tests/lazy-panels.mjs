@@ -83,7 +83,12 @@ for (const w of wrappers) {
    verification and admin wrappers): the rule is the same - imported from
    lazy-panels, rendered by the file that imports it. */
 {
-  const consumers = [["app/portal/page.tsx", page], ["components/portal/attendance-panel.tsx", read("components/portal/attendance-panel.tsx")], ["components/portal/users-panel.tsx", read("components/portal/users-panel.tsx")]];
+  /* v1.307.0 - Attendance 4.0: the admin card is drawn by Shift Templates,
+     Exceptions & Approvals and Leave (unpaid days); the roster board by
+     Tasks > Calendar (A-3); the retired verification card's wrapper is gone */
+  const consumers = [["app/portal/page.tsx", page], ["components/portal/attendance-panel.tsx", read("components/portal/attendance-panel.tsx")], ["components/portal/users-panel.tsx", read("components/portal/users-panel.tsx")],
+    ["components/portal/shift-roster.tsx", read("components/portal/shift-roster.tsx")], ["components/portal/attendance-exceptions.tsx", read("components/portal/attendance-exceptions.tsx")],
+    ["components/portal/leave.tsx", read("components/portal/leave.tsx")], ["components/portal/tasks.tsx", read("components/portal/tasks.tsx")]];
   const importedBy = (src) => {
     const fromLazy = /import \{([\s\S]*?)\} from "@\/components\/portal\/lazy-panels";/.exec(src);
     return fromLazy ? [...fromLazy[1].matchAll(/\b([A-Z]\w+)\b/g)].map((m) => m[1]) : [];

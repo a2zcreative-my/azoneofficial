@@ -88,7 +88,6 @@
   "components/portal/tiktok-cards.tsx": 66,
   "components/portal/trading-desk.tsx": 146,
   "components/portal/users-panel.tsx": 97,
-  "components/portal/verification-card.tsx": 59,
   "components/portal/watchers-card.tsx": 43,
   "components/security/two-factor-panel.tsx": 55,
   "components/staff/org-chart.tsx": 112,

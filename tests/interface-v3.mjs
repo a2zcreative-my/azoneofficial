@@ -293,7 +293,7 @@ ok("a submitted claim returns its author to the list", /id="claims-list"/.test(c
 const dash = stripComments(read("components/portal/dashboard.tsx"));
 /* v1.229.0 - the Dashboard's Today's Shift card says the day as one chip,
    and On Shift's card as one chip by the server's state */
-ok("the shift summary says the state of the day as one chip", /\{kind !== "loading" && <span className=\{CHIP\[kind\]\[2\]\} role="status">/.test(stripComments(read("components/portal/on-shift.tsx"))) && /<span className=\{chipForState\(shiftState\)\} role="status">/.test(dash));
+ok("the shift summary says the state of the day as one chip", /\{kind !== "loading" && <span className=\{CHIP\[kind\]\[2\]\} role="status">/.test(stripComments(read("components/portal/on-shift.tsx"))) && /<span className=\{!openNow && !hasOut && \(todayKind === "rest" \|\| todayKind === "holiday" \|\| todayKind === "leave"\) \? chipForState\("done"\) : chipForState\(shiftState\)\} role="status">/.test(dash)); // v1.307.0 - a rest day, a holiday or leave is a quiet chip, never "not clocked in"
 ok("the hero's buttons keep the one 44px height on the On Shift tab too", !/min-h-14 text-base/.test(dash));
 
 /* ---- 4. the PWA shell keeps its safe areas ---------------------------- */

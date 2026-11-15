@@ -36,7 +36,8 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
    same rules as the counts beside it. */
 type AttKind = "on_time" | "late" | "not_in";
 interface AttPerson { id: number; name: string; position: string | null; first_in?: string; leave_type?: string | null }
-interface AttWho { date: string; cutoff: string; on_time: AttPerson[]; late: AttPerson[]; not_in: AttPerson[] }
+/* v1.307.0 - Attendance 4.0: the route answers from the one day verdict; "on time" is the shift start plus the dated grace, not a fixed 10:00 */
+interface AttWho { date: string; grace_minutes: number; on_time: AttPerson[]; late: AttPerson[]; not_in: AttPerson[] }
 
 const LEAVE_WORD: Record<string, [string, string]> = {
   annual: ["annual leave", "cuti tahunan"], medical: ["medical leave", "cuti sakit"],
@@ -44,10 +45,12 @@ const LEAVE_WORD: Record<string, [string, string]> = {
   replacement: ["replacement leave", "cuti ganti"],
 };
 
-export function AttendanceTodayCard({ onTime, late, staffTotal }: {
+export function AttendanceTodayCard({ onTime, late, staffTotal, notIn: dueNotIn }: {
   onTime: number; late: number; staffTotal: number;
+  /** v1.307.0 - those due now and not in (the verdict); never a rest day, a holiday or leave */
+  notIn?: number;
 }) {
-  const notIn = Math.max(0, staffTotal - onTime - late);
+  const notIn = dueNotIn ?? Math.max(0, staffTotal - onTime - late);
   const [open, setOpen] = useState<AttKind | null>(null);
   const [who, setWho] = useState<AttWho | null>(null);
   const [loadedAt, setLoadedAt] = useState(0);
@@ -101,7 +104,7 @@ export function AttendanceTodayCard({ onTime, late, staffTotal }: {
         <div id="att-today-who" className={attCss.who} role="region" aria-label={openLabel} aria-busy={state === "loading" || undefined}>
           <p className={attCss.whoHead}>
             <span>{openLabel}</span>
-            {open !== "not_in" && who && <span>{L(`on time = in by ${who.cutoff}`, `tepat masa = masuk sebelum ${who.cutoff}`)}</span>}
+            {open !== "not_in" && who && <span>{L(`on time = in by the shift start + ${who.grace_minutes} min`, `tepat masa = masuk sebelum mula syif + ${who.grace_minutes} min`)}</span>}
           </p>
           {state === "loading" && !who && <SkelRows rows={3} />}
           {state === "error" && <p className="erp-meta">{L("Could not load the names - tap the line again.", "Tidak dapat memuatkan nama - ketik baris itu sekali lagi.")}</p>}

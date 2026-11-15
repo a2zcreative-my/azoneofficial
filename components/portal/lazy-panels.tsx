@@ -107,5 +107,4 @@ export const RosterBoard = lazy(() => import("@/components/portal/roster-board")
 export const StokisPanel = lazy(() => import("@/components/portal/stokis-panel").then((m) => m.StokisPanel));
 export const TabAccessCard = lazy(() => import("@/components/portal/tab-access-card").then((m) => m.TabAccessCard));
 export const ThreadsPanel = lazy(() => import("@/components/portal/threads-panel").then((m) => m.ThreadsPanel));
-export const VerificationCard = lazy(() => import("@/components/portal/verification-card").then((m) => m.VerificationCard));
 export const StaffDirectory = lazy(() => import("@/components/staff/staff-directory").then((m) => m.StaffDirectory));

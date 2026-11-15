@@ -197,7 +197,9 @@ ok("the desk zone is addressable, so a nav stop can reveal it without a second i
 ok("page.tsx imports the concept", /import \{ TabPage, TabZone \} from "@\/components\/portal\/tab-concept";/.test(page));
 /* v1.188.0 - the four zones became five tabs (attendance-panel.tsx) */
 /* v1.191.0 - the owner's photo's seven tabs */
-ok("Attendance: OVERVIEW, ATTENDANCE, ON SHIFT, ROSTER, TEAM, REPORTS, SETTINGS", ['L("Overview", "Gambaran")', 'L("Attendance", "Kehadiran")', 'L("On Shift", "Syif Saya")', 'L("Roster", "Roster")', 'L("Team", "Pasukan")', 'L("Reports", "Laporan")', 'L("Settings", "Tetapan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t)));
+/* v1.307.0 - Attendance Workspace 4.0 (the CEO, 14-11-2026, A-0): five views; On Shift and Settings left the bar */
+ok("Attendance: OVERVIEW, ATTENDANCE RECORDS, SHIFT ROSTER, EXCEPTIONS & APPROVALS, REPORTS - no On Shift, no Settings", ['L("Overview", "Gambaran")', 'L("Attendance Records", "Rekod Kehadiran")', 'L("Shift Roster", "Roster Syif")', 'L("Exceptions & Approvals", "Pengecualian & Kelulusan")', 'L("Reports", "Laporan")'].every((t) => read("components/portal/attendance-panel.tsx").includes(t))
+  && !read("components/portal/attendance-panel.tsx").includes('L("Settings", "Tetapan")') && !read("components/portal/attendance-panel.tsx").includes('["onshift"'));
 /* v1.189.0 - the Users zones became five tabs (users-panel.tsx) */
 /* v1.251.0 - Customers & Agents, Security & Sessions, Audit History (the owner, 02-11-2026) */
 ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMERS & AGENTS, ROLES & PERMISSIONS, SECURITY & SESSIONS, AUDIT HISTORY", ['L("Overview", "Gambaran")', 'L("Staff Accounts", "Akaun kakitangan")', 'L("Customers & Agents", "Pelanggan & Ejen")', 'L("Roles & Permissions", "Peranan & kebenaran")', 'L("Security & Sessions", "Keselamatan & sesi")', 'L("Audit History", "Sejarah audit")'].every((t) => read("components/portal/users-panel.tsx").includes(t)) && /label=\{L\("Office location", "Lokasi pejabat"\)\}/.test(read("components/portal/users-panel.tsx")));
