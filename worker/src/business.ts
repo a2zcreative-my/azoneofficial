@@ -680,6 +680,7 @@ export async function handleBusiness(
 
   if (path === "/books/close" && method === "POST") {
     if (!BOOKS) return err("forbidden", "Accounting access required", 403);
+    if (!can(user.role, "books_close")) return err("forbidden", "Only the CEO closes or reopens a month (AC-1)", 403);
     const m = body?.month;
     if (!validMonth(m)) return err("invalid_input", "month (YYYY-MM) is required", 400);
     if (m >= thisMonth()) return err("invalid_input", "Only a month that has ended can be closed.", 400);
@@ -699,6 +700,7 @@ export async function handleBusiness(
 
   if (path === "/books/reopen" && method === "POST") {
     if (!BOOKS) return err("forbidden", "Accounting access required", 403);
+    if (!can(user.role, "books_close")) return err("forbidden", "Only the CEO closes or reopens a month (AC-1)", 403);
     const m = body?.month;
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (!validMonth(m)) return err("invalid_input", "month (YYYY-MM) is required", 400);

@@ -13,7 +13,7 @@ Servers (from servers.txt):
     4177 ceo · 4180 live_host
 """
 from playwright.sync_api import sync_playwright
-import re
+import re, json, urllib.request
 
 res = []
 def check(n, c, x=""):
@@ -123,6 +123,9 @@ with sync_playwright() as p:
     reg = pg.locator('[data-testid="project-register"]:visible')
     check("the Project Register: Project & Client, Owner, Stage, Progress, Tasks, Health", reg.count() == 1 and [h.strip().lower() for h in reg.locator("thead th").all_inner_texts()] == ["project & client", "owner", "stage", "progress", "tasks", "health"])
     check("1440px: the chosen project beside the register (stages, deliverables, team, next task)", vis(pg, "project-summary") and "Quotation Accepted" in pg.get_by_test_id("project-summary").inner_text())
+    summ = pg.get_by_test_id("project-summary")
+    check("Gate 4 (TK-9): the deliverables are ticked rows, kept apart from tasks", summ.get_by_test_id("deliverable-rows").locator("input[type=checkbox]").count() == 2 and "(1/2)" in summ.inner_text(), summ.inner_text()[:300])
+    check("Gate 4 (TK-15): the client's acceptance - not recorded yet, required before completion", "required before the project is closed" in summ.get_by_test_id("client-acceptance").inner_text() and summ.get_by_test_id("record-client-acceptance").count() == 1)
     ctx.close()
     check("no page error (Projects)", not errs, errs)
 
@@ -152,12 +155,37 @@ with sync_playwright() as p:
     # ---------------- 06 Reports & Archive (image 5) ----------------
     ctx, pg, errs = open_page(b, CEO, view="reports")
     t = " ".join(zone_text(pg))
-    check("Reports: Reports Submitted, Awaiting Review, Archived, Live Host Sessions", all(w in t for w in ["Reports Submitted", "Awaiting Review", "Archived", "Live Host Sessions"]), t[:300])
+    check("Reports: Reports Submitted, Awaiting Review, Archived, Live Host Sessions", all(w in t for w in ["Reports Submitted", "Awaiting Review", "Archived", "Live Host Sessions"]) and "Gate 4" not in t, t[:300])
     check("the operational reports beside the Live Host card", vis(pg, "task-reports") and vis(pg, "live-host-card"))
     lh = pg.get_by_test_id("live-host-card").inner_text()
-    check("the Live Host card says Gate 4 and pretends no form or GMV figure", "Gate 4" in lh and "Phase 2" in lh and pg.get_by_test_id("live-host-card").locator("input, textarea").count() == 0, lh[:300])
+    check("Gate 4: the Live Host card says reported GMV is never sales, cash, commission or payroll", "never verified sales, cash" in lh, lh[:300])
+    check("Gate 4: the reviewer has the reports to review", vis(pg, "lh-review-list") and "Farid Zul" in pg.get_by_test_id("lh-review-list").inner_text())
+    pg.get_by_test_id("lh-review-list").locator("button").first.click(); pg.wait_for_timeout(1200)
+    det = pg.get_by_test_id("lh-detail")
+    check("…opening one shows the GMV, the screenshot and Accept / Return", det.count() == 1 and "RM 2,480.50" in det.inner_text() and vis(pg, "lh-accept") and vis(pg, "lh-return") and det.locator("img").count() >= 1, det.inner_text()[:300] if det.count() else "")
+    before = len(json.loads(urllib.request.urlopen(f"http://127.0.0.1:{CEO}/__tasks").read())["posts"])
+    pg.get_by_test_id("lh-accept").click(); pg.wait_for_timeout(900)
+    posts = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{CEO}/__tasks").read())["posts"][before:]
+    check("…Accept sends the one review to that report", any(x["p"] == "/staff/live-reports/11/review" and '"accept"' in str(x["body"]) for x in posts), posts)
+    pg.get_by_test_id("lh-history-btn").first.click(); pg.wait_for_timeout(300)
+    check("…View History shows the submitted version", "Version 1 submitted" in pg.get_by_test_id("lh-history").inner_text())
+    rep = pg.get_by_test_id("task-reports")
+    check("Gate 4: an operational report shows its status and management can mark it reviewed", "Reviewed" in rep.inner_text() and "Submitted" in rep.inner_text() and rep.get_by_test_id("report-review").count() >= 1)
     check("the archive of closed tasks is kept", pg.locator("#task-archive").count() == 1)
     ctx.close()
+    # ---- the host (a live host on a phone): report a live with a screenshot ----
+    ctx, pg, errs3 = open_page(b, HOST, w=390, view="reports")
+    lhc = pg.get_by_test_id("live-host-card")
+    check("host: a returned report says what to correct", vis(pg, "lh-mine"))
+    pg.get_by_test_id("lh-mine").locator("button").first.click(); pg.wait_for_timeout(1200)
+    check("…the correction asked for is shown", "cut off" in pg.get_by_test_id("lh-feedback").inner_text() if pg.get_by_test_id("lh-feedback").count() else False)
+    check("…the form: GMV, duration, company, screenshot (camera), highlights, Submit / Save Draft", all(vis(pg, k) for k in ["lh-gmv", "lh-duration", "lh-company", "lh-submit", "lh-save"]) and pg.get_by_test_id("lh-upload").get_attribute("capture") == "environment")
+    pg.get_by_test_id("lh-session").select_option("72"); pg.wait_for_timeout(1200)
+    posts = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HOST}/__tasks").read())["posts"]
+    check("host: choosing a live on the roster starts its report (the session, never the host's id)", any(x["p"] == "/staff/live-reports" and '"session_id": 72' in str(x["body"]).replace('"session_id":72', '"session_id": 72') for x in posts), posts[-3:])
+    check("no sideways page (host, phone)", no_hscroll(pg))
+    ctx.close()
+    check("no page error (host)", not errs3, errs3)
     check("no page error (Reports)", not errs, errs)
 
     # ---------------- the phone ----------------

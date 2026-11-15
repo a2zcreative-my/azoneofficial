@@ -18,6 +18,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
@@ -3003,7 +3004,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && path !== "/leave/attachment" // v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && path !== "/leave/attachment" // v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -3100,6 +3101,11 @@ async function handleStaffRoutes(
   /* ---- v1.245.0 Project Workspace (projects.ts): one brief per
      quotation, append-only progress, private files. View: every staff role;
      editing: the Project Owner and CEO / COO / CCO, decided per project. ---- */
+  /* ---- v1.315.0 Tasks 5.0 Gate 4: the Live Host Report (live-reports.ts) ---- */
+  if (path === "/live-reports" || path.startsWith("/live-reports/")) {
+    const lr = await handleLiveReports(env, path, method, body, user, new URL(request.url).searchParams, request);
+    if (lr) return lr;
+  }
   if (path === "/projects" || path.startsWith("/projects/")) {
     const pj = await handleProjects(env, path, method, body, user, new URL(request.url).searchParams, request);
     if (pj) return pj;
@@ -10488,6 +10494,15 @@ async function handleStaffRoutes(
     if (str(body?.title, 200) && String(body!.title).trim() !== row.title) {
       sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim()); changed.title = [row.title, String(body!.title).trim()];
     }
+    /* v1.315.0 (Tasks 5.0 Gate 4, TK-4) - another person's task is renamed
+       by the CEO, COO or CCO (task_rename) - or by the Project Owner on a
+       project task, as projects.ts decides - and always with the reason.
+       The assignee still renames their own task (T2, 12-11-2026). */
+    const titleReason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (changed.title && row.assigned_to !== user.id) {
+      if (!projOfTask && !can(user.role, "task_rename")) return err("forbidden", "Only the CEO, COO or CCO rename a task given to someone else", 403);
+      if (titleReason.length < 5) return err("invalid_input", "Say why the title changes (at least 5 characters)", 400);
+    }
     if (typeof body?.description === "string") {
       const d = body.description.trim() === "" ? null : body.description.slice(0, 5000);
       if (d !== row.description) { sets.push(`description = ?${sets.length + 1}`); vals.push(d); changed.description = [null, null]; }
@@ -10546,8 +10561,18 @@ async function handleStaffRoutes(
        priority, description and assignee stay as they were when it closed.
        Reopen it first (Reopen, with the reason), then change it. */
     if (row.status === "completed") return err("reopen_required", "This task is closed - reopen it first (Reopen, with the reason), then change it", 409);
-    await env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
-      .bind(...vals, id).run();
+    /* v1.315.0 (TK-4, 0199) - the title and its history land together: the
+       old title, the new one, who, when and why, in a table nothing rewrites */
+    const upd = env.DB.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`).bind(...vals, id);
+    if (changed.title) {
+      const [oldT, newT] = changed.title as [string, string];
+      try {
+        await env.DB.batch([upd, env.DB.prepare(`INSERT INTO task_title_history (task_id, old_title, new_title, reason, changed_by) VALUES (?1, ?2, ?3, ?4, ?5)`).bind(id, oldT, newT, titleReason || null, user.id)]);
+      } catch (e) {
+        if (!/no such table/i.test(String(e))) throw e;
+        await upd.run(); /* pre-0199: the audit row below still keeps old -> new */
+      }
+    } else await upd.run();
     /* v1.42.0: every status move leaves a trail row, and the OTHER party is
        told — the assigner monitors without asking, the assignee is never
        surprised by a manager's change. Armored (pre-0083 keeps old shape). */
@@ -10608,6 +10633,7 @@ async function handleStaffRoutes(
     await audit(env, user.id, "task.update", "tasks", String(id), {
       ...(reassignedTo ? { reassigned_to: reassignedTo, from: row.assigned_to, ...(reason ? { reason } : {}) } : {}),
       ...(Object.keys(changed).length ? { changed } : {}),
+      ...(changed.title && titleReason ? { title_reason: titleReason } : {}),
     });
     return json({ ok: true });
   }
@@ -16644,12 +16670,25 @@ async function handleStaffRoutes(
     if (!can(user.role, "task_reports") && !can(user.role, "exec_view")) {
       return err("forbidden", "HR or executive access required", 403);
     }
-    const { results } = await env.DB.prepare(
-      `SELECT t.id, t.period, t.report_date, t.content, t.created_at, u.name AS author
-       FROM task_reports t LEFT JOIN users u ON u.id = t.created_by
-       ORDER BY t.report_date DESC, t.id DESC LIMIT 100`,
-    ).all();
-    return json({ reports: results });
+    /* v1.315.0 (Tasks 5.0 Gate 4, 0200) - the type, the review and who may review (never the author) */
+    let results: Record<string, unknown>[];
+    try {
+      results = (await env.DB.prepare(
+        `SELECT t.id, t.period, t.report_date, t.content, t.created_at, t.created_by, u.name AS author,
+                COALESCE(t.kind, 'operational') AS kind, COALESCE(t.status, 'submitted') AS status, t.reviewed_at, t.review_note,
+                COALESCE(NULLIF(TRIM(r.full_name), ''), r.name) AS reviewer
+         FROM task_reports t LEFT JOIN users u ON u.id = t.created_by LEFT JOIN users r ON r.id = t.reviewed_by
+         ORDER BY t.report_date DESC, t.id DESC LIMIT 100`,
+      ).all()).results as Record<string, unknown>[];
+    } catch (e) {
+      if (!/no such column/i.test(String(e))) throw e;
+      results = (await env.DB.prepare(
+        `SELECT t.id, t.period, t.report_date, t.content, t.created_at, t.created_by, u.name AS author, 'operational' AS kind, 'submitted' AS status
+         FROM task_reports t LEFT JOIN users u ON u.id = t.created_by
+         ORDER BY t.report_date DESC, t.id DESC LIMIT 100`,
+      ).all()).results as Record<string, unknown>[];
+    }
+    return json({ reports: results, can_review: can(user.role, "live_report_review"), me: user.id });
   }
   if (path === "/task-reports" && method === "POST") {
     if (!can(user.role, "task_reports")) return err("forbidden", "HR access required", 403);
@@ -16660,11 +16699,41 @@ async function handleStaffRoutes(
     ) {
       return err("invalid_input", "period (daily/weekly/monthly), report_date and content are required", 400);
     }
-    await env.DB.prepare(
-      `INSERT INTO task_reports (period, report_date, content, created_by) VALUES (?1, ?2, ?3, ?4)`,
-    ).bind(body.period, body.report_date, body.content, user.id).run();
-    await audit(env, user.id, "hr.task_report", "task_reports");
+    /* v1.315.0 (0200) - the report's type; a report is submitted, then reviewed by management */
+    const kind = typeof body.kind === "string" && ["operational", "project", "design"].includes(body.kind) ? body.kind : "operational";
+    try {
+      await env.DB.prepare(
+        `INSERT INTO task_reports (period, report_date, content, created_by, kind, status) VALUES (?1, ?2, ?3, ?4, ?5, 'submitted')`,
+      ).bind(body.period, body.report_date, body.content, user.id, kind).run();
+    } catch (e) {
+      if (!/no such column|has no column/i.test(String(e))) throw e;
+      await env.DB.prepare(
+        `INSERT INTO task_reports (period, report_date, content, created_by) VALUES (?1, ?2, ?3, ?4)`,
+      ).bind(body.period, body.report_date, body.content, user.id).run();
+    }
+    await audit(env, user.id, "hr.task_report", "task_reports", undefined, { kind });
     return json({ ok: true }, 201);
+  }
+  /* v1.315.0 (Tasks 5.0 Gate 4, 0200) - management reviews an operational
+     report: the CEO, COO or CCO, never its author, once, with an optional note */
+  {
+    const rv = /^\/task-reports\/(\d+)\/review$/.exec(path);
+    if (rv && method === "POST") {
+      if (!can(user.role, "live_report_review")) return err("forbidden", "Only the CEO, COO or CCO reviews a report", 403);
+      const rep = await env.DB.prepare(`SELECT id, created_by, COALESCE(status, 'submitted') AS status FROM task_reports WHERE id = ?1`).bind(rv[1]).first<{ id: number; created_by: number | null; status: string }>()
+        .catch((e) => { if (/no such column/i.test(String(e))) return "pending" as const; throw e; });
+      if (rep === "pending") return err("pending_migration", "Run PUSH.bat so migration 0200 applies, then retry", 409);
+      if (!rep) return err("not_found", "Report not found", 404);
+      if (rep.created_by === user.id) return err("self_approval", "A report is never reviewed by the person who wrote it", 403);
+      if (rep.status === "reviewed") return err("invalid_state", "This report is already reviewed", 409);
+      const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
+      const r = await env.DB.prepare(`UPDATE task_reports SET status = 'reviewed', reviewed_by = ?1, reviewed_at = datetime('now'), review_note = ?2 WHERE id = ?3 AND COALESCE(status, 'submitted') = 'submitted'`)
+        .bind(user.id, note || null, rep.id).run();
+      if (!(r.meta?.changes ?? 0)) return err("conflict", "It changed while you were reviewing it - reload", 409);
+      await audit(env, user.id, "task_report.review", "task_reports", String(rep.id), note ? { note } : {});
+      if (rep.created_by) await notify(env, rep.created_by, "task", `✔ Your report was reviewed${note ? `: ${note.slice(0, 80)}` : ""}`, `task_report:${rep.id}:reviewed`, { once: true });
+      return json({ ok: true, status: "reviewed" });
+    }
   }
 
   /* ---- HR: upcoming staff birthdays ---- */

@@ -18,10 +18,11 @@ import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SkelRows } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
+import { api, csrfFetch } from "@/lib/api";
+import { usePrompt } from "@/components/ui/prompt-dialog";
 import { useCachedApi } from "@/lib/cached-api";
 import { dmy } from "@/lib/format";
-import { btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmWarn, selectClassSm } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import t5 from "./tasks5.module.css";
 
 export const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -451,26 +452,207 @@ export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, o
   );
 }
 
-/* ---------------- Reports & Archive: the Live Host card (TK-1, TK-14) ---------------- */
+/* ---------------- Reports & Archive: the Live Host Report (Gate 4, TK-1, TK-14) ----------------
+   The host reports a live on the roster (L2): the figures, the company, the
+   GMV screenshots (camera or gallery on a phone), then Submit for Review.
+   The CEO, COO or CCO reviews, accepts or returns it - never their own (L3).
+   Every version, screenshot and review stays (0201). Reported GMV is the
+   host's figure - never sales, cash, commission or payroll. */
+type LrRow = { id: number; session_id: number; host_user_id: number; host_name: string | null; state: string; company: string | null; current_version: number; session_date: string; start_time: string; end_time: string | null; platform: string; client_name: string | null; gmv_cents: number | null; draft_gmv_cents: number | null; file_count: number; updated_at: string };
+type LrList = { reports: LrRow[]; sessions_to_report: { id: number; session_date: string; start_time: string; end_time: string | null; platform: string; client_name: string | null }[]; can_review: boolean; me: number };
+type LrDetail = {
+  report: { id: number; host_user_id: number; state: string; company: string | null; current_version: number; draft_gmv_cents: number | null; draft_duration_min: number | null; draft_highlights: string | null; draft_blockers: string | null; draft_next_actions: string | null };
+  session: { session_date: string; start_time: string; end_time: string | null; platform: string; client_name: string | null } | null;
+  host: string | null;
+  versions: { version: number; gmv_cents: number; duration_min: number | null; highlights: string | null; blockers: string | null; next_actions: string | null; company: string | null; by_name: string | null; submitted_at: string }[];
+  files: { id: number; version: number | null; file_name: string | null; created_at: string }[];
+  reviews: { id: number; version: number; action: string; note: string | null; actor_role: string | null; by_name: string | null; created_at: string }[];
+  can: { edit: boolean; review: boolean };
+};
+const LR_STATE: Record<string, [string, string, string]> = {
+  draft: ["Draft", "Draf", chipSmNeutral], submitted: ["Submitted", "Dihantar", chipSmInfo], reviewed: ["Reviewed", "Disemak", chipSmWarn],
+  accepted: ["Accepted", "Diterima", chipSmInfo], returned: ["Returned for correction", "Dikembalikan untuk pembetulan", chipSmDanger],
+};
+const rm = (c: number | null | undefined) => (c == null ? "—" : `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const sessionWord = (x: { session_date: string; start_time: string; end_time: string | null; platform: string }) => `${shortDay(x.session_date)} · ${x.platform} · ${x.start_time.slice(0, 5)}${x.end_time ? `–${x.end_time.slice(0, 5)}` : ""}`;
+
+/** One GMV screenshot, read through the authorised route (the host and the reviewers only). */
+function Shot({ rid, fid, name }: { rid: number; fid: number; name: string | null }) {
+  const src = `/api/v1/staff/live-reports/${rid}/files/${fid}`;
+  return (
+    <a href={src} target="_blank" rel="noreferrer" className={t5.shot}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- a private screenshot behind the staff session, not a static asset */}
+      <img src={src} alt={name ?? L("GMV screenshot", "Tangkapan skrin GMV")} />
+    </a>
+  );
+}
+
 export function LiveHostCard({ today }: { today: string }) {
-  const r = useCachedApi<{ sessions: Session[]; manager: boolean }>("/staff/live-sessions", true, ["roster"]);
-  const past = (r.data?.sessions ?? []).filter((s) => s.session_date <= today && s.status !== "cancelled").sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time)).slice(0, 4);
+  void today;
+  const [tick, setTick] = useState(0);
+  const [list, setList] = useState<LrList | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const [d, setD] = useState<LrDetail | null>(null);
+  const [form, setForm] = useState({ gmv: "", duration_min: "", company: "", highlights: "", blockers: "", next_actions: "" });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+  const [history, setHistory] = useState(false);
+  const { prompt, node: promptNode } = usePrompt();
+  useEffect(() => {
+    let alive = true;
+    void api<LrList>("/staff/live-reports").then((r) => { if (alive) setList(r.ok && r.data ? r.data : { reports: [], sessions_to_report: [], can_review: false, me: 0 }); });
+    return () => { alive = false; };
+  }, [tick]);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void api<LrDetail>(`/staff/live-reports/${open}`).then((r) => {
+      if (!alive || !r.ok || !r.data) return;
+      const x = r.data; setD(x);
+      setForm({ gmv: x.report.draft_gmv_cents != null ? (x.report.draft_gmv_cents / 100).toFixed(2) : "", duration_min: x.report.draft_duration_min != null ? String(x.report.draft_duration_min) : "", company: x.report.company ?? "",
+        highlights: x.report.draft_highlights ?? "", blockers: x.report.draft_blockers ?? "", next_actions: x.report.draft_next_actions ?? "" });
+    });
+    return () => { alive = false; };
+  }, [open, tick]);
+  const refresh = () => setTick((n) => n + 1);
+  const fail = (r: { data?: unknown }, f: string) => setMsg({ tone: "bad", text: (r.data as { error?: { message?: string } } | undefined)?.error?.message ?? f });
+  const start = async (sid: number) => {
+    const r = await api<{ id?: number }>("/staff/live-reports", { method: "POST", body: JSON.stringify({ session_id: sid }) });
+    if (r.ok && r.data?.id) { setOpen(r.data.id); setMsg(null); refresh(); } else fail(r, L("The report could not be started", "Laporan tidak dapat dimulakan"));
+  };
+  const saveDraft = async (quiet = false) => {
+    if (!d) return false;
+    const r = await api(`/staff/live-reports/${d.report.id}/draft`, { method: "PUT", body: JSON.stringify(form) });
+    if (!r.ok) { fail(r, L("The draft was not saved", "Draf tidak disimpan")); return false; }
+    if (!quiet) { setMsg({ tone: "ok", text: L("Draft saved", "Draf disimpan") }); refresh(); }
+    return true;
+  };
+  const upload = async (files: FileList | null) => {
+    if (!d || !files?.length) return;
+    setBusy(true);
+    for (const f of Array.from(files)) {
+      const r = await csrfFetch(`/api/v1/staff/live-reports/${d.report.id}/files`, { method: "POST", headers: { "content-type": f.type || "image/png", "x-file-name": f.name.slice(0, 120) }, body: f });
+      if (!r.ok) { const j = await r.json().catch(() => null) as { error?: { message?: string } } | null; setMsg({ tone: "bad", text: j?.error?.message ?? L("The screenshot was not attached", "Tangkapan skrin tidak dilampirkan") }); break; }
+    }
+    setBusy(false); refresh();
+  };
+  const submit = async () => {
+    if (!d) return;
+    setBusy(true);
+    if (await saveDraft(true)) {
+      const r = await api(`/staff/live-reports/${d.report.id}/submit`, { method: "POST", body: "{}" });
+      if (r.ok) setMsg({ tone: "ok", text: L("Submitted for review", "Dihantar untuk semakan") }); else fail(r, L("Not submitted", "Tidak dihantar"));
+    }
+    setBusy(false); refresh();
+  };
+  const act = async (action: "review" | "accept" | "return" | "reopen") => {
+    if (!d) return;
+    let note = "";
+    if (action === "return" || action === "reopen") {
+      const got = await prompt({ title: action === "return" ? L("Return for correction?", "Pulangkan untuk pembetulan?") : L("Reopen this report?", "Buka semula laporan ini?"), message: L("The host sees your words and corrects the report as a new version.", "Hos melihat kata-kata anda dan membetulkan laporan sebagai versi baharu."), label: action === "return" ? L("What to correct (at least 10 characters)", "Apa yang perlu dibetulkan (sekurang-kurangnya 10 aksara)") : L("Why it is reopened (at least 10 characters)", "Sebab dibuka semula (sekurang-kurangnya 10 aksara)"), required: true, confirmLabel: action === "return" ? L("Return", "Pulangkan") : L("Reopen", "Buka semula") });
+      if (!got) return;
+      note = got.value;
+    }
+    setBusy(true);
+    const r = await api(`/staff/live-reports/${d.report.id}/review`, { method: "POST", body: JSON.stringify({ action, note }) });
+    setBusy(false);
+    if (r.ok) setMsg({ tone: "ok", text: action === "accept" ? L("Accepted", "Diterima") : action === "review" ? L("Marked reviewed", "Ditanda disemak") : L("Returned to the host", "Dipulangkan kepada hos") }); else fail(r, L("Not done", "Tidak dibuat"));
+    refresh();
+  };
+  const mine = (list?.reports ?? []).filter((r) => r.host_user_id === list?.me);
+  const toReview = (list?.reports ?? []).filter((r) => r.host_user_id !== list?.me && ["submitted", "reviewed"].includes(r.state));
+  const others = (list?.reports ?? []).filter((r) => r.host_user_id !== list?.me && !["submitted", "reviewed"].includes(r.state)).slice(0, 5);
+  const latest = d?.versions[0];
+  const draftFiles = (d?.files ?? []).filter((f) => f.version === null);
+  const shownFiles = d ? (d.can.edit ? draftFiles : d.files.filter((f) => f.version === d.report.current_version)) : [];
+  const st = d ? LR_STATE[d.report.state] : undefined;
+  const row = (r: LrRow) => (
+    <li key={r.id}><button type="button" onClick={() => { setOpen(r.id); setMsg(null); setHistory(false); }} aria-pressed={open === r.id}>
+      <span className={t5.datePill}>{shortDay(r.session_date)}</span>
+      <span className={t5.itemText}><strong>{r.platform} · {r.start_time.slice(0, 5)}{list?.can_review && r.host_name ? ` · ${r.host_name}` : ""}</strong><small>{rm(r.gmv_cents ?? r.draft_gmv_cents)} · {L(`${r.file_count} screenshot(s)`, `${r.file_count} tangkapan skrin`)}</small></span>
+      <span className={LR_STATE[r.state]?.[2] ?? chipSmNeutral}>{LR_STATE[r.state] ? L(LR_STATE[r.state]![0], LR_STATE[r.state]![1]) : r.state}</span>
+    </button></li>
+  );
   return (
     <section className={card} aria-label={L("Live Host Report", "Laporan Hos Live")} data-testid="live-host-card">
-      <Head5 icon="live" title={L("Live Host Report", "Laporan Hos Live")} sub={L("A report with GMV and screenshot evidence for each live on the roster.", "Laporan dengan GMV dan bukti tangkapan skrin bagi setiap live dalam roster.")} aside={<span className={chipSmNeutral}>{L("Phase 2", "Fasa 2")}</span>} />
-      <div className={t5.phase}>
-        <strong>{L("The report form arrives with Gate 4 (approved TK-1, TK-14).", "Borang laporan tiba bersama Gate 4 (TK-1, TK-14 diluluskan).")}</strong>
-        <span>{L("Draft → Submitted → Reviewed → Accepted, or Returned for Correction. Reported GMV is never verified sales, cash, commission or payroll.", "Draf → Dihantar → Disemak → Diterima, atau Dikembalikan untuk Pembetulan. GMV dilaporkan bukan jualan disahkan, tunai, komisen atau gaji.")}</span>
-      </div>
-      <p className={t5.subHead}><AppIcon name="live" />{L("Recent lives on the roster", "Live terkini dalam roster")}</p>
-      {r.loading && !r.data ? <SkelRows rows={3} /> : past.length === 0 ? <p className={t5.empty}>{L("No live session in the last 14 days.", "Tiada sesi live dalam 14 hari lepas.")}</p> : (
-        <ul className={t5.list}>{past.map((s) => (
-          <li key={s.id}><span className={t5.row}>
-            <span className={t5.datePill}>{shortDay(s.session_date)}</span>
-            <span className={t5.itemText}><strong>{s.platform} · {s.start_time.slice(0, 5)}{s.end_time ? ` – ${s.end_time.slice(0, 5)}` : ""}</strong><small>{[s.host_name, s.client_company ?? s.client_name].filter(Boolean).join(" · ")}</small></span>
-            <span className={s.status === "completed" ? chipSmInfo : chipSmNeutral}>{s.status === "completed" ? L("Held", "Diadakan") : L("Scheduled", "Dijadualkan")}</span>
-          </span></li>
-        ))}</ul>
+      {promptNode}
+      <Head5 icon="live" title={L("Live Host Report", "Laporan Hos Live")} sub={L("Submit or review a live host report with session, GMV, screenshot evidence and notes.", "Hantar atau semak laporan hos live dengan sesi, GMV, bukti tangkapan skrin dan nota.")}
+        aside={st ? <span className={st[2]} data-testid="lh-state">{L(st[0], st[1])}</span> : undefined} />
+      <p className={t5.note}>{L("Reported GMV is the host's figure - it is never verified sales, cash, an invoice paid, commission or payroll.", "GMV dilaporkan ialah angka hos - bukan jualan disahkan, tunai, invois dibayar, komisen atau gaji.")}</p>
+      {msg && <p className={msg.tone === "bad" ? t5.danger : t5.note} role={msg.tone === "bad" ? "alert" : "status"}>{msg.text}</p>}
+      {list === null ? <SkelRows rows={4} /> : (
+        <>
+          {list.sessions_to_report.length > 0 && (
+            <label className={t5.field}><span className={t5.note}>{L("Report a live on the roster", "Laporkan live dalam roster")}</span>
+              <select className={selectClassSm} defaultValue="" onChange={(e) => { if (e.target.value) void start(Number(e.target.value)); }} data-testid="lh-session">
+                <option value="">{L("Choose your live session…", "Pilih sesi live anda…")}</option>
+                {list.sessions_to_report.map((x) => <option key={x.id} value={x.id}>{sessionWord(x)}{x.client_name ? ` · ${x.client_name}` : ""}</option>)}
+              </select>
+            </label>
+          )}
+          {toReview.length > 0 && <><p className={t5.subHead}><AppIcon name="verify" />{L(`To review (${toReview.length})`, `Untuk disemak (${toReview.length})`)}</p><ul className={t5.list} data-testid="lh-review-list">{toReview.map(row)}</ul></>}
+          {mine.length > 0 && <><p className={t5.subHead}><AppIcon name="live" />{L("My reports", "Laporan saya")}</p><ul className={t5.list} data-testid="lh-mine">{mine.slice(0, 5).map(row)}</ul></>}
+          {list.can_review && others.length > 0 && <><p className={t5.subHead}><AppIcon name="documents" />{L("Recent decisions", "Keputusan terkini")}</p><ul className={t5.list}>{others.map(row)}</ul></>}
+          {list.sessions_to_report.length === 0 && mine.length === 0 && toReview.length === 0 && others.length === 0 && <p className={t5.empty}>{L("No live to report or review. A host reports a live once it is on the roster and has happened.", "Tiada live untuk dilapor atau disemak. Hos melaporkan live yang ada dalam roster dan telah berlaku.")}</p>}
+        </>
+      )}
+      {open && d && (
+        <div className={t5.lhForm} data-testid="lh-detail">
+          <p className={t5.subHead}><AppIcon name="date" />{d.session ? sessionWord(d.session) : ""}{d.host ? ` · ${d.host}` : ""}{d.report.current_version ? ` · v${d.report.current_version}` : ""}</p>
+          {d.can.edit ? (
+            <>
+              {d.reviews[0]?.action === "return" || d.reviews[0]?.action === "reopen" ? <p className={t5.danger} data-testid="lh-feedback">{L("To correct:", "Untuk dibetulkan:")} {d.reviews[0]!.note}</p> : null}
+              <div className={t5.formGrid}>
+                <label className={t5.field}><span className={t5.note}>{L("GMV reported (RM)", "GMV dilaporkan (RM)")}</span><input className={inputClassSm} inputMode="decimal" type="number" min="0" step="0.01" value={form.gmv} onChange={(e) => setForm((f) => ({ ...f, gmv: e.target.value }))} data-testid="lh-gmv" /></label>
+                <label className={t5.field}><span className={t5.note}>{L("Session duration (minutes)", "Tempoh sesi (minit)")}</span><input className={inputClassSm} inputMode="numeric" type="number" min="0" value={form.duration_min} onChange={(e) => setForm((f) => ({ ...f, duration_min: e.target.value }))} data-testid="lh-duration" /></label>
+                <label className={t5.field}><span className={t5.note}>{L("Company", "Syarikat")}</span>
+                  <select className={selectClassSm} value={form.company} onChange={(e) => setForm((f) => ({ ...f, company: e.target.value }))} data-testid="lh-company">
+                    <option value="">{L("Choose…", "Pilih…")}</option><option value="a2z">A2Z Creative Marketing</option><option value="azoo">AZ ONE Official</option>
+                  </select></label>
+              </div>
+              <p className={t5.note}><strong>{L("Screenshot of GMV (required)", "Tangkapan skrin GMV (wajib)")}</strong> · {L("JPEG, PNG or WebP, up to 8 MB, up to 4", "JPEG, PNG atau WebP, hingga 8 MB, hingga 4")}</p>
+              <div className={t5.shots}>
+                {shownFiles.map((f) => <Shot key={f.id} rid={d.report.id} fid={f.id} name={f.file_name} />)}
+                {draftFiles.length < 4 && <label className={t5.shotAdd}><AppIcon name="upload" /><span>{busy ? L("Uploading…", "Memuat naik…") : L("Upload", "Muat naik")}</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple hidden onChange={(e) => void upload(e.target.files)} data-testid="lh-upload" /></label>}
+              </div>
+              <label className={t5.field}><span className={t5.note}>{L("Highlights", "Sorotan")}</span><textarea className={inputClassSm} rows={2} value={form.highlights} onChange={(e) => setForm((f) => ({ ...f, highlights: e.target.value }))} /></label>
+              <label className={t5.field}><span className={t5.note}>{L("Blockers / Issues", "Halangan / Isu")}</span><textarea className={inputClassSm} rows={2} value={form.blockers} onChange={(e) => setForm((f) => ({ ...f, blockers: e.target.value }))} /></label>
+              <label className={t5.field}><span className={t5.note}>{L("Next Actions", "Tindakan Seterusnya")}</span><textarea className={inputClassSm} rows={2} value={form.next_actions} onChange={(e) => setForm((f) => ({ ...f, next_actions: e.target.value }))} /></label>
+              <div className={t5.pvActs}>
+                <button type="button" className={btnSmPrimary} disabled={busy} onClick={() => void submit()} data-testid="lh-submit">{L("Submit for Review", "Hantar untuk Semakan")}</button>
+                <button type="button" className={btnSm} disabled={busy} onClick={() => void saveDraft()} data-testid="lh-save">{L("Save Draft", "Simpan Draf")}</button>
+                <button type="button" className={btnSm} onClick={() => setHistory((h) => !h)} data-testid="lh-history-btn">{L("View History", "Lihat Sejarah")}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={t5.facts}>
+                <span className={t5.fact}><small>{L("GMV reported", "GMV dilaporkan")}</small><strong data-testid="lh-gmv-shown">{rm(latest?.gmv_cents)}</strong></span>
+                <span className={t5.fact}><small>{L("Duration", "Tempoh")}</small><strong>{latest?.duration_min != null ? `${Math.floor(latest.duration_min / 60)}h ${latest.duration_min % 60}m` : "—"}</strong></span>
+                <span className={t5.fact}><small>{L("Company", "Syarikat")}</small><strong>{latest?.company === "azoo" ? "AZ ONE Official" : latest?.company === "a2z" ? "A2Z Creative Marketing" : "—"}</strong></span>
+              </div>
+              <div className={t5.shots}>{shownFiles.map((f) => <Shot key={f.id} rid={d.report.id} fid={f.id} name={f.file_name} />)}</div>
+              {latest?.highlights && <p className={t5.note}><strong>{L("Highlights:", "Sorotan:")}</strong> {latest.highlights}</p>}
+              {latest?.blockers && <p className={t5.note}><strong>{L("Blockers:", "Halangan:")}</strong> {latest.blockers}</p>}
+              {latest?.next_actions && <p className={t5.note}><strong>{L("Next actions:", "Tindakan seterusnya:")}</strong> {latest.next_actions}</p>}
+              <div className={t5.pvActs}>
+                {d.can.review && d.report.state === "submitted" && <button type="button" className={btnSm} disabled={busy} onClick={() => void act("review")} data-testid="lh-review">{L("Mark reviewed", "Tanda disemak")}</button>}
+                {d.can.review && ["submitted", "reviewed"].includes(d.report.state) && <button type="button" className={btnSmPrimary} disabled={busy} onClick={() => void act("accept")} data-testid="lh-accept">{L("Accept", "Terima")}</button>}
+                {d.can.review && ["submitted", "reviewed"].includes(d.report.state) && <button type="button" className={btnSm} disabled={busy} onClick={() => void act("return")} data-testid="lh-return">{L("Return for correction", "Pulangkan untuk pembetulan")}</button>}
+                {d.can.review && d.report.state === "accepted" && <button type="button" className={btnSm} disabled={busy} onClick={() => void act("reopen")} data-testid="lh-reopen">{L("Reopen…", "Buka semula…")}</button>}
+                <button type="button" className={btnSm} onClick={() => setHistory((h) => !h)} data-testid="lh-history-btn">{L("View History", "Lihat Sejarah")}</button>
+              </div>
+            </>
+          )}
+          {history && (
+            <ul className={t5.list} data-testid="lh-history" aria-label={L("Report audit trail", "Jejak audit laporan")}>
+              {[...d.versions.map((v) => ({ k: `v${v.version}`, at: v.submitted_at, text: L(`Version ${v.version} submitted by ${v.by_name ?? "the host"} - ${rm(v.gmv_cents)}`, `Versi ${v.version} dihantar oleh ${v.by_name ?? "hos"} - ${rm(v.gmv_cents)}`) })),
+                ...d.reviews.map((w) => ({ k: `r${w.id}`, at: w.created_at, text: `${({ review: L("Reviewed", "Disemak"), accept: L("Accepted", "Diterima"), return: L("Returned for correction", "Dikembalikan"), reopen: L("Reopened", "Dibuka semula") } as Record<string, string>)[w.action] ?? w.action} (v${w.version}) - ${w.by_name ?? ""}${w.note ? `: ${w.note}` : ""}` }))]
+                .sort((a, b) => b.at.localeCompare(a.at)).map((x) => <li key={x.k}><span className={t5.row}><span className={t5.itemText}><strong>{x.text}</strong><small>{stamp(x.at)}</small></span></span></li>)}
+              {d.versions.length + d.reviews.length === 0 && <li className={t5.empty}>{L("Nothing submitted yet.", "Belum ada yang dihantar.")}</li>}
+            </ul>
+          )}
+        </div>
       )}
     </section>
   );

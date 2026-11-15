@@ -24,6 +24,8 @@ export const PERMS: Record<string, readonly Role[]> = {
   // === staff.ts ===
   hr_manage: ["super_admin", "admin", "hr_admin", "ceo"],
   team_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
+  task_rename: ["ceo", "coo", "cco"], // v1.315.0 (Tasks 5.0 TK-4) - rename a task given to someone else, with the reason
+  live_report_review: ["ceo", "coo", "cco"], // v1.315.0 (TK-14, L3) - review a Live Host Report, never the host of the session
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"],
   claims_decide: ["ceo"], // v1.310.0 (Claims 4.0, C-2) - the Super Admin no longer approves or pays claims
@@ -131,7 +133,13 @@ export const PERMS: Record<string, readonly Role[]> = {
   adsfund_manage: ["super_admin", "admin", "ceo", "coo"],
   adsfund_claim: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
   purchasing_manage: ["super_admin", "admin", "ceo", "coo"],
-  accounting_manage: ["super_admin", "admin", "ceo"],
+  /* v1.316.0 (Accounting 5.0 Phase B, AC-1) - the ledger is READ by the CEO,
+     COO, CCO, Admin and Super Admin; it is POSTED (accounts, manual journals,
+     reversals) by the CEO and COO alone; a month is CLOSED or reopened by the
+     CEO alone */
+  accounting_manage: ["super_admin", "admin", "ceo", "coo", "cco"],
+  accounting_post: ["ceo", "coo"],
+  books_close: ["ceo"],
 
   // === threads.ts (v1.89.0 — the Threads workspace). The client's
   // TAB_ROLES.Threads mirrors threads_view. Connecting, syncing and
@@ -556,7 +564,9 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Finance", key: "expense_approve", en: "Approve an expense", ms: "Luluskan perbelanjaan", cap: "expense_approve", needs: "expenses", note_en: "Never one they recorded; the COO approves only an expense the CEO recorded", note_ms: "Tidak yang direkod sendiri; COO meluluskan hanya perbelanjaan yang direkod CEO" },
   { module: "Finance", key: "expense_authorise", en: "Authorise an expense payment", ms: "Benarkan bayaran perbelanjaan", cap: "expense_authorise", needs: "expenses" },
   { module: "Finance", key: "expense_pay", en: "Complete an expense payment (bank date, account, evidence)", ms: "Lengkapkan bayaran perbelanjaan (tarikh bank, akaun, bukti)", cap: "expense_pay", needs: "expenses", note_en: "Never one they authorised", note_ms: "Tidak yang dibenarkan sendiri" },
-  { module: "Accounting", key: "accounting", en: "View and post the ledger", ms: "Lihat dan catat lejar", cap: "accounting_manage" },
+  { module: "Accounting", key: "accounting", en: "View the ledger and the financial reports", ms: "Lihat lejar dan laporan kewangan", cap: "accounting_manage" },
+  { module: "Accounting", key: "accounting_post", en: "Add accounts, post and reverse manual journals", ms: "Tambah akaun, catat dan balikkan jurnal manual", cap: "accounting_post" },
+  { module: "Accounting", key: "books_close", en: "Close or reopen a month", ms: "Tutup atau buka semula bulan", cap: "books_close" },
   { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", cap: "payroll_process" },
   { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", cap: "payroll_release", needs: "payroll_process" },
   { module: "Payroll", key: "payroll_export", en: "Export payroll", ms: "Eksport gaji", cap: "payroll_export" },
@@ -576,6 +586,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Agents", key: "agent_requests_view", en: "See agents' package requests", ms: "Lihat permintaan pakej ejen", cap: "agent_requests_view" },
   { module: "Agents", key: "agent_requests_manage", en: "Edit agents' requests: status, follow-up person, notes", ms: "Sunting permintaan ejen: status, orang susulan, nota", cap: "agent_requests_manage" },
   { module: "Agents", key: "agent_portal", en: "Agent: own tasks, packages to promote, submit clients", ms: "Ejen: tugasan sendiri, pakej untuk dipromosi, hantar pelanggan", cap: "agent_portal", note_en: "No other module, no staff data", note_ms: "Tiada modul lain, tiada data kakitangan" },
+  { module: "Tasks", key: "task_rename", en: "Rename a task given to someone else (with the reason)", ms: "Tukar tajuk tugasan orang lain (dengan sebab)", cap: "task_rename" },
+  { module: "Tasks", key: "live_report_review", en: "Review, accept or return a Live Host Report", ms: "Semak, terima atau pulangkan Laporan Hos Live", cap: "live_report_review" },
   { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
   { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete", note_en: "Never a project task (reassign or complete it)", note_ms: "Bukan tugasan projek (agih semula atau selesaikan)" },
   { module: "Projects", key: "project_view", en: "View shared project information", ms: "Lihat maklumat projek yang dikongsi", cap: "project_view", note_en: "Prices and contact details need more", note_ms: "Harga dan butiran hubungan memerlukan lebih" },

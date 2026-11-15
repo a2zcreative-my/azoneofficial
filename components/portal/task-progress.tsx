@@ -54,6 +54,7 @@ export interface TaskDetail {
     edit: boolean; reassign: boolean; assistants: boolean; tick: boolean; update: boolean; comment: boolean; files: boolean; restricted_files: boolean;
     request_review: boolean; review: boolean; approve: boolean; cancel: boolean; assist: boolean; self_set: boolean; is_assignee: boolean; is_assistant: boolean; remind?: boolean;
     close?: boolean; close_exception?: boolean; reopen?: boolean; return?: boolean;
+    rename?: boolean; rename_reason?: boolean; // v1.315.0 (TK-4)
   };
 }
 type TFile = { id: number; update_id: number | null; comment_id: number | null; file_name: string; content_type: string | null; size_bytes: number | null; level: string; created_at: string; uploader: string; open: boolean };
@@ -216,22 +217,25 @@ function TitleBar({ d, onChanged }: { d: TaskDetail; onChanged: (title?: string,
   const [edit, setEdit] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
+  const [why, setWhy] = useState(""); // v1.315.0 (TK-4) - the reason, when the task is not yours
+  const needWhy = d.can.rename_reason === true;
   const save = async () => {
     const v = (edit ?? "").trim();
     if (!v) { setProblem(L("The title cannot be empty.", "Tajuk tidak boleh kosong.")); return; }
     if (v === d.task.title) { setEdit(null); return; }
+    if (needWhy && why.trim().length < 5) { setProblem(L("Say why the title changes (at least 5 characters).", "Nyatakan sebab tajuk berubah (sekurang-kurangnya 5 aksara).")); return; }
     setBusy(true);
-    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${d.task.id}`, { method: "PATCH", body: JSON.stringify({ title: v }) });
+    const r = await api<{ error?: { message?: string } }>(`/staff/tasks/${d.task.id}`, { method: "PATCH", body: JSON.stringify({ title: v, ...(why.trim() ? { reason: why.trim() } : {}) }) });
     setBusy(false);
     if (!r.ok) { setProblem(r.data?.error?.message ?? L("The title was not saved - try again.", "Tajuk tidak disimpan - cuba lagi.")); return; }
-    setEdit(null); setProblem("");
+    setEdit(null); setProblem(""); setWhy("");
     onChanged(L("Title updated", "Tajuk dikemas kini"), L("Dates, checklist, progress and history are unchanged.", "Tarikh, senarai semak, kemajuan dan sejarah tidak berubah."));
   };
   return (
     <section className={tp.titleBar} aria-label={L("Task title", "Tajuk tugasan")} data-testid="task-title-bar">
       <div className={tp.titleHead}>
         <span className={tp.titleMeta}>{L("Task ID", "ID Tugasan")} TSK-{String(d.task.id).padStart(6, "0")}{d.task.creator ? ` · ${L("created by", "dicipta oleh")} ${d.task.creator}` : ""} · {stamp(d.task.created_at)}</span>
-        {d.can.edit && edit === null && (
+        {(d.can.rename ?? d.can.edit) && edit === null && (
           <button type="button" className={`${btnSm} ${tp.titleBtn}`} onClick={() => { setEdit(d.task.title); setProblem(""); }} data-testid="edit-title"><AppIcon name="edit" className="erp-icon" />{L("Edit Title", "Sunting Tajuk")}</button>
         )}
       </div>
@@ -240,6 +244,7 @@ function TitleBar({ d, onChanged }: { d: TaskDetail; onChanged: (title?: string,
           <input className={inputClass} value={edit} maxLength={200} autoFocus aria-label={L("Task title", "Tajuk tugasan")} data-testid="title-input"
             onChange={(e) => { setEdit(e.target.value); setProblem(""); }}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void save(); } if (e.key === "Escape") { e.preventDefault(); e.nativeEvent.stopImmediatePropagation(); setEdit(null); setProblem(""); } }} />{/* Escape leaves the field, not the drawer: React listens on the document, as the drawer does */}
+          {needWhy && <input className={inputClass} value={why} maxLength={300} aria-label={L("Reason for the change", "Sebab perubahan")} placeholder={L("Reason for the change (required)", "Sebab perubahan (wajib)")} data-testid="title-reason" onChange={(e) => { setWhy(e.target.value); setProblem(""); }} />}
           <div className={tp.titleRow}>
             <span className={tp.titleCount}>{edit.length} / 200 · {L("only the title changes", "hanya tajuk berubah")}</span>
             <span className={tp.titleBtns}>

@@ -21,7 +21,8 @@
  *   - the reads (overview, month-end, journal, ledger, P&L, trial balance as
  *     at a date) read on the day the money moved, find every exception
  *     planted, write nothing, and are refused to every role but super admin,
- *     admin and CEO;
+ *     admin, CEO, COO and CCO (v1.316.0, AC-1: the COO and CCO read; only the
+ *     CEO and COO post or reverse);
  *   - a month close snapshots the ledger too, and a close taken before that
  *     does not report the new figures as "changed".
  *
@@ -164,12 +165,17 @@ try {
   ok("a reversal is not reversed again", (await call(`/erp/gl/journal/${rve.id}/reverse`, 1, "POST", { reason: "Undo the undo please" })).j?.error?.code === "is_reversal");
 
   /* 7. who may */
-  for (const id of [2, 3, 4, 6]) {
+  for (const id of [4, 6]) {
     const g = await call("/erp/gl/overview", id);
     const r = await call(`/erp/gl/journal/${m1.j.id}/reverse`, id, "POST", { reason: "Not my place to do this" });
     ok(`${ROLE[id]}: no ledger reads, no reversal`, g.status === 403 && r.status === 403 && (await call("/erp/gl/month-end?month=2026-08", id)).status === 403);
   }
+  /* v1.316.0 (Accounting 5.0 AC-1, the CEO's approval 15-11-2026) - the COO and CCO read the books;
+     posting and reversing are the CEO and COO only (accounting_post); admin, super admin and CCO read only */
   ok("admin and super admin read the ledger", (await call("/erp/gl/overview", 5)).status === 200 && (await call("/erp/gl/overview", 7)).status === 200);
+  ok("AC-1 the COO and CCO read the ledger and the month-end checks", (await call("/erp/gl/overview", 2)).status === 200 && (await call("/erp/gl/overview", 3)).status === 200 && (await call("/erp/gl/month-end?month=2026-08", 3)).status === 200);
+  for (const id of [3, 5, 7]) ok(`AC-1 ${ROLE[id]}: reads, never reverses`, (await call(`/erp/gl/journal/${m1.j.id}/reverse`, id, "POST", { reason: "Not my place to do this" })).status === 403);
+  ok("AC-1 the COO may reverse another's entry (this one is already reversed, so it is refused as such, not as forbidden)", (await call(`/erp/gl/journal/${m1.j.id}/reverse`, 2, "POST", { reason: "Refund was for the other company" })).j?.error?.code === "already_reversed");
 
   /* 8. the reads: by the day the money moved, every planted exception found */
   /* a back-filled history: booked 18 Sep, money moved 10 July */

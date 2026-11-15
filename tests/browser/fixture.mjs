@@ -107,7 +107,8 @@ function projectFor(p, made) {
   const one = (x) => { const c = structuredClone(x); if (c?.quotation) c.quotation.id = 1; if (Array.isArray(c?.projects)) for (const r of c.projects) if (r.quotation_id === 100) r.quotation_id = 1; return c; };
   if (p === "/staff/projects/by-quotation/1") return process.env.PROJECT === "none" && !made ? one(PROJ.views.none.by_quotation) : one(v.by_quotation);
   if (p === "/staff/projects") return one(v.list);
-  if (p === `/staff/projects/${id}`) return one(v.workspace);
+  /* v1.315.0 (0202) - the deliverable rows and the client's acceptance, as the worker now adds them */
+  if (p === `/staff/projects/${id}`) return one(v.workspace?.project ? { ...v.workspace, project: { ...v.workspace.project, deliverable_rows: (v.workspace.project.deliverables ?? []).map((t, k) => ({ id: 40 + k, title: t, due_on: null, done_at: k === 0 ? "2026-11-05 03:00:00" : null, done_by_name: k === 0 ? "Aina Seller" : null })), acceptances: [] } } : v.workspace);
   if (p === `/staff/projects/${id}/activity`) return one(v.activity);
   if (p === `/staff/projects/${id}/updates`) return one(v.updates);
   if (p === `/staff/projects/${id}/files`) return one(v.files ?? { files: [] });
@@ -470,6 +471,31 @@ const accounts = [
 export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   let data = baseFixture(p0);
   const q = url ? new URL(url).searchParams : new URLSearchParams();
+  /* v1.315.0 - Tasks 5.0 Gate 4: the Live Host Reports (invented). A reviewer
+     (CEO, COO, CCO) sees one submitted and one accepted report of Farid's; a
+     live host (the signed-in 9001) has a returned report and a live to report. */
+  if (p0 === "/staff/live-reports" || p0.startsWith("/staff/live-reports/")) {
+    const td = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const rev = ["ceo", "coo", "cco"].includes(ROLE);
+    const R = (o) => ({ company: "a2z", current_version: 1, start_time: "20:00", end_time: "22:15", platform: "tiktok", client_name: "ELFIA", draft_gmv_cents: null, file_count: 2, updated_at: td + " 02:00:00", ...o });
+    const all = [
+      R({ id: 11, session_id: 61, host_user_id: 9003, host_name: "Farid Zul", state: "submitted", session_date: td, gmv_cents: 248050 }),
+      R({ id: 12, session_id: 62, host_user_id: 9003, host_name: "Farid Zul", state: "accepted", session_date: td, gmv_cents: 120000, start_time: "14:00", end_time: "15:30" }),
+      R({ id: 13, session_id: 63, host_user_id: 9001, host_name: "Fixture Person", state: "returned", session_date: td, gmv_cents: 90000, draft_gmv_cents: 90000, file_count: 0 }),
+    ];
+    if (p0 === "/staff/live-reports") return { reports: rev ? all.filter((r) => r.host_user_id !== 9001) : all.filter((r) => r.host_user_id === 9001), sessions_to_report: rev ? [] : [{ id: 72, session_date: td, start_time: "14:00", end_time: "15:30", platform: "tiktok", client_name: "Fixture Client", status: "scheduled" }], can_review: rev, me: 9001 };
+    const id = Number(p0.split("/")[3]);
+    const r = all.find((x) => x.id === id) ?? R({ id, session_id: 72, host_user_id: 9001, host_name: "Fixture Person", state: "draft", session_date: td, gmv_cents: null, current_version: 0, file_count: 0 });
+    const mine = r.host_user_id === 9001;
+    return {
+      report: { ...r, draft_duration_min: 135, draft_highlights: "12.4K viewers", draft_blockers: null, draft_next_actions: null },
+      session: { session_date: r.session_date, start_time: r.start_time, end_time: r.end_time, platform: r.platform, client_name: r.client_name }, host: r.host_name,
+      versions: r.current_version ? [{ version: 1, gmv_cents: r.gmv_cents ?? 0, duration_min: 135, highlights: "12.4K viewers", blockers: "Stream lag at 8:50 PM", next_actions: "Recheck stock sync", company: "a2z", by_name: r.host_name, submitted_at: td + " 01:00:00" }] : [],
+      files: r.current_version ? [{ id: 1, version: 1, file_name: "gmv.png", created_at: td + " 01:00:00" }] : [],
+      reviews: r.state === "returned" ? [{ id: 5, version: 1, action: "return", note: "The GMV screenshot is cut off - attach the full one", actor_role: "coo", by_name: "Fixture COO", created_at: td + " 03:00:00" }] : r.state === "accepted" ? [{ id: 6, version: 1, action: "accept", note: null, actor_role: "ceo", by_name: "Fixture Person", created_at: td + " 03:00:00" }] : [],
+      can: { edit: mine && ["draft", "returned"].includes(r.state), review: rev && !mine },
+    };
+  }
   /* v1.313.0 - Tasks 5.0: today's agenda and the work calendar read the
      roster's task blocks and lives; one block today for the signed-in person,
      one live today, both invented (the week asked for, today in Malaysia) */
@@ -1772,7 +1798,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     }
   }
   if (p === "/task-reports") data = { reports: [{ id: 1, report_date: D + "15", author: "Nur Aisyah", period: "daily", content: "Called 6 hotels, 2 agreed to a stay." },
-    { id: 2, report_date: D + "14", author: "Fixture Person", period: "weekly", content: "Week 37:\n- 4 lives, 2 over target\n- Raya stock counted\n- Two claims settled" }] }; // v1.192.0 - the route's own column (period)
+    { id: 2, report_date: D + "14", author: "Fixture Person", period: "weekly", content: "Week 37:\n- 4 lives, 2 over target\n- Raya stock counted\n- Two claims settled" }] };
+  /* v1.315.0 (0200) - the type, the status and who may review (the CEO, COO, CCO - never the author) */
+  if (p === "/task-reports" && data?.reports) data = { reports: data.reports.map((r, k) => ({ ...r, created_by: k === 0 ? 9002 : 9001, kind: k === 0 ? "operational" : "project", status: k === 0 ? "submitted" : "reviewed", reviewer: k === 0 ? null : "Fixture COO", review_note: k === 0 ? null : "Seen" })), can_review: ["ceo", "coo", "cco"].includes(ROLE), me: 9001 }; // v1.192.0 - the route's own column (period)
   if (p === "/birthdays") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }] };
   if (p === "/staff/tiktok-analytics" || p === "/tiktok-analytics") data = { window: { start_date_ge: "2026-09-01", end_date_lt: "2026-09-17", days: 16 }, shop: { gmv: 85918, orders: 55, units: 61, buyers: 49 }, shop_ok: true, shop_has: { gmv: true, orders: true, units: true, buyers: true }, daily: Array.from({ length: 16 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, gmv: 3000 + (i * 700) % 5000, orders: 2 + (i % 5) })), products: [{ id: "1729384756", name: "ELFIA Premium serum 30ml", gmv: 42000, orders: 20, units: 22 }, { id: "1729384757", name: "ELFIA Daily care set", gmv: 30000, orders: 18, units: 20 }, { id: "1729384758", name: "ELFIA Brightening mask", gmv: 13918, orders: 17, units: 19 }], skus: [], videos: [{ id: "7412345678901234567", name: "Raya haul - ELFIA serum demo", title: "Raya haul - ELFIA serum demo", gmv: 32000, orders: 15, units: 16, views: 18200, click_through_rate: 0.042 }, { id: "7412345678901234568", name: "Morning routine with ELFIA", title: "Morning routine with ELFIA", gmv: 21000, orders: 11, units: 12, views: 9400, click_through_rate: 0.031 }], lives: [{ id: "L1", name: "Sunday live", gmv: 15000, orders: 9, units: 10, views: 3200 }], fetched_at_myt: "2026-09-16 10:00", cached: true, worker_version: "1.173.0", names: { sources: ["catalogue"], notes: [], products: 3, variants: 3 } };
   /* v1.174.3 - THE ROWS THE PROBES WERE BLIND TO. The overflow sweeps kept

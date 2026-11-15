@@ -39,7 +39,8 @@ ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "edito
 M = {"Dashboard": "YYYYYYYY", "Desk": "YYYYYYYY", "Announcements": "YYYYYYYY", "Sales": "YYYYY---", "Ecommerce": "YYYYYY--", "Agents": "YYY-Y---",
      "Financial Advisory": "YYY-Y---", "Tasks": "YYYYYYYY", "Inventory": "YYYYYY--", "Assets": "YYYYYYYY", "Hotels": "YYYY----", "HR": "YYYY----",
      "Staff Details": "YYYY----", "Attendance": "YYYYYYYY", "On Shift": "YYYYYYYY", "Leave": "YYYYYYYY", "Claims": "YYYYYYYY", "Payroll": "YY------",
-     "Finance": "YY------", "Accounting": "Y-------", "Commission": "YYY-Y---", "ELFIA Store": "YYYYYY--", "ELFIA Traffic": "YYYYYY--",
+     "Finance": "YY------", "Accounting": "YYY-----",  # v1.316.0 (AC-1) - the COO and CCO read the books
+     "Commission": "YYY-Y---", "ELFIA Store": "YYYYYY--", "ELFIA Traffic": "YYYYYY--",
      "Companies": "YYY-----", "Users": "YY------", "Automation & Rules": "YYY-----"}  # v1.293.0 - CEO, COO, CCO (and admin tiers)
 PORT = {"ceo": 4177, "coo": 4179, "cco": 4185, "hr_admin": 4181, "sales_marketing": 4182, "marketing": 4291, "editor": 4194, "live_host": 4180}
 RAIL_JS = """() => [...document.querySelectorAll('.erp-rail-nav .erp-rail-group')].map(g => [g.dataset.group,

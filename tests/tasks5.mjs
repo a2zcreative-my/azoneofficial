@@ -44,8 +44,11 @@ function checks(src) {
   ok("the phone reads the view switch with Create Task", /<ViewSwitch value=\{view\} onChange=\{\(k\) => go\(k\)\} label=\{L\("Tasks view"/.test(t) && /data-testid="tasks-view-bar"/.test(t));
   ok("All Tasks only for management (the server answers ?all=1 for them alone)", /\.\.\.\(canManage \? \[\["all", L\("All Tasks"/.test(t) && /useCachedApi<\{ tasks: Task\[\] \}>\(`\/staff\/tasks\$\{canManage \? "\?all=1" : ""\}`/.test(t));
 
-  ok("Gate 3 writes nothing new: the Tasks 5.0 pieces only read", !/method:|csrfFetch|fetch\(/.test(t5));
-  ok("…and read only the routes there were (items, roster, live sessions)", (t5.match(/api<[^>]*>\(`([^`]+)`/g) ?? []).every((x) => /\/staff\/tasks\/\$\{id\}\/items|\/staff\/roster\?week=/.test(x))
+  /* v1.315.0 (Gate 4) - the one writer in these pieces is the Live Host Report, through its own routes */
+  const lhc = t5.slice(t5.indexOf("export function LiveHostCard("));
+  const beforeLh = t5.slice(0, t5.indexOf("export function LiveHostCard(")).replace(/^import .*$/gm, "");
+  ok("the Tasks 5.0 pieces write only through the Live Host Report's routes", !/method:|csrfFetch|fetch\(/.test(beforeLh) && (lhc.match(/(?:api|csrfFetch)(?:<[^>]*>)?\(`([^`]+)`, \{ method:/g) ?? []).every((x) => /\/live-reports/.test(x)) && /method: "POST"/.test(lhc));
+  ok("…and read only the routes there are (items, roster, live sessions, live reports)", (t5.match(/api<[^>]*>\(`([^`]+)`/g) ?? []).every((x) => /\/staff\/tasks\/\$\{id\}\/items|\/staff\/roster\?week=|\/staff\/live-reports/.test(x))
     && (t5.match(/useCachedApi<[^>]*>\(([^,]+),/g) ?? []).every((x) => /\/staff\/roster\?week=|"\/staff\/live-sessions"/.test(x)));
 
   const cal = t5.slice(t5.indexOf("export function WorkCalendar("), t5.indexOf("export function LiveHostCard("));
@@ -54,8 +57,10 @@ function checks(src) {
   ok("a phone reads the agenda, never the shrunk grid", /<div className=\{t5\.deskOnly\}>/.test(cal) && /className=\{mode === "list" \? "" : t5\.phoneOnly\} data-testid="cal-agenda"/.test(cal));
 
   const lh = t5.slice(t5.indexOf("export function LiveHostCard("));
-  ok("the Live Host card pretends no form and no GMV figure (Gate 4)", !/<input|<textarea|<select|gmv_cents|GMV reported|RM \d/.test(lh) && /Gate 4/.test(lh));
-  ok("…and the Reports figure says it is not built", /label=\{L\("Live Host Sessions", "Sesi Hos Live"\)\} value=\{L\("Gate 4", "Gate 4"\)\}/.test(t));
+  ok("the Live Host card says reported GMV is never sales, cash, commission or payroll", /Reported GMV is the host's figure - it is never verified sales, cash, an invoice paid, commission or payroll\./.test(lh));
+  ok("…takes screenshots as images, from the camera on a phone", /accept="image\/jpeg,image\/png,image\/webp" capture="environment"/.test(lh));
+  ok("…a return or a reopen asks the reviewer for the words", /required: true, confirmLabel: action === "return"/.test(lh));
+  ok("…and the Reports figure counts the reports, not a promise", /label=\{L\("Live Host Sessions", "Sesi Hos Live"\)\} value=\{liveRows\.data \? liveThisMonth : ""\}/.test(t));
 
   ok("At Risk is the written rule (TK-8): an overdue task, past due, or due in 7 days under 50%", /if \(\(r\.late \?\? 0\) > 0\) return \{ word: L\("At Risk"/.test(src.pw) && /if \(r\.due_date && r\.due_date < today\) return \{ word: L\("At Risk"/.test(src.pw) && /r\.due_date <= week && r\.progress < 50\) return \{ word: L\("At Risk"/.test(src.pw));
   ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /if \(stage === "review"\) return \{ label: L\("Review", "Semakan"\)/.test(src.progress));
@@ -79,7 +84,7 @@ const MUT = [
   ["a write slipped into the calendar", "t5", "void Promise.all(key.split(\",\").filter(Boolean).map((w) => api<Roster>(`/staff/roster?week=${w}`)))", "void Promise.all(key.split(\",\").filter(Boolean).map((w) => api<Roster>(`/staff/roster?week=${w}`, { method: \"POST\" })))"],
   ["Client Meetings invented", "t5", 'mile: ["Milestones", "Pencapaian"] };', 'mile: ["Milestones", "Pencapaian"], meet: ["Client Meetings", "Mesyuarat Pelanggan"] };'],
   ["Monday first again", "t5", "const lead = new Date(`${first}T00:00:00Z`).getUTCDay();", "const lead = (new Date(`${first}T00:00:00Z`).getUTCDay() + 6) % 7;"],
-  ["a GMV field pretended", "t5", '<div className={t5.phase}>', '<div className={t5.phase}><input aria-label="GMV reported (RM)" />'],
+  ["the GMV disclaimer dropped", "t5", "Reported GMV is the host's figure - it is never verified sales, cash, an invoice paid, commission or payroll.", "Reported GMV."],
   ["At Risk without the overdue tasks", "pw", "if ((r.late ?? 0) > 0) return", "if (false) return"],
   ["Edit on a closed task", "tasks", 'const editable = (isMine(t) || canManage) && t.status !== "completed";', "const editable = isMine(t) || canManage;"],
   ["the staff picker exposes the phone", "staff", "u.role, u.position, u.department, u.employment_status FROM users u", "u.role, u.position, u.department, u.phone, u.employment_status FROM users u"],

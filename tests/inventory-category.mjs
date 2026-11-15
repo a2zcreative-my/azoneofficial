@@ -56,7 +56,7 @@ ok("...and the shop's own collection is left alone", !/DROP COLUMN elfia_categor
 ok("the migration is on all three registers",
    /"0120_inventory_category",/.test(ix)
    && /SELECT category FROM inventory_items LIMIT 1/.test(ix)
-   && /const LATEST_MIGRATION = "01\d\d_/.test(ix),
+   && /const LATEST_MIGRATION = "0[12]\d\d_/.test(ix) /* v1.315.0 - 0199 onwards, 02xx */,
    "EXPECTED_MIGRATIONS and the probe list carry 0120; LATEST_MIGRATION names whichever migration is last (registry-parity checks that separately)");
 ok("a category is SET by sending the key, so it can also be cleared",
    /const hasCat = body !== null && typeof body === "object" && "category" in \(body as object\)/.test(staff)

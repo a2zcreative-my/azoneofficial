@@ -70,7 +70,7 @@ const MATRIX = {
   Dashboard: "YYYYYYYYYY-", Desk: "YYYYYYYYYY-", Announcements: "YYYYYYYYYY-", Sales: "YYYYY---YY-", Ecommerce: "YYYYYY--YY-", Agents: "YYY-Y----YY",
   "Financial Advisory": "YYY-Y----Y-", Tasks: "YYYYYYYYYY-", Inventory: "YYYYYY--YY-", Assets: "YYYYYYYYYY-", Hotels: "YYYY----YY-", // v1.304.0 - Assets for every staff member (My assets, the CEO D-4); the register stays asset_view on the server
   HR: "YYYY----YY-", "Staff Details": "YYYY----YY-", Attendance: "YYYYYYYYYY-", "On Shift": "YYYYYYYYYY-", Leave: "YYYYYYYYYY-", Claims: "YYYYYYYYYY-", Payroll: "YY------YY-",
-  Finance: "YY------YY-", Accounting: "Y-------YY-", Commission: "YYY-Y---YY-", "ELFIA Store": "YYYYYY--YY-", "ELFIA Traffic": "YYYYYY--YY-",
+  Finance: "YY------YY-", Accounting: "YYY-----YY-", /* v1.316.0 (Accounting 5.0 AC-1, the CEO 15-11-2026) - the COO and CCO read the books */ Commission: "YYY-Y---YY-", "ELFIA Store": "YYYYYY--YY-", "ELFIA Traffic": "YYYYYY--YY-",
   Companies: "YYY------Y-", Users: "YY------YY-", Cards: "YYY------Y-", Profile: "YYYYYYYYYYY",
 };
 const diffs = [];

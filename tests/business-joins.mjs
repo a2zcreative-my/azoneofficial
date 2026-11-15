@@ -179,7 +179,7 @@ const idx = read("worker/src/index.ts");
   ok("0142 is registered and probed", /"0142_books_stock_take",/.test(idx) && /\["0142 \(month close, stock take\)"/.test(idx));
   const books = read("components/portal/books-panel.tsx");
   ok("Accounting shows the books in their own zone, between the trial balance and the journal composer",
-    (() => { const a = read("components/portal/accounting-panel.tsx"); const i = a.indexOf("<BooksPanel gate="); /* v1.314.0 - Close offered only on a month whose checks pass */ return i > a.indexOf('L("Trial balance"') && i < a.indexOf('L("New journal entry"'); })());
+    (() => { const a = read("components/portal/accounting-panel.tsx"); const i = a.indexOf("<BooksPanel canClose={canClose} gate=") /* v1.316.0 - only the CEO closes (AC-1) */; /* v1.314.0 - Close offered only on a month whose checks pass */ return i > a.indexOf('L("Trial balance"') && i < a.indexOf('L("New journal entry"'); })());
   ok("the screen says a close locks nothing", /Nothing is locked/.test(books));
   ok("the audit pane appears only when the server answers it", /setAuditAllowed\(r\.ok\)/.test(books) && /\{auditAllowed && \(/.test(books));
   ok("Inventory shows the stock take in its own zone", /<StockTake categories=\{/.test(read("components/portal/role-panels.tsx")));

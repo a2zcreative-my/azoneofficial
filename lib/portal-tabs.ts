@@ -431,7 +431,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
     "super_admin", "admin", "ceo", "coo", "cco",
     "hr_admin", "sales_marketing", "marketing",
   ],
-  Accounting: ["super_admin", "admin", "ceo"],
+  Accounting: ["super_admin", "admin", "ceo", "coo", "cco"], // v1.316.0 (AC-1) - the COO and CCO read the books; posting is the CEO and COO (accounting_post)
   /* v1.224.0 - management sees everyone's (the CCO read-only, enforced in
      commission.ts); a sales consultant sees their own entries only */
   Commission: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"],

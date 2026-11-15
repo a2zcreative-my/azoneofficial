@@ -641,7 +641,10 @@ async function route(
       },
       me: user.id,
       can: {
-        edit: (a.assignee || a.manage) && a.open, reassign: a.manage && a.open, assistants: a.manage && a.open, tick: (a.assignee || a.assistant || a.manage) && a.open,
+        edit: (a.assignee || a.manage) && a.open,
+        /* v1.315.0 (TK-4) - the title: the assignee, the Project Owner on a project task, or the CEO, COO or CCO (task_rename) - with the reason when it is not theirs */
+        rename: a.open && (a.assignee || (a.project ? a.manage : can(user.role, "task_rename"))), rename_reason: !a.assignee,
+        reassign: a.manage && a.open, assistants: a.manage && a.open, tick: (a.assignee || a.assistant || a.manage) && a.open,
         update: a.update && a.open, comment: a.team, files: a.update && a.open, restricted_files: a.manage || (a.review && !a.assignee),
         request_review: a.assignee && !a.selfSet && a.open && t.stage !== "review", review: a.review && a.open && !a.selfSet && t.stage === "review",
         approve: dec.close, cancel: dec.cancel, close: dec.close, close_exception: dec.close_exception, reopen: dec.reopen, return: dec.return,
@@ -788,13 +791,13 @@ export async function taskActivity(env: Env, t: TaskRow, a: TaskAccess) {
     `SELECT a.id, a.action, a.detail, a.created_at, a.user_id, ${PERSON("u")} AS who, u.photo_key FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
       WHERE a.entity = 'tasks' AND a.entity_id = ?1 AND a.action IN ('task.update','task.assistant_add','task.assistant_remove') ORDER BY a.id`,
   ).bind(String(t.id)).all<{ id: number; action: string; detail: string | null; created_at: string; user_id: number | null; who: string | null; photo_key: string | null }>()).results) {
-    let d: { reassigned_to?: number; from?: number; reason?: string; changed?: Record<string, [unknown, unknown]>; user_id?: number } = {};
+    let d: { reassigned_to?: number; from?: number; reason?: string; title_reason?: string; changed?: Record<string, [unknown, unknown]>; user_id?: number } = {};
     try { d = JSON.parse(r.detail ?? "{}"); } catch { /* keep */ }
     if (r.action === "task.assistant_add") { add({ key: `a${r.id}`, at: r.created_at, kind: "assist.add", text: `Added ${await nameOf(env, d.user_id)} to help`, by: r.who, by_id: r.user_id, photo_key: r.photo_key }); continue; }
     if (r.action === "task.assistant_remove") { add({ key: `a${r.id}`, at: r.created_at, kind: "assist.remove", text: `${await nameOf(env, d.user_id)} no longer helps`, by: r.who, by_id: r.user_id, photo_key: r.photo_key }); continue; }
     if (d.reassigned_to) add({ key: `a${r.id}r`, at: r.created_at, kind: "task.reassign", text: `Reassigned from ${await nameOf(env, d.from)} to ${await nameOf(env, d.reassigned_to)}`, by: r.who, by_id: r.user_id, photo_key: r.photo_key, quote: d.reason ?? null });
     /* v1.289.0 - a title change is its own entry: "Title updated", the old and the new title */
-    if (d.changed?.title) add({ key: `a${r.id}t`, at: r.created_at, kind: "task.title", text: `Title updated - changed from "${String(d.changed.title[0] ?? "")}" to "${String(d.changed.title[1] ?? "")}"`, by: r.who, by_id: r.user_id, photo_key: r.photo_key });
+    if (d.changed?.title) add({ key: `a${r.id}t`, at: r.created_at, kind: "task.title", text: `Title updated - changed from "${String(d.changed.title[0] ?? "")}" to "${String(d.changed.title[1] ?? "")}"${d.title_reason ? ` - reason: ${String(d.title_reason)}` : ""}`, by: r.who, by_id: r.user_id, photo_key: r.photo_key });
     const ch = d.changed ? Object.entries(d.changed).filter(([k]) => k in label && k !== "title") : [];
     if (ch.length) add({ key: `a${r.id}e`, at: r.created_at, kind: "task.edit", text: `Changed ${ch.map(([k, v]) => `${label[k]} ${k === "description" ? "" : `${String(v[0] ?? "none")} → ${String(v[1] ?? "none")}`}`.trim()).join(", ")}`, by: r.who, by_id: r.user_id, photo_key: r.photo_key });
   }

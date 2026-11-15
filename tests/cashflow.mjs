@@ -61,7 +61,7 @@ ok("0147 only adds: columns, indexes, one table - no UPDATE, DELETE or DROP",
    !/\b(UPDATE|DELETE|DROP)\b/.test(mig.replace(/^--.*$/gm, "")) && /ALTER TABLE cashflow_entries ADD COLUMN source_key TEXT;/.test(mig)
    && /CREATE UNIQUE INDEX IF NOT EXISTS idx_cashflow_source_key\s+ON cashflow_entries \(source_key\) WHERE source_key IS NOT NULL;/.test(mig)
    && /CREATE UNIQUE INDEX IF NOT EXISTS idx_cashflow_one_reversal\s+ON cashflow_entries \(reversal_of\) WHERE reversal_of IS NOT NULL;/.test(mig));
-ok("0147 is registered and probed", /* v1.222.0 - 0147 or later is the newest */ /const LATEST_MIGRATION = "(0147_cashbook|01(4[89]|[5-9]\d)_[a-z0-9_]+)";/.test(read("worker/src/index.ts")) && /"0147_cashbook",/.test(read("worker/src/index.ts")) && /\["0147 \(finance 2\.0/.test(read("worker/src/index.ts")));
+ok("0147 is registered and probed", /* v1.222.0 - 0147 or later is the newest */ /const LATEST_MIGRATION = "(0147_cashbook|01(4[89]|[5-9]\d)_[a-z0-9_]+|02\d\d_[a-z0-9_]+)";/.test(read("worker/src/index.ts")) && /"0147_cashbook",/.test(read("worker/src/index.ts")) && /\["0147 \(finance 2\.0/.test(read("worker/src/index.ts")));
 /* v1.312.0 (Finance 5.0, CEO-10) - corrections are the CEO and COO: the Super Admin reads, never corrects */
 ok("corrections are the CEO and the COO - narrower than cashflow_manage",
    /cashbook_correct: \["ceo", "coo"\],/.test(perms) && /cashflow_manage: \["super_admin", "admin", "ceo", "coo"\],/.test(perms));

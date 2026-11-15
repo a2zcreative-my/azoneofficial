@@ -452,6 +452,12 @@ const server = http.createServer((req, res) => {
         taskPosts.push({ method: req.method, p, body });
         res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
       }
+      /* v1.315.0 - the Live Host Report's writes, recorded for /__tasks (the worker's rules are proven by tests/tasks-gate4.mjs) */
+      if (req.method !== "GET" && p.startsWith("/staff/live-reports")) {
+        taskPosts.push({ method: req.method, p, body: p.endsWith("/files") ? "(file)" : body });
+        const started = req.method === "POST" && p === "/staff/live-reports";
+        res.writeHead(started ? 201 : 200, { "content-type": "application/json" }); res.end(JSON.stringify(started ? { id: 21 } : { ok: true })); return;
+      }
       /* v1.247.0 - a manual task reminder and the task email settings */
       if (req.method === "POST" && /^\/staff\/tasks\/\d+\/remind$/.test(p)) {
         taskPosts.push({ method: req.method, p, body });

@@ -17,7 +17,8 @@
  * balance sheet is drawn - there are no opening balances, no equity and no
  * receivables or payables posted, so one would mislead (the audit, sec. 7).
  *
- * Gate: accounting_manage (super admin, admin, CEO), as every /gl route.
+ * Gate: accounting_manage (to read - v1.316.0 AC-1: super admin, admin, CEO,
+ * COO, CCO), as every /gl route; posting is accounting_post (CEO, COO).
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
@@ -186,6 +187,17 @@ async function partPayments(env: Env, from?: string, to?: string) {
 /** Money records (expenses, cash movements, bank accounts) with no company
     decision yet - a count only, the review itself is in Companies. */
 async function unassignedMoney(env: Env): Promise<number | null> {
+  /* v1.316.0 (Accounting 5.0 Phase B) - a record carries its own company from
+     0197 (Finance 5.0); one with no company and no review decision is the one
+     still to assign. Before 0197, the review decisions alone, as before. */
+  try {
+    const r = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM expenses s WHERE s.company IS NULL AND COALESCE(s.status, '') != 'cancelled' AND NOT EXISTS (SELECT 1 FROM company_review_decisions d WHERE d.record_kind = 'expenses' AND d.record_id = s.id))
+            + (SELECT COUNT(*) FROM cashflow_entries s WHERE s.company IS NULL AND s.amount_cents > 0 AND NOT EXISTS (SELECT 1 FROM company_review_decisions d WHERE d.record_kind = 'cashflow_entries' AND d.record_id = s.id))
+            + (SELECT COUNT(*) FROM bank_accounts s WHERE s.company IS NULL AND s.active = 1 AND NOT EXISTS (SELECT 1 FROM company_review_decisions d WHERE d.record_kind = 'bank_accounts' AND d.record_id = s.id)) AS n`,
+    ).first<{ n: number }>();
+    return Number(r?.n ?? 0);
+  } catch (e) { if (!/no such column/i.test(String(e))) return null; }
   try {
     const r = await env.DB.prepare(
       `SELECT (SELECT COUNT(*) FROM expenses s WHERE NOT EXISTS (SELECT 1 FROM company_review_decisions d WHERE d.record_kind = 'expenses' AND d.record_id = s.id))

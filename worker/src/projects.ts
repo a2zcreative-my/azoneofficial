@@ -226,6 +226,39 @@ async function tell(env: Env, ids: (number | null | undefined)[], except: number
   }
 }
 
+/* v1.315.0 (Tasks 5.0 Gate 4, TK-9/TK-15, 0202) - the deliverables as rows to
+   tick (kept apart from task completion) and the client's acceptance of the
+   delivered work. null = the table is not there yet (before 0202). */
+type DelivRow = { id: number; title: string; position: number; due_on: string | null; done_at: string | null; done_by: number | null; done_by_name: string | null };
+async function deliverableRows(env: Env, pid: number): Promise<DelivRow[] | null> {
+  try {
+    return (await env.DB.prepare(`SELECT d.id, d.title, d.position, d.due_on, d.done_at, d.done_by, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS done_by_name
+      FROM project_deliverables d LEFT JOIN users u ON u.id = d.done_by WHERE d.project_id = ?1 AND d.removed_at IS NULL ORDER BY d.position, d.id`).bind(pid).all<DelivRow>()).results ?? [];
+  } catch (e) { if (/no such table/i.test(String(e))) return null; throw e; }
+}
+type AcceptRow = { id: number; accepted_on: string; client_name: string; note: string | null; recorded_at: string; recorded_by_name: string | null };
+async function acceptancesOf(env: Env, pid: number): Promise<AcceptRow[] | null> {
+  try {
+    return (await env.DB.prepare(`SELECT a.id, a.accepted_on, a.client_name, a.note, a.recorded_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS recorded_by_name
+      FROM project_acceptances a LEFT JOIN users u ON u.id = a.recorded_by WHERE a.project_id = ?1 ORDER BY a.id DESC`).bind(pid).all<AcceptRow>()).results ?? [];
+  } catch (e) { if (/no such table/i.test(String(e))) return null; throw e; }
+}
+/** The written list and the rows stay one list: a new line becomes a row, a line taken out is marked removed (never deleted). */
+async function syncDeliverables(env: Env, pid: number, titles: string[], by: number): Promise<void> {
+  const rows = await deliverableRows(env, pid);
+  if (rows === null) return;
+  const want = titles.map((t) => t.trim()).filter(Boolean);
+  const have = new Map(rows.map((r) => [r.title, r]));
+  const stmts = [];
+  for (const r of rows) if (!want.includes(r.title)) stmts.push(env.DB.prepare(`UPDATE project_deliverables SET removed_at = datetime('now'), removed_by = ?1 WHERE id = ?2`).bind(by, r.id));
+  want.forEach((t, i) => {
+    const r = have.get(t);
+    if (!r) stmts.push(env.DB.prepare(`INSERT INTO project_deliverables (project_id, title, position, created_by) VALUES (?1, ?2, ?3, ?4)`).bind(pid, t, i, by));
+    else if (r.position !== i) stmts.push(env.DB.prepare(`UPDATE project_deliverables SET position = ?1 WHERE id = ?2`).bind(i, r.id));
+  });
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
 export async function handleProjects(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, q: URLSearchParams, request: Request,
 ): Promise<Response | null> {
@@ -410,6 +443,8 @@ async function route(env: Env, path: string, method: string, body: Record<string
         completion_requested_at: p.completion_requested_at, completion_requested_by: await nameOf(env, p.completion_requested_by),
         owner: p.owner_id ? { id: p.owner_id, name: await nameOf(env, p.owner_id), set_at: p.owner_set_at, set_by: await nameOf(env, p.owner_set_by) } : null,
         progress,
+        deliverable_rows: await deliverableRows(env, p.id),
+        acceptances: await acceptancesOf(env, p.id),
       },
       quotation: {
         id: qt.id, doc_number: qt.doc_number, state: st, created_at: qt.created_at, valid_until: qt.valid_until, revision: Number(qt.revision ?? 0),
@@ -465,6 +500,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const dates: Record<string, [string | null, string | null]> = {};
     for (const f of ["start_date", "due_date"] as const) if (changed.includes(f)) dates[f] = [p[f] ?? null, (vals[changed.indexOf(f)] as string | null) ?? null];
     await audit(env, user.id, "project.edit", "projects", String(p.id), { fields: changed, ...(Object.keys(dates).length ? { dates } : {}) });
+    if (changed.includes("deliverables")) await syncDeliverables(env, p.id, JSON.parse(String(vals[changed.indexOf("deliverables")] ?? "[]")) as string[], user.id);
     return json({ ok: true, version: p.version + 1 });
   }
 
@@ -493,6 +529,48 @@ async function route(env: Env, path: string, method: string, body: Record<string
   }
 
   /* ---------------- the project's status ---------------- */
+  /* v1.315.0 (TK-9) - tick a deliverable (or untick it), with who and when; its due date */
+  if (sub === "/deliverables" && m[3] && method === "POST") {
+    if (!a.manage) return err("forbidden", "Only the Project Owner or the CEO, COO or CCO tick a deliverable", 403);
+    if (!OPEN.includes(p.status)) return err("project_closed", `This project is ${p.status} - it no longer changes`, 409);
+    const rows = await deliverableRows(env, p.id);
+    if (rows === null) return err("pending_migration", "Run PUSH.bat so migration 0202 applies, then retry", 409);
+    const d = rows.find((r) => r.id === Number(m[3]));
+    if (!d) return err("not_found", "Deliverable not found", 404);
+    const sets: string[] = []; const vals: unknown[] = [];
+    if (typeof body?.done === "boolean") {
+      if (body.done && !d.done_at) { vals.push(user.id); sets.push(`done_at = datetime('now')`, `done_by = ?${vals.length}`); }
+      if (!body.done && d.done_at) sets.push(`done_at = NULL`, `done_by = NULL`);
+    }
+    if (body && "due_on" in body) {
+      const due = body.due_on === "" || body.due_on == null ? null : String(body.due_on);
+      if (due !== null && !/^\d{4}-\d{2}-\d{2}$/.test(due)) return err("invalid_input", "The due date must be a real date", 400);
+      vals.push(due); sets.push(`due_on = ?${vals.length}`);
+    }
+    if (!sets.length) return json({ ok: true, unchanged: true });
+    vals.push(d.id);
+    await env.DB.prepare(`UPDATE project_deliverables SET ${sets.join(", ")} WHERE id = ?${vals.length}`).bind(...vals).run();
+    await audit(env, user.id, "project.deliverable", "projects", String(p.id), { deliverable: d.title, ...(typeof body?.done === "boolean" ? { done: body.done } : {}), ...(body && "due_on" in body ? { due_on: body.due_on } : {}) });
+    return json({ ok: true });
+  }
+  /* v1.315.0 (TK-15) - the client's acceptance of the delivered work: the date,
+     the client's name and a note (the signed copy goes in the project's Files) */
+  if (sub === "/acceptance" && !m[3] && method === "POST") {
+    if (!a.manage) return err("forbidden", "Only the Project Owner or the CEO, COO or CCO record the client's acceptance", 403);
+    if (["cancelled", "draft"].includes(p.status)) return err("invalid_state", `A ${p.status} project has nothing to accept`, 409);
+    const on = typeof body?.accepted_on === "string" ? body.accepted_on : "";
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(on) || on > today) return err("invalid_input", "The acceptance date is a real date, not in the future", 400);
+    const who = typeof body?.client_name === "string" ? body.client_name.trim().slice(0, 120) : "";
+    if (who.length < 2) return err("invalid_input", "Name the client who accepted the work", 400);
+    const note = typeof body?.note === "string" ? body.note.trim().slice(0, 1000) : "";
+    try {
+      await env.DB.prepare(`INSERT INTO project_acceptances (project_id, accepted_on, client_name, note, recorded_by) VALUES (?1, ?2, ?3, ?4, ?5)`).bind(p.id, on, who, note || null, user.id).run();
+    } catch (e) { if (/no such table/i.test(String(e))) return err("pending_migration", "Run PUSH.bat so migration 0202 applies, then retry", 409); throw e; }
+    await audit(env, user.id, "project.acceptance", "projects", String(p.id), { accepted_on: on, client_name: who });
+    return json({ ok: true }, 201);
+  }
+
   if (sub === "/status" && method === "POST") {
     const to = typeof body?.to === "string" ? body.to as PStatus : null;
     if (!to || !(PROJECT_STATUSES as readonly string[]).includes(to)) return err("invalid_input", "to must be a project status", 400);
@@ -507,6 +585,11 @@ async function route(env: Env, path: string, method: string, body: Record<string
       return err("invalid_transition", `A ${p.status.replace("_", " ")} project cannot move to ${to.replace("_", " ")}`, 409);
     }
     if (t.blocked) return err(t.code ?? "not_ready", t.blocked, 409);
+    /* v1.315.0 (TK-15) - a project closes as completed only after the client's acceptance is recorded */
+    if (to === "completed") {
+      const acc = await acceptancesOf(env, p.id);
+      if (acc !== null && acc.length === 0) return err("acceptance_required", "Record the client's acceptance of the delivered work first (Client acceptance)", 409);
+    }
     if (t.needs_reason && reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters)", 400);
     const sets = [`status = ?1`, `updated_by = ?2`, `updated_at = datetime('now')`, `version = version + 1`];
     const vals: unknown[] = [to, user.id];

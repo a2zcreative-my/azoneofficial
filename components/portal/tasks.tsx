@@ -128,7 +128,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   /* v1.209.0 - THE TASK DRAWER: one task, its facts, its checklist and the
      commands the row always had. `openTask` (which checklist is loaded) is
      the drawer's task. */
-  const [editing, setEditing] = useState<null | { title: string; description: string; priority: string; start_date: string; deadline: string; assigned_to: number }>(null);
+  const [editing, setEditing] = useState<null | { title: string; description: string; priority: string; start_date: string; deadline: string; assigned_to: number; reason?: string }>(null);
   useTabViewAddress("Tasks", view, setView, isTaskView);
   const go = (v: TaskView, anchor?: string) => {
     setView(v);
@@ -807,6 +807,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      the Due Soon window, the preview's chosen task and each assignee's
      department (from the staff list - the person's own record) */
   const plusMonth = (k: number) => { const [yy, mm] = todayISO.slice(0, 7).split("-").map(Number); return new Date(Date.UTC(yy!, mm! - 1 + k, 1)).toISOString().slice(0, 7); };
+  /* v1.315.0 (Gate 4) - the Live Host Reports submitted for this month's lives */
+  const liveRows = useCachedApi<{ reports: { session_date: string; state: string }[] }>("/staff/live-reports", view === "reports", ["live_reports"]);
+  const liveThisMonth = (liveRows.data?.reports ?? []).filter((r) => r.session_date.startsWith(todayISO.slice(0, 7)) && r.state !== "draft").length;
   const reportRows = useCachedApi<{ reports: { report_date: string }[] }>("/staff/task-reports", canTaskReports && view === "reports", ["task_reports"]);
   const reportsThisMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(todayISO.slice(0, 7))).length;
   const reportsLastMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(plusMonth(-1))).length;
@@ -1124,7 +1127,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             sub={L("Tasks waiting for management review", "Tugasan menunggu semakan pengurusan")} onClick={() => { clearFilters(); setStatusF("review"); go(canManage ? "all" : "mine"); }} />
           <KpiTile icon="folder" tone="green" label={L("Archived", "Diarkibkan")} value={closed.length} busy={!loaded}
             sub={L("Closed tasks on the board", "Tugasan ditutup pada papan")} onClick={() => revealAnchor("task-archive")} />
-          <KpiTile icon="live" tone="red" label={L("Live Host Sessions", "Sesi Hos Live")} value={L("Gate 4", "Gate 4")} sub={L("Reports with GMV and evidence - not built yet", "Laporan dengan GMV dan bukti - belum dibina")} />
+          <KpiTile icon="live" tone="red" label={L("Live Host Sessions", "Sesi Hos Live")} value={liveRows.data ? liveThisMonth : ""} busy={view === "reports" && !liveRows.data}
+            sub={L("Reported this month, with GMV and evidence", "Dilaporkan bulan ini, dengan GMV dan bukti")} onClick={() => revealAnchor("live-host-card")} />
         </KpiRow>
         <div className={t5.split}>
           {canTaskReports && reportsSeen ? (
@@ -1132,7 +1136,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
               <TaskReports />
             </div>
           ) : <section className={card} aria-label={L("Operational reports", "Laporan operasi")}><Head5 icon="documents" title={L("Operational Reports", "Laporan Operasi")} sub={L("Daily, weekly and monthly reports are written and read by management.", "Laporan harian, mingguan dan bulanan ditulis dan dibaca oleh pengurusan.")} /></section>}
-          {view === "reports" && <LiveHostCard today={todayISO} />}
+          {view === "reports" && <div id="live-host-card"><LiveHostCard today={todayISO} /></div>}
         </div>
         {/* the company-wide card (management roles), as before */}
         {progress}
@@ -1358,6 +1362,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           if (editing.start_date !== (t.start_date ?? "")) patch.start_date = editing.start_date;
           if (canManage && editing.assigned_to && editing.assigned_to !== t.assigned_to) patch.assigned_to = editing.assigned_to;
           if (Object.keys(patch).length === 0) { setEditing(null); return; }
+          if (editing.reason?.trim()) patch.reason = editing.reason.trim(); // v1.315.0 (TK-4) - why another person's task is renamed or moved
           if (await update(t.id, patch)) setEditing(null);
         };
         return (
@@ -1384,6 +1389,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 {editing ? (
                   <div className={tk.editForm}>
                     <Sub t={L("Title *", "Tajuk *")}><input className={inputClass} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></Sub>
+                    {editing.title.trim() !== t.title && t.assigned_to !== user.id && (
+                      <Sub t={L("Reason for the title change *", "Sebab tajuk berubah *")}><input className={inputClass} value={editing.reason ?? ""} maxLength={300} data-testid="edit-reason" placeholder={L("e.g. the period lives in the dates", "cth. tempoh ada pada tarikh")} onChange={(e) => setEditing({ ...editing, reason: e.target.value })} /></Sub>
+                    )}
                     <Sub t={L("Description", "Keterangan")}><textarea className={inputClass} rows={3} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Sub>
                     <div className={tk.editRow}>
                       <Sub t={L("Priority", "Keutamaan")}>

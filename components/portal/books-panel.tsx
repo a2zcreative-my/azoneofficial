@@ -80,7 +80,8 @@ const inv = (d: Debtor) => d.doc_number || `#${d.id}`;
     its checks instead. The screen's gate only: the server's own refusal of a
     close with a failing check is Phase E, not built yet. */
 export type CloseGate = { month: string; ready: boolean; pick: (month: string) => void };
-export function BooksPanel({ gate }: { gate?: CloseGate } = {}) {
+/* v1.316.0 (AC-1) - only the CEO closes or reopens a month (books_close); the server refuses the rest, and the screen does not offer it */
+export function BooksPanel({ gate, canClose = false }: { gate?: CloseGate; canClose?: boolean } = {}) {
   const [tab, setTab] = useState<"months" | "position" | "audit">("months");
   const [months, setMonths] = useState<{ months: Month[]; current_month: string } | null>(null);
   const [pos, setPos] = useState<Position | null>(null);
@@ -171,10 +172,11 @@ export function BooksPanel({ gate }: { gate?: CloseGate } = {}) {
                       : <span className={chipSmNeutral}>{L("open", "terbuka")}</span>}
                   {m.closed && <span className={css.whatDetail}>{L(`closed ${dmyMYT(m.closed.at)}${m.closed.by ? ` by ${m.closed.by}` : ""}`, `ditutup ${dmyMYT(m.closed.at)}${m.closed.by ? ` oleh ${m.closed.by}` : ""}`)}{m.closed.note ? ` · ${m.closed.note}` : ""}</span>}
                   <span className={css.monthActions}>
-                    {!current && !m.closed && (gate && !(gate.month === m.month && gate.ready)
+                    {canClose && !current && !m.closed && (gate && !(gate.month === m.month && gate.ready)
                       ? <button type="button" className={rowBtn} onClick={() => gate.pick(m.month)} title={L("The month's checks must pass before it is closed", "Semakan bulan mesti lulus sebelum ditutup")} data-testid="close-review">{gate.month === m.month ? L("Checks not passed", "Semakan belum lulus") : L("Review checks", "Semak")}</button>
                       : <button type="button" className={rowBtn} onClick={() => void close(m)} data-testid="close-month">{L("Close month", "Tutup bulan")}</button>)}
-                    {m.closed && <button type="button" className={rowBtn} onClick={() => void reopen(m)}>{L("Reopen", "Buka semula")}</button>}
+                    {canClose && m.closed && <button type="button" className={rowBtn} onClick={() => void reopen(m)}>{L("Reopen", "Buka semula")}</button>}
+                    {!canClose && !current && <span className={css.whatDetail} data-testid="close-ceo-only">{L("The CEO closes and reopens a month", "CEO menutup dan membuka semula bulan")}</span>}
                   </span>
                 </div>
                 <div className={css.figures}>

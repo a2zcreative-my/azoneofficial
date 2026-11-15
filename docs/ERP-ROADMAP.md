@@ -505,3 +505,12 @@ approved/authorised/paid/cancelled by and at, bank_id, payment_ref, the cancel
 reason - and one index). No row is changed; existing accounts get their
 company once, on the screen. Paying an expense books EXP- once, dated the bank
 date; recorded, approved and scheduled expenses are never cash.
+1.315.0 (Tasks Workspace 5.0, Gate 4) adds `0199_task_title_history`,
+`0200_task_reports_review`, `0201_live_reports` and `0202_project_deliverables`
+(additive: new tables with append-only triggers, nullable report columns, and
+one copy of the written deliverables into rows). Reported live GMV writes no
+sales, payment, cash, journal, payroll or commission row.
+1.316.0 (Accounting Workspace 5.0, Phase B partial) adds
+`0203_journal_append_only` (additive: four triggers that refuse an UPDATE or
+DELETE on a posted journal entry or line - no table, column or row changed).
+Only the CEO and COO post or reverse; only the CEO closes a month.

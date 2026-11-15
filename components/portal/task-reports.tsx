@@ -20,7 +20,9 @@ import css from "./task-reports.module.css";
 
 /* ================= Reports ================= */
 
-type Report = { id: number; period: string; report_date: string; content: string; author: string };
+/* v1.315.0 (Tasks 5.0 Gate 4, 0200) - the type, and the review by management (never its author) */
+type Report = { id: number; period: string; report_date: string; content: string; author: string; created_by?: number | null; kind?: string; status?: string; reviewer?: string | null; reviewed_at?: string | null; review_note?: string | null };
+const KIND: Record<string, [string, string]> = { operational: ["Operational", "Operasi"], project: ["Project", "Projek"], design: ["Design", "Reka bentuk"] };
 type Period = "all" | "daily" | "weekly" | "monthly";
 const PERIOD: Record<string, [string, string]> = { daily: ["Daily", "Harian"], weekly: ["Weekly", "Mingguan"], monthly: ["Monthly", "Bulanan"] };
 const PAGE = 10;
@@ -35,7 +37,11 @@ export function TaskReports() {
     period: "daily",
     report_date: mytToday(),
     content: "",
+    kind: "operational",
   });
+  const [can, setCan] = useState<{ review: boolean; me: number | null }>({ review: false, me: null });
+  const [reviewing, setReviewing] = useState<number | null>(null);
+  const [problem, setProblem] = useState("");
   /* v1.152.2 - a report longer than two lines could not be read at all. */
   const [openReport, setOpenReport] = useState<number | null>(null);
   /* v1.77.0 — skeleton until the first fetch lands */
@@ -51,9 +57,9 @@ export function TaskReports() {
   const load = useCallback(() => setTick((t) => t + 1), []);
   useEffect(() => {
     let live = true;
-    void api<{ reports: Report[] }>(`/staff/task-reports`).then((r) => {
+    void api<{ reports: Report[]; can_review?: boolean; me?: number }>(`/staff/task-reports`).then((r) => {
       if (!live) return;
-      if (r.ok && r.data) setReports(r.data.reports);
+      if (r.ok && r.data) { setReports(r.data.reports); setCan({ review: Boolean(r.data.can_review), me: r.data.me ?? null }); }
       if (r.status === 403) setDenied(true);
       setLoaded(true);
     });
@@ -74,6 +80,13 @@ export function TaskReports() {
     load();
   };
 
+  const review = async (r: Report) => {
+    setReviewing(r.id); setProblem("");
+    const res = await api<{ error?: { message?: string } }>(`/staff/task-reports/${r.id}/review`, { method: "POST", body: JSON.stringify({}) });
+    setReviewing(null);
+    if (!res.ok) { setProblem(res.data?.error?.message ?? L("Not reviewed - try again", "Tidak disemak - cuba lagi")); return; }
+    load();
+  };
   const count = (p: Period) => (p === "all" ? reports.length : reports.filter((r) => r.period === p).length);
   const list = period === "all" ? reports : reports.filter((r) => r.period === period);
 
@@ -95,6 +108,11 @@ export function TaskReports() {
               <option value="daily">{L("Daily", "Harian")}</option>
               <option value="weekly">{L("Weekly", "Mingguan")}</option>
               <option value="monthly">{L("Monthly", "Bulanan")}</option>
+            </select>
+          </label>
+          <label className={css.field}><span className={fieldLabel}>{L("Type", "Jenis")}</span>
+            <select className={selectClassSm} value={draft.kind} onChange={(e) => setDraft((d) => ({ ...d, kind: e.target.value }))} data-testid="report-kind">
+              {Object.entries(KIND).map(([k, w]) => <option key={k} value={k}>{L(w[0], w[1])}</option>)}
             </select>
           </label>
           <label className={css.field}><span className={fieldLabel}>{L("Date", "Tarikh")}</span>
@@ -131,6 +149,7 @@ export function TaskReports() {
             </button>
           ))}
         </div>
+        {problem && <p className={css.empty} role="alert">{problem}</p>}
         <ul className={css.reports}>
           {!loaded && Array.from({ length: 3 }, (_, i) => (
             <li key={`skel-${i}`} className={css.report} aria-hidden>
@@ -149,10 +168,16 @@ export function TaskReports() {
                 onClick={() => setOpenReport((o) => (o === r.id ? null : r.id))}>
                 <span className={css.reportHead}>
                   <span className={r.period === "monthly" ? chipSmInfo : r.period === "weekly" ? chipSmSuccess : chipSmNeutral}>{PERIOD[r.period] ? L(PERIOD[r.period]![0], PERIOD[r.period]![1]) : r.period}</span>
+                  {r.kind && r.kind !== "operational" && <span className={chipSmNeutral}>{L(KIND[r.kind]?.[0] ?? r.kind, KIND[r.kind]?.[1] ?? r.kind)}</span>}
+                  <span className={r.status === "reviewed" ? chipSmSuccess : chipSmInfo} data-testid="report-status">{r.status === "reviewed" ? L("Reviewed", "Disemak") : L("Submitted", "Dihantar")}</span>
                   <span className={css.reportMeta}>{dmy(r.report_date)} · {r.author}</span>
                 </span>
                 <span className={`${css.reportText} ${openReport === r.id ? "" : css.clamp}`}>{r.content}</span>
+                {r.status === "reviewed" && r.reviewer && <span className={css.reportMeta}>{L(`Reviewed by ${r.reviewer}`, `Disemak oleh ${r.reviewer}`)}{r.review_note ? ` - ${r.review_note}` : ""}</span>}
               </button>
+              {can.review && r.status !== "reviewed" && r.created_by !== can.me && (
+                <div className={css.actions}><button type="button" className={btnSm} disabled={reviewing === r.id} onClick={() => void review(r)} data-testid="report-review">{L("Mark reviewed", "Tanda disemak")}</button></div>
+              )}
             </li>
           ))}
         </ul>

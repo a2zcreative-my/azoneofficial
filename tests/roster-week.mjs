@@ -239,7 +239,7 @@ const pkg = JSON.parse(read("package.json"));
 /* ---- 6. triple-bumped ---- */
 {
   ok("package.json is 1.158.0 or later", /^1\.(158|159|1[6-9]\d|[2-9]\d\d)\./.test(pkg.version), pkg.version);
-  ok("LATEST_MIGRATION is 0128 or later", /const LATEST_MIGRATION = "01(2[89]|[3-9]\d)_/.test(index));
+  ok("LATEST_MIGRATION is 0128 or later", /const LATEST_MIGRATION = "(01(2[89]|[3-9]\d)|02\d\d)_/.test(index) /* v1.315.0 - 0200 onwards too */);
   ok("the probe reads the new table", /\["0128 \(sales duty on the roster\)", `SELECT focus FROM sales_shifts LIMIT 1`\]/.test(index));
 }
 

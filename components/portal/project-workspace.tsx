@@ -22,6 +22,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.315.0
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { openCustomerFile } from "@/components/portal/customer-file";
 import { btnClass, btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmDanger, fieldLabel, inputClass, selectClass, textareaClass } from "@/lib/ui-styles";
@@ -56,6 +57,9 @@ export interface Workspace {
     notes: string | null; version: number; created_at: string; activated_at: string | null; activation_reason: string | null; completed_at: string | null;
     cancelled_at: string | null; cancel_reason: string | null; completion_requested_at: string | null; completion_requested_by: string | null;
     owner: { id: number; name: string | null; set_at: string | null; set_by: string | null } | null; progress: number;
+    /* v1.315.0 (Tasks 5.0 Gate 4, 0202) - the deliverables to tick and the client's acceptance; null before 0202 */
+    deliverable_rows?: { id: number; title: string; due_on: string | null; done_at: string | null; done_by_name: string | null }[] | null;
+    acceptances?: { id: number; accepted_on: string; client_name: string; note: string | null; recorded_by_name: string | null }[] | null;
   };
   quotation: { id: number; doc_number: string; state: { label: string; accepted_at: string | null; accepted_name: string | null; invoice: string | null }; created_at: string; valid_until: string | null; revision: number; salesperson: { id: number; name: string | null } | null };
   client: { id: number; company: string; contact_person: string | null; phone?: string | null; email?: string | null } | null;
@@ -818,6 +822,7 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
       <div className={pw.wrap}>
         <button type="button" className={pw.back} onClick={() => choose(null)}><AppIcon name="previous" className="erp-icon" />{L("All projects", "Semua projek")}</button>
         <ProjectWorkspace projectId={open} onChanged={() => setTick((n) => n + 1)} />
+        <ProjectDelivery projectId={open} />
         <ProjectActivity projectId={open} />
         <ProjectFiles projectId={open} />
       </div>
@@ -983,11 +988,26 @@ export function ProjectTiles({ rows }: { rows: PRow[] | null }) {
     next task and the latest updates - read from the one project record. */
 function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
   const [w, setW] = useState<{ id: number; d: Workspace | null } | null>(null);
+  const [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState("");
+  const { prompt, node: promptNode } = usePrompt();
   useEffect(() => {
     let alive = true;
     void api<Workspace>(`/staff/projects/${id}`).then((r) => { if (alive) setW({ id, d: r.ok && r.data ? r.data : null }); });
     return () => { alive = false; };
-  }, [id]);
+  }, [id, tick]);
+  /* v1.315.0 (TK-9) - tick a deliverable; (TK-15) record the client's acceptance */
+  const tickDeliverable = async (did: number, done: boolean) => {
+    const r = await api<{ error?: { message?: string } }>(`/staff/projects/${id}/deliverables/${did}`, { method: "POST", body: JSON.stringify({ done }) });
+    setMsg(r.ok ? "" : r.data?.error?.message ?? L("Not saved - try again", "Tidak disimpan - cuba lagi")); setTick((n) => n + 1);
+  };
+  const recordAcceptance = async () => {
+    const got = await prompt({ title: L("Record the client's acceptance", "Rekod penerimaan pelanggan"), message: L("The client accepted the delivered work. Put the signed copy or the message in the project's Files.", "Pelanggan menerima kerja yang dihantar. Letakkan salinan bertandatangan atau mesej dalam Fail projek."),
+      label: L("Client's name", "Nama pelanggan"), required: true, date: { label: L("Accepted on", "Diterima pada"), initial: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) }, confirmLabel: L("Record acceptance", "Rekod penerimaan") });
+    if (!got) return;
+    const r = await api<{ error?: { message?: string } }>(`/staff/projects/${id}/acceptance`, { method: "POST", body: JSON.stringify({ client_name: got.value, accepted_on: got.date }) });
+    setMsg(r.ok ? L("Client acceptance recorded", "Penerimaan pelanggan direkod") : r.data?.error?.message ?? L("Not recorded - try again", "Tidak direkod - cuba lagi")); setTick((n) => n + 1);
+  };
   const d = w?.id === id ? w.d : undefined;
   if (d === undefined) return <section className={`${pw.panel} ${t5.preview}`} aria-label={L("Project", "Projek")}><SkelRows rows={6} /></section>;
   if (d === null) return <section className={`${pw.panel} ${t5.preview}`} aria-label={L("Project", "Projek")}><p className={pw.empty}>{L("This project could not be read.", "Projek ini tidak dapat dibaca.")}</p></section>;
@@ -1019,8 +1039,22 @@ function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
       </ol>
       <div className={pw.sumGrid}>
         <div>
-          <p className={pw.pSub}><strong>{L(`Key Deliverables (${p.deliverables.length})`, `Hasil Utama (${p.deliverables.length})`)}</strong></p>
-          {p.deliverables.length === 0 ? <p className={pw.empty}>{L("None written yet.", "Belum ditulis.")}</p> : <ul className={pw.delivList}>{p.deliverables.slice(0, 5).map((x, i) => <li key={i}>{x}</li>)}</ul>}
+          {p.deliverable_rows ? (
+            <>
+              <p className={pw.pSub}><strong>{L(`Key Deliverables (${p.deliverable_rows.filter((x) => x.done_at).length}/${p.deliverable_rows.length})`, `Hasil Utama (${p.deliverable_rows.filter((x) => x.done_at).length}/${p.deliverable_rows.length})`)}</strong></p>
+              {p.deliverable_rows.length === 0 ? <p className={pw.empty}>{L("None written yet.", "Belum ditulis.")}</p> : (
+                <ul className={pw.tickList} data-testid="deliverable-rows">{p.deliverable_rows.slice(0, 8).map((x) => (
+                  <li key={x.id}><label><input type="checkbox" checked={Boolean(x.done_at)} disabled={!d.can.edit} onChange={(e) => void tickDeliverable(x.id, e.target.checked)} aria-label={x.title} />
+                    <span className={x.done_at ? pw.doneText : ""}>{x.title}</span>{x.due_on ? <small> · {fmtDay(x.due_on)}</small> : null}</label></li>
+                ))}</ul>
+              )}
+            </>
+          ) : (
+            <>
+              <p className={pw.pSub}><strong>{L(`Key Deliverables (${p.deliverables.length})`, `Hasil Utama (${p.deliverables.length})`)}</strong></p>
+              {p.deliverables.length === 0 ? <p className={pw.empty}>{L("None written yet.", "Belum ditulis.")}</p> : <ul className={pw.delivList}>{p.deliverables.slice(0, 5).map((x, i) => <li key={i}>{x}</li>)}</ul>}
+            </>
+          )}
         </div>
         <div>
           <p className={pw.pSub}><strong>{L(`Team Members (${d.team.length})`, `Ahli Pasukan (${d.team.length})`)}</strong></p>
@@ -1033,7 +1067,65 @@ function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
       {d.updates.length === 0 ? <p className={pw.empty}>{L("No update yet.", "Belum ada kemas kini.")}</p> : (
         <ul className={pw.delivList}>{d.updates.slice(0, 3).map((u) => <li key={u.id}>{u.body.slice(0, 80)}<small> · {u.author} · {fmtStamp(u.created_at)}</small></li>)}</ul>
       )}
+      {p.acceptances && (
+        <div data-testid="client-acceptance">
+          <p className={pw.pSub}><strong>{L("Client Acceptance", "Penerimaan Pelanggan")}</strong></p>
+          {p.acceptances.length ? <p className={pw.note}>{L(`Accepted on ${fmtDay(p.acceptances[0]!.accepted_on)} by ${p.acceptances[0]!.client_name}`, `Diterima pada ${fmtDay(p.acceptances[0]!.accepted_on)} oleh ${p.acceptances[0]!.client_name}`)}{p.acceptances[0]!.recorded_by_name ? L(` - recorded by ${p.acceptances[0]!.recorded_by_name}`, ` - direkod oleh ${p.acceptances[0]!.recorded_by_name}`) : ""}</p>
+            : <p className={pw.note}>{L("Not recorded yet - required before the project is closed as completed.", "Belum direkod - diperlukan sebelum projek ditutup sebagai selesai.")}</p>}
+          {d.can.edit && <button type="button" className={btnSm} onClick={() => void recordAcceptance()} data-testid="record-client-acceptance">{L("Record client acceptance", "Rekod penerimaan pelanggan")}</button>}
+        </div>
+      )}
+      {msg && <p className={pw.note} role="status">{msg}</p>}
+      {promptNode}
       <button type="button" className={btnSmPrimary} onClick={onOpen} data-testid="summary-open">{L("Open project", "Buka projek")}</button>
+    </section>
+  );
+}
+
+/** v1.315.0 (Tasks 5.0 Gate 4, TK-9/TK-15) - in the opened project, at every
+    width: the deliverables to tick (apart from task completion) and the
+    client's acceptance, required before the project is closed completed. */
+function ProjectDelivery({ projectId }: { projectId: number }) {
+  const [w, setW] = useState<{ id: number; d: Workspace | null } | null>(null);
+  const [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState("");
+  const { prompt, node: promptNode } = usePrompt();
+  useEffect(() => {
+    let alive = true;
+    void api<Workspace>(`/staff/projects/${projectId}`).then((r) => { if (alive) setW({ id: projectId, d: r.ok && r.data ? r.data : null }); });
+    return () => { alive = false; };
+  }, [projectId, tick]);
+  const d = w?.id === projectId ? w.d : undefined;
+  if (d === undefined) return <section className={pw.panel} aria-label={L("Delivery", "Penghantaran")}><SkelRows rows={3} /></section>;
+  if (!d || !d.project.deliverable_rows || !d.project.acceptances) return null;
+  const rows = d.project.deliverable_rows, acc = d.project.acceptances;
+  const tickOne = async (did: number, done: boolean) => {
+    const r = await api<{ error?: { message?: string } }>(`/staff/projects/${projectId}/deliverables/${did}`, { method: "POST", body: JSON.stringify({ done }) });
+    setMsg(r.ok ? "" : r.data?.error?.message ?? L("Not saved - try again", "Tidak disimpan - cuba lagi")); setTick((n) => n + 1);
+  };
+  const accept = async () => {
+    const got = await prompt({ title: L("Record the client's acceptance", "Rekod penerimaan pelanggan"), message: L("The client accepted the delivered work. Put the signed copy or the message in the project's Files.", "Pelanggan menerima kerja yang dihantar. Letakkan salinan bertandatangan atau mesej dalam Fail projek."),
+      label: L("Client's name", "Nama pelanggan"), required: true, date: { label: L("Accepted on", "Diterima pada"), initial: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) }, confirmLabel: L("Record acceptance", "Rekod penerimaan") });
+    if (!got) return;
+    const r = await api<{ error?: { message?: string } }>(`/staff/projects/${projectId}/acceptance`, { method: "POST", body: JSON.stringify({ client_name: got.value, accepted_on: got.date }) });
+    setMsg(r.ok ? L("Client acceptance recorded", "Penerimaan pelanggan direkod") : r.data?.error?.message ?? L("Not recorded - try again", "Tidak direkod - cuba lagi")); setTick((n) => n + 1);
+  };
+  return (
+    <section className={pw.panel} aria-label={L("Deliverables and client acceptance", "Hasil dan penerimaan pelanggan")} data-testid="project-delivery">
+      {promptNode}
+      <h3 className={pw.panelTitle}>{L(`Key Deliverables (${rows.filter((x) => x.done_at).length}/${rows.length})`, `Hasil Utama (${rows.filter((x) => x.done_at).length}/${rows.length})`)}</h3>
+      {rows.length === 0 ? <p className={pw.empty}>{L("None written yet - add them in Project Settings.", "Belum ditulis - tambah dalam Tetapan Projek.")}</p> : (
+        <ul className={pw.tickList}>{rows.map((x) => (
+          <li key={x.id}><label><input type="checkbox" checked={Boolean(x.done_at)} disabled={!d.can.edit} onChange={(e) => void tickOne(x.id, e.target.checked)} aria-label={x.title} />
+            <span className={x.done_at ? pw.doneText : ""}>{x.title}</span>{x.done_at ? <small> · {L(`done ${fmtDay(x.done_at)}${x.done_by_name ? ` by ${x.done_by_name}` : ""}`, `siap ${fmtDay(x.done_at)}${x.done_by_name ? ` oleh ${x.done_by_name}` : ""}`)}</small> : x.due_on ? <small> · {fmtDay(x.due_on)}</small> : null}</label></li>
+        ))}</ul>
+      )}
+      <p className={pw.note}>{L("A ticked deliverable is not a closed task - each keeps its own status.", "Hasil yang ditanda bukan tugasan yang ditutup - masing-masing kekal dengan statusnya.")}</p>
+      <h3 className={pw.panelTitle}>{L("Client Acceptance", "Penerimaan Pelanggan")}</h3>
+      {acc.length ? <p className={pw.note}>{L(`Accepted on ${fmtDay(acc[0]!.accepted_on)} by ${acc[0]!.client_name}`, `Diterima pada ${fmtDay(acc[0]!.accepted_on)} oleh ${acc[0]!.client_name}`)}{acc[0]!.recorded_by_name ? L(` - recorded by ${acc[0]!.recorded_by_name}`, ` - direkod oleh ${acc[0]!.recorded_by_name}`) : ""}</p>
+        : <p className={pw.note}>{L("Not recorded yet - required before the project is closed as completed.", "Belum direkod - diperlukan sebelum projek ditutup sebagai selesai.")}</p>}
+      {d.can.edit && <button type="button" className={btnSm} onClick={() => void accept()} data-testid="delivery-acceptance">{L("Record client acceptance", "Rekod penerimaan pelanggan")}</button>}
+      {msg && <p className={pw.note} role="status">{msg}</p>}
     </section>
   );
 }

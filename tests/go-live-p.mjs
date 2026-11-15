@@ -264,6 +264,11 @@ async function runtime(workerBundle) {
     const dr = await call(`/staff/projects/${pid}/updates`, U.mira, "POST", { kind: "done_request", body: "Semua deliverables sudah dihantar." });
     ok(dr.status === 201 && db.prepare(`SELECT status FROM projects WHERE id = ?`).get(pid ?? -1)?.status === "in_progress" && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id IN (1, 2) AND message LIKE '%is done%'`) >= 2, "a 'done' update tells the owner, CEO and COO - it does not complete the project", dr.text.slice(0, 120));
     ok((await call(`/staff/projects/${pid}/status`, U.lia, "POST", { to: "completed" })).status === 403 && (await call(`/staff/projects/${pid}/status`, U.cco, "POST", { to: "completed" })).status === 403, "P-3 the owner and the CCO cannot confirm Completed");
+    /* v1.315.0 (TK-15, the CEO 15-11-2026) - Completed needs the client's acceptance of the delivered work on record first */
+    const early = await call(`/staff/projects/${pid}/status`, U.ceo, "POST", { to: "completed" });
+    ok(early.status === 409 && early.j?.error?.code === "acceptance_required" && db.prepare(`SELECT status FROM projects WHERE id = ?`).get(pid ?? -1)?.status === "in_progress", "TK-15 not Completed before the client's acceptance is recorded", early.text.slice(0, 120));
+    const acc = await call(`/staff/projects/${pid}/acceptance`, U.lia, "POST", { accepted_on: "2026-10-30", client_name: "Encik Client", note: "Signed copy in Files" });
+    ok(acc.status === 201 || acc.status === 200, "TK-15 the owner records the client's acceptance", acc.text.slice(0, 120));
     const done = await call(`/staff/projects/${pid}/status`, U.ceo, "POST", { to: "completed" });
     ok(done.status === 200 && db.prepare(`SELECT status, completed_by FROM projects WHERE id = ?`).get(pid ?? -1)?.completed_by === U.ceo, "P-3 the CEO confirms Completed", done.text.slice(0, 120));
     ok((await call(`/staff/projects/${pid}/updates`, U.mira, "POST", { kind: "progress", body: "late" })).status === 409, "a completed project takes nothing more");

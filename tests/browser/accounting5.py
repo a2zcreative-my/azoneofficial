@@ -7,7 +7,10 @@ not supported, Close month only on a month whose checks passed, the phone's
 view switch, and the eight widths with no sideways page. The fixture's
 figures are invented (tests/browser/fixture.mjs).
 
-Servers: 4177 ceo
+Servers: 4177 ceo, 4179 coo, 4186 admin
+
+v1.316.0 (Phase B, AC-1): the COO reads the books and posts, never closes;
+the CEO is offered New account and Close.
 """
 from playwright.sync_api import sync_playwright
 import re
@@ -18,16 +21,18 @@ def check(n, c, x=""):
     print(("PASS " if c else "FAIL ") + n + ("" if c else f"  [{str(x)[:300]}]"), flush=True)
 
 CEO = 4177
+COO = 4179
+ADMIN = 4186
 VIEWS = ["overview", "ledger", "reports", "close"]
 WIDTHS = [320, 360, 390, 430, 768, 1024, 1280, 1440]
 no_hscroll = lambda pg: pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
-def open_page(b, w=1440, h=1000, view=None):
+def open_page(b, w=1440, h=1000, view=None, port=None):
     phone = w < 500
     ctx = b.new_context(viewport={"width": w, "height": h}, reduced_motion="reduce", is_mobile=phone, has_touch=phone)
     pg = ctx.new_page(); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.goto(f"http://127.0.0.1:{CEO}/portal?tab=Accounting" + (f"&view={view}" if view else "")); pg.wait_for_timeout(3500)
+    pg.goto(f"http://127.0.0.1:{port or CEO}/portal?tab=Accounting" + (f"&view={view}" if view else "")); pg.wait_for_timeout(3500)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
     return ctx, pg, errs
 
@@ -87,6 +92,22 @@ with sync_playwright() as p:
     check("the screen still says nothing is locked", "Nothing is locked" in main_text(pg))
     ctx.close()
     check("no page error (Month-End)", not errs, errs)
+
+    # v1.316.0 (AC-1) - the CEO is offered New account; the COO posts but never closes or reopens
+    ctx, pg, errs = open_page(b, view="ledger")
+    check("AC-1 the CEO is offered New account and the composer", pg.get_by_role("button", name="New account").count() >= 1 and pg.get_by_test_id("post-readonly").count() == 0)
+    ctx.close()
+    ctx, pg, errs = open_page(b, view="ledger", port=COO)
+    check("AC-1 the COO posts: New account and the composer are there", pg.get_by_role("button", name="New account").count() >= 1 and pg.get_by_test_id("post-readonly").count() == 0)
+    ctx.close()
+    ctx, pg, errs = open_page(b, view="close", port=COO); pg.wait_for_timeout(1500)
+    check("AC-1 the COO is offered no Close, Review or Reopen - the row says the CEO closes", pg.get_by_test_id("close-month").count() == 0 and pg.get_by_test_id("close-review").count() == 0 and pg.get_by_role("button", name="Reopen").count() == 0 and pg.get_by_test_id("close-ceo-only").count() >= 1)
+    ctx.close()
+    check("no page error (COO)", not errs, errs)
+    ctx, pg, errs = open_page(b, view="ledger", port=ADMIN)
+    check("AC-1 the admin reads the books: no New account, the composer says who posts", pg.get_by_role("button", name="New account").count() == 0 and pg.get_by_test_id("post-readonly").count() == 1, main_text(pg)[:300])
+    ctx.close()
+    check("no page error (admin)", not errs, errs)
 
     ctx, pg, errs = open_page(b, w=390)
     check("phone: the view switch, not the tab row", pg.locator('[data-testid="accounting-view-bar"]:visible').count() == 1 and pg.get_by_role("tab").filter(visible=True).count() == 0)

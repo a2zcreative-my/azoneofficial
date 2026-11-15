@@ -116,14 +116,15 @@ async function runtime(workerBundle) {
 
     /* a manager renames: the assignee is told */
     const n9 = n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 9`);
-    const r2 = await call(`/tasks/${tid}`, 3, "PATCH", { title: "Tugasan Mingguan - Laporan" });
+    /* v1.315.0 (TK-4) - another person's task is renamed with the reason */
+    const r2 = await call(`/tasks/${tid}`, 3, "PATCH", { title: "Tugasan Mingguan - Laporan", reason: "The weekly report name" });
     ok(r2.status === 200 && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 9`) === n9 + 1, "a manager (COO) renames it and the assignee is told", r2.text);
     ok(snap(tid) === s0 && kids(tid) === k0, "still nothing else moved");
 
     /* T1: a closed task is reopened first */
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run(tid);
     const s1 = snap(tid);
-    const r3 = await call(`/tasks/${tid}`, 1, "PATCH", { title: "After closing" });
+    const r3 = await call(`/tasks/${tid}`, 1, "PATCH", { title: "After closing", reason: "Fix after closing" });
     ok(r3.status === 409 && r3.j?.error?.code === "reopen_required" && title(tid) === "Tugasan Mingguan - Laporan", "a closed task cannot be renamed, even by the CEO - reopen it first (T1)", r3.text);
     ok((await call(`/tasks/${tid}`, 9, "PATCH", { deadline: "2026-11-20" })).status === 409 && snap(tid) === s1, "nor can its dates change while it is closed");
     ok((await call(`/tasks/${tid}`, 9)).j?.can?.edit === false, "the closed task's record offers no Edit");
@@ -144,7 +145,8 @@ const MUT = [
   [S, "a closed task renamed", [['if (row.status === "completed") return err("reopen_required", "This task is closed', 'if (false) return err("reopen_required", "This task is closed']]],
   [S, "an empty title ignored", [['    if (typeof body?.title === "string" && body.title.trim() === "") return err(', '    if (false) return err(']]],
   [S, "nobody told", [['      if (to) await notify(env, to, "task", `✏ ${user.name} renamed a task', '      if (false) await notify(env, to, "task", `✏ ${user.name} renamed a task']]],
-  [S, "a helper renames", [['    if (row.assigned_to !== user.id && !manages) {\n      return projGate ?? err("forbidden", "Not your task", 403);', '    if (false) {\n      return projGate ?? err("forbidden", "Not your task", 403);']]],
+  /* v1.315.0 (TK-4) - the rename gate stands behind the edit gate: the mutation lifts both */
+  [S, "a helper renames", [['    if (row.assigned_to !== user.id && !manages) {\n      return projGate ?? err("forbidden", "Not your task", 403);', '    if (false) {\n      return projGate ?? err("forbidden", "Not your task", 403);'], ['if (!projOfTask && !can(user.role, "task_rename")) return err(', 'if (false) return err('], ['if (titleReason.length < 5) return err(', 'if (false) return err(']]],
   [P, "no title entry in Activity", [['    if (d.changed?.title) add({ key: `a${r.id}t`', '    if (false) add({ key: `a${r.id}t`']]],
   [S, "the rename moves the dates", [['sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim());', 'sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim()); sets.push(`deadline = ?${sets.length + 1}`); vals.push(null);']]],
 ];

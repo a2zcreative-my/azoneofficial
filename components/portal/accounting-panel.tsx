@@ -37,6 +37,7 @@ import { btnClass, btnSm, btnSmPrimary, card, chipGold, chipInfo, chipNeutral, c
 import css from "./accounting.module.css";
 import { useTabViewAddress } from "@/lib/tab-view"; // v1.314.0
 import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.314.0 - the phone view switch
+import { holds } from "@/lib/caps"; // v1.316.0 (AC-1) - who posts and who closes, read from the server caps
 const VIEW_SUB: Record<"overview" | "ledger" | "reports" | "close", () => string> = {
   overview: () => L("Health, checks and recent entries", "Kesihatan, semakan dan catatan terkini"),
   ledger: () => L("Chart of accounts and journal entries", "Carta akaun dan catatan jurnal"),
@@ -207,7 +208,7 @@ interface EntryDetail {
   manual: boolean; tab: string | null; detail: Record<string, string | number | null> | null;
   reversed_by: { id: number; ref: string; eff: string } | null; reverses: number | null; post_close_reason: string | null;
 }
-function EntryDrawer({ id, onClose, onOpen, onChanged }: { id: number | null; onClose: () => void; onOpen: (id: number) => void; onChanged: () => void }) {
+function EntryDrawer({ id, canPost, onClose, onOpen, onChanged }: { id: number | null; canPost: boolean; onClose: () => void; onOpen: (id: number) => void; onChanged: () => void }) {
   const [got, setGot] = useState<{ key: string; d: EntryDetail | null; error: string } | null>(null);
   const [tick, setTick] = useState(0);
   const key = `${id}|${tick}`;
@@ -240,7 +241,7 @@ function EntryDrawer({ id, onClose, onOpen, onChanged }: { id: number | null; on
   ] : [];
   return (
     <SideDrawer open={id !== null} onClose={onClose} wide title={d ? (d.entry.memo || d.entry.ref || `#${d.entry.id}`) : id ? `#${id}` : ""} subtitle={d ? `${L("Journal entry", "Catatan jurnal")} #${d.entry.id} · ${fmtRM(d.entry.amount_cents)}` : undefined}
-      footer={d && d.manual && !d.reversed_by ? <button type="button" className={btnSm} onClick={() => void reverse()}><AppIcon name="refresh" />{L("Reverse…", "Balikkan…")}</button> : undefined}>
+      footer={canPost && d && d.manual && !d.reversed_by ? <button type="button" className={btnSm} onClick={() => void reverse()}><AppIcon name="refresh" />{L("Reverse…", "Balikkan…")}</button> : undefined}>
       {promptNode}{toastNode}
       {mine?.error ? <p role="alert" className={css.error}>{mine.error}</p> : !d ? <SkelRows rows={6} /> : (
         <div className={css.drawerBody}>
@@ -534,8 +535,12 @@ type View = "overview" | "ledger" | "reports" | "close";
 const ACC_VIEWS: readonly View[] = ["overview", "ledger", "reports", "close"];
 const isAccView = (v: string | null): v is View => ACC_VIEWS.includes(v as View);
 
-export function AccountingPanel({ startView }: { startView?: string }) {
+export function AccountingPanel({ startView, role = "" }: { startView?: string; role?: string }) {
   const today = mytToday();
+  /* v1.316.0 (AC-1) - the COO and CCO read the books; only the CEO and COO post or reverse, only the CEO closes.
+     The server refuses the rest (accounting_post, books_close); the screen does not offer what it would refuse. */
+  const canPost = holds("accounting_post", ["ceo", "coo"].includes(role));
+  const canClose = holds("books_close", role === "ceo");
   const [view, setView] = useState<View>(() => (isAccView(startView ?? null) ? startView as View : "overview"));
   const [seen, setSeen] = useState<Record<View, boolean>>(() => ({ overview: true, ledger: false, reports: false, close: false, [isAccView(startView ?? null) ? startView as View : "overview"]: true }));
   const open = useCallback((v: View) => { setView(v); setSeen((s) => ({ ...s, [v]: true })); }, []);
@@ -681,7 +686,7 @@ export function AccountingPanel({ startView }: { startView?: string }) {
           <div className={card}>
             <div className={css.head}><h3>{L("Trial balance", "Imbangan duga")}</h3>
               <div className={css.headTools}>
-                <button type="button" className={btnSmPrimary} onClick={() => setAdding(true)}><AppIcon name="add" />{L("New account", "Akaun baharu")}</button>
+                {canPost && <button type="button" className={btnSmPrimary} onClick={() => setAdding(true)}><AppIcon name="add" />{L("New account", "Akaun baharu")}</button>}
                 <button type="button" className={btnSm} onClick={csvChart} disabled={!rows.length}><AppIcon name="download" />CSV</button>
               </div>
             </div>
@@ -713,7 +718,8 @@ export function AccountingPanel({ startView }: { startView?: string }) {
           </div>
         </TabZone>
         <TabZone label={L("Adjustments", "Pelarasan")}>
-          <Composer accounts={chart?.accounts ?? []} onPosted={(id) => { reload(); if (id) setEntry(id); }} />
+          {canPost ? <Composer accounts={chart?.accounts ?? []} onPosted={(id) => { reload(); if (id) setEntry(id); }} />
+            : <div className={card}><p className={css.basis} data-testid="post-readonly"><AppIcon name="lock" /><span>{L("You read the books. Adjustments and reversals are posted by the CEO or COO.", "Anda membaca buku. Pelarasan dan pembalikan dicatat oleh CEO atau COO.")}</span></p></div>}
         </TabZone>
       </div>
 
@@ -732,11 +738,11 @@ export function AccountingPanel({ startView }: { startView?: string }) {
         {/* v1.181.15 (ERP roadmap phase 3) - month end, position and the audit
             trail. Reads, plus a snapshot when a month is closed; nothing locks. */}
         <TabZone label={L("Month end", "Hujung bulan")}>
-          {seen.close && <BooksPanel gate={{ month: closeMonth, ready: closeReady?.month === closeMonth && closeReady.ready, pick: (m) => { setCloseMonth(m); document.getElementById("month-end-checks")?.scrollIntoView({ block: "start", behavior: "smooth" }); } }} />}
+          {seen.close && <BooksPanel canClose={canClose} gate={{ month: closeMonth, ready: closeReady?.month === closeMonth && closeReady.ready, pick: (m) => { setCloseMonth(m); document.getElementById("month-end-checks")?.scrollIntoView({ block: "start", behavior: "smooth" }); } }} />}
         </TabZone>
       </div>
 
-      <EntryDrawer id={entry} onClose={() => setEntry(null)} onOpen={setEntry} onChanged={reload} />
+      <EntryDrawer id={entry} canPost={canPost} onClose={() => setEntry(null)} onOpen={setEntry} onChanged={reload} />
       {accOpen && (
         <SideDrawer open onClose={() => setAccOpen(null)} wide title={`${accOpen.code} · ${accOpen.name}`} subtitle={`${typeWord(accOpen.type)} · ${L("ledger, all time", "lejar, sepanjang masa")}`}>
           <AccountLedger accountId={accOpen.id} from="" to={today} onOpen={(id) => { setAccOpen(null); setEntry(id); }} />

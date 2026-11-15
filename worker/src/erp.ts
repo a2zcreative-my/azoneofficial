@@ -651,7 +651,7 @@ export async function handleErp(
       return json({ accounts: rows.results ?? [] });
     }
     if (path === "/gl/accounts" && method === "POST") {
-      if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
+      if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
       const code = str(body?.code, 10) ? (body!.code as string).trim() : "";
       const name = str(body?.name, 200) ? (body!.name as string).trim() : "";
       const type = str(body?.type, 12) && ["asset", "liability", "equity", "income", "expense"].includes(body!.type as string)
@@ -682,7 +682,7 @@ export async function handleErp(
       return json({ entries: entries.results ?? [], lines: lines.results ?? [] });
     }
     if (path === "/gl/journal" && method === "POST") {
-      if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
+      if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
       const entryDate = str(body?.entry_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.entry_date as string)
         ? (body!.entry_date as string) : null;
       const rawLines = Array.isArray(body?.lines) ? (body!.lines as Record<string, unknown>[]) : [];
@@ -755,12 +755,14 @@ export async function handleErp(
     {
       const rv = /^\/gl\/journal\/(\d+)\/reverse$/.exec(path);
       if (rv && method === "POST") {
-        if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
+        if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO reverse a journal entry (AC-1)", 403);
         const reason = str(body?.reason, 300) ? (body!.reason as string).trim() : "";
         if (reason.length < 8) return err("validation", "Say why this entry is being reversed (at least 8 characters)", 400);
         const id = Number(rv[1]);
-        const entry = await env.DB.prepare(`SELECT id, ref, memo FROM journal_entries WHERE id = ?1`).bind(id).first<{ id: number; ref: string; memo: string }>();
+        const entry = await env.DB.prepare(`SELECT id, ref, memo, created_by FROM journal_entries WHERE id = ?1`).bind(id).first<{ id: number; ref: string; memo: string; created_by: number }>();
         if (!entry) return err("not_found", "Journal entry not found", 404);
+        /* v1.316.0 (AC-1) - the COO reverses an entry somebody else posted; the CEO any */
+        if (user.role !== "ceo" && entry.created_by === user.id) return err("self_approval", "Your own entry is reversed by the CEO", 403);
         if (/^REVJ-/.test(entry.ref)) return err("is_reversal", "A reversal is not reversed again. Post a new entry if it was wrong.", 409);
         if (!isManualRef(entry.ref)) {
           return err("source_entry", "This entry was booked by its source record. Reverse it there (Finance > Transactions, or undo the payment) so the cash book and the books stay in step.", 409);

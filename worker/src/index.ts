@@ -301,7 +301,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0198_expense_lifecycle";
+const LATEST_MIGRATION = "0203_journal_append_only";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5673,8 +5673,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0195 (assets 4.0: maintenance and disposal - issues, repairs, lost incidents, disposals)", `SELECT i.asset_id, i.kind, r.outcome, r.expense_id, n.last_seen_place, d.method, d.proceeds_cents FROM asset_issues i, asset_repairs r, asset_incidents n, asset_disposals d LIMIT 0`],
       ["0197 (finance 5.0: the company of each account, cash movement and expense; the CEO acceptance of a difference)", `SELECT b.company, c.company, e.company, m.accepted_at, m.accepted_by FROM bank_accounts b, cashflow_entries c, expenses e, cashbook_marks m LIMIT 0`],
       ["0198 (finance 5.0: the expense lifecycle - recorded, approved, authorised, paid with bank date and account, cancelled)", `SELECT status, due_on, approved_by, authorised_by, paid_on, paid_by, bank_id, payment_ref, cancelled_at, cancel_reason FROM expenses LIMIT 0`],
+      ["0199 (tasks 5.0: the title history - old, new, who, when, why)", `SELECT task_id, old_title, new_title, reason, changed_by, changed_at FROM task_title_history LIMIT 0`],
+      ["0200 (tasks 5.0: the operational report type and its review)", `SELECT kind, status, reviewed_by, reviewed_at, review_note FROM task_reports LIMIT 0`],
+      ["0201 (tasks 5.0: the Live Host Report - versions, screenshots, reviews)", `SELECT r.state, v.gmv_cents, f.r2_key, w.action FROM live_reports r, live_report_versions v, live_report_files f, live_report_reviews w LIMIT 0`],
+      ["0202 (tasks 5.0: project deliverables to tick and the client acceptance)", `SELECT d.done_at, d.removed_at, a.accepted_on, a.client_name FROM project_deliverables d, project_acceptances a LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
+      ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
       ["0182 (deposit billing: one live invoice per PRODUCT quotation; a service quotation billed in parts)", `SELECT id FROM sales_documents INDEXED BY ux_inv_live_per_product_qt WHERE converted_from = 0 AND doc_type = 'INV' AND voided_at IS NULL AND COALESCE(kind, 'product') != 'service' LIMIT 0`],
       ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
@@ -5894,6 +5899,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0196_commission_guards",
       "0197_finance_company",
       "0198_expense_lifecycle",
+      "0199_task_title_history",
+      "0200_task_reports_review",
+      "0201_live_reports",
+      "0202_project_deliverables",
+      "0203_journal_append_only",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
