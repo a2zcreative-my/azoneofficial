@@ -122,7 +122,7 @@ export default function PortalPage() {
              block here, no tab in the registry, no panel in the bundle.
              v1.183.0 - Commission, Enquiries, Sales Performance, Hankei's and
              Web Orders likewise. */}
-          {activeTab === "Accounting" && <AccountingPanel />}
+          {activeTab === "Accounting" && <AccountingPanel startView={startOf("Accounting")} />}
           {/* v1.224.0 - Commission is back (the owner, 29-10-2026): Entries,
               Flow and Policy over commission.ts; a consultant sees their own */}
           {/* v1.311.0 - Commission 5.0: its view in the address, New Deal opens Sales' new quotation, Add Agent opens Agents */}

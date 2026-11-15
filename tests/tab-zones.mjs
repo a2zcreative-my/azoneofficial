@@ -376,7 +376,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      creation, then the company-wide progress and the completion archive */
   /* v1.209.0 (the owner's Tasks brief, 25-10-2026): Create is a drawer from
      the + button (the same form and create()), and Calendar is a tab */
-  ok("Tasks: active records, the deadlines, progress, completion archive - and creation in its drawer", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', 'L("Deadlines", "Tarikh akhir")', '{progress}', 'renderTasks([...tasks.filter((t) => t.status === "completed")', '<SideDrawer open={createOpen}']) && /useState<StatusF>\("active"\)/.test(tasks) && (tasks.match(/L\("Create \/ assign a task"/g) ?? []).length === 1);
+  ok("Tasks: active records, the deadlines, progress, completion archive - and creation in its drawer", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', '<WorkCalendar tasks=', '{progress}', 'renderTasks([...tasks.filter((t) => t.status === "completed")', '<SideDrawer open={createOpen}']) && /useState<StatusF>\("active"\)/.test(tasks) && (tasks.match(/L\("Create \/ assign a task"/g) ?? []).length === 1);
   /* v1.245.0 (the owner's Project Workspace brief, decision P-4): a sixth tab,
      Projects, after All Tasks - for the roles that hold project_view; still
      every zone hidden, not unmounted */

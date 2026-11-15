@@ -50,9 +50,9 @@
 .checkDone { color: var(--success); flex-shrink: 0; }
 .person { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .bar { display: flex; align-items: center; gap: 0.5rem; }
-.track { flex: 1; height: 0.5rem; border-radius: 999px; background: var(--secondary); overflow: hidden; }
-.fill { display: block; height: 100%; border-radius: 999px; background: var(--info); }
-.fillDone { display: block; height: 100%; border-radius: 999px; background: var(--success); }
+.track { flex: 1; height: 0.5rem; border-radius: var(--radius-full); background: var(--secondary); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: var(--radius-full); background: var(--info); }
+.fillDone { display: block; height: 100%; border-radius: var(--radius-full); background: var(--success); }
 .pct { min-width: 2.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted-foreground); font-size: var(--type-caption-size); }
 .when { display: grid; font-size: var(--type-caption-size); color: var(--foreground); }
 .whenBy { color: var(--muted-foreground); }
@@ -67,7 +67,7 @@
   border: 1px solid var(--border); border-radius: 0.625rem; background: var(--card); box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 12%, transparent);
 }
 .menu button {
-  text-align: left; padding: 0.5rem 0.625rem; border: 0; border-radius: 0.375rem; background: transparent;
+  text-align: left; padding: 0.5rem 0.625rem; border: 0; border-radius: var(--radius-sm); background: transparent;
   font-size: var(--type-body-sm-size); color: var(--foreground); cursor: pointer;
 }
 .menu button:hover, .menu button:focus-visible { background: var(--surface-hover); outline: none; }
@@ -91,15 +91,15 @@
 .gantt { border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); padding: 0.75rem 1rem; overflow-x: auto; }
 .gRow { display: grid; grid-template-columns: minmax(10rem, 14rem) 1fr; align-items: center; gap: 0.75rem; min-width: 40rem; padding: 0.375rem 0; }
 .gName { font-size: var(--type-body-sm-size); font-weight: 600; color: var(--foreground); overflow-wrap: anywhere; }
-.gLane { position: relative; height: 1.5rem; border-radius: 0.375rem; background: var(--secondary); }
-.gBar { position: absolute; top: 0.25rem; bottom: 0.25rem; border-radius: 0.25rem; background: var(--info); min-width: 0.5rem; }
+.gLane { position: relative; height: 1.5rem; border-radius: var(--radius-sm); background: var(--secondary); }
+.gBar { position: absolute; top: 0.25rem; bottom: 0.25rem; border-radius: var(--radius-xs); background: var(--info); min-width: 0.5rem; }
 .gBarDone { background: var(--success); }
 .gBarPending { background: var(--warning); }
 .gBarIdle { background: var(--muted-foreground); opacity: 0.55; }
 .gToday { position: absolute; top: -0.25rem; bottom: -0.25rem; width: 2px; background: var(--danger); }
 .gScale { display: flex; justify-content: space-between; font-size: var(--type-caption-size); color: var(--muted-foreground); padding-left: 14.75rem; min-width: 40rem; }
 .gLegend { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
-.dot { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: 999px; margin-right: 0.25rem; vertical-align: middle; }
+.dot { display: inline-block; width: 0.625rem; height: 0.625rem; border-radius: var(--radius-full); margin-right: 0.25rem; vertical-align: middle; }
 
 /* the two columns under the tasks: updates + brief */
 .cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; }
@@ -120,7 +120,7 @@
 .tItem { position: relative; display: grid; gap: 0.125rem; }
 .tItem::before {
   content: ""; position: absolute; left: -1.25rem; top: 0.3125rem; width: 0.75rem; height: 0.75rem;
-  border-radius: 999px; background: var(--info); box-shadow: 0 0 0 3px var(--card);
+  border-radius: var(--radius-full); background: var(--info); box-shadow: 0 0 0 3px var(--card);
 }
 .tWhen { font-size: var(--type-caption-size); color: var(--muted-foreground); }
 .tWho { display: flex; align-items: center; gap: 0.5rem; font-size: var(--type-body-sm-size); font-weight: 700; color: var(--foreground); }
@@ -230,3 +230,37 @@
 /* v1.246.4 - the start and due date pickers, side by side (stacked on a phone) */
 .dateRow { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 @media (max-width: 480px) { .dateRow { grid-template-columns: 1fr; } }
+
+/* v1.313.0 - Tasks 5.0, Projects (image 4): the register table and the
+   project beside it */
+.tWrap { overflow-x: auto; min-width: 0; }
+.reg { width: 100%; border-collapse: collapse; font-size: var(--type-body-sm-size); }
+.reg th { padding: 0.5rem 0.5rem; text-align: left; color: var(--muted-foreground); font-size: var(--type-caption-size); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.reg td { padding: 0.625rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.reg tbody tr { cursor: pointer; }
+.reg tbody tr:hover > td { background: var(--muted); }
+.regOn > td { background: color-mix(in srgb, var(--gold-solid) 9%, transparent); }
+.regOn > td:first-child { box-shadow: inset 3px 0 0 var(--gold-solid); }
+.regTitle { display: block; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+.regTitle:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.regWho { display: inline-flex; align-items: center; gap: 0.375rem; white-space: nowrap; }
+.regBar { display: grid; gap: 0.25rem; min-width: 6rem; }
+.regNum { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sumHead { display: flex; align-items: flex-start; gap: 0.75rem; padding-left: 0.75rem; border-left: 3px solid var(--gold-solid); margin-bottom: 0.5rem; }
+.sumHead > span:first-child { display: grid; gap: 0.125rem; flex: 1 1 auto; min-width: 0; }
+.sumHead strong { font-size: var(--type-section-size); }
+.sumHead small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.sumFacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
+.sumFacts > span { display: grid; gap: 0.125rem; padding: 0.5rem 0.625rem; border: 1px solid var(--border); border-radius: var(--radius-control); min-width: 0; }
+.sumFacts small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.sumFacts strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--type-body-sm-size); }
+.stages { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin: 0.875rem 0; padding: 0; text-align: center; font-size: var(--type-caption-size); font-weight: 600; }
+.stages li { display: grid; justify-items: center; gap: 0.25rem; }
+.stages small { color: var(--muted-foreground); font-weight: 400; }
+.stageDot { width: 1rem; height: 1rem; border-radius: var(--radius-full); border: 2px solid var(--border); background: var(--card); }
+.stages li[data-done] .stageDot { border-color: var(--success); background: var(--success); }
+.sumGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 0.5rem; }
+.delivList { margin: 0.25rem 0 0.5rem; padding-left: 1.125rem; font-size: var(--type-body-sm-size); display: grid; gap: 0.25rem; }
+.delivList small { color: var(--muted-foreground); }
+.teamRow { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; margin: 0.25rem 0 0.5rem; }
+.noteLines { margin: 0 0 0.5rem; font-size: var(--type-caption-size); color: var(--muted-foreground); white-space: pre-line; overflow-wrap: anywhere; }

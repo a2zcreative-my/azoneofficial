@@ -31,16 +31,16 @@ def open_page(b, port, path="/portal", w=1440, h=1000):
 with sync_playwright() as p:
     b = p.chromium.launch()
 
-    # ---- 1. Tasks: the Dates cell ----
+    # ---- 1. Tasks: the Dates cell (v1.313.0 - the board names it Due Date) ----
     for sub in ["My Tasks", "All Tasks"]:
         ctx, pg, errs, _ = open_page(b, 4177, "/portal?tab=Tasks")
         t = pg.get_by_role("tab", name=sub, exact=True)
         if t.count(): t.first.click(); pg.wait_for_timeout(1500)
-        bad = pg.evaluate("""() => [...document.querySelectorAll('td[data-label="Dates"]')]
+        bad = pg.evaluate("""() => [...document.querySelectorAll('td[data-label="Due Date"]')]
             .filter(td => getComputedStyle(td).display !== 'table-cell').length""")
-        n = pg.evaluate("""() => document.querySelectorAll('td[data-label="Dates"]').length""")
+        n = pg.evaluate("""() => document.querySelectorAll('td[data-label="Due Date"]').length""")
         check(f"{sub}: every Dates cell is a table cell ({n} rows)", n > 0 and bad == 0, f"{bad} of {n}")
-        same = pg.evaluate("""() => [...document.querySelectorAll('tr')].filter(tr => tr.querySelector('td[data-label="Dates"]'))
+        same = pg.evaluate("""() => [...document.querySelectorAll('tr')].filter(tr => tr.querySelector('td[data-label="Due Date"]'))
             .every(tr => { const tds = [...tr.children]; const h = tds.map(td => td.getBoundingClientRect().height);
                            return Math.max(...h) - Math.min(...h) < 1; })""")
         check(f"{sub}: the Dates cell is as tall as its row (no box inside the row)", same)

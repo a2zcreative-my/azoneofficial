@@ -27,6 +27,9 @@ import { openCustomerFile } from "@/components/portal/customer-file";
 import { btnClass, btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmDanger, fieldLabel, inputClass, selectClass, textareaClass } from "@/lib/ui-styles";
 import { TaskDrawer } from "@/components/portal/task-progress"; // v1.246.0 - a project row opens the task itself
 import pw from "./project-workspace.module.css";
+import { mytToday } from "@/lib/format";
+import t5 from "./tasks5.module.css"; // v1.313.0 - the register beside its project
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 
 /** The staff list for the assignee and owner pickers; null until it lands (the pickers show a skeleton). */
 type Staff = { id: number; name: string; role?: string; position?: string | null };
@@ -779,7 +782,7 @@ export function ProjectFiles({ projectId }: { projectId: number }) {
 }
 
 /* ---------------- Tasks > Projects ---------------- */
-type PRow = { id: number; quotation_id: number; title: string; status: string; due_date: string | null; owner_id: number | null; owner_name: string | null; doc_number: string; company: string; tasks: number; done: number; progress: number; my_open: number };
+type PRow = { id: number; quotation_id: number; title: string; status: string; due_date: string | null; completed_at?: string | null; late?: number; owner_id: number | null; owner_name: string | null; doc_number: string; company: string; tasks: number; done: number; progress: number; my_open: number };
 export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOpen?: (id: number | null) => void }) {
   const [scope, setScope] = useState<"assigned" | "mine" | "all">("assigned");
   const [rows, setRows] = useState<PRow[] | null>(null);
@@ -801,6 +804,8 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
     return () => { alive = false; };
   }, [scope, tick]);
   const choose = (id: number | null) => { setOpen(id); onOpen?.(id); };
+  const [shown, setShown] = useState<number | null>(null); // v1.313.0 - the project shown beside the register
+  const today = mytToday();
   /* v1.246.4 - Start project asks for the start and due dates first */
   const [startFor, setStartFor] = useState<{ id: number; doc_number: string; company: string } | null>(null);
   const start = (qid: number) => {
@@ -819,6 +824,8 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
     );
   }
   return (
+    <>
+    <ProjectTiles rows={rows} />
     <section className={card} aria-label={L("Projects", "Projek")} data-testid="projects-board">
       {toastNode}
       {startFor && <StartSheet quotationId={startFor.id} docNumber={startFor.doc_number} company={startFor.company} onClose={() => setStartFor(null)}
@@ -829,7 +836,7 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
         <div className={pw.head}>
           <div className={pw.lead}>
             <span className={pw.well}><AppIcon name="folder" /></span>
-            <div><h2 className={pw.title}>{L("Projects", "Projek")}</h2><p className={pw.sub}>{L("Delivery work from accepted quotations. Open one to see its tasks, updates and files.", "Kerja penghantaran daripada sebut harga yang diterima. Buka satu untuk melihat tugasan, kemas kini dan failnya.")}</p></div>
+            <div><h2 className={pw.title}>{L("Project Register", "Daftar Projek")}</h2><p className={pw.sub}>{L("Delivery projects from accepted quotations. Track execution, deliverables and project tasks; open one for its tasks, updates and files.", "Projek penghantaran daripada sebut harga diterima. Jejak pelaksanaan, hasil dan tugasan projek; buka satu untuk tugasan, kemas kini dan failnya.")}</p></div>
           </div>
           <div className={pw.cmds} role="group" aria-label={L("Which projects", "Projek mana")}>
             {([["assigned", L("I'm on", "Saya terlibat")], ["mine", L("I own", "Milik saya")], ["all", L("All", "Semua")]] as const).map(([k, label]) => (
@@ -838,15 +845,42 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
           </div>
         </div>
         {rows === null ? <SkelRows rows={4} /> : rows.length === 0 ? <p className={pw.empty}>{scope === "all" ? L("No projects yet. Start one from a quotation below, or set a task under a quotation in Create Task.", "Belum ada projek. Mulakan daripada sebut harga di bawah, atau tetapkan tugasan di bawah sebut harga dalam Buat Tugasan.") : L("Nothing here — try All.", "Tiada di sini — cuba Semua.")}</p> : (
-          <div className={pw.plist}>
-            {rows.map((r) => (
-              <button key={r.id} type="button" className={pw.pitem} onClick={() => choose(r.id)} data-project={r.id}>
-                <span><p className={pw.pTitle}>{r.title}</p><p className={pw.pSub}>{r.doc_number} · {r.company}</p></span>
-                <span className={pw.pHide}><p className={pw.pSub}>{L("Owner", "Pemilik")}</p><p className={pw.pTitle} style={{ fontWeight: 600 }}>{r.owner_name ?? L("Not assigned", "Belum ditetapkan")}</p></span>
-                <span className={pw.pHide}><p className={pw.pSub}>{L("Due", "Akhir")} {fmtDay(r.due_date)}</p><span className={pw.bar}><span className={pw.track}><span className={r.progress >= 100 ? pw.fillDone : pw.fill} style={{ width: `${r.progress}%` }} /></span><span className={pw.pct}>{r.progress}%</span></span></span>
-                <span><ProjectStatusChip status={r.status} />{r.my_open > 0 && <span className={chipSmInfo} style={{ marginLeft: "0.375rem" }}>{L(`${r.my_open} mine`, `${r.my_open} saya`)}</span>}</span>
-              </button>
-            ))}
+          <div className={t5.withPreview}>
+            {/* v1.313.0 - TASKS 5.0 (image 4): the Project Register - project
+                and client, owner, stage, delivery progress, tasks and health
+                (TK-8, with its reason) - and the chosen project beside it */}
+            <div className={t5.phoneOnly}>
+              <div className={pw.plist}>
+                {rows.map((r) => (
+                  <button key={r.id} type="button" className={pw.pitem} onClick={() => choose(r.id)} data-project={r.id}>
+                    <span><p className={pw.pTitle}>{r.title}</p><p className={pw.pSub}>{r.doc_number} · {r.company}</p></span>
+                    <span><span className={pw.bar}><span className={pw.track}><span className={r.progress >= 100 ? pw.fillDone : pw.fill} style={{ width: `${Math.round(r.progress)}%` }} /></span></span><p className={pw.pSub}>{Math.round(r.progress)}% · {r.done}/{r.tasks} · {L("Due", "Akhir")} {fmtDay(r.due_date)}</p></span>
+                    <span><ProjectStatusChip status={r.status} /> <span className={healthOf(r, today).cls}>{healthOf(r, today).word}</span></span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={`${pw.tWrap} ${t5.deskOnly}`}>
+              <table className={pw.reg} aria-label={L("Project Register", "Daftar Projek")} data-testid="project-register">
+                <thead><tr><th>{L("Project & Client", "Projek & Pelanggan")}</th><th>{L("Owner", "Pemilik")}</th><th>{L("Stage", "Peringkat")}</th><th>{L("Progress", "Kemajuan")}</th><th>{L("Tasks", "Tugasan")}</th><th>{L("Health", "Kesihatan")}</th></tr></thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const h = healthOf(r, today);
+                    return (
+                      <tr key={r.id} data-project={r.id} className={r.id === (shown ?? rows[0]?.id) ? pw.regOn : ""} onClick={() => setShown(r.id)}>
+                        <td><button type="button" className={pw.regTitle} onClick={(e) => { e.stopPropagation(); choose(r.id); }}>{r.title}</button><span className={pw.pSub}>{r.doc_number} · {r.company}</span></td>
+                        <td>{r.owner_name ? <span className={pw.regWho}><Avatar name={r.owner_name} size="sm" /><span>{r.owner_name}</span></span> : <span className={pw.pSub}>{L("Not assigned", "Belum ditetapkan")}</span>}</td>
+                        <td><ProjectStatusChip status={r.status} />{r.my_open > 0 && <span className={chipSmInfo} style={{ marginLeft: "0.375rem" }}>{L(`${r.my_open} mine`, `${r.my_open} saya`)}</span>}</td>
+                        <td><span className={pw.regBar}><span className={pw.track}><span className={r.progress >= 100 ? pw.fillDone : pw.fill} style={{ width: `${Math.round(r.progress)}%` }} /></span><span className={pw.pSub}>{Math.round(r.progress)}%</span></span></td>
+                        <td className={pw.regNum}>{r.done}/{r.tasks}</td>
+                        <td><span className={h.cls} title={h.why}>{h.word}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <ProjectSummary id={shown ?? rows[0]!.id} onOpen={() => choose(shown ?? rows[0]!.id)} />
           </div>
         )}
         {unstarted.length > 0 && (
@@ -872,6 +906,7 @@ export function ProjectsBoard({ openId, onOpen }: { openId?: number | null; onOp
         )}
       </div>
     </section>
+    </>
   );
 }
 
@@ -910,5 +945,95 @@ export function CreateBrief({ quotationId, docNumber, company, contact, onCreate
       {accepting && <AcceptanceSheet quotationId={quotationId} docNumber={docNumber ?? `#${quotationId}`} company={company ?? ""} contact={contact} onClose={() => setAccepting(false)}
         onDone={(t, x) => { setAccepting(false); showToast(t, x); setTick((n) => n + 1); }} />}
     </div>
+  );
+}
+
+/* ---------------- v1.313.0 - TASKS 5.0, Projects (image 4) ---------------- */
+
+/** TK-8: At Risk = an overdue task on the project, or the project itself past
+    due, or due within 7 days with delivery under 50%. Not Started = nothing
+    started yet. Each says why. */
+function healthOf(r: PRow, today: string): { word: string; cls: string; why: string } {
+  if (r.status === "completed") return { word: L("Completed", "Selesai"), cls: chipSmSuccess, why: L("Closed", "Ditutup") };
+  if (r.status === "cancelled") return { word: L("Cancelled", "Dibatalkan"), cls: chipSmNeutral, why: L("Cancelled", "Dibatalkan") };
+  const week = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
+  if ((r.late ?? 0) > 0) return { word: L("At Risk", "Berisiko"), cls: chipSmDanger, why: L(`${r.late} task(s) overdue`, `${r.late} tugasan lewat`) };
+  if (r.due_date && r.due_date < today) return { word: L("At Risk", "Berisiko"), cls: chipSmDanger, why: L("Past its due date", "Lepas tarikh akhir") };
+  if (r.due_date && r.due_date <= week && r.progress < 50) return { word: L("At Risk", "Berisiko"), cls: chipSmDanger, why: L("Due within 7 days, under 50% delivered", "Perlu siap dalam 7 hari, kurang 50%") };
+  if (r.tasks === 0 || (r.progress === 0 && r.done === 0)) return { word: L("Not Started", "Belum Bermula"), cls: chipSmNeutral, why: L("No task started yet", "Tiada tugasan bermula") };
+  return { word: L("On Track", "Mengikut Jadual"), cls: chipSmSuccess, why: L("No overdue task", "Tiada tugasan lewat") };
+}
+
+export function ProjectTiles({ rows }: { rows: PRow[] | null }) {
+  const today = mytToday();
+  const week = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
+  const live = (rows ?? []).filter((r) => !["completed", "cancelled", "draft"].includes(r.status));
+  return (
+    <KpiRow label={L("Project figures", "Angka projek")}>
+      <KpiTile icon="folder" tone="blue" label={L("Active Projects", "Projek Aktif")} value={live.length} busy={rows === null} sub={L("In delivery (after the quotation)", "Dalam penghantaran (selepas sebut harga)")} />
+      <KpiTile icon="warning" tone="gold" label={L("At Risk", "Berisiko")} value={live.filter((r) => healthOf(r, today).word === L("At Risk", "Berisiko")).length} busy={rows === null} sub={L("Overdue work or close to due", "Kerja lewat atau hampir tarikh akhir")} />
+      <KpiTile icon="success" tone="green" label={L("Completed This Month", "Selesai Bulan Ini")} value={(rows ?? []).filter((r) => r.status === "completed" && (r.completed_at ?? "").slice(0, 7) === today.slice(0, 7)).length} busy={rows === null} sub={L("Projects closed this month", "Projek ditutup bulan ini")} />
+      <KpiTile icon="date" tone="red" label={L("Due This Week", "Perlu Siap Minggu Ini")} value={live.filter((r) => r.due_date && r.due_date >= today && r.due_date <= week).length} busy={rows === null} sub={L("Project due dates in the next 7 days", "Tarikh akhir projek dalam 7 hari")} />
+    </KpiRow>
+  );
+}
+
+/** The chosen project beside the register (1280px and wider): its facts,
+    delivery, the stage line, deliverables (no ticks until TK-9), team, the
+    next task and the latest updates - read from the one project record. */
+function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
+  const [w, setW] = useState<{ id: number; d: Workspace | null } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void api<Workspace>(`/staff/projects/${id}`).then((r) => { if (alive) setW({ id, d: r.ok && r.data ? r.data : null }); });
+    return () => { alive = false; };
+  }, [id]);
+  const d = w?.id === id ? w.d : undefined;
+  if (d === undefined) return <section className={`${pw.panel} ${t5.preview}`} aria-label={L("Project", "Projek")}><SkelRows rows={6} /></section>;
+  if (d === null) return <section className={`${pw.panel} ${t5.preview}`} aria-label={L("Project", "Projek")}><p className={pw.empty}>{L("This project could not be read.", "Projek ini tidak dapat dibaca.")}</p></section>;
+  const p = d.project;
+  const accepted = d.quotation.state.accepted_at;
+  const steps: [string, string | null, boolean][] = [
+    [L("Quotation Accepted", "Sebut Harga Diterima"), accepted ? fmtDay(accepted) : d.quotation.state.invoice ? L("Invoiced", "Diinvois") : null, Boolean(accepted || d.quotation.state.invoice)],
+    [L("Project Kickoff", "Mula Projek"), p.activated_at ? fmtDay(p.activated_at) : null, Boolean(p.activated_at)],
+    [L("In Delivery", "Dalam Penghantaran"), p.start_date ? `${fmtDay(p.start_date)}${p.due_date ? ` – ${fmtDay(p.due_date)}` : ""}` : null, ["in_progress", "waiting_client", "on_hold", "completed"].includes(p.status)],
+    [L("Final Delivery", "Penghantaran Akhir"), p.completed_at ? fmtDay(p.completed_at) : p.due_date ? fmtDay(p.due_date) : null, p.status === "completed"],
+  ];
+  const next = d.tasks.filter((t) => t.status !== "completed").sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"))[0];
+  return (
+    <section className={`${pw.panel} ${t5.preview}`} aria-label={p.title} data-testid="project-summary">
+      <div className={pw.sumHead}>
+        <span><strong>{d.client?.company ?? p.title}</strong><small>{p.title} · {d.quotation.doc_number}</small></span>
+        <ProjectStatusChip status={p.status} />
+      </div>
+      {p.description && <p className={pw.noteLines}>{p.description}</p>}
+      <div className={pw.sumFacts}>
+        <span><small>{L("Client", "Pelanggan")}</small><strong>{d.client?.company ?? "—"}</strong></span>
+        <span><small>{L("Owner", "Pemilik")}</small><strong>{p.owner?.name ?? L("Not assigned", "Belum ditetapkan")}</strong></span>
+        <span><small>{L("Due", "Akhir")}</small><strong>{fmtDay(p.due_date)}</strong></span>
+      </div>
+      <p className={pw.pSub}>{L("Overall Progress", "Kemajuan Keseluruhan")} · <strong>{Math.round(p.progress)}%</strong></p>
+      <span className={pw.track}><span className={p.progress >= 100 ? pw.fillDone : pw.fill} style={{ width: `${Math.round(p.progress)}%` }} /></span>
+      <ol className={pw.stages} aria-label={L("Project stages", "Peringkat projek")}>
+        {steps.map(([label, when, done]) => <li key={label} data-done={done ? "" : undefined}><span className={pw.stageDot} aria-hidden />{label}<small>{when ?? "—"}</small></li>)}
+      </ol>
+      <div className={pw.sumGrid}>
+        <div>
+          <p className={pw.pSub}><strong>{L(`Key Deliverables (${p.deliverables.length})`, `Hasil Utama (${p.deliverables.length})`)}</strong></p>
+          {p.deliverables.length === 0 ? <p className={pw.empty}>{L("None written yet.", "Belum ditulis.")}</p> : <ul className={pw.delivList}>{p.deliverables.slice(0, 5).map((x, i) => <li key={i}>{x}</li>)}</ul>}
+        </div>
+        <div>
+          <p className={pw.pSub}><strong>{L(`Team Members (${d.team.length})`, `Ahli Pasukan (${d.team.length})`)}</strong></p>
+          <span className={pw.teamRow}>{d.team.slice(0, 6).map((m) => <Avatar key={m.id} name={m.name} photoKey={m.photo_key} size="sm" />)}</span>
+          <p className={pw.pSub}><strong>{L("Next Task", "Tugasan Seterusnya")}</strong></p>
+          {next ? <p className={pw.note}>{next.title}{next.deadline ? ` · ${fmtDay(next.deadline)}` : ""}</p> : <p className={pw.empty}>{L("No open task.", "Tiada tugasan terbuka.")}</p>}
+        </div>
+      </div>
+      <p className={pw.pSub}><strong>{L("Recent Activity", "Aktiviti Terkini")}</strong></p>
+      {d.updates.length === 0 ? <p className={pw.empty}>{L("No update yet.", "Belum ada kemas kini.")}</p> : (
+        <ul className={pw.delivList}>{d.updates.slice(0, 3).map((u) => <li key={u.id}>{u.body.slice(0, 80)}<small> · {u.author} · {fmtStamp(u.created_at)}</small></li>)}</ul>
+      )}
+      <button type="button" className={btnSmPrimary} onClick={onOpen} data-testid="summary-open">{L("Open project", "Buka projek")}</button>
+    </section>
   );
 }

@@ -74,6 +74,17 @@ export async function handleErp(
       if (!str(body?.name, 100)) return err("validation", "The account needs a name", 400);
       const coB = companyOf(body?.company);
       if (!coB) return err("validation", "Choose the company this account belongs to", 400);
+      /* v1.312.1 - the same account is not added twice: an active account of
+         the same company ending in the same four digits is the one already there */
+      const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "").slice(-4);
+      const tail = digits(body?.number_masked);
+      if (tail.length === 4) {
+        try {
+          const same = (await env.DB.prepare(`SELECT id, name, number_masked FROM bank_accounts WHERE company = ?1 AND active = 1`).bind(coB).all<{ id: number; name: string; number_masked: string | null }>()).results ?? [];
+          const twin = same.find((b) => digits(b.number_masked) === tail);
+          if (twin) return err("duplicate", `${twin.name} (ending ${tail}) is already this company's account`, 409);
+        } catch (e) { if (!/no such column/i.test(String(e))) throw e; }
+      }
       let res: { id: number } | null;
       try {
         res = await env.DB.prepare(

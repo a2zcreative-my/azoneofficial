@@ -1,0 +1,96 @@
+/* v1.313.0 - A2Z OS TASKS WORKSPACE 5.0, Gate 3 (the CEO's "Approved as per
+   recommendations both", 15-11-2026; claude/TASKS-WORKSPACE-5.0-BLUEPRINT.md).
+
+   What this holds, in the source (the browser half is tests/browser/tasks5.py):
+     - six tabs in the board's order, the view in the address, the phone's
+       view switch;
+     - Gate 3 is screens only: the new pieces read and never write; the one
+       engine's routes are the ones there were;
+     - the calendar is the work already recorded - no calendar table, no
+       Client Meetings (TK-10), Sunday first;
+     - the Live Host card pretends no form, no GMV figure (TK-1, TK-14);
+     - At Risk is the written rule (TK-8), priority words are TK-3's;
+     - nothing reads "Recurring" (TK-6); Edit is the existing edit, open
+       tasks only, for the assignee or management;
+     - the server's two read additions say no more than they should.
+   Each rule is also proven to catch its own breakage (the mutation pass).
+
+     node tests/tasks5.mjs        (NOMUT=1 skips the mutation pass) */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
+const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+const FILES = {
+  tasks: "components/portal/tasks.tsx",
+  t5: "components/portal/tasks5.tsx",
+  pw: "components/portal/project-workspace.tsx",
+  staff: "worker/src/staff.ts",
+  projects: "worker/src/projects.ts",
+  progress: "components/portal/task-progress.tsx",
+};
+
+function checks(src) {
+  const res = [];
+  const ok = (name, cond, detail = "") => res.push([name, Boolean(cond), detail]);
+  const t = src.tasks, t5 = strip(src.t5);
+
+  ok("six views, in the board's order", /const TASK_VIEWS: readonly TaskView\[\] = \["overview", "mine", "all", "projects", "calendar", "reports"\];/.test(t)
+    && /\["overview", L\("Overview"[\s\S]*?\["mine", L\("My Tasks"[\s\S]*?\["all", L\("All Tasks"[\s\S]*?\["projects", L\("Projects"[\s\S]*?\["calendar", L\("Calendar"[\s\S]*?\["reports", L\("Reports & Archive"/.test(t));
+  ok("the view is in the address (Back and Forward)", /useTabViewAddress\("Tasks", view, setView, isTaskView\);/.test(t));
+  ok("the phone reads the view switch with Create Task", /<ViewSwitch value=\{view\} onChange=\{\(k\) => go\(k\)\} label=\{L\("Tasks view"/.test(t) && /data-testid="tasks-view-bar"/.test(t));
+  ok("All Tasks only for management (the server answers ?all=1 for them alone)", /\.\.\.\(canManage \? \[\["all", L\("All Tasks"/.test(t) && /useCachedApi<\{ tasks: Task\[\] \}>\(`\/staff\/tasks\$\{canManage \? "\?all=1" : ""\}`/.test(t));
+
+  ok("Gate 3 writes nothing new: the Tasks 5.0 pieces only read", !/method:|csrfFetch|fetch\(/.test(t5));
+  ok("…and read only the routes there were (items, roster, live sessions)", (t5.match(/api<[^>]*>\(`([^`]+)`/g) ?? []).every((x) => /\/staff\/tasks\/\$\{id\}\/items|\/staff\/roster\?week=/.test(x))
+    && (t5.match(/useCachedApi<[^>]*>\(([^,]+),/g) ?? []).every((x) => /\/staff\/roster\?week=|"\/staff\/live-sessions"/.test(x)));
+
+  const cal = t5.slice(t5.indexOf("export function WorkCalendar("), t5.indexOf("export function LiveHostCard("));
+  ok("the calendar's kinds are the records there are - no Client Meetings (TK-10)", /const KIND_WORD: Record<EvKind, \[string, string\]> = \{ task: \["Tasks", "Tugasan"\], due: \["Deadlines", "Tarikh akhir"\], review: \["Reviews", "Semakan"\], live: \["Live Sessions", "Sesi Live"\], mile: \["Milestones", "Pencapaian"\] \};/.test(t5) && !/Client Meeting|Mesyuarat Pelanggan/.test(t5));
+  ok("Sunday first, as the board", /const lead = new Date\(`\$\{first\}T00:00:00Z`\)\.getUTCDay\(\);/.test(cal) && /\[\["Sun", "Ahd"\], \["Mon", "Isn"\]/.test(cal));
+  ok("a phone reads the agenda, never the shrunk grid", /<div className=\{t5\.deskOnly\}>/.test(cal) && /className=\{mode === "list" \? "" : t5\.phoneOnly\} data-testid="cal-agenda"/.test(cal));
+
+  const lh = t5.slice(t5.indexOf("export function LiveHostCard("));
+  ok("the Live Host card pretends no form and no GMV figure (Gate 4)", !/<input|<textarea|<select|gmv_cents|GMV reported|RM \d/.test(lh) && /Gate 4/.test(lh));
+  ok("…and the Reports figure says it is not built", /label=\{L\("Live Host Sessions", "Sesi Hos Live"\)\} value=\{L\("Gate 4", "Gate 4"\)\}/.test(t));
+
+  ok("At Risk is the written rule (TK-8): an overdue task, past due, or due in 7 days under 50%", /if \(\(r\.late \?\? 0\) > 0\) return \{ word: L\("At Risk"/.test(src.pw) && /if \(r\.due_date && r\.due_date < today\) return \{ word: L\("At Risk"/.test(src.pw) && /r\.due_date <= week && r\.progress < 50\) return \{ word: L\("At Risk"/.test(src.pw));
+  ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /if \(stage === "review"\) return \{ label: L\("Review", "Semakan"\)/.test(src.progress));
+  ok("nothing claims a recurring series (TK-6)", !/Recurring task|Tugasan berulang/.test(t5 + strip(t)));
+  ok("Edit is the existing edit, offered on open tasks to the assignee or management", /const editable = \(isMine\(t\) \|\| canManage\) && t\.status !== "completed";/.test(t) && /\{opts\.edit && editable && \(/.test(t));
+  ok("a checklist is never closure: the preview only opens the task or its update", /onOpen=\{\(id\) => void openChecklist\(id\)\} onUpdate=\{\(id\) => \{ setSheetFor\(id\); void openChecklist\(id\); \}\}/.test(t));
+
+  ok("the staff picker adds the department and still no phone, IC, bank or salary", /u\.role, u\.position, u\.department, u\.employment_status FROM users u\s+WHERE u\.is_active = 1/.test(src.staff) && !/u\.(phone|ic_number|bank_account|salary)[^\n]*FROM users u\s+WHERE u\.is_active = 1 AND \$\{currentStaffSql/.test(src.staff));
+  ok("the project list counts overdue project tasks for At Risk, a read only", /AND t\.status != 'completed' AND t\.deadline < date\('now', '\+8 hours'\)\) AS late,/.test(src.projects));
+  return res;
+}
+
+const base = Object.fromEntries(Object.entries(FILES).map(([k, p]) => [k, read(p)]));
+const res = checks(base);
+let failed = res.filter(([, c]) => !c);
+for (const [n, c, d] of res) if (!c) console.log(`  ✗ ${n}${d ? `  [${d}]` : ""}`);
+
+/* the mutation pass: each breakage must be caught */
+const MUT = [
+  ["the view taken off the address", "tasks", 'useTabViewAddress("Tasks", view, setView, isTaskView);', ""],
+  ["a write slipped into the calendar", "t5", "void Promise.all(key.split(\",\").filter(Boolean).map((w) => api<Roster>(`/staff/roster?week=${w}`)))", "void Promise.all(key.split(\",\").filter(Boolean).map((w) => api<Roster>(`/staff/roster?week=${w}`, { method: \"POST\" })))"],
+  ["Client Meetings invented", "t5", 'mile: ["Milestones", "Pencapaian"] };', 'mile: ["Milestones", "Pencapaian"], meet: ["Client Meetings", "Mesyuarat Pelanggan"] };'],
+  ["Monday first again", "t5", "const lead = new Date(`${first}T00:00:00Z`).getUTCDay();", "const lead = (new Date(`${first}T00:00:00Z`).getUTCDay() + 6) % 7;"],
+  ["a GMV field pretended", "t5", '<div className={t5.phase}>', '<div className={t5.phase}><input aria-label="GMV reported (RM)" />'],
+  ["At Risk without the overdue tasks", "pw", "if ((r.late ?? 0) > 0) return", "if (false) return"],
+  ["Edit on a closed task", "tasks", 'const editable = (isMine(t) || canManage) && t.status !== "completed";', "const editable = isMine(t) || canManage;"],
+  ["the staff picker exposes the phone", "staff", "u.role, u.position, u.department, u.employment_status FROM users u", "u.role, u.position, u.department, u.phone, u.employment_status FROM users u"],
+  ["a recurring label invented", "t5", '<small>{[task.start_date && task.deadline', '<small>{L("Recurring task", "Tugasan berulang")}{[task.start_date && task.deadline'],
+];
+let caught = 0;
+for (const [name, file, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
+  if (!base[file].includes(from)) { console.log(`  ✗ mutation anchor missing: ${name}`); failed = [...failed, [name]]; continue; }
+  const r = checks({ ...base, [file]: base[file].replace(from, to) });
+  if (r.some(([, c]) => !c)) caught++;
+  else { console.log(`  ✗ mutation NOT caught: ${name}`); failed = [...failed, [name]]; }
+}
+if (failed.length) { console.log(`\ntasks5: ${failed.length} failed`); process.exit(1); }
+console.log(`tasks5: ${res.length} checks passed${process.env.NOMUT === "1" ? " (mutation pass skipped)" : ` (${caught} mutations caught)`}`);

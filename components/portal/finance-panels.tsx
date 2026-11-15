@@ -895,20 +895,35 @@ function AccountsDrawer({ view, onClose, onSavedToast, onError }: { view: Cashbo
   const [nb, setNb] = useState({ name: "", bank: "", number_masked: "", company: "" });
   const [edit, setEdit] = useState<Record<number, { opening: string; on: string }>>({});
   const [adding, setAdding] = useState(false);
+  /* v1.312.1 (the CEO, 15-11-2026: "Finance account add is saved, but it
+     doesn't reflect") - the drawer lists EVERY company account, not only the
+     company the page is showing: an AZ ONE account added while A2Z was
+     chosen was saved but hidden, and its Add button stayed, so it could be
+     added again. The book balance comes from the page's view where the
+     account is in it; another company's balance is read under its own name. */
+  const [all, setAll] = useState<{ banks: Bank[]; failed: boolean } | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void api<{ banks: Bank[] }>(`/banks`).then((r) => { if (alive) setAll({ banks: r.ok ? r.data?.banks ?? [] : [], failed: !r.ok }); });
+    return () => { alive = false; };
+  }, [tick]);
+  const banks: Bank[] = (!all || all.failed ? view.banks : all.banks).map((b) => ({ ...b, book_balance_cents: view.banks.find((x) => x.id === b.id)?.book_balance_cents ?? null }));
+  const shownHere = (b: Bank) => view.banks.some((x) => x.id === b.id);
   const add = async () => {
     const r = await api<{ error?: { message?: string } }>(`/banks`, { method: "POST", body: JSON.stringify(nb) });
-    if (r.ok) { setNb({ name: "", bank: "", number_masked: "", company: "" }); onSavedToast(L("Account added", "Akaun ditambah")); }
+    if (r.ok) { setNb({ name: "", bank: "", number_masked: "", company: "" }); setTick((n) => n + 1); onSavedToast(L("Account added", "Akaun ditambah")); }
     else onError(r.data?.error?.message ?? L("The account needs a name and a company", "Akaun perlu nama dan syarikat"));
   };
   const addInvoiceAccount = async (a: (typeof INVOICE_ACCOUNTS)[number]) => {
     setAdding(true);
     const r = await api<{ error?: { message?: string } }>(`/banks`, { method: "POST", body: JSON.stringify({ name: a.name, bank: a.bank, number_masked: a.number_masked, company: a.code }) });
     setAdding(false);
-    if (r.ok) onSavedToast(L(`${a.name} added`, `${a.name} ditambah`)); else onError(r.data?.error?.message ?? L("Try again", "Cuba lagi"));
+    if (r.ok) { setTick((n) => n + 1); onSavedToast(L(`${a.name} added`, `${a.name} ditambah`)); } else onError(r.data?.error?.message ?? L("Try again", "Cuba lagi"));
   };
   const patch = async (id: number, body: Record<string, unknown>, done: string) => {
     const r = await api<{ error?: { message?: string } }>(`/cashbook/banks/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-    if (r.ok) onSavedToast(done); else onError(r.data?.error?.message ?? L("Try again", "Cuba lagi"));
+    if (r.ok) { setTick((n) => n + 1); onSavedToast(done); } else onError(r.data?.error?.message ?? L("Try again", "Cuba lagi"));
   };
   return (
     <SideDrawer open onClose={onClose} title={L("Company accounts", "Akaun syarikat")} subtitle={L("Masked numbers only. Each account belongs to one company. A book balance is shown only from an opening balance you enter - it is not bank-verified.", "Nombor bertopeng sahaja. Setiap akaun milik satu syarikat. Baki buku dipaparkan hanya dari baki pembukaan yang anda masukkan - ia tidak disahkan bank.")}>
@@ -918,7 +933,7 @@ function AccountsDrawer({ view, onClose, onSavedToast, onError }: { view: Cashbo
             <p className={css.subhead}>{L("Accounts printed on your invoices", "Akaun yang tercetak pada invois anda")}</p>
             <ul className={css.invAcc}>
               {INVOICE_ACCOUNTS.map((a) => {
-                const have = view.banks.some((b) => last4(b.number_masked) === a.last4);
+                const have = banks.some((b) => b.active && b.company === a.code && last4(b.number_masked) === a.last4);
                 return (
                   <li key={a.code}>
                     <span><strong>{a.name}</strong><small>{a.number_masked} · {COMPANY[a.code]}</small></span>
@@ -930,8 +945,8 @@ function AccountsDrawer({ view, onClose, onSavedToast, onError }: { view: Cashbo
             </ul>
           </div>
         )}
-        {view.banks.length === 0 && <p className={fx.empty}>{L("No accounts yet.", "Tiada akaun lagi.")}</p>}
-        {view.banks.map((b) => {
+        {all === null ? <SkelRows rows={3} /> : banks.length === 0 && <p className={fx.empty}>{L("No accounts yet.", "Tiada akaun lagi.")}</p>}
+        {all !== null && banks.map((b) => {
           const e = edit[b.id] ?? { opening: b.opening_balance_cents != null ? (b.opening_balance_cents / 100).toFixed(2) : "", on: b.opening_on ?? "" };
           return (
             <div key={b.id} className={css.accEdit} data-testid={`account-${b.id}`}>
@@ -954,7 +969,7 @@ function AccountsDrawer({ view, onClose, onSavedToast, onError }: { view: Cashbo
                   </div>
                 </>
               ) : (
-                <p className={css.meta}>{b.book_balance_cents != null ? `${fmtSigned(b.book_balance_cents)} · ${L("book balance (not bank-verified)", "baki buku (tidak disahkan bank)")}` : L("No opening balance. The CEO or COO enters it.", "Tiada baki pembukaan. CEO atau COO memasukkannya.")}</p>
+                <p className={css.meta}>{!shownHere(b) ? L(`Choose ${companyWord(b.company)} above to see its book balance.`, `Pilih ${companyWord(b.company)} di atas untuk melihat baki bukunya.`) : b.book_balance_cents != null ? `${fmtSigned(b.book_balance_cents)} · ${L("book balance (not bank-verified)", "baki buku (tidak disahkan bank)")}` : L("No opening balance. The CEO or COO enters it.", "Tiada baki pembukaan. CEO atau COO memasukkannya.")}</p>
               )}
             </div>
           );

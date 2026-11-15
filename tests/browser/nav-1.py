@@ -194,7 +194,7 @@ with sync_playwright() as p:
               and (more_btn.get_attribute("aria-current") is not None or "On" in (more_btn.get_attribute("class") or "") or pg.evaluate("(()=>{const b=[...document.querySelectorAll('button')].filter(x=>x.innerText.trim()==='More').pop(); return getComputedStyle(b).fontWeight})()") in ("600", "700")))
         pg.get_by_role("button", name="More").last.click(); pg.wait_for_timeout(600)
         pg.locator("#portal-more-menu").get_by_test_id("more-projects").click(); pg.wait_for_timeout(1500)
-        check(f"phone {w}: Projects opens Tasks on its Projects view", title(pg) == "Tasks" and pg.get_by_role("tab", name="Projects", exact=True).first.get_attribute("aria-selected") == "true")
+        check(f"phone {w}: Projects opens Tasks on its Projects view", title(pg) == "Tasks" and "view=projects" in pg.url)  # v1.313.0 - a phone has the view switch, and the view is in the address
         check(f"phone {w}: no page errors", not errs, errs)
         ctx.close()
     b.close()

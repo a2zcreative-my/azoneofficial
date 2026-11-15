@@ -612,3 +612,19 @@
     display: none !important;
   }
 }
+
+/* v1.314.0 - Accounting 5.0, Phase A (the Financial Reports reference): the
+   totals band over the trial balance - Total Debit, Total Credit, and the
+   arithmetic check, never called health */
+.totalsBand { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin: 0.75rem 0; padding: 0.75rem 1rem; border-radius: var(--radius-card); background: var(--success-soft); }
+.totalsBand > span { display: grid; gap: 0.125rem; align-content: center; }
+.totalsBand small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.totalsBand strong { font-size: 1.125rem; font-variant-numeric: tabular-nums; }
+.balOk, .balBad { justify-self: start; padding: 0.25rem 0.75rem; border-radius: var(--radius-full); font-weight: 700; font-size: var(--type-body-sm-size); }
+.balOk { background: var(--card); color: var(--success); }
+.balBad { background: var(--danger-soft); color: var(--danger); }
+@media (min-width: 640px) {
+  .totalsBand { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .balOk, .balBad { justify-self: center; }
+}
+.viewBar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }

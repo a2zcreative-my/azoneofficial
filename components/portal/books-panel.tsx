@@ -74,7 +74,13 @@ const fig = (k: FigKey, v: number) => (k === "documents" || k === "gl_entries" ?
 const signed = (k: FigKey, v: number) => `${v > 0 ? "+" : "-"}${fig(k, Math.abs(v))}`;
 const inv = (d: Debtor) => d.doc_number || `#${d.id}`;
 
-export function BooksPanel() {
+/** v1.314.0 (Accounting 5.0, Phase A; the directive: "a month must never be
+    closed just because the user clicks Close month") - Close is offered only
+    on the month whose checks above have passed; any other open month offers
+    its checks instead. The screen's gate only: the server's own refusal of a
+    close with a failing check is Phase E, not built yet. */
+export type CloseGate = { month: string; ready: boolean; pick: (month: string) => void };
+export function BooksPanel({ gate }: { gate?: CloseGate } = {}) {
   const [tab, setTab] = useState<"months" | "position" | "audit">("months");
   const [months, setMonths] = useState<{ months: Month[]; current_month: string } | null>(null);
   const [pos, setPos] = useState<Position | null>(null);
@@ -165,7 +171,9 @@ export function BooksPanel() {
                       : <span className={chipSmNeutral}>{L("open", "terbuka")}</span>}
                   {m.closed && <span className={css.whatDetail}>{L(`closed ${dmyMYT(m.closed.at)}${m.closed.by ? ` by ${m.closed.by}` : ""}`, `ditutup ${dmyMYT(m.closed.at)}${m.closed.by ? ` oleh ${m.closed.by}` : ""}`)}{m.closed.note ? ` · ${m.closed.note}` : ""}</span>}
                   <span className={css.monthActions}>
-                    {!current && !m.closed && <button type="button" className={rowBtn} onClick={() => void close(m)}>{L("Close month", "Tutup bulan")}</button>}
+                    {!current && !m.closed && (gate && !(gate.month === m.month && gate.ready)
+                      ? <button type="button" className={rowBtn} onClick={() => gate.pick(m.month)} title={L("The month's checks must pass before it is closed", "Semakan bulan mesti lulus sebelum ditutup")} data-testid="close-review">{gate.month === m.month ? L("Checks not passed", "Semakan belum lulus") : L("Review checks", "Semak")}</button>
+                      : <button type="button" className={rowBtn} onClick={() => void close(m)} data-testid="close-month">{L("Close month", "Tutup bulan")}</button>)}
                     {m.closed && <button type="button" className={rowBtn} onClick={() => void reopen(m)}>{L("Reopen", "Buka semula")}</button>}
                   </span>
                 </div>

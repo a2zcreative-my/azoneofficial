@@ -470,6 +470,16 @@ const accounts = [
 export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   let data = baseFixture(p0);
   const q = url ? new URL(url).searchParams : new URLSearchParams();
+  /* v1.313.0 - Tasks 5.0: today's agenda and the work calendar read the
+     roster's task blocks and lives; one block today for the signed-in person,
+     one live today, both invented (the week asked for, today in Malaysia) */
+  if (p0 === "/staff/roster" && process.env.TASKS5 !== "off") {
+    const td = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const wk = q.get("week");
+    const inWeek = !wk || (td >= wk && td <= new Date(Date.parse(`${wk}T00:00:00Z`) + 6 * 86400000).toISOString().slice(0, 10));
+    data = { ...data, task_blocks: inWeek ? [{ id: 71, task_id: 6, user_id: 9001, block_date: td, start_time: "09:30", end_time: "11:00", done_at: null, title: "Sign the hotel partnership letter", priority: "normal", status: "in_progress", deadline: D + "22", user_name: "Fixture Person" }] : [],
+      sessions: inWeek ? [{ id: 72, session_date: td, start_time: "14:00", end_time: "15:30", platform: "tiktok", status: "scheduled", host_user_id: 9003, host_name: "Farid Zul", client_company: "Fixture Client" }] : [] };
+  }
   /* the panels' own prefixes: makeApi("/staff"), makeApi("/staff/erp"), makeApi("/staff/companies") */
   const p = p0.replace(/^\/staff\/erp(?=\/)/, "").replace(/^\/staff(?=\/(?:claims|stokis|content|task-reports|birthdays|expenses|hosts|banks|commission|cashflow|gl)\b)/, "");
   /* v1.182.0 - THE DASHBOARD'S OWN ENDPOINTS. The 12-10 review made a
@@ -691,7 +701,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       { id: 13, title: "Update stock in Inventory", done: 0 },
     ] : [] };
   }
-  if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })) };
+  if (p === "/staff/staff-list" || p === "/staff-list") data = { staff: staff.map((s) => ({ id: s.id, name: s.name, role: s.role, department: s.department })) }; // v1.313.0 - the department (Tasks 5.0 All Tasks)
   /* v1.189.0 - the Users tabs: two with 2FA, one leaver still active, a few
      Google sign-ups as customers, and a sign-in log with a 2FA change in it */
   /* v1.233.0 - the reporting-line card (worker: lib/org-tree.ts
@@ -1182,7 +1192,13 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     data = { key, events: /CF:9$/.test(key) ? [{ id: 31, action: "cashbook.review", entity_id: "out_of_step|CF:9", detail: JSON.stringify({ note: "Customer asked to re-issue; waiting" }), created_at: DM + "10 02:00:00", who: "Fixture Person", who_role: "ceo" }]
       : /CF:12$/.test(key) ? [] : [{ id: 30, action: "cashbook.assign_bank", entity_id: key, detail: JSON.stringify({ note: "From the bank statement" }), created_at: DM + "13 03:00:00", who: "Fixture COO", who_role: "coo" }] };
   }
-  if (p === "/banks") data = { banks: [{ id: 1, name: "Maybank", account_no: "5621", balance_cents: 2500000 }] };
+  /* v1.312.1 - every company account, whichever company the page shows (the Accounts drawer) */
+  if (p === "/banks") { const DMb = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 8); data = { banks: [
+    { id: 1, name: "Maybank Operating", bank: "Maybank", number_masked: "•••• 5621", active: 1, opening_balance_cents: 2500000, opening_on: DMb + "01", company: "a2z" },
+    { id: 2, name: "CIMB Savings", bank: "CIMB", number_masked: "•••• 0412", active: 1, opening_balance_cents: null, opening_on: null, company: "a2z" },
+    { id: 3, name: "A2Z CREATIVE MARKETING - Maybank", bank: "Maybank", number_masked: "•••• 5300", active: 1, opening_balance_cents: null, opening_on: null, company: null },
+    { id: 4, name: "AZ ONE OFFICIAL - Maybank", bank: "Maybank", number_masked: "•••• 8811", active: 1, opening_balance_cents: null, opening_on: null, company: "azoo" },
+  ].filter(() => !process.env.NOBANKS) }; }
   if (p === "/expenses") data = { expenses, upcoming: [], staff_payroll: null, staff_claims: { in_month: [], due: [], paid: [] } };
   /* v1.215.0 - the CEO/COO paid confirmation (0145). CONFIRMED=1 serves
      INV-AZO100926-2 as confirmed; otherwise it awaits confirmation. */

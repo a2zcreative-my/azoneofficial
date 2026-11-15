@@ -3678,7 +3678,7 @@ async function handleStaffRoutes(
     // Sales-person dropdown — available to every staff role, exposes nothing
     // sensitive (no phone/IC/bank/salary).
     const { results } = await env.DB.prepare(
-      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.department, u.employment_status FROM users u
        WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
          AND u.role != 'agent'
        ORDER BY ${STAFF_ORDER_SQL}`,

@@ -109,6 +109,14 @@ with sync_playwright() as p:
     ctx.close()
     check("no page error (company selector)", not errs, errs)
 
+    # v1.312.1 (the CEO, 15-11-2026: an added AZ ONE account "doesn't reflect") - the drawer lists every company's accounts
+    ctx, pg, errs = open_page(b, CEO, view="overview")
+    pg.get_by_role("button", name=re.compile("Manage accounts")).first.click(); pg.wait_for_timeout(1500)
+    check("with A2Z chosen, the Accounts drawer still lists AZ ONE's account", pg.get_by_test_id("account-4").count() == 1 and "AZ ONE" in pg.get_by_test_id("account-4").inner_text(), pg.get_by_role("dialog").last.inner_text()[:300] if pg.get_by_role("dialog").count() else "")
+    check("…and says where its book balance is read", "to see its book balance" in pg.get_by_test_id("account-4").inner_text() or pg.get_by_test_id("account-4").locator("input").count() > 0)
+    ctx.close()
+    check("no page error (accounts drawer)", not errs, errs)
+
     # ---------------- the expense steps, per role ----------------
     seen = {}
     for name, port in [("CEO", CEO), ("COO", COO), ("Admin", ADMIN), ("Super Admin", SUPER)]:

@@ -144,7 +144,7 @@ with sync_playwright() as p:
     check("an empty update is refused on the spot, nothing sent", "Write the update." in dlg.inner_text() and not [r for r in reqs if r[0] == "POST" and "/updates" in r[1]])
     txt = "Design untuk minggu 1 & 2 sudah siap.\nMenunggu feedback client."
     dlg.locator("textarea").first.fill(txt); pg.wait_for_timeout(200)
-    check("the counter counts to 500", f"{len(txt)}/500" in dlg.inner_text())
+    check("the counter counts to 500", re.search(rf"\b{len(txt)}\s*/\s*500\b", dlg.inner_text()) is not None)  # the counter reads "57 / 500"
     dlg.get_by_label("Status", exact=True).select_option("waiting_client")
     dlg.get_by_role("button", name="Post Update").click(); pg.wait_for_timeout(1500)
     posts = [r for r in reqs if r[0] == "POST" and re.search(r"/staff/tasks/\d+/updates$", r[1])]
@@ -314,8 +314,7 @@ with sync_playwright() as p:
     chips.first.click(); pg.wait_for_timeout(1800)
     check("...and pressing it opens the project in Tasks > Projects", pg.get_by_role("tab", name="Projects", selected=True).count() == 1)
     pc = b.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True).new_page()
-    pc.goto("http://127.0.0.1:4208/portal?tab=Tasks"); pc.wait_for_timeout(2500)
-    pc.get_by_role("tab", name="Calendar", exact=True).first.click(); pc.wait_for_timeout(1500)
+    pc.goto("http://127.0.0.1:4208/portal?tab=Tasks&view=calendar"); pc.wait_for_timeout(2500)  # v1.313.0 - a phone opens the view by its address (or the view switch)
     check("the calendar with projects fits a phone", pc.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"))
     check("no page errors (calendar)", not errs, str(errs)[:300])
     ctx.close()

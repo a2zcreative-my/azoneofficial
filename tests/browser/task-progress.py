@@ -58,14 +58,16 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs = page(b, 4213)
     tab(pg, "Tasks")
     ov = pg.get_by_test_id("progress-overview")
-    check("Overview: progress reports - waiting for review, blocked, gone quiet", ov.count() == 1 and "Waiting for review" in ov.inner_text() and "Blocked" in ov.inner_text() and "No recent update" in ov.inner_text())
+    # v1.313.0 (Tasks 5.0, TK-2) - waiting for review, blocked and gone quiet are the Overview's Team Attention
+    ta = pg.get_by_test_id("team-attention")
+    check("Overview: Team Attention - waiting for review, blocked, gone quiet", ta.count() == 1 and "waiting for review" in ta.inner_text().lower() and "Blocked" in ta.inner_text() and "No recent update" in ta.inner_text(), ta.inner_text()[:300] if ta.count() else "")
     check("Overview: the newest progress report is listed with its task", TITLE in ov.inner_text() and "Submitted to the bank" in ov.inner_text(), ov.inner_text()[:300])
     pg.get_by_role("tab", name="All Tasks", exact=True).click(); pg.wait_for_timeout(1000)
     row = pg.locator(f"tr:has-text('{TITLE}')").first
     rt = row.inner_text()
-    check("All Tasks: the Latest update column shows the report, who and when", "Submitted to the bank, reference MBB-SME-2207" in rt and "Farid Zulkifli" in rt and re.search(r"\d{1,2}:\d\d (AM|PM)", rt), rt[:300])
-    check("All Tasks: the stage shows - Ready for Review", "Ready for Review" in rt)
-    check("All Tasks: the header names the column", pg.locator("th", has_text="Latest update").count() >= 1)
+    check("All Tasks: the row shows the latest report, who and when (v1.313.0 - under the title)", "Submitted to the bank, reference MBB-SME-2207" in rt and "Farid Zulkifli" in rt and re.search(r"\d{1,2}:\d\d (AM|PM)", rt), rt[:300])
+    check("All Tasks: the stage shows - Review (TK-3)", "Review" in rt)
+    check("All Tasks: the header names the columns of the board (v1.313.0)", pg.locator("th", has_text="Task & Context").count() >= 1)
     # v1.256.0 (TASK-CLOSURE-AUDIT D4) - the row's status dropdown is gone: the state, and one Update action into the task
     check("the row shows the state and one Update action - no status dropdown that could close it (T-2, D4)", row.locator("select").count() == 0 and row.get_by_role("button", name=re.compile("^Update status")).count() == 1, rt[:200])
     st = pg.get_by_label("Status", exact=True).filter(visible=True).first
@@ -85,7 +87,7 @@ with sync_playwright() as p:
           and re.match(r"\d+ waiting", counts[1] or "") and re.match(r"\d+ waiting", counts[2] or ""), str([tabs, counts]))
     bar = dr.get_by_test_id("review-bar")
     sl = dr.get_by_test_id("summary-latest")  # v1.258.0 - the latest report moved from the bar's one line into the status summary, in full
-    check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "Ready for Review" in bar.inner_text() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text())
+    check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "Review" in bar.inner_text() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text())
     check("Details: the reviewer has Approve and Return", bar.get_by_role("button", name="Approve").count() == 1 and bar.get_by_role("button", name="Return").count() == 1)
     det = dr.inner_text()
     check("Details: acknowledged time, helpers, the checklist and the task information kept", "Acknowledged" in det and "Helping" in det and "Deliverables checklist" in det and "Task information" in det)
@@ -171,7 +173,9 @@ with sync_playwright() as p:
     # ---------------- the assignee on a phone (picture 03) ----------------
     ctx, pg, errs, reqs = page(b, 4214, 390, 844)
     tab(pg, "Tasks")
-    pg.get_by_role("tab", name="My Tasks", exact=True).first.click(); pg.wait_for_timeout(1000)
+    # v1.313.0 (Tasks 5.0) - a phone reads the view switch, not the tab row
+    pg.get_by_test_id("tasks-view-bar").get_by_test_id("view-switch").click(); pg.wait_for_timeout(300)
+    pg.get_by_role("menuitemradio", name=re.compile("^My Tasks")).click(); pg.wait_for_timeout(1000)
     pg.get_by_role("button", name=TITLE).first.click(); pg.wait_for_timeout(2000)
     dr = pg.get_by_role("dialog").filter(has_text=TITLE).first
     check("phone: the task opens, its tabs and Update status in reach", dr.is_visible() and dr.get_by_test_id("add-update").is_visible())
@@ -289,8 +293,7 @@ with sync_playwright() as p:
     for w in [320, 375, 393, 430]:
         urllib.request.urlopen("http://127.0.0.1:4213/__reset").read()
         ctx = b.new_context(viewport={"width": w, "height": 852}, is_mobile=True, has_touch=True, reduced_motion="reduce"); pg = ctx.new_page()
-        pg.goto("http://127.0.0.1:4213/portal?tab=Tasks"); pg.wait_for_timeout(2500)
-        pg.get_by_role("tab", name="All Tasks", exact=True).first.click(); pg.wait_for_timeout(900)
+        pg.goto("http://127.0.0.1:4213/portal?tab=Tasks&view=all"); pg.wait_for_timeout(2500)  # v1.313.0 - a phone opens the view by its address
         pg.get_by_text(TITLE).filter(visible=True).first.click(); pg.wait_for_timeout(1800)
         bad = pg.evaluate(DRAWER_FITS, w)
         check(f"phone {w}px: nothing in the task drawer runs past the screen's right edge", bad == [], bad[:5])

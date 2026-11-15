@@ -1099,3 +1099,24 @@ td .who > span:first-child { flex-shrink: 0; }
 .rosterAnchor {
   scroll-margin-top: 4rem;
 }
+
+/* v1.313.0 - Tasks Workspace 5.0 (images 1 and 3): the chosen row on My
+   Tasks wears the gold edge of the board; the description and the latest
+   update sit under the title as one quiet line each; the actions stay on
+   one row. */
+.rowPicked > td { background: color-mix(in srgb, var(--gold-solid) 9%, transparent); }
+.rowPicked > td:first-child { box-shadow: inset 3px 0 0 var(--gold-solid); }
+.descLine { margin: 0.125rem 0 0; color: var(--muted-foreground); font-size: var(--type-caption-size); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.latestLine { display: block; margin-top: 0.25rem; font-size: var(--type-caption-size); max-width: 26rem; }
+.rowActs { display: inline-flex; align-items: center; gap: 0.375rem; white-space: nowrap; }
+.viewBar { display: flex; align-items: center; gap: 0.5rem; justify-content: space-between; }
+/* v1.313.0 - the register as tight as the board's: one line of context, one
+   of the latest update, short dates, the actions on one row */
+.tight th { padding: 0.5rem 0.5rem; }
+.tight td { padding: 0.5rem 0.5rem; }
+.tight .taskCell { min-width: 12rem; max-width: 20rem; }
+.tight .descLine { -webkit-line-clamp: 1; }
+.tight .latestLine { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tight .latestLine > span { display: inline; }
+.tight .who > span:last-child { max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.small { font-size: var(--type-caption-size); }

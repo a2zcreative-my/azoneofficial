@@ -82,13 +82,15 @@ const staff = read("worker/src/staff.ts");
   ok("the + button and the Dashboard's quick action open the create drawer", /<TabAction icon="add" onClick=\{\(\) => setCreateOpen\(true\)\}>/.test(code) && /useState\(\(\) => initialView === "create"\)/.test(code) && /<SideDrawer open=\{createOpen\}/.test(code));
 }
 
-/* ---- 4. the calendar is the deadlines already loaded ---- */
+/* ---- 4. the calendar is the work already recorded (v1.313.0, Tasks 5.0 image 2) ---- */
 {
-  const cal = code.slice(code.indexOf('L("Deadlines", "Tarikh akhir")') - 400, code.indexOf("REPORTS & ARCHIVE") > 0 ? code.indexOf('aria-label={L("Reports and archive"') : undefined);
   const block = src.slice(src.indexOf("=== CALENDAR ==="), src.indexOf("=== REPORTS & ARCHIVE ==="));
-  ok("the Calendar reads the board's own rows", /const scope = canManage \? tasks : myTasks;/.test(block) && /t\.deadline && t\.deadline\.startsWith\(calMonth\)/.test(block));
-  ok("…makes no request and writes nothing", !/\bapi\(|useCachedApi|fetch\(|method:/.test(strip(block)) && cal.length > 0);
-  ok("…and a task on it opens the task", /onClick=\{\(\) => void openChecklist\(t\.id\)\}/.test(block));
+  const t5 = read("components/portal/tasks5.tsx");
+  const wc = t5.slice(t5.indexOf("export function WorkCalendar("), t5.indexOf("export function LiveHostCard("));
+  const rw = t5.slice(t5.indexOf("function useRosterWeeks("), t5.indexOf("export function Head5("));
+  ok("the Calendar reads the board's own rows (yours, or the team's for management)", /<WorkCalendar tasks=\{canManage \? tasks : myTasks\}/.test(block) && /if \(t\.deadline\) out\.push\(\{ key: `d\$\{t\.id\}`, kind: "due"/.test(wc));
+  ok("…reads the roster's lives and task blocks, and writes nothing (no calendar table)", !/method:|csrfFetch|useCachedApi/.test(strip(wc + rw)) && /api<Roster>\(`\/staff\/roster\?week=\$\{w\}`\)/.test(rw) && !/\bapi\(|fetch\(|method:/.test(strip(block)));
+  ok("…and a task on it opens the task", /onOpenTask=\{\(id\) => void openChecklist\(id\)\}/.test(block) && /open: \(\) => onOpenTask\(t\.id\)/.test(wc));
 }
 
 /* ---- 5. the three statuses ---- */

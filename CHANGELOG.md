@@ -10,6 +10,41 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.314.0] - 2026-11-15 - Accounting Workspace 5.0, Phase A: the four tabs say what the books are - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 15-11-2026: "Approved as per recommendations both" on claude/ACCOUNTING-WORKSPACE-5.0-BLUEPRINT.md (AC-1 ... AC-12). Phase A is presentation only: no figure, posting, permission or record changes. Phases B (ledger accuracy), C (company on journals), D (reporting) and E (enforced month-end) each wait for their own approval; Phase B also waits for the seven read-only P0 queries.
+
+- **Four tabs, in the address** (`/portal?tab=Accounting&view=overview|ledger|reports|close`, Back/Forward; on a phone the view switch with the period).
+- **Overview:** Trial Balance Status says "Debits = credits (arithmetic only)" with the exceptions to check beside it - never that the books are healthy; Money In and Money Out are labelled cash basis; Posting Exceptions counts movements not in the books, unbalanced entries and refs posted twice (not "accounts in use"); the chart says it is cash movement, not recognised income and expenses; Checks & Exceptions says a balanced trial balance proves nothing about completeness.
+- **General Ledger:** a filtered chart of accounts calls its sum "shown accounts only", never the ledger total.
+- **Financial Reports:** every report reads "AZ ONE OFFICIAL + A2Z CREATIVE MARKETING - combined, one ledger for both companies, not a consolidated statement" (AC-3/AC-4: per-company reports need a company on each journal, Phase C); the trial balance gains the Total Debit / Total Credit / Balanced (arithmetic) band; the P&L is titled a cash-basis receipts-and-payments statement; the Balance Sheet stays "not supported" (AC-5).
+- **Month-End & Audit:** Close month is offered only on the month whose checks above have passed; any other open month offers "Review checks", which opens its checklist. The screen still says nothing is locked - the server's own refusal is Phase E.
+- Guard: tests/accounting5.mjs (new, registered); browser: tests/browser/accounting5.py (new). business-joins follows the Month end panel's new gate.
+
+## [1.313.0] - 2026-11-15 - Tasks Workspace 5.0, Gate 3: six tabs to the board, screens only - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 15-11-2026: "Approved as per recommendations both" on claude/TASKS-WORKSPACE-5.0-BLUEPRINT.md (TK-1 ... TK-15). Gate 3 is the screens only, on the records that already exist. Gate 4 (title history with a reason, report review, the Live Host Report with GMV screenshots, deliverable rows and client acceptance - migrations 0199 onward) waits for its own approval.
+
+- **Six tabs, in the address** (`/portal?tab=Tasks&view=overview|mine|all|projects|calendar|reports`, Back/Forward; on a phone the view switch with Create Task).
+  - **Overview (TK-2):** My Open Tasks, In Progress, Overdue, Awaiting Review; My Priority Work (overdue, then due today, then high priority, then the soonest due); Team Attention for management (blocked, overdue, waiting for review, not acknowledged); Recent Progress. The status donut, the recently-closed list and the team table left the Overview (they repeated other tabs).
+  - **My Tasks (image 1):** Assigned Today, Due Soon, Overdue, Completed This Week; the list in the board's columns (Task & Context, Status, Priority, Due Date, Assignee, Progress, Subtasks, Actions) with the latest progress report under each title; the chosen task beside it from 1280 px (progress, due, priority, assignee, subtasks, Open task / Add update); My Focus, Today's Agenda (the roster's task blocks and lives), Upcoming Deadlines, Recent Updates.
+  - **All Tasks (image 3):** Open Tasks, In Progress, Waiting Review, Overdue, Closed This Week; the register with Department and an Edit on each open row (the existing edit - title, description, priority, dates, assignee; the server decides who may); Workload Balance, Department Breakdown, Quick Approvals.
+  - **Projects (image 4):** Active Projects, At Risk, Completed This Month, Due This Week; the Project Register (Project & Client, Owner, Stage, Progress, Tasks, Health by the TK-8 rule, with its reason) and the chosen project beside it (client, owner, due, progress, the four stages, deliverables, team, next task, recent activity, Open project). The phone keeps the project cards.
+  - **Calendar (image 2, TK-10):** Events Today, Due This Week, Reviews, Milestones This Month; staff, project and type filters (Tasks, Deadlines, Reviews, Live Sessions, Milestones); Month (Sunday first), Week and List; the chosen day's schedule, Overdue Carry-Overs and Upcoming Deadlines; the roster board stays below. No calendar table: it reads tasks, the roster's task blocks and lives, and project due dates. Client Meetings is not drawn - nothing records one. A phone reads a date agenda.
+  - **Reports & Archive (image 5):** Reports Submitted, Awaiting Review, Archived, Live Host Sessions; the operational reports beside the Live Host card, which says plainly that the report form with GMV evidence comes with Gate 4 and shows the recent lives on the roster; the archive and the management cards as before.
+- **Words (TK-3):** a task waiting for review reads Review; normal priority reads Medium.
+- **Server (reads only):** the staff picker also gives each person's department (no phone, IC, bank or salary); the project list also gives the completion date and the count of overdue project tasks (TK-8).
+- Guard: tests/tasks5.mjs (new, registered); browser: tests/browser/tasks5.py (new). Updated to the new screens: tasks-module (the calendar's reads), tab-zones (the calendar zone).
+
+## [1.312.1] - 2026-11-15 - Finance: an added account shows, whichever company is chosen; the same account is not added twice - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 15-11-2026, with a screenshot: "Finance account add is saved, but it doesn't reflect". The AZ ONE OFFICIAL - Maybank account was saved, but the Accounts drawer listed only the company the page was showing (A2Z), so the new account was hidden and its Add button stayed - pressing it again would have added it again.
+
+- **The Accounts drawer lists every company account** (GET /erp/banks), each with its company; an account of the other company says to choose that company to see its book balance. The list reloads after every add or change. "Added" on the invoice accounts is read from that full list, by company and last four digits.
+- **Server:** POST /erp/banks refuses (409) an active account of the same company ending in the same four digits ("... is already this company's account"). Another company may hold an account ending in the same digits.
+- **If the account was pressed more than once before this fix:** open Finance -> Manage accounts with either company and set the extra copy inactive (nothing is deleted).
+- Tests: finance5.mjs +3 checks and 1 mutation (the duplicate refusal); finance5.py checks the drawer lists AZ ONE's account while A2Z is chosen.
+
 ## [1.312.0] - 2026-11-15 - Finance Workspace 5.0: five views, one cash book, one company at a time - BUILT, NOT DEPLOYED (MIGRATIONS 0197 + 0198, ADDITIVE)
 
 The CEO, 15-11-2026: "approve as per recomment" on claude/FINANCE-WORKSPACE-5.0-BLUEPRINT.md (CEO-1 ... CEO-14). Phase A (the screens) and Phase B (accuracy) are built here; Phase C (the reconciliation workflow table and PART- ledger rows, CEO-3) is not. **The 10% Direct Sales and 7% Agent + 3% Closer rules are untouched. No historical payment event, approval or audit row is changed.**

@@ -250,10 +250,11 @@ async function route(env: Env, path: string, method: string, body: Record<string
     if (st && (PROJECT_STATUSES as readonly string[]).includes(st)) { args.push(st); where.push(`p.status = ?${args.length}`); }
     else if (st === "open") where.push(`p.status NOT IN ('completed', 'cancelled')`);
     const rows = (await env.DB.prepare(
-      `SELECT p.id, p.quotation_id, p.title, p.status, p.due_date, p.owner_id, p.updated_at, d.doc_number, c.company,
+      `SELECT p.id, p.quotation_id, p.title, p.status, p.due_date, p.completed_at, p.owner_id, p.updated_at, d.doc_number, c.company,
               ${PERSON("o")} AS owner_name,
               (SELECT COUNT(*) FROM tasks t WHERE t.link_kind = 'project' AND t.link_id = p.id) AS tasks,
               (SELECT COUNT(*) FROM tasks t WHERE t.link_kind = 'project' AND t.link_id = p.id AND t.status = 'completed') AS done,
+              (SELECT COUNT(*) FROM tasks t WHERE t.link_kind = 'project' AND t.link_id = p.id AND t.status != 'completed' AND t.deadline < date('now', '+8 hours')) AS late,
               (SELECT COALESCE(AVG(CASE WHEN t.status = 'completed' THEN 100 ELSE t.progress END), 0) FROM tasks t WHERE t.link_kind = 'project' AND t.link_id = p.id) AS progress,
               (SELECT COUNT(*) FROM tasks t WHERE t.link_kind = 'project' AND t.link_id = p.id AND t.assigned_to = ?${args.length + 1} AND t.status != 'completed') AS my_open
          FROM projects p JOIN sales_documents d ON d.id = p.quotation_id JOIN customers c ON c.id = p.customer_id

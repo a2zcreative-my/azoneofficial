@@ -124,6 +124,10 @@ async function runtime(workerBundle, migDir) {
     const A = (await call("/erp/banks", U.coo, "POST", { name: "A2Z - Maybank", bank: "Maybank", number_masked: "•••• 5300", company: "a2z" })).j?.id;
     const B = (await call("/erp/banks", U.ceo, "POST", { name: "AZ ONE - Maybank", bank: "Maybank", number_masked: "•••• 8811", company: "azoo" })).j?.id;
     const C = (await call("/erp/banks", U.coo, "POST", { name: "A2Z - CIMB", bank: "CIMB", number_masked: "•••• 0412", company: "a2z" })).j?.id;
+    /* v1.312.1 - the same account is not added twice; the list holds every company's accounts */
+    ok((await call("/erp/banks", U.ceo, "POST", { name: "AZ ONE - Maybank again", bank: "Maybank", number_masked: "8811", company: "azoo" })).status === 409, "the same company account (same last four digits) is not added twice");
+    ok((await call("/erp/banks", U.ceo, "POST", { name: "A2Z ending 8811", bank: "RHB", number_masked: "•••• 8811", company: "a2z" })).status === 201, "…another company may hold an account ending in the same digits");
+    { const l = (await call("/erp/banks", U.coo)).j?.banks ?? []; ok(l.some((b) => b.company === "azoo") && l.some((b) => b.company === "a2z"), "the account list holds both companies' accounts (the drawer reads it whatever company the page shows)"); }
     ok(A && B && C && row(`SELECT company FROM bank_accounts WHERE id = ?`, A)?.company === "a2z" && row(`SELECT company FROM bank_accounts WHERE id = ?`, B)?.company === "azoo", "CEO-2 accounts are saved with their company", fmt([A, B, C]));
     ok((await call("/erp/cashbook?company=xyz", U.ceo)).status === 400, "CEO-2 an unknown company is refused");
 
@@ -268,6 +272,7 @@ if (process.env.NOMUT) {
 if (fail) { console.error(`finance5: ${fail} of ${n} failed (mutations not run)`); process.exit(1); }
 
 const MUT = [
+  ["worker/src/erp.ts", "the same account added twice", "if (twin) return err(\"duplicate\"", "if (false) return err(\"duplicate\""],
   ["worker/src/cashbook.ts", "CEO-1 an unverified receipt counts as Money In", `counts: inv.confirmed ? "in" : null,`, `counts: "in",`],
   ["worker/src/cashbook.ts", "F-2 the difference is the booked amount", `difference_cents: source - booked,`, `difference_cents: -booked,`],
   ["worker/src/cashbook.ts", "CEO-6 a review hides a mismatch", `if (!isMismatch && m?.reviewed_at) return;`, `if (m?.reviewed_at) return;`],

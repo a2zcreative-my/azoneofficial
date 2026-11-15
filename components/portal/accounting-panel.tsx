@@ -35,6 +35,14 @@ import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
 import css from "./accounting.module.css";
+import { useTabViewAddress } from "@/lib/tab-view"; // v1.314.0
+import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.314.0 - the phone view switch
+const VIEW_SUB: Record<"overview" | "ledger" | "reports" | "close", () => string> = {
+  overview: () => L("Health, checks and recent entries", "Kesihatan, semakan dan catatan terkini"),
+  ledger: () => L("Chart of accounts and journal entries", "Carta akaun dan catatan jurnal"),
+  reports: () => L("Trial balance, P&L, ledger, balance sheet", "Imbangan duga, U&R, lejar, kunci kira-kira"),
+  close: () => L("Closing checks and the month list", "Semakan penutupan dan senarai bulan"),
+};
 
 const api = makeApi("/staff/erp");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -327,7 +335,9 @@ function NewAccountDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: 
 interface PnlRow { id: number; code: string; name: string; cents: number; prev_cents: number }
 interface Pnl { basis: "cash"; period: { from: string; to: string }; previous: { from: string; to: string }; income: PnlRow[]; expense: PnlRow[]; totals: { income_cents: number; expense_cents: number; net_cents: number; prev_income_cents: number; prev_expense_cents: number; prev_net_cents: number } }
 interface Trial { as_of: string; accounts: GlAccount[]; debit_cents: number; credit_cents: number; balanced: boolean; difference_cents: number }
-const ENTITIES = "AZ ONE OFFICIAL · A2Z CREATIVE MARKETING";
+/* v1.314.0 (Accounting 5.0, Phase A; AC-3/AC-4) - both companies share one ledger: every report says it is combined, never that it is a consolidated statement. A per-company report needs a company on each journal (Phase C). */
+const ENTITIES = "AZ ONE OFFICIAL + A2Z CREATIVE MARKETING";
+const COMBINED = () => L("combined - one ledger for both companies, not a consolidated statement", "gabungan - satu lejar untuk kedua-dua syarikat, bukan penyata disatukan");
 
 function Reports({ month, accounts, onOpen, active }: { month: string; accounts: GlAccount[]; onOpen: (id: number) => void; active: boolean }) {
   const [rep, setRep] = useState<"trial" | "pnl" | "ledger" | "balance">("trial");
@@ -366,9 +376,14 @@ function Reports({ month, accounts, onOpen, active }: { month: string; accounts:
       <div className={active ? css.printArea : undefined}>
         {rep === "trial" && (t?.e ? <p role="alert" className={css.error}>{t.e}</p> : !t?.d ? <SkelRows rows={8} /> : (
           <>
-            <div className={css.reportHead}><p className={css.co}>{ENTITIES}</p><p className={css.title}>{L("Trial balance", "Imbangan duga")}</p><p className={css.sub}>{L(`As at ${dmy(t.d.as_of)} · cash basis · one ledger for both companies`, `Pada ${dmy(t.d.as_of)} · asas tunai · satu lejar untuk kedua-dua syarikat`)}</p></div>
+            <div className={css.reportHead}><p className={css.co}>{ENTITIES}</p><p className={css.title}>{L("Trial balance", "Imbangan duga")}</p><p className={css.sub}>{L(`As at ${dmy(t.d.as_of)} · cash basis · ${COMBINED()}`, `Pada ${dmy(t.d.as_of)} · asas tunai · satu lejar untuk kedua-dua syarikat`)}</p></div>
             {shown.length === 0 ? <p className={css.empty}>{L("Nothing booked by this date.", "Tiada direkod pada tarikh ini.")}</p> : (
               <div className={css.tableWrap}>
+                <div className={css.totalsBand} data-testid="tb-totals">
+                  <span><small>{L("Total Debit", "Jumlah Debit")}</small><strong>{fmtRM(drTotal)}</strong></span>
+                  <span><small>{L("Total Credit", "Jumlah Kredit")}</small><strong>{fmtRM(crTotal)}</strong></span>
+                  <span className={drTotal === crTotal ? css.balOk : css.balBad}>{drTotal === crTotal ? L("Balanced (arithmetic)", "Seimbang (aritmetik)") : L("Out of balance", "Tidak seimbang")}</span>
+                </div>
                 <table className={css.table} aria-label={L("Trial balance report", "Laporan imbangan duga")}>
                   <thead><tr><th>{L("Code", "Kod")}</th><th>{L("Account", "Akaun")}</th><th className={css.num}>Debit (RM)</th><th className={css.num}>{L("Credit (RM)", "Kredit (RM)")}</th></tr></thead>
                   <tbody>{shown.map((a) => <tr key={a.id}><td className={css.nowrap}>{a.code}</td><td>{a.name}</td><td className={css.num}>{onDebit(a) ? fmtRM(Math.abs(a.balance_cents ?? 0)) : "—"}</td><td className={css.num}>{!onDebit(a) ? fmtRM(Math.abs(a.balance_cents ?? 0)) : "—"}</td></tr>)}</tbody>
@@ -381,7 +396,7 @@ function Reports({ month, accounts, onOpen, active }: { month: string; accounts:
         ))}
         {rep === "pnl" && (p?.e ? <p role="alert" className={css.error}>{p.e}</p> : !p?.d ? <SkelRows rows={8} /> : (
           <>
-            <div className={css.reportHead}><p className={css.co}>{ENTITIES}</p><p className={css.title}>{L("Profit & Loss - cash basis", "Untung & Rugi - asas tunai")}</p><p className={css.sub}>{dmy(p.d.period.from)} – {dmy(p.d.period.to)} · {L("compared with", "berbanding")} {dmy(p.d.previous.from)} – {dmy(p.d.previous.to)}</p></div>
+            <div className={css.reportHead}><p className={css.co}>{ENTITIES}</p><p className={css.title}>{L("Profit & Loss - cash basis (receipts and payments)", "Untung & Rugi - asas tunai (penerimaan dan bayaran)")}</p><p className={css.sub}>{dmy(p.d.period.from)} – {dmy(p.d.period.to)} · {L("compared with", "berbanding")} {dmy(p.d.previous.from)} – {dmy(p.d.previous.to)}</p></div>
             <div className={css.tableWrap}>
               <table className={css.table} aria-label={L("Profit and loss", "Untung dan rugi")}>
                 <thead><tr><th>{L("Account", "Akaun")}</th><th className={css.num}>{L("This period", "Tempoh ini")}</th><th className={css.num}>{L("Previous", "Sebelumnya")}</th><th className={css.num}>{L("Change", "Perubahan")}</th></tr></thead>
@@ -457,7 +472,7 @@ function checkDetail(c: Check): string {
   }
 }
 
-function MonthEndView({ month, onOpen }: { month: string; onOpen: (id: number) => void }) {
+function MonthEndView({ month, onOpen, onReady }: { month: string; onOpen: (id: number) => void; onReady?: (month: string, ready: boolean) => void }) {
   const [got, setGot] = useState<{ m: string; d: MonthEnd | null; e: string } | null>(null);
   useEffect(() => {
     const c = new AbortController();
@@ -466,6 +481,8 @@ function MonthEndView({ month, onOpen }: { month: string; onOpen: (id: number) =
   }, [month]);
   const mine = got?.m === month ? got : null;
   const d = mine?.d;
+  /* v1.314.0 (Accounting 5.0, Phase A) - the Month end list offers Close only on a month whose checks pass */
+  useEffect(() => { if (d) onReady?.(d.month, d.ready && d.ended && !d.close); }, [d, onReady]);
   if (mine?.e) return <div className={card}><p role="alert" className={css.error}>{mine.e}</p></div>;
   if (!d) return <div className={card}><SkelRows rows={8} /></div>;
   const block = d.checks.filter((c) => c.level === "block"), warn = d.checks.filter((c) => c.level === "warn");
@@ -513,14 +530,20 @@ function MonthEndView({ month, onOpen }: { month: string; onOpen: (id: number) =
 /* ============================ the page ============================ */
 
 type View = "overview" | "ledger" | "reports" | "close";
+/* v1.314.0 - Accounting 5.0 (Phase A): the four views in the address, Back/Forward between them */
+const ACC_VIEWS: readonly View[] = ["overview", "ledger", "reports", "close"];
+const isAccView = (v: string | null): v is View => ACC_VIEWS.includes(v as View);
 
-export function AccountingPanel() {
+export function AccountingPanel({ startView }: { startView?: string }) {
   const today = mytToday();
-  const [view, setView] = useState<View>("overview");
-  const [seen, setSeen] = useState<Record<View, boolean>>({ overview: true, ledger: false, reports: false, close: false });
-  const open = (v: View) => { setView(v); setSeen((s) => ({ ...s, [v]: true })); };
+  const [view, setView] = useState<View>(() => (isAccView(startView ?? null) ? startView as View : "overview"));
+  const [seen, setSeen] = useState<Record<View, boolean>>(() => ({ overview: true, ledger: false, reports: false, close: false, [isAccView(startView ?? null) ? startView as View : "overview"]: true }));
+  const open = useCallback((v: View) => { setView(v); setSeen((s) => ({ ...s, [v]: true })); }, []);
+  useTabViewAddress("Accounting", view, open, isAccView);
   const [month, setMonth] = useState(today.slice(0, 7));
   const [closeMonth, setCloseMonth] = useState(shiftMonth(today.slice(0, 7), -1));
+  const [closeReady, setCloseReady] = useState<{ month: string; ready: boolean } | null>(null);
+  const onReady = useCallback((m: string, r: boolean) => setCloseReady({ month: m, ready: r }), []);
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((r) => r + 1), []);
   const [entry, setEntry] = useState<number | null>(null);
@@ -580,6 +603,7 @@ export function AccountingPanel() {
   return (
     <TabPage className={css.page}>
       {toastNode}
+      <div className="erp-desktop-only">
       <LineTabs value={view} onChange={open} tabs={tabs} label={L("Accounting", "Perakaunan")}
         aside={view === "overview" || view === "reports" ? (
           <TabAside>
@@ -594,6 +618,14 @@ export function AccountingPanel() {
             </span>
           </TabAside>
         ) : undefined} />
+      </div>
+      <div className="erp-phone-only">
+        <div className={css.viewBar} data-testid="accounting-view-bar">
+          <ViewSwitch value={view} onChange={(k) => open(k)} label={L("Accounting view", "Paparan perakaunan")} options={tabs.map(([k, t]) => [k, t, VIEW_SUB[k]()] as [View, string, string])} />
+          {view === "overview" || view === "reports" ? <span className={css.periodPick}><AppIcon name="date" /><select aria-label={L("Period", "Tempoh")} value={month} onChange={(e) => setMonth(e.target.value)}>{months.map((m) => <option key={m} value={m}>{monthWord(m)}</option>)}</select></span>
+            : view === "close" ? <span className={css.periodPick}><AppIcon name="date" /><select aria-label={L("Month to close", "Bulan untuk ditutup")} value={closeMonth} onChange={(e) => setCloseMonth(e.target.value)}>{months.map((m) => <option key={m} value={m}>{monthWord(m)}</option>)}</select></span> : null}
+        </div>
+      </div>
       {chart?.pending && <p className={`${css.basis} ${css.warn}`}><AppIcon name="warning" /><span>{L("The ERP tables are not migrated yet — run PUSH.bat so the migrations apply, then reload.", "Jadual ERP belum dimigrasi — jalankan PUSH.bat supaya migrasi digunakan, kemudian muat semula.")}</span></p>}
 
       {/* ================= Overview ================= */}
@@ -602,16 +634,18 @@ export function AccountingPanel() {
         {ovError && <p role="alert" className={css.error}>{ovError}</p>}
         <TabZone label={L("At a glance", "Sepintas lalu")}>
           <KpiRow label={L("Accounting at a glance", "Perakaunan sepintas lalu")}>
-            <KpiTile icon="balance" tone={!o ? "navy" : o.trial.balanced ? "green" : "red"} busy={!o} label={L("Trial balance", "Imbangan duga")} value={!o ? "" : o.trial.balanced ? L("Balanced", "Seimbang") : L("Out of balance", "Tidak seimbang")} sub={o ? (o.trial.balanced ? `Dr ${fmtRM(o.trial.debit_cents)} = Cr ${fmtRM(o.trial.credit_cents)}` : L(`Out by ${fmtRM(Math.abs(o.trial.difference_cents))}`, `Beza ${fmtRM(Math.abs(o.trial.difference_cents))}`)) : undefined} />
-            <KpiTile icon="up" tone="green" busy={!o} label={L("Money in", "Wang masuk")} value={o ? fmtRM(o.money.in_cents) : ""} sub={L(`${monthWord(month)} · income accounts`, `${monthWord(month)} · akaun pendapatan`)} />
-            <KpiTile icon="down" tone="red" busy={!o} label={L("Money out", "Wang keluar")} value={o ? fmtRM(o.money.out_cents) : ""} sub={o ? L(`${monthWord(month)} · net ${fmtRM(o.money.net_cents)}`, `${monthWord(month)} · bersih ${fmtRM(o.money.net_cents)}`) : monthWord(month)} />
-            <KpiTile icon="warning" tone={exceptions ? "gold" : "blue"} busy={!o} label={L("Posting exceptions", "Pengecualian pengeposan")} value={o ? exceptions : 0} sub={o ? L(`${o.accounts.used} of ${o.accounts.total} accounts in use · ${o.entries} entries`, `${o.accounts.used} daripada ${o.accounts.total} akaun digunakan · ${o.entries} catatan`) : undefined} onClick={() => document.getElementById("acc-exceptions")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+            <KpiTile icon="balance" tone={!o ? "navy" : o.trial.balanced ? "green" : "red"} busy={!o} label={L("Trial Balance Status", "Status Imbangan Duga")} value={!o ? "" : o.trial.balanced ? L("Balanced", "Seimbang") : L("Out of balance", "Tidak seimbang")}
+              sub={o ? (o.trial.balanced ? L(`Debits = credits (arithmetic only) · ${exceptions} exception(s) to check`, `Debit = kredit (aritmetik sahaja) · ${exceptions} pengecualian untuk disemak`) : L(`Dr ${fmtRM(o.trial.debit_cents)} · Cr ${fmtRM(o.trial.credit_cents)}`, `Dr ${fmtRM(o.trial.debit_cents)} · Kr ${fmtRM(o.trial.credit_cents)}`)) : ""} />
+            <KpiTile icon="up" tone="green" busy={!o} label={L("Money In (cash basis)", "Wang Masuk (asas tunai)")} value={o ? fmtRM(o.money.in_cents) : ""} sub={L(`${monthWord(month)} · income accounts, when money was received`, `${monthWord(month)} · akaun pendapatan, apabila wang diterima`)} />
+            <KpiTile icon="down" tone="red" busy={!o} label={L("Money Out (cash basis)", "Wang Keluar (asas tunai)")} value={o ? fmtRM(o.money.out_cents) : ""} sub={o ? L(`${monthWord(month)} · net ${fmtRM(o.money.net_cents)}`, `${monthWord(month)} · bersih ${fmtRM(o.money.net_cents)}`) : monthWord(month)} />
+            <KpiTile icon="warning" tone={exceptions ? "gold" : "blue"} busy={!o} label={L("Posting Exceptions", "Pengecualian Pengeposan")} value={o ? exceptions : 0}
+              sub={o ? L(`${o.exceptions.unjournaled.length} movement(s) not in the books · ${o.exceptions.unbalanced.length} unbalanced · ${o.exceptions.duplicates.length} posted twice`, `${o.exceptions.unjournaled.length} pergerakan tiada dalam buku · ${o.exceptions.unbalanced.length} tidak seimbang · ${o.exceptions.duplicates.length} dicatat dua kali`) : ""} onClick={() => document.getElementById("acc-exceptions")?.scrollIntoView({ block: "start", behavior: "smooth" })} />
           </KpiRow>
         </TabZone>
         <TabZone label={L("Movement", "Pergerakan")}>
           <div className={css.two}>
             <div className={card}>
-              <div className={css.head}><h3>{L("Money in vs money out", "Wang masuk vs wang keluar")}</h3><p className={css.sub}>{L("Six months to", "Enam bulan hingga")} {monthWord(month)}</p></div>
+              <div className={css.head}><h3>{L("Money In vs Money Out", "Wang Masuk vs Wang Keluar")}</h3><p className={css.sub}>{L("Monthly cash movement (cash basis) from the ledger accounts - not recognised income and expenses. Six months to", "Pergerakan tunai bulanan (asas tunai) daripada akaun lejar - bukan pendapatan dan perbelanjaan terakru. Enam bulan hingga")} {monthWord(month)}</p></div>
               {o ? <Trend rows={o.trend} /> : <SkelRows rows={6} />}
             </div>
             <div className={card}>
@@ -629,7 +663,7 @@ export function AccountingPanel() {
         </TabZone>
         <TabZone label={L("Checks", "Semakan")} id="acc-exceptions">
           <div className={card}>
-            <div className={css.head}><h3>{L("Posting exceptions", "Pengecualian pengeposan")}</h3><p className={css.sub}>{L("Read from the ledger and the cash book; nothing here changes a figure.", "Dibaca daripada lejar dan buku tunai; tiada angka diubah di sini.")}</p></div>
+            <div className={css.head}><h3>{L("Checks & Exceptions", "Semakan & Pengecualian")}</h3><p className={css.sub}>{L("Read from the ledger and the cash book; nothing here changes a figure. A balanced trial balance does not prove the books are complete, correctly classified or matched to the bank.", "Dibaca daripada lejar dan buku tunai; tiada angka diubah di sini. Imbangan duga yang seimbang tidak membuktikan buku lengkap, betul dikelaskan atau sepadan dengan bank.")}</p></div>
             {o ? <ExceptionList x={o.exceptions} onOpen={setEntry} /> : <SkelRows rows={5} />}
           </div>
         </TabZone>
@@ -660,7 +694,7 @@ export function AccountingPanel() {
                 <table className={`${css.table} ${css.click}`} aria-label={L("Chart of accounts", "Carta akaun")}>
                   <thead><tr><th>{L("Code", "Kod")}</th><th>{L("Account", "Akaun")}</th><th>{L("Type", "Jenis")}</th><th className={css.num}>Debit (RM)</th><th className={css.num}>{L("Credit (RM)", "Kredit (RM)")}</th><th className={css.num}>{L("Balance", "Baki")}</th></tr></thead>
                   <tbody>{rows.map((a) => <tr key={a.id} onClick={() => setAccOpen(a)}><td className={css.nowrap}>{a.code}</td><td>{a.name}</td><td><span className={chipNeutral}>{typeWord(a.type)}</span></td><td className={css.num}>{fmtRM(a.debit_cents ?? 0)}</td><td className={css.num}>{fmtRM(a.credit_cents ?? 0)}</td><td className={css.num}>{sided(a.balance_cents, a.normal)}</td></tr>)}</tbody>
-                  <tfoot><tr><td colSpan={3}>{L("Total", "Jumlah")}</td><td className={css.num}>{fmtRM(rows.reduce((s, a) => s + (a.debit_cents ?? 0), 0))}</td><td className={css.num}>{fmtRM(rows.reduce((s, a) => s + (a.credit_cents ?? 0), 0))}</td><td /></tr></tfoot>
+                  <tfoot><tr><td colSpan={3}>{aq.trim() || atype ? L("Shown accounts only (filtered) - not the ledger total", "Akaun dipaparkan sahaja (ditapis) - bukan jumlah lejar") : L("Total", "Jumlah")}</td><td className={css.num}>{fmtRM(rows.reduce((s, a) => s + (a.debit_cents ?? 0), 0))}</td><td className={css.num}>{fmtRM(rows.reduce((s, a) => s + (a.credit_cents ?? 0), 0))}</td><td /></tr></tfoot>
                 </table>
               </div>
             )}
@@ -692,13 +726,13 @@ export function AccountingPanel() {
 
       {/* ================= Month-End & Audit ================= */}
       <div className={css.body} hidden={view !== "close"}>
-        <TabZone label={L("Month-end closing", "Penutupan hujung bulan")} hint={L("Checks read from the ledger, Finance and Payroll; the close itself is below.", "Semakan dibaca daripada lejar, Kewangan dan Gaji; penutupan di bawah.")}>
-          {seen.close && <MonthEndView key={`${closeMonth}|${revision}`} month={closeMonth} onOpen={setEntry} />}
+        <TabZone id="month-end-checks" label={L("Month-end closing", "Penutupan hujung bulan")} hint={L("Checks read from the ledger, Finance and Payroll; the close itself is below.", "Semakan dibaca daripada lejar, Kewangan dan Gaji; penutupan di bawah.")}>
+          {seen.close && <MonthEndView key={`${closeMonth}|${revision}`} month={closeMonth} onOpen={setEntry} onReady={onReady} />}
         </TabZone>
         {/* v1.181.15 (ERP roadmap phase 3) - month end, position and the audit
             trail. Reads, plus a snapshot when a month is closed; nothing locks. */}
         <TabZone label={L("Month end", "Hujung bulan")}>
-          {seen.close && <BooksPanel />}
+          {seen.close && <BooksPanel gate={{ month: closeMonth, ready: closeReady?.month === closeMonth && closeReady.ready, pick: (m) => { setCloseMonth(m); document.getElementById("month-end-checks")?.scrollIntoView({ block: "start", behavior: "smooth" }); } }} />}
         </TabZone>
       </div>
 

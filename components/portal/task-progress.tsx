@@ -87,7 +87,7 @@ const size = (b: number | null) => (b ? (b > 1048576 ? `${(b / 1048576).toFixed(
 /** The state a task is in, in words: status and stage together (T-7). */
 export function stateOf(status: string, stage: string | null): { label: string; cls: string } {
   if (status === "completed") return stage === "cancelled" ? { label: L("Cancelled", "Dibatalkan"), cls: chipSmNeutral } : { label: L("Closed", "Ditutup"), cls: chipSmSuccess }; // v1.256.0 - the owner's word
-  if (stage === "review") return { label: L("Ready for Review", "Sedia untuk Semakan"), cls: chipSmWarn };
+  if (stage === "review") return { label: L("Review", "Semakan"), cls: chipSmWarn }; // v1.313.0 (TK-3) - Open, In Progress, Review, Closed
   if (stage === "blocked") return { label: L("Blocked", "Terhalang"), cls: chipSmDanger };
   if (stage === "waiting_client") return { label: L("Waiting for Client", "Menunggu Pelanggan"), cls: chipSmWarn };
   if (status === "in_progress") return { label: L("In Progress", "Sedang Berjalan"), cls: chipSmInfo };
