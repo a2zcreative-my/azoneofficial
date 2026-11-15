@@ -108,8 +108,9 @@ with sync_playwright() as p:
     ctx.close()
     check("no page error (Sales)", not errs, errs)
     ctx, pg, errs = page(b, CEO, tab="Finance")
-    fin = pg.get_by_test_id("finance-health").inner_text() if pg.get_by_test_id("finance-health").count() else ""
-    check("Finance: Financial health - cash Data not available, banks Not set up, never A2Z and AZ ONE together", "Data not available" in fin and "Not set up" in fin and "never added together" in fin, fin)
+    # v1.312.0 (Finance 5.0, CEO-2/CEO-9) - one company at a time; a book balance is never called bank-verified
+    fin = pg.get_by_test_id("finance-accounts").inner_text() if pg.get_by_test_id("finance-accounts").count() else ""
+    check("Finance: Account Balances are book balances, not bank-verified, for one company at a time", "not bank-verified" in fin and pg.locator('[data-testid="finance-company"]:visible').first.input_value() == "a2z", fin)
     ctx.close()
     check("no page error (Finance)", not errs, errs)
 

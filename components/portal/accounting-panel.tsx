@@ -398,7 +398,7 @@ function Reports({ month, accounts, onOpen, active }: { month: string; accounts:
                 <tfoot><tr><td>{L("Net (cash basis)", "Bersih (asas tunai)")}</td><td className={`${css.num} ${p.d.totals.net_cents >= 0 ? css.up : css.down}`}>{fmtRM(p.d.totals.net_cents)}</td><td className={css.num}>{fmtRM(p.d.totals.prev_net_cents)}</td><td /></tr></tfoot>
               </table>
             </div>
-            <p className={css.sub}>{L("From the ledger's income and expense accounts, on the day the money moved. Finance > Expenses shows a P&L by expense date and payroll month; the two differ by timing, not by records.", "Daripada akaun pendapatan dan perbelanjaan lejar, pada hari wang bergerak. Kewangan > Perbelanjaan menunjukkan U&R mengikut tarikh perbelanjaan dan bulan gaji; perbezaannya masa, bukan rekod.")}</p>
+            <p className={css.sub}>{L("From the ledger's income and expense accounts, on the day the money moved. This is the one P&L: Finance shows cash movement only (v1.312.0).", "Daripada akaun pendapatan dan perbelanjaan lejar, pada hari wang bergerak. Inilah satu-satunya U&R: Kewangan menunjukkan pergerakan tunai sahaja (v1.312.0).")}</p>
           </>
         ))}
       </div>

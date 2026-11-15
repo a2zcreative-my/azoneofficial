@@ -43,7 +43,7 @@ import {
   CompaniesPanel, AssetsPanel, CardsPanel, ContentPanel,
   DocumentsPanel, ElfiaStorePanel, ElfiaTrafficPanel, FinancePage,
   HotelsPanel, AgentsPanel, FinancialAdvisoryPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
-  AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, ExpensesPanel, EcommercePanel,
+  AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
   StaffDirectory,
 } from "@/components/portal/lazy-panels";
@@ -55,7 +55,7 @@ import { AutomationRulesPage } from "@/components/portal/automation-rules"; // v
 import { Leave } from "@/components/portal/leave";
 import { L, MANAGE_ROLES } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
-import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, PnlCard, Sales } from "@/components/portal/sales";
+import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
 import { UsersPanel } from "@/components/portal/users-panel";
 import type { TabName } from "@/lib/portal-tabs";
@@ -110,7 +110,7 @@ export default function PortalPage() {
                page, five tabs - Overview, Transactions, Expenses,
                Reconciliation, Reports. The Expenses panel and its P&L are
                handed in unchanged and drawn on their own tab. */
-            <FinancePage expenses={<ExpensesPanel reporting={<PnlCard />} />} />
+            <FinancePage startView={startOf("Finance")} /> /* v1.312.0 - Finance 5.0: five views at their own address; the P&L (accrual) is Accounting's */
           )}
           {activeTab === "Attendance" && (
             /* v1.188.0 - the page is its own tabbed panel (attendance-panel.tsx):

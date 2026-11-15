@@ -62,18 +62,20 @@ ok("0147 only adds: columns, indexes, one table - no UPDATE, DELETE or DROP",
    && /CREATE UNIQUE INDEX IF NOT EXISTS idx_cashflow_source_key\s+ON cashflow_entries \(source_key\) WHERE source_key IS NOT NULL;/.test(mig)
    && /CREATE UNIQUE INDEX IF NOT EXISTS idx_cashflow_one_reversal\s+ON cashflow_entries \(reversal_of\) WHERE reversal_of IS NOT NULL;/.test(mig));
 ok("0147 is registered and probed", /* v1.222.0 - 0147 or later is the newest */ /const LATEST_MIGRATION = "(0147_cashbook|01(4[89]|[5-9]\d)_[a-z0-9_]+)";/.test(read("worker/src/index.ts")) && /"0147_cashbook",/.test(read("worker/src/index.ts")) && /\["0147 \(finance 2\.0/.test(read("worker/src/index.ts")));
-ok("corrections are the CEO, the COO and super admin - narrower than cashflow_manage",
-   /cashbook_correct: \["super_admin", "ceo", "coo"\],/.test(perms) && /cashflow_manage: \["super_admin", "admin", "ceo", "coo"\],/.test(perms));
+/* v1.312.0 (Finance 5.0, CEO-10) - corrections are the CEO and COO: the Super Admin reads, never corrects */
+ok("corrections are the CEO and the COO - narrower than cashflow_manage",
+   /cashbook_correct: \["ceo", "coo"\],/.test(perms) && /cashflow_manage: \["super_admin", "admin", "ceo", "coo"\],/.test(perms));
 ok("one booking path: every module books through bookCash, in one statement",
    /await bookCash\(env, userId, ref, amountCents, category, description, direction, effectiveDate\);/.test(staff)
-   && /if \(await bookCash\(env, user\.id, ref, amountCents, category, description, direction, day\)\) created\+\+;/.test(erp)
-   && /SELECT date\('now', '\+8 hours'\), \?6, \?1, \?2, \?3, \?4, \?5, COALESCE\(\?7, date\('now', '\+8 hours'\)\), \?8\s+WHERE NOT EXISTS/.test(cb)
+   && /if \(await bookCash\(env, user\.id, ref, amountCents, category, description, direction, day, opts\)\) created\+\+;/.test(erp) // v1.312.0 - with the company and account
+   && /const ONCE = `WHERE NOT EXISTS/.test(cb) && /COALESCE\(\?7, date\('now', '\+8 hours'\)\), \?8, \?9, \?10\s+\$\{ONCE\}/.test(cb)
    && !/SELECT id FROM cashflow_entries WHERE ref = \?1 LIMIT 1/.test(staff + erp));
 ok("cash rows are never deleted - reversed instead", !/DELETE FROM cashflow_entries/.test(staff + erp + cb) && /return err\("reverse_instead"/.test(erp));
 /* v1.242.0 (go-live audit B2, decision D-2): an invoice is never deleted
    and never "un-converted" - it is VOIDED; the void reverses any live row */
 ok("undo paths reverse: expense unpaid and deleted, invoice unpaid and voided; an invoice is never deleted",
-   /reverseLive\(env, user\.id, `EXP-\$\{exPaid\[1\]\}`, "Expense marked unpaid"\)/.test(staff) && /reverseLive\(env, user\.id, `EXP-\$\{exMatch\[1\]\}`, "Expense deleted"\)/.test(staff)
+   /* v1.312.0 (CEO-4) - an expense payment is undone by the CEO/COO with a reason, and an expense is cancelled, never deleted */
+   /reverseLive\(env, user\.id, `EXP-\$\{exPaid\[1\]\}`, `Expense payment undone: \$\{reason\}`/.test(staff) && /return err\("cancel_instead"/.test(staff)
    && /reverseLive\(env, user\.id, `INV-\$\{id\}`, `Invoice marked/.test(staff) && /reverseLive\(env, user\.id, `INV-\$\{inv\.id\}`, "Invoice voided"\)/.test(staff)
    && !/"Invoice deleted"/.test(staff) && /is an invoice: invoices are voided with a reason, never deleted/.test(staff));
 ok("nothing books commission as its own cash movement", !/["`]COMM-/.test(staff + erp + cb + strip(read("worker/src/business.ts"))));
@@ -104,7 +106,8 @@ try {
   ins.run(11, "INV", "INV-11", 500000, "unpaid", "2026-08-10 02:00:00");
   ins.run(12, "INV", "INV-12", 400000, "unpaid", "2026-09-02 02:00:00");
   db.exec(`INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, reference, created_by) VALUES (11,200000,'2026-08-20','TT-1',1),(12,100000,'2026-09-12','',1)`);
-  db.exec(`INSERT INTO bank_accounts (id, name, bank, number_masked) VALUES (1,'Operating','Maybank','1234'),(2,'Savings','CIMB','9876')`);
+  /* v1.312.0 (CEO-2) - each account is one company's: these legacy invoices (no issuer) are AZ ONE's */
+  db.exec(`INSERT INTO bank_accounts (id, name, bank, number_masked, company) VALUES (1,'Operating','Maybank','1234','azoo'),(2,'Savings','CIMB','9876','azoo')`);
 
   const { handleStaff } = await import(pathToFileURL(out).href);
   const RealDate = Date; const fixed = new RealDate("2026-09-18T02:00:00Z").getTime();
@@ -125,13 +128,15 @@ try {
   await call("/docs/10", 1, "PATCH", { payment_status: "paid", paid_on: "2026-09-05", payment_ref: "TT-10" });
   ok("a doubled Mark paid books one row, dated the day the money landed", rows("INV-10").length === 1 && rows("INV-10")[0].effective_date === "2026-09-05", JSON.stringify(rows("INV-10")));
   await call("/docs/11", 1, "PATCH", { payment_status: "paid", paid_on: "2026-09-10", payment_ref: "" });
-  db.exec(`INSERT INTO expenses (id, expense_date, category, amount_cents, vendor, created_by) VALUES (1,'2026-09-03','software',30000,'Canva',1)`);
-  await Promise.all([call("/expenses/1/paid", 1, "POST", {}), call("/expenses/1/paid", 2, "POST", {})]);
+  /* v1.312.0 (Finance 5.0, CEO-4) - an expense is paid by Finance (the COO) once it is authorised */
+  db.exec(`INSERT INTO expenses (id, expense_date, category, amount_cents, vendor, created_by, company, status, authorised_by, receipt_key) VALUES (1,'2026-09-03','software',30000,'Canva',5,'azoo','authorised',1,'expenses/1')`);
+  const pay1 = { paid_on: "2026-09-03", bank_id: 1, payment_ref: "MBB-EXP-1" };
+  await Promise.all([call("/expenses/1/pay", 2, "POST", pay1), call("/expenses/1/pay", 2, "POST", pay1)]);
   ok("two requests at once book one row", rows("EXP-1").length === 1, String(rows("EXP-1").length));
-  await call("/expenses/1/paid", 1, "POST", { paid: false });
+  await call("/expenses/1/paid", 2, "POST", { paid: false, reason: "Bank returned the transfer" });
   const afterUndo = db.prepare(`SELECT * FROM cashflow_entries WHERE reversal_of = ?`).all(rows("EXP-1")[0].id);
-  ok("Undo paid reverses the row with the reason, the original stays", afterUndo.length === 1 && afterUndo[0].type === "in" && afterUndo[0].reverse_reason === "Expense marked unpaid" && rows("EXP-1").length === 1);
-  await call("/expenses/1/paid", 1, "POST", {});
+  ok("Undo paid reverses the row with the reason, the original stays", afterUndo.length === 1 && afterUndo[0].type === "in" && afterUndo[0].reverse_reason === "Expense payment undone: Bank returned the transfer" && rows("EXP-1").length === 1);
+  await call("/expenses/1/pay", 2, "POST", pay1);
   ok("...and paying again books afresh under a new key", rows("EXP-1").length === 2 && rows("EXP-1")[1].source_key === "EXP-1#2", JSON.stringify(rows("EXP-1").map((r) => r.source_key)));
   const bf1 = (await call("/erp/cashflow/backfill", 1, "POST", {})).j;
   const bf2 = (await call("/erp/cashflow/backfill", 1, "POST", {})).j;
@@ -160,24 +165,25 @@ try {
   /* a stale money-in row for an invoice that never existed */
   db.exec(`INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by) VALUES ('2026-09-14','in','sales',12345,'Invoice INV-99 paid','INV-99',1)`);
   /* a typed movement that repeats the invoice 11 balance */
-  await call("/erp/cashflow", 1, "POST", { entry_date: "2026-09-10", type: "in", category: "Client payment", amount: 3000, description: "Kedai Satu transfer" });
+  await call("/erp/cashflow", 1, "POST", { entry_date: "2026-09-10", type: "in", category: "Client payment", amount: 3000, description: "Kedai Satu transfer", company: "azoo", reason: "Typed from the bank statement", idempotency_key: "cashflow-dup-001" }); // v1.312.0 - company, reason, key (F-10)
 
   let v = await view();
   const it = (k) => v.items.find((i) => i.key === k);
-  ok("money in = parts on their days + the rest of paid invoices on their paid days; INV- rows not counted",
-     v.totals.in_cents === 1000000 + 300000 + 100000 + 300000 + 90000, String(v.totals.in_cents));
+  /* v1.312.0 (CEO-1) - Money In is what the CEO verified: until then the receipts wait, summed apart */
+  ok("money in = parts on their days + the rest of paid invoices on their paid days; INV- rows not counted; unverified ones awaiting",
+     v.totals.in_cents === 300000 && v.totals.awaiting_cents === 1000000 + 300000 + 100000 + 90000, `${v.totals.in_cents}/${v.totals.awaiting_cents}`);
   ok("the part payment from August is in August, not in September", !v.items.some((i) => i.key.startsWith("PART:") && i.date === "2026-08-20"));
   ok("the invoice 11 balance is its total less its part", it("INV:11")?.amount_cents === 300000 && it("INV:11")?.date === "2026-09-10");
   ok("no INV- book row appears in the view", !v.items.some((i) => i.ref.startsWith("INV-") && i.row_id));
   const aug = await view("?from=2026-08-01&to=2026-08-31");
   ok("a back-filled row sits on the day its money moved", aug.items.some((i) => i.ref === "CLM-7" && i.date === "2026-08-03" && i.booked_on === "2026-09-15"), JSON.stringify(aug.items.map((i) => [i.ref, i.date])));
-  ok("...and August has the part payment", aug.totals.in_cents === 200000 && aug.totals.out_cents === 4500, `${aug.totals.in_cents}/${aug.totals.out_cents}`);
+  ok("...and August has the part payment (awaiting verification)", aug.totals.awaiting_cents === 200000 && aug.totals.in_cents === 0 && aug.totals.out_cents === 4500, `${aug.totals.in_cents}/${aug.totals.awaiting_cents}/${aug.totals.out_cents}`);
   ok("money out nets the expense once (paid, reversed, paid again)", v.totals.out_cents === 30000, String(v.totals.out_cents));
   ok("verified only by a live CEO/COO confirmation", it("INV:10")?.status === "unverified");
   db.exec(`INSERT INTO invoice_paid_confirmations (invoice_id, amount_cents, confirmed_by) VALUES (10, 1000000, 1)`);
   v = await view();
   ok("...a confirmation makes it verified", v.items.find((i) => i.key === "INV:10")?.status === "verified");
-  ok("six months of trend ending with the period", v.trend.length === 6 && v.trend[5].month === END.slice(0, 7) && (v.trend.find((t) => t.month === "2026-08")?.in_cents ?? 200000) === 200000, JSON.stringify(v.trend));
+  ok("six months of trend ending with the period", v.trend.length === 6 && v.trend[5].month === END.slice(0, 7) && (v.trend.find((t) => t.month === "2026-08")?.in_cents ?? 0) === 0, JSON.stringify(v.trend));
 
   /* 4. transfers and balances */
   ok("no balance without an opening balance", v.banks.every((b) => b.book_balance_cents === null));
@@ -189,8 +195,12 @@ try {
   ok("assigning an account to a receipt", (await call("/erp/cashbook/assign-bank", 1, "POST", { item_key: "INV:10", bank_id: 1, note: "statement 05-09" })).status === 200);
   ok("...the CCO cannot", (await call("/erp/cashbook/assign-bank", 3, "POST", { item_key: "INV:11", bank_id: 1 })).status === 403);
   v = await view();
-  ok("a transfer is neither money in nor money out", v.totals.in_cents === 1790000 && v.totals.out_cents === 30000, `${v.totals.in_cents}/${v.totals.out_cents}`);
-  ok("book balance = opening + assigned in - out since the opening day", v.banks.find((b) => b.id === 1)?.book_balance_cents === 1000000 + 1000000 - 50000 && v.banks.find((b) => b.id === 2)?.book_balance_cents === null, JSON.stringify(v.banks));
+  ok("a transfer is neither money in nor money out", v.totals.in_cents === 1300000 && v.totals.out_cents === 30000, `${v.totals.in_cents}/${v.totals.out_cents}`);
+  /* v1.312.0 - the expense now goes through its account (paid, reversed, paid again: -RM 300 net); a
+     reversal moves through its original's account. SQLite's 'now' is the real clock, so the reversal
+     is dated after this test's "today" and is counted only if it is not */
+  const revDay = db.prepare(`SELECT effective_date AS d FROM cashflow_entries WHERE reversal_of = ?`).get(rows("EXP-1")[0].id)?.d ?? "";
+  ok("book balance = opening + assigned in - out since the opening day", v.banks.find((b) => b.id === 1)?.book_balance_cents === 1000000 + 1000000 - 50000 - 30000 - 30000 + (revDay <= "2026-09-18" ? 30000 : 0) && v.banks.find((b) => b.id === 2)?.book_balance_cents === null, JSON.stringify(v.banks));
 
   /* 5. reconciliation */
   const ex = (k) => v.exceptions.filter((e) => e.kind === k);
@@ -206,7 +216,7 @@ try {
   ok("reverse needs a reason; the CCO cannot", (await call(`/erp/cashbook/rows/${manualId}/reverse`, 1, "POST", { reason: "" })).status === 400 && (await call(`/erp/cashbook/rows/${manualId}/reverse`, 3, "POST", { reason: "dup" })).status === 403);
   ok("reversed once", (await call(`/erp/cashbook/rows/${manualId}/reverse`, 1, "POST", { reason: "Typed twice" })).status === 200 && (await call(`/erp/cashbook/rows/${manualId}/reverse`, 1, "POST", { reason: "again" })).status === 409);
   v = await view();
-  ok("...and money in drops by exactly that amount", v.totals.in_cents === 1490000, String(v.totals.in_cents));
+  ok("...and money in drops by exactly that amount", v.totals.in_cents === 1000000, String(v.totals.in_cents));
   const revRow = v.items.find((i) => i.reversal_of === manualId);
   ok("a reversal cannot itself be reversed", revRow && (await call(`/erp/cashbook/rows/${revRow.row_id}/reverse`, 1, "POST", { reason: "undo the undo" })).status === 409);
 
@@ -227,9 +237,10 @@ try {
   let v3 = await view();
   ok("a receipt carries its invoice's issuer", v3.items.find((i) => i.key === "INV:11")?.issuer === "a2z" && v3.items.find((i) => i.key === "INV:10")?.issuer === null);
   const many = await call("/erp/cashbook/assign-bank", 1, "POST", { item_keys: ["INV:11", "PART:2", "bad key"], bank_id: 2 });
-  ok("many receipts assigned at once, a bad key ignored", many.status === 200 && many.j?.assigned === 2, JSON.stringify(many.j));
+  /* v1.312.0 (CEO-2) - INV-11 is now A2Z's: never assigned to an AZ ONE account */
+  ok("many receipts assigned at once, a bad key ignored, the other company's skipped", many.status === 200 && many.j?.assigned === 1 && many.j?.skipped === 1, JSON.stringify(many.j));
   v3 = await view();
-  ok("...and they carry the account", v3.items.find((i) => i.key === "INV:11")?.bank_id === 2 && v3.items.find((i) => i.key === "PART:2")?.bank_id === 2);
+  ok("...and they carry the account", v3.items.find((i) => i.key === "INV:11")?.bank_id !== 2 && v3.items.find((i) => i.key === "PART:2")?.bank_id === 2);
   ok("the CCO cannot assign many either", (await call("/erp/cashbook/assign-bank", 3, "POST", { item_keys: ["INV:12"], bank_id: 2 })).status === 403);
   db.exec(`UPDATE bank_accounts SET active = 0`);
   ok("with no account set up, no 'which account?' items", (await view()).exceptions.every((e) => e.kind !== "no_bank"));
@@ -250,10 +261,10 @@ const fin = read("components/portal/finance-panels.tsx");
 const finCode = strip(fin);
 ok("the Finance tab is one page: Overview, Transactions, Expenses, Reconciliation, Reports",
    ['L("Overview", "Gambaran")', 'L("Transactions", "Transaksi")', 'L("Expenses", "Perbelanjaan")', 'L("Reconciliation", "Penyelarasan")', 'L("Reports", "Laporan")'].every((t) => fin.includes(t))
-   && /<FinancePage expenses=\{<ExpensesPanel reporting=\{<PnlCard \/>\} \/>\} \/>/.test(page));
-ok("one read for every tab, by period", /api<CashbookView(?: & \{[^>]*\})?>\(`\/cashbook\?from=\$\{period\.from\}&to=\$\{period\.to\}&months=12`\)/.test(finCode));
-ok("a period's movement is never called a balance", /L\("Net cash movement", "Pergerakan tunai bersih"\)/.test(fin) && !/L\("Balance", "Baki"\)/.test(fin));
-ok("the screen adds up nothing itself: the figures are the server's", !/\.reduce\(\(a, e\) => a \+ e\.amount_cents/.test(finCode) && /view\.totals\.in_cents/.test(finCode));
+   && /<FinancePage startView=\{startOf\("Finance"\)\} \/>/.test(page)); // v1.312.0 - Finance 5.0, the five views at their address
+ok("one read for every tab, by period and company", /api<CashbookView(?: & \{[^>]*\})?>\(`\/cashbook\?from=\$\{period\.from\}&to=\$\{period\.to\}&months=12&company=\$\{company\}`\)/.test(finCode));
+ok("a period's movement is never called a balance", /L\("Net Cash Movement", "Pergerakan Tunai Bersih"\)/.test(fin) && !/L\("Balance", "Baki"\)/.test(fin));
+ok("the screen adds up nothing itself: the figures are the server's", !/\.reduce\(\(a, e\) => a \+ e\.amount_cents/.test(finCode) && /v\.totals\.in_cents/.test(finCode));
 ok("corrections shown only to those the server allows", /view\.can_correct &&/.test(finCode));
 ok("the old Cash Flow panel is gone", !/CashFlowPanel/.test(page) && !/CashFlowPanel/.test(read("components/portal/lazy-panels.tsx")));
 ok("the guard is registered", /\["cashflow", "/.test(read("scripts/run-guards.mjs")));

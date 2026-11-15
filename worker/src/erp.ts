@@ -18,7 +18,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, cents, err, json, logError, num, postJournal, str } from "./shared";
 import { handleLedger, isManualRef } from "./ledger"; // v1.222.0 - Accounting 2.0 reads
-import { bookCash } from "./cashbook"; // v1.219.0 - Finance 2.0: one booking, atomic and dated
+import { bookCash, companyOf, issuerCompany } from "./cashbook"; // v1.219.0 - Finance 2.0: one booking, atomic and dated
 import { can } from "./permissions";
 import { STAFF_ORDER_SQL } from "./staff"; // v1.95.0 - one company order, everywhere
 
@@ -68,14 +68,24 @@ export async function handleErp(
       return json({ banks: rows.results ?? [] });
     }
     if (path === "/banks" && method === "POST") {
-      if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      /* v1.312.0 (Finance 5.0) - an account is a correction-level record (CEO,
+         COO) and belongs to ONE company from the start (CEO-2) */
+      if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO adds a company account", 403);
       if (!str(body?.name, 100)) return err("validation", "The account needs a name", 400);
-      const res = await env.DB.prepare(
-        `INSERT INTO bank_accounts (name, bank, number_masked) VALUES (?1, ?2, ?3) RETURNING id`,
-      ).bind((body!.name as string).trim(),
-        str(body?.bank, 100) ? (body!.bank as string).trim() : "",
-        str(body?.number_masked, 40) ? (body!.number_masked as string).trim() : "").first<{ id: number }>();
-      await audit(env, user.id, "erp.bank_create", "bank_accounts", String(res?.id));
+      const coB = companyOf(body?.company);
+      if (!coB) return err("validation", "Choose the company this account belongs to", 400);
+      let res: { id: number } | null;
+      try {
+        res = await env.DB.prepare(
+          `INSERT INTO bank_accounts (name, bank, number_masked, company) VALUES (?1, ?2, ?3, ?4) RETURNING id`,
+        ).bind((body!.name as string).trim(),
+          str(body?.bank, 100) ? (body!.bank as string).trim() : "",
+          str(body?.number_masked, 40) ? (body!.number_masked as string).trim() : "", coB).first<{ id: number }>();
+      } catch (e) {
+        if (/no such column/i.test(String(e))) return err("pending_migration", "Run PUSH.bat so migration 0197 applies, then retry", 409);
+        throw e;
+      }
+      await audit(env, user.id, "erp.bank_create", "bank_accounts", String(res?.id), { company: coB });
       return json({ id: res?.id }, 201);
     }
 
@@ -89,7 +99,20 @@ export async function handleErp(
       return json({ entries: rows.results ?? [] });
     }
     if (path === "/cashflow" && method === "POST") {
-      if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      /* v1.312.0 (Finance 5.0, F-10) - A MANUAL MOVEMENT IS A CONTROLLED ACT.
+         - The CEO or COO only (cashbook_correct), never admin.
+         - The reference is the server's (MAN-...), never typed: a typed ref
+           could name an invoice, claim, payroll run or payout and block or
+           fake that module's own booking. A typed reference goes into the
+           description.
+         - A movement a module books is never entered here (its categories are
+           refused): sales, claims, salaries, advances, agent commission,
+           transfers.
+         - Once only: the request carries an idempotency key; a retry or a
+           double tap answers with the first row.
+         - It names its company, and the account (if any) is that company's.
+         - A reason is required and audited. */
+      if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO enters a manual movement", 403);
       const type = body?.type === "in" ? "in" : body?.type === "out" ? "out" : null;
       const amount = cents(body?.amount);
       const entryDate = str(body?.entry_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.entry_date as string)
@@ -97,25 +120,33 @@ export async function handleErp(
       if (!type || amount === null || amount <= 0 || !entryDate) {
         return err("validation", "Cash flow entries need a date, a direction (in/out) and an amount above zero", 400);
       }
-      const bankId = num(body?.bank_id);
-      const res = await env.DB.prepare(
-        `INSERT INTO cashflow_entries (entry_date, type, category, bank_id, amount_cents, description, ref, created_by)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
-      ).bind(entryDate, type,
-        str(body?.category, 100) ? (body!.category as string).trim() : "",
-        bankId, amount,
-        str(body?.description, 500) ? (body!.description as string).trim() : "",
-        str(body?.ref, 100) ? (body!.ref as string).trim() : "",
-        user.id).first<{ id: number }>();
-      /* v1.20.0 C5: manual movements draft their journal entry too — keyed
-         CF-<id> so a deleted-and-retyped movement books once per row. */
-      if (res?.id) {
-        await postJournal(env, user.id, `CF-${res.id}`,
-          str(body?.description, 500) ? (body!.description as string).trim() : "Bank movement",
-          str(body?.category, 100) ? (body!.category as string).trim() : "", amount, type, entryDate); // v1.222.0: the movement's own day
+      if (entryDate > new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)) return err("validation", "A movement is dated the day the money moved: today or earlier", 400);
+      const coM = companyOf(body?.company);
+      if (!coM) return err("validation", "Choose the company this money belongs to", 400);
+      const category = str(body?.category, 100) ? (body!.category as string).trim() : "";
+      if (/^(sales|service|claims?|salar(y|ies)|salary_advances?|payroll|agent_commission|commission|transfer)$/i.test(category)) {
+        return err("module_owned", "This kind of money is booked by its own module (Sales, Claims, Payroll, Commission) or as a transfer - never typed here", 400);
       }
-      await audit(env, user.id, "erp.cashflow_create", "cashflow_entries", String(res?.id), { type, amount });
-      return json({ id: res?.id }, 201);
+      const reason = str(body?.reason, 300) ? (body!.reason as string).trim() : "";
+      if (reason.length < 5) return err("validation", "Say why this movement is entered by hand (at least 5 characters)", 400);
+      const idem = typeof body?.idempotency_key === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.idempotency_key) ? body.idempotency_key : null;
+      if (!idem) return err("validation", "idempotency_key (8-64 letters, digits, - or _) is required", 400);
+      const ref = `MAN-${idem}`;
+      const dupRow = await env.DB.prepare(`SELECT id FROM cashflow_entries WHERE source_key = ?1`).bind(ref).first<{ id: number }>().catch(() => null);
+      if (dupRow) return json({ id: dupRow.id, ref, replay: true });
+      const bankId = num(body?.bank_id);
+      if (bankId) {
+        const bk = await env.DB.prepare(`SELECT company FROM bank_accounts WHERE id = ?1 AND active = 1`).bind(bankId).first<{ company: string | null }>().catch(() => null);
+        if (!bk) return err("validation", "That account does not exist or is inactive", 400);
+        if (companyOf(bk.company) !== coM) return err("cross_company", "That account belongs to the other company", 400);
+      }
+      const typedRef = str(body?.ref, 100) ? (body!.ref as string).trim() : "";
+      const desc = [str(body?.description, 500) ? (body!.description as string).trim() : "", typedRef ? `(ref: ${typedRef})` : ""].filter(Boolean).join(" ") || category || "Manual movement";
+      const ok = await bookCash(env, user.id, ref, amount, category, desc, type, entryDate, { company: coM, bankId: bankId ?? null });
+      const row = await env.DB.prepare(`SELECT id FROM cashflow_entries WHERE source_key = ?1`).bind(ref).first<{ id: number }>().catch(() => null);
+      if (!row) return err("not_saved", ok ? "Saved, but not found - reload" : "The movement could not be saved (is migration 0197 applied?)", 500);
+      await audit(env, user.id, "erp.cashflow_manual", "cashflow_entries", String(row.id), { type, amount_cents: amount, company: coM, category, reason, ref });
+      return json({ id: row.id, ref }, 201);
     }
     {
       const m = /^\/cashflow\/(\d+)$/.exec(path);
@@ -130,6 +161,8 @@ export async function handleErp(
     }
 
     if (path === "/cashflow/backfill" && method === "POST") {
+      /* v1.312.0 - booking what a module paid is a correction-level act (CEO, COO) */
+      if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO books missing movements", 403);
       /* v1.21.1 (CEO: "I didnt see yet it populate the existing data!"):
          the live automation only books events that happen AFTER it shipped.
          This walks what Finance ALREADY holds — paid expenses, paid claims,
@@ -150,16 +183,24 @@ export async function handleErp(
       let created = 0;
       /* v1.219.0 - the one booking (cashbook.ts bookCash): atomic, keyed,
          and dated the day the money moved (`day`, from the source record) */
-      const book = async (ref: string, amountCents: number, category: string, description: string, direction: "in" | "out", day: string | null = null) => {
-        if (await bookCash(env, user.id, ref, amountCents, category, description, direction, day)) created++;
+      const book = async (ref: string, amountCents: number, category: string, description: string, direction: "in" | "out", day: string | null = null, opts: { company?: "a2z" | "azoo" | null; bankId?: number | null } = {}) => {
+        if (await bookCash(env, user.id, ref, amountCents, category, description, direction, day, opts)) created++;
       };
       try {
-        const ex = await env.DB.prepare(
-          `SELECT id, amount_cents, category, vendor, description, date(paid_at, '+8 hours') AS day FROM expenses WHERE paid_at IS NOT NULL`,
-        ).all<{ id: number; amount_cents: number; category: string; vendor: string | null; description: string | null; day: string | null }>();
+        /* v1.312.0 - the expense's company and account travel with it (0197/0198) */
+        let ex;
+        try {
+          ex = await env.DB.prepare(
+            `SELECT id, amount_cents, category, vendor, description, COALESCE(paid_on, date(paid_at, '+8 hours')) AS day, company, bank_id FROM expenses WHERE paid_at IS NOT NULL`,
+          ).all<{ id: number; amount_cents: number; category: string; vendor: string | null; description: string | null; day: string | null; company: string | null; bank_id: number | null }>();
+        } catch {
+          ex = await env.DB.prepare(
+            `SELECT id, amount_cents, category, vendor, description, date(paid_at, '+8 hours') AS day, NULL AS company, NULL AS bank_id FROM expenses WHERE paid_at IS NOT NULL`,
+          ).all<{ id: number; amount_cents: number; category: string; vendor: string | null; description: string | null; day: string | null; company: string | null; bank_id: number | null }>();
+        }
         for (const r of ex.results ?? []) {
           await book(`EXP-${r.id}`, r.amount_cents, r.category,
-            [r.vendor, r.description].filter(Boolean).join(" — ") || "Expense payment", "out", r.day);
+            [r.vendor, r.description].filter(Boolean).join(" — ") || "Expense payment", "out", r.day, { company: companyOf(r.company), bankId: r.bank_id });
         }
       } catch { /* expenses table variant — skip */ }
       try {
@@ -187,10 +228,10 @@ export async function handleErp(
       } catch { /* pre-payroll schema — skip */ }
       try {
         const inv = await env.DB.prepare(
-          `SELECT id, doc_number, total_cents, date(COALESCE(paid_at, created_at), '+8 hours') AS day FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'`,
-        ).all<{ id: number; doc_number: string; total_cents: number; day: string | null }>();
+          `SELECT id, doc_number, total_cents, date(COALESCE(paid_at, created_at), '+8 hours') AS day, issuer_code FROM sales_documents WHERE doc_type = 'INV' AND payment_status = 'paid'`,
+        ).all<{ id: number; doc_number: string; total_cents: number; day: string | null; issuer_code: string | null }>();
         for (const r of inv.results ?? []) {
-          await book(`INV-${r.id}`, r.total_cents, "sales", `Invoice ${r.doc_number} paid`, "in", r.day);
+          await book(`INV-${r.id}`, r.total_cents, "sales", `Invoice ${r.doc_number} paid`, "in", r.day, { company: issuerCompany(r.issuer_code) });
         }
       } catch { /* pre-docs schema — skip */ }
       await audit(env, user.id, "erp.cashflow_backfill", "cashflow_entries", "backfill", { created });

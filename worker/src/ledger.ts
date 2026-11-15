@@ -38,6 +38,10 @@ export type SourceKind = "sales" | "expenses" | "claims" | "payroll" | "finance"
 const PREFIX: [RegExp, SourceKind][] = [
   [/^INV-\d+/, "sales"], [/^CN-\d+/, "sales"], [/^EXP-\d+/, "expenses"], [/^CLM-\d+/, "claims"], [/^PAYROLL-\d{4}-\d{2}/, "payroll"],
   [/^CF-\d+/, "finance"], [/^RECON-/, "channel"], [/^ELF-/, "elfia"], [/^REVJ?-\d+/, "reversal"],
+  /* v1.312.0 (Finance 5.0) - an agent payout (AGT-) and a Finance manual
+     movement (MAN-) are cash-book bookings: reversed in Finance, never as an
+     Accounting manual journal */
+  [/^AGT-\d+/, "finance"], [/^MAN-[\w-]+/, "finance"],
 ];
 export function sourceOf(ref: string): SourceKind {
   for (const [re, kind] of PREFIX) if (re.test(ref)) return kind;

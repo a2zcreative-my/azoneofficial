@@ -165,7 +165,7 @@ for (const f of MIGRATED) {
 {
   const rp = read("components/portal/role-panels.tsx");
   const start = rp.indexOf("export function ClaimsPanel(");
-  const end = rp.indexOf("function ExpensePie(");
+  const end = rp.indexOf("/* v1.312.0 (Finance 5.0, CEO-5)"); // v1.312.0 - the expenses panel after it was retired
   const block = rp.slice(start, end);
   const hits = legacyRefsOf(block, defined);
   ok("the Claims flow (role-panels.tsx ClaimsPanel) references no legacy utility", start > 0 && end > start && hits.size === 0, [...hits].slice(0, 8).join(" "));

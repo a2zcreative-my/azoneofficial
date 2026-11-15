@@ -347,7 +347,9 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("HR: four tabs in the reference's order", ordered(hr, ['L("Overview"', 'L("Employee Lifecycle"', 'L("Calendar & Holidays"', 'L("HR Policies & Settings"']) && !/L\("Reports", "Laporan"\)|L\("Payroll & Payslips"|L\("HR Administration"/.test(hr) && /useTabViewAddress\("HR", view, setView, isView\)/.test(hr));
   ok("HR: the keepers' gate is the four roles it was", hr.includes('export const HR_ADMIN_ROLES = ["hr_admin", "ceo", "super_admin", "admin"];') && /\{admin \? <HolidaysCard \/> : <PermissionPlaceholder/.test(hr) && /\{admin\s*\? <PeoplePanel /.test(hr));
   ok("HR: the task report is in Tasks, the payslip summary and the launcher are gone, the calendar is the one company calendar", !/TaskReports|task-reports|PayslipCard|HrAdministration/.test(hr.replace(/\/\*[\s\S]*?\*\//g, "")) && /<TaskReports \/>/.test(tasksSrc) && /<UpcomingEventsCard role=\{user\.role\} \/>/.test(hr) && page.includes('<HrPage user={user} go={setTab} canOpen={canOpen} startView={startOf("HR")} />'));
-  ok("Finance: cash then expenses with reporting after payments due", page.includes('<ExpensesPanel reporting={<PnlCard />} />') && ordered(panels.slice(panels.indexOf('export function ExpensesPanel')), ['L("Payments due', '{reporting}', 'payments COMPLETED']));
+  /* v1.312.0 (Finance 5.0, CEO-5) - the expenses live in Finance -> Expenses: the form, then what is due, then the cash impact and the summary */
+  { const fin = read("components/portal/finance-panels.tsx");
+    ok("Finance: Expenses reads form, payments due, then the cash impact and the summary", ordered(fin.slice(fin.indexOf('data-testid="finance-expenses"')), ['<AddExpense', 'data-testid="expense-due"', 'data-testid="expense-impact"', 'data-testid="expense-summary"']) && page.includes("<FinancePage startView=")); }
   const pay = payroll.slice(payroll.indexOf('export function PayrollPanel'));
   /* v1.198.0 - five tabs in the brief's order: the register and Save all
      (Processing), the release (Payslips), the bank file (Reports & Export),

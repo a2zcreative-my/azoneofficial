@@ -10,6 +10,24 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.312.0] - 2026-11-15 - Finance Workspace 5.0: five views, one cash book, one company at a time - BUILT, NOT DEPLOYED (MIGRATIONS 0197 + 0198, ADDITIVE)
+
+The CEO, 15-11-2026: "approve as per recomment" on claude/FINANCE-WORKSPACE-5.0-BLUEPRINT.md (CEO-1 ... CEO-14). Phase A (the screens) and Phase B (accuracy) are built here; Phase C (the reconciliation workflow table and PART- ledger rows, CEO-3) is not. **The 10% Direct Sales and 7% Agent + 3% Closer rules are untouched. No historical payment event, approval or audit row is changed.**
+
+- **Five views, in the address** (`/portal?tab=Finance&view=overview|transactions|expenses|reconciliation|reports`, Back/Forward; the view switch on a phone).
+  - **Overview:** Money In (verified only), Money Out, Net Cash Flow, Needs Attention; the 12-month trend; Money Out by category; Account Balances (book balances, not bank-verified); Recent Transactions (three); Needs Attention. The Financial health card stays on the Dashboard (CEO-9).
+  - **Transactions:** one list from the one cash book; direction, source, status, account and search filters (folded on a phone); pages of 25; the CSV is the list on screen. Each row opens its drawer with its company, verification and history.
+  - **Expenses:** Add Expense; Due Payments / Scheduled Expenses (commitments, never cash); Monthly Expense Impact; the summary; View All. The steps recorded -> approved -> authorised -> paid, each by its own person (CEO-5).
+  - **Reconciliation:** Out of Step count and the Total Difference = source - cash book (the payroll example: -RM 5.00, not RM 13,161.66, CEO-1). Mark Reviewed keeps a record open ("Reviewed - still open"); only the CEO's Accept, with a reason, resolves it (CEO-6). Other checks are folded below.
+  - **Reports:** one report selector, one period, the company and account filters; every export is the table on screen. No P&L in Finance - Accounting holds the one P&L (CEO-8).
+- **One company at a time** (CEO-2): A2Z Creative Marketing, AZ ONE Official, or both labelled consolidated. Every movement, account and expense carries its company; the cash book derives it from the issuer, the expense or the deal. Accounts are never moved across companies; a used account's company is locked.
+- **Money In is verified receipts only** (CEO-4): an unverified receipt or part payment is shown as awaiting, not counted.
+- **Manual entries** (CEO-7): the CEO or COO only, with a company, a reason and an idempotency key; the server sets the reference (MAN-...); a module's own category is refused; a replay is not booked twice. The Super Admin reads Finance but no longer corrects it or runs a bank run (CEO-10).
+- **Expense payment** (CEO-5): the COO pays what the CEO authorised (never the authoriser), with the bank date (not in the future), the company's own account, the payment reference and evidence; EXP- is booked once, dated the bank date. An expense is cancelled with a reason, never deleted.
+- **Migration 0197_finance_company** (additive): a nullable company column on bank_accounts, cashflow_entries and expenses; the CEO acceptance columns on cashbook_marks; one index.
+- **Migration 0198_expense_lifecycle** (additive): the expense step columns and one index.
+- Guard: tests/finance5.mjs (registered); browser: tests/browser/finance5.py. Updated to the approved rules: cashflow.mjs, access-policy, ecc4 (Financial health not repeated on Finance), compact-dashboard, tab-concept, and the 0198 latest-migration checks.
+
 ## [1.311.0] - 2026-11-15 - Commission Workspace 5.0: six views, one engine, the CEO owner verifies - BUILT, NOT DEPLOYED (MIGRATION 0196, ADDITIVE)
 
 The CEO, 15-11-2026: "approve as per recommend" on claude/COMMISSION-WORKSPACE-5.0-BLUEPRINT.md (K-0 ... K-13), "and help to make the dashboard card much better width and aligned". **The 10% Direct Sales and 7% Agent + 3% salesperson rules are unchanged; no historical entitlement, payment or audit row is rewritten.**

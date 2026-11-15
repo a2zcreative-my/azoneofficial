@@ -119,7 +119,7 @@ const BODY = {
   "Leave": ["components/portal/leave.tsx#Leave"],
   "Claims": ["components/portal/role-panels.tsx#ClaimsPanel", "components/portal/claims-overview.tsx#ClaimsOverview"], // v1.310.0 - Claims 4.0: the five figures live in the Overview
   "Payroll": ["components/portal/payroll-panel.tsx#PayrollPanel"],
-  "Finance": ["components/portal/finance-panels.tsx", "components/portal/role-panels.tsx#ExpensesPanel"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
+  "Finance": ["components/portal/finance-panels.tsx"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
   "Commission": ["components/portal/commission-panel.tsx", "components/portal/commission5.tsx"], // v1.224.0 - back, over the new engine (the owner, 29-10-2026); v1.311.0 - the six views of 5.0 live in the panel's view components and commission5.tsx
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel", "components/portal/companies-panel.tsx#CompaniesReview"], // v1.251.0 - the review, or Document & Signing alone
@@ -212,7 +212,7 @@ ok("Users: OVERVIEW, STAFF ACCOUNTS, CUSTOMERS & AGENTS, ROLES & PERMISSIONS, SE
 ok("Profile: MY PROFILE, SECURITY & ACCOUNT, MY PAYSLIPS - the payslips handed in from Payroll", ['L("My Profile", "Profil Saya")', 'L("Security & Account", "Keselamatan & Akaun")', 'L("My Payslips", "Slip Gaji Saya")'].every((t) => read("components/portal/profile.tsx").includes(t)) && /<Profile payslips=\{<MyPayslip \/>\} \/>/.test(blockOf("Profile")));
 /* v1.219.0 - Finance 2.0 (the owner's answers, 28-10-2026): five tabs, the
    cash figures first, the Expenses panel and its P&L handed in unchanged */
-ok("Finance: OVERVIEW, TRANSACTIONS, EXPENSES, RECONCILIATION, REPORTS - the expense panel handed in whole", ['L("Overview", "Gambaran")', 'L("Transactions", "Transaksi")', 'L("Expenses", "Perbelanjaan")', 'L("Reconciliation", "Penyelarasan")', 'L("Reports", "Laporan")'].every((t) => read("components/portal/finance-panels.tsx").includes(t)) && /<FinancePage expenses=\{<ExpensesPanel reporting=\{<PnlCard \/>\} \/>\} \/>/.test(blockOf("Finance")));
+ok("Finance: OVERVIEW, TRANSACTIONS, EXPENSES, RECONCILIATION, REPORTS - the expense panel handed in whole", ['L("Overview", "Gambaran")', 'L("Transactions", "Transaksi")', 'L("Expenses", "Perbelanjaan")', 'L("Reconciliation", "Penyelarasan")', 'L("Reports", "Laporan")'].every((t) => read("components/portal/finance-panels.tsx").includes(t)) && /<FinancePage startView=\{startOf\("Finance"\)\} \/>/.test(blockOf("Finance"))); // v1.312.0 - Finance 5.0: the five views at their address; Expenses is Finance's own (cash), the P&L is Accounting's
 ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab === "[^"]+" && \(\s*<div className="erp-stack">/.test(page));
 
 /* ---- 7. no grid blowout on a phone (v1.174.1) ----

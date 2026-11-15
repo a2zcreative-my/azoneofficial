@@ -27,7 +27,8 @@
      re-sent by the store, and the lists must stay truthful. */
 
 import type { Env } from "./index";
-import { json, err, logError, postJournal } from "./shared";
+import { json, err, logError } from "./shared";
+import { bookCash } from "./cashbook"; // v1.312.0 - the one booking
 import {
   parseBatch, skuKey,
   parseWebOrder, parseWebOrderLines, isPaidStatus,
@@ -415,16 +416,19 @@ async function upsertWebOrder(env: Env, o: NonNullable<ReturnType<typeof parseWe
       const ref = `ELF-${o.order_number}`;
       const desc = `ELFIA web order ${o.order_number}`;
       try {
-        /* Single-statement guarded insert — the check and the write are one
-           atomic statement, closing the check-then-insert race without a
-           schema change (a unique index on ref cannot be added safely: the
-           column defaults to '' across existing manual rows). */
-        await env.DB.prepare(
-          `INSERT INTO cashflow_entries (entry_date, type, category, amount_cents, description, ref, created_by)
-           SELECT date('now', '+8 hours'), 'in', 'sales', ?1, ?2, ?3, 0
-           WHERE NOT EXISTS (SELECT 1 FROM cashflow_entries WHERE ref = ?3)`,
-        ).bind(o.total_cents, desc, ref).run();
-        await postJournal(env, 0, ref, desc, "sales", o.total_cents ?? 0, "in");
+        /* v1.312.0 (Finance 5.0, F-9) - through the ONE booking (bookCash):
+           atomic, keyed (source_key), dated the day the store last changed the
+           order to paid (Malaysia time) rather than the poll day, with its
+           journal; and after a reversal a paid order can book again. The
+           company stays unassigned until the account is chosen (CEO-8). */
+        const upd = typeof o.updated_at === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(o.updated_at)
+          ? new Date(Date.parse(`${o.updated_at.slice(0, 19).replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10) : null;
+        const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        await bookCash(env, 0, ref, o.total_cents ?? 0, "sales", desc, "in", upd && upd <= todayMyt ? upd : null);
+        const booked = await env.DB.prepare(
+          `SELECT 1 AS ok FROM cashflow_entries c WHERE c.ref = ?1 AND NOT EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = c.id) LIMIT 1`,
+        ).bind(ref).first();
+        if (!booked) throw new Error("the cash row was not written");
       } catch (e) {
         await env.DB.prepare(
           `UPDATE web_orders SET paid_seen_at = NULL, booked_cents = NULL WHERE id = ?1`,

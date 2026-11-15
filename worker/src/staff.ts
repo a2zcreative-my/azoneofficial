@@ -51,7 +51,7 @@ import {
 } from "./clock-day";
 import { dayVerdict, graceOn, LATE_GRACE, MISSING_OUT_AFTER_MINUTES, mytNow, type DayVerdict } from "./attendance-day"; // v1.307.0 - Attendance 4.0: the one verdict
 import { logError as sharedLogError, readVersions, putGuarded, ensureShareToken } from "./shared";
-import { bookCash, reverseLive, handleCashbook } from "./cashbook"; // v1.219.0 - Finance 2.0
+import { bookCash, reverseLive, handleCashbook, companyOf } from "./cashbook"; // v1.219.0 - Finance 2.0; v1.312.0 - companies
 import { fillM2eTemplate, type M2eRow } from "./m2e";
 import { createPasswordHash, primaryOrigin, totpVerifyOnce, checkRateLimit } from "./index"; // v1.127.0 - step-up before a signature is attached; v1.177.2 - budget the overflow reporter
 import { isPushEndpoint, sendPush, type PushKeys, type PushOptions } from "./webpush";
@@ -3003,7 +3003,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && path !== "/leave/attachment" // v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && path !== "/leave/attachment" // v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -8979,7 +8979,8 @@ async function handleStaffRoutes(
   /* v1.5.0: /prospects/insights removed with the Social tab. */
 
   if (path === "/expenses" && method === "GET") {
-    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
+    /* v1.312.0 - the Super Admin reads Finance (cashflow_manage) without recording expenses */
+    if (!can(user.role, "expenses") && !can(user.role, "cashflow_manage")) return err("forbidden", "Expenses access required", 403);
     const urlE = new URL(request.url);
     const mE = urlE.searchParams.get("month"); // optional YYYY-MM filter
     const { results } = await env.DB.prepare(
@@ -9103,100 +9104,229 @@ async function handleStaffRoutes(
       // claims.paid_at arrives with migration 0037 — degrade, don't die.
       await logError(env, "expenses_claims", e instanceof Error ? e.message : String(e));
     }
-    return json({ expenses: results, upcoming, staff_payroll: staffPayroll, staff_claims: { in_month: claimsInMonth, paid: claimsPaid, due: claimsDue } });
+    /* v1.312.0 (CEO-2) - one company when asked (?company=a2z|azoo) */
+    const coF = companyOf(urlE.searchParams.get("company"));
+    const ofCo = <T,>(list: T[]) => (coF ? list.filter((r) => (r as { company?: string | null }).company === coF) : list);
+    return json({ expenses: ofCo(results as Record<string, unknown>[]), upcoming: ofCo(upcoming as Record<string, unknown>[]), staff_payroll: staffPayroll, staff_claims: { in_month: claimsInMonth, paid: claimsPaid, due: claimsDue }, company: coF ?? "all" });
   }
+  /* v1.312.0 - FINANCE WORKSPACE 5.0, CEO-4: AN EXPENSE HAS A LIFE, AND ONLY
+     ITS LAST STEP MOVES MONEY (migration 0198).
+       recorded   - the CEO, COO or admin enters it, with its company
+       approved   - the CEO; the COO for an expense the CEO recorded; never
+                    the person who recorded it
+       authorised - the CEO authorises the payment
+       paid       - Finance (the COO) completes it with the bank date, the
+                    account (of the same company) and the bank reference,
+                    after the evidence is attached; never the person who
+                    authorised it. This is the only step that books cash.
+       cancelled  - with a reason, never deleted
+     A recorded, approved or scheduled expense is a commitment, never cash.
+     An existing expense keeps its meaning: paid when paid_at is set,
+     otherwise recorded. */
+  const EXP_CATS = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
+  type ExpRow = { id: number; status: string | null; paid_at: string | null; created_by: number | null; company: string | null; amount_cents: number; category: string; vendor: string | null; description: string | null;
+    approved_by: number | null; authorised_by: number | null; receipt_key: string | null; expense_date: string; recorder_role: string | null };
+  const expStage = (r: { status: string | null; paid_at: string | null }) => r.status ?? (r.paid_at ? "paid" : "recorded");
+  const expRow = async (id: string | number): Promise<ExpRow | null | "pending"> => {
+    try {
+      return await env.DB.prepare(
+        `SELECT e.id, e.status, e.paid_at, e.created_by, e.company, e.amount_cents, e.category, e.vendor, e.description, e.approved_by, e.authorised_by, e.receipt_key, e.expense_date, u.role AS recorder_role
+           FROM expenses e LEFT JOIN users u ON u.id = e.created_by WHERE e.id = ?1`,
+      ).bind(Number(id)).first<ExpRow>();
+    } catch (e) {
+      if (/no such column/i.test(String(e))) return "pending";
+      throw e;
+    }
+  };
+  const pendingExp = () => err("pending_migration", "Run PUSH.bat so migrations 0197 and 0198 apply, then retry", 409);
+
   const exEdit = path.match(/^\/expenses\/(\d+)$/);
   if (exEdit && method === "PATCH") {
     // v1.4.91: fix typos on a recorded expense. (Staff payroll is computed
     // from the Payroll tab and is not editable here — by design.)
+    // v1.312.0 - only while RECORDED: once approved, the amount and its
+    // company are what was approved; a paid expense never changes (F-8)
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
-    const catsP = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
+    const cur = await expRow(exEdit[1]!);
+    if (cur === "pending") return pendingExp();
+    if (!cur) return err("not_found", "Expense not found", 404);
+    if (expStage(cur) !== "recorded") return err("locked", `This expense is ${expStage(cur)}: it is no longer edited. Cancel it (with a reason) and record it again.`, 409);
     const sets: string[] = [];
     const vals: unknown[] = [];
     const setV = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = ?${vals.length}`); };
     if (typeof body?.expense_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.expense_date)) setV("expense_date", body.expense_date);
-    if (typeof body?.category === "string" && catsP.includes(body.category)) setV("category", body.category);
+    if (typeof body?.category === "string" && EXP_CATS.includes(body.category)) setV("category", body.category);
     if (typeof body?.amount === "number" && body.amount > 0) setV("amount_cents", Math.round(body.amount * 100));
     if (typeof body?.vendor === "string") setV("vendor", body.vendor.slice(0, 200) || null);
     if (typeof body?.description === "string") setV("description", body.description.slice(0, 1000) || null);
     if (typeof body?.due_day === "number" && body.due_day >= 1 && body.due_day <= 31) setV("due_day", Math.round(body.due_day));
     else if (body?.due_day === null) sets.push("due_day = NULL");
     if (body?.recurring === true || body?.recurring === false) setV("recurring", body.recurring ? 1 : 0);
+    if (body && "company" in body) { const co = companyOf(body.company); if (!co) return err("validation", "company is a2z or azoo", 400); setV("company", co); }
     if (sets.length === 0) return err("invalid_input", "Nothing to update", 400);
-    await env.DB.prepare(`UPDATE expenses SET ${sets.join(", ")} WHERE id = ?${vals.length + 1}`)
+    await env.DB.prepare(`UPDATE expenses SET ${sets.join(", ")} WHERE id = ?${vals.length + 1} AND COALESCE(status, 'recorded') = 'recorded' AND paid_at IS NULL`)
       .bind(...vals, exEdit[1]).run();
     await audit(env, user.id, "expense.update", "expenses", exEdit[1]);
     return json({ ok: true });
   }
+  const exStep = path.match(/^\/expenses\/(\d+)\/(approve|authorise|pay|cancel|evidence)$/);
+  if (exStep && exStep[2] === "evidence" && method === "GET") {
+    if (!can(user.role, "expenses") && !can(user.role, "cashflow_manage")) return err("forbidden", "Expenses access required", 403);
+    const cur = await expRow(exStep[1]!);
+    if (cur === "pending") return pendingExp();
+    if (!cur?.receipt_key) return err("not_found", "No evidence attached", 404);
+    const obj = await env.MEDIA.get(cur.receipt_key);
+    if (!obj) return err("not_found", "Evidence file missing", 404);
+    return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
+  }
+  if (exStep && method === "POST") {
+    const id = exStep[1]!;
+    const step = exStep[2]!;
+    const cur = await expRow(id);
+    if (cur === "pending") return pendingExp();
+    if (!cur) return err("not_found", "Expense not found", 404);
+    const stage = expStage(cur);
+    const label = cur.vendor || cur.description || cur.category;
+    if (step === "evidence") {
+      if (!can(user.role, "expenses") && !can(user.role, "expense_pay")) return err("forbidden", "Expenses access required", 403);
+      if (stage === "paid" || stage === "cancelled") return err("locked", `This expense is ${stage}: its evidence is kept as it is`, 409);
+      const ct = request.headers.get("content-type") ?? "";
+      if (!["application/pdf", "image/jpeg", "image/png"].includes(ct)) return err("invalid_input", "Only PDF, JPEG or PNG evidence", 400);
+      if (Number(request.headers.get("content-length") ?? 0) > 8 * 1024 * 1024) return err("too_large", "Evidence too large - maximum 8 MB", 413);
+      if (!request.body) return err("invalid_input", "The file is required", 400);
+      const key = `expenses/${id}-${Date.now()}`;
+      const rejected = await putGuarded(env.MEDIA, key, request, { max: 8 * 1024 * 1024, contentType: ct });
+      if (rejected) return rejected;
+      await env.DB.prepare(`UPDATE expenses SET receipt_key = ?1 WHERE id = ?2`).bind(key, id).run();
+      await audit(env, user.id, "expense.evidence", "expenses", id, { replaced: Boolean(cur.receipt_key) });
+      return json({ ok: true });
+    }
+    if (step === "approve") {
+      /* the CEO approves; an expense the CEO recorded is approved by the COO; never by its recorder */
+      const turn = cur.recorder_role === "ceo" ? "coo" : "ceo";
+      if (!can(user.role, "expense_approve") || user.role !== turn) return err("forbidden", turn === "coo" ? "The COO approves an expense the CEO recorded" : "Only the CEO approves an expense", 403);
+      if (cur.created_by === user.id) return err("self_approval", "An expense is never approved by the person who recorded it", 403);
+      if (stage !== "recorded") return err("invalid_state", `This expense is already ${stage}`, 409);
+      if (!companyOf(cur.company)) return err("no_company", "Set the expense's company first", 409);
+      const dueOn = typeof body?.due_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.due_on) ? body.due_on : null;
+      const r = await env.DB.prepare(`UPDATE expenses SET status = 'approved', approved_by = ?1, approved_at = datetime('now'), due_on = COALESCE(?2, due_on) WHERE id = ?3 AND COALESCE(status, 'recorded') = 'recorded' AND paid_at IS NULL`).bind(user.id, dueOn, id).run();
+      if (!(r.meta?.changes ?? 0)) return err("conflict", "It changed while you were approving it - reload", 409);
+      await audit(env, user.id, "expense.approve", "expenses", id, { amount_cents: cur.amount_cents, company: cur.company, due_on: dueOn });
+      return json({ ok: true, status: "approved" });
+    }
+    if (step === "authorise") {
+      if (!can(user.role, "expense_authorise")) return err("forbidden", "Only the CEO authorises an expense payment", 403);
+      if (stage !== "approved") return err("invalid_state", stage === "recorded" ? "Approve it first" : `This expense is already ${stage}`, 409);
+      const r = await env.DB.prepare(`UPDATE expenses SET status = 'authorised', authorised_by = ?1, authorised_at = datetime('now') WHERE id = ?2 AND status = 'approved'`).bind(user.id, id).run();
+      if (!(r.meta?.changes ?? 0)) return err("conflict", "It changed while you were authorising it - reload", 409);
+      await audit(env, user.id, "expense.authorise", "expenses", id, { amount_cents: cur.amount_cents, company: cur.company });
+      return json({ ok: true, status: "authorised" });
+    }
+    if (step === "pay") {
+      if (!can(user.role, "expense_pay")) return err("forbidden", "Finance (the COO) completes an expense payment", 403);
+      if (cur.authorised_by === user.id) return err("dual_control", "The person who authorised a payment never completes it", 403);
+      if (stage !== "authorised") return err("invalid_state", stage === "paid" ? "This expense is already paid" : "The CEO authorises the payment first", 409);
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const paidOn = typeof body?.paid_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.paid_on) && body.paid_on <= today ? body.paid_on : null;
+      if (!paidOn) return err("validation", "The bank date is required (today or earlier)", 400);
+      const bankId = Number(body?.bank_id);
+      const bank = Number.isInteger(bankId) && bankId > 0
+        ? await env.DB.prepare(`SELECT id, company FROM bank_accounts WHERE id = ?1 AND active = 1`).bind(bankId).first<{ id: number; company: string | null }>() : null;
+      if (!bank) return err("validation", "Choose the account it was paid from", 400);
+      if (companyOf(bank.company) !== companyOf(cur.company)) return err("cross_company", "That account belongs to the other company", 400);
+      const pref = typeof body?.payment_ref === "string" ? body.payment_ref.trim().slice(0, 120) : "";
+      if (pref.length < 3) return err("validation", "The bank reference is required", 400);
+      if (!cur.receipt_key) return err("evidence_required", "Attach the evidence (invoice, receipt or bank slip) before completing the payment", 409);
+      const r = await env.DB.prepare(
+        `UPDATE expenses SET status = 'paid', paid_at = ?1, paid_on = ?2, paid_by = ?3, bank_id = ?4, payment_ref = ?5 WHERE id = ?6 AND status = 'authorised' AND paid_at IS NULL`,
+      ).bind(`${paidOn} 04:00:00`, paidOn, user.id, bank.id, pref, id).run();
+      if (!(r.meta?.changes ?? 0)) return err("conflict", "It was paid or changed meanwhile - reload", 409);
+      /* the only step that moves money: one cash row, dated the bank date, through its account */
+      await bookCash(env, user.id, `EXP-${id}`, cur.amount_cents, cur.category, [cur.vendor, cur.description].filter(Boolean).join(" — ") || "Expense payment", "out", paidOn, { company: companyOf(cur.company), bankId: bank.id });
+      await audit(env, user.id, "expense.pay", "expenses", id, { amount_cents: cur.amount_cents, paid_on: paidOn, bank_id: bank.id, payment_ref: pref, company: cur.company });
+      return json({ ok: true, status: "paid" });
+    }
+    if (step === "cancel") {
+      const mayCancel = can(user.role, "expense_approve") || can(user.role, "expense_authorise") || (can(user.role, "expenses") && cur.created_by === user.id);
+      if (!mayCancel) return err("forbidden", "Only its recorder, the CEO or the COO cancels an expense", 403);
+      if (stage === "paid") return err("paid_locked", "A paid expense is not cancelled: reverse its payment in Finance (with a reason) first", 409);
+      if (stage === "cancelled") return err("invalid_state", "Already cancelled", 409);
+      const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+      if (reason.length < 10) return err("validation", "Give the reason (at least 10 characters)", 400);
+      const r = await env.DB.prepare(`UPDATE expenses SET status = 'cancelled', cancelled_by = ?1, cancelled_at = datetime('now'), cancel_reason = ?2 WHERE id = ?3 AND paid_at IS NULL AND COALESCE(status, 'recorded') != 'cancelled'`).bind(user.id, reason, id).run();
+      if (!(r.meta?.changes ?? 0)) return err("conflict", "It changed meanwhile - reload", 409);
+      await audit(env, user.id, "expense.cancel", "expenses", id, { reason, stage });
+      return json({ ok: true, status: "cancelled" });
+    }
+  }
   const exPaid = path.match(/^\/expenses\/(\d+)\/paid$/);
   if (exPaid && method === "POST") {
-    // v1.4.88: mark an expense paid — the due chip turns into PAID.
-    // v1.4.208 (CEO wants paid/outstanding tracking): now a TOGGLE — body
-    // { paid: false } clears the mark so a misclick is one click to undo.
-    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
-    const unpay = body?.paid === false;
-    await env.DB.prepare(
-      unpay
-        ? `UPDATE expenses SET paid_at = NULL WHERE id = ?1`
-        : `UPDATE expenses SET paid_at = datetime('now') WHERE id = ?1`,
-    ).bind(exPaid[1]).run();
-    if (unpay) {
-      /* v1.219.0 (Finance 2.0, audit F10): undoing "paid" used to leave the
-         money-out row behind, counted as real money. It is now reversed - a
-         row the other way with the reason - never deleted. */
-      await reverseLive(env, user.id, `EXP-${exPaid[1]}`, "Expense marked unpaid");
-    } else {
-      // v1.19.0 C2: the paid expense becomes a bank movement, once.
-      const exRow = await env.DB.prepare(`SELECT amount_cents, category, vendor, description FROM expenses WHERE id = ?1`)
-        .bind(exPaid[1]).first<{ amount_cents: number; category: string; vendor: string | null; description: string | null }>();
-      if (exRow) {
-        await recordBankMovement(env, user.id, `EXP-${exPaid[1]}`, exRow.amount_cents,
-          exRow.category, [exRow.vendor, exRow.description].filter(Boolean).join(" — ") || "Expense payment");
-      }
-    }
-    await audit(env, user.id, "expense.paid", "expenses", exPaid[1], { paid: !unpay });
+    /* v1.312.0 (F-8) - the old one-click toggle no longer pays: payment is
+       the lifecycle's last step (POST /expenses/:id/pay). Undoing a payment
+       stays, as a correction: the CEO or COO, with the reason - the cash is
+       reversed (never deleted) and the expense goes back to authorised. */
+    if (body?.paid !== false) return err("use_lifecycle", "An expense is paid by Finance after it is approved and authorised (Expenses: Approve, Authorise, Pay)", 409);
+    if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO undoes an expense payment", 403);
+    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (reason.length < 10) return err("validation", "Give the reason (at least 10 characters)", 400);
+    const cur = await expRow(exPaid[1]!);
+    if (cur === "pending") return pendingExp();
+    if (!cur) return err("not_found", "Expense not found", 404);
+    if (!cur.paid_at) return err("invalid_state", "This expense is not paid", 409);
+    await env.DB.prepare(`UPDATE expenses SET paid_at = NULL, paid_on = NULL, paid_by = NULL, status = CASE WHEN status IS NULL THEN NULL ELSE 'authorised' END WHERE id = ?1`).bind(exPaid[1]).run();
+    /* v1.219.0 (Finance 2.0, audit F10): undoing "paid" used to leave the
+       money-out row behind, counted as real money. It is reversed - a row
+       the other way with the reason - never deleted. */
+    await reverseLive(env, user.id, `EXP-${exPaid[1]}`, `Expense payment undone: ${reason}`.slice(0, 300));
+    await audit(env, user.id, "expense.unpay", "expenses", exPaid[1], { reason });
     return json({ ok: true });
   }
   if (path === "/expenses" && method === "POST") {
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
-    const catsE = ["rent", "utilities", "software", "marketing", "equipment", "logistics", "supplies", "other"];
     const centsE = Math.round(Number(body?.amount) * 100);
     if (!body || !/^\d{4}-\d{2}-\d{2}$/.test(String(body.expense_date ?? "")) || !Number.isFinite(centsE) || centsE <= 0 || centsE > 1000000000) {
       return err("invalid_input", "expense_date (YYYY-MM-DD) and a positive amount are required", 400);
     }
-    const categoryE = typeof body.category === "string" && catsE.includes(body.category) ? body.category : "other";
+    /* v1.312.0 - recorded, never paid at birth: payment is the last step */
+    if (body.paid === true) return err("use_lifecycle", "An expense is recorded first; Finance pays it after approval and authorisation", 400);
+    const coE = companyOf(body.company);
+    if (!coE) return err("validation", "Choose the company this expense belongs to", 400);
+    const categoryE = typeof body.category === "string" && EXP_CATS.includes(body.category) ? body.category : "other";
     const dueDay = typeof body.due_day === "number" && body.due_day >= 1 && body.due_day <= 31
       ? Math.round(body.due_day) : null;
-    const res = await env.DB.prepare(
-      `INSERT INTO expenses (expense_date, category, amount_cents, vendor, description, recurring, due_day, paid_at, created_by)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
-    ).bind(
-      body.expense_date, categoryE, centsE,
-      typeof body.vendor === "string" ? body.vendor.slice(0, 200) : null,
-      typeof body.description === "string" ? body.description.slice(0, 1000) : null,
-      body.recurring === true || body.recurring === 1 ? 1 : 0,
-      dueDay,
-      body.paid === true ? new Date().toISOString().replace("T", " ").slice(0, 19) : null,
-      user.id,
-    ).first<{ id: number }>();
-    await audit(env, user.id, "expense.create", "expenses", String(res?.id), { category: categoryE, amount_cents: centsE });
-    /* v1.219.0 (audit F13): an expense created already paid books its money
-       out the same way "Mark paid" does - before, only the backfill found it */
-    if (body.paid === true && res?.id) {
-      await recordBankMovement(env, user.id, `EXP-${res.id}`, centsE, categoryE,
-        [typeof body.vendor === "string" ? body.vendor : "", typeof body.description === "string" ? body.description : ""].filter(Boolean).join(" — ") || "Expense payment");
+    const dueOn = typeof body.due_on === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.due_on) ? body.due_on : null;
+    let planBank: number | null = null;
+    if (body.bank_id != null && body.bank_id !== "") {
+      const b = await env.DB.prepare(`SELECT id, company FROM bank_accounts WHERE id = ?1 AND active = 1`).bind(Number(body.bank_id)).first<{ id: number; company: string | null }>().catch(() => null);
+      if (!b) return err("validation", "That account does not exist or is inactive", 400);
+      if (companyOf(b.company) !== coE) return err("cross_company", "That account belongs to the other company", 400);
+      planBank = b.id;
     }
-    return json({ id: res?.id }, 201);
+    let res: { id: number } | null;
+    try {
+      res = await env.DB.prepare(
+        `INSERT INTO expenses (expense_date, category, amount_cents, vendor, description, recurring, due_day, paid_at, created_by, company, status, due_on, bank_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, 'recorded', ?10, ?11) RETURNING id`,
+      ).bind(
+        body.expense_date, categoryE, centsE,
+        typeof body.vendor === "string" ? body.vendor.slice(0, 200) : null,
+        typeof body.description === "string" ? body.description.slice(0, 1000) : null,
+        body.recurring === true || body.recurring === 1 ? 1 : 0,
+        dueDay, user.id, coE, dueOn, planBank,
+      ).first<{ id: number }>();
+    } catch (e) {
+      if (/no such column/i.test(String(e))) return pendingExp();
+      throw e;
+    }
+    await audit(env, user.id, "expense.create", "expenses", String(res?.id), { category: categoryE, amount_cents: centsE, company: coE });
+    return json({ id: res?.id, status: "recorded" }, 201);
   }
   const exMatch = path.match(/^\/expenses\/(\d+)$/);
   if (exMatch && method === "DELETE") {
+    /* v1.312.0 (F-8) - an expense is never deleted: it is cancelled, with a
+       reason (POST /expenses/:id/cancel), and its history stays */
     if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
-    await env.DB.prepare(`DELETE FROM expenses WHERE id = ?1`).bind(exMatch[1]).run();
-    /* v1.219.0 (audit F11): a deleted expense takes its payment out of the
-       cash book by a reversal, not by leaving an orphan behind */
-    await reverseLive(env, user.id, `EXP-${exMatch[1]}`, "Expense deleted");
-    await audit(env, user.id, "expense.delete", "expenses", exMatch[1]);
-    return json({ ok: true });
+    return err("cancel_instead", "Expenses are not deleted. Cancel it, with a reason.", 409);
   }
 
   /* ---- sales revenue (v1.4.75): dashboard figures, TikTok included ---- */

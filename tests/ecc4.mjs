@@ -101,7 +101,8 @@ function checks(src) {
 
   /* R10 - nothing removed with its feature: each card lives in its module */
   ok("R10 - the Daily Attendance Statistic lives in Attendance", /<DailyAttendanceChart role=\{user\.role\} \/>/.test(strip(src.att)));
-  ok("R10 - Financial health lives in Finance, for the people it was drawn for", /\{week\.data\?\.outlook && <FinanceHealthCard d=\{week\.data\}/.test(strip(src.fin)));
+  /* v1.312.0 (Finance 5.0, CEO-9, approved 15-11-2026) - the Financial health card is not repeated on Finance: its Overview is the reference's four cash figures */
+  ok("R10 - Finance's Overview is the four cash figures; the Financial health card is not repeated there (CEO-9)", !/FinanceHealthCard/.test(strip(src.fin)) && /L\("Money In", "Tunai Masuk"\)/.test(src.fin) && /L\("Needs Attention", "Perlu Perhatian"\)/.test(src.fin));
   ok("R10 - System health lives in Users -> Security & Sessions, and the alert band opens it", /<SystemHealthCard \/>/.test(strip(src.users)) && /openAt\("Users", "security"\)/.test(ovBlock));
   ok("R10 - pace, advice, the team and the pipeline live in Sales -> Weekly target; the chart in Sales",
     /<CommandStrip o=\{d\.outlook\}/.test(strip(src.weekly)) && /<AdviceList cards=\{adv\.cards\}/.test(strip(src.weekly)) && /<Opportunities rows=\{adv\.opps\}/.test(strip(src.weekly))

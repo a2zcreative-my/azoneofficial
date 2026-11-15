@@ -442,9 +442,12 @@ const cash = [
   { id: 3, entry_date: D + "12", type: "out", category: "software", bank_id: 1, bank_name: "Maybank", amount_cents: 12900, description: "Adobe", ref: "" },
 ];
 const expenses = [
-  { id: 1, expense_date: D + "12", category: "software", amount_cents: 12900, vendor: "Adobe", description: "Creative Cloud", paid_at: D + "12 10:00:00" },
-  { id: 2, expense_date: D + "15", category: "rent", amount_cents: 350000, vendor: "Landlord", description: "Studio rent", due_day: 20, paid_at: null },
-  { id: 3, expense_date: D + "03", category: "ads", amount_cents: 80000, vendor: "TikTok Ads", description: "Boost", paid_at: D + "03 10:00:00" },
+  { id: 1, expense_date: D + "12", category: "software", amount_cents: 12900, vendor: "Adobe", description: "Creative Cloud", paid_at: D + "12 10:00:00", status: "paid", company: "a2z", created_by: 9003, recurring: 1, receipt_key: "expenses/1" },
+  { id: 2, expense_date: D + "15", category: "rent", amount_cents: 350000, vendor: "Landlord", description: "Studio rent", due_day: 20, paid_at: null, status: "authorised", due_on: D + "20", company: "a2z", created_by: 9010, approved_by: 9001, authorised_by: 9001, receipt_key: "expenses/2" },
+  { id: 3, expense_date: D + "03", category: "ads", amount_cents: 80000, vendor: "TikTok Ads", description: "Boost", paid_at: D + "03 10:00:00", status: "paid", company: "a2z", created_by: 9003 },
+  /* v1.312.0 - the lifecycle (Finance 5.0): one awaiting approval, one approved */
+  { id: 4, expense_date: D + "16", category: "software", amount_cents: 42000, vendor: "Canva", description: "Team plan", paid_at: null, status: "recorded", company: "a2z", created_by: 9010, created_by_name: "Fixture Admin" },
+  { id: 5, expense_date: D + "17", category: "marketing", amount_cents: 26000, vendor: "Printing Co", description: "Flyers", paid_at: null, status: "approved", company: "a2z", created_by: 9003, approved_by: 9001 },
 ];
 const docs = [
   /* v1.181.11 - revised once at the customer's request */
@@ -1105,42 +1108,79 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   /* v1.219.0 - Finance 2.0: the cash book view (worker/src/cashbook.ts) in
      the shape it sends - test rows only, the fixture company's own kind. */
   if (p === "/cashbook") {
+    /* v1.312.0 - Finance 5.0: one company at a time (?company=a2z|azoo|all),
+       Money In verified only, the reconciliation difference = source - cash
+       book (the payroll example: RM 13,156.66 - RM 13,161.66 = -RM 5.00) */
     const from = q.get("from") ?? D + "01", to = q.get("to") ?? D + "30";
-    const it = (o) => ({ row_id: null, booked_on: null, category: "sales", group: "sales", link: null, bank_id: null, bank_name: null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: null, ...o, counts: o.counts === undefined ? o.type : o.counts });
-    const all = [
-      it({ key: "INV:2", date: D + "12", type: "in", amount_cents: 280000, source: "sales", status: process.env.CONFIRMED ? "verified" : "unverified", description: "INV-AZO100926-2 - Zainab Kitchen", ref: "INV-AZO100926-2", link: { kind: "invoice", id: 2 }, payment_ref: "MBB-77120", bank_id: 1, bank_name: "Maybank Operating" }),
-      it({ key: "PART:1", date: D + "08", type: "in", amount_cents: 250000, source: "part", status: "unverified", description: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", ref: "INV-AZO050926-3", link: { kind: "invoice", id: 3 }, issuer: "a2z" }),
-      it({ key: "CF:12", row_id: 12, booked_on: D + "06", date: D + "06", type: "out", amount_cents: 1450000, category: "salaries", group: "payroll", source: "payroll", status: "recorded", description: "Payroll bank run 2026-08", ref: "PAYROLL-2026-08", link: { kind: "payroll", id: "2026-08" }, bank_id: 1, bank_name: "Maybank Operating" }),
-      it({ key: "CF:13", row_id: 13, booked_on: D + "12", date: D + "12", type: "out", amount_cents: 12900, category: "software", group: "gl6900", source: "expenses", status: "recorded", description: "Adobe — Creative Cloud", ref: "EXP-1", link: { kind: "expense", id: 1 } }),
-      it({ key: "CF:14", row_id: 14, booked_on: D + "15", date: D + "03", type: "out", amount_cents: 80000, category: "marketing", group: "gl6000", source: "expenses", status: "recorded", description: "TikTok Ads — Boost", ref: "EXP-3", link: { kind: "expense", id: 3 } }),
-      it({ key: "CF:15", row_id: 15, booked_on: D + "14", date: D + "14", type: "out", amount_cents: 18500, category: "claims", group: "claims", source: "claims", status: "recorded", description: "Staff claim reimbursement", ref: "CLM-7", link: { kind: "claim", id: 7 } }),
-      it({ key: "CF:16", row_id: 16, booked_on: D + "10", date: D + "10", type: "in", amount_cents: 500000, category: "Capital", group: "manual:Capital", source: "manual", status: "manual", description: "Owner capital top-up", ref: "", bank_id: 1, bank_name: "Maybank Operating" }),
-      it({ key: "CF:17", row_id: 17, booked_on: D + "11", date: D + "11", type: "out", amount_cents: 100000, category: "transfer", group: "other_out", source: "transfer", status: "transfer", description: "Transfer to CIMB Savings", ref: "TRF-x", transfer_id: "TRF-x", counts: null, bank_id: 1, bank_name: "Maybank Operating" }),
-      it({ key: "CF:18", row_id: 18, booked_on: D + "11", date: D + "11", type: "in", amount_cents: 100000, category: "transfer", group: "other_in", source: "transfer", status: "transfer", description: "Transfer from Maybank Operating", ref: "TRF-x", transfer_id: "TRF-x", counts: null, bank_id: 2, bank_name: "CIMB Savings" }),
+    const DM = `${to.slice(0, 7)}-`; // the fixture rows sit in the month asked for
+    const coQ = q.get("company") ?? "all";
+    const co = coQ === "all" ? null : coQ;
+    const it = (o) => ({ row_id: null, booked_on: null, category: "sales", group: "sales", link: null, bank_id: null, bank_name: null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: null, company: "a2z", awaiting: false, ...o, counts: o.counts === undefined ? (o.status === "unverified" ? null : o.type) : o.counts });
+    const conf = Boolean(process.env.CONFIRMED);
+    const every = [
+      it({ key: "INV:2", date: DM + "12", type: "in", amount_cents: 280000, source: "sales", status: conf ? "verified" : "unverified", awaiting: !conf, description: "INV-AZO100926-2 - Zainab Kitchen", ref: "INV-AZO100926-2", link: { kind: "invoice", id: 2 }, payment_ref: "MBB-77120", bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "PART:1", date: DM + "08", type: "in", amount_cents: 250000, source: "part", status: "unverified", awaiting: true, description: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", ref: "INV-AZO050926-3", link: { kind: "invoice", id: 3 }, issuer: "a2z" }),
+      it({ key: "INV:5", date: DM + "09", type: "in", amount_cents: 75000, source: "sales", status: "verified", description: "INV-AZO090926-5 - Kedai Runcit Lima", ref: "INV-AZO090926-5", link: { kind: "invoice", id: 5 }, payment_ref: "MBB-77001", company: "azoo", bank_id: 4, bank_name: "AZ ONE OFFICIAL - Maybank" }),
+      it({ key: "CF:12", row_id: 12, booked_on: DM + "06", date: DM + "06", type: "out", amount_cents: 1316166, category: "salaries", group: "payroll", source: "payroll", status: "recorded", description: "Payroll bank run 2026-08", ref: "PAYROLL-2026-08", link: { kind: "payroll", id: "2026-08" }, bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "CF:13", row_id: 13, booked_on: DM + "12", date: DM + "12", type: "out", amount_cents: 12900, category: "software", group: "gl6900", source: "expenses", status: "recorded", description: "Adobe — Creative Cloud", ref: "EXP-1", link: { kind: "expense", id: 1 } }),
+      it({ key: "CF:14", row_id: 14, booked_on: DM + "15", date: DM + "03", type: "out", amount_cents: 80000, category: "marketing", group: "gl6000", source: "expenses", status: "recorded", description: "TikTok Ads — Boost", ref: "EXP-3", link: { kind: "expense", id: 3 } }),
+      it({ key: "CF:15", row_id: 15, booked_on: DM + "14", date: DM + "14", type: "out", amount_cents: 18500, category: "claims", group: "claims", source: "claims", status: "recorded", description: "Staff claim reimbursement", ref: "CLM-7", link: { kind: "claim", id: 7 }, company: null }),
+      it({ key: "CF:16", row_id: 16, booked_on: DM + "10", date: DM + "10", type: "in", amount_cents: 500000, category: "Capital", group: "manual:Capital", source: "manual", status: "manual", description: "Owner capital top-up", ref: "MAN-fixture01", bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "CF:17", row_id: 17, booked_on: DM + "11", date: DM + "11", type: "out", amount_cents: 100000, category: "transfer", group: "other_out", source: "transfer", status: "transfer", description: "Transfer to CIMB Savings", ref: "TRF-x", transfer_id: "TRF-x", counts: null, bank_id: 1, bank_name: "Maybank Operating" }),
+      it({ key: "CF:18", row_id: 18, booked_on: DM + "11", date: DM + "11", type: "in", amount_cents: 100000, category: "transfer", group: "other_in", source: "transfer", status: "transfer", description: "Transfer from Maybank Operating", ref: "TRF-x", transfer_id: "TRF-x", counts: null, bank_id: 2, bank_name: "CIMB Savings" }),
+      it({ key: "CF:19", row_id: 19, booked_on: DM + "16", date: DM + "16", type: "out", amount_cents: 70000, category: "agent_commission", group: "agent_commission", source: "commission", status: "recorded", description: "Agent commission payout AGT-7 - Zul Agent - MBB-77821", ref: "AGT-7", bank_id: 1, bank_name: "Maybank Operating" }),
     ];
+    const all = every.filter((i) => !co || i.company === co);
     const items = all.filter((i) => i.date >= from && i.date <= to);
     const sum = (d) => items.filter((i) => i.counts === d).reduce((a, i) => a + i.sign * i.amount_cents, 0);
     const grp = (d) => Object.entries(items.filter((i) => i.counts === d).reduce((m, i) => ({ ...m, [i.group]: (m[i.group] ?? 0) + i.amount_cents }), {})).map(([group, cents]) => ({ group, cents })).sort((a, b) => b.cents - a.cents);
-    const can = ["ceo", "coo", "super_admin"].includes(ROLE);
+    const can = ["ceo", "coo"].includes(ROLE); // v1.312.0 (CEO-10) - not the Super Admin
+    const ex = (o) => ({ source_cents: null, booked_cents: null, difference_cents: null, mismatch: null, state: "open", reviewed: null, company: "a2z", ...o });
+    const exceptions = [
+      ex({ kind: "unverified", key: "PART:1", item_key: "PART:1", date: DM + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Recorded as received; awaiting the CEO's verification. It is not counted as Money In until verified.", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["confirm", "review"] }),
+      ...(process.env.NOBANKS ? [] : [ex({ kind: "no_bank", key: "PART:1", item_key: "PART:1", date: DM + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Which account did this money move through?", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["bank", "review"] })]),
+      ...(process.env.NOBANKS ? [] : [ex({ kind: "no_bank", key: "CF:13", item_key: "CF:13", date: DM + "12", title: "Adobe — Creative Cloud", detail: "Which account did this money move through?", amount_cents: 12900, type: "out", row_id: 13, link: { kind: "expense", id: 1 }, actions: ["bank", "review"] })]),
+      ex({ kind: "out_of_step", key: "CF:12", item_key: "CF:12", date: DM + "04", title: "Payroll bank run 2026-08", detail: "Payroll now totals 13156.66 net; the bank run booked 13161.66.", amount_cents: 1316166, type: "out", row_id: 12, link: { kind: "payroll", id: "2026-08" }, actions: ["review", "reverse", "accept"], source_cents: 1315666, booked_cents: 1316166, difference_cents: -500, mismatch: "amount" }),
+      ex({ kind: "out_of_step", key: "CF:9", item_key: "CF:9", date: DM + "04", title: "INV-AZO010926-9", detail: "The invoice is no longer marked paid. Finance does not count it; the cash book and the journal still hold it.", amount_cents: 64000, type: "in", row_id: 9, link: { kind: "invoice", id: 9 }, actions: ["reverse", "review", "accept"], source_cents: 0, booked_cents: 64000, difference_cents: -64000, mismatch: "status", company: "azoo", state: "reviewed", reviewed: { note: "Customer asked to re-issue; waiting", at: DM + "10 02:00:00", by: 9001 } }),
+    ].filter((x) => !co || x.company === co);
+    const waiting = items.filter((i) => i.awaiting);
     data = {
-      period: { from, to, today: D + "18" },
-      totals: { in_cents: sum("in"), out_cents: sum("out"), net_cents: sum("in") - sum("out"), count: items.length },
+      period: { from, to, today: DM + "18" }, company: coQ, consolidated: !co,
+      totals: { in_cents: sum("in"), out_cents: sum("out"), net_cents: sum("in") - sum("out"), count: items.length, awaiting_cents: waiting.reduce((a, i) => a + i.amount_cents, 0), awaiting_count: waiting.length,
+        difference_cents: exceptions.filter((x) => x.kind === "out_of_step" && x.mismatch === "amount").reduce((a, x) => a + x.difference_cents, 0), no_company: co ? 0 : items.filter((i) => !i.company).length },
       groups: { in: grp("in"), out: grp("out") },
-      trend: ["2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"].map((m, k) => ({ month: m, in_cents: m === "2026-09" ? 1030000 : 600000 + k * 90000, out_cents: m === "2026-09" ? 1561400 : 1400000 - k * 40000 })),
+      trend: Array.from({ length: 12 }, (_, k) => { const t = new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 12 + k, 1)).toISOString().slice(0, 7); return t; }).map((m, k) => ({ month: m, in_cents: k === 11 ? sum("in") : (co === "azoo" ? 0 : 600000 + k * 90000), out_cents: k === 11 ? sum("out") : (co === "azoo" ? 0 : 1400000 - k * 40000) })),
       items,
       banks: [
-        { id: 1, name: "Maybank Operating", bank: "Maybank", number_masked: "•••• 5621", active: 1, opening_balance_cents: 2500000, opening_on: D + "01", book_balance_cents: 1717100 },
-        { id: 2, name: "CIMB Savings", bank: "CIMB", number_masked: "•••• 0412", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null },
-        { id: 3, name: "A2Z CREATIVE MARKETING - Maybank", bank: "Maybank", number_masked: "•••• 5300", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null },
-      ].filter(() => !process.env.NOBANKS),
-      exceptions: [
-        { kind: "unverified", key: "PART:1", item_key: "PART:1", date: D + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Recorded as received; not yet confirmed by the CEO or COO.", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["confirm", "review"] },
-        ...(process.env.NOBANKS ? [] : [{ kind: "no_bank", key: "PART:1", item_key: "PART:1", date: D + "08", title: "INV-AZO050926-3 - Casa del Rio Sdn Bhd (part payment)", detail: "Which account did this money move through?", amount_cents: 250000, type: "in", row_id: null, link: { kind: "invoice", id: 3 }, actions: ["bank", "review"] }]),
-        ...(process.env.NOBANKS ? [] : [{ kind: "no_bank", key: "CF:13", item_key: "CF:13", date: D + "12", title: "Adobe — Creative Cloud", detail: "Which account did this money move through?", amount_cents: 12900, type: "out", row_id: 13, link: { kind: "expense", id: 1 }, actions: ["bank", "review"] }]),
-        { kind: "out_of_step", key: "CF:9", item_key: "CF:9", date: D + "04", title: "INV-AZO010926-9", detail: "The invoice is no longer marked paid. Finance does not count it; the cash book and the journal still hold it.", amount_cents: 64000, type: "in", row_id: 9, link: null, actions: ["reverse", "review"] },
-      ],
-      can_correct: can, can_enter: true, pending_migration: false, confirmations: true,
+        { id: 1, name: "Maybank Operating", bank: "Maybank", number_masked: "•••• 5621", active: 1, opening_balance_cents: 2500000, opening_on: DM + "01", book_balance_cents: 1717100, company: "a2z" },
+        { id: 2, name: "CIMB Savings", bank: "CIMB", number_masked: "•••• 0412", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null, company: "a2z" },
+        { id: 3, name: "A2Z CREATIVE MARKETING - Maybank", bank: "Maybank", number_masked: "•••• 5300", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null, company: null },
+        { id: 4, name: "AZ ONE OFFICIAL - Maybank", bank: "Maybank", number_masked: "•••• 8811", active: 1, opening_balance_cents: null, opening_on: null, book_balance_cents: null, company: "azoo" },
+      ].filter((bk) => !process.env.NOBANKS && (!co || bk.company === co)),
+      exceptions,
+      can_correct: can, can_enter: can, can_accept: ROLE === "ceo", pending_migration: false, confirmations: true,
+      expense_caps: { record: ["admin", "ceo", "coo"].includes(ROLE), approve: ["ceo", "coo"].includes(ROLE), authorise: ROLE === "ceo", pay: ROLE === "coo" },
+      me: { id: ROLE === "ceo" ? 9001 : ROLE === "coo" ? 9003 : 9010, role: ROLE },
     };
+  }
+  /* v1.312.0 - Due Payments (commitments, never cash) and an item's history */
+  if (p === "/cashbook/due") {
+    const coQ = q.get("company") ?? "all";
+    const DM = `${new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7)}-`;
+    const due = [
+      { key: "EXP-2", kind: "expense", title: "Landlord", sub: "Studio rent", due_on: DM + "20", amount_cents: 350000, stage: "authorised", company: "a2z", id: 2 },
+      { key: "EXP-4", kind: "expense", title: "Canva", sub: "Team plan", due_on: null, amount_cents: 42000, stage: "recorded", company: "a2z", id: 4 },
+      { key: "EXP-5", kind: "expense", title: "Printing Co", sub: "Flyers", due_on: null, amount_cents: 26000, stage: "approved", company: "a2z", id: 5 },
+      { key: "REC-1", kind: "recurring", title: "Adobe", sub: "Recurring - to record for this month", due_on: DM + "28", amount_cents: 12900, stage: "to_record", company: "a2z", id: 1 },
+      ...(coQ === "all" ? [{ key: "CLAIMS", kind: "claims", title: "Staff claims (2)", sub: "Approved, not yet paid - paid in Claims", due_on: null, amount_cents: 18500, stage: "approved", company: null, id: null }] : []),
+    ].filter((d) => coQ === "all" || d.company === coQ);
+    data = { company: coQ, today: DM + "18", due, total_cents: due.reduce((a, d) => a + d.amount_cents, 0) };
+  }
+  if (p === "/cashbook/history") {
+    const key = q.get("key") ?? "";
+    const DM = `${new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7)}-`;
+    data = { key, events: /CF:9$/.test(key) ? [{ id: 31, action: "cashbook.review", entity_id: "out_of_step|CF:9", detail: JSON.stringify({ note: "Customer asked to re-issue; waiting" }), created_at: DM + "10 02:00:00", who: "Fixture Person", who_role: "ceo" }]
+      : /CF:12$/.test(key) ? [] : [{ id: 30, action: "cashbook.assign_bank", entity_id: key, detail: JSON.stringify({ note: "From the bank statement" }), created_at: DM + "13 03:00:00", who: "Fixture COO", who_role: "coo" }] };
   }
   if (p === "/banks") data = { banks: [{ id: 1, name: "Maybank", account_no: "5621", balance_cents: 2500000 }] };
   if (p === "/expenses") data = { expenses, upcoming: [], staff_payroll: null, staff_claims: { in_month: [], due: [], paid: [] } };

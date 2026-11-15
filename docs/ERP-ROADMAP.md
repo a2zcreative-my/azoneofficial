@@ -497,3 +497,11 @@ rejected commission policy version is never updated, a draft keeps its terms,
 no version or package rule is deleted; a commission entitlement keeps its money
 and key, a paid or void entitlement is final, and none is deleted. Every route
 of the engine already writes within these rules.
+1.312.0 (Finance Workspace 5.0, CEO-2/CEO-4) adds `0197_finance_company`
+(additive: a nullable company column on bank_accounts, cashflow_entries and
+expenses, the CEO acceptance columns on cashbook_marks, one index) and
+`0198_expense_lifecycle` (additive: the expense steps - status, due_on,
+approved/authorised/paid/cancelled by and at, bank_id, payment_ref, the cancel
+reason - and one index). No row is changed; existing accounts get their
+company once, on the screen. Paying an expense books EXP- once, dated the bank
+date; recorded, approved and scheduled expenses are never cash.

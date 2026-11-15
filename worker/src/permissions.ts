@@ -28,7 +28,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"],
   claims_decide: ["ceo"], // v1.310.0 (Claims 4.0, C-2) - the Super Admin no longer approves or pays claims
   revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
-  expenses: ["super_admin", "admin", "ceo", "coo"],
+  expenses: ["admin", "ceo", "coo"], // v1.312.0 (Finance 5.0, CEO-10) - the Super Admin reads Finance (cashflow_manage), never records or pays
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   /* v1.231.0 - the owner, 30-10-2026: master sales packages (create, edit,
      re-price, archive) are CEO, COO, CCO and super admin. Everybody with
@@ -95,7 +95,15 @@ export const PERMS: Record<string, readonly Role[]> = {
      opening balance. NARROWER than cashflow_manage, never wider: the CEO, the
      COO and super admin (the Finance audit, 28-10-2026). Nobody gains access
      they did not have. */
-  cashbook_correct: ["super_admin", "ceo", "coo"],
+  cashbook_correct: ["ceo", "coo"], // v1.312.0 (CEO-10) - not the Super Admin; also manual entries, transfers, accounts (F-10, F-12)
+  /** v1.312.0 (Finance 5.0, CEO-6) - accept a reconciliation difference that remains, with a reason */
+  cashbook_accept: ["ceo"],
+  /** v1.312.0 (Finance 5.0, CEO-4) - the expense lifecycle: approve (the CEO; the COO for an expense the
+      CEO recorded - never the person who recorded it), authorise the payment (the CEO), complete it with the
+      bank date, account and evidence (Finance: the COO - never the person who authorised it) */
+  expense_approve: ["ceo", "coo"],
+  expense_authorise: ["ceo"],
+  expense_pay: ["coo"],
   /* v1.224.0 (the owner, 29-10-2026, Commission brief: "Only CEO/COO/admins
      mark paid"). Saying an invoice's money arrived - mark paid, unpaid or
      overdue, create it already paid, record or void a part payment - is
@@ -315,7 +323,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
   payroll_release: ["super_admin", "ceo", "coo"],
   /** record the payroll bank run (was BANK_RUN_ROLES) */
-  bank_run: ["super_admin", "ceo", "coo"],
+  bank_run: ["ceo", "coo"], // v1.312.0 (CEO-10) - the Super Admin no longer records money moving
   /** see everyone's commission (was commission.ts VIEW_ALL) */
   commission_view_all: ["super_admin", "admin", "ceo", "coo", "cco"],
   /** draft a commission policy (was DRAFT_ROLES) */
@@ -544,6 +552,10 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Finance", key: "cashflow", en: "Manage cash flow", ms: "Urus aliran tunai", cap: "cashflow_manage" },
   { module: "Finance", key: "cashbook_correct", en: "Correct the cash book", ms: "Betulkan buku tunai", cap: "cashbook_correct" },
   { module: "Finance", key: "bank_run", en: "Record the payroll bank run", ms: "Rekod pembayaran gaji bank", cap: "bank_run", needs: "expenses" },
+  { module: "Finance", key: "cashbook_accept", en: "Accept a reconciliation difference that remains", ms: "Terima perbezaan penyelarasan yang kekal", cap: "cashbook_accept", needs: "cashbook_correct" },
+  { module: "Finance", key: "expense_approve", en: "Approve an expense", ms: "Luluskan perbelanjaan", cap: "expense_approve", needs: "expenses", note_en: "Never one they recorded; the COO approves only an expense the CEO recorded", note_ms: "Tidak yang direkod sendiri; COO meluluskan hanya perbelanjaan yang direkod CEO" },
+  { module: "Finance", key: "expense_authorise", en: "Authorise an expense payment", ms: "Benarkan bayaran perbelanjaan", cap: "expense_authorise", needs: "expenses" },
+  { module: "Finance", key: "expense_pay", en: "Complete an expense payment (bank date, account, evidence)", ms: "Lengkapkan bayaran perbelanjaan (tarikh bank, akaun, bukti)", cap: "expense_pay", needs: "expenses", note_en: "Never one they authorised", note_ms: "Tidak yang dibenarkan sendiri" },
   { module: "Accounting", key: "accounting", en: "View and post the ledger", ms: "Lihat dan catat lejar", cap: "accounting_manage" },
   { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", cap: "payroll_process" },
   { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", cap: "payroll_release", needs: "payroll_process" },

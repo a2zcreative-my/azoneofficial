@@ -153,7 +153,8 @@ with sync_playwright() as p:
     check("the Daily Attendance Statistic is on Attendance -> Reports", pg.get_by_text("Daily Attendance Statistic").filter(visible=True).count() == 1)
     ctx.close()
     ctx, pg, errs = open_page(b, 4177, 1440, path="/portal?tab=Finance")
-    check("Financial health is on Finance -> Overview", vis(pg, "finance-health"))
+    # v1.312.0 (Finance 5.0, CEO-9) - not repeated on Finance: its Overview is the reference's four cash figures
+    check("Finance -> Overview is the four cash figures; Financial health is not repeated there", vis(pg, "finance-overview") and not vis(pg, "finance-health"))
     ctx.close()
     ctx, pg, errs = open_page(b, 4177, 1440)
     pg.get_by_test_id("alert-band").get_by_role("button").first.click(); pg.wait_for_timeout(1500)
