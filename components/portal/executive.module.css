@@ -1166,13 +1166,32 @@ span.rowMain {
     grid-column: 1 / -1;
   }
 }
-/* the four figures: four across from 1024px, two by two below */
-.kpis4 > div {
+/* the four figures: four across from 1024px, two by two below.
+   v1.311.0 (the CEO, 15-11-2026: "make the dashboard card much better width
+   and aligned") - `div.kpis4 > div` outranks the Overview's own five-column
+   rule from 1280px (dashboard-overview.module.css .kpis > div), which left a
+   fifth, empty column: the four tiles now fill the row at every width */
+div.kpis4 > div {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 @media (min-width: 1024px) {
-  .kpis4 > div {
+  div.kpis4 > div {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  /* the management Overview sits on the SAME four columns as its figures:
+     Sales Performance and Needs My Decision take two tiles each, so their
+     edges line up with the tiles above, and they end level */
+  .page[data-layout="executive"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  .page[data-layout="executive"] > .span2,
+  .page[data-layout="executive"] > .sideCol {
+    grid-column: span 2;
+  }
+  .page[data-layout="executive"] > .span2 > *,
+  .page[data-layout="executive"] > .sideCol > * {
+    height: 100%;
   }
 }
 @media (max-width: 767px) {

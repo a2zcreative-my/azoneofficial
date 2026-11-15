@@ -90,7 +90,7 @@ const RealDate = Date; let fixed = new RealDate("2026-10-30T02:00:00Z").getTime(
 globalThis.Date = class extends RealDate { constructor(...a) { super(...(a.length ? a : [fixed])); } static now() { return fixed; } };
 const ROLE = { 1: "ceo", 2: "coo", 3: "cco", 4: "sales_marketing", 5: "sales_marketing", 6: "admin", 7: "super_admin", 8: "hr_admin" };
 const call = async (p, id = 1, method = "GET", body) => {
-  const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x" });
+  const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x", is_owner: id === 1 }); // v1.311.0 - the CEO here is the verified owner
   return { status: r.status, j: await r.json().catch(() => null) };
 };
 const led = (where = "1=1") => db.prepare(`SELECT * FROM commission_ledger WHERE ${where} ORDER BY id`).all();
@@ -134,7 +134,9 @@ try {
   ok("the COO records a part payment", (await call("/docs/21/payments", 2, "POST", { amount_cents: 100, received_on: "2026-11-09" })).status < 300);
 
   /* 4. A: paid and confirmed -> eligible, once */
-  ok("A: the COO confirms RM 1,200", (await confirm(20, 2, 120000)).status === 201);
+  /* v1.311.0 (Commission 5.0, K-3, approved 15-11-2026) - the CEO owner alone confirms Paid; the COO no longer does */
+  ok("A: the COO can no longer confirm Paid (K-3)", (await confirm(20, 2, 120000)).status === 403 && led("invoice_id = 20").length === 0);
+  ok("A: the CEO owner confirms RM 1,200", (await confirm(20, 1, 120000)).status === 201);
   let a = led("invoice_id = 20");
   ok("A: one entitlement, RM 120.00, eligible, Aina, policy v1", a.length === 1 && a[0].amount_cents === 12000 && a[0].status === "eligible" && a[0].user_id === 4 && a[0].policy_id === d1.j.id && a[0].rate_bp === 1000, JSON.stringify(a));
   ok("LIVE packages earn the same rate (owner, 29-10)", a[0].amount_cents === 12000);
@@ -146,7 +148,7 @@ try {
   ok("the SST invoice earns on RM 900.00", (await confirm(23, 1, 97200)).status === 201 && led("invoice_id = 23")[0]?.amount_cents === 9000);
   await confirm(24, 1, 50000);
   ok("October money confirmed in November earns nothing", led("invoice_id = 24").length === 0);
-  await confirm(25, 2, 30000);
+  await confirm(25, 1, 30000); // v1.311.0 - the CEO owner (K-3)
   ok("no closer: the entitlement waits for review", led("invoice_id = 25")[0]?.status === "review" && led("invoice_id = 25")[0].user_id === null);
 
   /* 5. who reads what */
@@ -206,7 +208,7 @@ try {
   await call(`/commission/policy/${d2.j.id}/approve`, 1, "POST", { confirm: true });
   doc.run(26, "INV-26", 1, items(120000), 0, 0, 120000, "paid", "2026-12-10 02:00:00", 4, "2026-12-11 04:00:00");
   fixed = new RealDate("2026-12-12T02:00:00Z").getTime();
-  await confirm(26, 2, 120000);
+  await confirm(26, 1, 120000); // v1.311.0 - the CEO owner (K-3)
   ok("F: a sale paid under v2 earns 8% (RM 96.00)", led("invoice_id = 26")[0]?.amount_cents === 9600 && led("invoice_id = 26")[0].policy_id === d2.j.id);
   ok("F: the November entitlement keeps v1 and RM 120.00", led("invoice_id = 20 AND kind = 'earn'")[0].amount_cents === 12000 && led("invoice_id = 20 AND kind = 'earn'")[0].policy_id === d1.j.id);
   ok("F: a v2 draft cannot reach back before today", (await call("/commission/policy", 1, "POST", { name: "Back-dated", effective_from: "2026-12-01", rate_pct: 5, reason: "Should never be accepted" })).status === 400);

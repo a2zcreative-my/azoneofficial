@@ -44,7 +44,7 @@
 
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { notify } from "./staff"; // v1.255.0 - review and payout notices
+import { notify, payslipsOutFor } from "./staff"; // v1.255.0 - review and payout notices; v1.311.0 - the released-month rule, read for the Payroll Sync preview
 import { audit, err, json, str } from "./shared";
 import { can } from "./permissions";
 import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0
@@ -483,11 +483,14 @@ export async function handleCommission(env: Env, path: string, method: string, b
     || path === "/commission/settings" || path.startsWith("/commission/ledger/")
     || path === "/commission/packages" || path === "/commission/audit" || path.startsWith("/commission/invoice/")
     || path === "/commission/attributions" || path.startsWith("/commission/attributions/") || path === "/commission/payouts" || path.startsWith("/commission/payouts/")
-    || path === "/commission/disputes" || path.startsWith("/commission/disputes/"))) return null;
+    || path === "/commission/disputes" || path.startsWith("/commission/disputes/")
+    || path === "/commission/overview" || path === "/commission/transactions" || path === "/commission/agents" || path === "/commission/payroll-preview")) return null;
   /* v1.255.0 - an agent reads their own 7% at /agent/commission only; the Commission module is staff's */
   if (can(user.role, "agent_portal") || user.role === "agent") return err("forbidden", "Agents see their own commission in the agent portal", 403);
   const agentRes = await handleAgentDeals(env, path, method, body, user, params);
   if (agentRes) return agentRes;
+  const ws5 = await handleWorkspace5(env, path, method, user, params);
+  if (ws5) return ws5;
   const all = can(user.role, "commission_view_all");
   const today = mytToday();
   const wantAll = params.get("scope") === "all" && all; // everyone else only ever reads their own
@@ -513,16 +516,22 @@ export async function handleCommission(env: Env, path: string, method: string, b
           .bind(...b).first<{ c: number; n: number }>() ?? { c: 0, n: 0 };
       } catch { return { c: 0, n: 0 }; }
     };
-    const eligible = await sum(`status = 'eligible'`);
-    const included = await sum(`status = 'included'`);
-    const paid = await sum(`status = 'paid' AND payroll_month = ?1`, month);
+    /* v1.311.0 (Commission 5.0, F-2) - the employees' figures are the
+       salesperson rows only (what Payroll carries); the agents' are apart
+       (what Finance settles) - never added together as one "in payroll" */
+    const eligible = await sum(`status = 'eligible' AND recipient_role = 'closer'`);
+    const included = await sum(`status = 'included' AND recipient_role = 'closer'`);
+    const paid = await sum(`status = 'paid' AND payroll_month = ?1 AND recipient_role = 'closer'`, month);
     const review = await sum(`status = 'review'`);
+    const agentEligible = me ? { c: 0, n: 0 } : await sum(`status = 'eligible' AND recipient_role = 'agent'`);
+    const agentAuthorised = me ? { c: 0, n: 0 } : await sum(`status = 'included' AND recipient_role = 'agent'`);
     return json({
       scope: me ? "mine" : "all", month, start: COMMISSION_START_DAY, sync: await syncSwitch(env), can_view_all: all,
       policy: inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY),
       estimated: { cents: est, n: estN }, eligible: { cents: Number(eligible.c), n: Number(eligible.n) },
       included: { cents: Number(included.c), n: Number(included.n) }, paid: { cents: Number(paid.c), n: Number(paid.n) },
       review: { cents: Number(review.c), n: Number(review.n) },
+      ...(me ? {} : { agent: { eligible: { cents: Number(agentEligible.c), n: Number(agentEligible.n) }, authorised: { cents: Number(agentAuthorised.c), n: Number(agentAuthorised.n) } } }),
     });
   }
 
@@ -875,7 +884,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     });
   }
   if (path === "/commission/policy" && method === "POST") {
-    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO, COO or super admin drafts a commission policy", 403);
+    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO or COO drafts a commission policy", 403);
     const name = str(body?.name, 80) ? String(body!.name).trim() : "";
     const from = String(body?.effective_from ?? "");
     const kind = body?.rate_kind === "fixed" ? "fixed" : "percent";
@@ -1094,15 +1103,42 @@ export async function handleCommission(env: Env, path: string, method: string, b
      that feed it (policy drafts, approvals, rejections, the payroll switch,
      reviews decided, closer corrections, payment confirmations), newest
      first. Read-only, management (the CCO included). */
+  /* v1.311.0 (Commission 5.0, ref 6, F-13) - the audit, read only, with its
+     filters: a group of actions, a person, a Malaysian date range, pages of
+     50. It now includes the payment reports and verification (which is what
+     makes commission payable) and the payroll writes that carry it. */
   if (path === "/commission/audit" && method === "GET") {
     if (!all) return err("forbidden", "Management access required", 403);
+    const GROUPS: Record<string, string> = {
+      policy: `(a.action LIKE 'commission.policy_%' OR a.action IN ('commission.agent_switch', 'commission.sync'))`,
+      payment: `(a.action LIKE 'payment.%' OR a.action LIKE 'invoice.paid_confirm%')`,
+      deal: `(a.action LIKE 'commission.attribution_%' OR a.action LIKE 'commission.dispute%' OR a.action IN ('commission.decide', 'commission.apply', 'commission.dismiss', 'commission.settle', 'commission.settled') OR a.action LIKE 'doc.closer%')`,
+      payroll: `(a.action IN ('payroll.recompute', 'payroll.paid', 'payroll.pull_commission', 'payroll.save'))`,
+      payout: `(a.action LIKE 'commission.payout_%')`,
+    };
+    const anyG = `(${Object.values(GROUPS).join(" OR ")})`;
+    const g = params.get("action") ?? "";
+    const where = [GROUPS[g] ?? anyG];
+    const b: unknown[] = [];
+    const who = Number(params.get("user") ?? 0);
+    if (Number.isInteger(who) && who > 0) { b.push(who); where.push(`a.user_id = ?${b.length}`); }
+    const from = params.get("from") ?? "", to = params.get("to") ?? "";
+    if (DAY.test(from)) { b.push(from); where.push(`date(a.created_at, '+8 hours') >= ?${b.length}`); }
+    if (DAY.test(to)) { b.push(to); where.push(`date(a.created_at, '+8 hours') <= ?${b.length}`); }
+    const page = Math.max(1, Math.floor(Number(params.get("page") ?? 1)) || 1);
+    const W = where.join(" AND ");
+    const total = Number((await env.DB.prepare(`SELECT COUNT(*) AS n FROM audit_log a WHERE ${W}`).bind(...b).first<{ n: number }>())?.n ?? 0);
+    const pages = Math.max(1, Math.ceil(total / 50));
     const { results } = await env.DB.prepare(
-      `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, ${PERSON("u")} AS who
+      `SELECT a.id, a.action, a.entity, a.entity_id, a.detail, a.created_at, ${PERSON("u")} AS who, u.role AS who_role,
+              CASE WHEN a.entity = 'sales_documents' THEN (SELECT doc_number FROM sales_documents WHERE id = CAST(a.entity_id AS INTEGER)) END AS doc_number
          FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-        WHERE a.action LIKE 'commission.%' OR a.action LIKE 'doc.closer%' OR a.action LIKE 'invoice.paid_confirm%'
-        ORDER BY a.id DESC LIMIT 300`,
-    ).all<{ id: number; action: string; entity: string | null; entity_id: string | null; detail: string | null; created_at: string; who: string | null }>();
-    return json({ events: results ?? [] });
+        WHERE ${W} ORDER BY a.id DESC LIMIT 50 OFFSET ${(Math.min(page, pages) - 1) * 50}`,
+    ).bind(...b).all<{ id: number; action: string; entity: string | null; entity_id: string | null; detail: string | null; created_at: string; who: string | null; who_role: string | null; doc_number: string | null }>();
+    const people = (await env.DB.prepare(
+      `SELECT DISTINCT u.id, ${PERSON("u")} AS name FROM audit_log a JOIN users u ON u.id = a.user_id WHERE ${anyG} ORDER BY name LIMIT 100`,
+    ).all<{ id: number; name: string }>()).results ?? [];
+    return json({ events: results ?? [], page: Math.min(page, pages), pages, total, people });
   }
   return err("not_found", "Unknown commission route", 404);
 }
@@ -1276,6 +1312,17 @@ export async function classify(env: Env, ctx: AgentCtx, inv: ClassInv, policies:
 }
 
 const randKey = () => crypto.randomUUID();
+/** v1.311.0 (Commission 5.0, K-7, the CEO 15-11-2026) - the CEO is not a
+    commissioned closer: a sale he closes earns him nothing (his row is
+    written at RM 0.00, void, with this note, so the sale is still recorded
+    and no other pass can write a figure for it). An agent's share is
+    unaffected. */
+export const CEO_CLOSER_NOTE = "The CEO is not a commissioned closer (Commission 5.0, K-7)";
+async function closerIsCeo(env: Env, uid: number | null | undefined): Promise<boolean> {
+  if (!uid) return false;
+  const r = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(Number(uid)).first<{ role: string }>().catch(() => null);
+  return r?.role === "ceo";
+}
 const pctText = (bp: number | null | undefined) => `${(Number(bp ?? 0) / 100).toFixed(Number(bp ?? 0) % 100 ? 2 : 0)}%`;
 
 /** Write one classified confirmation: its attribution and the rows it pays,
@@ -1302,14 +1349,19 @@ async function writeClassified(env: Env, c: { conf_id: number; invoice_id: numbe
     `INSERT OR IGNORE INTO commission_ledger (source_key, kind, invoice_id, confirmation_id, user_id, policy_id, basis_cents, rate_bp, fixed_cents, amount_cents, paid_day, status, eligible_at, note, recipient_role, attribution_id, agent_request_id)
      SELECT ?3, 'earn', ?4, ?1, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ${attrId}, ?16 ${guard}`,
   ).bind(c.conf_id, key, source, c.invoice_id, user, p?.id ?? null, basis, rate, role === "closer" && k.cls === "direct" && p?.rate_kind === "fixed" ? p.fixed_cents : null, amount, c.paid_day, status, c.confirmed_at, note, role, k.req?.id ?? null);
-  if (k.cls === "direct" && p && direct) {
+  const ceoClose = await closerIsCeo(env, c.salesperson_id); // K-7
+  if (k.cls === "direct" && p && direct && ceoClose) {
+    st.push(row(`earn:${c.conf_id}`, "closer", c.salesperson_id ?? null, direct.basis, p.rate_kind === "percent" ? p.rate_bp : null, 0, "void", CEO_CLOSER_NOTE));
+  } else if (k.cls === "direct" && p && direct) {
     const noCloser = !c.salesperson_id;
     const nothing = !noCloser && direct.amount <= 0;
     st.push(row(`earn:${c.conf_id}`, "closer", c.salesperson_id ?? null, direct.basis, p.rate_kind === "percent" ? p.rate_bp : null, direct.amount,
       noCloser ? "review" : nothing ? "void" : "eligible",
       noCloser ? "No closer on the invoice - choose one, then apply" : nothing ? `Nothing to earn under v${p.version}: no line earns (a product not listed, or a rule of none)` : null));
   } else if (k.cls === "partnership" && p) {
-    st.push(row(`earn:${c.conf_id}`, "closer", c.salesperson_id ?? null, k.eligible ?? 0, p.agent_closer_rate_bp ?? null, k.closerCents ?? 0, k.closerStatus, k.closerNote));
+    st.push(ceoClose
+      ? row(`earn:${c.conf_id}`, "closer", c.salesperson_id ?? null, k.eligible ?? 0, p.agent_closer_rate_bp ?? null, 0, "void", CEO_CLOSER_NOTE)
+      : row(`earn:${c.conf_id}`, "closer", c.salesperson_id ?? null, k.eligible ?? 0, p.agent_closer_rate_bp ?? null, k.closerCents ?? 0, k.closerStatus, k.closerNote));
     st.push(row(`agent:${c.conf_id}`, "agent", k.agentId, k.eligible ?? 0, p.agent_rate_bp ?? null, k.agentCents ?? 0, (k.agentCents ?? 0) > 0 ? "eligible" : "void", (k.agentCents ?? 0) > 0 ? null : "Nothing to earn: no line earns the default rate"));
   } else {
     /* HELD: one closer row of RM 0.00 under review holds earn:<conf>, so
@@ -1386,7 +1438,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
 
   const dec = path.match(/^\/commission\/attributions\/(\d+)\/decide$/);
   if (dec && method === "POST") {
-    if (!decider) return err("forbidden", "Only the CEO or super admin decides an attribution review", 403);
+    if (!decider) return err("forbidden", "Only the CEO decides an attribution review", 403);
     const id = Number(dec[1]);
     const decision = String(body?.decision ?? "");
     const note = reasonOf(body?.note);
@@ -1439,17 +1491,18 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
     ).bind(id, key, source, a.invoice_id, a.confirmation_id, uid, p!.id, basis, rate, fixedC, amount, a.paid_day, amount > 0 ? "eligible" : "void", why, role, a.agent_request_id, user.id, note);
     const st = [stamp, voidHold];
     let out: Record<string, unknown> = {};
+    const ceoD = await closerIsCeo(env, inv.salesperson_id); // K-7
     if (decision === "direct") {
       const c = commissionOf(inv, p!, (await packagesOf(env, [p!.id])).get(p!.id));
-      st.push(ins(`earn:${a.confirmation_id}:d`, "closer", Number(inv.salesperson_id), c.basis, p!.rate_kind === "percent" ? p!.rate_bp : null, p!.rate_kind === "fixed" ? p!.fixed_cents : null, c.amount, `Direct sale by decision: ${note}`.slice(0, 400)));
-      out = { closer_cents: c.amount };
+      st.push(ins(`earn:${a.confirmation_id}:d`, "closer", Number(inv.salesperson_id), c.basis, p!.rate_kind === "percent" ? p!.rate_bp : null, p!.rate_kind === "fixed" ? p!.fixed_cents : null, ceoD ? 0 : c.amount, ceoD ? CEO_CLOSER_NOTE : `Direct sale by decision: ${note}`.slice(0, 400)));
+      out = { closer_cents: ceoD ? 0 : c.amount };
     } else if (decision === "partnership") {
       const sp = agentSplit(inv, p!, (await packagesOf(env, [p!.id])).get(p!.id));
       if (sp.conflict) return err("policy_conflict", "A line of this invoice follows a package rule of its own, so the agent split cannot be applied. Decide it as a direct sale or no commission, or approve a version without that conflict.", 409);
       const retro = p!.effective_from > a.paid_day ? " (retrospective allocation)" : "";
-      st.push(ins(`earn:${a.confirmation_id}:p`, "closer", Number(inv.salesperson_id), sp.eligible, p!.agent_closer_rate_bp ?? null, null, sp.closer, `Agent deal by decision${retro}: ${note}`.slice(0, 400)));
+      st.push(ins(`earn:${a.confirmation_id}:p`, "closer", Number(inv.salesperson_id), sp.eligible, p!.agent_closer_rate_bp ?? null, null, ceoD ? 0 : sp.closer, ceoD ? CEO_CLOSER_NOTE : `Agent deal by decision${retro}: ${note}`.slice(0, 400)));
       st.push(ins(`agent:${a.confirmation_id}`, "agent", Number(agentId), sp.eligible, p!.agent_rate_bp ?? null, null, sp.agent, `Agent deal by decision${retro}: ${note}`.slice(0, 400)));
-      out = { closer_cents: sp.closer, agent_cents: sp.agent };
+      out = { closer_cents: ceoD ? 0 : sp.closer, agent_cents: sp.agent };
     }
     await env.DB.batch(st);
     const mine = await env.DB.prepare(`SELECT decision_key FROM commission_attributions WHERE id = ?1`).bind(id).first<{ decision_key: string | null }>();
@@ -1463,7 +1516,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
 
   /* ---------- disputes (S3): flagged by management, cleared by the CEO ---------- */
   if (path === "/commission/disputes" && method === "POST") {
-    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO, COO or super admin flags a disputed attribution", 403);
+    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO or COO flags a disputed attribution", 403);
     const scope = body?.scope === "customer" ? "customer" : body?.scope === "invoice" ? "invoice" : "";
     let ref = Number(body?.ref_id);
     /* from the screen: an invoice number - the invoice itself, or its customer (renewals too) */
@@ -1487,7 +1540,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
   }
   const clr = path.match(/^\/commission\/disputes\/(\d+)\/clear$/);
   if (clr && method === "POST") {
-    if (!decider) return err("forbidden", "Only the CEO or super admin clears a dispute", 403);
+    if (!decider) return err("forbidden", "Only the CEO clears a dispute", 403);
     const reason = reasonOf(body?.reason);
     if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
     const r = await env.DB.prepare(`UPDATE commission_disputes SET cleared_by = ?2, cleared_at = datetime('now'), clear_reason = ?3 WHERE id = ?1 AND cleared_at IS NULL`).bind(Number(clr[1]), user.id, reason).run();
@@ -1519,14 +1572,14 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
            FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id LEFT JOIN users a ON a.id = o.authorized_by LEFT JOIN users s ON s.id = o.settled_by LEFT JOIN users c ON c.id = o.cancelled_by
           ORDER BY o.id DESC LIMIT 200`,
       ).all()).results ?? []);
-      return json({ due, rows, payouts: payouts.map((o) => ({ ...(o as Record<string, unknown>), auth_key: undefined })), can_authorise: decider, can_settle: decider, me: user.id, today });
+      return json({ due, rows, payouts: payouts.map((o) => ({ ...(o as Record<string, unknown>), auth_key: undefined })), can_authorise: decider, can_settle: can(user.role, "agent_payout_settle"), me: user.id, today });
     } catch (e) {
       if (missingT(e)) return json({ due: [], rows: [], payouts: [], can_authorise: false, can_settle: false, me: user.id, today, pending_migration: true });
       throw e;
     }
   }
   if (path === "/commission/payouts" && method === "POST") {
-    if (!decider) return err("forbidden", "Only the CEO or super admin authorises an agent payout", 403);
+    if (!decider) return err("forbidden", "Only the CEO authorises an agent payout", 403);
     const agentId = Number(body?.agent_id);
     const ag = Number.isInteger(agentId) && agentId > 0 ? await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name FROM users u WHERE id = ?1 AND role = 'agent'`).bind(agentId).first<{ id: number; name: string }>() : null;
     if (!ag) return err("invalid_input", "Choose the agent", 400);
@@ -1547,7 +1600,9 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
   }
   const po = path.match(/^\/commission\/payouts\/(\d+)\/(settle|cancel)$/);
   if (po && method === "POST") {
-    if (!decider) return err("forbidden", "Only the CEO or super admin settles or cancels an agent payout", 403);
+    /* v1.311.0 (K-5) - the CEO cancels (before settlement); the COO confirms
+       the bank paid it (agent_payout_settle), never the person who authorised it */
+    if (po[2] === "cancel" ? !decider : !can(user.role, "agent_payout_settle")) return err("forbidden", po[2] === "cancel" ? "Only the CEO cancels an agent payout" : "Only Finance (the COO) confirms an agent payout was paid", 403);
     const id = Number(po[1]);
     const o = await env.DB.prepare(`SELECT o.*, ${PERSON("u")} AS agent_name FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id WHERE o.id = ?1`).bind(id).first<{ id: number; agent_id: number; agent_name: string | null; status: string; amount_cents: number; authorized_by: number; authorized_at: string; settled_by: number | null; settled_on: string | null; bank_ref: string | null }>();
     if (!o) return err("not_found", "Payout not found", 404);
@@ -1573,7 +1628,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
       return json({ ok: true, already_settled: true, status: "settled" });
     }
     if (o.status !== "authorized") return err("conflict", "A cancelled payout is not settled.", 409);
-    if (Number(o.authorized_by) === user.id) return err("dual_control", "Dual control: the person who authorised this payout cannot also confirm its settlement. Another CEO or super admin confirms it.", 403);
+    if (Number(o.authorized_by) === user.id) return err("dual_control", "Dual control: the person who authorised this payout cannot also confirm its settlement. Finance (the COO) confirms it.", 403);
     const bank = str(body?.bank_ref, 80) ? String(body!.bank_ref).trim() : "";
     const on = String(body?.settled_on ?? "");
     const authDay = new Date(Date.parse(`${o.authorized_at.replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10);
@@ -1594,6 +1649,254 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
   return null;
 }
 const fmt = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/* ================================================================== *
+ * v1.311.0 - COMMISSION WORKSPACE 5.0 (the CEO, 15-11-2026: "approve as
+ * per recommend", K-0 ... K-13 in claude/COMMISSION-WORKSPACE-5.0-
+ * BLUEPRINT.md). The six views read THIS engine - nothing here writes,
+ * calculates a second figure, or reaches an agent (403 above):
+ *   /commission/overview         the month: verified sales, payable, pending,
+ *                                to payroll, by role, performance against the
+ *                                Sales target, recent paid invoices, attention
+ *   /commission/transactions     one row per paid invoice (and the pending
+ *                                ones), filtered and paged; a salesperson's
+ *                                own rows only
+ *   /commission/agents           the agents, their salesperson, deals, sales
+ *                                and commission this month
+ *   /commission/payroll-preview  employees ready for / in payroll, and the
+ *                                agents' settlements apart (Finance)
+ * Company (K-8): the invoice's issuer - 'a2z' A2Z CREATIVE MARKETING,
+ * 'azoo' AZ ONE OFFICIAL (a legacy NULL is AZ ONE).
+ * ================================================================== */
+const companySql = (c: string | null, col = "d.issuer_code") => c === "a2z" ? ` AND ${col} = 'a2z'` : c === "azoo" ? ` AND COALESCE(${col}, 'azoo') = 'azoo'` : "";
+const DEAL = `CASE WHEN at.decision = 'partnership' OR (at.classification = 'partnership' AND at.decision IS NULL) THEN 'partnership'
+                   WHEN at.classification = 'review' AND at.decision IS NULL AND at.closed_at IS NULL THEN 'review' ELSE 'direct' END`;
+const monthEnd = (m: string) => { const [y, mo] = m.split("-").map(Number) as [number, number]; return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
+/** one paid invoice's standing, from its rows: held > void-only > paid > in payroll > confirmed */
+const standOf = (sts: string[], deal: string): string =>
+  deal === "review" ? "held" : sts.length && sts.every((x) => x === "void") ? "void"
+    : sts.includes("eligible") ? "confirmed" : sts.includes("included") ? "in_payroll" : sts.includes("paid") ? "paid" : sts.includes("review") ? "held" : "void";
+
+async function handleWorkspace5(env: Env, path: string, method: string, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
+  if (method !== "GET" || !["/commission/overview", "/commission/transactions", "/commission/agents", "/commission/payroll-preview"].includes(path)) return null;
+  const all = can(user.role, "commission_view_all");
+  const today = mytToday();
+  const month = MONTH.test(params.get("month") ?? "") ? params.get("month")! : today.slice(0, 7);
+  const company = ["a2z", "azoo"].includes(params.get("company") ?? "") ? params.get("company")! : null;
+  const me = all && params.get("scope") !== "mine" ? null : user.id;
+  await ensureLedger(env);
+  const policies = await activePolicies(env);
+  const pk = await packagesOf(env, policies.map((x) => x.id));
+  const inF = inForce(policies, today > COMMISSION_START_DAY ? today : COMMISSION_START_DAY);
+  const PAIDDAY = `date(COALESCE(d.paid_at, d.created_at), '+8 hours')`;
+  type LRow = { id: number; kind: string; invoice_id: number; confirmation_id: number | null; user_id: number | null; amount_cents: number; basis_cents: number; rate_bp: number | null; status: string; recipient_role: string; payroll_month: string | null;
+    doc_number: string; total_cents: number; inv_created: string; paid_day: string; issuer_code: string | null; company: string | null; closer_id: number | null; closer_name: string | null; who_name: string | null; agent_id: number | null; agent_name: string | null; deal: string };
+  const ledgerRows = async (extra: string, ...b: unknown[]): Promise<LRow[]> => {
+    try {
+      return ((await env.DB.prepare(
+        `SELECT l.id, l.kind, l.invoice_id, COALESCE(l.confirmation_id, (SELECT e.confirmation_id FROM commission_ledger e WHERE e.id = l.parent_id)) AS confirmation_id, l.user_id, l.amount_cents, l.basis_cents, l.rate_bp, l.status, l.recipient_role, l.payroll_month,
+                d.doc_number, d.total_cents, d.created_at AS inv_created, ${PAIDDAY} AS paid_day, d.issuer_code, k.company, d.salesperson_id AS closer_id,
+                (SELECT ${PERSON("cu")} FROM users cu WHERE cu.id = d.salesperson_id) AS closer_name, (SELECT ${PERSON("wu")} FROM users wu WHERE wu.id = l.user_id) AS who_name,
+                at.agent_id, (SELECT ${PERSON("ag")} FROM users ag WHERE ag.id = at.agent_id) AS agent_name, ${DEAL} AS deal
+           FROM commission_ledger l JOIN sales_documents d ON d.id = l.invoice_id LEFT JOIN customers k ON k.id = d.customer_id
+           LEFT JOIN commission_attributions at ON at.id = COALESCE(l.attribution_id, (SELECT e.attribution_id FROM commission_ledger e WHERE e.id = l.parent_id))
+          WHERE 1 = 1${me ? ` AND l.user_id = ${Number(me)} AND l.recipient_role = 'closer'` : ""}${companySql(company)}${extra} ORDER BY l.id DESC LIMIT 5000`,
+      ).bind(...b).all<LRow>()).results ?? []);
+    } catch { return []; }
+  };
+  const inMonth = ` AND substr(${PAIDDAY}, 1, 7) = ?1`;
+
+  /* ---------------- the Overview (ref 1) ---------------- */
+  if (path === "/commission/overview") {
+    let conf = { n: 0, c: 0 };
+    try {
+      conf = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(d.total_cents), 0) AS c FROM invoice_paid_confirmations x JOIN sales_documents d ON d.id = x.invoice_id
+          WHERE x.revoked_at IS NULL AND substr(${PAIDDAY}, 1, 7) = ?1${me ? ` AND d.salesperson_id = ${Number(me)}` : ""}${companySql(company)}`,
+      ).bind(month).first<{ n: number; c: number }>() ?? conf;
+    } catch { /* pre-0145 */ }
+    const rows = await ledgerRows(inMonth, month);
+    const live = rows.filter((r) => ["eligible", "included", "paid"].includes(r.status));
+    const sumC = (l: LRow[]) => l.reduce((a, r) => a + Number(r.amount_cents), 0);
+    const payable = live.filter((r) => r.status !== "paid");
+    const emp = payable.filter((r) => r.recipient_role === "closer");
+    /* pending: invoices not yet verified paid in full, estimated, never payable */
+    const opens = (await openInvoices(env, me)).filter((o) => !company || (company === "a2z" ? o.issuer_code === "a2z" : (o.issuer_code ?? "azoo") === "azoo"));
+    const est = await estimateAll(env, opens, policies, today, pk);
+    let pendC = 0, pendN = 0;
+    for (const o of opens) { const e = est.get(o.id)!; const v = Number(e.estimate_cents ?? 0) + (me ? 0 : Number(e.agent_estimate_cents ?? 0)); if (v > 0 || e.deal === "review") { pendC += v; pendN++; } }
+    const byRole = me ? null : {
+      agent: sumC(live.filter((r) => r.recipient_role === "agent")),
+      salesperson: sumC(live.filter((r) => r.recipient_role === "closer" && r.deal === "partnership")),
+      direct: sumC(live.filter((r) => r.recipient_role === "closer" && r.deal === "direct")),
+    };
+    let target: number | null = null;
+    try {
+      target = me
+        ? (await env.DB.prepare(`SELECT target_cents AS t FROM user_sales_targets WHERE user_id = ?1 AND month = ?2`).bind(me, month).first<{ t: number }>())?.t ?? null
+        : (await env.DB.prepare(`SELECT target_cents AS t FROM sales_targets WHERE month = ?1`).bind(month).first<{ t: number }>())?.t ?? null;
+    } catch { target = null; }
+    /* recent paid invoices: one line each */
+    const byInv = new Map<number, LRow[]>();
+    for (const r of rows.filter((x) => x.kind === "earn")) byInv.set(r.invoice_id, [...(byInv.get(r.invoice_id) ?? []), r]);
+    const recent = [...byInv.values()].slice(0, 6).map((l) => {
+      const f = l[0]!;
+      return { invoice_id: f.invoice_id, doc_number: f.doc_number, company: f.company, closer_name: f.closer_name, deal: f.deal, sales_cents: f.total_cents, paid_day: f.paid_day,
+        commission_cents: sumC(l.filter((x) => x.status !== "void" && x.status !== "review")), status: standOf(l.map((x) => x.status), f.deal), entry_id: f.id };
+    });
+    let attention: Record<string, unknown> | null = null;
+    if (!me) {
+      const n = async (sql: string, ...b: unknown[]) => { try { return Number((await env.DB.prepare(sql).bind(...b).first<{ n: number }>())?.n ?? 0); } catch { return 0; } };
+      const nc = async (sql: string) => { try { return await env.DB.prepare(sql).first<{ n: number; c: number }>() ?? { n: 0, c: 0 }; } catch { return { n: 0, c: 0 }; } };
+      const ready = await nc(`SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS c FROM commission_ledger WHERE recipient_role = 'closer' AND status = 'eligible' AND payroll_month IS NULL AND amount_cents > 0`);
+      const due = await nc(`SELECT COUNT(DISTINCT user_id) AS n, COALESCE(SUM(amount_cents), 0) AS c FROM commission_ledger WHERE recipient_role = 'agent' AND kind = 'earn' AND status = 'eligible' AND payout_id IS NULL AND amount_cents > 0`);
+      attention = {
+        to_verify: await n(`SELECT COUNT(DISTINCT invoice_id) AS n FROM invoice_payment_reports WHERE state IN ('reported', 'evidence_checked', 'clarify')`),
+        to_confirm: await n(`SELECT COUNT(*) AS n FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAIDDAY} >= ?1 AND NOT EXISTS (SELECT 1 FROM invoice_paid_confirmations c WHERE c.invoice_id = d.id AND c.revoked_at IS NULL)`, COMMISSION_START_DAY),
+        held: await n(`SELECT COUNT(*) AS n FROM commission_attributions WHERE classification = 'review' AND decision IS NULL AND closed_at IS NULL`),
+        review: await n(`SELECT COUNT(*) AS n FROM commission_ledger WHERE status = 'review' AND amount_cents != 0`),
+        ready_payroll: { n: Number(ready.n), cents: Number(ready.c) },
+        payouts_to_authorise: { n: Number(due.n), cents: Number(due.c) },
+        payouts_to_settle: await n(`SELECT COUNT(*) AS n FROM agent_payouts WHERE status = 'authorized'`),
+        sync: await syncSwitch(env),
+      };
+    }
+    return json({
+      month, scope: me ? "mine" : "all", company, start: COMMISSION_START_DAY,
+      policy: inF ? { version: inF.version, rate_kind: inF.rate_kind, rate_bp: inF.rate_bp, ...(me ? {} : { agent_rate_bp: inF.agent_rate_bp ?? null, agent_closer_rate_bp: inF.agent_closer_rate_bp ?? null }) } : null,
+      confirmed: { cents: Number(conf.c), n: Number(conf.n) },
+      payable: { cents: sumC(payable), n: new Set(payable.map((r) => r.invoice_id)).size },
+      pending: { cents: pendC, n: pendN },
+      to_payroll: { cents: sumC(emp), n: new Set(emp.map((r) => r.user_id)).size },
+      by_role: byRole,
+      performance: { target_cents: target, actual_cents: Number(conf.c), pct: target ? Math.round((Number(conf.c) * 1000) / target) / 10 : null, estimated_cents: sumC(payable) + pendC },
+      recent, attention,
+    });
+  }
+
+  /* ---------------- Transactions (ref 2) ---------------- */
+  if (path === "/commission/transactions") {
+    const status = params.get("status") ?? "";
+    const type = params.get("type") ?? "";
+    const staff = all ? Number(params.get("staff") ?? 0) : 0;
+    const q = (params.get("q") ?? "").trim().toLowerCase().slice(0, 60);
+    const size = params.get("all") === "1" ? 2000 : 25;
+    const page = Math.max(1, Math.floor(Number(params.get("page") ?? 1)) || 1);
+    const rows = await ledgerRows(`${inMonth}${staff > 0 ? ` AND d.salesperson_id = ${staff}` : ""}`, month);
+    const byConf = new Map<string, LRow[]>();
+    for (const r of rows) { const k = String(r.confirmation_id ?? `i${r.invoice_id}`); byConf.set(k, [...(byConf.get(k) ?? []), r]); }
+    const lines: Record<string, unknown>[] = [...byConf.values()].map((l) => {
+      const earn = l.filter((x) => x.kind === "earn");
+      const f = earn[0] ?? l[0]!;
+      const closerRow = earn.find((x) => x.recipient_role === "closer" && x.status !== "void") ?? earn.find((x) => x.recipient_role === "closer");
+      const agentRow = earn.find((x) => x.recipient_role === "agent");
+      const countable = l.filter((x) => x.status !== "void" && x.status !== "review");
+      return {
+        key: `c${f.confirmation_id ?? f.invoice_id}`, invoice_id: f.invoice_id, doc_number: f.doc_number, invoice_date: mytDayOfUtc(f.inv_created), paid_day: f.paid_day, company: f.company, issuer_code: f.issuer_code,
+        closer_name: f.closer_name, ...(me ? {} : { agent_name: f.agent_name }), deal: f.deal, sales_cents: f.total_cents, basis_cents: closerRow?.basis_cents ?? f.basis_cents,
+        rates: me ? { mine_bp: closerRow?.rate_bp ?? null } : { closer_bp: closerRow?.rate_bp ?? null, agent_bp: agentRow?.rate_bp ?? null },
+        commission_cents: countable.reduce((a, x) => a + Number(x.amount_cents), 0), ...(me ? {} : { agent_cents: agentRow && agentRow.status !== "void" ? Number(agentRow.amount_cents) : null, closer_cents: closerRow && closerRow.status !== "void" ? Number(closerRow.amount_cents) : null }),
+        reversed: l.some((x) => x.kind === "reverse"), status: standOf(earn.map((x) => x.status), f.deal), entry_id: (closerRow ?? f).id,
+      };
+    });
+    /* the pending invoices (not yet verified paid in full) belong to the current month */
+    if (month === today.slice(0, 7) && (status === "" || status === "pending")) {
+      const opens = (await openInvoices(env, me)).filter((o) => (!company || (company === "a2z" ? o.issuer_code === "a2z" : (o.issuer_code ?? "azoo") === "azoo")) && (!staff || o.salesperson_id === staff));
+      const est = await estimateAll(env, opens, policies, today, pk);
+      for (const o of opens) {
+        const e = est.get(o.id)!;
+        lines.push({ key: `o${o.id}`, invoice_id: o.id, doc_number: o.doc_number, invoice_date: mytDayOfUtc(o.created_at), paid_day: null, company: o.company, issuer_code: o.issuer_code, closer_name: o.closer_name,
+          ...(me ? {} : { agent_name: null }), deal: e.deal, sales_cents: o.total_cents, basis_cents: e.basis_cents,
+          rates: me ? { mine_bp: e.closer_rate_bp } : { closer_bp: e.closer_rate_bp, agent_bp: e.deal === "partnership" ? (inForce(policies, today)?.agent_rate_bp ?? null) : null },
+          commission_cents: Number(e.estimate_cents ?? 0) + (me ? 0 : Number(e.agent_estimate_cents ?? 0)), ...(me ? {} : { agent_cents: e.agent_estimate_cents, closer_cents: e.estimate_cents }),
+          reversed: false, status: "pending", stage: stageOf(o), entry_id: null, estimate: true });
+      }
+    }
+    const shown = lines.filter((r) => (!status || r.status === status) && (!type || r.deal === type)
+      && (!q || [r.doc_number, r.company, r.closer_name, r.agent_name].some((x) => String(x ?? "").toLowerCase().includes(q))))
+      .sort((a, b) => String(b.paid_day ?? "9999").localeCompare(String(a.paid_day ?? "9999")) || String(b.doc_number).localeCompare(String(a.doc_number)));
+    const pages = Math.max(1, Math.ceil(shown.length / size));
+    const staffList = all ? ((await env.DB.prepare(
+      `SELECT DISTINCT u.id, ${PERSON("u")} AS name FROM sales_documents d JOIN users u ON u.id = d.salesperson_id WHERE d.doc_type = 'INV' AND ${PAIDDAY} >= ?1 ORDER BY name`,
+    ).bind(COMMISSION_START_DAY).all().catch(() => ({ results: [] }))).results ?? []) : [];
+    return json({
+      month, scope: me ? "mine" : "all", page: Math.min(page, pages), pages, total: shown.length,
+      totals: { sales_cents: shown.reduce((a, r) => a + Number(r.sales_cents ?? 0), 0), commission_cents: shown.reduce((a, r) => a + Number(r.commission_cents ?? 0), 0) },
+      rows: shown.slice((Math.min(page, pages) - 1) * size, Math.min(page, pages) * size), staff: staffList,
+    });
+  }
+
+  if (!all) return err("forbidden", "Management access required", 403);
+
+  /* ---------------- Agent Deals (ref 3) ---------------- */
+  if (path === "/commission/agents") {
+    try {
+      const agents = (await env.DB.prepare(
+        `SELECT u.id, ${PERSON("u")} AS name, u.is_active,
+                (SELECT s.salesperson_id FROM agent_assignments s WHERE s.agent_id = u.id AND s.effective_from <= ?1 ORDER BY s.effective_from DESC, s.id DESC LIMIT 1) AS salesperson_id
+           FROM users u WHERE u.role = 'agent' ORDER BY name`,
+      ).bind(today).all<{ id: number; name: string; is_active: number; salesperson_id: number | null }>()).results ?? [];
+      const names = new Map(((await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name FROM users u WHERE id IN (SELECT salesperson_id FROM agent_assignments)`).all<{ id: number; name: string }>()).results ?? []).map((r) => [r.id, r.name]));
+      const deals = (await env.DB.prepare(
+        `SELECT at.agent_id, at.invoice_id, d.total_cents, ${DEAL} AS deal FROM commission_attributions at JOIN sales_documents d ON d.id = at.invoice_id
+          WHERE at.agent_id IS NOT NULL AND substr(at.paid_day, 1, 7) = ?1${companySql(company)}`,
+      ).bind(month).all<{ agent_id: number; invoice_id: number; total_cents: number; deal: string }>()).results ?? [];
+      const earned = await ledgerRows(`${inMonth} AND l.recipient_role = 'agent' AND l.status IN ('eligible', 'included', 'paid')`, month);
+      const table = agents.map((a) => {
+        const mine = deals.filter((x) => Number(x.agent_id) === Number(a.id));
+        return { id: a.id, name: a.name, active: Number(a.is_active) === 1, salesperson: a.salesperson_id ? names.get(Number(a.salesperson_id)) ?? null : null,
+          deals: mine.length, held: mine.filter((x) => x.deal === "review").length, sales_cents: mine.reduce((s, x) => s + Number(x.total_cents), 0),
+          agent_cents: earned.filter((r) => Number(r.user_id) === Number(a.id)).reduce((s, r) => s + Number(r.amount_cents), 0) };
+      });
+      return json({
+        month, rate: inF && inF.agent_rate_bp != null ? { version: inF.version, agent_bp: inF.agent_rate_bp, closer_bp: inF.agent_closer_rate_bp } : null,
+        tiles: { agents: agents.length, active: agents.filter((a) => Number(a.is_active) === 1).length, deals: deals.length, agent_cents: table.reduce((s, r) => s + r.agent_cents, 0) },
+        agents: table,
+      });
+    } catch (e) {
+      if (/no such table|no such column/i.test(String(e))) return json({ month, rate: null, tiles: { agents: 0, active: 0, deals: 0, agent_cents: 0 }, agents: [], pending_migration: true });
+      throw e;
+    }
+  }
+
+  /* ---------------- Payroll Sync (ref 5) ---------------- */
+  /* employees only - what Payroll will carry for the month; the agents are
+     apart (Finance settles them, never payroll) */
+  const end = monthEnd(month);
+  let people: { user_id: number; name: string; role: string; ready: number; in_payroll: number; paid: number; on_payroll: number }[] = [];
+  try {
+    people = (await env.DB.prepare(
+      `SELECT l.user_id, ${PERSON("u")} AS name, u.role,
+              SUM(CASE WHEN l.status = 'eligible' AND l.payroll_month IS NULL AND date(l.eligible_at, '+8 hours') <= ?2 THEN l.amount_cents ELSE 0 END) AS ready,
+              SUM(CASE WHEN l.status = 'included' AND l.payroll_month = ?1 THEN l.amount_cents ELSE 0 END) AS in_payroll,
+              SUM(CASE WHEN l.status = 'paid' AND l.payroll_month = ?1 THEN l.amount_cents ELSE 0 END) AS paid,
+              EXISTS (SELECT 1 FROM payroll_entries e WHERE e.user_id = l.user_id AND e.month = ?1) AS on_payroll
+         FROM commission_ledger l JOIN users u ON u.id = l.user_id
+        WHERE l.recipient_role = 'closer' AND u.role != 'agent' AND l.status IN ('eligible', 'included', 'paid')
+        GROUP BY l.user_id HAVING ready != 0 OR in_payroll != 0 OR paid != 0 ORDER BY name`,
+    ).bind(month, end).all<typeof people[number]>()).results ?? [];
+  } catch { people = []; }
+  let released = false;
+  try { released = Boolean(await env.DB.prepare(`SELECT month FROM payslip_releases WHERE month = ?1`).bind(month).first()) || await payslipsOutFor(env, month); } catch { released = false; }
+  let agentsDue: Record<string, unknown>[] = [];
+  let authorised: Record<string, unknown>[] = [];
+  try {
+    agentsDue = (await env.DB.prepare(
+      `SELECT l.user_id AS agent_id, ${PERSON("u")} AS name, COUNT(*) AS n, COALESCE(SUM(l.amount_cents), 0) AS cents FROM commission_ledger l JOIN users u ON u.id = l.user_id
+        WHERE l.recipient_role = 'agent' AND l.kind = 'earn' AND l.status = 'eligible' AND l.payout_id IS NULL AND l.amount_cents > 0 GROUP BY l.user_id ORDER BY name`,
+    ).all()).results ?? [];
+    authorised = (await env.DB.prepare(
+      `SELECT o.id, o.agent_id, ${PERSON("u")} AS name, o.amount_cents, o.authorized_at FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id WHERE o.status = 'authorized' ORDER BY o.id`,
+    ).all()).results ?? [];
+  } catch { /* pre-0168 */ }
+  return json({
+    month, released, future: month > today.slice(0, 7), sync: await syncSwitch(env), can_sync: can(user.role, "payroll_process"),
+    employees: people.map((r) => ({ ...r, on_payroll: Number(r.on_payroll) === 1 })),
+    totals: { ready: people.reduce((a, r) => a + Number(r.ready), 0), in_payroll: people.reduce((a, r) => a + Number(r.in_payroll), 0), paid: people.reduce((a, r) => a + Number(r.paid), 0) },
+    agents: { due: agentsDue, authorised, can_authorise: can(user.role, "commission_settle"), can_settle: can(user.role, "agent_payout_settle") },
+  });
+}
+const mytDayOfUtc = (utc: string | null | undefined) => (utc ? new Date(Date.parse(`${String(utc).replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10) : null);
 
 /** v1.255.0 - THE AGENT'S OWN COMMISSION (/agent/commission): their agent
     rows only - each referred sale, "Your commission rate: 7%", estimated,

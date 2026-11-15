@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
-import { LineTabs, TabAside } from "@/components/ui/line-tabs";
+import { LineTabs } from "@/components/ui/line-tabs";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows, SkelStat } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -38,10 +38,14 @@ import { ScopeSwitch, type WsScope } from "@/components/portal/sales-workspace";
 import { makeApi, type ApiResult } from "@/lib/api";
 import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
+import { btnClass, btnSm, btnSmPrimary, card, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import type { Policy, Summary } from "@/components/portal/commission-card";
 import css from "./commission.module.css";
 import { AgentDeals } from "./agent-deals";
+import { AgentsHead5, Overview5, PayrollSync5, PolicyHead5, Transactions5, isCommissionView, monthWord, monthsFrom, type CommissionView, type Company, type TxRow } from "./commission5"; // v1.311.0 - Commission Workspace 5.0
+import c5 from "./commission5.module.css"; // v1.311.0
+import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.311.0 - the phone view switch
+import { useTabViewAddress } from "@/lib/tab-view"; // v1.311.0 - the view in the address
 
 const api = makeApi("/staff/commission");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -81,7 +85,7 @@ const NEXT: Record<string, [string, string, string, string]> = {
   approve_policy: ["Approve a policy version", "Luluskan versi polisi", "CEO", "CEO"],
   await_payment: ["Collect the payment", "Kutip bayaran", "Sales", "Jualan"],
   await_balance: ["Collect the balance", "Kutip baki", "Sales", "Jualan"],
-  confirm_paid: ["Confirm Paid (Sales -> Closed Sales)", "Sahkan Dibayar (Jualan -> Jualan Ditutup)", "CEO or COO", "CEO atau COO"],
+  confirm_paid: ["Confirm Paid (Sales -> Closed Sales)", "Sahkan Dibayar (Jualan -> Jualan Ditutup)", "CEO", "CEO"], // v1.311.0 (K-3) - the CEO owner alone
   ceo_decides: ["Decide the review", "Putuskan semakan", "CEO", "CEO"],
   payroll_off: ["Waits for the payroll switch", "Menunggu suis gaji", "CEO", "CEO"],
   next_payroll: ["Goes into the next open payroll", "Masuk gaji terbuka seterusnya", "Payroll (automatic)", "Gaji (automatik)"],
@@ -91,7 +95,7 @@ const NEXT: Record<string, [string, string, string, string]> = {
   decide_attribution: ["Decide the attribution (agent deal or not)", "Putuskan atribusi (urusan ejen atau tidak)", "CEO", "CEO"],
   attribution_hold: ["On hold: attribution review once paid", "Ditahan: semakan atribusi selepas dibayar", "CEO", "CEO"],
   authorise_payout: ["Authorise the agent payout", "Benarkan bayaran ejen", "CEO", "CEO"],
-  confirm_settlement: ["Confirm the bank settlement", "Sahkan penyelesaian bank", "A second approver", "Pelulus kedua"],
+  confirm_settlement: ["Confirm the bank settlement", "Sahkan penyelesaian bank", "Finance (COO)", "Kewangan (COO)"], // v1.311.0 (K-5)
   done: ["Nothing - paid", "Tiada - dibayar", "", ""],
   none: ["Nothing - closed", "Tiada - ditutup", "", ""],
 };
@@ -124,30 +128,18 @@ const STATUS: Record<Entry["status"], [string, string, string]> = {
   eligible: ["Eligible", "Layak", chipSuccess], review: ["Under review", "Dalam semakan", chipWarn],
   included: ["In payroll", "Dalam gaji", chipInfo], paid: ["Paid", "Dibayar", chipSuccess], void: ["Void", "Batal", chipNeutral],
 };
-const STAGE: Record<Estimate["stage"], [string, string]> = {
-  unpaid: ["Estimate · unpaid", "Anggaran · belum dibayar"], part_paid: ["Estimate · part paid", "Anggaran · dibayar sebahagian"],
-  awaiting_confirmation: ["Estimate · waiting for CEO/COO", "Anggaran · menunggu CEO/COO"],
-};
 const statusChip = (e: Entry) => e.hold && e.status === "review"
   ? <span className={chipWarn}>{L("On hold: attribution review", "Ditahan: semakan atribusi")}</span>
   : <span className={STATUS[e.status][2]}>{L(STATUS[e.status][0], STATUS[e.status][1])}{e.status === "included" ? (e.recipient_role === "agent" ? ` · ${L("payout", "bayaran")}` : ` · ${ym(e.payroll_month)}`) : ""}</span>;
 /* v1.255.0 - each reader is told their OWN rate ("Your commission rate: 3%");
    management sees whose row it is and the deal */
 const pctOf = (bp: number | null | undefined) => `${((bp ?? 0) / 100).toFixed((bp ?? 0) % 100 ? 2 : 0)}%`;
-const rateCell = (e: Entry, mine: boolean) => e.kind !== "earn" ? "—" : e.hold ? L("On hold", "Ditahan")
-  : mine ? `${L("Your commission rate", "Kadar komisen anda")}: ${e.rate_bp !== null ? pctOf(e.rate_bp) : rateText(e)}${e.deal === "partnership" ? ` · ${L("agent deal", "urusan ejen")}` : ""}`
-  : `${e.rate_bp !== null ? pctOf(e.rate_bp) : rateText(e)} · v${e.policy_version ?? "—"}${e.deal === "partnership" ? ` · ${L("agent deal", "urusan ejen")}` : ""}`;
-const whoCell = (e: Entry) => e.recipient_role === "agent" ? <>{e.closer_name ?? "—"} <span className={chipInfo}>{L("Agent", "Ejen")}</span></> : <>{e.closer_name ?? "—"}{e.deal === "partnership" && e.agent_name ? <span className={css.sub}> · {L("with", "bersama")} {e.agent_name}</span> : null}</>;
-const estRate = (x: Estimate, mine: boolean) => x.deal === "review" ? L("On hold: attribution review", "Ditahan: semakan atribusi")
-  : x.deal === "partnership" ? `${mine ? `${L("Your commission rate", "Kadar komisen anda")}: ` : ""}${pctOf(x.closer_rate_bp)} · ${L("agent deal", "urusan ejen")}${!mine && x.agent_estimate_cents ? ` · ${L("agent", "ejen")} ${fmtRM(x.agent_estimate_cents)}` : ""}`
-  : x.policy_version ? `v${x.policy_version}` : L("No policy", "Tiada polisi");
 export const dealWord = (c: string, decision?: string | null) => decision === "partnership" ? L("Agent partnership (decided)", "Perkongsian ejen (diputuskan)")
   : decision === "direct" ? L("Direct sale (decided)", "Jualan langsung (diputuskan)") : decision === "none" ? L("No commission (decided)", "Tiada komisen (diputuskan)")
   : c === "partnership" ? L("Agent partnership", "Perkongsian ejen") : c === "review" ? L("Held: attribution review", "Ditahan: semakan atribusi") : L("Direct sale", "Jualan langsung");
 const payWord = (s: string | null) => s === "paid" ? L("Paid in full", "Dibayar penuh") : s === "overdue" ? L("Overdue", "Tertunggak") : L("Unpaid", "Belum dibayar");
 
 type View = "overview" | "transactions" | "agents" | "policy" | "payroll" | "audit";
-type Filter = "" | "estimated" | Entry["status"];
 
 /* ------------------------------------------------------------------ */
 /* One entry: every fact, every step, the review                        */
@@ -297,122 +289,14 @@ function EstimateDrawer({ est, onClose }: { est: Estimate | null; onClose: () =>
             </div>
           ) : null}
           <p className={css.note}>{stage === "awaiting_confirmation"
-            ? L("Paid in full. It becomes eligible when the CEO or COO confirms the payment on Sales -> Closed Sales.", "Dibayar penuh. Ia menjadi layak apabila CEO atau COO mengesahkan bayaran di Jualan -> Jualan Ditutup.")
-            : L("An estimate only - it earns nothing until the whole invoice is paid and the CEO or COO confirms it. A part payment never earns on its own.", "Anggaran sahaja - tiada apa diperoleh sehingga keseluruhan invois dibayar dan disahkan CEO atau COO. Bayaran sebahagian tidak memperoleh apa-apa.")}</p>
+            ? L("Paid in full. It becomes eligible when the CEO confirms the payment on Sales -> Closed Sales.", "Dibayar penuh. Ia menjadi layak apabila CEO mengesahkan bayaran di Jualan -> Jualan Ditutup.")
+            : L("An estimate only - it earns nothing until the whole invoice is paid and the CEO confirms it. A part payment never earns on its own.", "Anggaran sahaja - tiada apa diperoleh sehingga keseluruhan invois dibayar dan disahkan CEO atau COO. Bayaran sebahagian tidak memperoleh apa-apa.")}</p>
         </div>
       )}
     </SideDrawer>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Entries                                                              */
-function Entries({ scope, revision, onChanged }: { scope: WsScope; revision: number; onChanged: () => void }) {
-  const [filter, setFilter] = useState<Filter>("");
-  const [qInput, setQInput] = useState("");
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState<number | null>(null);
-  const [est, setEst] = useState<Estimate | null>(null);
-  useEffect(() => { const t = window.setTimeout(() => setQ(qInput.trim()), 300); return () => window.clearTimeout(t); }, [qInput]);
-  const key = `${scope}|${filter}|${q}|${revision}`;
-  const [got, setGot] = useState<{ key: string; entries: Entry[]; estimates: Estimate[]; e: string } | null>(null);
-  useEffect(() => {
-    const c = new AbortController();
-    const [s, f, qq] = key.split("|");
-    const p = new URLSearchParams({ scope: s!, ...(f && f !== "estimated" ? { status: f } : f === "estimated" ? { status: "estimated" } : {}), ...(qq ? { q: qq } : {}) });
-    void api<{ entries: Entry[]; estimates: Estimate[] }>(`/entries?${p.toString()}`, { signal: c.signal }).then((r) => {
-      if (!c.signal.aborted) setGot({ key, entries: r.ok && r.data ? (f === "estimated" ? [] : r.data.entries) : [], estimates: r.ok && r.data ? r.data.estimates : [], e: r.ok ? "" : message(r) });
-    });
-    return () => c.abort();
-  }, [key]);
-  const cur = got?.key === key ? got : null;
-  const rows = cur ? cur.entries : null;
-  const ests = cur ? cur.estimates : null;
-  const total = (rows?.length ?? 0) + (ests?.length ?? 0);
-  return (
-    <TabZone label={L("Entries", "Entri")} hint={L("What each sale earned, and what it may earn once it is paid in full and the CEO or COO confirms it. Estimates are never stored or paid.", "Apa yang diperoleh setiap jualan, dan yang mungkin diperoleh apabila dibayar penuh dan disahkan CEO atau COO. Anggaran tidak disimpan atau dibayar.")}>
-      <div className={card}>
-        <div className={css.filters}>
-          <label><span className={fieldLabel}>{L("Show", "Papar")}</span>
-            <select aria-label={L("Commission status", "Status komisen")} className={inputClass} value={filter} onChange={(e) => setFilter(e.target.value as Filter)}>
-              <option value="">{L("Everything", "Semua")}</option>
-              <option value="estimated">{L("Estimates (not yet earned)", "Anggaran (belum diperoleh)")}</option>
-              <option value="eligible">{L("Eligible", "Layak")}</option>
-              <option value="review">{L("Under review", "Dalam semakan")}</option>
-              <option value="included">{L("In payroll", "Dalam gaji")}</option>
-              <option value="paid">{L("Paid", "Dibayar")}</option>
-              <option value="void">{L("Void", "Batal")}</option>
-            </select></label>
-          <label><span className={fieldLabel}>{L("Search", "Cari")}</span>
-            <input type="search" aria-label={L("Search commission", "Cari komisen")} className={inputClass} value={qInput} placeholder={L("Invoice, customer, closer", "Invois, pelanggan, penutup")} onChange={(e) => setQInput(e.target.value)} /></label>
-        </div>
-        {cur?.e ? <p role="alert" className={css.error}>{cur.e}</p> : rows === null || ests === null ? <SkelRows rows={6} /> : total === 0 ? (
-          <p className={css.empty}>{L("Nothing here yet. A sale appears once its invoice is raised; it earns once paid in full and confirmed.", "Belum ada. Jualan dipaparkan apabila invois dibuat; ia diperoleh apabila dibayar penuh dan disahkan.")}</p>
-        ) : (
-          <>
-            <div className={`${css.desk} ${css.tableWrap}`}>
-              <table className={css.table} aria-label={L("Commission entries", "Entri komisen")}>
-                <thead><tr>
-                  <th>{L("Invoice", "Invois")}</th><th>{L("Customer", "Pelanggan")}</th><th>{L("Package", "Pakej")}</th><th>{L("Closer", "Penutup")}</th>
-                  <th className={css.num}>{L("Sale", "Jualan")}</th><th>{L("Payment", "Bayaran")}</th><th>{L("Rate · policy", "Kadar · polisi")}</th>
-                  <th className={css.num}>{L("Commission", "Komisen")}</th><th>{L("Eligible", "Layak")}</th><th>{L("Status", "Status")}</th><th>{L("Next step", "Langkah seterusnya")}</th>
-                </tr></thead>
-                <tbody>
-                  {rows.map((e) => (
-                    <tr key={`l${e.id}`} onClick={() => setOpen(e.id)}>
-                      <td><span className={css.strong}>{e.doc_number}</span>{e.kind === "reverse" ? ` · ${L("reversal", "pembalikan")}` : ""}{e.issuer_code ? <span className={css.sub}> · {e.issuer_code}</span> : null}</td>
-                      <td className={css.wrapCell}>{e.company ?? "—"}</td><td className={css.wrapCell}>{e.package || "—"}</td><td>{whoCell(e)}</td>
-                      <td className={css.num}>{fmtRM(e.invoice_total)}</td><td>{payWord(e.payment_status)}</td>
-                      <td className={css.wrapCell}>{rateCell(e, scope === "mine")}</td>
-                      <td className={`${css.num} ${css.strong}`}>{fmtRM(e.amount_cents)}</td><td>{dmy(e.eligible_at.slice(0, 10))}</td><td>{statusChip(e)}</td>
-                      <td className={css.wrapCell}>{nextText(e.next)}</td>
-                    </tr>
-                  ))}
-                  {ests.map((x) => (
-                    <tr key={`e${x.invoice_id}`} className={css.estimate} onClick={() => setEst(x)}>
-                      <td><span className={css.strong}>{x.doc_number}</span>{x.issuer_code ? <span className={css.sub}> · {x.issuer_code}</span> : null}</td>
-                      <td className={css.wrapCell}>{x.company ?? "—"}</td><td className={css.wrapCell}>{x.package || "—"}</td><td>{x.closer_name ?? L("No closer", "Tiada penutup")}</td>
-                      <td className={css.num}>{fmtRM(x.invoice_total)}</td><td>{x.stage === "part_paid" ? L(`Part paid · ${fmtRM(x.received_cents)}`, `Sebahagian · ${fmtRM(x.received_cents)}`) : payWord(x.payment_status)}</td>
-                      <td className={css.wrapCell}>{estRate(x, scope === "mine")}</td>
-                      <td className={css.num}>{x.estimate_cents === null ? "—" : fmtRM(x.estimate_cents)}</td><td>—</td>
-                      <td><span className={chipNeutral}>{L(STAGE[x.stage][0], STAGE[x.stage][1])}</span></td>
-                      <td className={css.wrapCell}>{nextText(x.next)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <ul className={css.phone} aria-label={L("Commission entries", "Entri komisen")}>
-              {rows.map((e) => (
-                <li key={`l${e.id}`}><button type="button" onClick={() => setOpen(e.id)}>
-                  <span className={css.cardTop}><span className={css.strong}>{e.doc_number}</span><strong>{fmtRM(e.amount_cents)}</strong></span>
-                  <span className={css.facts}><span>{e.company ?? "—"}</span><span>{whoCell(e)}</span><span>{fmtRM(e.invoice_total)}</span></span>
-                  <span>{statusChip(e)}</span>
-                  {e.kind === "earn" && <span className={css.sub}>{rateCell(e, scope === "mine")}</span>}
-                  <span className={css.sub}>{L("Next", "Seterusnya")}: {nextText(e.next)}</span>
-                </button></li>
-              ))}
-              {ests.map((x) => (
-                <li key={`e${x.invoice_id}`}><button type="button" onClick={() => setEst(x)}>
-                  <span className={css.cardTop}><span className={css.strong}>{x.doc_number}</span><strong>{x.estimate_cents === null ? "—" : fmtRM(x.estimate_cents)}</strong></span>
-                  <span className={css.facts}><span>{x.company ?? "—"}</span><span>{x.closer_name ?? L("No closer", "Tiada penutup")}</span><span>{fmtRM(x.invoice_total)}</span></span>
-                  <span><span className={chipNeutral}>{L(STAGE[x.stage][0], STAGE[x.stage][1])}</span></span>
-                  {x.deal && x.deal !== "direct" && <span className={css.sub}>{estRate(x, scope === "mine")}</span>}
-                  <span className={css.sub}>{L("Next", "Seterusnya")}: {nextText(x.next)}</span>
-                </button></li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-      <EntryDrawer id={open} onClose={() => setOpen(null)} onSaved={onChanged} />
-      <EstimateDrawer est={est} onClose={() => setEst(null)} />
-    </TabZone>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Flow                                                                 */
 interface FlowRow { key: string; n: number; cents: number; next: string }
 interface FlowResp {
   start: string; sync: boolean; policy: Policy | null;
@@ -422,110 +306,6 @@ interface FlowResp {
 /* v1.232.0 (audit F7/C6) - TWO ROWS, NEVER ADDED TOGETHER: open invoices
    by their one current stage (valued at the invoice total), and
    entitlements by their one status (valued at the commission). */
-const INV_STAGES: Record<string, [string, string, string, string]> = {
-  unpaid: ["Invoice issued", "Invois dikeluarkan", "Not paid yet - estimate only", "Belum dibayar - anggaran sahaja"],
-  part_paid: ["Part paid", "Dibayar sebahagian", "Some money in - still estimate only", "Sebahagian diterima - masih anggaran"],
-  awaiting_confirmation: ["Paid, awaiting CEO/COO", "Dibayar, menunggu CEO/COO", "Paid in full, not yet confirmed", "Dibayar penuh, belum disahkan"],
-  policy_review: ["Confirmed, no policy", "Disahkan, tiada polisi", "Nothing is calculated until a version covers its day", "Tiada apa dikira sehingga versi meliputi harinya"],
-};
-const ENT_STATUS: Record<string, [string, string, string, string]> = {
-  eligible: ["Eligible", "Layak", "Earned, not yet on a payslip", "Diperoleh, belum dalam slip gaji"],
-  included: ["In payroll", "Dalam gaji", "On a payroll month, bank run not done", "Dalam bulan gaji, pembayaran bank belum selesai"],
-  paid: ["Paid", "Dibayar", "The bank run is done", "Pembayaran bank selesai"],
-  review: ["Under review", "Dalam semakan", "Held for the CEO's decision", "Ditahan untuk keputusan CEO"],
-};
-function FlowCards({ rows, words, label, money }: { rows: FlowRow[]; words: Record<string, [string, string, string, string]>; label: string; money: boolean }) {
-  return (
-    <ol className={`${css.stages} ${css.stages4}`} aria-label={label}>
-      {rows.map((s, i) => {
-        const t = words[s.key] ?? [s.key, s.key, "", ""];
-        return (
-          <li key={s.key} className={`${css.stage} ${money ? css.stageMoney : ""}`}>
-            <span className={css.stageNo}>{i + 1}</span>
-            <h4>{L(t[0], t[1])}</h4>
-            <span className={css.stageFig}>{s.n}</span>
-            <span className={css.sub}>{s.key === "policy_review" ? L(t[2], t[3]) : `${fmtRM(s.cents)} · ${L(t[2], t[3])}`}</span>
-            {s.n > 0 && s.next !== "done" && <span className={css.stageNext}>{L("Next", "Seterusnya")}: {nextText(s.next)}</span>}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-function Flow({ revision }: { revision: number }) {
-  const [got, setGot] = useState<{ rev: number; d: FlowResp | null; e: string } | null>(null);
-  useEffect(() => {
-    const c = new AbortController();
-    void api<FlowResp>(`/flow`, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setGot({ rev: revision, d: r.ok && r.data ? r.data : null, e: r.ok ? "" : message(r) }); });
-    return () => c.abort();
-  }, [revision]);
-  const d = got?.rev === revision ? got.d : null;
-  const x = d?.exceptions;
-  const nos = x?.not_on_payslip;
-  return (
-    <>
-      <TabZone label={L("Invoices", "Invois")} hint={d ? L(`Every open invoice, in its one current stage, valued at the invoice total. Confirmed Paid since ${dmy(d.start)}: ${d.confirmed_total.n} invoice(s), ${fmtRM(d.confirmed_total.cents)}.`, `Setiap invois terbuka, pada satu peringkat semasanya, dinilai pada jumlah invois. Disahkan Dibayar sejak ${dmy(d.start)}: ${d.confirmed_total.n} invois, ${fmtRM(d.confirmed_total.cents)}.`) : undefined}>
-        {got?.e ? <p role="alert" className={css.error}>{got.e}</p> : !d ? <div className={card}><SkelRows rows={3} /></div> : (
-          <FlowCards rows={d.invoices} words={INV_STAGES} label={L("Invoices by stage", "Invois mengikut peringkat")} money={false} />
-        )}
-      </TabZone>
-      <TabZone label={L("Commission entitlements", "Hak komisen")} hint={L("Every entitlement, in its one status, valued at the commission. Not added to the invoice row - one is sales value, the other is commission.", "Setiap hak, pada satu statusnya, dinilai pada komisen. Tidak dicampur dengan baris invois - satu nilai jualan, satu lagi komisen.")}>
-        {!d ? (got?.e ? null : <div className={card}><SkelRows rows={3} /></div>) : (
-          <FlowCards rows={d.entitlements} words={ENT_STATUS} label={L("Entitlements by status", "Hak mengikut status")} money />
-        )}
-      </TabZone>
-      <TabZone label={L("Needs attention", "Perlu perhatian")} cols={2}>
-        <div className={card}>
-          {!x ? <SkelRows rows={4} /> : (
-            <ul className={css.list}>
-              <li><span className={css.listMain}><strong>{L("Under review", "Dalam semakan")}</strong><span>{L("No closer, a payment taken back after payroll, or a credit note", "Tiada penutup, bayaran ditarik balik selepas gaji, atau nota kredit")}</span></span><span className={x.review.n ? chipWarn : chipNeutral}>{x.review.n} · {fmtRM(x.review.cents)}</span></li>
-              <li><span className={css.listMain}><strong>{L("Waiting for CEO/COO confirmation", "Menunggu pengesahan CEO/COO")}</strong><span>{L("Paid in full, not yet confirmed", "Dibayar penuh, belum disahkan")}</span></span><span className={x.awaiting_confirmation ? chipInfo : chipNeutral}>{x.awaiting_confirmation}</span></li>
-              <li><span className={css.listMain}><strong>{L("Confirmed with no approved policy", "Disahkan tanpa polisi diluluskan")}</strong><span>{L("Nothing is calculated for these", "Tiada apa dikira untuk ini")}</span></span><span className={x.no_policy ? chipDanger : chipNeutral}>{x.no_policy}</span></li>
-              <li><span className={css.listMain}><strong>{L("Invoices with no closer", "Invois tanpa penutup")}</strong><span>{L("Choose the closer on the invoice", "Pilih penutup pada invois")}</span></span><span className={x.no_closer ? chipWarn : chipNeutral}>{x.no_closer}</span></li>
-              <li><span className={css.listMain}><strong>{L("Carried forward", "Dibawa ke hadapan")}</strong><span>{L("Eligible in an earlier month, waiting for the next open payroll", "Layak pada bulan lalu, menunggu gaji terbuka seterusnya")}</span></span><span className={chipNeutral}>{x.carried_forward.n} · {fmtRM(x.carried_forward.cents)}</span></li>
-              <li><span className={css.listMain}><strong>{L("Leavers to settle", "Bekas staf untuk diselesaikan")}</strong><span>{L("Eligible after their last payroll - the CEO records the final settlement (Transactions)", "Layak selepas gaji terakhir mereka - CEO merekod penyelesaian akhir (Transaksi)")}</span></span><span className={x.leavers.n ? chipWarn : chipNeutral}>{x.leavers.n} · {fmtRM(x.leavers.cents)}</span></li>
-              {nos && <li><span className={css.listMain}><strong>{L("In payroll, not on the payslip", "Dalam gaji, tiada dalam slip gaji")}</strong><span>{L("Payroll (HR) recomputes the month; the bank run holds these until the payslip carries them", "Gaji (HR) mengira semula bulan itu; pembayaran bank menahannya sehingga slip gaji membawanya")}</span></span><span className={nos.n ? chipDanger : chipNeutral}>{nos.n} · {fmtRM(nos.cents)}</span></li>}
-            </ul>
-          )}
-        </div>
-        <div className={card}>
-          <p className={css.groupLabel}>{L("Controls", "Kawalan")}</p>
-          <ul className={css.controls}>
-            <li><strong>{L("Unpaid or part paid:", "Belum atau sebahagian dibayar:")}</strong>{L("estimate only, never payroll", "anggaran sahaja, tidak masuk gaji")}</li>
-            <li><strong>{L("CCO:", "CCO:")}</strong>{L("reviews and monitors; cannot confirm Paid", "menyemak dan memantau; tidak boleh mengesahkan Dibayar")}</li>
-            <li><strong>{L("Weekly target missed:", "Sasaran mingguan tidak dicapai:")}</strong>{L("does not touch earned commission", "tidak menjejaskan komisen yang diperoleh")}</li>
-            <li><strong>{L("Refund or duplicate:", "Bayaran balik atau pendua:")}</strong>{L("a reversal for review; one entitlement per event", "pembalikan untuk semakan; satu hak bagi setiap peristiwa")}</li>
-            <li><strong>{L("Payroll:", "Gaji:")}</strong>{d ? (d.sync ? L("switched on - eligible commission goes into the next open payroll", "dihidupkan - komisen layak masuk gaji terbuka seterusnya") : L("not yet switched on - entries are recorded, payroll ignores them", "belum dihidupkan - entri direkod, gaji tidak mengambilnya")) : "…"}</li>
-          </ul>
-        </div>
-      </TabZone>
-      {/* v1.227.0 - what must be true before commission is paid, as it
-          stands now (the reference's "Activation requirements") */}
-      <TabZone label={L("Before commission is paid", "Sebelum komisen dibayar")} hint={L("The five conditions, in the order a sale meets them, and where each stands today.", "Lima syarat, mengikut urutan jualan menempuhnya, dan kedudukan setiap satu hari ini.")}>
-        <div className={card}>
-          {!d || !x ? <SkelRows rows={5} /> : (
-            <ol className={css.checks} aria-label={L("Conditions", "Syarat")}>
-              {([
-                [L("A verified closer on every invoice", "Penutup disahkan pada setiap invois"), x.no_closer === 0, x.no_closer === 0 ? L("Every invoice names its closer", "Setiap invois menamakan penutupnya") : L(`${x.no_closer} invoice(s) without a closer`, `${x.no_closer} invois tanpa penutup`)],
-                [L("Payment confirmed by the CEO or COO", "Bayaran disahkan oleh CEO atau COO"), x.awaiting_confirmation === 0, x.awaiting_confirmation === 0 ? L("Nothing waiting", "Tiada yang menunggu") : L(`${x.awaiting_confirmation} paid invoice(s) waiting`, `${x.awaiting_confirmation} invois dibayar menunggu`)],
-                [L("An approved policy version", "Versi polisi diluluskan"), !!d.policy, d.policy ? `v${d.policy.version} · ${rateText(d.policy)} · ${L("from", "mulai")} ${dmy(d.policy.effective_from)}` : L("No version approved - nothing is calculated", "Tiada versi diluluskan - tiada apa dikira")],
-                [L("One entitlement per payment", "Satu hak bagi setiap bayaran"), true, L("Always enforced: one ledger row per confirmation", "Sentiasa dikuatkuasa: satu baris lejar bagi setiap pengesahan")],
-                [L("Payroll link", "Pautan gaji"), d.sync, d.sync ? L("On - eligible commission goes into the next open payroll", "Hidup - komisen layak masuk gaji terbuka seterusnya") : L("Off - recorded only until the CEO switches it on", "Mati - direkod sahaja sehingga CEO menghidupkannya")],
-              ] as [string, boolean, string][]).map(([t, okay, sub], i) => (
-                <li key={t}>
-                  <span className={css.checkNo}>{String(i + 1).padStart(2, "0")}</span>
-                  <span className={css.listMain}><strong>{t}</strong><span>{sub}</span></span>
-                  <span className={okay ? chipSuccess : chipWarn}>{okay ? L("Ready", "Sedia") : L("Not yet", "Belum")}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </TabZone>
-    </>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Policy                                                               */
 interface PkgRule { package_name: string; match_key: string; rule: "percent" | "fixed" | "none"; rate_bp: number | null; fixed_cents: number | null }
@@ -543,7 +323,7 @@ const keyOf = (x: string) => x.trim().replace(/\s+/g, " ").toLowerCase();
 const pkgRuleText = (r: Pick<PkgRule, "rule" | "rate_bp" | "fixed_cents">) => r.rule === "none" ? L("No commission", "Tiada komisen") : r.rule === "fixed" ? L(`${fmtRM(r.fixed_cents ?? 0)} per unit`, `${fmtRM(r.fixed_cents ?? 0)} seunit`) : `${((r.rate_bp ?? 0) / 100).toFixed(2)}%`;
 const pkgOn = (r: PkgRule | null, p: Policy, price: number) => r ? (r.rule === "none" ? 0 : r.rule === "fixed" ? (r.fixed_cents ?? 0) : Math.floor((price * (r.rate_bp ?? 0) + 5000) / 10000))
   : p.rate_kind === "fixed" ? (p.fixed_cents ?? 0) : Math.floor((price * (p.rate_bp ?? 0) + 5000) / 10000);
-interface PolicyResp { versions: PolicyP[]; log: { setting: string; value: string; reason: string; changed_at: string; changed_by_name: string | null }[]; in_force: PolicyP | null; sync: boolean; start: string; today: string; can_draft: boolean; can_approve: boolean; can_switch: boolean; pending_migration?: boolean }
+interface PolicyResp { versions: PolicyP[]; log: { setting: string; value: string; reason: string; changed_at: string; changed_by_name: string | null }[]; in_force: PolicyP | null; sync: boolean; start: string; today: string; can_draft: boolean; can_approve: boolean; can_switch: boolean; agent_partnership?: string; pending_migration?: boolean }
 interface PreviewResp { policy: Policy; rows: { invoice_id: number; doc_number: string; company: string | null; closer_name: string | null; package: string; paid_day: string; basis_cents: number; amount_cents: number; current_version: number | null; current_cents: number | null }[]; total_cents: number }
 /* v1.232.0 (audit C8) - a version's place in its life: drafted, approved
    for a later day, in force today, or superseded by a later version */
@@ -617,7 +397,6 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
   };
   const p = d?.in_force ?? null;
   const floor = d ? (d.today > d.start ? d.today : d.start) : mytToday();
-  const draft = d?.versions.find((v) => v.status === "draft") ?? null;
   const priceOf = (name: string) => sug?.from_invoices.find((x) => keyOf(x.name) === keyOf(name))?.last_price_cents ?? null;
   /* the example table: the version's package rules, or - with none - the
      lines most used on recent invoices, each at its real latest price */
@@ -625,21 +404,16 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
     ? (p.packages?.length ? p.packages.map((r) => ({ name: r.package_name, rule: r, price: priceOf(r.package_name) }))
       : (sug?.from_invoices ?? []).filter((x) => x.last_price_cents !== null).slice(0, 5).map((x) => ({ name: x.name, rule: null, price: x.last_price_cents })))
     : [];
+  /* v1.311.0 - one way to start a draft: the Versions button and the
+     Commission Structure's New Version (an approved version is never edited) */
+  const startDraft = () => { if (!d?.can_draft) return; setForm({ name: p ? `${p.name}` : L("A2Z Sales Commission", "Komisen Jualan A2Z"), from: floor, kind: p?.rate_kind ?? "percent", rate: p?.rate_bp ? String(p.rate_bp / 100) : "", fixed: p?.fixed_cents ? String(p.fixed_cents / 100) : "", basis: p?.basis ?? "net_of_tax_delivery", reason: "", packages: (p?.packages ?? []).map((x) => ({ name: x.package_name, pkgId: libId(x), rule: x.rule, value: x.rule === "percent" ? String((x.rate_bp ?? 0) / 100) : x.rule === "fixed" ? String((x.fixed_cents ?? 0) / 100) : "" })), agentOn: p?.agent_rate_bp != null, agentRate: p?.agent_rate_bp != null ? String(p.agent_rate_bp / 100) : "7", closerRate: p?.agent_closer_rate_bp != null ? String(p.agent_closer_rate_bp / 100) : "3" }); requestAnimationFrame(() => document.getElementById("commission-versions")?.scrollIntoView({ block: "start" })); };
   const pkgValid = (x: PkgForm) => (!x.pkgId && !x.name.trim()) || x.rule === "none" || (x.rule === "percent" ? Number(x.value) >= 0 && Number(x.value) <= 50 && x.value !== "" : Number(x.value) > 0);
   return (
     <>
       {toastNode}{confirmNode}{askNode}
       {loadErr ? <p role="alert" className={css.error}>{loadErr}</p> : null}
-      <TabZone label={L("Policy at a glance", "Polisi sepintas lalu")}>
-        {!d ? <KpiRow label={L("Policy at a glance", "Polisi sepintas lalu")}><SkelStat /><SkelStat /><SkelStat /><SkelStat /></KpiRow> : (
-          <KpiRow label={L("Policy at a glance", "Polisi sepintas lalu")}>
-            <KpiTile icon="balance" tone="navy" label={L("Default rate", "Kadar asas")} value={p ? rateText(p) : "—"} sub={p ? (p.packages?.length ? L(`${p.packages.length} package rule(s)`, `${p.packages.length} peraturan pakej`) : L("Every line, one rate", "Setiap baris, satu kadar")) : L("No version approved", "Tiada versi diluluskan")} />
-            <KpiTile icon="verify" tone="gold" label={L("Policy status", "Status polisi")} value={p ? L(`In force · v${p.version}`, `Berkuat kuasa · v${p.version}`) : draft ? L("Draft", "Draf") : L("None", "Tiada")} sub={p ? L(`From ${dmy(p.effective_from)}`, `Mulai ${dmy(p.effective_from)}`) : draft ? L("Waiting for the CEO's approval", "Menunggu kelulusan CEO") : L("Draft a version below", "Draf versi di bawah")} />
-            <KpiTile icon="paid" tone="blue" label={L("Invoice paid confirmed by", "Bayaran invois disahkan oleh")} value={L("CEO / COO", "CEO / COO")} sub={L("CCO reviews and monitors only", "CCO menyemak dan memantau sahaja")} />
-            <KpiTile icon="target" tone="green" label={L("Weekly sales targets", "Sasaran jualan mingguan")} value={L("Separate", "Berasingan")} sub={L("No effect on commission", "Tiada kesan pada komisen")} />
-          </KpiRow>
-        )}
-      </TabZone>
+      {/* v1.311.0 (ref 4) - the structure in force and the rules that hold it */}
+      {!d ? <SkelRows rows={4} /> : <PolicyHead5 inForce={p} canDraft={d.can_draft} hold={d.agent_partnership === "off"} onNewVersion={startDraft} />}
       <TabZone label={L("Policy in force", "Polisi berkuat kuasa")} cols={2}>
         <div className={card}>
           {!d ? <SkelRows rows={7} /> : !p ? (
@@ -654,7 +428,7 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
                 <div><dt>{L("Default rate", "Kadar asas")}</dt><dd>{rateText(p)}{p.rate_kind === "fixed" ? ` ${L("per invoice", "setiap invois")}` : ""}</dd></div>
                 <div><dt>{L("Calculation basis", "Asas pengiraan")}</dt><dd>{basisText(p.basis)}</dd></div>
                 <div><dt>{L("Package rules", "Peraturan pakej")}</dt><dd>{p.packages?.length ? L(`${p.packages.length} - see the table`, `${p.packages.length} - lihat jadual`) : L("None - every line earns the default rate", "Tiada - setiap baris memperoleh kadar asas")}</dd></div>
-                <div><dt>{L("Eligibility", "Kelayakan")}</dt><dd>{L("Invoice paid in full and confirmed by the CEO or COO", "Invois dibayar penuh dan disahkan CEO atau COO")}</dd></div>
+                <div><dt>{L("Eligibility", "Kelayakan")}</dt><dd>{L("Invoice paid in full and verified by the CEO (the owner)", "Invois dibayar penuh dan disahkan CEO (pemilik)")}</dd></div>
                 <div><dt>{L("Closer", "Penutup")}</dt><dd>{L("The salesperson the invoice names, locked at the first payment; corrected only by the CEO, with a reason", "Jurujual yang dinamakan invois, dikunci pada bayaran pertama; dibetulkan oleh CEO sahaja, dengan sebab")}</dd></div>
                 <div><dt>{L("Partial payment", "Bayaran sebahagian")}</dt><dd>{L("Estimate only - the whole invoice earns once it is paid in full", "Anggaran sahaja - keseluruhan invois memperoleh apabila dibayar penuh")}</dd></div>
                 <div><dt>{L("Products", "Produk")}</dt><dd>{L("Services earn the default rate; a product earns only if a package rule lists it", "Servis memperoleh kadar asas; produk memperoleh hanya jika peraturan pakej menyenaraikannya")}</dd></div>
@@ -672,8 +446,8 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
         <div className={card}>
           <div className={css.head}><h3>{L("Approval and audit", "Kelulusan dan audit")}</h3></div>
           <dl className={css.gov}>
-            <div><dt>{L("Drafts", "Draf")}</dt><dd>{L("The CEO, COO or super admin, with a reason", "CEO, COO atau super admin, dengan sebab")}</dd></div>
-            <div><dt>{L("Approval", "Kelulusan")}</dt><dd>{L("The CEO (or super admin) only", "CEO (atau super admin) sahaja")}</dd></div>
+            <div><dt>{L("Drafts", "Draf")}</dt><dd>{L("The CEO or COO, with a reason", "CEO atau COO, dengan sebab")}</dd></div>
+            <div><dt>{L("Approval", "Kelulusan")}</dt><dd>{L("The CEO only", "CEO sahaja")}</dd></div>
             <div><dt>{L("Effective date", "Tarikh berkuat kuasa")}</dt><dd>{L("Today or later - never back-dated", "Hari ini atau kemudian - tidak sekali-kali ke belakang")}</dd></div>
             <div><dt>{L("History", "Sejarah")}</dt><dd>{L("Every version is kept and never edited; an entitlement keeps the version it was earned under", "Setiap versi disimpan dan tidak diubah; hak kekal dengan versi semasa diperoleh")}</dd></div>
             <div><dt>{L("Fixed rules", "Peraturan tetap")}</dt><dd>{L("Eligibility, renewals, refunds, the cutoff, leavers and products are the approved rules, carried by every version; a different rule needs the owner's approval first", "Kelayakan, pembaharuan, bayaran balik, potongan, bekas staf dan produk ialah peraturan diluluskan, dibawa oleh setiap versi; peraturan lain memerlukan kelulusan pemilik dahulu")}</dd></div>
@@ -703,12 +477,13 @@ function PolicyView({ revision, onChanged }: { revision: number; onChanged: () =
         </TabZone>
       )}
 
+      <div id="commission-versions" />
       <TabZone label={L("Versions", "Versi")} hint={L("Drafts, approvals and rejections, newest first. A preview applies a version to the last 60 days of confirmed invoices and writes nothing.", "Draf, kelulusan dan penolakan, terbaru dahulu. Pratonton menggunakan versi pada 60 hari invois disahkan dan tidak menulis apa-apa.")}>
         <div className={card}>
           {!d ? <SkelRows rows={3} /> : (
             <div className={css.body}>
-              {d.can_draft && !form && <div className={css.formRow}><button type="button" className={btnSmPrimary} onClick={() => setForm({ name: p ? `${p.name}` : L("A2Z Sales Commission", "Komisen Jualan A2Z"), from: floor, kind: p?.rate_kind ?? "percent", rate: p?.rate_bp ? String(p.rate_bp / 100) : "", fixed: p?.fixed_cents ? String(p.fixed_cents / 100) : "", basis: p?.basis ?? "net_of_tax_delivery", reason: "", packages: (p?.packages ?? []).map((x) => ({ name: x.package_name, pkgId: libId(x), rule: x.rule, value: x.rule === "percent" ? String((x.rate_bp ?? 0) / 100) : x.rule === "fixed" ? String((x.fixed_cents ?? 0) / 100) : "" })), agentOn: p?.agent_rate_bp != null, agentRate: p?.agent_rate_bp != null ? String(p.agent_rate_bp / 100) : "7", closerRate: p?.agent_closer_rate_bp != null ? String(p.agent_closer_rate_bp / 100) : "3" })}><AppIcon name="add" />{L("Draft a new version", "Draf versi baharu")}</button></div>}
-              {form && (
+              {d.can_draft && !form && <div className={css.formRow}><button type="button" className={btnSmPrimary} onClick={() => startDraft()}><AppIcon name="add" />{L("Draft a new version", "Draf versi baharu")}</button></div>}
+                            {form && (
                 <fieldset className={css.form} disabled={busy}>
                   <p className={css.groupLabel}>{L("New version (draft)", "Versi baharu (draf)")}</p>
                   <div className={css.row}>
@@ -890,7 +665,18 @@ const ACTIONS: Record<string, [string, string]> = {
   "doc.closer_change": ["Closer changed before payment", "Penutup ditukar sebelum bayaran"],
   "commission.settle": ["Settled in the final settlement", "Diselesaikan dalam penyelesaian akhir"],
   "commission.paid_held": ["Bank run: commission held (not on the payslip)", "Pembayaran bank: komisen ditahan (tiada dalam slip gaji)"],
-  "invoice.paid_confirm": ["Payment confirmed", "Bayaran disahkan"], "invoice.paid_confirm_revoke": ["Confirmation taken back", "Pengesahan ditarik balik"],
+  "invoice.paid_confirm": ["Commission verified (paid confirmed)", "Komisen disahkan (dibayar disahkan)"], "invoice.paid_confirm_revoke": ["Confirmation taken back", "Pengesahan ditarik balik"],
+  /* v1.311.0 (ref 6) - payments, agent deals, payouts and payroll writes too */
+  "commission.agent_switch": ["Agent sales hold", "Tahanan jualan ejen"], "commission.attribution_partnership": ["Agent deal decided: partnership", "Urusan ejen diputuskan: perkongsian"],
+  "commission.attribution_direct": ["Agent deal decided: direct sale", "Urusan ejen diputuskan: jualan langsung"], "commission.attribution_none": ["Agent deal decided: no commission", "Urusan ejen diputuskan: tiada komisen"],
+  "commission.dispute": ["Attribution disputed", "Atribusi dipertikai"], "commission.dispute_clear": ["Dispute cleared", "Pertikaian diselesaikan"],
+  "commission.payout_authorise": ["Agent payout authorised", "Bayaran ejen dibenarkan"], "commission.payout_settle": ["Agent payout settled (Finance)", "Bayaran ejen diselesaikan (Kewangan)"],
+  "commission.payout_cancel": ["Agent payout cancelled", "Bayaran ejen dibatalkan"], "payment.reported": ["Payment reported", "Bayaran dilaporkan"],
+  "payment.clarify": ["Payment: question asked", "Bayaran: soalan ditanya"], "payment.answered": ["Payment: question answered", "Bayaran: soalan dijawab"],
+  "payment.proof": ["Payment proof attached", "Bukti bayaran dilampirkan"], "payment.rejected": ["Payment rejected", "Bayaran ditolak"],
+  "payment.reversed": ["Payment reversed", "Bayaran dibatalkan"], "payment.settings": ["Payment verification setting", "Tetapan pengesahan bayaran"],
+  "payroll.recompute": ["Payroll recomputed (sync)", "Gaji dikira semula (segerak)"], "payroll.paid": ["Payroll bank run recorded", "Pembayaran bank gaji direkod"],
+  "payroll.save": ["Payroll saved", "Gaji disimpan"], "payroll.pull_commission": ["Payroll pulled commission", "Gaji menarik komisen"],
 };
 function detailLine(raw: string | null): string {
   if (!raw) return "";
@@ -910,36 +696,92 @@ function detailLine(raw: string | null): string {
     return bits.join(" · ");
   } catch { return ""; }
 }
+type AuditEv = { id: number; action: string; detail: string | null; created_at: string; who: string | null; who_role: string | null; doc_number: string | null };
+type AuditResp = { events: AuditEv[]; page: number; pages: number; total: number; people: { id: number; name: string }[] };
+/* v1.311.0 (ref 6, F-13) - read only, filtered on the server: a group of
+   actions, a person, a Malaysian date range, pages of 50 */
 function AuditView({ revision }: { revision: number }) {
-  const [got, setGot] = useState<{ rev: number; d: { events: { id: number; action: string; detail: string | null; created_at: string; who: string | null }[] } | null; e: string } | null>(null);
+  const [action, setAction] = useState("");
+  const [who, setWho] = useState(0);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
+  const key = `/audit?action=${action}&user=${who}&from=${from}&to=${to}&page=${page}&r=${revision}`;
+  const [got, setGot] = useState<{ k: string; d: AuditResp | null; e: string } | null>(null);
   useEffect(() => {
     const c = new AbortController();
-    void api<{ events: { id: number; action: string; detail: string | null; created_at: string; who: string | null }[] }>(`/audit`, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setGot({ rev: revision, d: r.ok && r.data ? r.data : null, e: r.ok ? "" : message(r) }); });
+    void api<AuditResp>(key, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setGot({ k: key, d: r.ok && r.data ? r.data : null, e: r.ok ? "" : message(r) }); });
     return () => c.abort();
-  }, [revision]);
-  const d = got?.rev === revision ? got.d : null;
+  }, [key]);
+  const cur = got?.k === key ? got : null;
+  const d = cur?.d ?? null;
+  const set = (f: () => void) => { f(); setPage(1); };
+  const ROLE_W: Record<string, string> = { ceo: "CEO", coo: "COO", cco: "CCO", hr_admin: "HR", super_admin: "Super Admin", admin: "Admin", sales_marketing: "Sales" };
   return (
-    <TabZone label={L("Audit history", "Sejarah audit")} hint={L("Policy drafts and approvals, the payroll switch, payment confirmations, closer corrections and review decisions - who, when and why. Nothing here can be edited.", "Draf dan kelulusan polisi, suis gaji, pengesahan bayaran, pembetulan penutup dan keputusan semakan - siapa, bila dan mengapa. Tiada apa boleh diubah.")}>
-      <div className={card}>
-        {got?.e ? <p role="alert" className={css.error}>{got.e}</p> : !d ? <SkelRows rows={6} /> : d.events.length === 0 ? <p className={css.empty}>{L("Nothing recorded yet.", "Belum ada rekod.")}</p> : (
-          <ul className={css.list}>{d.events.map((x) => (
-            <li key={x.id}><span className={css.listMain}><strong>{ACTIONS[x.action] ? L(ACTIONS[x.action]![0], ACTIONS[x.action]![1]) : x.action} · {x.who ?? "—"}</strong><span>{dmyMYT(x.created_at)}{detailLine(x.detail) ? ` · ${detailLine(x.detail)}` : ""}</span></span></li>
-          ))}</ul>
-        )}
+    <section className={card} aria-label={L("Audit history", "Sejarah audit")} data-testid="commission-audit">
+      <div className={c5.auditFilters}>
+        <select className={selectClassSm} value={action} onChange={(e) => set(() => setAction(e.target.value))} aria-label={L("Action", "Tindakan")}>
+          <option value="">{L("All actions", "Semua tindakan")}</option>
+          <option value="payment">{L("Payments and verification", "Bayaran dan pengesahan")}</option>
+          <option value="policy">{L("Policy and switches", "Polisi dan suis")}</option>
+          <option value="deal">{L("Agent deals, reviews and closers", "Urusan ejen, semakan dan penutup")}</option>
+          <option value="payroll">{L("Payroll", "Gaji")}</option>
+          <option value="payout">{L("Agent payouts", "Bayaran ejen")}</option>
+        </select>
+        <select className={selectClassSm} value={who} onChange={(e) => set(() => setWho(Number(e.target.value)))} aria-label={L("User", "Pengguna")}>
+          <option value={0}>{L("All users", "Semua pengguna")}</option>
+          {(d?.people ?? []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        <input type="date" className={inputClassSm} value={from} max={to || undefined} onChange={(e) => set(() => setFrom(e.target.value))} aria-label={L("From", "Dari")} />
+        <input type="date" className={inputClassSm} value={to} min={from || undefined} onChange={(e) => set(() => setTo(e.target.value))} aria-label={L("To", "Hingga")} />
       </div>
-    </TabZone>
+      {cur?.e ? <p role="alert" className={css.error}>{cur.e}</p> : !d ? <SkelRows rows={6} /> : d.events.length === 0 ? <p className={css.empty}>{L("Nothing recorded for these filters.", "Tiada rekod untuk penapis ini.")}</p> : (
+        <>
+          <div className={c5.tWrap}>
+            <table className={c5.t}>
+              <thead><tr><th>{L("Date & Time", "Tarikh & Masa")}</th><th>{L("Action", "Tindakan")}</th><th>{L("Details", "Butiran")}</th><th>{L("By", "Oleh")}</th></tr></thead>
+              <tbody>{d.events.map((x) => (
+                <tr key={x.id}>
+                  <td className={c5.muted}>{dmyMYT(x.created_at)}</td>
+                  <td><strong>{ACTIONS[x.action] ? L(ACTIONS[x.action]![0], ACTIONS[x.action]![1]) : x.action}</strong></td>
+                  <td>{[x.doc_number, detailLine(x.detail)].filter(Boolean).join(" · ") || "—"}</td>
+                  <td>{x.who ?? "—"}{x.who_role && ROLE_W[x.who_role] ? ` (${ROLE_W[x.who_role]})` : ""}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {d.pages > 1 && (
+            <nav className={c5.pager} aria-label={L("Pages", "Halaman")}>
+              <button type="button" className={btnSm} disabled={d.page <= 1} onClick={() => setPage(d.page - 1)} aria-label={L("Previous page", "Halaman sebelum")}>‹</button>
+              {Array.from({ length: d.pages }, (_, i2) => i2 + 1).filter((n) => Math.abs(n - d.page) <= 2 || n === 1 || n === d.pages).map((n) => (
+                <button key={n} type="button" className={n === d.page ? btnSmPrimary : btnSm} aria-current={n === d.page ? "page" : undefined} onClick={() => setPage(n)}>{n}</button>
+              ))}
+              <button type="button" className={btnSm} disabled={d.page >= d.pages} onClick={() => setPage(d.page + 1)} aria-label={L("Next page", "Halaman seterusnya")}>›</button>
+            </nav>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
 /* ------------------------------------------------------------------ */
-export function CommissionPanel({ user }: { user: { id: number; role: string } }) {
+/* v1.311.0 - COMMISSION WORKSPACE 5.0 (the CEO, 15-11-2026, K-0 ... K-13):
+   six views in the address (Back/Forward), the phone's view switch with New
+   Deal beside it, the month and the company on the tab row; a person who
+   reads only their own commission has one view, My commission. Every
+   decision stays where it was (the entry drawer, Agent deals, payouts). */
+export function CommissionPanel({ user, go, startView, onCreateQuotation }: { user: { id: number; role: string }; go?: (t: string) => void; startView?: string; onCreateQuotation?: () => void }) {
   const all = VIEW_ALL.includes(user.role);
-  const [view, setView] = useState<View>(all ? "overview" : "transactions");
-  const [seen, setSeen] = useState<Record<View, boolean>>({ overview: all, transactions: !all, agents: false, policy: false, payroll: false, audit: false });
+  const [view, setView] = useState<View>(() => (all && isCommissionView(startView ?? null) ? startView as View : all ? "overview" : "transactions"));
   const [scope, setScope] = useState<WsScope>(all ? "all" : "mine");
+  const [month, setMonth] = useState(() => mytToday().slice(0, 7));
+  const [company, setCompany] = useState<Company>("");
   const [revision, setRevision] = useState(0);
   const reload = useCallback(() => setRevision((r) => r + 1), []);
-  const open = (v: View) => { setView(v); setSeen((x) => ({ ...x, [v]: true })); };
+  const [entry, setEntry] = useState<number | null>(null);
+  const [est, setEst] = useState<Estimate | null>(null);
+  const { show: toast, node: toastNode } = useSaveToast();
   const sKey = `${scope}|${revision}`;
   const [sum, setSum] = useState<{ k: string; d: Summary | null; e: string } | null>(null);
   useEffect(() => {
@@ -948,31 +790,76 @@ export function CommissionPanel({ user }: { user: { id: number; role: string } }
     return () => c.abort();
   }, [sKey]);
   const s = sum?.k === sKey ? sum.d : null;
-  const tabs = all
-    ? ([["overview", L("Overview", "Gambaran")], ["transactions", L("Transactions", "Transaksi")], ["agents", L("Agent deals", "Urusan Ejen")], ["policy", L("Policy Settings", "Tetapan Polisi")], ["payroll", L("Payroll Sync", "Penyegerakan Gaji")], ["audit", L("Audit History", "Sejarah Audit")]] as const)
-    : ([["transactions", L("My commission", "Komisen saya")]] as const);
-  const figures = (
-    <TabZone label={all && scope === "all" ? L("The team at a glance", "Pasukan sepintas lalu") : L("Mine at a glance", "Milik saya sepintas lalu")}>
-      {!s && !sum?.e ? <KpiRow label={L("Commission at a glance", "Ringkasan komisen")}><SkelStat /><SkelStat /><SkelStat /><SkelStat /></KpiRow> : <KpiRow label={L("Commission at a glance", "Ringkasan komisen")}>
-        <KpiTile icon="pending" tone="navy" busy={!s} label={L("Estimated", "Anggaran")} value={fmtRM(s?.estimated.cents ?? 0)} sub={s ? L(`${s.estimated.n} open invoice(s) - not earned yet`, `${s.estimated.n} invois terbuka - belum diperoleh`) : undefined} />
-        <KpiTile icon="verify" tone="gold" busy={!s} label={L("Eligible", "Layak")} value={fmtRM(s?.eligible.cents ?? 0)} sub={s ? (s.review.n ? L(`${s.eligible.n} entr(ies) · ${s.review.n} under review`, `${s.eligible.n} entri · ${s.review.n} dalam semakan`) : L(`${s.eligible.n} entr(ies) waiting for payroll`, `${s.eligible.n} entri menunggu gaji`)) : undefined} />
-        <KpiTile icon="money" tone="blue" busy={!s} label={L("Included in payroll", "Dalam gaji")} value={fmtRM(s?.included.cents ?? 0)} sub={s ? (s.sync ? L(`${s.included.n} entr(ies), bank run not yet done`, `${s.included.n} entri, pembayaran bank belum selesai`) : L("Payroll link not switched on yet", "Pautan gaji belum dihidupkan")) : undefined} />
-        <KpiTile icon="paid" tone="green" busy={!s} label={L("Commission paid", "Komisen dibayar")} value={fmtRM(s?.paid.cents ?? 0)} sub={s ? L(`${ym(s.month)} payroll · ${s.paid.n} entr(ies)`, `Gaji ${ym(s.month)} · ${s.paid.n} entri`) : undefined} />
-      </KpiRow>}
-    </TabZone>
+  const VIEW_TABS: readonly (readonly [View, string, string])[] = all
+    ? [["overview", L("Overview", "Gambaran"), L("Summary, performance and status", "Ringkasan, prestasi dan status")],
+      ["transactions", L("Transactions", "Transaksi"), L("Commission by invoice and status", "Komisen mengikut invois dan status")],
+      ["agents", L("Agent Deals", "Urusan Ejen"), L("Agents and referrals under a salesperson", "Ejen dan rujukan di bawah jurujual")],
+      ["policy", L("Policy Settings", "Tetapan Polisi"), L("Structure, rates and rules", "Struktur, kadar dan peraturan")],
+      ["payroll", L("Payroll Sync", "Penyegerakan Gaji"), L("Commission to Payroll; agents through Finance", "Komisen ke Gaji; ejen melalui Kewangan")],
+      ["audit", L("Audit History", "Sejarah Audit"), L("Every change, who and when", "Setiap perubahan, siapa dan bila")]]
+    : [["transactions", L("My commission", "Komisen saya"), L("Your commission by invoice", "Komisen anda mengikut invois")]];
+  /* a view this person does not have falls back to their first, never a blank page */
+  const shown: View = VIEW_TABS.some((t) => t[0] === view) ? view : VIEW_TABS[0]![0];
+  useTabViewAddress("Commission", shown, setView as (v: CommissionView) => void, isCommissionView);
+  const open = (v: View) => { setView(v); window.scrollTo({ top: 0 }); };
+  const mine = !all || scope === "mine";
+  const newDeal = () => (onCreateQuotation ? onCreateQuotation() : go?.("Sales"));
+  const months = monthsFrom(s?.start ?? "2026-11-01");
+  const toolbar = (
+    <span className={c5.asideRow}>
+      {all && (shown === "transactions" || shown === "overview") && <ScopeSwitch scope={scope} onChange={setScope} />}
+      <select className={selectClassSm} value={month} onChange={(e) => setMonth(e.target.value)} aria-label={L("Month", "Bulan")} data-testid="commission-month">
+        {(months.includes(month) ? months : [month, ...months]).map((m) => <option key={m} value={m}>{monthWord(m)}</option>)}
+      </select>
+      {all && shown !== "policy" && shown !== "audit" && (
+        <select className={selectClassSm} value={company} onChange={(e) => setCompany(e.target.value as Company)} aria-label={L("Company", "Syarikat")} data-testid="commission-company">
+          <option value="">{L("All companies", "Semua syarikat")}</option>
+          <option value="a2z">A2Z Creative Marketing</option>
+          <option value="azoo">AZ ONE Official</option>
+        </select>
+      )}
+      <button type="button" className={btnSm} title={L("Refresh", "Muat semula")} aria-label={L("Refresh commission", "Muat semula komisen")} onClick={reload}><AppIcon name="refresh" /></button>
+    </span>
   );
+  const onEstimate = (r: TxRow) => setEst({ invoice_id: r.invoice_id, doc_number: r.doc_number, company: r.company, closer_name: r.closer_name, user_id: null, invoice_total: r.sales_cents, payment_status: null,
+    received_cents: 0, stage: (r.stage as Estimate["stage"]) ?? "unpaid", package: "", created_at: r.invoice_date ?? "", estimate_cents: r.closer_cents ?? r.commission_cents, basis_cents: r.basis_cents, policy_version: null, issuer_code: r.issuer_code });
   return (
     <TabPage>
-      <LineTabs value={view} onChange={open} tabs={tabs} label={L("Commission", "Komisen")}
-        aside={<TabAside>{all && (view === "transactions" || view === "overview") && <ScopeSwitch scope={scope} onChange={setScope} />}<button type="button" className={btnSm} title={L("Refresh", "Muat semula")} aria-label={L("Refresh commission", "Muat semula komisen")} onClick={reload}><AppIcon name="refresh" /></button></TabAside>} />
+      {toastNode}
+      <EntryDrawer id={entry} onClose={() => setEntry(null)} onSaved={reload} />
+      <EstimateDrawer est={est} onClose={() => setEst(null)} />
+      <div className="erp-desktop-only">
+        <LineTabs value={shown} onChange={open} tabs={VIEW_TABS.map(([k, t]) => [k, t] as const)} label={L("Commission", "Komisen")} />
+        {/* v1.311.0 - the filters sit on their own row under the six tabs, so no tab is ever cut off at 1024-1440px */}
+        <div className={c5.deskBar} data-testid="commission-toolbar">{toolbar}{all && <button type="button" className={btnSmPrimary} onClick={newDeal}><AppIcon name="add" />{L("New Deal", "Urusan Baharu")}</button>}</div>
+      </div>
+      <div className="erp-phone-only">
+        <div className={c5.viewBar} data-testid="commission-view-bar">
+          <ViewSwitch value={shown} onChange={(k) => open(k)} label={L("Commission view", "Paparan komisen")} options={VIEW_TABS} />
+          {all && <button type="button" className={btnSmPrimary} onClick={newDeal}><AppIcon name="add" />{L("New Deal", "Urusan Baharu")}</button>}
+        </div>
+        <div className={c5.phoneFilters}>{toolbar}</div>
+      </div>
       {sum?.e && <p role="alert" className={css.error}>{sum.e}</p>}
-      {s && !s.policy && view !== "audit" && <p className={`${css.note} ${css.warnNote}`}>{L("No commission policy is approved yet - nothing is estimated or earned until the CEO approves one (Policy Settings).", "Tiada polisi komisen diluluskan lagi - tiada apa dianggar atau diperoleh sehingga CEO meluluskannya (Tetapan Polisi).")}</p>}
-      {all && <div className={css.body} hidden={view !== "overview"}>{seen.overview && <>{figures}<Flow revision={revision} /></>}</div>}
-      <div className={css.body} hidden={view !== "transactions"}>{seen.transactions && <>{figures}<Entries scope={all ? scope : "mine"} revision={revision} onChanged={reload} /></>}</div>
-      {all && <div className={css.body} hidden={view !== "agents"}>{seen.agents && <AgentDeals revision={revision} onChanged={reload} />}</div>}
-      {all && <div className={css.body} hidden={view !== "policy"}>{seen.policy && <PolicyView revision={revision} onChanged={reload} />}</div>}
-      {all && <div className={css.body} hidden={view !== "payroll"}>{seen.payroll && <PayrollView revision={revision} onChanged={reload} summary={s} />}</div>}
-      {all && <div className={css.body} hidden={view !== "audit"}>{seen.audit && <AuditView revision={revision} />}</div>}
+      {s && !s.policy && shown !== "audit" && <p className={`${css.note} ${css.warnNote}`}>{L("No commission policy is approved yet - nothing is estimated or earned until the CEO approves one (Policy Settings).", "Tiada polisi komisen diluluskan lagi - tiada apa dianggar atau diperoleh sehingga CEO meluluskannya (Tetapan Polisi).")}</p>}
+      {all && <div className={css.body} hidden={shown !== "overview"}>
+        <Overview5 month={month} company={company} mine={mine} rev={revision} open={open} onEntry={setEntry} goSales={() => go?.("Sales")} />
+      </div>}
+      <div className={css.body} hidden={shown !== "transactions"}>
+        {!all && <Overview5 month={month} company="" mine rev={revision} open={open} onEntry={setEntry} goSales={() => go?.("Sales")} />}
+        <Transactions5 month={month} company={company} mine={mine} rev={revision} onEntry={setEntry} onEstimate={onEstimate} />
+      </div>
+      {all && <div className={css.body} hidden={shown !== "agents"}>{shown === "agents" && <>
+        <AgentsHead5 month={month} company={company} rev={revision} onAddAgent={() => go?.("Agents")} />
+        <AgentDeals revision={revision} onChanged={reload} part="deals" />
+      </>}</div>}
+      {all && <div className={css.body} hidden={shown !== "policy"}>{shown === "policy" && <PolicyView revision={revision} onChanged={reload} />}</div>}
+      {all && <div className={css.body} hidden={shown !== "payroll"}>{shown === "payroll" && <>
+        <PayrollSync5 month={month} rev={revision} onChanged={reload} toast={toast} />
+        <AgentDeals revision={revision} onChanged={reload} part="payouts" />
+        {sum ? <PayrollView revision={revision} onChanged={reload} summary={s} /> : <SkelRows rows={4} />}{/* the payroll link waits on the panel's own summary */}
+      </>}</div>}
+      {all && <div className={css.body} hidden={shown !== "audit"}>{shown === "audit" && <AuditView revision={revision} />}</div>}
     </TabPage>
   );
 }

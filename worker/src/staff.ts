@@ -11407,7 +11407,7 @@ async function handleStaffRoutes(
         }
       }
     } catch { /* pre-0145 */ }
-    return json({ docs: results, can_confirm_paid: can(user.role, "confirm_paid"), can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
+    return json({ docs: results, can_confirm_paid: can(user.role, "confirm_paid") && user.is_owner === true, can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
   }
   /* v1.41.0 (CEO: "a list of the product with the prices auto filled and if
      there is any discount staff will insert the discount amount. SKU need to
@@ -12602,9 +12602,10 @@ async function handleStaffRoutes(
      It never changes the invoice. */
   const confirmPaid = path.match(/^\/docs\/(\d+)\/confirm-paid$/);
   if (confirmPaid && method === "POST") {
-    if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO confirms that an invoice is paid", 403);
-    /* v1.272.0 - with payment verification on, the CEO alone (P1) */
-    if (!(can(user.role, "payment_verify") && user.is_owner === true) && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO confirms that an invoice is paid.", 403);
+    /* v1.311.0 (Commission 5.0, K-3, the CEO 15-11-2026) - THE CEO OWNER ALONE
+       confirms that an invoice is paid, whether or not payment verification
+       is switched on: a confirmation is what makes commission payable */
+    if (!(can(user.role, "confirm_paid") && user.is_owner === true)) return err("forbidden", "Only the CEO (the company owner) confirms that an invoice is paid.", 403);
     const invId = Number(confirmPaid[1]);
     const inv = await env.DB.prepare(
       `SELECT id, doc_number, doc_type, total_cents, payment_status, payment_ref, paid_at, salesperson_id FROM sales_documents WHERE id = ?1`,
@@ -12645,9 +12646,8 @@ async function handleStaffRoutes(
   }
   const confirmRevoke = path.match(/^\/docs\/(\d+)\/confirm-paid\/revoke$/);
   if (confirmRevoke && method === "POST") {
-    if (!can(user.role, "confirm_paid")) return err("forbidden", "Only the CEO or COO takes back a paid confirmation", 403);
-    /* v1.272.0 - with payment verification on, the CEO alone (P1) */
-    if (!(can(user.role, "payment_verify") && user.is_owner === true) && await paymentVerificationOn(env)) return err("forbidden", "Payments are verified by the CEO now - only the CEO takes back a paid confirmation.", 403);
+    /* v1.311.0 (K-3) - the CEO owner alone, as for the confirmation */
+    if (!(can(user.role, "confirm_paid") && user.is_owner === true)) return err("forbidden", "Only the CEO (the company owner) takes back a paid confirmation.", 403);
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
     let n = 0;

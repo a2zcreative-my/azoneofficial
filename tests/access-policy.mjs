@@ -64,7 +64,7 @@ async function runtime(staffBundle) {
     const pol = await call("/access/policy", ID.cco);
     ok(pol.status === 200 && pol.j.roles.join() === ROLES.join(), "the CCO reads the policy (read-only)", JSON.stringify(pol.j?.roles));
     const act = (k) => pol.j?.actions.find((a) => a.key === k)?.roles ?? null;
-    ok(act("confirm_paid")?.join() === "ceo,coo", "Confirm Paid: CEO and COO only", String(act("confirm_paid")));
+    ok(act("confirm_paid")?.join() === "ceo", "Confirm Paid: the CEO only (v1.311.0, Commission 5.0 K-3 - and the route requires the verified owner)", String(act("confirm_paid")));
     ok(act("mark_paid")?.join() === "ceo,coo,super_admin", "Mark paid: CEO, COO, super admin (Admin removed)", String(act("mark_paid")));
     ok(act("payroll_release")?.join() === "ceo,coo,super_admin" && act("bank_run")?.join() === "ceo,coo,super_admin", "Release payslips and the bank run: CEO, COO, super admin", `${act("payroll_release")} / ${act("bank_run")}`);
     ok(act("credit_refund")?.includes("admin"), "credit notes and refunds keep the Admin account (unchanged)");

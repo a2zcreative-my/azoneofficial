@@ -119,7 +119,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   elfia_publish: ["super_admin", "ceo", "coo"],
   reconcile_manage: ["super_admin", "admin", "ceo", "coo", "sales_marketing"],
   commission_view: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
-  commission_decide: ["super_admin", "ceo"],
+  commission_decide: ["ceo"], // v1.311.0 (K-4)
   adsfund_manage: ["super_admin", "admin", "ceo", "coo"],
   adsfund_claim: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing"],
   purchasing_manage: ["super_admin", "admin", "ceo", "coo"],
@@ -271,7 +271,7 @@ export const PERMS: Record<string, readonly Role[]> = {
      with EXACTLY the roles they had, so nothing changes until the owner or
      the super admin edits a cell. */
   /** confirm that a paid invoice's money arrived (never on your own sale - a rule in the route) */
-  confirm_paid: ["ceo", "coo"],
+  confirm_paid: ["ceo"], // v1.311.0 (Commission 5.0, K-3, the CEO 15-11-2026) - the CEO owner alone verifies; the route also requires is_owner
   /* === v1.272.0 - SALES PAYMENT VERIFICATION (the CEO, 10-11-2026,
      claude/PAYMENT-VERIFICATION-AUDIT.md P1-P3, all as recommended). Live only
      while the owner's switch (business_settings.payment_verification) is on.
@@ -319,11 +319,14 @@ export const PERMS: Record<string, readonly Role[]> = {
   /** see everyone's commission (was commission.ts VIEW_ALL) */
   commission_view_all: ["super_admin", "admin", "ceo", "coo", "cco"],
   /** draft a commission policy (was DRAFT_ROLES) */
-  commission_draft: ["super_admin", "ceo", "coo"],
+  commission_draft: ["ceo", "coo"], // v1.311.0 (K-4) - the Super Admin reads, never shapes money
   /** approve a commission policy (was APPROVE_ROLES) */
-  commission_approve: ["super_admin", "ceo"],
+  commission_approve: ["ceo"], // v1.311.0 (K-4)
   /** decide reviews, settle leavers, the payroll switch (was DECIDE_ROLES) */
-  commission_settle: ["super_admin", "ceo"],
+  commission_settle: ["ceo"], // v1.311.0 (K-4)
+  /** v1.311.0 (Commission 5.0, K-5) - confirm an agent payout was paid by the
+      bank (Finance): the COO, never the person who authorised it (dual control) */
+  agent_payout_settle: ["coo"],
   /** set the office geofence (was GEOFENCE_ADMIN_ROLES) */
   geofence_admin: ["super_admin", "ceo", "coo"],
   attendance_location_raw: ["ceo"], // v1.307.0 - Attendance 4.0 (A-8, the CEO 14-11-2026): raw punch coordinates; everyone else reads the outcome word and the distance
@@ -549,6 +552,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Commission", key: "commission_draft", en: "Draft a commission policy", ms: "Draf polisi komisen", cap: "commission_draft" },
   { module: "Commission", key: "commission_approve", en: "Approve a commission policy", ms: "Luluskan polisi komisen", cap: "commission_approve" },
   { module: "Commission", key: "commission_decide", en: "Decide reviews, settle leavers, payroll switch", ms: "Putuskan semakan, selesaikan bekas staf, suis gaji", cap: "commission_settle" },
+  { module: "Commission", key: "agent_payout_settle", en: "Settle an agent payout (bank reference, in Finance)", ms: "Selesaikan bayaran ejen (rujukan bank, dalam Kewangan)", cap: "agent_payout_settle", note_en: "Never the person who authorised it", note_ms: "Bukan orang yang membenarkannya" },
   { module: "Commission", key: "commission_closer", en: "Correct the closer of a sale", ms: "Betulkan penutup jualan", cap: "commission_decide" },
   { module: "Claims", key: "claims_submit", en: "Submit claims", ms: "Hantar tuntutan", cap: "claims_submit" },
   { module: "Claims", key: "claims_decide", en: "Approve claims", ms: "Luluskan tuntutan", cap: "claims_decide" },

@@ -301,7 +301,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0195_asset_care";
+const LATEST_MIGRATION = "0196_commission_guards";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5671,6 +5671,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0193 (assets 4.0: the owning company and the shared-use team or place of an asset)", `SELECT p.asset_id, p.issuer_code, p.shared_label FROM asset_profile p LIMIT 0`],
       ["0194 (assets 4.0: custody - assign, acknowledge, transfer, return, cancel, manager requests)", `SELECT c.asset_id, c.kind, c.from_holder, c.to_holder, c.condition, c.request_id FROM asset_custody c LIMIT 0`],
       ["0195 (assets 4.0: maintenance and disposal - issues, repairs, lost incidents, disposals)", `SELECT i.asset_id, i.kind, r.outcome, r.expense_id, n.last_seen_place, d.method, d.proceeds_cents FROM asset_issues i, asset_repairs r, asset_incidents n, asset_disposals d LIMIT 0`],
+      /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
+      ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0182 (deposit billing: one live invoice per PRODUCT quotation; a service quotation billed in parts)", `SELECT id FROM sales_documents INDEXED BY ux_inv_live_per_product_qt WHERE converted_from = 0 AND doc_type = 'INV' AND voided_at IS NULL AND COALESCE(kind, 'product') != 'service' LIMIT 0`],
       ["0181 (payment reports and their timeline: the CEO verifies every payment)", `SELECT r.id, r.state, r.payment_id, e.event_key FROM invoice_payment_reports r LEFT JOIN invoice_payment_events e ON e.report_id = r.id LIMIT 0`],
       ["0148 (accounting 2.0: a journal reference is posted once)", `SELECT id FROM journal_entries INDEXED BY idx_journal_ref WHERE ref = '' LIMIT 1`],
@@ -5679,7 +5681,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     for (const [label, probe] of probes) {
       try { await env.DB.prepare(probe).first(); } catch (e) {
         const msg = String(e);
-        if (msg.includes("no such column") || msg.includes("no such table") || msg.includes("no such index")) migrations_pending.push(label);
+        if (msg.includes("no such column") || msg.includes("no such table") || msg.includes("no such index") || msg.includes("no such trigger")) migrations_pending.push(label);
       }
     }
     /* v1.4.282 (auditor pick 1: "migration health page — show which
@@ -5887,6 +5889,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0193_asset_profile",
       "0194_asset_custody",
       "0195_asset_care",
+      "0196_commission_guards",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

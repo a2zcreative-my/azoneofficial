@@ -63,9 +63,10 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
 /* ---- 2. the confirmation ---- */
 {
   /* v1.227.0 - the owner, 30-10-2026: "Only CEO or COO may confirm an invoice as Paid" */
-  ok("the CEO and COO confirm by default - nobody else (not even the super admin)", /confirm_paid: \["ceo", "coo"\],/.test(readFileSync(join(root, "worker/src/permissions.ts"), "utf8"))); // v1.237.0 - PERMS.confirm_paid, editable by the owner
+  /* v1.311.0 (Commission 5.0, K-3, approved 15-11-2026) - the CEO owner alone confirms Paid; the COO no longer does */
+  ok("the CEO confirms by default - nobody else (not the COO, not the super admin)", /confirm_paid: \["ceo"\],/.test(readFileSync(join(root, "worker/src/permissions.ts"), "utf8"))); // v1.237.0 - PERMS.confirm_paid, editable by the owner
   const c = between(staffCode, "const confirmPaid = path.match(", "const confirmRevoke = path.match(");
-  ok("the route is gated on those roles", /if \(!can\(user\.role, "confirm_paid"\)\) return err\("forbidden"/.test(c));
+  ok("the route is gated on that role AND the verified owner", /if \(!\(can\(user\.role, "confirm_paid"\) && user\.is_owner === true\)\) return err\("forbidden"/.test(c));
   /* v1.216.2 - the owner: "CEO can self-confirm"; the COO and super admin still cannot */
   ok("only the CEO confirms their own sale", /const SELF_CONFIRM_ROLES = \["ceo"\];/.test(staffCode)
      && /const selfConfirm = inv\.salesperson_id === user\.id;\s*if \(selfConfirm && !SELF_CONFIRM_ROLES\.includes\(user\.role\)\) return err\("forbidden"/.test(c));
@@ -79,7 +80,7 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
   ok("audited", /await audit\(env, user\.id, "invoice\.paid_confirm", "sales_documents"/.test(c));
   const r = between(staffCode, "const confirmRevoke = path.match(", "/* ---- notifications ---- */");
   ok("taking it back: the same roles, a reason, a stamp, audited",
-     /if \(!can\(user\.role, "confirm_paid"\)\) return err\("forbidden"/.test(r) && /if \(reason\.length < 10\) return err\("invalid_input"/.test(r)
+     /if \(!\(can\(user\.role, "confirm_paid"\) && user\.is_owner === true\)\) return err\("forbidden"/.test(r) && /if \(reason\.length < 10\) return err\("invalid_input"/.test(r)
      && /UPDATE invoice_paid_confirmations SET revoked_at = datetime\('now'\), revoked_by = \?2, revoke_reason = \?3/.test(r)
      && /"invoice\.paid_confirm_revoke"[\s\S]{0,80}automatic: false/.test(r));
 }

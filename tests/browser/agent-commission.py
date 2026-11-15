@@ -38,6 +38,11 @@ def sub(pg, name):
     if t.count(): t.first.click(); pg.wait_for_timeout(1200); return True
     return False
 
+def view(pg, port, v):
+    """v1.311.0 - Commission 5.0: each view has its own address (the phone has a view switch, not tabs)"""
+    pg.goto(f"http://127.0.0.1:{port}/portal?tab=Commission&view={v}"); pg.wait_for_timeout(2500)
+    return pg.get_by_test_id({"agents": "agent-deals-head", "payroll": "payroll-sync", "policy": "policy-structure"}[v]).filter(visible=True).count() > 0
+
 FITS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
 
 with sync_playwright() as p:
@@ -67,8 +72,8 @@ with sync_playwright() as p:
     # ---- the CEO: Agent deals ----
     for w in (1440, 390):
         ctx, pg, errs = page(b, 4177, w=w, h=900)
-        tab(pg, "Commission")
-        check(f"{w}px: management has an Agent deals view in Commission", sub(pg, "Agent deals"))
+        # v1.311.0 (Commission 5.0) - the queue and disputes in Agent Deals; payouts in Payroll Sync (agents settled through Finance)
+        check(f"{w}px: management has an Agent Deals view in Commission", view(pg, 4177, "agents"))
         q = pg.get_by_test_id("attribution-queue")
         qt = q.inner_text() if q.count() else ""
         check(f"{w}px: the held sale shows with its reasons and evidence", "INV-A2Z031126-9" in qt and "The agent request is not Won" in qt and "No client acceptance on the published revision" in qt and "AGR-0012" in qt, qt[:300])
@@ -76,41 +81,50 @@ with sync_playwright() as p:
         pg.get_by_label("Decision for INV-A2Z031126-9").select_option("partnership"); pg.wait_for_timeout(300)
         check(f"{w}px: a partnership is decided on a version with agent rates (7% + 3%)", "v2 · agent 7% + closer 3%" in pg.get_by_label("Policy version").inner_text())
         check(f"{w}px: a payment before v2 started asks to confirm a retrospective allocation", pg.get_by_text("I confirm this retrospective allocation", exact=False).count() == 1)
+        check(f"{w}px: an open dispute is listed and can be cleared", "Syarikat Dipertikai" in pg.locator("body").inner_text() and pg.get_by_role("button", name="Clear", exact=True).count() >= 1)
+        check(f"{w}px: nothing wider than the screen (Agent Deals)", pg.evaluate(FITS))
+        check(f"{w}px: Payroll Sync holds the agent settlements", view(pg, 4177, "payroll"))
         po = pg.get_by_test_id("payout-7")
-        check(f"{w}px: dual control - the authoriser is told another approver confirms the settlement", po.count() == 1 and "Dual control" in po.inner_text() and po.get_by_role("button", name="Confirm settlement").count() == 0)
+        check(f"{w}px: dual control - the CEO is told Finance (the COO) confirms the settlement, and cannot himself (K-5)", po.count() == 1 and "Finance (the COO)" in po.inner_text() and po.get_by_role("button", name="Confirm settlement").count() == 0, po.inner_text() if po.count() else "no payout-7")
         check(f"{w}px: an agent's eligible total can be authorised", pg.get_by_role("button", name="Authorise payout").count() == 1)
         check(f"{w}px: the payout history shows the bank reference", "MBB-77821" in pg.locator("body").inner_text())
-        check(f"{w}px: an open dispute is listed and can be cleared", "Syarikat Dipertikai" in pg.locator("body").inner_text() and pg.get_by_role("button", name="Clear", exact=True).count() >= 1)
         check(f"{w}px: nothing wider than the screen", pg.evaluate(FITS))
         check(f"{w}px: no script errors", not errs, errs)
         ctx.close()
 
-    # ---- the super admin settles a payout the CEO authorised ----
-    ctx, pg, errs = page(b, 4183)
-    tab(pg, "Commission"); sub(pg, "Agent deals")
+    # ---- Finance (the COO) settles a payout the CEO authorised (v1.311.0, K-5; the Super Admin no longer does, K-4) ----
+    ctx, pg, errs = page(b, 4179)
+    view(pg, 4179, "payroll")
     po = pg.get_by_test_id("payout-7")
     btn = po.get_by_role("button", name="Confirm settlement")
     check("a second approver sees Confirm settlement, off until the bank reference is entered", btn.count() == 1 and btn.is_disabled())
     po.get_by_label("Bank reference").fill("MBB-12345")
     check("...and on once it is", btn.is_enabled())
     ctx.close()
+    ctx, pg, errs = page(b, 4183)
+    view(pg, 4183, "payroll")
+    po = pg.get_by_test_id("payout-7")
+    check("the Super Admin no longer settles (K-4)", po.count() == 1 and po.get_by_role("button", name="Confirm settlement").count() == 0)
+    ctx.close()
 
     # ---- the CCO reads only ----
     ctx, pg, errs = page(b, 4185)
-    tab(pg, "Commission"); sub(pg, "Agent deals")
+    view(pg, 4185, "agents")
+    q = "INV-A2Z031126-9" in pg.locator("body").inner_text() and pg.get_by_role("button", name="Record decision").count() == 0
+    view(pg, 4185, "payroll")
     check("the CCO reads the queue but cannot decide, authorise or settle",
-          "INV-A2Z031126-9" in pg.locator("body").inner_text() and pg.get_by_role("button", name="Record decision").count() == 0 and pg.get_by_role("button", name="Authorise payout").count() == 0 and pg.get_by_role("button", name="Confirm settlement").count() == 0)
+          q and pg.get_by_role("button", name="Authorise payout").count() == 0 and pg.get_by_role("button", name="Confirm settlement").count() == 0)
     ctx.close()
 
     # ---- a salesperson: no Agent deals ----
     ctx, pg, errs = page(b, 4182)
     tab(pg, "Commission")
-    check("a salesperson has no Agent deals view", pg.get_by_role("tab", name="Agent deals", exact=True).count() == 0)
+    check("a salesperson has no Agent Deals view", pg.get_by_role("tab", name="Agent Deals", exact=True).count() == 0 and pg.get_by_role("tab", name="Agent deals", exact=True).count() == 0)
     ctx.close()
 
     # ---- the policy's agent rates, the standing assignment ----
     ctx, pg, errs = page(b, 4177)
-    tab(pg, "Commission"); sub(pg, "Policy Settings")
+    view(pg, 4177, "policy")
     d = pg.get_by_role("button", name="Draft a new version")
     if d.count():
         d.first.click(); pg.wait_for_timeout(500)

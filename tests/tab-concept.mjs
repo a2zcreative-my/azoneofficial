@@ -121,7 +121,7 @@ const BODY = {
   "Payroll": ["components/portal/payroll-panel.tsx#PayrollPanel"],
   "Finance": ["components/portal/finance-panels.tsx", "components/portal/role-panels.tsx#ExpensesPanel"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
-  "Commission": ["components/portal/commission-panel.tsx#CommissionPanel"], // v1.224.0 - back, over the new engine (the owner, 29-10-2026)
+  "Commission": ["components/portal/commission-panel.tsx", "components/portal/commission5.tsx"], // v1.224.0 - back, over the new engine (the owner, 29-10-2026); v1.311.0 - the six views of 5.0 live in the panel's view components and commission5.tsx
   "Companies": ["components/portal/companies-panel.tsx#CompaniesPanel", "components/portal/companies-panel.tsx#CompaniesReview"], // v1.251.0 - the review, or Document & Signing alone
   "Cards": ["components/portal/cards-panel.tsx#CardsPanel"],
   "Profile": ["components/portal/profile.tsx"], // v1.220.0 - Profile 2.0: the page is its own tabbed panel

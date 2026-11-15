@@ -290,7 +290,9 @@ async function runtime(workerBundle) {
     L = live(105);
     ok(okE.status === 200 && L.length === 2 && L.find((r) => r.recipient_role === "agent")?.amount_cents === 7000 && L.find((r) => r.recipient_role === "closer")?.amount_cents === 3000 && attr(105).decision === "partnership" && attr(105).decided_by === U.ceo,
       "decision 'partnership': 7% + 3% written, the decision recorded with who and why", fmt(L));
-    ok((await call(`/commission/attributions/${aE}/decide`, U.sa, "POST", { decision: "direct", note: R })).status === 409, "a decision is made once");
+    /* v1.311.0 (Commission 5.0, K-4, approved 15-11-2026) - the Super Admin no longer decides; the CEO's second try is refused as before */
+    ok((await call(`/commission/attributions/${aE}/decide`, U.sa, "POST", { decision: "direct", note: R })).status === 403, "K-4: the Super Admin no longer decides an attribution");
+    ok((await call(`/commission/attributions/${aE}/decide`, U.ceo, "POST", { decision: "direct", note: R })).status === 409, "a decision is made once");
     await call(`/commission/attributions/${aD}/decide`, U.ceo, "POST", { decision: "direct", note: R });
     ok(live(104).length === 1 && live(104)[0].amount_cents === 10000 && live(104)[0].status === "eligible" && attr(104).decision === "direct", "decision 'direct' (referral rejected): Aina's 10%, citing the decision", fmt(live(104)));
     await call(`/commission/attributions/${aD2}/decide`, U.ceo, "POST", { decision: "none", note: R });
@@ -341,18 +343,25 @@ async function runtime(workerBundle) {
     ok(au.status === 201 && au.j.amount_cents === 21000 && n(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE ref = 'AGT-${au.j.id}'`) === 0
       && n(`SELECT COUNT(*) AS n FROM commission_ledger WHERE payout_id = ${au.j.id} AND status = 'included'`) === 3, "L the CEO authorises RM 210.00 - the rows are in the batch, NO cash is booked yet", au.text.slice(0, 160));
     ok((await call(`/commission/payouts`, U.ceo, "POST", { agent_id: U.ros })).status === 409, "L the same rows cannot join a second batch");
+    /* v1.311.0 (K-5) - Finance (the COO) confirms the settlement; the CEO authorises. Dual control
+       still holds when a grant in Roles & Permissions lets the authoriser settle too. */
     const self = await call(`/commission/payouts/${au.j.id}/settle`, U.ceo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" });
-    ok(self.status === 403 && self.j?.error?.code === "dual_control", "L dual control: the authoriser cannot confirm the settlement");
-    ok((await call(`/commission/payouts/${au.j.id}/settle`, U.sa, "POST", { settled_on: "2026-11-03" })).status === 400 && (await call(`/commission/payouts/${au.j.id}/settle`, U.sa, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-04" })).status === 400,
+    ok(self.status === 403, "L K-5: the CEO (the authoriser) does not confirm the settlement");
+    ok((await call(`/commission/payouts/${au.j.id}/settle`, U.sa, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" })).status === 403, "L K-4: nor the Super Admin");
+    db.exec(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', '{"perms":{"agent_payout_settle":["coo","ceo"]}}')`);
+    const self2 = await call(`/commission/payouts/${au.j.id}/settle`, U.ceo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" });
+    ok(self2.status === 403 && self2.j?.error?.code === "dual_control", "L dual control: even given the right, the authoriser cannot confirm the settlement", self2.text.slice(0, 160));
+    db.exec(`DELETE FROM system_meta WHERE key = 'role_permissions'`);
+    ok((await call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { settled_on: "2026-11-03" })).status === 400 && (await call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-04" })).status === 400,
       "L a settlement needs the bank reference and a date no later than today");
     race("FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id WHERE o.id = ?1");
-    const both = await Promise.all([call(`/commission/payouts/${au.j.id}/settle`, U.sa, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" }), call(`/commission/payouts/${au.j.id}/settle`, U.sa, "POST", { bank_ref: "MBB-99999", settled_on: "2026-11-03" })]);
+    const both = await Promise.all([call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" }), call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-99999", settled_on: "2026-11-03" })]);
     barrier = null;
     const cash = db.prepare(`SELECT * FROM cashflow_entries WHERE ref = 'AGT-${au.j.id}'`).all();
     ok(both.map((r) => r.status).sort().join() === "200,409" && cash.length === 1 && cash[0].amount_cents === 21000 && cash[0].type === "out" && cash[0].effective_date === "2026-11-03" && cash[0].category === "agent_commission",
       "L two settlements pressed at once: ONE stands, ONE cash-book row (RM 210.00 out, the bank date, agent_commission)", fmt([both.map((r) => [r.status, r.text.slice(0, 80)]), cash]));
     ok(n(`SELECT COUNT(*) AS n FROM commission_ledger WHERE payout_id = ${au.j.id} AND status = 'paid'`) === 3 && db.prepare(`SELECT status, bank_ref, settled_by FROM agent_payouts WHERE id = ?`).get(au.j.id).bank_ref === "MBB-77821", "L the rows are paid only now, with the bank reference");
-    const retry = await call(`/commission/payouts/${au.j.id}/settle`, U.sa, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" });
+    const retry = await call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" });
     ok(retry.j?.already_settled === true && n(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE ref = 'AGT-${au.j.id}'`) === 1 && n(`SELECT COUNT(*) AS n FROM journal_entries WHERE ref = 'AGT-${au.j.id}'`) <= 1, "L a retry books nothing");
     ok((await call(`/commission/payouts/${au.j.id}/cancel`, U.ceo, "POST", { reason: "Changed my mind about it" })).status === 409, "L a settled payout is never cancelled");
     const rosL = await call(`/agent/commission`, U.ros);
@@ -362,10 +371,11 @@ async function runtime(workerBundle) {
     deal({ inv: 115, cust: 9 });
     await confirm(115);
     const au2 = await call(`/commission/payouts`, U.ceo, "POST", { agent_id: U.ros });
-    ok(au2.status === 201 && (await call(`/commission/payouts/${au2.j.id}/cancel`, U.sa, "POST", { reason: "Wrong bank account on file" })).status === 200
+    ok((await call(`/commission/payouts/${au2.j.id}/cancel`, U.coo, "POST", { reason: "Wrong bank account on file" })).status === 403, "L K-5: the COO settles, the CEO cancels");
+    ok(au2.status === 201 && (await call(`/commission/payouts/${au2.j.id}/cancel`, U.ceo, "POST", { reason: "Wrong bank account on file" })).status === 200
       && n(`SELECT COUNT(*) AS n FROM commission_ledger WHERE invoice_id = 115 AND recipient_role = 'agent' AND status = 'eligible' AND payout_id IS NULL`) === 1 && n(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE ref = 'AGT-${au2.j.id}'`) === 0,
       "L cancelling an authorised payout returns its rows to eligible; no cash was booked");
-    ok((await call(`/commission/payouts/${au2.j.id}/settle`, U.sa, "POST", { bank_ref: "MBB-1", settled_on: "2026-11-03" })).status === 409, "L a cancelled payout cannot be settled");
+    ok((await call(`/commission/payouts/${au2.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-1", settled_on: "2026-11-03" })).status === 409, "L a cancelled payout cannot be settled");
     /* the whole picture reconciles */
     const sumAll = n(`SELECT COALESCE(SUM(amount_cents), 0) AS n FROM commission_ledger WHERE kind = 'earn' AND status != 'void' AND invoice_id IN (102, 105, 112)`);
     ok(sumAll === 10000 + 10000 + 10001, "no double commission: each agent deal pays exactly its total once (agent + closer)", String(sumAll));

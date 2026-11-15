@@ -10,6 +10,26 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.311.0] - 2026-11-15 - Commission Workspace 5.0: six views, one engine, the CEO owner verifies - BUILT, NOT DEPLOYED (MIGRATION 0196, ADDITIVE)
+
+The CEO, 15-11-2026: "approve as per recommend" on claude/COMMISSION-WORKSPACE-5.0-BLUEPRINT.md (K-0 ... K-13), "and help to make the dashboard card much better width and aligned". **The 10% Direct Sales and 7% Agent + 3% salesperson rules are unchanged; no historical entitlement, payment or audit row is rewritten.**
+
+- **Six views, in the address** (`/portal?tab=Commission&view=overview|transactions|agents|policy|payroll|audit`, Back/Forward; the view switch and New Deal on a phone; the filters on their own row so no tab is cut off). A salesperson has one view, My commission.
+  - **Overview:** Confirmed Sales, Commission Payable, Pending, To Payroll; Commission by Role; Sales & Commission Performance (the target from Sales, K-11); Recent Commission; Needs Attention. New read route `GET /staff/commission/overview`.
+  - **Transactions:** one line per paid invoice (and the month's pending ones), filters by status, type, salesperson, company and search, pages of 25, CSV. `GET /commission/transactions`.
+  - **Agent Deals:** the rate in force, the agents with their salesperson, deals, sales and commission; the held-for-review queue; "Hold new agent sales" (K-1). Add Agent and New Deal open Agents and Sales (K-10). `GET /commission/agents`.
+  - **Policy Settings:** the structure in force and its rules; drafts and versions as before.
+  - **Payroll Sync:** select period, review, Sync to Payroll = Payroll's own recompute (K-6); employees only; agent settlements apart (Finance). `GET /commission/payroll-preview`.
+  - **Audit History:** filters by action group, person and dates; who with their role.
+- **K-3:** the CEO owner alone confirms an invoice paid and takes a confirmation back (`confirm_paid: ["ceo"]` and `is_owner`).
+- **K-4:** the Super Admin no longer approves a policy, decides an attribution or authorises a payout.
+- **K-5:** the CEO authorises an agent payout; Finance (the COO) settles it (`agent_payout_settle: ["coo"]`); the CEO cancels; dual control kept.
+- **K-7:** the CEO's own sale never earns (RM 0, void, with the note); the agent's 7% on it is untouched.
+- **F-2:** "eligible" counts the salespeople's money only; the agents' is shown apart.
+- **K-2 - migration 0196 (triggers only, additive):** an approved or rejected policy version is never changed, a draft keeps its terms, no version or package rule is deleted; an entitlement's money never changes, a paid or void row is final, no row is deleted.
+- **Dashboard:** the four figures fill their row at every desktop width, and Sales Performance and Needs My Decision sit under figures 1-2 and 3-4 at equal height.
+- **Tests:** new `tests/commission5.mjs` (85 checks by direct request, 14 mutations caught); browser `commission5.py` (55 checks); `commission-ledger`, `commission-flow`, `commission-config`, `go-live-n`, `payroll-commission`, `self-approval`, `tab-concept`, `attendance4`, `hr4`, `staff4` updated to the approved rules.
+
 ## [1.310.0] - 2026-11-15 - Claims Workspace 4.0: one claims engine, one approval flow, no self-approval - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 15-11-2026: "approve as recommended" on claude/CLAIMS-WORKSPACE-4.0-BLUEPRINT.md (C-0 ... C-13; P1 + P2 only - C-6 Reverse payment needs a migration and is P3, not in this release). **No migration, no new table, no tab-access change, no historical claim, payment or audit row rewritten.**

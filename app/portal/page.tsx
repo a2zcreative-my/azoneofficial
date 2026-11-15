@@ -125,7 +125,9 @@ export default function PortalPage() {
           {activeTab === "Accounting" && <AccountingPanel />}
           {/* v1.224.0 - Commission is back (the owner, 29-10-2026): Entries,
               Flow and Policy over commission.ts; a consultant sees their own */}
-          {activeTab === "Commission" && <CommissionPanel user={user} />}
+          {/* v1.311.0 - Commission 5.0: its view in the address, New Deal opens Sales' new quotation, Add Agent opens Agents */}
+          {activeTab === "Commission" && <CommissionPanel user={user} go={(t) => setTab(t as TabName)} startView={startOf("Commission")}
+            onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }} />}
           {activeTab === "Leave" && <Leave user={user} initialView={startOf("Leave")} focus={focusOf("Leave")} />}
           {activeTab === "Tasks" && (
             /* v1.173.0: the zones are the panel's own (tasks.tsx). */

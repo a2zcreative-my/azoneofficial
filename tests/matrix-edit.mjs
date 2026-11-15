@@ -135,10 +135,10 @@ async function runtime(workerBundle) {
     /* 6 rules that are not cells */
     await edit(ID.super_admin, { changes: [{ cap: "confirm_paid", roles: ["ceo", "coo", "sales_marketing"] }] });
     const own = await call("/staff/docs/200/confirm-paid", ID.sales_marketing, "POST", { amount_cents: 10000, checked: true });
-    ok(own.status === 403 && /own sale/.test(own.j?.error?.message ?? ""), "6 given Confirm Paid, a salesperson still never confirms their own sale", `${own.status} ${JSON.stringify(own.j)}`);
+    ok(own.status === 403 && /own sale|company owner/.test(own.j?.error?.message ?? ""), "6 given Confirm Paid, a salesperson still never confirms their own sale (v1.311.0 K-3: the CEO owner alone confirms, so the owner rule refuses first)", `${own.status} ${JSON.stringify(own.j)}`);
     ok(lastAudit("permissions.change")?.by_owner === false && lastAudit("permissions.change").to === "ceo coo sales_marketing", "7 the super admin's edit is audited as the super admin's");
     /* 7 history, reset */
-    ok(auditN("permissions.change") === 4 && lastAudit("permissions.change").from === "ceo coo", "7 every changed cell is audited with before and after");
+    ok(auditN("permissions.change") === 4 && lastAudit("permissions.change").from === "ceo", "7 every changed cell is audited with before and after"); // v1.311.0 (K-3) - confirm_paid's default is the CEO alone
     const rv = await call("/staff/access/review", ID.ceo);
     ok(rv.j?.history?.some((h) => h.action === "permissions.change"), "7 the access history shows the matrix edits");
     const r1 = await edit(ID.ceo, { changes: [{ cap: "invoice_payment", reset: true }] });

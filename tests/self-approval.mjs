@@ -225,11 +225,18 @@ async function runtime(workerBundle) {
     ok(uEd.status !== 403, "the Super Admin still records an unpaid day for someone else", uEd.text);
 
     /* ---------- commission decisions ---------- */
+    /* v1.311.0 (Commission 5.0, K-4, approved 15-11-2026) - the Super Admin no longer decides commission at all;
+       the self rule is held by a decider given the right in Roles & Permissions (HR admin here) */
     const lSA = ledger(2, "t:sa");
-    ok(selfRefused(await call(`/commission/ledger/${lSA}/decide`, 2, "POST", { decision: "dismiss", note: "Testing the self rule" })), "the Super Admin cannot decide their own commission entry");
+    ok((await call(`/commission/ledger/${lSA}/decide`, 2, "POST", { decision: "dismiss", note: "Testing the self rule" })).status === 403, "K-4: the Super Admin cannot decide their own commission entry");
     const lEd = ledger(10, "t:ed");
-    const rc = await call(`/commission/ledger/${lEd}/decide`, 2, "POST", { decision: "dismiss", note: "Testing the self rule" });
-    ok(rc.status === 200, "...and still decides someone else's", rc.text);
+    ok((await call(`/commission/ledger/${lEd}/decide`, 2, "POST", { decision: "dismiss", note: "Testing the self rule" })).status === 403, "K-4: ...nor anyone else's");
+    db.exec(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', '{"perms":{"commission_settle":["ceo","hr_admin"]}}')`);
+    const lHr = ledger(7, "t:hr");
+    ok(selfRefused(await call(`/commission/ledger/${lHr}/decide`, 7, "POST", { decision: "dismiss", note: "Testing the self rule" })), "HR admin given the commission right cannot decide their own commission entry");
+    const rc = await call(`/commission/ledger/${lEd}/decide`, 7, "POST", { decision: "dismiss", note: "Testing the self rule" });
+    ok(rc.status === 200, "...and decides someone else's (the grant works)", rc.text);
+    db.exec(`DELETE FROM system_meta WHERE key = 'role_permissions'`);
 
     /* ---------- the wiring ---------- */
     const staffSrc = readFileSync(join(root, "worker/src/staff.ts"), "utf8");

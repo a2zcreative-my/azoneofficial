@@ -491,3 +491,9 @@ asset_repairs, asset_incidents and asset_disposals. A repair cost and disposal
 proceeds are notes; an expense is only linked, read only. Nothing is written to
 expenses, journals, cash, payments or commission. The asset status stays in
 assets.status and is written in the same batch as the step.
+1.311.0 (Commission Workspace 5.0, K-2) adds `0196_commission_guards`
+(additive, triggers only - no table, column or row is changed): an approved or
+rejected commission policy version is never updated, a draft keeps its terms,
+no version or package rule is deleted; a commission entitlement keeps its money
+and key, a paid or void entitlement is final, and none is deleted. Every route
+of the engine already writes within these rules.

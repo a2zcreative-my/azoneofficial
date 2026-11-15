@@ -14,7 +14,17 @@
      confirms the bank settlement with its reference and date - one
      cash-book row, then.
    - Disputes and the agent switch.
-   Every figure and rule is the worker's (worker/src/commission.ts). */
+   Every figure and rule is the worker's (worker/src/commission.ts).
+
+   v1.311.0 - COMMISSION WORKSPACE 5.0 (K-1, K-5, approved 15-11-2026). One
+   component, two parts, never shown twice:
+     part="deals"    Agent Deals: the held sales, the disputes, the HOLD
+                     (K-1: the approved policy version is the only authority
+                     that pays an agent; the old on/off switch is now "Hold
+                     new agent sales", off unless you hold), recent deals
+     part="payouts"  Payroll Sync: the agents' settlements, apart from payroll
+                     - the CEO authorises, Finance (the COO) confirms the bank
+                     paid it (K-5), one cash-book row then. */
 
 import { useCallback, useEffect, useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
@@ -72,7 +82,7 @@ const dealText = (a: Attr) => a.decision === "partnership" ? L("Agent partnershi
   : a.decision === "none" ? L("No commission (decided)", "Tiada komisen (diputuskan)") : a.closed_at ? L("Closed - confirmation taken back", "Ditutup - pengesahan ditarik balik")
   : a.classification === "partnership" ? L("Agent partnership", "Perkongsian ejen") : a.classification === "review" ? L("Held for review", "Ditahan untuk semakan") : L("Direct sale", "Jualan langsung");
 
-export function AgentDeals({ revision, onChanged }: { revision: number; onChanged: () => void }) {
+export function AgentDeals({ revision, onChanged, part = "deals" }: { revision: number; onChanged: () => void; part?: "deals" | "payouts" }) {
   const [tick, setTick] = useState(0);
   const key = `${revision}|${tick}`;
   const [got, setGot] = useState<{ k: string; a: AttrResp | null; p: PayResp | null; sw: string | null; canSw: boolean; e: string } | null>(null);
@@ -113,15 +123,18 @@ export function AgentDeals({ revision, onChanged }: { revision: number; onChange
     const r = await api(`/payouts/${o.id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
     if (r.ok) { toast(L("Payout cancelled", "Bayaran dibatalkan"), L("Its sales are eligible again", "Jualannya layak semula")); reload(); } else setError(message(r));
   };
-  const flipSwitch = async () => {
-    const to = cur?.sw === "off" ? "on" : "off";
-    const v = await ask({ title: to === "off" ? L("Switch agent deals off?", "Matikan urusan ejen?") : L("Switch agent deals back on?", "Hidupkan semula urusan ejen?"),
-      message: to === "off" ? L("Every new agent-linked sale is then HELD for review - never paid as a direct sale. Nothing already written changes.", "Setiap jualan berkaitan ejen baharu akan DITAHAN untuk semakan - tidak dibayar sebagai jualan langsung. Tiada apa yang sudah ditulis berubah.") : undefined,
-      label: L("Reason (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)"), required: true, confirmLabel: to === "off" ? L("Switch off", "Matikan") : L("Switch on", "Hidupkan") });
+  /* K-1 - "Hold new agent sales" (stored as agent_partnership = off) */
+  const holding = cur?.sw === "off";
+  const flipHold = async () => {
+    const to = holding ? "on" : "off";
+    const v = await ask({ title: to === "off" ? L("Hold new agent sales?", "Tahan jualan ejen baharu?") : L("Release the hold?", "Lepaskan tahanan?"),
+      message: to === "off" ? L("Every new agent-linked sale is then HELD for your review - never paid as a direct sale. Nothing already written changes.", "Setiap jualan berkaitan ejen baharu akan DITAHAN untuk semakan anda - tidak dibayar sebagai jualan langsung. Tiada apa yang sudah ditulis berubah.")
+        : L("New agent sales are then paid as the approved policy version says (or held when it has no agent rates).", "Jualan ejen baharu kemudian dibayar mengikut versi polisi diluluskan (atau ditahan jika tiada kadar ejen)."),
+      label: L("Reason (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)"), required: true, confirmLabel: to === "off" ? L("Hold new agent sales", "Tahan jualan ejen baharu") : L("Release the hold", "Lepaskan tahanan") });
     const reason = v?.value?.trim() ?? "";
     if (!reason) return;
     const r = await api(`/settings`, { method: "POST", body: JSON.stringify({ agent_partnership: to, reason }) });
-    if (r.ok) { toast(to === "off" ? L("Agent deals switched off", "Urusan ejen dimatikan") : L("Agent deals on", "Urusan ejen dihidupkan"), L("Recorded with your reason", "Direkod dengan sebab anda")); reload(); } else setError(message(r));
+    if (r.ok) { toast(to === "off" ? L("New agent sales are held", "Jualan ejen baharu ditahan") : L("Hold released", "Tahanan dilepaskan"), L("Recorded with your reason", "Direkod dengan sebab anda")); reload(); } else setError(message(r));
   };
 
   return (
@@ -130,17 +143,18 @@ export function AgentDeals({ revision, onChanged }: { revision: number; onChange
       {cur?.e && <p role="alert" className={css.error}>{cur.e}</p>}
       {error && <p role="alert" className={css.error}>{error}</p>}
       {(a?.pending_migration || p?.pending_migration) && <p className={`${css.note} ${css.warnNote}`}>{L("Run migration 0168 (PUSH.bat) to use agent deals.", "Jalankan migrasi 0168 (PUSH.bat) untuk urusan ejen.")}</p>}
-      <TabZone label={L("Agent deals at a glance", "Urusan ejen sepintas lalu")}>
-        {!cur ? <KpiRow label={L("Agent deals at a glance", "Urusan ejen sepintas lalu")}><SkelStat /><SkelStat /><SkelStat /><SkelStat /></KpiRow> : (
-          <KpiRow label={L("Agent deals at a glance", "Urusan ejen sepintas lalu")}>
-            <KpiTile icon="pending" tone="gold" label={L("Held for review", "Ditahan untuk semakan")} value={String(queue.length)} sub={L("Nothing payable until decided", "Tiada boleh dibayar sehingga diputuskan")} />
+      {part === "payouts" && (
+      <TabZone label={L("Agent settlements at a glance", "Penyelesaian ejen sepintas lalu")}>
+        {!cur ? <KpiRow label={L("Agent settlements at a glance", "Penyelesaian ejen sepintas lalu")}><SkelStat /><SkelStat /></KpiRow> : (
+          <KpiRow label={L("Agent settlements at a glance", "Penyelesaian ejen sepintas lalu")}>
             <KpiTile icon="verify" tone="navy" label={L("Eligible for agents", "Layak untuk ejen")} value={fmtRM((p?.due ?? []).reduce((s, d) => s + Number(d.cents), 0))} sub={L(`${p?.due.length ?? 0} agent(s) to authorise`, `${p?.due.length ?? 0} ejen untuk dibenarkan`)} />
             <KpiTile icon="money" tone="blue" label={L("Authorised, not settled", "Dibenarkan, belum selesai")} value={fmtRM(toSettle.reduce((s, o) => s + Number(o.amount_cents ?? 0), 0))} sub={L(`${toSettle.length} payout(s) waiting for the bank`, `${toSettle.length} bayaran menunggu bank`)} />
-            <KpiTile icon="balance" tone={cur.sw === "off" ? "gold" : "green"} label={L("Agent deals", "Urusan ejen")} value={cur.sw === "off" ? L("Switched off", "Dimatikan") : L("On", "Hidup")} sub={cur.sw === "off" ? L("New agent sales are held", "Jualan ejen baharu ditahan") : L("Paid by the approved version's rates", "Dibayar mengikut kadar versi diluluskan")} />
           </KpiRow>
         )}
       </TabZone>
+      )}
 
+      {part === "deals" && (<>
       <TabZone label={L("Held for review", "Ditahan untuk semakan")} hint={L("A paid sale linked to an agent whose attribution is not certain. It is never paid as a direct sale by itself. Decide each with the evidence below and your reason.", "Jualan dibayar yang berkaitan ejen yang atribusinya tidak pasti. Ia tidak sekali-kali dibayar sebagai jualan langsung dengan sendirinya. Putuskan setiap satu dengan bukti di bawah dan sebab anda.")}>
         <div className={card}>
           {!a ? <SkelRows rows={4} /> : queue.length === 0 ? <p className={css.empty}>{L("Nothing is held. Every paid sale so far is a direct sale or a verified agent deal.", "Tiada yang ditahan. Setiap jualan dibayar setakat ini ialah jualan langsung atau urusan ejen yang disahkan.")}</p> : (
@@ -149,7 +163,10 @@ export function AgentDeals({ revision, onChanged }: { revision: number; onChange
         </div>
       </TabZone>
 
-      <TabZone label={L("Agent payouts", "Bayaran ejen")} hint={L("Authorise what an agent has earned (nothing is booked), then a different approver confirms the transfer with the bank reference and date. The cash book gets one row, at settlement. Agents are never paid through payroll.", "Benarkan apa yang diperoleh ejen (tiada dibukukan), kemudian pelulus lain mengesahkan pindahan dengan rujukan dan tarikh bank. Buku tunai mendapat satu baris, semasa penyelesaian. Ejen tidak dibayar melalui gaji.")} cols={2}>
+      </>)}
+
+      {part === "payouts" && (<>
+      <TabZone label={L("Agent settlements (Finance)", "Penyelesaian ejen (Kewangan)")} hint={L("Agents are never paid through payroll. The CEO authorises what an agent has earned (nothing is booked), then Finance (the COO) confirms the transfer with the bank reference and date - one cash-book row in Finance, at settlement.", "Ejen tidak dibayar melalui gaji. CEO membenarkan apa yang diperoleh ejen (tiada dibukukan), kemudian Kewangan (COO) mengesahkan pindahan dengan rujukan dan tarikh bank - satu baris buku tunai dalam Kewangan, semasa penyelesaian.")} cols={2}>
         <div className={card}>
           <div className={css.head}><h3>{L("Eligible to authorise", "Layak untuk dibenarkan")}</h3></div>
           {!p ? <SkelRows rows={3} /> : p.due.length === 0 ? <p className={css.empty}>{L("No agent commission is eligible yet.", "Belum ada komisen ejen yang layak.")}</p> : (
@@ -162,7 +179,7 @@ export function AgentDeals({ revision, onChanged }: { revision: number; onChange
         <div className={card}>
           <div className={css.head}><h3>{L("Waiting for the bank settlement", "Menunggu penyelesaian bank")}</h3></div>
           {!p ? <SkelRows rows={3} /> : toSettle.length === 0 ? <p className={css.empty}>{L("Nothing waiting.", "Tiada yang menunggu.")}</p> : (
-            <ul className={css.list}>{toSettle.map((o) => <SettleItem key={o.id} o={o} me={p.me} can={p.can_settle} today={p.today} onCancel={() => void cancel(o)} onDone={(t) => { toast(L("Settlement confirmed", "Penyelesaian disahkan"), t); reload(); }} />)}</ul>
+            <ul className={css.list}>{toSettle.map((o) => <SettleItem key={o.id} o={o} me={p.me} can={p.can_settle} canCancel={p.can_authorise} today={p.today} onCancel={() => void cancel(o)} onDone={(t) => { toast(L("Settlement confirmed", "Penyelesaian disahkan"), t); reload(); }} />)}</ul>
           )}
         </div>
       </TabZone>
@@ -179,12 +196,15 @@ export function AgentDeals({ revision, onChanged }: { revision: number; onChange
         </TabZone>
       )}
 
-      <TabZone label={L("Disputes and the agent switch", "Pertikaian dan suis ejen")} cols={2}>
+      </>)}
+
+      {part === "deals" && (<>
+      <TabZone label={L("Disputes and the hold", "Pertikaian dan tahanan")} cols={2}>
         <Disputes d={a ?? null} onDone={(t) => { toast(t, ""); reload(); }} onError={setError} />
-        <div className={card}>
-          <div className={css.head}><h3>{L("Agent deals switch", "Suis urusan ejen")}</h3><span className={cur?.sw === "off" ? chipWarn : chipSuccess}>{cur?.sw === "off" ? L("Off", "Mati") : L("On", "Hidup")}</span></div>
-          <p className={css.sub}>{L("Off holds every new agent-linked sale for your review. It never turns an agent sale into a direct sale, and nothing already recorded changes.", "Mati menahan setiap jualan berkaitan ejen baharu untuk semakan anda. Ia tidak menukar jualan ejen kepada jualan langsung, dan tiada apa yang sudah direkod berubah.")}</p>
-          {cur?.canSw && <div className={css.formRow}><button type="button" className={btnSm} onClick={() => void flipSwitch()}>{cur.sw === "off" ? L("Switch on", "Hidupkan") : L("Switch off", "Matikan")}</button></div>}
+        <div className={card} data-testid="agent-hold">
+          <div className={css.head}><h3>{L("Hold new agent sales", "Tahan jualan ejen baharu")}</h3><span className={holding ? chipWarn : chipNeutral}>{holding ? L("Holding", "Menahan") : L("Not holding", "Tidak menahan")}</span></div>
+          <p className={css.sub}>{L("The approved policy version decides whether an agent sale pays (Policy Settings). This hold only stops new agent sales for your review in an emergency - it never pays one, never turns one into a direct sale, and nothing already recorded changes.", "Versi polisi diluluskan menentukan sama ada jualan ejen dibayar (Tetapan Polisi). Tahanan ini hanya menahan jualan ejen baharu untuk semakan anda dalam kecemasan - ia tidak membayar, tidak menukar kepada jualan langsung, dan tiada apa yang sudah direkod berubah.")}</p>
+          {cur?.canSw && <div className={css.formRow}><button type="button" className={btnSm} onClick={() => void flipHold()}>{holding ? L("Release the hold", "Lepaskan tahanan") : L("Hold new agent sales", "Tahan jualan ejen baharu")}</button></div>}
         </div>
       </TabZone>
 
@@ -200,6 +220,7 @@ export function AgentDeals({ revision, onChanged }: { revision: number; onChange
           </div>
         </TabZone>
       )}
+      </>)}
     </>
   );
 }
@@ -263,7 +284,7 @@ function ReviewItem({ x, d, onDone }: { x: Attr; d: AttrResp; onDone: (t: string
   );
 }
 
-function SettleItem({ o, me, can, today, onCancel, onDone }: { o: Payout; me: number; can: boolean; today: string; onCancel: () => void; onDone: (t: string) => void }) {
+function SettleItem({ o, me, can, canCancel, today, onCancel, onDone }: { o: Payout; me: number; can: boolean; canCancel: boolean; today: string; onCancel: () => void; onDone: (t: string) => void }) {
   const [bank, setBank] = useState("");
   const [on, setOn] = useState(today || mytToday());
   const [proof, setProof] = useState("");
@@ -281,7 +302,8 @@ function SettleItem({ o, me, can, today, onCancel, onDone }: { o: Payout; me: nu
       <span className={css.listMain}>
         <strong>AGT-{o.id} · {o.agent_name ?? "—"} · {fmtRM(o.amount_cents)}</strong>
         <span>{L(`${o.row_count} sale(s) · authorised by ${o.authorized_by_name ?? "—"} · ${dmyMYT(o.authorized_at)}`, `${o.row_count} jualan · dibenarkan oleh ${o.authorized_by_name ?? "—"} · ${dmyMYT(o.authorized_at)}`)}</span>
-        {can && (mine ? <span className={css.sub}>{L("Dual control: another CEO or super admin confirms the settlement of a payout you authorised.", "Kawalan dua: CEO atau super admin lain mengesahkan penyelesaian bayaran yang anda benarkan.")}</span> : (
+        {/* v1.311.0 (K-5) - one who cannot settle is told who does */}
+        {!can ? <span className={css.sub}>{mine ? L("Dual control: Finance (the COO) confirms the settlement of a payout you authorised.", "Kawalan dua: Kewangan (COO) mengesahkan penyelesaian bayaran yang anda benarkan.") : L("Waiting for Finance (the COO) to confirm the bank settlement.", "Menunggu Kewangan (COO) mengesahkan penyelesaian bank.")}</span> : (mine ? <span className={css.sub}>{L("Dual control: Finance (the COO) confirms the settlement of a payout you authorised.", "Kawalan dua: Kewangan (COO) mengesahkan penyelesaian bayaran yang anda benarkan.")}</span> : (
           <fieldset className={css.form} disabled={busy}>
             <div className={css.row}>
               <label>{L("Bank reference", "Rujukan bank")}<input aria-label={L("Bank reference", "Rujukan bank")} className={inputClass} maxLength={80} value={bank} onChange={(e) => setBank(e.target.value)} /></label>
@@ -293,7 +315,7 @@ function SettleItem({ o, me, can, today, onCancel, onDone }: { o: Payout; me: nu
           </fieldset>
         ))}
       </span>
-      {can && <button type="button" className={btnSm} onClick={onCancel}>{L("Cancel", "Batal")}</button>}
+      {canCancel && <button type="button" className={btnSm} onClick={onCancel}>{L("Cancel", "Batal")}</button>}
     </li>
   );
 }

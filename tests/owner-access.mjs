@@ -180,7 +180,7 @@ async function runtime(workerBundle, staffBundle) {
     const c6 = await call("/staff/docs/100/confirm-paid", U.ceo, "POST", { amount_cents: 10000, checked: true });
     ok(c6.status === 201, "6 the CEO confirms a genuinely paid invoice", `${c6.status} ${JSON.stringify(c6.j)}`);
     const c7 = await call("/staff/docs/101/confirm-paid", U.coo, "POST", { amount_cents: 10000, checked: true });
-    ok(c7.status === 201, "7 the COO confirms a genuinely paid invoice", `${c7.status} ${JSON.stringify(c7.j)}`);
+    ok(c7.status === 403, "7 v1.311.0 (Commission 5.0, K-3): the COO no longer confirms Paid - the CEO owner alone", `${c7.status} ${JSON.stringify(c7.j)}`);
     ok((await call("/staff/docs/102/confirm-paid", U.cco, "POST", { amount_cents: 10000, checked: true })).status === 403, "8 the CCO cannot confirm Paid");
     ok((await call("/staff/payroll/release", U.cco, "POST", { month: "2026-09" })).status === 403, "9 the CCO cannot release payroll");
     ok((await call("/staff/docs/103/confirm-paid", U.super_admin, "POST", { amount_cents: 10000, checked: true })).status === 403, "the super admin is still not a business approver");

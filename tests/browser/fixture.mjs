@@ -1447,13 +1447,13 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     ],
     versions: [{ id: 2, version: 2, name: "Agent partnership 2026", effective_from: "2026-11-03", rate_bp: 1000, agent_rate_bp: 700, agent_closer_rate_bp: 300 }, { id: 1, version: 1, name: "Sales commission 2026", effective_from: "2026-11-01", rate_bp: 1000, agent_rate_bp: null, agent_closer_rate_bp: null }],
     disputes: [{ id: 3, scope: "customer", ref_id: 9, ref_label: "Syarikat Dipertikai", reason: "Two agents claim this client", created_at: "2026-11-02 02:00:00", created_by_name: "Fixture COO", cleared_at: null, cleared_by_name: null, clear_reason: null }],
-    agents: [{ id: 9005, name: "Zul Agent", is_active: 1 }], can_decide: ["ceo", "super_admin"].includes(ROLE), can_flag: ["ceo", "coo", "super_admin"].includes(ROLE), today: "2026-11-03" };
+    agents: [{ id: 9005, name: "Zul Agent", is_active: 1 }], can_decide: ROLE === "ceo", can_flag: ["ceo", "coo"].includes(ROLE), today: "2026-11-03" };
   if (p === "/commission/payouts") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     due: [{ agent_id: 9005, agent_name: "Zul Agent", is_active: 1, n: 2, cents: 14000 }], rows: [],
     payouts: [
       { id: 7, agent_id: 9005, agent_name: "Zul Agent", status: "authorized", amount_cents: 7000, row_count: 1, note: null, authorized_by: 9001, authorized_by_name: "Fixture Person", authorized_at: "2026-11-03 02:00:00", settled_by_name: null, settled_on: null, bank_ref: null, proof_note: null, cancelled_by_name: null, cancel_reason: null },
       { id: 6, agent_id: 9005, agent_name: "Zul Agent", status: "settled", amount_cents: 7000, row_count: 1, note: null, authorized_by: 9001, authorized_by_name: "Fixture Person", authorized_at: "2026-11-02 02:00:00", settled_by_name: "System Root", settled_on: "2026-11-02", bank_ref: "MBB-77821", proof_note: null, cancelled_by_name: null, cancel_reason: null },
-    ], can_authorise: ["ceo", "super_admin"].includes(ROLE), can_settle: ["ceo", "super_admin"].includes(ROLE), me: ROLE === "super_admin" ? 9010 : 9001, today: "2026-11-03" };
+    ], can_authorise: ROLE === "ceo", can_settle: ROLE === "coo", me: ROLE === "ceo" ? 9001 : 9010, today: "2026-11-03" }; // v1.311.0 (K-4, K-5) - the CEO authorises, Finance (the COO) settles
   if (p === "/commission/flow") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     start: "2026-11-01", sync: Boolean(process.env.COMM_SYNC), policy: cmPolicy,
     /* v1.232.0 - two rows, never added together */
@@ -1478,15 +1478,57 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     from_invoices: [{ name: "AZ Starter", n: 6, last_price_cents: 9900, last_on: D + "16" }, { name: "AZ Monthly Care", n: 4, last_price_cents: 39900, last_on: D + "12" },
       { name: "AZ Creative Express", n: 3, last_price_cents: 24900, last_on: D + "10" }, { name: "Domain renewal", n: 2, last_price_cents: 5000, last_on: D + "05" }], rate_card: ["AZ Starter", "AZ Creative Express", "AZ Monthly Care"],
     library: [{ id: 3, name: "LIVE Host Growth Bundle", status: "active", current_version: 2 }, { id: 4, name: "Raya Content Pack", status: "active", current_version: 1 }] };
-  if (p === "/commission/audit") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : { events: [
-    { id: 9, action: "doc.closer_correct", entity: "sales_documents", entity_id: "28", detail: JSON.stringify({ invoice: "INV-AZO021126-2", from: 9002, to: 9001, reason: "Review found the real closer", commission: { moved: 1, to_review: 0, unchanged_paid: 0 } }), created_at: "2026-11-08 03:00:00", who: "Fixture Person" },
-    { id: 8, action: "invoice.paid_confirm", entity: "sales_documents", entity_id: "2", detail: JSON.stringify({ invoice: "INV-AZO100926-2" }), created_at: "2026-11-06 02:00:00", who: "Fixture COO" },
-    { id: 7, action: "commission.policy_approve", entity: "commission_policies", entity_id: "1", detail: JSON.stringify({ version: 1, effective_from: "2026-11-01" }), created_at: "2026-10-29 04:00:00", who: "Fixture Person" },
-    { id: 6, action: "commission.policy_draft", entity: "commission_policies", entity_id: "1", detail: JSON.stringify({ version: 1, rate_pct: 10, effective_from: "2026-11-01", reason: "The documented 10% base rate", packages: [{ name: "AZ Starter" }, { name: "AZ Monthly Care" }, { name: "Domain renewal" }] }), created_at: "2026-10-29 03:00:00", who: "Fixture COO" }] };
+  /* v1.311.0 - Commission 5.0: the five read routes, from the same invented
+     entries (worker/src/commission.ts handleWorkspace5 is proven by tests/commission5.mjs) */
+  const cmScopeMine = !cmAll || q.get("scope") === "mine";
+  const cmRows = cmScopeMine ? cmEntries.filter((e) => e.user_id === 9001) : cmEntries;
+  const cmStand = (st) => st === "eligible" ? "confirmed" : st === "included" ? "in_payroll" : st === "review" ? "held" : st;
+  if (p === "/commission/overview") {
+    const live = cmRows.filter((e) => ["eligible", "included", "paid"].includes(e.status) && (e.payroll_month ?? "2026-11") >= "2026-11");
+    const pay = live.filter((e) => e.status !== "paid");
+    const est = (cmScopeMine ? cmEstimates.filter((e) => e.user_id === 9001) : cmEstimates);
+    data = { month: q.get("month") || "2026-11", scope: cmScopeMine ? "mine" : "all", company: null, start: "2026-11-01",
+      policy: process.env.NOPOLICY ? null : { version: 1, rate_kind: "percent", rate_bp: 1000, ...(cmScopeMine ? {} : { agent_rate_bp: process.env.AGENT_V2 ? 700 : null, agent_closer_rate_bp: process.env.AGENT_V2 ? 300 : null }) },
+      confirmed: { cents: cmScopeMine ? 159900 : 469900, n: cmScopeMine ? 2 : 5 }, payable: { cents: pay.reduce((a, e) => a + e.amount_cents, 0), n: pay.length },
+      pending: { cents: est.reduce((a, e) => a + e.estimate_cents, 0), n: est.length }, to_payroll: { cents: pay.reduce((a, e) => a + e.amount_cents, 0), n: new Set(pay.map((e) => e.user_id)).size },
+      by_role: cmScopeMine ? null : { agent: 7000, salesperson: 3000, direct: 44980 },
+      performance: { target_cents: cmScopeMine ? 500000 : 1500000, actual_cents: cmScopeMine ? 159900 : 469900, pct: cmScopeMine ? 32 : 31.3, estimated_cents: 150000 },
+      recent: cmRows.filter((e) => e.status !== "review").slice(0, 6).map((e) => ({ invoice_id: e.invoice_id, doc_number: e.doc_number, company: e.company, closer_name: e.closer_name, deal: "direct", sales_cents: e.invoice_total, commission_cents: e.amount_cents, status: cmStand(e.status), entry_id: e.id })),
+      attention: cmScopeMine ? null : { to_verify: 2, to_confirm: 1, held: 1, review: 1, ready_payroll: { n: 2, cents: 28990 }, payouts_to_authorise: { n: 1, cents: 14000 }, payouts_to_settle: 1, sync: Boolean(process.env.COMM_SYNC) } };
+  }
+  if (p === "/commission/transactions") {
+    let rows = cmRows.map((e) => ({ key: `c${e.id}`, invoice_id: e.invoice_id, doc_number: e.doc_number, invoice_date: (e.eligible_at ?? "").slice(0, 10), paid_day: (e.eligible_at ?? "").slice(0, 10), company: e.company, issuer_code: "a2z",
+      closer_name: e.closer_name, ...(cmScopeMine ? {} : { agent_name: null }), deal: e.status === "review" ? "review" : "direct", sales_cents: e.invoice_total, basis_cents: e.basis_cents,
+      rates: cmScopeMine ? { mine_bp: 1000 } : { closer_bp: 1000, agent_bp: null }, commission_cents: e.status === "review" ? 0 : e.amount_cents, reversed: false, status: cmStand(e.status), entry_id: e.id }));
+    if (!cmScopeMine) rows.unshift({ key: "c40", invoice_id: 44, doc_number: "INV-A2Z021126-8", invoice_date: "2026-11-02", paid_day: "2026-11-04", company: "Kasih Rabiah Enterprise", issuer_code: "a2z", closer_name: "Nur Aisyah", agent_name: "Zul Agent", deal: "partnership",
+      sales_cents: 100000, basis_cents: 100000, rates: { closer_bp: 300, agent_bp: 700 }, commission_cents: 10000, agent_cents: 7000, closer_cents: 3000, reversed: false, status: "confirmed", entry_id: 3 });
+    for (const x of (cmScopeMine ? cmEstimates.filter((e) => e.user_id === 9001) : cmEstimates)) rows.push({ key: `o${x.invoice_id}`, invoice_id: x.invoice_id, doc_number: x.doc_number, invoice_date: x.created_at.slice(0, 10), paid_day: null, company: x.company, issuer_code: "a2z",
+      closer_name: x.closer_name, deal: "direct", sales_cents: x.invoice_total, basis_cents: x.basis_cents, rates: cmScopeMine ? { mine_bp: 1000 } : { closer_bp: 1000, agent_bp: null }, commission_cents: x.estimate_cents, reversed: false, status: "pending", stage: x.stage, entry_id: null, estimate: true });
+    rows = rows.filter((r) => (!q.get("status") || r.status === q.get("status")) && (!q.get("type") || r.deal === q.get("type")) && (!q.get("q") || [r.doc_number, r.company, r.closer_name].some((v) => String(v ?? "").toLowerCase().includes(String(q.get("q")).toLowerCase()))));
+    const size = q.get("all") === "1" ? 2000 : 25;
+    data = { month: q.get("month") || "2026-11", scope: cmScopeMine ? "mine" : "all", page: 1, pages: Math.max(1, Math.ceil(rows.length / size)), total: rows.length,
+      totals: { sales_cents: rows.reduce((a, r) => a + r.sales_cents, 0), commission_cents: rows.reduce((a, r) => a + r.commission_cents, 0) }, rows: rows.slice(0, size),
+      staff: cmScopeMine ? [] : [{ id: 9001, name: "Fixture Person" }, { id: 9002, name: "Nur Aisyah" }] };
+  }
+  if (p === "/commission/agents") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    month: q.get("month") || "2026-11", rate: process.env.AGENT_V2 ? { version: 2, agent_bp: 700, closer_bp: 300 } : null,
+    tiles: { agents: 2, active: 1, deals: 2, agent_cents: 7000 },
+    agents: [{ id: 9005, name: "Zul Agent", active: true, salesperson: "Nur Aisyah", deals: 2, held: 1, sales_cents: 200000, agent_cents: 7000 },
+      { id: 9006, name: "Prime Lead", active: false, salesperson: null, deals: 0, held: 0, sales_cents: 0, agent_cents: 0 }] };
+  if (p === "/commission/payroll-preview") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
+    month: q.get("month") || "2026-11", released: false, future: false, sync: Boolean(process.env.COMM_SYNC), can_sync: ["ceo", "coo"].includes(ROLE),
+    employees: [{ user_id: 9002, name: "Nur Aisyah binti Rahman", role: "sales_marketing", ready: 28000, in_payroll: 0, paid: 0, on_payroll: true },
+      { user_id: 9004, name: "Hafiz bin Omar", role: "sales_marketing", ready: 0, in_payroll: 3990, paid: 0, on_payroll: true }],
+    totals: { ready: 28000, in_payroll: 3990, paid: 0 }, agents: { due: [], authorised: [], can_authorise: ROLE === "ceo", can_settle: ROLE === "coo" } };
+  if (p === "/commission/audit") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : { page: 1, pages: 1, total: 4, people: [{ id: 9001, name: "Fixture Person" }, { id: 9003, name: "Fixture COO" }], events: [
+    { id: 9, action: "doc.closer_correct", entity: "sales_documents", entity_id: "28", detail: JSON.stringify({ invoice: "INV-AZO021126-2", from: 9002, to: 9001, reason: "Review found the real closer", commission: { moved: 1, to_review: 0, unchanged_paid: 0 } }), created_at: "2026-11-08 03:00:00", who: "Fixture Person", who_role: "ceo", doc_number: "INV-AZO021126-2" },
+    { id: 8, action: "invoice.paid_confirm", entity: "sales_documents", entity_id: "2", detail: JSON.stringify({ invoice: "INV-AZO100926-2" }), created_at: "2026-11-06 02:00:00", who: "Fixture Person", who_role: "ceo", doc_number: "INV-AZO100926-2" },
+    { id: 7, action: "commission.policy_approve", entity: "commission_policies", entity_id: "1", detail: JSON.stringify({ version: 1, effective_from: "2026-11-01" }), created_at: "2026-10-29 04:00:00", who: "Fixture Person", who_role: "ceo", doc_number: null },
+    { id: 6, action: "commission.policy_draft", entity: "commission_policies", entity_id: "1", detail: JSON.stringify({ version: 1, rate_pct: 10, effective_from: "2026-11-01", reason: "The documented 10% base rate", packages: [{ name: "AZ Starter" }, { name: "AZ Monthly Care" }, { name: "Domain renewal" }] }), created_at: "2026-10-29 03:00:00", who: "Fixture COO", who_role: "coo", doc_number: null }] };
   if (p === "/commission/policy") data = !cmAll ? { error: { code: "forbidden", message: "Management access required" } } : {
     versions: [{ ...cmPolicy, id: 2, version: 2, name: "A2Z Sales Commission v2", status: "draft", effective_from: "2026-12-01", rate_bp: 800, reason: "Proposed new rate from December", approved_at: null, approved_by_name: null }, cmPolicy],
     log: [], in_force: { ...cmPolicy, packages: cmPkgs }, sync: Boolean(process.env.COMM_SYNC), start: "2026-11-01", today: "2026-09-18",
-    can_draft: ["ceo", "coo", "super_admin"].includes(ROLE), can_approve: ["ceo", "super_admin"].includes(ROLE), can_switch: ["ceo", "super_admin"].includes(ROLE) };
+    can_draft: ["ceo", "coo"].includes(ROLE), can_approve: ROLE === "ceo", can_switch: ROLE === "ceo", agent_partnership: process.env.AGENT_HOLD ? "off" : "on" };
   const cmPrev = p.match(/^\/commission\/policy\/(\d+)\/preview$/);
   if (cmPrev) data = { policy: { ...cmPolicy, version: 2, rate_bp: 800 }, rows: [{ invoice_id: 2, doc_number: "INV-AZO100926-2", company: "Zainab Kitchen", closer_name: "Nur Aisyah", package: "LIVE Host - Starter", paid_day: "2026-09-12", basis_cents: 280000, amount_cents: 22400, current_version: 1, current_cents: 28000 }], total_cents: 22400 };
   if (p === "/staff/payroll/commission-sources") data = { month: q.get("month") ?? "", policy: process.env.COMM_POLICY ? cmPolicy : null, sync: Boolean(process.env.COMM_SYNC), sums: process.env.COMM_SYNC ? { 9002: 28000 } : null, starts: process.env.CONFIRMED ? "2026-09" : "2026-11",

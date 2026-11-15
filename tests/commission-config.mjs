@@ -54,7 +54,8 @@ ok("package rules are never edited after the draft (no UPDATE or DELETE anywhere
 ok("a version with no package rules pays a service invoice exactly as before", /if \(!raw\.length \|\| \(!pkgs\.length && !\(listedOnly && raw\.some\(isProduct\)\)\)\) return \{ basis, amount: amountOf\(basis, p\), lines: null \};/.test(comm));
 ok("the closer correction route hands the commission to reassignCloser", /const moved = await reassignCloser\(env, docId, cur, toId, reason\);/.test(staffSrc));
 ok("the Commission page has the five views", /\["overview", L\("Overview"[\s\S]*?\["transactions"[\s\S]*?\["policy", L\("Policy Settings"[\s\S]*?\["payroll", L\("Payroll Sync"[\s\S]*?\["audit", L\("Audit History"/.test(panel));
-ok("a consultant still sees only their own commission", /: \(\[\["transactions", L\("My commission", "Komisen saya"\)\]\] as const\)/.test(panel));
+ok("a consultant still sees only their own commission", /: \[\["transactions", L\("My commission", "Komisen saya"\), L\(/.test(panel)); // v1.311.0 - each view now carries its description
+ok("the Commission page has the six views of 5.0 (Agent Deals between Transactions and Policy)", /\["transactions"[\s\S]*?\["agents", L\("Agent Deals"[\s\S]*?\["policy", L\("Policy Settings"/.test(panel));
 ok("the Sales form asks for the closer on an invoice", /doc\.doc_type === "INV" && !doc\.salesperson_id/.test(read("components/portal/sales.tsx")));
 
 /* ---- runtime ---- */
@@ -96,7 +97,7 @@ const RealDate = Date; let fixed = new RealDate("2026-10-30T02:00:00Z").getTime(
 globalThis.Date = class extends RealDate { constructor(...a) { super(...(a.length ? a : [fixed])); } static now() { return fixed; } };
 const ROLE = { 1: "ceo", 2: "coo", 3: "cco", 4: "sales_marketing", 5: "sales_marketing", 6: "admin", 7: "super_admin", 9: "live_host" };
 const call = async (p, id = 1, method = "GET", body) => {
-  const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x" });
+  const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x", is_owner: id === 1 }); // v1.311.0 - the CEO here is the verified owner (K-3)
   return { status: r?.status ?? 404, j: r ? await r.json().catch(() => null) : null };
 };
 const led = (where) => db.prepare(`SELECT * FROM commission_ledger WHERE ${where} ORDER BY id`).all();
@@ -125,7 +126,9 @@ try {
   ok("CONFIRM: nor an admin", (await confirm(40, 6, 104700)).status === 403);
   ok("CONFIRM: nor the closer", (await confirm(40, 4, 104700)).status === 403);
   ok("CONFIRM: the documents list tells the super admin there is no button", (await call("/docs", 7)).j?.can_confirm_paid === false);
-  ok("CONFIRM: the COO confirms", (await confirm(40, 2, 104700)).status === 201);
+  /* v1.311.0 (Commission 5.0, K-3, approved 15-11-2026) - the CEO owner alone confirms Paid */
+  ok("CONFIRM: the COO can no longer confirm (K-3)", (await confirm(40, 2, 104700)).status === 403);
+  ok("CONFIRM: the CEO owner confirms", (await confirm(40, 1, 104700)).status === 201);
 
   /* PACKAGES - the calculation */
   const e40 = led("invoice_id = 40");

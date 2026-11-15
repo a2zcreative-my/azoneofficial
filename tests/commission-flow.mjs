@@ -62,7 +62,7 @@ async function runtime(staffBundle) {
   const at = (iso) => { fixed = new RealDate(iso).getTime(); };
   const { handleStaff } = await import(pathToFileURL(staffBundle).href + `?v=${Math.random()}`);
   const call = async (p, id = 1, method = "GET", body) => {
-    const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x" });
+    const r = await handleStaff(new Request(`https://x/api/v1/staff${p}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }), env, p.split("?")[0], { id, role: ROLE[id], name: "x", is_owner: id === 1 }); // v1.311.0 - the CEO here is the verified owner (K-3)
     return { status: r?.status ?? 404, j: r ? await r.json().catch(() => null) : null };
   };
   const led = (where = "1=1") => db.prepare(`SELECT * FROM commission_ledger WHERE ${where} ORDER BY id`).all();
@@ -122,7 +122,9 @@ async function runtime(staffBundle) {
     ok((await call(`/commission/settings`, 3, "POST", { sync: "off", reason: "The CCO tries the switch" })).status === 403, "D: the CCO cannot touch the payroll switch");
     ok((await call(`/commission/flow`, 3)).status === 200 && (await call(`/commission/invoice/10`, 3)).status === 200, "D: the CCO reads the flow and any invoice");
     ok((await confirm(15, 10000, 5)).status === 403, "D: no one confirms their own sale");
-    await confirm(15, 10000, 2);
+    /* v1.311.0 (Commission 5.0, K-3, approved 15-11-2026) - the COO no longer confirms; the CEO owner does */
+    ok((await confirm(15, 10000, 2)).status === 403, "D: the COO can no longer confirm Paid (K-3)");
+    await confirm(15, 10000, 1);
 
     /* E - two monthly invoices, two entitlements */
     inv.run(16, "INV-E1", items(line("AZ Monthly Care", 39900)), 39900, "paid", "2026-11-03 04:00:00", "2026-11-01 02:00:00", 4, "service");
@@ -245,7 +247,9 @@ function source() {
   ok(/ALTER TABLE commission_policies ADD COLUMN product_rule TEXT NOT NULL DEFAULT 'listed_only'/.test(mig) && !/\b(UPDATE|DELETE|DROP|INSERT)\b/i.test(mig), "0154 only adds the product rule column, defaulting to the owner's rule");
   ok(/"0154_commission_product_rule"/.test(read("worker/src/index.ts")), "0154 is registered");
   const panel = read("components/portal/commission-panel.tsx");
-  ok(!/d\.stages/.test(panel) && /d\.invoices/.test(panel) && /d\.entitlements/.test(panel), "the Overview reads invoices and entitlements as two rows");
+  /* v1.311.0 (Commission 5.0) - the Overview is the server's own /commission/overview: verified sales, payable and pending are separate figures (tests/commission5.mjs proves them) */
+  const c5 = read("components/portal/commission5.tsx");
+  ok(!/d\.stages/.test(panel) && /useGet<Ov>\(`\/overview\?month=/.test(c5) && /confirmed: \{ cents: number; n: number \}; payable: \{ cents: number; n: number \}; pending: \{ cents: number; n: number \}/.test(c5), "the Overview reads verified, payable and pending as separate figures from the server");
   ok(/e\.next === "settle_leaver"/.test(panel) && /d\.can_decide && e\.next === "settle_leaver"/.test(panel), "the settle button shows only to those who may decide, only for a leaver");
   ok(!/commission_cents\s*:/.test(panel), "the panel never sends a commission amount");
   return out;
