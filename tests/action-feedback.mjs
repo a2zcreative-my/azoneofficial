@@ -248,7 +248,8 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     ["a leave request the server refused", readFileSync(path.join(root, "components/portal/leave4.tsx"), "utf8"), /if \(!r\.ok && !r\.queued\) \{ toast\(L\("Not sent"/],
     ["a leave request with no date says so instead of doing nothing", readFileSync(path.join(root, "components/portal/leave4.tsx"), "utf8"), /const missing = !f\.start \? L\("Choose the dates"[\s\S]{0,12000}?\{step === 1 && missing && <p className=\{css\.sub\} data-testid="apply-missing">\{missing\}/],
     ["the CEO leave override", page, /showLeaveToast\(\s*\n?\s*action === "approve" \? L\("Approved by you"/],
-    ["an overtime decision", page, /showOtToast\(\s*\n?\s*decision === "approved"/],
+    /* v1.317.0 (the duplicate-function audit, D-2) - the one overtime decision screen is Attendance > Exceptions & Approvals */
+    ["an overtime decision", readFileSync(path.join(root, "components/portal/attendance-exceptions.tsx"), "utf8"), /if \(!r\.ok\) \{ toast\(L\("Not decided", "Tidak diputuskan"\)[\s\S]{0,200}?toast\(L\("Decided", "Diputuskan"\), properName\(o\.name\)\)/],
     ["crediting a supplier return", panels, /invToast\(res\.ok \? L\("Credit recorded"/],
     ["recording a replacement", panels, /invToast\(res\.ok \? L\("Replacement recorded"/],
     ["deleting a staff document", dir, /L\("Document deleted", "Dokumen dipadam"\)/],
@@ -313,10 +314,11 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
      "No pending OT punches". And the subscription it DID add cleared every
      OT draft on every load, so a colleague clocking in wiped the CEO's
      half-typed amendment with no message at all. */
-  const live = readFileSync(path.join(root, "components/portal/live-cards.tsx"), "utf8");
+  /* v1.317.0 (the duplicate-function audit, D-2) - the Dashboard's second overtime card (live-cards.tsx) is gone; overtime is decided in Attendance > Exceptions & Approvals (attendance-exceptions.tsx) */
+  const live = readFileSync(path.join(root, "components/portal/attendance-exceptions.tsx"), "utf8");
   const rest = readFileSync(path.join(root, "components/portal/rest-day-credits.tsx"), "utf8");
   ok("the Overtime approvals card is told when the same records change elsewhere",
-     /useLiveRefresh\(\["attendance", "rest-day-ot"\], load\)/.test(live),
+     /useCachedApi<\{ pending\?: Ot\[\]; can_replace\?: boolean \}>\(canOt \? "\/staff\/attendance\/ot\/pending" : null, true, \["attendance"\]\)/.test(live),
      "Approve on a removed stretch answered 'No pending OT punches for that day'");
   ok("...and so is the Rest days worked card",
      /useLiveRefresh\(\["attendance", "replacement-credit", "rest-day-ot"\], load\)/.test(rest));
@@ -333,7 +335,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
   ok("a refused category save does not leave the refused text in the box",
      /onFail\?\.\(\);/.test(panels) && /el\.value = it\.category \?\? "";/.test(panels));
   ok("...and the decision is a staff write, so the topic really is bumped",
-     /`\/staff\/attendance\/ot\/decide`/.test(readFileSync(path.join(root, "components/portal/live-cards.tsx"), "utf8")),
+     /"\/staff\/attendance\/ot\/decide", \{ method: "POST"/.test(live),
      "topicOf('/attendance/ot/decide') is 'attendance' - index.ts bumps every successful staff mutation");
 }
 

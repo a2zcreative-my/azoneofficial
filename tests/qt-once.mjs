@@ -47,7 +47,8 @@ const sales = read("components/portal/sales.tsx");
 const dash = read("components/portal/dashboard.tsx");
 const desk = read("components/portal/one-desk.tsx");
 const shared = read("components/portal/page-shared.tsx");
-const live = read("components/portal/live-cards.tsx");
+/* v1.317.0 (the duplicate-function audit, D-2) - the Dashboard's second overtime card (live-cards.tsx) is gone; overtime is decided in Attendance > Exceptions & Approvals (attendance-exceptions.tsx), which is the card the Desk's anchor has always pointed at */
+const live = read("components/portal/attendance-exceptions.tsx");
 const rp = read("components/portal/role-panels.tsx");
 
 /* ---- 1 + 2. one quotation, one invoice ---- */
@@ -79,18 +80,18 @@ const rp = read("components/portal/role-panels.tsx");
   ok("the desk carries anchors for overtime, punches and claims", /ot: "ot-approvals"/.test(desk) && /punches: "pending-punches"/.test(desk) && /claims: "claims-pending"/.test(desk));
   ok("pressing an item switches the tab AND reveals the card", /go\(i\.tab\); revealAnchor\(ANCHOR\[i\.bucket\]\)/.test(desk));
   ok("the reveal waits for the lazily-loaded panel", /export function revealAnchor/.test(shared) && /tries\+\+ < 40/.test(shared) && /scrollIntoView/.test(shared));
-  ok("the overtime card carries its anchor", /id="ot-approvals"/.test(live));
+  ok("the overtime card carries its anchor", /<span id="ot-approvals" \/>/.test(live));
   ok("the forgotten-punches block carries its anchor", /id="pending-punches"/.test(rp));
   ok("the claims pending card carries its anchor", /id="claims-pending"/.test(rp));
 }
 
 /* ---- 4. approve asks first; the modal says when it is clear ---- */
 {
-  const decide = live.slice(live.indexOf("const decide = async (p: Pend"), live.indexOf("const decide = async (p: Pend") + 5000);
-  ok("approving overtime asks first", /decision === "approved" &&\s*!\(await otConfirm\(\{\s*title: L\("Approve this overtime\?"/.test(decide));
-  ok("and still toasts after", /showOtToast\(\s*decision === "approved" \? L\("OT approved"/.test(decide));
-  ok("the dialog says it is a payroll figure", /Approved overtime goes straight to the payroll/.test(decide));
-  ok("the modal says the queue is clear instead of an empty box", /inModal && \([\s\S]*?Nothing pending — every overtime stretch has been decided\./.test(live));
+  const decide = live.slice(live.indexOf("const decideOt = async ("), live.indexOf("const decideOt = async (") + 2500);
+  ok("deciding overtime asks first - approve, replacement and reject alike", /if \(!\(await confirm\(\{ title: `\$\{properName\(o\.name\)\} · \$\{dmy\(o\.d\)\}`, message: msg,/.test(decide) && decide.indexOf("await confirm(") < decide.indexOf('"/staff/attendance/ot/decide"'));
+  ok("and still toasts after", /toast\(L\("Decided", "Diputuskan"\), properName\(o\.name\)\)/.test(decide) && /toast\(L\("Not decided", "Tidak diputuskan"\)/.test(decide));
+  ok("the dialog says it is a payroll figure", /Approved overtime goes to the payroll\. The staff member is told\./.test(decide));
+  ok("there is one overtime decision screen: the Dashboard card opens Attendance, it draws no copy", !/OtApprovalsCard|live-cards/.test(read("components/portal/trading-desk.tsx")) && /const LINKED = new Set\(\["Clients", "Lives today", "Cash flow \(mo\)", "OT pending"\]\);/.test(read("components/portal/trading-desk.tsx")));
 }
 
 console.log(failed === 0

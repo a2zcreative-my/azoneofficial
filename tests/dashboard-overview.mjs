@@ -156,7 +156,7 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
      /* v1.280.0 - inside the Dashboard's More (id="dash-more"), with the other cards of before */
      && /id="dash-more"[^>]*data-row="more"[\s\S]{0,2400}?<LeaveMonthCard go=\{go\} \/>/.test(code)
      && /row3\.push\(<Fragment key="up">\{upcomingCard\}<\/Fragment>\)/.test(code));
-  ok("The Company card stays on My Day (the owner kept it)", /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(dash));
+  ok("The Company card stays on My Day (the owner kept it)", /<TradingDesk user=\{user\} go=\{go\} canOpen=\{canOpen\} lang=\{lang\} mode="pulse" \/>/.test(dash));
 }
 
 /* ---- registration ---- */

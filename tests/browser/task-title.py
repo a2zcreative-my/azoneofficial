@@ -40,7 +40,8 @@ def open_task(pg, title):
     else:
         pg.get_by_role("button", name=title).filter(visible=True).first.click()
     pg.wait_for_timeout(2000)
-    return pg.get_by_role("dialog").filter(has_text=title).first
+    # v1.319.0 (Tasks 2.0 Stage 1, T2-4) - a task opens as a full page from 768px, in the drawer on a phone
+    return pg.locator("[data-testid=task-workspace]:visible, [role=dialog]:visible").filter(has_text=title).first
 
 def patches(port): return [x for x in get(port, "/__tasks")["posts"] if x["method"] == "PATCH"]
 no_hscroll = lambda pg: pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
@@ -52,7 +53,7 @@ with sync_playwright() as p:
         ctx, pg, errs = page(b, port, w, 900 if w > 500 else 800)
         dr = open_task(pg, TITLE)
         bar = dr.get_by_test_id("task-title-bar")
-        check(f"{tag}: the drawer shows the title bar with the task ID and Edit Title", bar.count() == 1 and "TSK-" in bar.inner_text() and bar.get_by_test_id("edit-title").count() == 1, bar.inner_text() if bar.count() else "")
+        check(f"{tag}: the task shows the title bar with the task ID and Edit Title", bar.count() == 1 and "TSK-" in bar.inner_text() and bar.get_by_test_id("edit-title").count() == 1, bar.inner_text() if bar.count() else "")
         before = len(patches(port))
         bar.get_by_test_id("edit-title").click(); pg.wait_for_timeout(300)
         inp = bar.get_by_test_id("title-input")

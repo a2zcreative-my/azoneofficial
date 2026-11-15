@@ -6,7 +6,7 @@
  *
  * v1.114.0 (housekeeping) — the modules moved out of this file into
  * components/portal/ (dashboard, trading-desk, events, attendance, leave,
- * tiktok-cards, tasks, announcements, sales, live-cards, profile,
+ * tiktok-cards, tasks, announcements, sales, profile,
  * users-panel, commission; shared types and helpers in page-shared), moved
  * verbatim. What stayed was PortalPage: auth, tabs, header, bell, bottom bar,
  * and the switch that draws each tab.
@@ -55,7 +55,7 @@ import { AutomationRulesPage } from "@/components/portal/automation-rules"; // v
 import { Leave } from "@/components/portal/leave";
 import { L, MANAGE_ROLES } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
-import { ClientsCard, LiveEconomicsCard, PackagesEditorCard, Sales } from "@/components/portal/sales";
+import { ClientsCard, LiveEconomicsCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
 import { UsersPanel } from "@/components/portal/users-panel";
 import type { TabName } from "@/lib/portal-tabs";
@@ -148,7 +148,6 @@ export default function PortalPage() {
                   TIME (the map only when Sales by State is chosen); the public
                   rate card is a setting, so it sits with the packages (S6) */}
               <Sales user={user} initialView={salesStart} createRequest={salesCreateRequest} focus={focusOf("Sales")} startView={startOf("Sales")} workExtra={<DocumentsPanel bare />} customersExtra={<ClientsCard bare />}
-                packagesExtra={<PackagesEditorCard role={user.role} />}
                 reports={[
                   { key: "state", label: L("Sales by State", "Jualan mengikut Negeri"), node: <SalesMap /> },
                   { key: "live", label: L("Live-hour Economics", "Ekonomi Jam Live"), node: <LiveEconomicsCard /> },
@@ -232,7 +231,7 @@ export default function PortalPage() {
             /* v1.21.1 (CEO): status strip FIRST, minimal - the health read
                before the table. v1.119.0: the panel draws it, beside the
                ELFIA bridge pulse, as the first row of its STOCK NOW zone. */
-            <InventoryPanel role={user.role} focus={focusOf("Inventory")} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
+            <InventoryPanel role={user.role} focus={focusOf("Inventory")} openElfia={canOpen("ELFIA Store") ? () => setTab("ELFIA Store") : undefined /* v1.317.0 (D-4) */} statusCard={MANAGE_ROLES.includes(user.role) ? <InventoryStatusCard /> : undefined} />
           )}
           {activeTab === "ELFIA Store" && (
             <ElfiaStorePanel role={user.role} />

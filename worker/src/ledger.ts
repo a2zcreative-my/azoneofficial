@@ -251,17 +251,21 @@ async function postCloseAdjustments(env: Env, book: Book, m: string, closedAt: s
 
 export async function handleLedger(env: Env, path: string, method: string, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (method !== "GET" || !path.startsWith("/gl/")) return null;
-  const owned = ["/gl/overview", "/gl/month-end", "/gl/ledger", "/gl/pnl"].includes(path)
-    || /^\/gl\/journal\/\d+$/.test(path)
-    || (path === "/gl/journal" && ["q", "source", "from", "to", "page"].some((k) => params.has(k)))
-    || (path === "/gl/trial-balance" && params.has("as_of"));
+  /* v1.317.0 (the duplicate-function audit, D-7) - the journal list and the
+     trial balance are answered here ALWAYS. Each had an older twin in erp.ts
+     for a request with no filter (the newest 300 entries, and a trial balance
+     that left out an inactive account even when it held entries) - two sums
+     under one address. The twins are gone; no filter means all time. */
+  const owned = ["/gl/overview", "/gl/month-end", "/gl/ledger", "/gl/pnl", "/gl/journal", "/gl/trial-balance"].includes(path)
+    || /^\/gl\/journal\/\d+$/.test(path);
   if (!owned) return null;
   if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
   const today = mytToday();
   const book = await loadBook(env);
 
   if (path === "/gl/trial-balance") {
-    const asOf = params.get("as_of") ?? "";
+    const asOf = params.get("as_of");
+    if (asOf === null) return json({ as_of: null, basis: "cash", ...trialOf(book, () => true) }); // all time - the chart of accounts' own balances
     if (!DAY.test(asOf)) return err("validation", "as_of must be a date (YYYY-MM-DD)", 400);
     return json({ as_of: asOf, basis: "cash", ...trialOf(book, (d) => d <= asOf) });
   }

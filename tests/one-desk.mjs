@@ -251,7 +251,7 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
   ok("the Dashboard shows the month ONCE (no four-tile strip, no bar chart behind a pill)",
      !/erp-dashboard-stats/.test(dash) && !/deskTab/.test(dash) && /<MonthAttendanceCard days=\{monthDays\} month=\{mytToday\(\)\.slice\(0, 7\)\} lang=\{lang\} daysPresent=\{daysPresent\} hours=\{monthHours\} \/>/.test(dash));
   ok("the company is one card on the Dashboard (pulse); the Sales floor lives on Ecommerce",
-     /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="pulse" \/>/.test(dash) && !/<NextEventCard/.test(dash)
+     /<TradingDesk user=\{user\} go=\{go\} canOpen=\{canOpen\} lang=\{lang\} mode="pulse" \/>/.test(dash) && !/<NextEventCard/.test(dash)
      && /<TradingDesk user=\{user\} go=\{go\} lang=\{lang\} mode="floor" \/>/.test(read("components/portal/trading-desk.tsx"))
      && /<RevenueAndHoursCard user=\{user\} go=\{go\} lang=\{lang\} \/>/.test(read("components/portal/ecommerce-panel.tsx"))); // v1.185.0 - inside the Ecommerce panel
   /* ---- v1.175.0 — two lists, a next action, and exactly one inline act ----

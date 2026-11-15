@@ -190,3 +190,11 @@ a.fileChip:hover { border-color: var(--muted-foreground); }
 .titleCount { font-size: var(--type-caption-size); color: var(--muted-foreground); }
 .titleBtns { display: inline-flex; gap: 0.5rem; }
 @media (max-width: 767px) { .titleBtn { min-height: 2.75rem; } }
+
+/* v1.319.0 (Tasks 2.0 Stage 1) - the status word and its tag sit together */
+.statePair { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; vertical-align: middle; }
+/* v1.319.0 - the same Add Status Update form drawn on the page (picture 2):
+   no Back row, the three commands in a row at the foot */
+.sheetInline [hidden] { display: none; }
+.inlineBtns { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.inlineBtns > button { min-height: 2.75rem; }

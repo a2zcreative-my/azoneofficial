@@ -670,17 +670,8 @@ export async function handleErp(
       }
     }
 
-    if (path === "/gl/journal" && method === "GET") {
-      if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
-      const entries = await env.DB.prepare(
-        `SELECT * FROM journal_entries ORDER BY entry_date DESC, id DESC LIMIT 300`,
-      ).all();
-      const lines = await env.DB.prepare(
-        `SELECT l.*, a.code, a.name AS account_name FROM journal_lines l JOIN gl_accounts a ON a.id = l.account_id
-          WHERE l.entry_id IN (SELECT id FROM journal_entries ORDER BY entry_date DESC, id DESC LIMIT 300)`,
-      ).all();
-      return json({ entries: entries.results ?? [], lines: lines.results ?? [] });
-    }
+    /* v1.317.0 (the duplicate-function audit, D-7) - GET /gl/journal and GET
+       /gl/trial-balance are the ledger's alone (ledger.ts, handleLedger above) */
     if (path === "/gl/journal" && method === "POST") {
       if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
       const entryDate = str(body?.entry_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.entry_date as string)
@@ -790,19 +781,6 @@ export async function handleErp(
         await audit(env, user.id, "erp.journal_reverse", "journal_entries", String(id), { reversal_id: rid, reason });
         return json({ ok: true, id: rid }, 201);
       }
-    }
-
-    if (path === "/gl/trial-balance" && method === "GET") {
-      if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
-      const rows = await env.DB.prepare(
-        `SELECT a.id, a.code, a.name, a.type,
-                COALESCE(SUM(l.debit_cents), 0) AS debit_cents,
-                COALESCE(SUM(l.credit_cents), 0) AS credit_cents
-           FROM gl_accounts a LEFT JOIN journal_lines l ON l.account_id = a.id
-          WHERE a.active = 1
-          GROUP BY a.id ORDER BY a.code`,
-      ).all();
-      return json({ accounts: rows.results ?? [] });
     }
 
     return null; // unknown /erp path → handleStaff's 404

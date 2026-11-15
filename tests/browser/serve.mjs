@@ -62,6 +62,8 @@ const slowConvert = Number(process.env.SLOW_CONVERT ?? 0);
    adds that media-copy state to GET /system/health (none: as before) */
 let mediaBk = null;
 let punchStatus = 200;
+let punchFresh = false; // v1.318.0 - /__punch?status=201&fresh=1: the person has not clocked in today yet
+const punched = []; // v1.318.0 - the punches the browser made with /__punch?status=201 (the worker's own answer), read back with the day
 const punchLog = [];
 let manualPaid = null;
 /* v1.245.0 - PROJECT=none: QT 1 has no brief until Create project brief is pressed; posted updates are kept (/__projects) */
@@ -120,7 +122,7 @@ const server = http.createServer((req, res) => {
     resetFa(); // v1.284.0
     signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
     pay = payInit(); // v1.272.0
-    punchStatus = 200; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0; pk.creds = []; pk.posts = []; pk.issued = [];
+    punchStatus = 200; punched.length = 0; punchFresh = false; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0; pk.creds = []; pk.posts = []; pk.issued = [];
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
   if (url.pathname === "/__mediabk") {
@@ -128,7 +130,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ media_backup: mediaBk })); return;
   }
   if (url.pathname === "/__punch") {
-    punchStatus = Number(url.searchParams.get("status") ?? 200);
+    punchStatus = Number(url.searchParams.get("status") ?? 200); punchFresh = url.searchParams.get("fresh") === "1";
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ punch_status: punchStatus })); return;
   }
   if (url.pathname === "/__break") {
@@ -351,6 +353,17 @@ const server = http.createServer((req, res) => {
       if (req.method === "POST" && p === "/staff/attendance") {
         punchLog.push({ key: req.headers["idempotency-key"] ?? null, client_at: req.headers["x-client-at"] ?? null, replay: req.headers["x-outbox-replay"] ?? null, status: punchStatus, body });
         if (punchStatus === 401) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return; }
+        /* v1.318.0 - a clean punch, answered as the worker answers it (staff.ts POST /attendance), after a
+           moment so the "Recording attendance" card can be seen; the record is then part of the day */
+        if (punchStatus === 201) {
+          let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+          setTimeout(() => {
+            punched.push({ type: b.type, created_at: new Date().toISOString().slice(0, 19).replace("T", " "), loc: { status: "outside", distance_m: 17400, accuracy_m: 20 } });
+            res.writeHead(201, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, flag: b.type === "clock_in" ? "late" : "completed", no_location: null, pending: false, shift: { start: "10:00", end: "18:00", kind: "work", pattern: null }, ot_minutes: b.type === "clock_out" ? 75 : 0, sessions_today: 1, clocked_in: b.type === "clock_in" }));
+          }, 900);
+          return;
+        }
         if (punchStatus === 409) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "on_leave", message: "You are on approved annual leave today (31-10-2026) - there is no shift to clock in to." } })); return; }
       }
       if (process.env.POP && req.method === "POST" && p === "/staff/payroll/manual-payment") {
@@ -458,6 +471,11 @@ const server = http.createServer((req, res) => {
         const started = req.method === "POST" && p === "/staff/live-reports";
         res.writeHead(started ? 201 : 200, { "content-type": "application/json" }); res.end(JSON.stringify(started ? { id: 21 } : { ok: true })); return;
       }
+      /* v1.317.0 (the duplicate-function audit, D-3) - marking a package for the public page, recorded for /__tasks (the worker's rules are proven by tests/duplicates.mjs) */
+      if (req.method === "POST" && /^\/staff\/packages\/\d+\/public$/.test(p)) {
+        taskPosts.push({ method: req.method, p, body });
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, public: true, showing: 1 })); return;
+      }
       /* v1.247.0 - a manual task reminder and the task email settings */
       if (req.method === "POST" && /^\/staff\/tasks\/\d+\/remind$/.test(p)) {
         taskPosts.push({ method: req.method, p, body });
@@ -552,6 +570,14 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify(good ? { ok: true, email: "aisyah@a2zcreative.test" } : { error: { code: "link_invalid", message: "This link is not valid any more - it was used, it expired, or it was replaced. Ask for a new one." } })); return;
       }
       const data = req.method === "GET" ? fixture(p, url.toString(), { onMissing: path => missing.add(path), made: projectMade }) : { ok: true, ...(p.endsWith("/responsibilities") ? { role_title: "x", responsibilities: [] } : {}) };
+      /* v1.318.0 - a day with no clock-in yet (fresh), then the punches the browser made, read back with the day */
+      if (req.method === "GET" && p === "/staff/attendance" && punchFresh && Array.isArray(data?.records) && data.today_shift) {
+        const pin = punched.find((x) => x.type === "clock_in");
+        data.records = data.records.filter((r) => !String(r.created_at).startsWith(data.as_of));
+        data.today_shift = { ...data.today_shift, entry: { ...data.today_shift.entry, clocked_in: Boolean(pin), open_since: pin?.created_at ?? null }, can_clock_in: !pin, why_not: null };
+        if (Array.isArray(data.days)) data.days = data.days.map((d) => (d.date === data.as_of ? { ...d, in: null, out: null, open: Boolean(pin), worked: Boolean(pin) } : d));
+      }
+      if (req.method === "GET" && p === "/staff/attendance" && punched.length && Array.isArray(data?.records)) data.records = [...punched.slice().reverse(), ...data.records];
       if (req.method === "GET" && p === "/staff/docs" && Array.isArray(data?.docs) && (voided.size || converted.size)) {
         data.docs = data.docs.map((d) => voided.has(String(d.id)) ? { ...d, payment_status: "void", voided_at: "2026-10-31 05:00:00", void_reason: voided.get(String(d.id)) }
           : converted.has(String(d.id)) ? { ...d, invoiced_as: "INV-AZOO311026-9", invoiced_as_id: 9100 } : d);

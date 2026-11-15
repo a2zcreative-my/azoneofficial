@@ -300,7 +300,7 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
     }
     /* (b) is the one a regex can see; (a) needs the control count, so it is
        held for the two rows the CEO reported, by name. */
-    if (/live-cards|sales/.test(f)) {
+    if (/attendance-exceptions|sales/.test(f)) {
       for (const m of src.matchAll(/<span className="(?:[^"]*\s)?flex items-center gap-1\.5">\s*<input/g)) unwrapped.push(f);
     }
   }
@@ -309,10 +309,13 @@ ok("no page block keeps a bare erp-stack root beside the concept", !/{activeTab 
 
   /* The two rows he photographed, by name, so a later edit cannot quietly
      walk them back to a hand-rolled group. */
-  const ot = read("components/portal/live-cards.tsx");
-  ok("the overtime approval row is lead + actions", /<span className="erp-row-lead">/.test(ot) && /<span className="erp-row-actions">/.test(ot));
+  /* v1.317.0 (the duplicate-function audit, D-2) - the Dashboard's second overtime card
+     (live-cards.tsx) is gone; the one decision row is Attendance > Exceptions & Approvals */
+  const ot = read("components/portal/attendance-exceptions.tsx");
+  ok("the overtime decision's actions are a group that wraps", /<span className=\{css\.introRight\}>\s*<button type="button" className=\{btnSmPrimary\} disabled=\{busy\} onClick=\{\(\) => void decideOt\("approved"\)\}/.test(ot)
+     && /\.introRight \{ display: flex; flex-wrap: wrap;/.test(read("components/portal/attendance4.module.css")));
   ok("its note field is the plain small input (no fixed w-36 that cannot shrink)",
-     /className=\{inputClassSm\}\s*\n?\s*placeholder=/.test(ot) && !/\$\{inputClassSm\} w-36/.test(ot));
+     /<input className=\{inputClassSm\} value=\{note\}[\s\S]{0,80}placeholder=/.test(ot) && !/\$\{inputClassSm\} w-36/.test(ot));
   const sales = read("components/portal/sales.tsx");
   ok("the Sales client row is lead + actions (\"Report link\" survives a long company name)",
      /<span className="erp-row-lead font-medium">\{c\.company\}<\/span>/.test(sales)

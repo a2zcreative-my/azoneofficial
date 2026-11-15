@@ -46,6 +46,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, payslipsOutFor } from "./staff"; // v1.255.0 - review and payout notices; v1.311.0 - the released-month rule, read for the Payroll Sync preview
 import { audit, err, json, str } from "./shared";
+import { publicRateCard } from "./packages"; // v1.317.0
 import { can } from "./permissions";
 import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0
 import { bookCash } from "./cashbook"; // v1.255.0 - the agent payout's one cash-book row, at settlement
@@ -1085,12 +1086,9 @@ export async function handleCommission(env: Env, path: string, method: string, b
         }
       }
     } catch { /* nothing to suggest */ }
+    /* v1.317.0 (the duplicate-function audit, D-3) - the names on the public page, from the one package list */
     let card: string[] = [];
-    try {
-      const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
-      const v = row ? JSON.parse(row.value) : null;
-      card = Array.isArray(v) ? v.map((t: { name?: unknown }) => String(t?.name ?? "").trim()).filter(Boolean) : [];
-    } catch { card = []; }
+    try { card = (await publicRateCard(env)).map((t) => String(t?.name ?? "").trim()).filter(Boolean); } catch { card = []; }
     /* v1.232.0 - the sales packages library (1.231.0), for rules that name a whole package */
     let library: { id: number; name: string; status: string; current_version: number }[] = [];
     try {

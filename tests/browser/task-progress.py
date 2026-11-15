@@ -43,11 +43,32 @@ def tab(pg, name):
     if btn.count(): btn.first.click(); pg.wait_for_timeout(1800); return True
     return False
 
+# v1.319.0 (Tasks 2.0 Stage 1, T2-4) - WHERE A TASK OPENS: beside the My Tasks
+# list from 1280px (picture 2), as a full page from 768px (picture 4), in the
+# drawer on a phone. The same pieces in each, so the same checks hold.
+PANEL = "[data-testid=task-workspace]:visible, [role=dialog]:visible"
+def panel(pg, title):
+    return pg.locator(PANEL).filter(has_text=title).first
+def leave_task(pg):
+    back = pg.get_by_test_id("ws-back").filter(visible=True)
+    if back.count(): back.first.click(); pg.wait_for_timeout(800)
+def part(pg, dr, pat):
+    """a section of the task: a tab in the drawer and beside the list, already on the page"""
+    t = dr.get_by_role("tab", name=pat)
+    if t.count(): t.first.click(); pg.wait_for_timeout(1200)
+    more = dr.get_by_test_id("ws-activity-all")  # the page shows the latest five; View all opens the whole record in place
+    if more.count() and more.get_attribute("aria-expanded") == "false": more.click(); pg.wait_for_timeout(300)
+def update_form(pg, dr):
+    """the one update form: always open on the page, behind Add update in the drawer"""
+    if dr.get_by_test_id("add-update").count(): dr.get_by_test_id("add-update").click(); pg.wait_for_timeout(600)
+    return pg.get_by_test_id("update-sheet").filter(visible=True).last
 def open_task(pg, view, title):
+    leave_task(pg)
     pg.get_by_role("tab", name=view, exact=True).first.click(); pg.wait_for_timeout(1000)
-    row = pg.locator(f"tr:has-text('{title}')").first
-    row.get_by_role("button", name=title).first.click(); pg.wait_for_timeout(2000)
-    return pg.get_by_role("dialog").filter(has_text=title).first, row
+    row = pg.locator(f"[data-record^='task:']:visible:has-text('{title}')").first
+    row.get_by_role("button", name=title).first.click() if row.get_by_role("button", name=title).count() else row.click()
+    pg.wait_for_timeout(2000)
+    return panel(pg, title), row
 
 def no_hscroll(pg): return pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
@@ -59,8 +80,15 @@ with sync_playwright() as p:
     tab(pg, "Tasks")
     ov = pg.get_by_test_id("progress-overview")
     # v1.313.0 (Tasks 5.0, TK-2) - waiting for review, blocked and gone quiet are the Overview's Team Attention
-    ta = pg.get_by_test_id("team-attention")
-    check("Overview: Team Attention - waiting for review, blocked, gone quiet", ta.count() == 1 and "waiting for review" in ta.inner_text().lower() and "Blocked" in ta.inner_text() and "No recent update" in ta.inner_text(), ta.inner_text()[:300] if ta.count() else "")
+    # v1.319.0 (picture 5) - they are the Overview list's own Status filter now: the same three, one press each
+    of = pg.get_by_test_id("overview-filters").get_by_label("Status", exact=True)
+    opts = [o.inner_text().strip() for o in of.locator("option").all()]
+    of.select_option("review"); pg.wait_for_timeout(400)
+    ol = pg.get_by_test_id("overview-list")
+    check("Overview: the list filters to waiting for review, blocked and gone quiet", {"Review", "Blocked", "No recent update"} <= set(opts) and TITLE in ol.inner_text(), str(opts))
+    of.select_option("blocked"); pg.wait_for_timeout(400)
+    check("Overview: Blocked leaves the task in review out", TITLE not in ol.inner_text(), ol.inner_text()[:200])
+    of.select_option(""); pg.wait_for_timeout(300)
     check("Overview: the newest progress report is listed with its task", TITLE in ov.inner_text() and "Submitted to the bank" in ov.inner_text(), ov.inner_text()[:300])
     pg.get_by_role("tab", name="All Tasks", exact=True).click(); pg.wait_for_timeout(1000)
     row = pg.locator(f"tr:has-text('{TITLE}')").first
@@ -80,11 +108,12 @@ with sync_playwright() as p:
 
     dr, _ = open_task(pg, "All Tasks", TITLE)
     # v1.282.0 - the photo's tabs: the tab's name is its word, the count its badge (read as its description)
-    tl = dr.get_by_role("tablist", name="Task sections").get_by_role("tab")
-    tabs = [t.evaluate("e => [...e.childNodes].filter(n => n.nodeType === 3 || (n.nodeType === 1 && getComputedStyle(n).display !== 'none' && !n.getAttribute('aria-hidden'))).map(n => n.textContent).join('').trim()") for t in tl.all()]
-    counts = [t.evaluate("e => { const id = e.getAttribute('aria-describedby'); return id ? document.getElementById(id)?.textContent.trim() : null; }") for t in tl.all()]
-    check("the drawer: Details · Updates & Comments · Files · Activity, Updates and Files with their counts", len(tabs) == 4 and tabs[0] == "Details" and tabs[1] == "Updates & Comments" and tabs[2] == "Files" and tabs[3] == "Activity"
-          and re.match(r"\d+ waiting", counts[1] or "") and re.match(r"\d+ waiting", counts[2] or ""), str([tabs, counts]))
+    # v1.319.0 (picture 4) - from All Tasks the task is a full page: every section on it, the counts in the headings
+    heads = [h.inner_text().strip() for h in dr.locator("section h3").all()]
+    check("the task page: Task information, Attachments, Flow & Progress, Recent Activity, Comments & Discussion - files and comments with their counts", dr.get_attribute("data-layout") == "page"
+          and "Task information" in dr.get_by_test_id("ws-info").inner_text() and all(any(h.startswith(w) for h in heads) for w in ["Attachments (", "Flow & Progress", "Recent Activity", "Comments & Discussion ("]) and pg.get_by_role("dialog").count() == 0, str(heads))
+    fs = dr.get_by_test_id("flow-steps")
+    check("the four steps - To Do, In Progress, Review, Done - and the task stands on Review", [li.get_attribute("data-step") for li in fs.locator("li[data-step]").all()] == ["todo", "in_progress", "review", "done"] and fs.get_attribute("data-now") == "review", fs.inner_text()[:120])
     bar = dr.get_by_test_id("review-bar")
     sl = dr.get_by_test_id("summary-latest")  # v1.258.0 - the latest report moved from the bar's one line into the status summary, in full
     check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "Review" in bar.inner_text() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text())
@@ -102,7 +131,7 @@ with sync_playwright() as p:
     # v1.256.0 - Approve & close opens the one form on Closed (inside the drawer); posting it is the closure
     bar.get_by_role("button", name="Approve & close").click(); pg.wait_for_timeout(700)
     sh0 = dr.get_by_test_id("update-sheet")
-    check("Approve & close opens Add Status Update inside the same drawer, on Closed", sh0.count() == 1 and sh0.get_by_label("Status", exact=True).input_value() == "closed" and pg.get_by_role("dialog").count() == 1)
+    check("Approve & close puts the one update form on Closed - on the page, no second layer", sh0.count() == 1 and sh0.get_by_label("Status", exact=True).input_value() == "closed" and pg.get_by_role("dialog").count() == 0)
     out = sh0.get_by_test_id("sheet-outstanding")
     check("3 of 5 deliverables are open: they are named and closing is held (Test B)", out.count() == 1 and "3 deliverable(s) still open" in out.inner_text() and sh0.get_by_test_id("post-update").is_disabled(), out.inner_text()[:200] if out.count() else "")
     out.get_by_role("checkbox").check(); pg.wait_for_timeout(200)
@@ -112,7 +141,7 @@ with sync_playwright() as p:
     cb = json.loads(cl[0]["body"]) if cl else {}
     check("the CEO closes it as a management exception: one POST /close with the reason, and the toast says so", len(cl) == 1 and cb.get("exception") is True and "bank accepted" in cb.get("exception_reason", "") and "Task closed" in pg.inner_text("body"), str(cb))
 
-    dr.get_by_role("tab", name=re.compile("^Updates( & Comments)?$")).click(); pg.wait_for_timeout(1500)
+    part(pg, dr, re.compile("^(Updates( & Comments)?|Notes)$"))
     feed = dr.get_by_test_id("task-feed")
     kinds = [li.get_attribute("data-kind") for li in feed.locator("li").all()]
     check("Updates & Comments: updates and comments in one feed, typed", {"progress", "blocker", "review_request", "comment"} <= set(kinds), str(kinds))
@@ -130,11 +159,11 @@ with sync_playwright() as p:
     check("…carrying an Idempotency-Key", bool(cm and cm[0]["key"]))
     pg.screenshot(path=f"{S}/tp-drawer-updates.png")
 
-    dr.get_by_role("tab", name=re.compile("^Files")).click(); pg.wait_for_timeout(1200)
+    part(pg, dr, re.compile("^Files"))
     fl = dr.get_by_test_id("task-files")
     link = fl.get_by_role("link", name="statements.pdf")
     check("Files: the evidence, opened through the task (private)", link.count() == 1 and re.search(r"/api/v1/staff/tasks/801/files/\d+$", link.get_attribute("href") or ""))
-    dr.get_by_role("tab", name="Activity", exact=True).click(); pg.wait_for_timeout(1200)
+    part(pg, dr, "Activity")
     act = dr.get_by_test_id("task-activity").inner_text()
     for want in ["Created the task", "Reassigned", "Ticked", "Unticked", "Submitted for review", "Reported a blocker", "Attached statements.pdf", "Commented", "Changed deadline"]:
         check(f"Activity: {want}", want in act, act[:200])
@@ -150,8 +179,8 @@ with sync_playwright() as p:
     dr, row = open_task(pg, "My Tasks", TITLE)
     bar = dr.get_by_test_id("review-bar")
     check("assignee: no Approve on his own work", bar.get_by_role("button", name="Approve").count() == 0)
-    dr.get_by_test_id("add-update").click(); pg.wait_for_timeout(600)
-    sh = pg.get_by_test_id("update-sheet")
+    check("My Tasks at desk width: the task is shown beside the list, its update form open (picture 2)", dr.get_attribute("data-layout") == "beside" and dr.get_by_test_id("update-sheet").is_visible() and pg.get_by_role("dialog").count() == 0)
+    sh = update_form(pg, dr)
     opts = [o.inner_text().strip() for o in sh.get_by_label("Status", exact=True).locator("option").all()]
     check("the sheet's statuses: In Progress, Waiting for Client, On Hold / Blocked (already in review: not offered again)", opts == ["In Progress", "Waiting for Client", "On Hold / Blocked"], str(opts))
     check("progress comes from the checklist - shown, not typed (2/5 = 40%)", "From the checklist (2/5)" in sh.inner_text() and sh.locator("input[type='range']").count() == 0)
@@ -194,11 +223,11 @@ with sync_playwright() as p:
     pg.get_by_role("tab", name="My Tasks", exact=True).first.click(); pg.wait_for_timeout(1000)
     st = pg.get_by_label("Status", exact=True).filter(visible=True).first
     st.select_option("assisting"); pg.wait_for_timeout(400)
-    check("filter: I am helping on lists the project task", pg.locator("tr:has-text('Design & content creation')").count() == 1)
+    check("filter: I am helping on lists the project task", pg.locator("[data-testid=my-cards] li:has-text('Design & content creation'), tr:visible:has-text('Design & content creation')").count() == 1)
     pg.get_by_role("button", name="Design & content creation").first.click(); pg.wait_for_timeout(2000)
-    dr = pg.get_by_role("dialog").filter(has_text="Design & content creation").first
+    dr = panel(pg, "Design & content creation")
     bar = dr.get_by_test_id("review-bar")
-    check("helper: Add Update, but no Approve, Return or Cancel", dr.get_by_test_id("add-update").count() == 1 and bar.get_by_role("button", name=re.compile("^(Approve|Return|Cancel task)$")).count() == 0)
+    check("helper: the update form, but no Approve, Return or Cancel", dr.get_by_test_id("post-update").count() == 1 and dr.get_by_test_id("post-done").count() == 0 and bar.get_by_role("button", name=re.compile("^(Approve|Return|Cancel task)$")).count() == 0)
     check("helper: the project, quotation and customer are named", "Aina Boutique" in dr.inner_text() and "QT-AZO150926-1" in dr.inner_text())
     check("no page errors (helper)", not errs, str(errs)[:300])
     ctx.close()
@@ -251,7 +280,7 @@ with sync_playwright() as p:
     dels = [r for r in reqs if r[0] == "DELETE" and re.search(r"/staff/tasks/\d+/items/\d+$", r[1])]
     check("confirming removes it on the server", bool(dels))
     # v1.246.2 - the staff photo beside the name, from the photo book (the owner: "should staff photo appear!")
-    pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+    leave_task(pg); pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
     pg.get_by_role("tab", name="All Tasks", exact=True).first.click(); pg.wait_for_timeout(1200)
     row = pg.locator("tr:has-text('Check inventory delivery')").first
     imgs = row.locator("img[src*='/api/v1/media/file/']")

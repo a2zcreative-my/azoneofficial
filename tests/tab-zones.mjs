@@ -167,9 +167,11 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   const st = page.slice(page.indexOf('{activeTab === "Sales" && ('), page.indexOf('{activeTab === "Content" &&'));
   /* v1.292.0 (Sales Workspace 4.0, the CEO's "approve" 12-11-2026) - the map
      and the live-hour economics are two of the workspace's REPORTS, shown one
-     at a time; the public rate card sits with the packages it prices (S6) */
-  const z = [st.indexOf("<Sales user={user}"), st.indexOf("packagesExtra={<PackagesEditorCard role={user.role} />}"), st.indexOf('{ key: "state", label: L("Sales by State"'), st.indexOf("node: <SalesMap />"), st.indexOf('{ key: "live", label: L("Live-hour Economics"'), st.indexOf("node: <LiveEconomicsCard />")];
-  ok("the map and the live-hour economics are Sales reports (one at a time); the rate card sits with the packages", z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st)
+     at a time; the public rate card sits with the packages it prices (S6).
+     v1.317.0 (the duplicate-function audit, D-3) - there is ONE package list:
+     the public page is set on the package itself, so no second editor is handed in */
+  const z = [st.indexOf("<Sales user={user}"), st.indexOf('{ key: "state", label: L("Sales by State"'), st.indexOf("node: <SalesMap />"), st.indexOf('{ key: "live", label: L("Live-hour Economics"'), st.indexOf("node: <LiveEconomicsCard />")];
+  ok("the map and the live-hour economics are Sales reports (one at a time); no second package editor is handed in", !/PackagesEditorCard|packagesExtra/.test(st) && z.every((x) => x > 0) && z.every((x, i) => i === 0 || x > z[i - 1]) && /workExtra=\{<DocumentsPanel bare \/>\}/.test(st) && /customersExtra=\{<ClientsCard bare \/>\}/.test(st)
      && /\{wsView === "reports" && <ReportPicker reports=\{reportDefs\} \/>\}/.test(comp) && /\.\.\.\(p\.extra \?\? \[\]\)/.test(read("components/portal/sales-views.tsx")), z.join(" < "));
   /* v1.191.0 - the work card has no caption (the owner's photo); its Documents head opens it */
   const inner = [comp.indexOf('L(`All Documents`'), comp.indexOf("{editingDoc ? ("), comp.indexOf("cloneElement(workExtra"), comp.indexOf('L("Customers", "Pelanggan")'), comp.indexOf("{editingCust ? ("), comp.indexOf("{customersExtra}")];
@@ -376,7 +378,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      creation, then the company-wide progress and the completion archive */
   /* v1.209.0 (the owner's Tasks brief, 25-10-2026): Create is a drawer from
      the + button (the same form and create()), and Calendar is a tab */
-  ok("Tasks: active records, the deadlines, progress, completion archive - and creation in its drawer", ordered(tasks, ['renderTasks(sift(myTasks, { status: true })', 'renderTasks(sift(tasks, { status: true, who: true })', '<WorkCalendar tasks=', '{progress}', 'renderTasks([...tasks.filter((t) => t.status === "completed")', '<SideDrawer open={createOpen}']) && /useState<StatusF>\("active"\)/.test(tasks) && (tasks.match(/L\("Create \/ assign a task"/g) ?? []).length === 1);
+  ok("Tasks: active records, the deadlines, progress, completion archive - and creation in its drawer", ordered(tasks, ['renderTasks(mineRows,', 'renderTasks(sift(tasks, { status: true, who: true })', '<WorkCalendar tasks=', '{progress}', 'renderTasks([...tasks.filter((t) => t.status === "completed")', '<SideDrawer open={createOpen}']) && /useState<StatusF>\("active"\)/.test(tasks) && (tasks.match(/L\("Create \/ assign a task"/g) ?? []).length === 1);
   /* v1.245.0 (the owner's Project Workspace brief, decision P-4): a sixth tab,
      Projects, after All Tasks - for the roles that hold project_view; still
      every zone hidden, not unmounted */

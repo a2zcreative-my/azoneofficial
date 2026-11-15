@@ -8911,12 +8911,6 @@ async function handleStaffRoutes(
 
   /* ---- company expenses (v1.4.87): CEO + COO ---- */
 
-  /* v1.4.278 — 💹 P&L by month ("powerful system for my sales track and
-     also expenses"). Revenue comes from revenueByMonth() — the ONE revenue
-     arithmetic; payroll uses the SAME net expression the M2E file uses
-     (net_cents with the additive fallback — never a second formula);
-     expenses by expense_date; claims = APPROVED, by claim_date. Every
-     source armored; a month appears if ANY source has it. */
   /* v1.4.281 — 🧩 business lines: the two businesses (product / service)
      reported separately, from the SAME revenueLines() buckets that feed
      every total. Expandable: response is lines[] — a future line appears
@@ -8940,47 +8934,12 @@ async function handleStaffRoutes(
     return json({ lines });
   }
 
-  if (path === "/finance/pnl" && method === "GET") {
-    if (!can(user.role, "expenses")) return err("forbidden", "Expenses access required", 403);
-    const rev = await revenueByMonth(env);
-    const exp: Record<string, number> = {}; const pay: Record<string, number> = {}; const clm: Record<string, number> = {};
-    try {
-      const { results } = await env.DB.prepare(
-        `SELECT substr(expense_date, 1, 7) AS m, COALESCE(SUM(amount_cents), 0) AS cents FROM expenses GROUP BY m`,
-      ).all<{ m: string; cents: number }>();
-      for (const r of results) exp[r.m] = r.cents;
-    } catch { /* pre-0032 */ }
-    try {
-      const { results } = await env.DB.prepare(
-        `SELECT month AS m, COALESCE(SUM(COALESCE(net_cents,
-                MAX(0, basic_cents + commission_cents + allowance_cents + COALESCE(ot_cents, 0) - deduction_cents))), 0) AS cents
-         FROM payroll_entries GROUP BY month`,
-      ).all<{ m: string; cents: number }>();
-      for (const r of results) pay[r.m] = r.cents;
-    } catch { /* pre-0017/0041 skew — try the plain additive form */
-      try {
-        const { results } = await env.DB.prepare(
-          `SELECT month AS m, COALESCE(SUM(MAX(0, basic_cents + commission_cents + allowance_cents - deduction_cents)), 0) AS cents
-           FROM payroll_entries GROUP BY month`,
-        ).all<{ m: string; cents: number }>();
-        for (const r of results) pay[r.m] = r.cents;
-      } catch { /* pre-payroll */ }
-    }
-    try {
-      const { results } = await env.DB.prepare(
-        `SELECT substr(claim_date, 1, 7) AS m, COALESCE(SUM(amount_cents), 0) AS cents
-         FROM claims WHERE status = 'approved' AND claim_type = 'reimbursement' GROUP BY m`,
-      ).all<{ m: string; cents: number }>();
-      for (const r of results) clm[r.m] = r.cents;
-    } catch { /* pre-claims */ }
-    const monthsSet = new Set([...Object.keys(rev), ...Object.keys(exp), ...Object.keys(pay), ...Object.keys(clm)]);
-    const months = [...monthsSet].sort().map((m) => {
-      const revenue = rev[m] ?? 0, expenses = exp[m] ?? 0, payroll = pay[m] ?? 0, claims = clm[m] ?? 0;
-      return { month: m, revenue_cents: revenue, expenses_cents: expenses, payroll_cents: payroll, claims_cents: claims,
-               net_cents: revenue - expenses - payroll - claims };
-    });
-    return json({ months });
-  }
+  /* v1.317.0 (the duplicate-function audit, D-1; the CEO, 15-11-2026: "fix the
+     issue as per recommended") - GET /finance/pnl is gone. It was a third
+     profit sum (revenue - every expense row whatever its status - every saved
+     payroll row - approved claims), drawn only by a pop-up no deciding role
+     could reach any more. Profit is read in Finance > Reports (the cash book)
+     and Accounting > Financial Reports (the ledger). No data is touched. */
 
   /* v1.5.0: /prospects/insights removed with the Social tab. */
 
@@ -11169,29 +11128,10 @@ async function handleStaffRoutes(
     return json({ month: monthMY, clients, hosts });
   }
 
-  // Idea 3: the public package rate card — ONE system_meta row, edited from
-  // the portal, served unauthenticated by index.ts. The public page renders
-  // only when real tiers exist (house rule: never display zero stats).
-  if (path === "/sales/packages" && method === "GET") {
-    if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
-    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
-    return json({ packages: row ? JSON.parse(row.value) : null });
-  }
-  if (path === "/sales/packages" && method === "POST") {
-    if (!["ceo", "super_admin"].includes(user.role)) return err("forbidden", "CEO only", 403);
-    const raw = Array.isArray(body?.packages) ? body.packages : [];
-    const tiers = raw.slice(0, 6).map((t: { name?: unknown; price_label?: unknown; points?: unknown }) => ({
-      name: String(t?.name ?? "").trim().slice(0, 60),
-      price_label: String(t?.price_label ?? "").trim().slice(0, 60),
-      points: (Array.isArray(t?.points) ? t.points : []).map((p: unknown) => String(p).trim().slice(0, 120)).filter(Boolean).slice(0, 8),
-    })).filter((t: { name: string }) => t.name);
-    await env.DB.prepare(
-      `INSERT INTO system_meta (key, value) VALUES ('packages_json', ?1)
-       ON CONFLICT(key) DO UPDATE SET value = ?1`,
-    ).bind(JSON.stringify(tiers)).run();
-    await audit(env, user.id, "sales.packages_update", "system_meta", "packages_json", { tiers: tiers.length });
-    return json({ ok: true, packages: tiers });
-  }
+  /* v1.317.0 (the duplicate-function audit, D-3; the CEO, 15-11-2026) - GET and POST
+     /sales/packages are gone: the hand-typed public rate card was a second package
+     list. The public page reads the packages the CEO marks in the library
+     (packages.ts, POST /packages/:id/public). The saved card is kept, untouched. */
 
   if (path === "/customers" && (method === "GET" || method === "POST")) {
     if (method === "GET" ? !can(user.role, "sales") && !can(user.role, "exec_view") : !can(user.role, "sales")) {

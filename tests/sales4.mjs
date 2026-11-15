@@ -97,10 +97,12 @@ function checks(src) {
 
   /* ---- Documents, Customers, Reports ---- */
   ok("a document row: one state-based action; the rest under the row's ⋯ menu", (sales.match(/<RowMenu label=/g) ?? []).length >= 1 && /data-testid="row-more"/.test(shell) && /data-testid="row-menu"/.test(shell));
-  ok("S6 - Packages lives in Quotations & Invoices -> More, with the rate card editor",
+  /* v1.317.0 (the duplicate-function audit, D-3, the CEO 15-11-2026) - one package list: the public page is set on the package */
+  ok("S6 - Packages lives in Quotations & Invoices -> More; the public page is set on the package itself, not in a second editor",
     /\{ key: "packages", label: L\("Packages", "Pakej"\), on: workTab === "packages", go: \(\) => setWorkTab\("packages"\) \}/.test(sales)
-    && /\{workTab === "packages" && <div className="mt-3"><PackagesPanel role=\{user\.role\} \/>\{packagesExtra\s*\}<\/div>\}/.test(sales)
-    && /packagesExtra=\{<PackagesEditorCard role=\{user\.role\} \/>\}/.test(page));
+    && /\{workTab === "packages" && <div className="mt-3"><PackagesPanel role=\{user\.role\} \/>/.test(sales)
+    && !/PackagesEditorCard|packagesExtra|sales\/packages/.test(sales + page)
+    && /`\/staff\/packages\/\$\{p\.id\}\/public`, \{ method: "POST"/.test(read("components/portal/packages-panel.tsx")));
   const rp = between(shell, "export function ReportPicker(", "\n}\n");
   ok("Reports: one report at a time - only the chosen one is mounted",
     /<div key=\{cur\.key\} className=\{css\.reportBody\}>\{cur\.node\}<\/div>/.test(rp) && !/reports\.map\(\(r\) => [^)]*r\.node/.test(rp) && /<ReportPicker reports=\{reportDefs\} \/>/.test(sales));

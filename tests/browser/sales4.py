@@ -175,7 +175,8 @@ with sync_playwright() as p:
         check(f"Docs {w}: More holds Delivery orders, Receipts, Credit notes, Outstanding, Packages", all(any(o.startswith(x) for o in opts) for x in ["Delivery orders", "Receipts", "Credit notes", "Outstanding", "Packages"]), opts)
         dm.select_option("packages"); pg.wait_for_timeout(1200)
         main = pg.locator("main").inner_text()
-        check(f"Docs {w}: Packages opens inside Quotations & Invoices, with the rate card", view_of(pg) == "documents" and re.search(r"rate card", main, re.I) is not None, main[:400])
+        # v1.317.0 (the duplicate-function audit, D-3) - one package list: the public page is set on the package, no second editor
+        check(f"Docs {w}: Packages opens inside Quotations & Invoices, and says what the public page shows", view_of(pg) == "documents" and pg.get_by_test_id("public-page-note").filter(visible=True).count() == 1 and pg.get_by_test_id("pkg-public-toggle").filter(visible=True).count() >= 1, main[:400])
         check(f"Docs {w}: no sideways page with Packages open", no_hscroll(pg))
         ctx.close()
 

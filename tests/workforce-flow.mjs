@@ -6,7 +6,8 @@ const read = (path) => readFileSync(path, "utf8");
 const staff = read("worker/src/staff.ts");
 const claims = read("components/portal/role-panels.tsx");
 const payroll = read("components/portal/payroll-panel.tsx");
-const ot = read("components/portal/live-cards.tsx");
+/* v1.317.0 (the duplicate-function audit, D-2) - the Dashboard's second overtime card (live-cards.tsx) is gone; overtime is decided in Attendance > Exceptions & Approvals (attendance-exceptions.tsx) */
+const ot = read("components/portal/attendance-exceptions.tsx");
 const tabs = read("lib/portal-tabs.ts");
 const migration = read("worker/migrations/0136_claim_advances.sql");
 
@@ -37,7 +38,7 @@ assert.match(payroll, /const D = shown\?\.entry \? payslipData\(/, "the employee
 
 assert.match(staff, /decision === "replacement"[\s\S]+env\.DB\.batch/, "OT conversion must credit leave and decide OT atomically");
 assert.match(staff, /status = 'replacement'/, "replacement OT must not be selected by payroll's approved-only query");
-assert.match(ot, /Half-day leave/, "the CEO must be offered half-day replacement leave");
-assert.match(ot, /Full-day leave/, "the CEO must be offered full-day replacement leave");
+assert.match(ot, /ots\.data\?\.can_replace && <button[^>]*onClick=\{\(\) => void decideOt\("replacement", 0\.5\)\}>\{L\("Half replacement day"/, "the CEO must be offered half-day replacement leave");
+assert.match(ot, /ots\.data\?\.can_replace && <button[^>]*onClick=\{\(\) => void decideOt\("replacement", 1\)\}>\{L\("Replacement day"/, "the CEO must be offered full-day replacement leave");
 
 console.log("PASS - Threads retirement, claim idempotency, salary advances and OT replacement are one guarded workflow");

@@ -1,0 +1,3 @@
+/* v1.318.0 - the company's own logo, one way (brand-logo.tsx). The plate itself is .erp-brand-logo (styles/erp-v3.css). */
+.brand { display: inline-flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.label { font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.01em; color: var(--muted-foreground); white-space: nowrap; }

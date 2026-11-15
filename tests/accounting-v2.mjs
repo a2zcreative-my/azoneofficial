@@ -214,7 +214,17 @@ try {
   const tbJul = (await call("/erp/gl/trial-balance?as_of=2026-07-31")).j;
   ok("trial balance as at a date reads the day money moved", tbJul?.accounts.find((a) => a.code === "6000")?.debit_cents === 7000 && tbJul.balanced === true, JSON.stringify(tbJul?.accounts?.filter((a) => a.debit_cents || a.credit_cents)));
   const tbAll = (await call("/erp/gl/trial-balance")).j;
-  ok("the plain trial balance is unchanged (all time, active accounts)", Array.isArray(tbAll?.accounts) && !("as_of" in tbAll));
+  /* v1.317.0 (the duplicate-function audit, D-7, the CEO 15-11-2026) - one trial balance: the plain
+     request is the ledger's own, for all time, and agrees with "as at" a day after every entry.
+     Its older twin in erp.ts left out an inactive account even when it held entries. */
+  const tbFar = (await call("/erp/gl/trial-balance?as_of=2099-12-31")).j;
+  ok("the plain trial balance is the same calculation, for all time", Array.isArray(tbAll?.accounts) && tbAll.as_of === null && tbAll.basis === "cash"
+    && tbAll.debit_cents === tbFar.debit_cents && tbAll.credit_cents === tbFar.credit_cents && tbAll.debit_cents > 0, JSON.stringify([tbAll?.debit_cents, tbFar?.debit_cents]));
+  db.exec(`UPDATE gl_accounts SET active = 0 WHERE code = '6000'`);
+  const tbOff = (await call("/erp/gl/trial-balance")).j;
+  ok("...and an account switched off still shows the entries it holds", tbOff.accounts.some((a) => a.code === "6000" && (a.debit_cents || a.credit_cents)) && tbOff.debit_cents === tbAll.debit_cents && tbOff.difference_cents === tbAll.difference_cents);
+  db.exec(`UPDATE gl_accounts SET active = 1 WHERE code = '6000'`);
+  ok("the journal list has one answer too: unfiltered is every entry, newest first, 25 to a page", await (async () => { const j = (await call("/erp/gl/journal")).j; return Array.isArray(j?.entries) && j.entries.length <= 25 && j.total === count("journal_entries") && !("lines" in j); })());
 
   const pnl = (await call("/erp/gl/pnl?from=2026-08-01&to=2026-08-31")).j;
   ok("P&L: August income is the service invoice on 4100, net = income - expense", pnl?.income.some((r) => r.code === "4100" && r.cents === 500000) && pnl.totals.net_cents === pnl.totals.income_cents - pnl.totals.expense_cents, JSON.stringify(pnl?.totals));

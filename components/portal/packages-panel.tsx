@@ -20,6 +20,7 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.317.0 - the public page's price label
 import { L } from "@/components/portal/page-shared";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
@@ -40,7 +41,10 @@ const MAX_SUB = 10; // the worker keeps up to 10 inclusions a line
 /* ================================ library ================================ */
 
 export function PackagesPanel({ role }: { role: string }) {
-  const list = useCachedApi<{ packages?: PackageRow[]; can_manage?: boolean; pending_migration?: boolean }>("/staff/packages", true, []);
+  const list = useCachedApi<{ packages?: PackageRow[]; can_manage?: boolean; pending_migration?: boolean; can_publish?: boolean; public_showing?: number; legacy_public_tiers?: number }>("/staff/packages", true, []);
+  /* v1.317.0 (the duplicate-function audit, D-3) - the server says who chooses what the public page shows (the CEO, super admin) */
+  const canPublish = list.data?.can_publish === true;
+  const { prompt, node: promptNode } = usePrompt();
   const canManage = list.data?.can_manage ?? holds("packages_manage", PACKAGE_MANAGE_ROLES.includes(role));
   /* v1.247.2 - archive, bring back and delete are management's only (by role); the server says the same */
   const canArchive = ["super_admin", "ceo", "coo", "cco"].includes(role);
@@ -64,6 +68,26 @@ export function PackagesPanel({ role }: { role: string }) {
     toast(L("Saved", "Disimpan"), to === "archived" ? L(`${p.name} archived - quotations already made from it are unchanged`, `${p.name} diarkibkan - sebut harga sedia ada tidak berubah`) : L(`${p.name} is ${to}`, `${p.name} kini ${statusLabel(to).toLowerCase()}`));
     list.refresh();
   };
+  /* v1.317.0 (D-3) - ONE PACKAGE LIST: the public Packages page shows the packages marked
+     here. What goes public is said before it does: the name, a price label, the item names. */
+  const setPublic = async (p: PackageRow, on: boolean) => {
+    let label = "";
+    if (on) {
+      const got = await prompt({
+        title: L(`Show ${p.name} on the public Packages page?`, `Papar ${p.name} di halaman Pakej awam?`),
+        message: L(`Anyone can read it there: the package name, the price label below, and its ${p.item_count} item name(s). Leave the label empty to show RM ${rm(p.total_cents)}.`,
+                   `Sesiapa boleh membacanya: nama pakej, label harga di bawah, dan ${p.item_count} nama item. Kosongkan label untuk papar RM ${rm(p.total_cents)}.`),
+        label: L("Price label (optional, e.g. From RM 1,500 / month)", "Label harga (pilihan, cth. Dari RM 1,500 / bulan)"),
+        initial: p.public_label ?? "", confirmLabel: L("Show on public page", "Papar di halaman awam"),
+      });
+      if (!got) return;
+      label = got.value.trim();
+    } else if (!(await confirm({ title: L(`Take ${p.name} off the public page?`, `Buang ${p.name} dari halaman awam?`), message: L("The package itself is unchanged and can still be quoted.", "Pakej itu sendiri tidak berubah dan masih boleh disebut harga."), confirmLabel: L("Take off", "Buang") }))) return;
+    const r = await api<{ error?: { message?: string } }>(`/staff/packages/${p.id}/public`, { method: "POST", body: JSON.stringify({ on, price_label: label }) });
+    if (!r.ok) { toast(L("Not changed", "Tidak diubah"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice"); return; }
+    toast(L("Saved", "Disimpan"), on ? L(`${p.name} is on the public Packages page`, `${p.name} kini di halaman Pakej awam`) : L(`${p.name} is off the public page`, `${p.name} dibuang dari halaman awam`));
+    list.refresh();
+  };
   const remove = async (p: PackageRow) => {
     if (!(await confirm({ title: L(`Delete ${p.name}?`, `Padam ${p.name}?`), message: L("No document was made from it, so it can be deleted. This cannot be undone.", "Tiada dokumen dibuat daripadanya, jadi ia boleh dipadam. Tindakan ini tidak boleh dibatalkan."), confirmLabel: L("Delete", "Padam"), variant: "danger" }))) return;
     const r = await api<{ error?: { message?: string } }>(`/staff/packages/${p.id}`, { method: "DELETE" });
@@ -74,12 +98,12 @@ export function PackagesPanel({ role }: { role: string }) {
 
   return (
     <section className={`${card} ${css.panel}`} aria-label={L("Packages library", "Pustaka pakej")}>
-      {toastNode}{confirmNode}
+      {toastNode}{confirmNode}{promptNode}
       <div className={css.head}>
         <span className={css.headIcon} aria-hidden><AppIcon name="package" /></span>
         <div className={css.headText}>
           <h3 className={css.title}>{L("Packages", "Pakej")}</h3>
-          <p className="erp-meta">{L("Ready-made service packages for quotations. Choosing one fills the quotation's lines; the quotation keeps its own copy. Not the public website rate card.", "Pakej perkhidmatan sedia untuk sebut harga. Memilih satu mengisi baris sebut harga; sebut harga menyimpan salinannya sendiri. Bukan kad harga laman web awam.")}</p>
+          <p className="erp-meta">{L("Ready-made service packages for quotations. Choosing one fills the quotation's lines; the quotation keeps its own copy. The CEO chooses which active packages the public Packages page shows.", "Pakej perkhidmatan sedia untuk sebut harga. Memilih satu mengisi baris sebut harga; sebut harga menyimpan salinannya sendiri. Bukan kad harga laman web awam.")}</p>
         </div>
         {canManage && <button type="button" className={btnSmPrimary} onClick={() => setEditing("new")}><AppIcon name="add" />{L("Create package", "Cipta pakej")}</button>}
       </div>
@@ -108,6 +132,15 @@ export function PackagesPanel({ role }: { role: string }) {
         {(q || issuer || status || cat) && <button type="button" className={btnSm} onClick={() => { setQ(""); setIssuer(""); setStatus(""); setCat(""); }}>{L("Reset", "Set semula")}</button>}
       </div>
 
+      {canPublish && !list.loading && (
+        <p className="erp-note" data-testid="public-page-note">
+          {(list.data?.public_showing ?? 0) > 0
+            ? L(`The public Packages page shows ${list.data!.public_showing} package(s) from this list.`, `Halaman Pakej awam memaparkan ${list.data!.public_showing} pakej daripada senarai ini.`)
+            : (list.data?.legacy_public_tiers ?? 0) > 0
+              ? L(`The public Packages page still shows the earlier rate card (${list.data!.legacy_public_tiers} tier(s)), which is no longer edited. It is replaced as soon as one active package here is marked "Public page".`, `Halaman Pakej awam masih memaparkan kad kadar terdahulu (${list.data!.legacy_public_tiers} peringkat), yang tidak lagi disunting. Ia diganti sebaik sahaja satu pakej aktif di sini ditanda "Halaman awam".`)
+              : L("The public Packages page shows no prices yet. Mark an active package \"Public page\" to show it there.", "Halaman Pakej awam belum memaparkan harga. Tandakan pakej aktif \"Halaman awam\" untuk memaparkannya.")}
+        </p>
+      )}
       {list.loading ? <SkelRows rows={4} /> : list.data?.pending_migration ? (
         <p className="erp-note erp-note-warning">{L("Packages need migration 0153 on the database. Run the pending migrations, then refresh.", "Pakej memerlukan migrasi 0153 pada pangkalan data. Jalankan migrasi tertunda, kemudian muat semula.")}</p>
       ) : shown.length === 0 ? (
@@ -138,12 +171,13 @@ export function PackagesPanel({ role }: { role: string }) {
                   <td data-label={L("Description", "Keterangan")} className={`${css.desc} ${css.preLine}`}>{p.description || <span className={css.muted}>—</span>}</td>
                   <td data-label={L("Items", "Item")} className={css.num}>{p.item_count}</td>
                   <td data-label={L("Total (RM)", "Jumlah (RM)")} className={`${css.num} ${css.money}`}>{rm(p.total_cents)}</td>
-                  <td data-label={L("Status", "Status")}><span className={statusChip(p.status)}>{statusLabel(p.status)}</span></td>
+                  <td data-label={L("Status", "Status")}><span className={statusChip(p.status)}>{statusLabel(p.status)}</span>{p.public && <span className={chipInfo} data-testid="pkg-public" title={p.public_label || `RM ${rm(p.total_cents)}`}>{L("Public page", "Halaman awam")}</span>}</td>
                   <td data-label={L("Last updated", "Kemas kini terakhir")} className={css.when}>{dmy(p.updated_at.slice(0, 10))}{p.updated_by_name ? <span className={css.muted}> · {p.updated_by_name}</span> : null}</td>
                   <td className={css.actCell}>
                     <span className={css.actions}>
                       <button type="button" className={btnSm} onClick={() => setEditing(p)}><AppIcon name={canManage ? "edit" : "document"} />{canManage ? L("Edit", "Sunting") : L("View", "Lihat")}</button>
                       {canManage && p.status !== "active" && (p.status !== "archived" || canArchive) && <button type="button" className={btnSm} onClick={() => void setStatusOf(p, "active")}>{L("Activate", "Aktifkan")}</button>}
+                      {canPublish && p.status === "active" && <button type="button" className={btnSm} onClick={() => void setPublic(p, !p.public)} data-testid="pkg-public-toggle">{p.public ? L("Take off public page", "Buang dari halaman awam") : L("Public page", "Halaman awam")}</button>}
                       {canArchive && p.status === "active" && <button type="button" className={btnSm} onClick={() => void setStatusOf(p, "archived")}>{L("Archive", "Arkib")}</button>}
                       {canArchive && p.used_by === 0 && p.status !== "active" && <button type="button" className={btnSm} onClick={() => void remove(p)} aria-label={L(`Delete ${p.name}`, `Padam ${p.name}`)}>{L("Delete", "Padam")}</button>}
                     </span>

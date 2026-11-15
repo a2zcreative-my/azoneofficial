@@ -1083,6 +1083,8 @@
   .erp-rail-user-role { font-size: 0.75rem; color: var(--muted-foreground); text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* v1.172.2 - the brand mark and the sign-out row, off utilities */
   .erp-rail-logo { width: 2rem; height: 2rem; flex-shrink: 0; border-radius: var(--radius); background: #fff; object-fit: contain; padding: 0.25rem; }
+  /* v1.318.0 - the company's own logo on a white plate, wherever a dialog names the company (components/ui/brand-logo.tsx) */
+  .erp-brand-logo { width: auto; height: 2.25rem; flex-shrink: 0; border-radius: var(--radius); background: #fff; object-fit: contain; padding: 0.3125rem 0.5rem; }
   .erp-rail-item-signout { border-radius: var(--radius); }
 
   /* The contextual drawer (components/ui/side-drawer.tsx). */

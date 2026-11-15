@@ -142,7 +142,8 @@ function source() {
   ok(!/reports_to|reportingLine/.test(claimsChain), "the claims approval chain does not read reporting lines");
   ok(!/reports_to/.test(leaveChain) && /import \{ reportingLine, type OrgPerson \} from "\.\.\/\.\.\/lib\/org-tree";/.test(leaveChain), "the leave chain reads reporting lines only through the chart's rule (reportingLine), never the raw column");
   const card = read("components/portal/reporting-line-card.tsx");
-  ok(/data\.kind === "system" \|\| data\.kind === "gone"\)\) return null/.test(card), "a system account sees no card");
+  /* v1.317.0 (the duplicate-function audit, D-9) - the full card left (nothing drew it); the strip is what is shown, to staff only */
+  ok(/if \(!data \|\| data\.kind !== "staff" \|\| !data\.me\) return null;/.test(card) && !/export function ReportingLineCard\(/.test(card), "a system account sees no card");
   ok(!/api<[^>]*>\([^)]*method/.test(card) && !/method: "(POST|PATCH|PUT|DELETE)"/.test(card), "the card writes nothing");
   ok(/u\.role !== "ceo" && u\.reports_to/.test(read("components/staff/staff-directory.tsx")), "the CEO's profile never shows a manager");
   ok(/reportingLine\(rows, user\.id\)/.test(read("worker/src/staff.ts")), "the endpoint answers from the chart's own tree");

@@ -17,7 +17,7 @@ import { openAttachment, openDocumentPreview } from "@/components/ui/document-pr
  * these panels are conveniences, not the security boundary.
  */
 
-import { ELFIA_PUBLISH_ROLES } from "@/components/portal/elfia-products"; // v1.235.0
+import { ELFIA_PUBLISH_ROLES, priceState } from "@/components/portal/elfia-products"; // v1.235.0; v1.317.0 - the one rule for what the store charges
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
 const api = makeApi("/staff");
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -218,6 +218,8 @@ interface InvItem {
   category?: string | null; // v1.136.0 — the item's family: Bawal, Shawl, …
   bridge_enabled?: number | null; // v1.35.0 — published to the ELFIA web store
   elfia_price_cents?: number | null; // v1.35.0 — explicit web price (empty = list price)
+  elfia_discount_cents?: number | null; // v1.317.0 - read only here: ELFIA Store sets it
+  elfia_flash_until?: string | null;
   updated_by_name?: string;
 }
 interface BridgeHealth { // v1.36.0 — the ELFIA bridge's pulse
@@ -304,7 +306,24 @@ const rmR = fmtRM; // v1.4.272: global
    coloured, In / Out under the thumb - the SAME rows and the SAME handlers
    as the desk table (one data source, two renderings); price, rebate, net
    and the web toggle stay on the desk. Every action and rule is unchanged. */
-export function InventoryPanel({ role = "", statusCard, focus }: { role?: string; statusCard?: ReactNode; focus?: RecordFocus | null }) {
+/* v1.317.0 (the duplicate-function audit, D-4; the CEO, 15-11-2026) - ONE PRODUCT, TWO PRICES.
+   When the store charges something other than the row's list price (a web price, or a
+   discount set in ELFIA Store), the row says so - on the desk table and on the phone card -
+   with the figure the store's own rule gives (priceState; never a second sum), and opens
+   ELFIA Store, where it is set. */
+function StoreCharges({ it, openElfia }: { it: { bridge_enabled?: number | null; unit_price_cents?: number | null; elfia_price_cents?: number | null; elfia_discount_cents?: number | null; elfia_flash_until?: string | null; id: number; sku: string; name: string; stock: number }; openElfia?: () => void }) {
+  if ((it.bridge_enabled ?? 0) !== 1) return null;
+  const pays = priceState({ ...it, status: "" }).pays;
+  if (pays <= 0 || pays === (it.unit_price_cents ?? 0)) return null;
+  return (
+    <span className={ivc.storeCharges} data-testid="elfia-charges">
+      {L(`The store charges RM ${rmBare(pays)}, not this list price.`, `Kedai mengenakan RM ${rmBare(pays)}, bukan harga senarai ini.`)}
+      {openElfia && <button type="button" className={ivc.storeLink} onClick={openElfia}>{L("ELFIA Store", "Kedai ELFIA")} →</button>}
+    </span>
+  );
+}
+
+export function InventoryPanel({ role = "", statusCard, focus, openElfia }: { role?: string; statusCard?: ReactNode; focus?: RecordFocus | null; openElfia?: () => void }) {
   /* v1.21.7 (CEO): deleting a stock-movement record is CEO/COO only. */
   const canDeleteMovements = ["super_admin", "ceo", "coo"].includes(role);
   const [items, setItems] = useState<InvItem[]>([]);
@@ -1013,6 +1032,7 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
                 <div className="min-w-0">
                   <button type="button" className="min-h-11 text-left text-sm font-semibold break-words hover:underline" onClick={() => setDetailId(it.id)}>{it.name}<AppIcon name="next" className="ml-1" /></button>
                   <p className="text-muted-foreground truncate text-[11px]"><span className="font-mono">{it.sku}</span>{it.unit_price_cents ? ` · RM ${rmBare(it.unit_price_cents)}` : ""}</p>
+                  <StoreCharges it={it} openElfia={openElfia} />
                   {/* v1.136.0 - the family on the phone too. Read-only here:
                       the strip above is how a phone narrows to one family,
                       and filing an item is desk work like the price edits. */}
@@ -1232,6 +1252,7 @@ export function InventoryPanel({ role = "", statusCard, focus }: { role?: string
                       )}
                     </span>
                     )}
+                    <StoreCharges it={it} openElfia={openElfia} />
                   </td>
                   {/* v1.4.270: the stock figure becomes comparable at a
                       glance — bar vs the list's own largest stock, red ≤5

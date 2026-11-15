@@ -11,8 +11,8 @@
    no source is not drawn (TK-6, TK-10). */
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { L, type Task, type TaskItem, priorityL } from "@/components/portal/page-shared";
-import { StateChip, stamp } from "@/components/portal/task-progress";
+import { L, type Task, priorityL } from "@/components/portal/page-shared";
+import { stamp } from "@/components/portal/task-progress";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
@@ -76,54 +76,6 @@ export function Bar5({ pct, done }: { pct: number; done?: boolean }) {
 export function byUrgency(rows: Task[], today: string): Task[] {
   const score = (t: Task) => (t.deadline && t.deadline < today ? 0 : t.deadline === today ? 1 : (PRIORITY_RANK[t.priority] ?? 2) <= 1 ? 2 : 3);
   return [...rows].sort((a, b) => score(a) - score(b) || (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999") || (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2));
-}
-
-/* ---------------- My Tasks: the selected task, beside the list (image 1) ---------------- */
-export function TaskPreview({ task, onOpen, onUpdate }: { task: Task | null; onOpen: (id: number) => void; onUpdate: (id: number) => void }) {
-  const [items, setItems] = useState<{ for: number; list: TaskItem[] } | null>(null);
-  const id = task?.id ?? null;
-  useEffect(() => {
-    if (!id) return;
-    let alive = true;
-    void api<{ items: TaskItem[] }>(`/staff/tasks/${id}/items`).then((r) => { if (alive) setItems({ for: id, list: r.ok ? r.data?.items ?? [] : [] }); });
-    return () => { alive = false; };
-  }, [id, task?.item_done]);
-  if (!task) return <section className={`${card} ${t5.preview}`} aria-label={L("Task preview", "Pratonton tugasan")}><p className={t5.empty}>{L("Choose a task to see it here.", "Pilih tugasan untuk melihatnya di sini.")}</p></section>;
-  const list = items?.for === task.id ? items.list : null;
-  return (
-    <section className={`${card} ${t5.preview}`} aria-label={L("Task preview", "Pratonton tugasan")} data-testid="task-preview">
-      <div className={t5.pvHead}>
-        <span className={t5.pvTitle}>
-          <strong>{task.title}</strong>
-          <small>{[task.start_date && task.deadline ? `${shortDay(task.start_date)} – ${shortDay(task.deadline)}` : null, task.assignee ? L(`Owned by ${task.assignee}`, `Milik ${task.assignee}`) : null].filter(Boolean).join(" · ")}</small>
-        </span>
-        <StateChip status={task.status} stage={task.stage ?? null} />
-      </div>
-      {task.description && <p className={t5.pvDesc}>{task.description}</p>}
-      <div className={t5.pvBar}><span>{L("Progress", "Kemajuan")}</span><Bar5 pct={task.progress} done={task.status === "completed"} /><strong>{task.progress}%</strong></div>
-      <div className={t5.facts}>
-        <span className={t5.fact}><small>{L("Due Date", "Tarikh Akhir")}</small><strong>{task.deadline ? dmy(task.deadline) : "—"}</strong></span>
-        <span className={t5.fact}><small>{L("Priority", "Keutamaan")}</small><strong>{prioWord(task.priority)}</strong></span>
-        <span className={t5.fact}><small>{L("Assignee", "Penerima")}</small><strong>{task.assignee ?? "—"}</strong></span>
-      </div>
-      <p className={t5.subHead}><AppIcon name="orders" />{L(`Subtasks (${task.item_done ?? 0}/${task.item_count ?? 0})`, `Subtugasan (${task.item_done ?? 0}/${task.item_count ?? 0})`)}</p>
-      {list === null && (task.item_count ?? 0) > 0 ? <SkelRows rows={3} /> : !list || list.length === 0 ? <p className={t5.empty}>{L("No checklist on this task.", "Tiada senarai semak pada tugasan ini.")}</p> : (
-        <ul className={t5.subList}>
-          {list.slice(0, 6).map((it) => (
-            <li key={it.id}>
-              <span className={`${t5.tick} ${it.done ? t5.tickOn : ""}`} aria-hidden>{it.done ? <AppIcon name="success" /> : null}</span>
-              <span><span className={it.done ? t5.subDone : ""}>{it.title}</span>{it.done && it.done_at ? <small>{L("Completed", "Selesai")} · {stamp(it.done_at)}</small> : null}</span>
-            </li>
-          ))}
-          {list.length > 6 && <li className={t5.muted}>{L(`and ${list.length - 6} more in the task`, `dan ${list.length - 6} lagi dalam tugasan`)}</li>}
-        </ul>
-      )}
-      <div className={t5.pvActs}>
-        <button type="button" className={btnSmPrimary} onClick={() => onOpen(task.id)} data-testid="preview-open">{L("Open task", "Buka tugasan")}</button>
-        {task.status !== "completed" && <button type="button" className={btnSm} onClick={() => onUpdate(task.id)}>{L("Add update", "Tambah kemas kini")}</button>}
-      </div>
-    </section>
-  );
 }
 
 /* ---------------- My Tasks: the four cards under the list (image 1) ---------------- */

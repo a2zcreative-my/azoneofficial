@@ -27,6 +27,7 @@ const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$
 const FILES = {
   tasks: "components/portal/tasks.tsx",
   t5: "components/portal/tasks5.tsx",
+  t2: "components/portal/tasks2.tsx", ws: "components/portal/task-workspace.tsx", // v1.319.0 - Tasks 2.0 Stage 1: the card list and the task beside it
   pw: "components/portal/project-workspace.tsx",
   staff: "worker/src/staff.ts",
   projects: "worker/src/projects.ts",
@@ -63,10 +64,11 @@ function checks(src) {
   ok("…and the Reports figure counts the reports, not a promise", /label=\{L\("Live Host Sessions", "Sesi Hos Live"\)\} value=\{liveRows\.data \? liveThisMonth : ""\}/.test(t));
 
   ok("At Risk is the written rule (TK-8): an overdue task, past due, or due in 7 days under 50%", /if \(\(r\.late \?\? 0\) > 0\) return \{ word: L\("At Risk"/.test(src.pw) && /if \(r\.due_date && r\.due_date < today\) return \{ word: L\("At Risk"/.test(src.pw) && /r\.due_date <= week && r\.progress < 50\) return \{ word: L\("At Risk"/.test(src.pw));
-  ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /if \(stage === "review"\) return \{ label: L\("Review", "Semakan"\)/.test(src.progress));
-  ok("nothing claims a recurring series (TK-6)", !/Recurring task|Tugasan berulang/.test(t5 + strip(t)));
+  ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /k === "review" \? L\("Review", "Semakan"\)/.test(src.progress));
+  ok("nothing claims a recurring series (TK-6)", !/Recurring task|Tugasan berulang/.test(t5 + strip(t) + strip(src.t2) + strip(src.ws)));
   ok("Edit is the existing edit, offered on open tasks to the assignee or management", /const editable = \(isMine\(t\) \|\| canManage\) && t\.status !== "completed";/.test(t) && /\{opts\.edit && editable && \(/.test(t));
-  ok("a checklist is never closure: the preview only opens the task or its update", /onOpen=\{\(id\) => void openChecklist\(id\)\} onUpdate=\{\(id\) => \{ setSheetFor\(id\); void openChecklist\(id\); \}\}/.test(t));
+  /* v1.319.0 (Tasks 2.0 Stage 1) - the preview became the task itself beside the list: a card only chooses it */
+  ok("a checklist is never closure: a card in the list only chooses the task shown beside it", /<MyTaskCards rows=\{mineRows\} picked=\{present === "beside" \? openTask : null\} onPick=\{\(id\) => void openChecklist\(id, "beside"\)\}/.test(t));
 
   ok("the staff picker adds the department and still no phone, IC, bank or salary", /u\.role, u\.position, u\.department, u\.employment_status FROM users u\s+WHERE u\.is_active = 1/.test(src.staff) && !/u\.(phone|ic_number|bank_account|salary)[^\n]*FROM users u\s+WHERE u\.is_active = 1 AND \$\{currentStaffSql/.test(src.staff));
   ok("the project list counts overdue project tasks for At Risk, a read only", /AND t\.status != 'completed' AND t\.deadline < date\('now', '\+8 hours'\)\) AS late,/.test(src.projects));
@@ -88,7 +90,7 @@ const MUT = [
   ["At Risk without the overdue tasks", "pw", "if ((r.late ?? 0) > 0) return", "if (false) return"],
   ["Edit on a closed task", "tasks", 'const editable = (isMine(t) || canManage) && t.status !== "completed";', "const editable = isMine(t) || canManage;"],
   ["the staff picker exposes the phone", "staff", "u.role, u.position, u.department, u.employment_status FROM users u", "u.role, u.position, u.department, u.phone, u.employment_status FROM users u"],
-  ["a recurring label invented", "t5", '<small>{[task.start_date && task.deadline', '<small>{L("Recurring task", "Tugasan berulang")}{[task.start_date && task.deadline'],
+  ["a recurring label invented", "t2", '{m.project && <small>{L("Project", "Projek")}: {m.project}</small>}', '<small>{L("Recurring task", "Tugasan berulang")}</small>{m.project && <small>{L("Project", "Projek")}: {m.project}</small>}'],
 ];
 let caught = 0;
 for (const [name, file, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {

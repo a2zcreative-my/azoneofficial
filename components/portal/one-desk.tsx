@@ -46,7 +46,7 @@ import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
-import { btnSm, card, chipAction, chipNeutral } from "@/lib/ui-styles";
+import { btnSm, card } from "@/lib/ui-styles";
 import { useWatcherOpenCount } from "@/components/portal/watchers-card";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { getLang } from "@/lib/i18n";
@@ -321,23 +321,4 @@ export function DeskQueue({ go, which, bare = false }: { go: (tab: string) => vo
         list={attention} go={go} />;
 }
 
-/** The bucket chips — one door per module, on the Desk page's figures zone. */
-export function DeskBucketChips({ go }: { go: (tab: string) => void }) {
-  const desk = useDeskData();
-  const items = desk.data?.items ?? [];
-  const counts = desk.data?.counts ?? {};
-  const keys = (Object.keys(BUCKET) as DeskItem["bucket"][]).filter((b) => counts[b]);
-  if (keys.length === 0) return null;
-  return (
-    <span className="erp-pill-row erp-mt-2">
-      {keys.map((b) => (
-        <button key={b} type="button"
-          className={`${chipNeutral} ${chipAction} text-foreground/80 tabular-nums hover:bg-secondary/70`}
-          onClick={() => { go(items.find((i) => i.bucket === b)?.tab ?? "Dashboard"); revealAnchor(ANCHOR[b]); }}
-          title={L(`Open ${BUCKET[b][0]}`, `Buka ${BUCKET[b][1]}`)}>
-          {L(BUCKET[b][0], BUCKET[b][1])} {counts[b]}
-        </button>
-      ))}
-    </span>
-  );
-}
+/* v1.317.0 (the duplicate-function audit, D-9) - DeskBucketChips left: nothing drew it any more */

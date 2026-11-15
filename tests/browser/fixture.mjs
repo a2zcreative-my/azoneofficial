@@ -72,6 +72,38 @@ const remapTask = (v, id, title) => {
   for (const u of c.updates?.updates ?? []) u.task_id = id;
   return c;
 };
+/* v1.319.0 (Tasks 2.0 Stage 1) - one of the board's own INVENTED tasks, as
+   the worker would answer GET /staff/tasks/:id for the signed-in person
+   (9001): the record, the stages walked, and what they may do - the person
+   doing it updates and asks for review, whoever set it (or management)
+   closes it, a self-set task is closed by its owner. No updates, files or
+   comments are invented. */
+function boardTaskView(t) {
+  const me = 9001, mgmt = ["ceo", "coo", "cco", "hr_admin", "admin", "super_admin"].includes(ROLE);
+  const isA = t.assigned_to === me, self = t.created_by === t.assigned_to, done = t.status === "completed", review = t.stage === "review";
+  const can = {
+    edit: (isA || mgmt) && !done, reassign: mgmt && !done, assistants: mgmt && !done, tick: (isA || mgmt) && !done, update: (isA || mgmt) && !done, comment: true, files: true, restricted_files: mgmt,
+    request_review: isA && !self && !done && !review, review: !isA && mgmt && review, approve: !isA && mgmt && review, cancel: mgmt && !done, close: !done && (self ? isA : (!isA && (mgmt || t.created_by === me))),
+    close_exception: mgmt && !done, reopen: done && mgmt, return: !isA && mgmt && review, assist: false, self_set: self, is_assignee: isA, is_assistant: false, remind: !isA && mgmt && !done, rename: (isA || mgmt) && !done, rename_reason: !isA,
+  };
+  const started = t.status !== "open" || done;
+  const timeline = [
+    { key: "created", state: "done", who: t.creator ?? null, at: t.created_at ?? null, text: null },
+    { key: "acknowledged", state: self ? "skipped" : t.acknowledged ? "done" : "todo", who: null, at: null, text: null },
+    { key: "in_progress", state: done || review ? "done" : started ? "now" : "todo", who: started ? t.assignee ?? null : null, at: started ? t.latest_update?.at ?? t.created_at ?? null : null, text: null, flags: {} },
+    { key: "review", state: done ? "skipped" : review ? "now" : "todo", who: null, at: null, text: null },
+    { key: "closed", state: done ? "done" : "todo", who: done ? t.closed_by ?? null : null, at: done ? t.closed_at ?? null : null, text: null },
+  ];
+  const task = {
+    id: t.id, title: t.title, description: t.description ?? null, assigned_to: t.assigned_to, created_by: t.created_by ?? null, priority: t.priority, deadline: t.deadline ?? null,
+    status: t.status, stage: t.stage ?? null, progress: t.progress ?? 0, progress_source: "manual", created_at: t.created_at ?? D + "01 01:00:00",
+    assignee: t.assignee ?? null, assignee_position: null, assignee_photo: t.assignee_photo ?? null, creator: t.creator ?? null, acknowledged_at: t.acknowledged ? t.created_at ?? null : null,
+    assistants: t.assistants ?? [], items: [], link: null, latest_update: t.latest_update ?? null, counts: { updates: 0, files: 0, comments: 0 },
+    closure: done ? { kind: "closed", at: t.closed_at ?? t.created_at ?? D + "01 01:00:00", by: t.closed_by ?? null, summary: null, late_days: t.closed_late_days ?? null } : null,
+    outstanding: [], next: done ? "closed" : review ? (can.review ? "review_decide" : "review_wait") : can.close ? "close_ready" : can.request_review ? "submit_review" : "", timeline, reported: null,
+  };
+  return { detail: { task, me, can }, updates: { updates: [] }, files: { files: [] }, activity: { activity: [] }, comments: { comments: [] } };
+}
 export function taskViewFor(p0) {
   if (!TASKS_CAP) return undefined;
   const m = /^\/staff\/tasks\/(\d+)(\/updates|\/comments|\/files|\/activity)?$/.exec(p0);
@@ -84,6 +116,8 @@ export function taskViewFor(p0) {
   else if (process.env.TASKP && id === 802) v = ROLE === "editor" ? asMe(remapTask(TASKS_CAP.views.assistant, 802), 11) : remapTask(TASKS_CAP.views[TASK_VIEW.proj], 802);
   else {
     const pt = PROJ?.views?.[PROJ_VIEW]?.workspace?.tasks?.find((t) => t.id === id);
+    /* v1.319.0 - the board's own invented tasks open too (Tasks 2.0: beside My Tasks, the full page); a project's task keeps its captured view */
+    if (!pt && tasks.some((t) => t.id === id)) { const bv = boardTaskView(tasks.find((t) => t.id === id)); const sub = m[2] ?? ""; return sub === "" ? bv.detail : sub === "/updates" ? bv.updates : sub === "/files" ? bv.files : sub === "/activity" ? bv.activity : bv.comments; }
     if (!pt) return undefined;
     v = remapTask(TASKS_CAP.views[PROJ_VIEW === "assigned" ? "assistant" : PROJ_VIEW === "other" ? "other" : "assistant"], id, pt.title);
     if (PROJ_VIEW === "mgmt" || PROJ_VIEW === "owner") v.detail.can = { ...TASKS_CAP.views.reviewer.detail.can, review: false, request_review: false };
@@ -120,7 +154,9 @@ const OWNER = !!process.env.OWNER;
 
 const items = [
   { id: 1, sku: "ELFIA001", name: "ELFIA Premium product", stock: 4, status: "low", unit_cost_cents: 2400, unit_price_cents: 4500, category: "elfia" },
-  { id: 2, sku: "ELFIA002", name: "ELFIA Daily care", stock: 30, status: "in_stock", unit_cost_cents: 1200, unit_price_cents: 2400, category: "elfia" },
+  { id: 2, sku: "ELFIA002", name: "ELFIA Daily care", stock: 30, status: "in_stock", unit_cost_cents: 1200, unit_price_cents: 2400, category: "elfia",
+    /* v1.317.0 (D-4) - on the store at a web price with a discount: the store charges RM 18.00, not the RM 24.00 list price */
+    bridge_enabled: 1, elfia_price_cents: 2200, elfia_discount_cents: 400 },
 ];
 const queue = [{ id: "task:1", bucket: "tasks", title: "Check inventory delivery", sub: "Nur Aisyah", since: "2026-09-14 08:00:00", tab: "Tasks", overdue: true }];
 function baseFixture(p) {
@@ -233,9 +269,10 @@ function baseFixture(p) {
   if (p === "/staff/hankeis") data = { can: { order_create: true, payment_verify: true, pack: true, settings: true }, counts: { awaiting_payment: 1, verified: 2 }, money: { verified_cents: 12000 }, open_exceptions: 0, outbox_pending: 0, recent: [{ id: 1, order_no: "HK-0001", total_cents: 6000, order_state: "open", payment_state: "awaiting_payment", fulfilment_state: "pending", created_at: "2026-09-20 10:00:00", customer_name: "Aina" }], setup: { qr_configured: true, recipient_configured: true, account_configured: true, ocr_available: false } };
   if (p === "/staff/hankeis/catalogue") data = { products: [], packages: [] };
   /* v1.246.1 - one active package for the Create form's picker (Clear selection test) */
-  if (p === "/staff/packages") data = { can_manage: ["super_admin", "ceo", "coo"].includes(ROLE), packages: [
+  /* v1.317.0 (the duplicate-function audit, D-3) - the CEO chooses the public page; the page still shows the earlier card until one is marked */
+  if (p === "/staff/packages") data = { can_manage: ["super_admin", "ceo", "coo"].includes(ROLE), can_publish: ["super_admin", "ceo"].includes(ROLE), ...(["super_admin", "ceo"].includes(ROLE) ? { public_showing: 0, legacy_public_tiers: 3 } : {}), packages: [
     { id: 71, name: "Fixture Video Pack", category: "Video", description: "Fixture package", kind: "service", issuers: ["a2z", "azoo"], status: "active", current_version: 3,
-      updated_at: "2026-09-10 02:00:00", updated_by_name: "Fixture COO", item_count: 1, discount_cents: 5000, subtotal_cents: 70000, total_cents: 65000, used_by: 0,
+      updated_at: "2026-09-10 02:00:00", updated_by_name: "Fixture COO", item_count: 1, discount_cents: 5000, subtotal_cents: 70000, total_cents: 65000, used_by: 0, public: false, public_label: "",
       items: [{ name: "Fixture video content", qty: 1, unit_price_cents: 70000, sub: ["Fixture concept line", "Fixture editing line"] }] }] };
   if (p === "/staff/hankeis/customers") data = { customers: [] };
   if (p === "/staff/sales-performance/overview") Object.assign(data, { me: 9001, can_manage: true, today: "2026-09-16", days: 1, tiktok_orders: [], range: { from: "2026-09-16", to: "2026-09-16", label: "today" } });
@@ -1990,7 +2027,6 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     ],
     pending_migration: false,
   };
-  if (p === "/staff/finance/pnl" || p === "/finance/pnl") data = { month: "2026-09", revenue_cents: 2000000, cogs_cents: 300000, expenses_cents: 1800000, net_cents: -100000, rows: [] };
   /* v1.246.2 - the photo book: every staff row with a photo (the Avatar looks names up here) */
   if (p0 === "/staff/photo-book") data = { people: staff.filter((u) => u.photo_key).map((u) => ({ id: u.id, name: u.name, full_name: u.full_name ?? null, photo_key: u.photo_key })) };
   /* v1.246.2 - the quotations a task can be set under / that have no project yet */

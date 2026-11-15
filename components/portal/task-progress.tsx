@@ -29,6 +29,7 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { btnClass, btnSm, btnSmPrimary, btnSmSuccess, btnSmDanger, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, fieldLabel, inputClass, selectClass, textareaClass } from "@/lib/ui-styles";
+import { FLOW, flowOf, tagKeyOf, type FlowKey } from "@/lib/task-flow";
 import tp from "./task-progress.module.css";
 
 /* ---------------- shapes the server sends ---------------- */
@@ -85,14 +86,24 @@ export function day(v: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? v : `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 const size = (b: number | null) => (b ? (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`) : "");
-/** The state a task is in, in words: status and stage together (T-7). */
+/** v1.319.0 (Tasks 2.0 Stage 1, T2-5) - ONE SET OF STATUS WORDS: To Do, In
+    Progress, Review, Done. Waiting for Client, Blocked and Cancelled are TAGS
+    beside the word, never a fifth status. The stored status and stage are
+    unchanged - this is only how they are said. `flow` is the step of the
+    four the task stands on (a cancelled task stands on none). */
+export { FLOW, flowOf, type FlowKey };
+export const flowWord = (k: FlowKey): string => k === "done" ? L("Done", "Selesai") : k === "review" ? L("Review", "Semakan") : k === "in_progress" ? L("In Progress", "Sedang Berjalan") : L("To Do", "Belum Mula");
+const TAG: Record<string, [string, string, string]> = { cancelled: ["Cancelled", "Dibatalkan", chipSmNeutral], blocked: ["Blocked", "Terhalang", chipSmDanger], waiting_client: ["Waiting for Client", "Menunggu Pelanggan", chipSmWarn] };
+export function tagOf(status: string, stage: string | null): { label: string; cls: string } | null {
+  const k = tagKeyOf(status, stage);
+  return k ? { label: L(TAG[k]![0], TAG[k]![1]), cls: TAG[k]![2] } : null;
+}
+const FLOW_CHIP: Record<FlowKey, string> = { todo: chipSmNeutral, in_progress: chipSmInfo, review: chipSmWarn, done: chipSmSuccess };
+/** The state a task is in, as ONE phrase (a title, a filter, a sentence): the word, then its tag. */
 export function stateOf(status: string, stage: string | null): { label: string; cls: string } {
-  if (status === "completed") return stage === "cancelled" ? { label: L("Cancelled", "Dibatalkan"), cls: chipSmNeutral } : { label: L("Closed", "Ditutup"), cls: chipSmSuccess }; // v1.256.0 - the owner's word
-  if (stage === "review") return { label: L("Review", "Semakan"), cls: chipSmWarn }; // v1.313.0 (TK-3) - Open, In Progress, Review, Closed
-  if (stage === "blocked") return { label: L("Blocked", "Terhalang"), cls: chipSmDanger };
-  if (stage === "waiting_client") return { label: L("Waiting for Client", "Menunggu Pelanggan"), cls: chipSmWarn };
-  if (status === "in_progress") return { label: L("In Progress", "Sedang Berjalan"), cls: chipSmInfo };
-  return { label: L("Open", "Terbuka"), cls: chipSmNeutral };
+  const flow = flowOf(status, stage); const tag = tagOf(status, stage);
+  if (!flow) return tag!; // cancelled
+  return tag ? { label: `${flowWord(flow)} · ${tag.label}`, cls: tag.cls } : { label: flowWord(flow), cls: FLOW_CHIP[flow] };
 }
 /** The task's own record, reloaded when `tick` moves. */
 export function useTaskDetail(taskId: number | null, tick: number): { d: TaskDetail | null; error: string } {
@@ -110,8 +121,13 @@ export function useTaskDetail(taskId: number | null, tick: number): { d: TaskDet
 }
 
 export function StateChip({ status, stage }: { status: string; stage: string | null }) {
-  const s = stateOf(status, stage);
-  return <span className={s.cls}>{s.label}</span>;
+  const flow = flowOf(status, stage); const tag = tagOf(status, stage);
+  return (
+    <span className={tp.statePair} data-testid="state-chip" data-flow={flow ?? "cancelled"}>
+      {flow && <span className={FLOW_CHIP[flow]}>{flowWord(flow)}</span>}
+      {tag && <span className={tag.cls} data-testid="state-tag">{tag.label}</span>}
+    </span>
+  );
 }
 const KIND: Record<string, [string, string, string]> = {
   progress: ["Update", "Kemas kini", chipSmInfo], blocker: ["Blocker", "Halangan", chipSmDanger], waiting_client: ["Waiting for client", "Menunggu pelanggan", chipSmWarn],
@@ -124,7 +140,7 @@ function KindChip({ kind }: { kind: string }) {
   const k = KIND[kind] ?? [kind, kind, chipSmNeutral];
   return <span className={k[2]}>{L(k[0], k[1])}</span>;
 }
-function Problem({ text }: { text: string }) { return text ? <p className={tp.warn} role="alert">{text}</p> : null; }
+export function Problem({ text }: { text: string }) { return text ? <p className={tp.warn} role="alert">{text}</p> : null; }
 function useBusy() {
   const [busy, setBusy] = useState(false);
   const run = async (f: () => Promise<void>) => { if (busy) return; setBusy(true); try { await f(); } finally { setBusy(false); } };
@@ -213,7 +229,7 @@ export function TaskProgressTabs({ taskId, details, onChanged, start = "details"
    are, and the change is in Activity with the old and the new title. Shown
    only when the server says this person may edit (the assignee or a
    manager, the task open) - a closed task is reopened first. */
-function TitleBar({ d, onChanged }: { d: TaskDetail; onChanged: (title?: string, sub?: string) => void }) {
+export function TitleBar({ d, onChanged }: { d: TaskDetail; onChanged: (title?: string, sub?: string) => void }) {
   const [edit, setEdit] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
@@ -280,7 +296,7 @@ const STAGE_TITLE: Record<string, [string, string]> = {
   created: ["Created", "Dicipta"], acknowledged: ["Acknowledged", "Diakui"], in_progress: ["In progress", "Sedang berjalan"],
   review: ["Ready for review", "Sedia untuk semakan"], closed: ["Closed", "Ditutup"], cancelled: ["Cancelled", "Dibatalkan"],
 };
-function taskStages(d: TaskDetail): Stage[] {
+export function taskStages(d: TaskDetail): Stage[] {
   const t = d.task;
   return (t.timeline ?? []).map((s) => {
     const f = s.flags ?? {};
@@ -297,7 +313,7 @@ function taskStages(d: TaskDetail): Stage[] {
     return { key: s.key, title, sub, note, warn, state: s.state, aside: s.state === "now" ? L("Now", "Kini") : undefined };
   });
 }
-const nextLine = (d: TaskDetail): string => {
+export const nextLine = (d: TaskDetail): string => {
   const t = d.task; const out = t.outstanding ?? [];
   switch (t.next) {
     case "closed": return L("Closed. It stays in the completed records; an authorised person may reopen it with a reason.", "Ditutup. Ia kekal dalam rekod selesai; orang yang dibenarkan boleh membukanya semula dengan sebab.");
@@ -312,7 +328,7 @@ const nextLine = (d: TaskDetail): string => {
     default: return d.can.self_set ? L("You set this task yourself - close it when it is done.", "Anda menetapkan tugasan ini sendiri - tutup apabila siap.") : L("Completion is approved by the person who set it, the Project Owner or management.", "Penyelesaian diluluskan oleh yang menetapkan, Pemilik Projek atau pengurusan.");
   }
 };
-function ReviewBar({ d, onChanged, onUpdate, onClose }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void; onUpdate: () => void; onClose: () => void }) {
+export function ReviewBar({ d, onChanged, onUpdate, onClose, bare = false }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void; onUpdate: () => void; onClose: () => void; /** v1.319.0 - the workspace draws the four steps itself: no timeline here */ bare?: boolean }) {
   const { prompt, node: promptNode } = usePrompt();
   const { busy, run } = useBusy();
   const [problem, setProblem] = useState("");
@@ -359,7 +375,7 @@ function ReviewBar({ d, onChanged, onUpdate, onClose }: { d: TaskDetail; onChang
           </span>
         </div>
       )}
-      {stages.length > 0 && <StageTimeline stages={stages} label={L("Task progress", "Kemajuan tugasan")} testId="task-stages" />}
+      {!bare && stages.length > 0 && <StageTimeline stages={stages} label={L("Task progress", "Kemajuan tugasan")} testId="task-stages" />}
       <div className={tp.bar}>
         <span className={tp.barText}>
           <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span>
@@ -394,7 +410,7 @@ const shownOf = (u: TUpdate): Shown => {
   return e ? { ...u, body: e.body, completed_work: e.completed_work, blockers: e.blockers, next_action: e.next_action, edited: { by: e.by, at: e.at } } : { ...u, edited: null };
 };
 const utcMs = (v: string) => Date.parse(v.replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(v) ? "" : "Z"));
-function StatusSummary({ d, tick, onSeeAll }: { d: TaskDetail; tick: number; onSeeAll: () => void }) {
+export function StatusSummary({ d, tick, onSeeAll }: { d: TaskDetail; tick: number; onSeeAll: () => void }) {
   const t = d.task;
   const [ups, setUps] = useState<TUpdate[] | null>(null);
   const [now] = useState(() => Date.now());
@@ -466,7 +482,7 @@ function StatusSummary({ d, tick, onSeeAll }: { d: TaskDetail; tick: number; onS
 
 /* ---------------- Details: what it is about, who helps, when acknowledged ---------------- */
 type Staff = { id: number; name: string; position?: string | null };
-function ExtraFacts({ d, onChanged: showToast }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void }) {
+export function ExtraFacts({ d, onChanged: showToast, brief = false }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void; /** v1.319.0 - beside the Tasks tab's own Task information, which already says when it was acknowledged */ brief?: boolean }) {
   const t = d.task;
   const [adding, setAdding] = useState(false);
   const [staff, setStaff] = useState<Staff[] | null>(null);
@@ -495,7 +511,7 @@ function ExtraFacts({ d, onChanged: showToast }: { d: TaskDetail; onChanged: (t?
   return (
     <dl className={tp.facts} aria-label={L("Who and what", "Siapa dan apa")}>
       {t.link && <div><dt>{t.link.kind === "project" ? L("Project", "Projek") : L("About", "Berkaitan")}</dt><dd>{t.link.label}{t.link.quotation ? ` · ${t.link.quotation}` : ""}{t.link.customer ? ` · ${t.link.customer}` : ""}</dd></div>}
-      <div><dt>{L("Acknowledged", "Diakui")}</dt><dd>{d.can.self_set ? L("Not needed — self-set", "Tidak perlu — ditetapkan sendiri") : t.acknowledged_at ? stamp(t.acknowledged_at) : L("Not yet", "Belum")}</dd></div>
+      {!brief && <div><dt>{L("Acknowledged", "Diakui")}</dt><dd>{d.can.self_set ? L("Not needed — self-set", "Tidak perlu — ditetapkan sendiri") : t.acknowledged_at ? stamp(t.acknowledged_at) : L("Not yet", "Belum")}</dd></div>}
       <div>
         <dt>{L("Helping", "Membantu")}</dt>
         <dd className={tp.helpers}>
@@ -524,7 +540,7 @@ function ExtraFacts({ d, onChanged: showToast }: { d: TaskDetail; onChanged: (t?
 }
 
 /** Task information + checklist, for a task opened outside the Tasks tab. */
-function DefaultDetails({ d, onChanged }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void }) {
+export function DefaultDetails({ d, onChanged }: { d: TaskDetail; onChanged: (t?: string, s?: string) => void }) {
   const t = d.task;
   const { run } = useBusy();
   const tick = (itemId: number) => run(async () => {
@@ -559,7 +575,7 @@ function DefaultDetails({ d, onChanged }: { d: TaskDetail; onChanged: (t?: strin
 
 /* ---------------- Updates & Comments (picture 02) ---------------- */
 const STATUS_KINDS = ["blocker", "waiting_client", "review_request", "review_approved", "review_returned", "cancel", "closed", "closed_with_exception", "reopened"];
-function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void; onUpdate: () => void }) {
+export function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void; onUpdate: () => void }) {
   const t = d.task;
   const [data, setData] = useState<{ updates: TUpdate[]; comments: TComment[] } | null>(null);
   const [show, setShow] = useState<"all" | "updates" | "comments" | "progress" | "status">("all");
@@ -811,7 +827,7 @@ function FileStrip({ taskId, files }: { taskId: number; files: TFile[] }) {
 }
 
 /* ---------------- Files ---------------- */
-function FilesPanel({ d, tick, onChanged }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void }) {
+export function FilesPanel({ d, tick, onChanged }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void }) {
   const t = d.task;
   const [files, setFiles] = useState<TFile[] | null>(null);
   const [level, setLevel] = useState<"team" | "restricted">("team");
@@ -864,7 +880,7 @@ function FilesPanel({ d, tick, onChanged }: { d: TaskDetail; tick: number; onCha
 }
 
 /* ---------------- Activity ---------------- */
-function ActivityPanel({ taskId, tick }: { taskId: number; tick: number }) {
+export function ActivityPanel({ taskId, tick }: { taskId: number; tick: number }) {
   const [items, setItems] = useState<TActivity[] | null>(null);
   useEffect(() => {
     let alive = true;
@@ -898,10 +914,16 @@ function ActivityPanel({ taskId, tick }: { taskId: number; tick: number }) {
    manager may close with the reason for what is still open (D1). */
 type SheetState = "in_progress" | "waiting_client" | "blocked" | "review" | "closed";
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
-export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; start?: SheetState; onClose: () => void; onDone: (title: string, sub?: string) => void }) {
+export function UpdateSheet({ d, start, onClose, onDone, inline = false }: { d: TaskDetail; start?: SheetState; onClose: () => void; onDone: (title: string, sub?: string) => void;
+  /** v1.319.0 (Tasks 2.0 Stage 1, image 2) - THE SAME FORM, ON THE PAGE: no
+      Back button and no second screen; Update Task posts what is chosen,
+      Submit for Review and Mark Done post through this one submit with that
+      status. Every rule, route and message is the sheet's own. */
+  inline?: boolean }) {
   const t = d.task;
   const initial: SheetState = start ?? (t.stage === "blocked" ? "blocked" : t.stage === "waiting_client" ? "waiting_client" : "in_progress");
-  const [state, setState] = useState<SheetState>(initial);
+  const [stateNow, setState] = useState<SheetState>(initial);
+  const state = stateNow;
   const [progress, setProgress] = useState<number>(t.progress);
   const [reported, setReported] = useState<string>(""); // v1.257.0 - on a checklist task, the percentage the author reports (the checklist stays official)
   const [text, setText] = useState("");
@@ -925,10 +947,12 @@ export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; star
     ["waiting_client", "Waiting for Client", "Menunggu Pelanggan", !!d.can.update],
     ["blocked", "On Hold / Blocked", "Ditangguh / Terhalang", !!d.can.update],
     ["review", "Ready for Review", "Sedia untuk Semakan", !!d.can.request_review],
-    ["closed", approving ? "Closed (approve the review)" : "Closed", approving ? "Ditutup (luluskan semakan)" : "Ditutup", !!d.can.close],
+    ["closed", approving ? "Done (approve the review)" : "Done", approving ? "Selesai (luluskan semakan)" : "Selesai", !!d.can.close], // v1.319.0 (T2-5) - the fourth word
   ];
-  const submit = () => run(async () => {
+  const submit = (as?: SheetState) => run(async () => {
     setProblem("");
+    const state = as ?? stateNow; const closing = state === "closed";
+    if (as && as !== stateNow) setState(as);
     if (closing) {
       if (!approving && text.trim().length < 10) { setProblem(L("Write the completion summary - what was delivered (at least 10 characters).", "Tulis ringkasan penyelesaian - apa yang diserahkan (sekurang-kurangnya 10 aksara).")); return; }
       if (outstanding.length && !exception) { setProblem(L("Tick the open deliverables first, or close with an exception.", "Tandakan hasil kerja yang belum siap dahulu, atau tutup dengan pengecualian.")); return; }
@@ -965,13 +989,13 @@ export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; star
   ] as const;
   const PCT = [...new Set([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, t.progress])].sort((a, b) => a - b);
   return (
-    <section className={tp.sheet} data-testid="update-sheet" aria-label={L("Add Status Update", "Tambah Kemas Kini Status")}>
-      <div className={tp.sheetHead}>
+    <section className={`${tp.sheet} ${inline ? tp.sheetInline : ""}`} data-testid="update-sheet" data-inline={inline || undefined} aria-label={inline ? L("Update Task", "Kemas Kini Tugasan") : L("Add Status Update", "Tambah Kemas Kini Status")}>
+      <div className={tp.sheetHead} hidden={inline}>
         <button type="button" className={btnSm} onClick={onClose} data-testid="sheet-back"><AppIcon name="previous" className="erp-icon" />{L("Back to task", "Kembali ke tugasan")}</button>
         <h3 className={tp.sheetTitle}>{L("Add Status Update", "Tambah Kemas Kini Status")}</h3>
       </div>
       <div className={tp.form}>
-        <div className={tp.taskHead}>
+        <div className={tp.taskHead} hidden={inline}>
           <span className={tp.taskHeadIcon}><AppIcon name="document" /></span>
           <div><p className={tp.taskHeadName}>{t.title}</p><p className={tp.taskHeadSub}>{t.link?.quotation ?? t.link?.label ?? L(`Due ${day(t.deadline)}`, `Akhir ${day(t.deadline)}`)}</p></div>
         </div>
@@ -1034,13 +1058,25 @@ export function UpdateSheet({ d, start, onClose, onDone }: { d: TaskDetail; star
           </label>
         )}
         {state === "review" && <p className={tp.infoNote}>{L("Your task goes for review. It is closed when the person who set it (or the Project Owner or management) approves it.", "Tugasan anda dihantar untuk semakan. Ia ditutup apabila yang menetapkan (atau Pemilik Projek atau pengurusan) meluluskannya.")}</p>}
-        {closing && <p className={tp.okNote}><b>{L("Closed", "Ditutup")}</b> {L("marks the task complete and final, with your name and the time. An authorised person can reopen it, with a reason, if more work is needed.", "menandakan tugasan selesai dan muktamad, dengan nama anda dan masa. Orang yang dibenarkan boleh membukanya semula, dengan sebab, jika perlu.")}</p>}
+        {closing && <p className={tp.okNote}><b>{L("Done", "Selesai")}</b> {L("marks the task complete and final, with your name and the time. An authorised person can reopen it, with a reason, if more work is needed.", "menandakan tugasan selesai dan muktamad, dengan nama anda dan masa. Orang yang dibenarkan boleh membukanya semula, dengan sebab, jika perlu.")}</p>}
         <Problem text={problem} />
+        {inline ? (
+          /* image 2: Update Task · Submit for Review · Mark Done - each only when the server lets this person */
+          <div className={tp.inlineBtns} data-testid="inline-actions">
+            {(d.can.update || (closing && d.can.close)) && <button type="button" className={btnClass} disabled={busy || blockedClose} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="post-update">
+              <AppIcon name="save" className="erp-icon" />{busy ? L("Saving…", "Menyimpan…") : closing ? (approving ? L("Approve & Mark Done", "Lulus & Tanda Selesai") : L("Mark Done", "Tanda Selesai")) : state === "review" ? L("Submit for Review", "Hantar untuk Semakan") : L("Update Task", "Kemas Kini Tugasan")}</button>}
+            {d.can.request_review && state !== "review" && <button type="button" className={btnSm} disabled={busy} onClick={() => void submit("review")} data-testid="post-review">
+              <AppIcon name="success" className="erp-icon" />{L("Submit for Review", "Hantar untuk Semakan")}</button>}
+            {d.can.close && !closing && <button type="button" className={btnSmSuccess} disabled={busy} onClick={() => void submit("closed")} data-testid="post-done">
+              <AppIcon name="success" className="erp-icon" />{approving ? L("Approve & Mark Done", "Lulus & Tanda Selesai") : L("Mark Done", "Tanda Selesai")}</button>}
+          </div>
+        ) : (
         <div className={tp.sticky}>
           <button type="button" className={`${btnClass} ${tp.submit}`} disabled={busy || blockedClose} aria-busy={busy || undefined} onClick={() => void submit()} data-testid="post-update">
             {busy ? L("Saving…", "Menyimpan…") : closing ? (approving ? L("Approve & close", "Lulus & tutup") : L("Close task", "Tutup tugasan")) : L("Post Update", "Hantar Kemas Kini")}
           </button>
         </div>
+        )}
       </div>
     </section>
   );

@@ -317,3 +317,8 @@
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+
+/* v1.317.0 (D-4) - the Inventory row says when the ELFIA store charges something other than the list price */
+.storeCharges { display: block; margin-top: 0.25rem; font-size: 0.6875rem; line-height: 1.35; color: var(--muted-foreground); max-width: 14rem; }
+.storeLink { margin-left: 0.25rem; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--primary); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.storeLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-xs); }

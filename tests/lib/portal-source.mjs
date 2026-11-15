@@ -27,7 +27,7 @@ export const PORTAL_SOURCE_FILES = [
   "components/portal/tasks.tsx",
   "components/portal/announcements.tsx",
   "components/portal/sales.tsx",
-  "components/portal/live-cards.tsx",
+  /* v1.317.0 - components/portal/live-cards.tsx retired (the duplicate-function audit, D-2) */
   "components/portal/profile.tsx",
   "components/portal/users-panel.tsx",
   /* v1.183.0 - components/portal/commission.tsx retired with the Commission tab */

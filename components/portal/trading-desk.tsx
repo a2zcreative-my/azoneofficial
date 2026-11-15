@@ -3,11 +3,9 @@
 /* Moved verbatim from app/portal/page.tsx in v1.114.0 (housekeeping: the
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
-import { ActiveStokisSummary, DashSummary, HourBucket, InTodaySummary, LowStockSummary, OutstandingDocsSummary, PendingClaimsSummary, PendingLeaveSummary, REVENUE_ROLES, RevLineLite, RevenueData, autoTargetCents } from "@/components/portal/dashboard";
+import { DashSummary, HourBucket, InTodaySummary, LowStockSummary, OutstandingDocsSummary, PendingClaimsSummary, PendingLeaveSummary, REVENUE_ROLES, RevLineLite, RevenueData, autoTargetCents } from "@/components/portal/dashboard";
 import { MonthlyBarsCard } from "@/components/portal/dashboard-cards";
-import { LiveScheduleCard, OtApprovalsCard } from "@/components/portal/live-cards";
 import { DAY_NAMES, L, SectionTabs, User } from "@/components/portal/page-shared";
-import { ClientsCard, PnlCard } from "@/components/portal/sales";
 import { SalesByHourCard } from "@/components/portal/sales-by-hour-card";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
@@ -25,11 +23,16 @@ import { DetailsToggle } from "@/components/ui/details-toggle"; // v1.187.0 - th
 export function TradingDesk({
   user,
   go,
+  canOpen,
   lang = "en",
   mode = "pulse",
 }: {
   user: User;
   go?: (t: TabName) => void;
+  /* v1.317.0 (the duplicate-function audit, D-2) - a figure whose work has a
+     home tab opens that tab, for the people who may open it; it is a plain
+     figure for anyone else */
+  canOpen?: (t: TabName) => boolean;
   lang?: Lang;
   /* v1.171.0 - the CEO, 20-09-2026: *"my dashboard on PWA seem sooooo much
      messy!!! ... clean off my dashboard and resort it based on it own
@@ -399,16 +402,10 @@ export function TradingDesk({
               tab: "Sales",
             },
             {
-              label: "Active stokis",
-              show: L("Active stokis", "Stokis aktif"),
-              value: sum.active_stokis ?? 0,
-              tab: "Stokis",
-            },
-            {
               label: "Lives today",
               show: L("Lives today", "LIVE hari ini"),
               value: sum.lives_today ?? 0,
-              tab: "Attendance",
+              tab: "Tasks", // v1.317.0 (D-2) - lives are scheduled on Tasks > Calendar, the roster board
             },
             {
               label: "In today",
@@ -483,15 +480,29 @@ export function TradingDesk({
              figures": the headcounts - clients, stokis, lives, in today, the
              peak hour. Every tile is the tile it was, opens the same detail
              and reads from the same summary; only the grouping is new. */
-          const SECONDARY = new Set(["Clients", "Active stokis", "Lives today", "In today", "Peak hour (wk)"]);
+          const SECONDARY = new Set(["Clients", "Lives today", "In today", "Peak hour (wk)"]);
+          /* v1.317.0 (the duplicate-function audit, D-1 and D-2; the CEO,
+             15-11-2026: "fix the issue as per recommended") - these four
+             figures used to open a working COPY of another tab's screen in a
+             pop-up: the client list (Sales), the live schedule (Tasks >
+             Calendar), a third profit sum (Finance and Accounting hold the
+             two that count) and a second overtime decision (Attendance >
+             Exceptions & Approvals). Each now opens its home tab. The Active
+             stokis figure is gone with them: Stokis is parked. */
+          const LINKED = new Set(["Clients", "Lives today", "Cash flow (mo)", "OT pending"]);
           const primary = tiles.filter((t) => !SECONDARY.has(t.label));
           const secondary = tiles.filter((t) => SECONDARY.has(t.label));
-          const tile = (t: typeof tiles[number]) => (
-                <button
+          const tile = (t: typeof tiles[number]) => {
+            const linked = LINKED.has(t.label);
+            const home = linked && t.tab && go && canOpen?.(t.tab) ? t.tab : null;
+            const Tag = linked && !home ? "div" : "button";
+            return (
+                <Tag
                   key={t.label}
-                  type="button"
-                  onClick={() => setDetailModal(t.label)}
-                  className={`${tileCard} hover:border-primary transition-colors`}
+                  {...(Tag === "button" ? { type: "button" as const, onClick: () => (home ? go?.(home) : setDetailModal(t.label)) } : {})}
+                  className={Tag === "button" ? `${tileCard} hover:border-primary transition-colors` : tileCard}
+                  data-testid={linked ? "pulse-home-tile" : undefined}
+                  data-home={home ?? undefined}
                 >
                   {/* v1.172.1 (Interface System V3): the stat tile's own
                       value/label classes - one figure, one caption, the same
@@ -517,8 +528,9 @@ export function TradingDesk({
                   <p className="erp-stat-label">
                     {t.show ?? t.label}
                   </p>
-                </button>
-          );
+                </Tag>
+            );
+          };
           return (
             <>
               <div
@@ -801,16 +813,11 @@ export function TradingDesk({
                   detailModal,
                   (
                     {
-                      Clients: "Pelanggan",
-                      "Active stokis": "Stokis aktif",
-                      "Lives today": "LIVE hari ini",
                       "In today": "Hadir hari ini",
                       "Unpaid inv.": "Inv. belum bayar",
-                      "Cash flow (mo)": "Aliran tunai (bln)",
                       "Peak hour (wk)": "Jam puncak (mgu)",
                       "Leave pending": "Cuti menunggu",
                       "Claims pending": "Tuntutan menunggu",
-                      "OT pending": "OT menunggu",
                       "Low stock": "Stok rendah",
                       "Quotations open": "Sebut harga terbuka",
                     } as Record<string, string>
@@ -826,21 +833,15 @@ export function TradingDesk({
               </button>
             </div>
             <div className="relative w-full overflow-y-auto">
-              {detailModal === "Clients" && <ClientsCard inModal />}
-              {detailModal === "Active stokis" && <ActiveStokisSummary />}
-              {detailModal === "Lives today" && (
-                <LiveScheduleCard user={user} inModal />
-              )}
+              {/* v1.317.0 (D-1, D-2) - no copy of another tab's screen is drawn here: Clients, Lives today, Cash in - out and OT pending open their home tabs */}
               {detailModal === "In today" && <InTodaySummary />}
               {detailModal === "Unpaid inv." && (
                 <OutstandingDocsSummary kind="INV" />
               )}
-              {detailModal === "Cash flow (mo)" && <PnlCard inModal />}
               {detailModal === "Peak hour (wk)" && <SalesByHourCard />}
 
               {detailModal === "Leave pending" && <PendingLeaveSummary />}
               {detailModal === "Claims pending" && <PendingClaimsSummary />}
-              {detailModal === "OT pending" && <OtApprovalsCard inModal />}
               {detailModal === "Low stock" && <LowStockSummary />}
               {detailModal === "Quotations open" && (
                 <OutstandingDocsSummary kind="QT" />

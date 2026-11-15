@@ -27,6 +27,9 @@ export interface PackageRow {
   subtotal_cents: number;
   total_cents: number;
   used_by: number;
+  /** v1.317.0 - shown on the public Packages page (active packages only), and its price label there */
+  public?: boolean;
+  public_label?: string;
 }
 
 /** What a quotation in the form carries: the package and version it was

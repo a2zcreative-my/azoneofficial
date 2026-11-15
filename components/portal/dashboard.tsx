@@ -56,6 +56,7 @@ import { PunchIcon } from "@/components/ui/punch-icon";
 import css from "./dashboard.module.css";
 import shiftCss from "./on-shift.module.css";
 import { daysOf, hoursLabel, sessionMinutes } from "@/lib/clock-sessions";
+import { PunchReceipt, PunchRecording } from "@/components/portal/punch-receipt"; // v1.318.0 - the clock-in / clock-out confirmation
 import { LocationCard, LocChip } from "@/components/portal/shift-location"; // v1.294.0 - On Shift v2.0
 import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
@@ -557,6 +558,17 @@ export function Dashboard({
     variant?: "success" | "notice" | "danger";
   } | null>(null);
   const [punchError, setPunchError] = useState("");
+  /* v1.318.0 - THE CONFIRMATION (the CEO's picture, 15-11-2026). A punch the
+     server RECORDED CLEAN opens it; what it shows is read back from that
+     record (its time, its location outcome) once the day has been re-read.
+     A punch that is waiting for the CEO, kept with no signal or refused keeps
+     its own words in the toast - it is not "recorded". */
+  const [receipt, setReceipt] = useState<{
+    type: "clock_in" | "clock_out"; answeredAt: number;
+    shift: { start?: string | null; end?: string | null; n: number } | null;
+    note: string | null; ot: string | null;
+  } | null>(null);
+  const closeReceipt = useCallback(() => setReceipt(null), []);
   /* v1.76.0 — the second tap. Armed by the first one, which explained what
      it will do; cleared as soon as any punch completes. */
   const [forgotArmed, setForgotArmed] = useState(false);
@@ -901,7 +913,7 @@ export function Dashboard({
       window.setTimeout(() => setPunchToast(null), 4800);
       return;
     }
-    const res = await api<{ flag?: string; pending?: boolean; ot_minutes?: number; error?: { message?: string } }>(
+    const res = await api<{ flag?: string; pending?: boolean; ot_minutes?: number; sessions_today?: number; shift?: { start?: string | null; end?: string | null }; error?: { message?: string } }>(
       `/staff/attendance`,
       {
         method: "POST",
@@ -970,43 +982,24 @@ export function Dashboard({
         assigned: L("Assigned work", "Kerja yang ditugaskan"),
         rest_day: L("Rest day", "Hari rehat"),
       };
-      const now = new Date(Date.now() + 8 * 3600 * 1000);
-      const hhmm = now.toISOString().slice(11, 16);
-      setPunchToast({
-        title:
-          type === "clock_in"
-            ? L("Clock-in recorded", "Daftar masuk direkodkan")
-            : L("Clock-out recorded", "Daftar keluar direkodkan"),
-        sub: `${label[res.data.flag] ?? res.data.flag} · ${hhmm} MYT${
-          gps
-            ? ""
-            : gpsDenied
-              ? L(
-                  " · no location — enable location access for this site",
-                  " · tiada lokasi — benarkan akses lokasi untuk laman ini"
-                )
-              : L(" · no location recorded", " · tiada lokasi direkodkan")
-        }`,
-        ...(gps ? {} : { variant: "notice" as const }),
-      });
-      window.setTimeout(() => setPunchToast(null), 2600);
-      /* v1.133.0 — the clock-out that closed a shift also measured what lay
-         outside the schedule. Say so now, in hours, with where it went: a
-         person who worked the evening should not have to wonder whether
-         anybody noticed. Shown after the punch toast so neither is lost. */
+      /* v1.318.0 - the confirmation sheet says it now (the CEO's picture): the
+         tick, the time, the shift or the hours, where it was, and Done. The
+         server's verdict keeps its words when it is more than "on time", and
+         the overtime the clock-out measured is said on the same sheet (it
+         used to follow as a second toast, which a sheet would cover). */
       const otM = res.data.ot_minutes ?? 0;
-      if (type === "clock_out" && otM > 0) {
-        const hm = `${Math.floor(otM / 60)}h${String(otM % 60).padStart(2, "0")}`;
-        window.setTimeout(() => {
-          setPunchToast({
-            title: L(`${hm} overtime sent for approval`, `${hm} OT dihantar untuk kelulusan`),
-            sub: L("Time outside your scheduled hours goes to the CEO to approve. You will get a bell either way.",
-                   "Masa di luar waktu berjadual anda dihantar kepada CEO untuk kelulusan. Anda akan dapat loceng sama ada diluluskan atau tidak."),
-            variant: "success",
-          });
-          window.setTimeout(() => setPunchToast(null), 5200);
-        }, 2700);
-      }
+      const hm = `${Math.floor(otM / 60)}h${String(otM % 60).padStart(2, "0")}`;
+      const flag = res.data.flag;
+      setReceipt({
+        type: type === "clock_in" ? "clock_in" : "clock_out",
+        answeredAt: Date.now(),
+        shift: { start: res.data.shift?.start ?? null, end: res.data.shift?.end ?? null, n: Math.max(1, res.data.sessions_today ?? 1) },
+        note: flag === "ok" || flag === "completed" ? null : (label[flag] ?? flag),
+        ot: type === "clock_out" && otM > 0
+          ? `${L(`${hm} overtime sent for approval`, `${hm} OT dihantar untuk kelulusan`)} - ${L("Time outside your scheduled hours goes to the CEO to approve. You will get a bell either way.",
+              "Masa di luar waktu berjadual anda dihantar kepada CEO untuk kelulusan. Anda akan dapat loceng sama ada diluluskan atau tidak.")}`
+          : null,
+      });
     } else if (
       (res.data?.error as { code?: string } | undefined)?.code === "no_shift"
     ) {
@@ -1354,6 +1347,24 @@ export function Dashboard({
   const openSinceRaw = openNow ? (todayShift?.entry?.open_since ?? today[0]?.created_at ?? null) : null;
   const sessionsNow = todaySessions(today, openSinceRaw);
   const workedToday = sessionMinutes(sessionsNow);
+  const punchSheet = (
+    <>
+        {/* v1.318.0 - while the punch is on its way, and when it has been recorded */}
+        {(busy === "clock_in" || busy === "clock_out") && <PunchRecording />}
+        {receipt && !busy && (() => {
+          /* the record the server made, read back with the day: its own time and its own location outcome */
+          const rec = [...today].filter((r) => r.type === receipt.type && !r.pending).sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+          const fresh = rec && Math.abs(Date.parse(`${rec.created_at.replace(" ", "T")}Z`) - receipt.answeredAt) < 10 * 60 * 1000 ? rec : null;
+          return (
+            <PunchReceipt
+              data={{ type: receipt.type, at: fresh?.created_at ?? receipt.answeredAt, shift: receipt.shift, workedMinutes: receipt.type === "clock_out" ? workedToday : null,
+                loc: fresh ? (fresh.loc ?? null) : undefined, exempt: GEOFENCE_EXEMPT_ROLES.includes(user.role), note: receipt.note, ot: receipt.ot }}
+              who={{ name: user.name, photoKey: user.photo_key }}
+              onDone={closeReceipt} />
+          );
+        })()}
+    </>
+  );
   /* v1.229.0 - TODAY'S SHIFT, the Dashboard's read-only summary (the owner,
      30-10-2026: "ONE FUNCTION. ONE OWNER. MULTIPLE READ-ONLY SUMMARY VIEWS",
      answer "Yes, summary only"). Built from the state above - the same
@@ -1458,7 +1469,7 @@ export function Dashboard({
       {/* v1.171.0 — THE COMPANY, one card (mode="pulse"). The Sales floor
           moved to Ecommerce, the attendance donut and today's assignments to
           Attendance, the bars with the floor. See trading-desk.tsx. */}
-      <TradingDesk user={user} go={go} lang={lang} mode="pulse" />
+      <TradingDesk user={user} go={go} canOpen={canOpen} lang={lang} mode="pulse" />
       {/* v1.191.0 - the owner's photo's Daily Attendance Statistic, for the
           roles that read the attendance report (it renders nothing for
           anyone else, so the wrapper still collapses when it is empty) */}
@@ -1786,6 +1797,7 @@ export function Dashboard({
         )}
         <WaitingPunches list={waitingPunches} />
         {punchFeedback}
+        {punchSheet}
         {clockOutNote}
         {otButtons && <div className={shiftCss.quick}>{otButtons}</div>}
         {otNote}
@@ -2047,73 +2059,7 @@ export function autoTargetCents(lastCents: number): number | null {
   return Math.ceil(raised / 50_000) * 50_000;
 }
 
-export function ActiveStokisSummary({ inModal }: { inModal?: boolean } = {}) {
-  const [data, setData] = useState<
-    { id: number; name: string; status: string; month_cents: number }[]
-  >([]);
-  /* v1.77.0 — skeleton until the first fetch lands. */
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    void api<{
-      stokis: {
-        id: number;
-        name: string;
-        status: string;
-        month_cents: number;
-      }[];
-    }>("/staff/stokis").then((r) => {
-      if (r.ok && r.data)
-        setData(r.data.stokis.filter((s) => s.status === "active"));
-      setLoaded(true);
-    });
-  }, []);
-  const wrap = (node: ReactNode) =>
-    inModal ? (
-      <div className={css.summaryModal}>{node}</div>
-    ) : (
-      <div className={card}>
-        <p className={css.summaryTitle}>
-          ⭐ {L("Active Stokis", "Stokis aktif")}
-        </p>
-        {node}
-      </div>
-    );
-  if (!loaded)
-    return wrap(
-      <SkelRows rows={4} className={inModal ? css.summarySkelModal : css.summarySkelCard} />
-    );
-  if (data.length === 0)
-    return wrap(
-      <p
-        className={
-          inModal
-            ? css.summaryEmptyModal
-            : css.summaryEmptyCard
-        }
-      >
-        {L("No active stokis.", "Tiada stokis aktif.")}
-      </p>
-    );
-  return wrap(
-    <div
-      className={
-        inModal ? css.summaryListModal : css.summaryListCard
-      }
-    >
-      {data.map((s) => (
-        <div
-          key={s.id}
-          className={`${css.summaryRow} ${inModal ? css.summaryRowModal : css.summaryRowCard}`}
-        >
-          <p className={css.summaryName}>{s.name}</p>
-          <p className={css.summaryDetail}>
-            {fmtRM(s.month_cents)} {L("this month", "bulan ini")}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
+/* v1.317.0 (the duplicate-function audit, D-2) - ActiveStokisSummary left: Stokis is parked, and the company card no longer shows its figure */
 
 /* v1.21.0 (CEO chose "allow but flag") — punches outside the office are
    RECORDED and management views mark them red; the C-suite is exempt from

@@ -95,12 +95,17 @@ const staff = read("worker/src/staff.ts");
 
 /* ---- 5. the three statuses ---- */
 {
-  const sel = code.slice(code.indexOf("const statusSelect"), code.indexOf("const ackControl"));
+  /* v1.319.0 (Tasks 2.0 Stage 1) - the board is tasks2.tsx's FlowBoard (four columns: the four steps of
+     these three statuses - lib/task-flow.ts); its cards show the state and open the task, and still
+     carry no dropdown. The list's row keeps its one Update action. */
+  const t2 = strip(read("components/portal/tasks2.tsx"));
+  const board = t2.slice(t2.indexOf("export function FlowBoard("), t2.indexOf("export function OverviewTable("));
+  const rowActs = code.slice(code.indexOf("<span className={tk.rowActs}>"), code.indexOf("{deleteBtn(t)}", code.indexOf("<span className={tk.rowActs}>")));
   /* v1.256.0 (claude/TASK-CLOSURE-AUDIT.md D4) - the row's status is shown, not chosen: the dropdown that
      closed and reopened with no summary or reason is gone; Update opens the one Add Status Update form */
-  ok("the status control shows the state and one Update action - no dropdown that closes or reopens", /<StateChip status=\{t\.status\}/.test(sel) && !/<select/.test(sel) && /setSheetFor\(t\.id\)/.test(sel));
+  ok("the status control shows the state and one Update action - no dropdown that closes or reopens", /<StateChip status=\{t\.status\}/.test(board) && !/<select/.test(board) && !/<select/.test(rowActs) && /setSheetFor\(t\.id\)/.test(rowActs) && !/const statusSelect/.test(code));
   ok("the worker's list is the same three", /\["open", "in_progress", "completed"\]\.includes\(body\.status\)/.test(staff));
-  ok("the boards draw those three columns", /\(\["open", "in_progress", "completed"\] as const\)\.map/.test(code));
+  ok("the boards draw the four steps of those three statuses, and nothing else", /\{FLOW\.map\(\(k\) => \{\s*const all = rows\.filter\(\(t\) => flowOf\(t\.status, t\.stage \?\? null\) === k\);/.test(t2) && /export const FLOW: readonly FlowKey\[\] = \["todo", "in_progress", "review", "done"\];/.test(read("lib/task-flow.ts")) && !/renderBoard/.test(code));
 }
 
 /* ---- 6. a count and its list agree ---- */
@@ -120,7 +125,7 @@ const staff = read("worker/src/staff.ts");
 
 /* ---- 8. a link opens the drawer ---- */
 ok("a search hit, a notification or a Desk item opens the task's drawer", /useRecordFocus\(focus, loaded, \(f\) => \{[\s\S]{0,500}?setOpenTask\(t\.id\)/.test(code));
-ok("the drawer is the record (data-record) and closes cleanly", /<div className=\{tk\.detail\} data-record=\{`task:\$\{t\.id\}`\}>/.test(code) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\);(?: setSheetFor\(null\);)? \};/.test(code));
+ok("the drawer is the record (data-record) and closes cleanly", /<div className=\{tk\.detail\} data-record=\{`task:\$\{detail\.t\.id\}`\}>/.test(code) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\); setSheetFor\(null\); setOpenHow\("open"\); \};/.test(code));
 
 ok("no sample data from the reference", !/Nur Dini Farhana|Nursyazwani|Zul Hisyam|Mohamad Izzudin|Zolkefli|Draft rundown structure|Website product update|TikTok content series/.test(src));
 ok("the guard is registered", /\["tasks-module", "/.test(read("scripts/run-guards.mjs")));

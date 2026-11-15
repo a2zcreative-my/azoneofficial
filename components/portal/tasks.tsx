@@ -25,7 +25,7 @@ import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { taskFigures } from "@/lib/task-figures"; // v1.203.0
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass, inputClassSm } from "@/lib/ui-styles";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
 import { TaskMailPanel } from "@/components/portal/task-mail-panel"; // v1.247.0
@@ -39,12 +39,17 @@ import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/recor
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.313.0 - the phone view switch
 import { useTabViewAddress } from "@/lib/tab-view";
+import { atLeast, onBreakpoint, type Breakpoint } from "@/lib/breakpoints";
+import { PriorityChip, TaskWorkspace } from "@/components/portal/task-workspace"; // v1.319.0 - Tasks 2.0 Stage 1
+import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
+import { closedThisWeek } from "@/lib/task-flow";
 import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards"; // v1.307.0 - Attendance 4.0 (A-3): the operational roster's home
 import { RosterBoard } from "@/components/portal/lazy-panels";
 import { revealAnchor } from "@/components/portal/page-shared";
 import tk from "./tasks-page.module.css";
+import t2 from "./tasks2.module.css"; // v1.319.0 - kept after the page's own sheet (tests/kept-lines.mjs reads the first module import)
 import t5 from "./tasks5.module.css"; // v1.313.0 - Tasks Workspace 5.0
-import { DepartmentCard, Head5, LiveHostCard, MyDayCards, QuickApprovals, TaskPreview, WorkCalendar, WorkloadCard, byUrgency, mondayOf, prioWord } from "@/components/portal/tasks5";
+import { DepartmentCard, Head5, LiveHostCard, MyDayCards, QuickApprovals, WorkCalendar, WorkloadCard, mondayOf, prioWord } from "@/components/portal/tasks5";
 
 /* v1.209.0 - Create left the tab row for a drawer from the + button (the
    owner's Tasks brief, 25-10-2026); Calendar joined it, drawn from the
@@ -55,6 +60,9 @@ const TASK_VIEWS: readonly TaskView[] = ["overview", "mine", "all", "projects", 
 const isTaskView = (v: string | null): v is TaskView => TASK_VIEWS.includes(v as TaskView);
 type StatusF = "active" | "open" | "in_progress" | "completed" | "any" | "review" | "blocked" | "waiting_client" | "overdue" | "stale" | "assisting" | "set_by_me";
 type SortK = "newest" | "deadline" | "priority" | "title" | "progress";
+type OvStatus = "" | "todo" | "in_progress" | "review" | "done" | "overdue" | "blocked" | "waiting_client" | "stale" | "unacked";
+/** rows the Overview's table shows before "View all" */
+const OV_ROWS = 8;
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 /* v1.247.2 - "Madam Jariah - QT-1 · Madam Jariah": the company is said once when
    the project's title already names it */
@@ -66,7 +74,12 @@ const PRIO_CHIP_5: Record<string, string> = { urgent: chipDanger, high: chipDang
 const PER = 15;
 /** 20 Nov - the board's short due date (the year when it is not this one) */
 const shortDate = (iso: string) => { const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`); const y = new Date(Date.now() + 8 * 3600 * 1000).getUTCFullYear(); return d.toLocaleDateString("en-MY", { day: "numeric", month: "short", ...(d.getUTCFullYear() !== y ? { year: "numeric" } : {}), timeZone: "UTC" }); };
-const statusL = (v: string) => v === "completed" ? L("Closed", "Selesai") : v === "in_progress" ? L("In progress", "Sedang dibuat") : L("Open", "Terbuka");
+/** does the screen meet this tier now (lib/breakpoints.ts - never a typed number) */
+const subTier = (bp: Breakpoint) => (cb: () => void) => onBreakpoint(bp, cb);
+const SUBS = { md: subTier("md"), xl: subTier("xl") } as const;
+function useTier(bp: "md" | "xl"): boolean {
+  return useSyncExternalStore(SUBS[bp], () => atLeast(bp), () => false);
+}
 
 /* ================= Tasks ================= */
 
@@ -131,6 +144,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [editing, setEditing] = useState<null | { title: string; description: string; priority: string; start_date: string; deadline: string; assigned_to: number; reason?: string }>(null);
   useTabViewAddress("Tasks", view, setView, isTaskView);
   const go = (v: TaskView, anchor?: string) => {
+    if (openTask != null && v !== view) closeDetail(); // v1.319.0 - a task shown beside the list or as a page belongs to the view it was opened in
     setView(v);
     if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
   };
@@ -180,13 +194,14 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     setCreateOpen(false);
     void load();
   };
-  const openChecklist = async (id: number) => {
+  const openChecklist = async (id: number, how: "beside" | "open" = "open") => {
     setEditing(null);
+    setOpenHow(how);
     setOpenTask(id); setItems(null);
     const r = await api<{ items: TaskItem[] }>(`/staff/tasks/${id}/items`);
     if (r.ok && r.data) setItems(r.data.items ?? []);
   };
-  const closeDetail = () => { setOpenTask(null); setItems(null); setEditing(null); setSheetFor(null); };
+  const closeDetail = () => { setOpenTask(null); setItems(null); setEditing(null); setSheetFor(null); setOpenHow("open"); };
   const toggleItem = async (taskId: number, itemId: number) => {
     const r = await api<{ done: number; progress: number }>(
       `/staff/tasks/${taskId}/items/${itemId}/toggle`,
@@ -306,17 +321,6 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const isAssigned = (t: Task) => t.created_by != null && t.assigned_to != null && t.created_by !== t.assigned_to;
   const unacked = (t: Task) => isAssigned(t) && t.acknowledged === 0 && t.status !== "completed";
 
-  /* v1.256.0 (TASK-CLOSURE-AUDIT D4) - the status dropdown on cards, rows and
-     the drawer footer is gone: it was a second way to close and reopen,
-     with no summary, no checklist check and no reason. Each place shows the
-     status and opens the ONE Add Status Update form inside the task. */
-  const statusSelect = (t: Task) => (
-    <span className={tk.statusCell}>
-      <StateChip status={t.status} stage={t.stage ?? null} />
-      {t.status === "completed" && t.closed_at ? <span className={tk.muted}>{day(t.closed_at)}{t.closed_late_days ? L(` · ${t.closed_late_days}d late`, ` · lewat ${t.closed_late_days}h`) : ""}</span> : null}
-      {t.status !== "completed" && <button type="button" className={btnSm} aria-label={`${L("Update status", "Kemas kini status")} — ${t.title}`} onClick={() => { setSheetFor(t.id); void openChecklist(t.id); }}>{L("Update", "Kemas kini")}</button>}
-    </span>
-  );
   const ackControl = (t: Task) => unacked(t) ? (
     isMine(t) ? (
       <button
@@ -478,7 +482,19 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [mineMode, setMineMode] = useState<"list" | "board">("list");
   const [allMode, setAllMode] = useState<"list" | "board">("list");
   const [allPage, setAllPage] = useState(1);
-  const [pickedTask, setPickedTask] = useState<number | null>(null); // v1.313.0 - the task shown beside My Tasks
+  /* v1.319.0 (Tasks 2.0 Stage 1, T2-4) - HOW THE OPEN TASK IS SHOWN. There is
+     ONE open task (openTask). "beside": chosen in the My Tasks list, shown
+     beside it (picture 2, from 1280px). "open": opened on its own - the full
+     page from 768px (picture 4), the drawer on a phone (as before). */
+  const isMd = useTier("md");
+  const isXl = useTier("xl");
+  const [openHow, setOpenHow] = useState<"beside" | "open">("open");
+  /* the Overview's own filters (never the My / All Tasks toolbar's) */
+  const [ovMode, setOvMode] = useState<"table" | "board">("table");
+  const [ovStatus, setOvStatus] = useState<OvStatus>("");
+  const [ovAbout, setOvAbout] = useState("");
+  const [ovDept, setOvDept] = useState("");
+  const [ovWho, setOvWho] = useState(0);
   const [archPage, setArchPage] = useState(1);
   /* the Calendar's month, Malaysia time */
   const [calMonth, setCalMonth] = useState(() => todayISO.slice(0, 7));
@@ -526,7 +542,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const filtering = !!(needle || prioF || whoF || aboutF || statusF !== "active");
   const clearFilters = () => { setQ(""); setPrioF(""); setWhoF(0); setAboutF(""); setStatusF("active"); setSortK("newest"); setAllPage(1); };
   const abouts = useMemo(() => [...new Set(tasks.map((t) => t.link_label).filter((x): x is string => !!x))].sort(), [tasks]);
-  const toolbar = (withWho: boolean, withStatus = true) => (
+  /* v1.319.0 - `brief` (the narrow list beside the task, picture 2): the search and the status only */
+  const toolbar = (withWho: boolean, withStatus = true, brief = false) => (
     <div className={tk.toolbar} role="search">
       <label className={tk.search}>
         <AppIcon name="search" />
@@ -537,9 +554,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       {withStatus && (
         <select className={inputClassSm} aria-label={L("Status", "Status")} value={statusF} onChange={(e) => { setStatusF(e.target.value as StatusF); setAllPage(1); }}>
           <option value="active">{L("Active (open + in progress)", "Aktif (terbuka + sedang dibuat)")}</option>
-          <option value="open">{L("Open", "Terbuka")}</option>
-          <option value="in_progress">{L("In progress", "Sedang dibuat")}</option>
-          <option value="completed">{L("Closed", "Selesai")}</option>
+          <option value="open">{L("To Do", "Belum Mula")}</option>
+          <option value="in_progress">{L("In Progress", "Sedang Berjalan")}</option>
+          <option value="completed">{L("Done", "Selesai")}</option>
           <option value="review">{L("Waiting for review", "Menunggu semakan")}</option>
           <option value="blocked">{L("Blocked", "Terhalang")}</option>
           <option value="waiting_client">{L("Waiting for client", "Menunggu pelanggan")}</option>
@@ -550,29 +567,29 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           <option value="any">{L("All statuses", "Semua status")}</option>
         </select>
       )}
-      {abouts.length > 0 && (
+      {!brief && abouts.length > 0 && (
         <select className={inputClassSm} aria-label={L("Project or customer", "Projek atau pelanggan")} value={aboutF} onChange={(e) => { setAboutF(e.target.value); setAllPage(1); }}>
           <option value="">{L("All projects and customers", "Semua projek dan pelanggan")}</option>
           {abouts.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
       )}
-      <select className={inputClassSm} aria-label={L("Priority", "Keutamaan")} value={prioF} onChange={(e) => { setPrioF(e.target.value); setAllPage(1); }}>
+      {!brief && <select className={inputClassSm} aria-label={L("Priority", "Keutamaan")} value={prioF} onChange={(e) => { setPrioF(e.target.value); setAllPage(1); }}>
         <option value="">{L("All priorities", "Semua keutamaan")}</option>
         {["urgent", "high", "normal", "low"].map((p) => <option key={p} value={p}>{priorityL(p)}</option>)}
-      </select>
+      </select>}
       {withWho && (
         <select className={inputClassSm} aria-label={L("Assigned to", "Diberikan kepada")} value={whoF} onChange={(e) => { setWhoF(Number(e.target.value)); setAllPage(1); }}>
           <option value={0}>{L("Everyone", "Semua orang")}</option>
           {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       )}
-      <select className={inputClassSm} aria-label={L("Sort", "Isih")} value={sortK} onChange={(e) => setSortK(e.target.value as SortK)}>
+      {!brief && <select className={inputClassSm} aria-label={L("Sort", "Isih")} value={sortK} onChange={(e) => setSortK(e.target.value as SortK)}>
         <option value="newest">{L("Newest first", "Terbaru dahulu")}</option>
         <option value="deadline">{L("Deadline, soonest", "Tarikh akhir, terdekat")}</option>
         <option value="priority">{L("Priority, highest", "Keutamaan, tertinggi")}</option>
         <option value="progress">{L("Progress, most done", "Kemajuan, paling siap")}</option>
         <option value="title">{L("Title, A–Z", "Tajuk, A–Z")}</option>
-      </select>
+      </select>}
       {filtering && <button type="button" className={btnSm} onClick={clearFilters}>{L("Clear", "Kosongkan")}</button>}
     </div>
   );
@@ -694,35 +711,6 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     );
   };
 
-  /* ---- a Board of your own work: the three statuses the dropdown has ---- */
-  const renderBoard = (rows: Task[], limit = 0) => (
-    <div className={tk.board}>
-      {(["open", "in_progress", "completed"] as const).map((st) => {
-        const all = rows.filter((t) => t.status === st);
-        const col = limit ? all.slice(0, limit) : all;
-        return (
-          <section key={st} className={tk.col} aria-label={statusL(st)}>
-            <p className={tk.colHead}><span className={`${tk.dot} ${st === "open" ? tk.dotOpen : st === "in_progress" ? tk.dotPending : tk.dotDone}`} />{statusL(st)}<span className={tk.count}>{all.length}</span></p>
-            {col.length === 0 ? <p className={tk.colEmpty}>{L("Nothing here.", "Tiada apa-apa di sini.")}</p> : col.map((t) => (
-              <article key={t.id} data-record={`task:${t.id}`} className={`${tk.cardItem} ${isOverdue(t) ? tk.cardOverdue : ""}`}>
-                <button type="button" className={`${tk.taskTitle} ${tk.titleBtn} ${isOverdue(t) ? tk.danger : ""}`} onClick={() => void openChecklist(t.id)}>{t.title}</button>
-                {t.assignee && canManage && <span className={tk.muted}>{t.assignee}</span>}
-                <span className={tk.badges}>
-                  <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
-                  {t.deadline && <span className={isOverdue(t) ? chipDanger : chipNeutral}>{t.start_date ? `${dmy(t.start_date)} → ` : ""}{isOverdue(t) ? L(`was due ${dmy(t.deadline)}`, `sepatutnya ${dmy(t.deadline)}`) : dmy(t.deadline)}</span>}
-                  {linkChip(t)}{scopeChip(t)}{ackControl(t)}
-                </span>
-                {progressBar(t)}
-                <span className={tk.cardFoot}>{statusSelect(t)}{deleteBtn(t)}</span>
-              </article>
-            ))}
-            {limit > 0 && all.length > col.length && <p className={tk.colEmpty}>{L(`and ${all.length - col.length} more`, `dan ${all.length - col.length} lagi`)}</p>}
-          </section>
-        );
-      })}
-    </div>
-  );
-
   /* v1.173.0 (tab concept) - the summary tier: the board's own figures,
      derived from the rows already loaded, never a second request. Open and
      overdue read from the same rule the list paints red with (v1.42.0). */
@@ -732,8 +720,27 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
 
   /* v1.246.0 - My Tasks: what I do, and what I help on (an assistant never
      replaces the person responsible - the row still names them) */
+  const deptOf = (id?: number) => team.find((s) => s.id === id)?.department ?? "";
   const myTasks = tasks.filter((t) => isMine(t) || (t.assistants ?? []).some((a) => a.id === user.id));
   const myActive = myTasks.filter((t) => t.status !== "completed");
+  /* v1.319.0 - the My Tasks list as filtered, and the Overview's own scope and rows */
+  const mineRows = sift(myTasks, { status: true });
+  const ovScope = canManage ? tasks : myTasks;
+  const ovOpen = ovScope.filter((t) => t.status !== "completed");
+  const ovDone = ovScope.filter((t) => t.status === "completed" && t.stage !== "cancelled");
+  const ovDepts = [...new Set(ovScope.map((t) => deptOf(t.assigned_to)).filter(Boolean))].sort();
+  const ovRows = byUrgency2(ovScope.filter((t) =>
+    (!ovAbout || t.link_label === ovAbout) && (!ovDept || deptOf(t.assigned_to) === ovDept) && (!ovWho || t.assigned_to === ovWho)
+    && (ovStatus === "" ? true
+      : ovStatus === "todo" ? t.status === "open" && t.stage !== "review"
+      : ovStatus === "in_progress" ? t.status === "in_progress" && t.stage !== "review"
+      : ovStatus === "review" ? t.status !== "completed" && t.stage === "review"
+      : ovStatus === "done" ? t.status === "completed" && t.stage !== "cancelled"
+      : ovStatus === "overdue" ? isOverdue(t)
+      : ovStatus === "blocked" ? t.status !== "completed" && t.stage === "blocked"
+      : ovStatus === "waiting_client" ? t.status !== "completed" && t.stage === "waiting_client"
+      : ovStatus === "stale" ? isStale(t)
+      : unacked(t))), todayISO);
   const closed = tasks.filter((t) => t.status === "completed");
   const loadOlder = async () => {
     if (olderBusy) return;
@@ -794,7 +801,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     setPrioF(""); setWhoF(0); setMineMode("list");
     openList(t);
     /* v1.209.0 - and the task's drawer opens on it */
-    setEditing(null); setOpenTask(t.id); setItems(null);
+    setEditing(null); setOpenHow("open"); setOpenTask(t.id); setItems(null);
   });
   useScrollToRecord(focused);
   const focusedTask = focused?.kind === "task" ? focused.id : null;
@@ -813,35 +820,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const reportRows = useCachedApi<{ reports: { report_date: string }[] }>("/staff/task-reports", canTaskReports && view === "reports", ["task_reports"]);
   const reportsThisMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(todayISO.slice(0, 7))).length;
   const reportsLastMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(plusMonth(-1))).length;
-  const teamAttention = openTasks.filter((t) => t.stage === "blocked" || isOverdue(t) || t.stage === "review" || unacked(t) || isStale(t))
-    .sort((a, b) => Number(isOverdue(b)) - Number(isOverdue(a)) || (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"));
   const plusDays = (k: number) => new Date(Date.parse(`${todayISO}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
-  const deptOf = (id?: number) => team.find((s) => s.id === id)?.department ?? "";
-  const recentProgress = (
-    <section className={card} aria-label={L("Recent Progress", "Kemajuan Terkini")} data-testid="progress-overview">
-      <Head5 icon="refresh" title={L("Recent Progress", "Kemajuan Terkini")} sub={L("The latest progress reports, newest first - never a comment.", "Laporan kemajuan terkini, terbaru dahulu - bukan komen.")} />
-      {(() => {
-        const recent = (canManage ? tasks : myTasks).filter((t) => t.latest_update).sort((a, b) => (b.latest_update!.at).localeCompare(a.latest_update!.at)).slice(0, 6);
-        return recent.length === 0 ? <p className={tk.empty}><AppIcon name="info" />{L("No progress reports yet.", "Belum ada laporan kemajuan.")}</p> : (
-          <ul className={tk.attn}>
-            {recent.map((t) => (
-              <li key={t.id}>
-                <button type="button" onClick={() => void openChecklist(t.id)}>
-                  <span className={tk.attnText}>
-                    <strong>{t.title}</strong>
-                    <span className={tk.muted}>{t.latest_update!.by} · {stamp(t.latest_update!.at)} — {t.latest_update!.body.slice(0, 100)}</span>
-                  </span>
-                  <span className={tk.badges}><StateChip status={t.status} stage={t.stage ?? null} /></span>
-                  <AppIcon name="next" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        );
-      })()}
-    </section>
-  );
-
   const taskTabs: [TaskView, string, string][] = [
     ["overview", L("Overview", "Gambaran"), L("What needs attention now", "Apa yang perlu perhatian sekarang")],
     ["mine", L("My Tasks", "Tugasan Saya"), L("Tasks assigned to you", "Tugasan yang diberikan kepada anda")],
@@ -850,10 +829,140 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     ["calendar", L("Calendar", "Kalendar"), L("Deadlines, reviews, lives and milestones", "Tarikh akhir, semakan, live dan pencapaian")],
     ["reports", L("Reports & Archive", "Laporan & Arkib"), L("Operational reports and closed work", "Laporan operasi dan kerja ditutup")],
   ];
+  /* ---- v1.319.0 (Tasks 2.0 Stage 1, T2-4) - THE OPEN TASK, ONE SET OF PARTS.
+     Its Task Information (with Edit), its Deliverables checklist, its chips
+     and its foot commands are built once here; the drawer (a phone, and
+     every other tab's quick look), the task beside My Tasks (picture 2) and
+     the full page (picture 4) all draw these same parts. ---- */
+  const detail = (() => {
+    const t = openTask == null ? null : tasks.find((x) => x.id === openTask) ?? null;
+    if (!t) return null;
+    const mine = isMine(t);
+    const canEdit = (mine || canManage) && t.status !== "completed"; // v1.289.0 (T1) - a closed task is reopened first
+    const creator = t.created_by == null ? null : t.created_by === user.id ? L("You", "Anda") : team.find((u) => u.id === t.created_by)?.name ?? null;
+    const startEdit = () => setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, start_date: t.start_date ?? "", deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 });
+    const saveEdit = async () => {
+      if (!editing || !editing.title.trim()) return;
+      const patch: Record<string, unknown> = {};
+      if (editing.title.trim() !== t.title) patch.title = editing.title.trim();
+      if (editing.description !== (t.description ?? "")) patch.description = editing.description;
+      if (editing.priority !== t.priority) patch.priority = editing.priority;
+      if (editing.deadline !== (t.deadline ?? "")) patch.deadline = editing.deadline;
+      if (editing.start_date !== (t.start_date ?? "")) patch.start_date = editing.start_date;
+      if (canManage && editing.assigned_to && editing.assigned_to !== t.assigned_to) patch.assigned_to = editing.assigned_to;
+      if (Object.keys(patch).length === 0) { setEditing(null); return; }
+      if (editing.reason?.trim()) patch.reason = editing.reason.trim(); // v1.315.0 (TK-4) - why another person's task is renamed or moved
+      if (await update(t.id, patch)) setEditing(null);
+    };
+    const subtitle = <span className={tk.badges}>
+              <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
+              <StateChip status={t.status} stage={t.stage ?? null} />{/* v1.246.0 - status and stage together */}
+              {t.deadline && (t.status === "completed"
+                ? <span className={chipNeutral}>{t.closed_late_days ? L(`Was due ${dmy(t.deadline)} · closed ${t.closed_late_days} day(s) late`, `Sepatutnya ${dmy(t.deadline)} · ditutup lewat ${t.closed_late_days} hari`) : L(`Was due ${dmy(t.deadline)}`, `Sepatutnya ${dmy(t.deadline)}`)}</span>
+                : <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`Overdue — was due ${dmy(t.deadline)}`, `Lewat — sepatutnya ${dmy(t.deadline)}`) : L(`Due ${dmy(t.deadline)}`, `Perlu siap ${dmy(t.deadline)}`)}</span>)}
+            </span>;
+    const foot = (ackControl(t) || deleteBtn(t)) ? <span className={tk.drawerFoot}>{ackControl(t)}{deleteBtn(t)}</span> : undefined;
+    const info = (<>
+
+              <section className={tk.detailSec} aria-label={L("Task information", "Maklumat tugasan")}>
+                <div className={tk.detailHead}>
+                  <p className={tk.title}>{L("Task information", "Maklumat tugasan")}</p>
+                  {canEdit && !editing && <button type="button" className={btnSm} onClick={startEdit}><AppIcon name="edit" />{L("Edit", "Sunting")}</button>}
+                </div>
+                {editing ? (
+                  <div className={tk.editForm}>
+                    <Sub t={L("Title *", "Tajuk *")}><input className={inputClass} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></Sub>
+                    {editing.title.trim() !== t.title && t.assigned_to !== user.id && (
+                      <Sub t={L("Reason for the title change *", "Sebab tajuk berubah *")}><input className={inputClass} value={editing.reason ?? ""} maxLength={300} data-testid="edit-reason" placeholder={L("e.g. the period lives in the dates", "cth. tempoh ada pada tarikh")} onChange={(e) => setEditing({ ...editing, reason: e.target.value })} /></Sub>
+                    )}
+                    <Sub t={L("Description", "Keterangan")}><textarea className={inputClass} rows={3} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Sub>
+                    <div className={tk.editRow}>
+                      <Sub t={L("Priority", "Keutamaan")}>
+                        <select className={inputClass} value={editing.priority} onChange={(e) => setEditing({ ...editing, priority: e.target.value })}>
+                          {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{priorityL(p)}</option>)}
+                        </select>
+                      </Sub>
+                      <Sub t={L("Start date", "Tarikh mula")}><input type="date" className={inputClass} value={editing.start_date} max={editing.deadline || undefined} onChange={(e) => setEditing({ ...editing, start_date: e.target.value })} /></Sub>
+                      <Sub t={L("Due date", "Tarikh siap")}><input type="date" className={inputClass} value={editing.deadline} min={editing.start_date || undefined} onChange={(e) => setEditing({ ...editing, deadline: e.target.value })} /></Sub>
+                    </div>
+                    {canManage && (
+                      <Sub t={L("Assigned to", "Diberikan kepada")}>
+                        <select className={inputClass} value={editing.assigned_to} onChange={(e) => setEditing({ ...editing, assigned_to: Number(e.target.value) })}>
+                          {!team.some((u) => u.id === editing.assigned_to) && <option value={editing.assigned_to}>{t.assignee ?? L("Current assignee", "Penerima semasa")}</option>}
+                          {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                      </Sub>
+                    )}
+                    <p className={tk.hint}>{L("Saved through the same update the Roster's Edit uses; a new assignee is told and asked to acknowledge.", "Disimpan melalui kemas kini yang sama digunakan oleh Sunting Roster; penerima baharu dimaklumkan dan diminta mengakui.")}</p>
+                    <span className={tk.editBtns}>
+                      <button type="button" className={btnSm} onClick={() => setEditing(null)}>{L("Cancel", "Batal")}</button>
+                      <button type="button" className={btnClass} disabled={!editing.title.trim()} onClick={() => void saveEdit()}>{L("Save changes", "Simpan perubahan")}</button>
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <p className={tk.label}>{L("Description", "Keterangan")}</p>
+                    {t.description ? <p className={tk.descBox}>{t.description}</p> : <p className={tk.muted}>{L("No description.", "Tiada keterangan.")}</p>}
+                    <dl className={tk.facts}>
+                      <div><dt>{L("Assigned to", "Diberikan kepada")}</dt><dd>{t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}{positionOf(t.assigned_to) ? <span className={tk.muted}> · {positionOf(t.assigned_to)}</span> : null}</span></span> : mine ? L("You", "Anda") : "—"}</dd></div>
+                      {creator && <div><dt>{L("Created by", "Dibuat oleh")}</dt><dd>{creator}</dd></div>}
+                      <div><dt>{L("Priority", "Keutamaan")}</dt><dd><PriorityChip priority={t.priority} /></dd></div>
+                      <div><dt>{L("Start date", "Tarikh mula")}</dt><dd>{t.start_date ? dmy(t.start_date) : L("Not set", "Belum ditetapkan")}</dd></div>
+                      <div><dt>{L("Due date", "Tarikh siap")}</dt><dd>{t.deadline ? dmy(t.deadline) : L("No due date", "Tiada tarikh siap")}</dd></div>
+                      <div><dt>{L("Acknowledged", "Diakui")}</dt><dd>{!isAssigned(t) ? L("Not needed — self-set", "Tidak perlu — ditetapkan sendiri") : t.acknowledged ? L("Yes", "Ya") : L("Not yet", "Belum")}</dd></div>
+                    </dl>
+                  </>
+                )}
+              </section>
+    </>);
+    const check = (<>
+              <section className={tk.detailSec} aria-label={L("Deliverables checklist", "Senarai semak hasil kerja")}>
+                <div className={tk.detailHead}>
+                  <p className={tk.title}>{L(`Deliverables checklist (${t.item_done ?? 0}/${t.item_count ?? 0})`, `Senarai semak hasil kerja (${t.item_done ?? 0}/${t.item_count ?? 0})`)}</p>
+                </div>
+                {progressBar(t)}
+                {checklist(t)}
+              </section>
+    </>);
+    return { t, subtitle, foot, info, check };
+  })();
+  /* v1.319.0 - which of the three the open task is drawn as (see openHow) */
+  const besideOk = view === "mine" && mineMode === "list" && isXl;
+  const present: "drawer" | "beside" | "page" | null = !detail ? null : openHow === "beside" ? (besideOk ? "beside" : null) : isMd ? "page" : "drawer";
+  const backFromPage = () => {
+    /* back to the list it came from: on My Tasks at desk width the same task stays, beside the list */
+    if (detail && besideOk && myTasks.some((t) => t.id === detail.t.id)) { setEditing(null); setSheetFor(null); setOpenHow("beside"); }
+    else closeDetail();
+  };
+  const pageOn = present === "page";
+  /* the browser's Back closes the page (no record is ever written in the address - lib/tab-view.ts) */
+  useEffect(() => {
+    if (!pageOn) return;
+    window.history.pushState({ taskPage: true }, "");
+    let popped = false;
+    const onPop = () => { popped = true; backFromPage(); };
+    window.addEventListener("popstate", onPop);
+    return () => { window.removeEventListener("popstate", onPop); if (!popped && (window.history.state as { taskPage?: boolean } | null)?.taskPage) window.history.back(); };
+  }, [pageOn]); // eslint-disable-line react-hooks/exhaustive-deps -- the page's own open and close; the functions it calls are this render's
+  /* My Tasks at desk width always shows a task beside the list: the first of the list until one is chosen */
+  const besideFirst = besideOk && loaded && (openTask == null || (openHow === "beside" && !mineRows.some((t) => t.id === openTask))) ? mineRows[0]?.id ?? null : null;
+  useEffect(() => { if (besideFirst != null) void openChecklist(besideFirst, "beside"); }, [besideFirst]);
+  /* a task chosen beside the list does not follow the person to a narrower screen, the board or another view */
+  const besideGone = openTask != null && openHow === "beside" && !besideOk;
+  useEffect(() => { if (besideGone) closeDetail(); }, [besideGone]);
+
   return (
     <TabPage>
       {deleteConfirmNode}
       {taskToastNode}
+      {/* v1.319.0 (picture 4) - THE TASK AS A FULL PAGE: it takes the tab's
+          place (the tab row and the views wait behind it); Back to the list,
+          the crumb or the browser's Back returns to where it was opened */}
+      {pageOn && detail && (
+        <TaskWorkspace key={detail.t.id} layout="page" taskId={detail.t.id} info={detail.info} checklist={detail.check} foot={detail.foot}
+          focusForm={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} onBack={() => window.history.back()} />
+      )}
+      <div className={pageOn ? tk.off : "erp-stack"} data-testid="tasks-views">
       {/* v1.313.0 - TASKS 5.0: six tabs, one list for the tab row (desktop) and
           the view switch with Create Task (phone), as Finance and Commission */}
       <div className="erp-desktop-only">
@@ -876,77 +985,103 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           (management) and the latest verified progress. Each row opens the
           task itself; nothing here is repeated from another tab. */}
       <TabZone label={L("Overview", "Gambaran")} className={view !== "overview" ? tk.off : ""}>
-        <KpiRow label={L("My work", "Kerja saya")}>
-          <KpiTile icon="orders" tone="blue" label={L("My Open Tasks", "Tugasan Terbuka Saya")} value={myActive.length} busy={!loaded}
-            sub={L("Open and in progress, yours", "Terbuka dan sedang berjalan, milik anda")} onClick={() => { clearFilters(); go("mine"); }} />
-          <KpiTile icon="pending" tone="gold" label={L("In Progress", "Sedang Berjalan")} value={myActive.filter((t) => t.status === "in_progress").length} busy={!loaded}
-            sub={L("Currently being worked on", "Sedang diusahakan")} onClick={() => { clearFilters(); setStatusF("in_progress"); go("mine"); }} />
-          <KpiTile icon="warning" tone="red" label={L("Overdue", "Lewat")} value={myActive.filter(isOverdue).length} busy={!loaded}
-            sub={L("Past due and still open", "Lepas tarikh dan masih terbuka")} onClick={() => { clearFilters(); setStatusF("overdue"); go("mine"); }} />
-          <KpiTile icon="time" tone="purple" label={L("Awaiting Review", "Menunggu Semakan")} value={(canManage ? openTasks : myActive).filter((t) => t.stage === "review").length} busy={!loaded}
+        {/* v1.319.0 (Tasks 2.0 Stage 1, picture 5; T2-2) - five figures, the
+            list (Table or Board) with its filters, the rail (Staff Performance
+            for those who manage the team, Quick Links, Recent Activity), and
+            under them the workflow as it really runs and the week's closures.
+            Every figure is counted from the rows this tab loaded. */}
+        {view === "overview" && (<>
+        <KpiRow label={L("Task figures", "Angka tugasan")}>
+          <KpiTile icon="orders" tone="blue" label={L("Total Tasks", "Jumlah Tugas")} value={ovScope.length} busy={!loaded}
+            sub={L(`${ovOpen.length} open · ${ovDone.length} done`, `${ovOpen.length} terbuka · ${ovDone.length} selesai`)} onClick={() => { setOvStatus(""); }} />
+          <KpiTile icon="warning" tone="red" label={L("Overdue", "Tertunggak")} value={ovOpen.filter(isOverdue).length} busy={!loaded}
+            sub={L("Past due and still open", "Lepas tarikh dan masih terbuka")} onClick={() => setOvStatus("overdue")} pressed={ovStatus === "overdue"} />
+          <KpiTile icon="refresh" tone="blue" label={L("In Progress", "Dalam Pelaksanaan")} value={ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length} busy={!loaded}
+            sub={ovOpen.length ? L(`${Math.round((ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length / ovOpen.length) * 100)}% of open tasks`, `${Math.round((ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length / ovOpen.length) * 100)}% daripada tugasan terbuka`) : L("Being worked on", "Sedang dilaksanakan")}
+            onClick={() => setOvStatus("in_progress")} pressed={ovStatus === "in_progress"} />
+          <KpiTile icon="pending" tone="gold" label={L("Awaiting Review", "Menunggu Semakan")} value={ovOpen.filter((t) => t.stage === "review").length} busy={!loaded}
             sub={canManage ? L("Submitted for review, in your scope", "Dihantar untuk semakan, dalam skop anda") : L("Yours, waiting for the reviewer", "Milik anda, menunggu penyemak")}
-            onClick={() => { clearFilters(); setStatusF("review"); go(canManage ? "all" : "mine"); }} />
+            onClick={() => setOvStatus("review")} pressed={ovStatus === "review"} />
+          <KpiTile icon="success" tone="green" label={L("Done", "Selesai")} value={ovDone.length} busy={!loaded}
+            sub={L(`${closedThisWeek(ovDone, todayISO)} closed this week`, `${closedThisWeek(ovDone, todayISO)} ditutup minggu ini`)}
+            onClick={() => setOvStatus("done")} pressed={ovStatus === "done"} />
         </KpiRow>
-
-        <div className={t5.splitWide}>
-          <section className={card} aria-label={L("My Priority Work", "Kerja Keutamaan Saya")} data-testid="priority-work">
-            <Head5 icon="target" title={L("My Priority Work", "Kerja Keutamaan Saya")} sub={L("Overdue first, then due today, then high priority, then the soonest due.", "Lewat dahulu, kemudian perlu siap hari ini, keutamaan tinggi, kemudian yang terdekat.")}
-              aside={<button type="button" className={btnSm} onClick={() => { clearFilters(); setSortK("deadline"); go("mine"); }}>{L("View all", "Lihat semua")}<AppIcon name="next" /></button>} />
-            {!loaded ? <SkelRows rows={4} /> : myActive.length === 0 ? caughtUp : (
-              <ul className={tk.attn}>
-                {byUrgency(myActive, todayISO).slice(0, 5).map((t) => (
-                  <li key={t.id}>
-                    <button type="button" onClick={() => void openChecklist(t.id)}>
-                      <span className={tk.attnText}>
-                        <strong className={isOverdue(t) ? tk.danger : ""}>{t.title}</strong>
-                        <span className={tk.muted}>{[t.link_label ? projName(t.link_label) : null, prioWord(t.priority), t.deadline ? (isOverdue(t) ? L(`was due ${dmy(t.deadline)}`, `sepatutnya ${dmy(t.deadline)}`) : L(`due ${dmy(t.deadline)}`, `siap ${dmy(t.deadline)}`)) : null, `${t.progress}%`].filter(Boolean).join(" · ")}</span>
-                      </span>
-                      <span className={tk.badges}><StateChip status={t.status} stage={t.stage ?? null} />{unacked(t) && <span className={chipWarn}>{L("Not acknowledged", "Belum diakui")}</span>}</span>
-                      <AppIcon name="next" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+        <div className={t2.ovGrid}>
+          <section className={`${card} ${t2.listCard}`} aria-label={L("Task list and workflow", "Senarai tugas dan aliran kerja")} data-testid="overview-list">
+            <Head2 icon="orders" title={L("Task List & Workflow", "Senarai Tugas & Aliran Kerja")} aside={
+              <>
+                <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="overview-mode">
+                  <button type="button" aria-pressed={ovMode === "table"} onClick={() => setOvMode("table")}><AppIcon name="orders" />{L("Table", "Jadual")}</button>
+                  <button type="button" aria-pressed={ovMode === "board"} onClick={() => setOvMode("board")}><AppIcon name="chart" />{L("Board", "Kanban")}</button>
+                </div>
+                <button type="button" className={btnSm} onClick={() => go("calendar")} aria-label={L("Open the calendar", "Buka kalendar")} title={L("Calendar", "Kalendar")}><AppIcon name="date" /></button>
+              </>
+            } />
+            <div className={t2.filters} role="search" data-testid="overview-filters">
+              {abouts.length > 0 && (
+                <select className={inputClassSm} aria-label={L("Project or customer", "Projek atau pelanggan")} value={ovAbout} onChange={(e) => setOvAbout(e.target.value)}>
+                  <option value="">{L("All projects", "Semua Projek")}</option>
+                  {abouts.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              )}
+              {canManage && ovDepts.length > 0 && (
+                <select className={inputClassSm} aria-label={L("Department", "Jabatan")} value={ovDept} onChange={(e) => setOvDept(e.target.value)}>
+                  <option value="">{L("All departments", "Semua Jabatan")}</option>
+                  {ovDepts.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
+              {canManage && (
+                <select className={inputClassSm} aria-label={L("Staff", "Staf")} value={ovWho} onChange={(e) => setOvWho(Number(e.target.value))}>
+                  <option value={0}>{L("All staff", "Semua Staf")}</option>
+                  {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              )}
+              <select className={inputClassSm} aria-label={L("Status", "Status")} value={ovStatus} onChange={(e) => setOvStatus(e.target.value as OvStatus)}>
+                <option value="">{L("All status", "Semua Status")}</option>
+                <option value="todo">{L("To Do", "Belum Mula")}</option>
+                <option value="in_progress">{L("In Progress", "Sedang Berjalan")}</option>
+                <option value="review">{L("Review", "Semakan")}</option>
+                <option value="done">{L("Done", "Selesai")}</option>
+                <option value="overdue">{L("Overdue", "Lewat")}</option>
+                <option value="blocked">{L("Blocked", "Terhalang")}</option>
+                <option value="waiting_client">{L("Waiting for Client", "Menunggu Pelanggan")}</option>
+                <option value="stale">{L("No recent update", "Tiada kemas kini terkini")}</option>
+                <option value="unacked">{L("Not acknowledged", "Belum diakui")}</option>
+              </select>
+              <span className={t2.found} data-testid="overview-found">{loaded ? L(`${ovRows.length} task(s) found`, `${ovRows.length} tugasan dijumpai`) : ""}</span>
+            </div>
+            {!loaded ? <SkelRows rows={5} /> : ovRows.length === 0 ? (
+              <p className={tk.empty}><AppIcon name={ovScope.length ? "search" : "success"} />{ovScope.length ? L("No task matches these filters.", "Tiada tugasan sepadan dengan penapis ini.") : L("No tasks yet. Create Task starts the first one.", "Belum ada tugasan. Cipta Tugas memulakan yang pertama.")}</p>
+            ) : ovMode === "table" ? (
+              <OverviewTable rows={ovRows.slice(0, OV_ROWS)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} label={L("Task list", "Senarai tugas")} />
+            ) : (
+              <FlowBoard rows={ovRows} today={todayISO} showWho={canManage} limit={3} onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} />
+            )}
+            {loaded && ovRows.length > 0 && (
+              <div className={t2.more}>
+                <span className={t2.note}>{ovMode === "table" ? L(`Showing ${Math.min(OV_ROWS, ovRows.length)} of ${ovRows.length} - the most pressing first`, `Menunjukkan ${Math.min(OV_ROWS, ovRows.length)} daripada ${ovRows.length} - paling mendesak dahulu`) : L("Up to three per column - the most pressing first", "Sehingga tiga setiap lajur - paling mendesak dahulu")}</span>
+                <button type="button" className={btnSm} onClick={() => { clearFilters(); go(canManage ? "all" : "mine"); }}>{L("View all", "Lihat semua")}<AppIcon name="next" /></button>
+              </div>
             )}
           </section>
-          {canManage ? (
-            <section className={card} aria-label={L("Team Attention", "Perhatian Pasukan")} data-testid="team-attention">
-              <Head5 icon="warning" title={L("Team Attention", "Perhatian Pasukan")} sub={L("Blocked, overdue, waiting for review, not acknowledged or gone quiet - in your scope.", "Terhalang, lewat, menunggu semakan, belum diakui atau senyap - dalam skop anda.")} />
-              {/* v1.246.0 kept - the counts that open the register on them */}
-              <div className={tk.progressCounts}>
-                <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("blocked"); go("all"); }}><strong>{openTasks.filter((t) => t.stage === "blocked").length}</strong>{L("Blocked", "Terhalang")}</button>
-                <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("overdue"); go("all"); }}><strong>{overdueCount}</strong>{L("Overdue", "Lewat")}</button>
-                <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("review"); go("all"); }}><strong>{openTasks.filter((t) => t.stage === "review").length}</strong>{L("Waiting for review", "Menunggu semakan")}</button>
-                <button type="button" className={tk.countBtn} onClick={() => { clearFilters(); setStatusF("stale"); go("all"); }}><strong>{openTasks.filter(isStale).length}</strong>{L("No recent update", "Tiada kemas kini terkini")}</button>
-              </div>
-              {!loaded ? <SkelRows rows={3} /> : teamAttention.length === 0 ? (
-                <p className={tk.empty}><AppIcon name="success" />{L("Nothing needs attention.", "Tiada yang perlu perhatian.")}</p>
-              ) : (
-                <ul className={tk.attn}>
-                  {teamAttention.slice(0, 6).map((t) => (
-                    <li key={t.id}>
-                      <button type="button" onClick={() => void openChecklist(t.id)}>
-                        <span className={tk.attnText}>
-                          <strong>{t.title}</strong>
-                          <span className={tk.muted}>{t.assignee ?? ""}{t.deadline ? ` · ${L("due", "sebelum")} ${dmy(t.deadline)}` : ""}</span>
-                        </span>
-                        <span className={tk.badges}>
-                          {t.stage === "blocked" && <span className={chipDanger}>{L("Blocked", "Terhalang")}</span>}
-                          {isOverdue(t) && <span className={chipDanger}>{L("Overdue", "Lewat")}</span>}
-                          {t.stage === "review" && <span className={chipWarn}>{L("Review", "Semakan")}</span>}
-                          {unacked(t) && <span className={chipWarn}>{L("Not acknowledged", "Belum diakui")}</span>}
-                          {isStale(t) && !isOverdue(t) && <span className={chipNeutral}>{L("No recent update", "Tiada kemas kini terkini")}</span>}
-                        </span>
-                        <AppIcon name="next" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ) : recentProgress}
+          <div className={t2.rail}>
+            {canManage
+              ? <StaffPerformance tasks={tasks} today={todayISO} onPick={(id) => { clearFilters(); setWhoF(id); setStatusF("any"); go("all"); }} />
+              : <MyToday mine={myTasks} today={todayISO} onAll={() => { clearFilters(); go("mine"); }} />}
+            <QuickLinks items={[
+              { icon: "add", label: L("Create Task", "Cipta Tugas"), onClick: () => setCreateOpen(true), testid: "ql-create" },
+              ...(canProjects ? [{ icon: "folder" as const, label: L("Projects", "Projek"), onClick: () => go("projects") }] : []),
+              canManage ? { icon: "users" as const, label: L("Staff Tasks", "Tugasan Staf"), onClick: () => { clearFilters(); go("all"); } } : { icon: "assignment" as const, label: L("My Tasks", "Tugasan Saya"), onClick: () => { clearFilters(); go("mine"); } },
+              { icon: "chart", label: L("Reports", "Laporan"), onClick: () => go("reports") },
+            ]} />
+            <ActivityFeed rows={ovScope} onOpen={(id) => void openChecklist(id)} />
+          </div>
         </div>
-        {canManage && recentProgress}
+        <div className={t2.ovFoot}>
+          <WorkflowStrip />
+          <WeeklySummary tasks={ovScope} today={todayISO} />
+        </div>
+        </>)}
       </TabZone>
 
       {/* ============================== MY TASKS ============================== */}
@@ -956,49 +1091,54 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           from the roster, what is due in seven days, the latest updates */}
       <TabZone label={L("My work", "Kerja saya")} className={view !== "mine" ? tk.off : ""}>
       <KpiRow label={L("My task figures", "Angka tugasan saya")}>
-        <KpiTile icon="assignment" tone="blue" label={L("Assigned Today", "Diberikan Hari Ini")} value={myTasks.filter((t) => (t.created_at ?? "").slice(0, 10) === todayISO).length} busy={!loaded}
-          sub={L("New tasks assigned to you", "Tugasan baharu untuk anda")} />
-        <KpiTile icon="date" tone="gold" label={L("Due Soon", "Hampir Tamat")} value={myActive.filter((t) => t.deadline && t.deadline >= todayISO && t.deadline <= plusDays(3)).length} busy={!loaded}
-          sub={L("Due in the next 3 days", "Perlu siap dalam 3 hari")} onClick={() => { clearFilters(); setSortK("deadline"); }} />
-        <KpiTile icon="warning" tone="red" label={L("Overdue", "Lewat")} value={myActive.filter(isOverdue).length} busy={!loaded}
-          sub={L("Past due and require attention", "Lepas tarikh dan perlu perhatian")} onClick={() => { clearFilters(); setStatusF("overdue"); }} />
-        <KpiTile icon="success" tone="green" label={L("Completed This Week", "Selesai Minggu Ini")} value={myTasks.filter((t) => t.status === "completed" && t.stage !== "cancelled" && (t.closed_at ?? "").slice(0, 10) >= mondayOf(todayISO)).length} busy={!loaded}
+        {/* v1.319.0 (picture 2) - four figures of your own work */}
+        <KpiTile icon="orders" tone="blue" label={L("Assigned Tasks", "Tugasan Ditetapkan")} value={myActive.length} busy={!loaded}
+          sub={L("Open tasks that are yours", "Jumlah tugasan untuk saya")} onClick={() => { clearFilters(); }} />
+        <KpiTile icon="next" tone="green" label={L("In Progress", "Dalam Proses")} value={myActive.filter((t) => t.status === "in_progress").length} busy={!loaded}
+          sub={L("Being worked on", "Sedang dilaksanakan")} onClick={() => { clearFilters(); setStatusF("in_progress"); }} />
+        <KpiTile icon="warning" tone="gold" label={L("Due Soon", "Hampir Tarikh Akhir")} value={myActive.filter((t) => t.deadline && t.deadline >= todayISO && t.deadline <= plusDays(3)).length} busy={!loaded}
+          sub={myActive.some(isOverdue) ? L(`Due in 3 days · ${myActive.filter(isOverdue).length} overdue`, `Dalam 3 hari · ${myActive.filter(isOverdue).length} lewat`) : L("Due in the next 3 days", "Perlu siap dalam 3 hari")}
+          onClick={() => { clearFilters(); setSortK("deadline"); }} />
+        <KpiTile icon="success" tone="purple" label={L("Done This Week", "Selesai Minggu Ini")} value={myTasks.filter((t) => t.status === "completed" && t.stage !== "cancelled" && (t.closed_at ?? "").slice(0, 10) >= mondayOf(todayISO)).length} busy={!loaded}
           sub={L("Tasks you closed (Mon - Sun)", "Tugasan anda tutup (Isn - Ahd)")} onClick={() => go("reports", "task-archive")} />
       </KpiRow>
-      <div className={t5.withPreview}>
-      {(() => {
+      {view === "mine" && (() => {
+        /* picture 3's switch: Board · List, and the Calendar tab one press away */
         const modeRow = (
-          <div className={tk.modeRow}>
-            <div role="group" aria-label={L("View", "Paparan")} className={tk.mode}>
-              <button type="button" aria-pressed={mineMode === "list"} onClick={() => setMineMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
-              <button type="button" aria-pressed={mineMode === "board"} onClick={() => setMineMode("board")}><AppIcon name="chart" />{L("Board", "Papan")}</button>
-            </div>
+          <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="mine-mode">
+            <button type="button" aria-pressed={mineMode === "list"} onClick={() => setMineMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
+            <button type="button" aria-pressed={mineMode === "board"} onClick={() => { if (openHow === "beside") closeDetail(); setMineMode("board"); }}><AppIcon name="chart" />{L("Board", "Papan")}</button>
+            <button type="button" aria-pressed={false} onClick={() => go("calendar")}><AppIcon name="date" />{L("Calendar", "Kalendar")}</button>
           </div>
         );
         const subMine = L("Tasks assigned to you. Update progress, manage subtasks, and request closure.", "Tugasan yang diberikan kepada anda. Kemas kini kemajuan, urus subtugasan, dan mohon penutupan.");
-        return mineMode === "list" ? renderTasks(sift(myTasks, { status: true }), L("My Tasks", "Tugasan Saya"), !loaded, {
-          sub: subMine,
-          empty: statusF === "active" && !needle && !prioF ? caughtUp : <p className={tk.empty}><AppIcon name="search" />{L("No task matches — clear the search or a filter.", "Tiada tugasan sepadan — kosongkan carian atau penapis.")}</p>,
-          tools: <>{modeRow}{toolbar(false)}</>,
-          select: { id: pickedTask, set: setPickedTask },
-        }) : (
-          <div className={card}>
-            <div className={tk.head}>
-              <div className={tk.headText}>
-                <p className={tk.title}>{L("My Tasks", "Tugasan Saya")}</p>
-                <p className={tk.sub}>{subMine}</p>
-              </div>
-              <span className={tk.count}>{sift(myTasks).length}</span>
-            </div>
-            {modeRow}
+        const noMatch = statusF === "active" && !needle && !prioF ? caughtUp : <p className={tk.empty}><AppIcon name="search" />{L("No task matches — clear the search or a filter.", "Tiada tugasan sepadan — kosongkan carian atau penapis.")}</p>;
+        if (mineMode === "board") return (
+          <div className={`${card} ${t2.listCard}`} data-testid="mine-board">
+            <Head2 icon="orders" title={<>{L("My Tasks", "Tugasan Saya")}<span className={t2.count}>{sift(myTasks).length}</span></>} sub={subMine} aside={modeRow} />
             {toolbar(false, false)}
-            {!loaded ? <SkelRows rows={4} /> : renderBoard(sift(myTasks))}
+            {!loaded ? <SkelRows rows={4} /> : <FlowBoard rows={sift(myTasks)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} foot={(t) => <>{ackControl(t)}{deleteBtn(t)}</>} />}
+          </div>
+        );
+        /* below 1280px there is no room for the task beside the list: the list as it was, a task opens on its own */
+        if (!isXl) return renderTasks(mineRows, L("My Tasks", "Tugasan Saya"), !loaded, { sub: subMine, empty: noMatch, tools: <><div className={tk.modeRow}>{modeRow}</div>{toolbar(false)}</> });
+        /* picture 2: the list on the left, the chosen task on the right */
+        return (
+          <div className={t2.mine} data-testid="mine-split">
+            <section className={`${card} ${t2.listCard}`} aria-label={L("My Tasks", "Tugasan Saya")}>
+              <Head2 icon="orders" title={<>{L("My Tasks", "Tugasan Saya")}<span className={t2.count}>{mineRows.length}</span></>} aside={modeRow} />
+              {toolbar(false, true, true)}
+              <MyTaskCards rows={mineRows} picked={present === "beside" ? openTask : null} onPick={(id) => void openChecklist(id, "beside")} today={todayISO} loaded={loaded} empty={noMatch} />
+            </section>
+            {present === "beside" && detail ? (
+              <TaskWorkspace key={detail.t.id} layout="beside" taskId={detail.t.id} info={detail.info} checklist={detail.check} foot={detail.foot}
+                focusForm={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} onFull={() => setOpenHow("open")} />
+            ) : (
+              <section className={card} data-testid="mine-none">{!loaded ? <SkelRows rows={6} /> : <p className={tk.empty}><AppIcon name="info" />{mineRows.length ? L("Choose a task on the left to see it here.", "Pilih tugasan di kiri untuk melihatnya di sini.") : L("No task to show.", "Tiada tugasan untuk dipaparkan.")}</p>}</section>
+            )}
           </div>
         );
       })()}
-      <TaskPreview task={myTasks.find((t) => t.id === pickedTask) ?? sift(myTasks, { status: true })[0] ?? null}
-        onOpen={(id) => void openChecklist(id)} onUpdate={(id) => { setSheetFor(id); void openChecklist(id); }} />
-      </div>
       {view === "mine" && <MyDayCards mine={myTasks} today={todayISO} userId={user.id} onOpen={(id) => void openChecklist(id)} onArchive={() => go("reports", "task-archive")} />}
       </TabZone>
 
@@ -1052,7 +1192,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             </div>
             {allModeRow}
             {toolbar(true, false)}
-            {!loaded ? <SkelRows rows={4} /> : renderBoard(sift(tasks, { who: true }))}
+            {!loaded ? <SkelRows rows={4} /> : <FlowBoard rows={sift(tasks, { who: true })} today={todayISO} showWho onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} foot={(t) => <>{ackControl(t)}{deleteBtn(t)}</>} />}
           </div>
         );
       })()}
@@ -1200,6 +1340,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           </ul>
         </section>
       </TabZone>
+      </div>
       {/* ========================== CREATE / ASSIGN TASK ========================== */}
       {/* v1.209.0 - the same form and the same create(), in a drawer from the
           + Create Task button, so the list stays where it was */}
@@ -1345,104 +1486,17 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       </SideDrawer>
 
       {/* ============================== THE TASK DRAWER ============================== */}
-      {(() => {
-        const t = openTask == null ? null : tasks.find((x) => x.id === openTask) ?? null;
-        if (!t) return null;
-        const mine = isMine(t);
-        const canEdit = (mine || canManage) && t.status !== "completed"; // v1.289.0 (T1) - a closed task is reopened first
-        const creator = t.created_by == null ? null : t.created_by === user.id ? L("You", "Anda") : team.find((u) => u.id === t.created_by)?.name ?? null;
-        const startEdit = () => setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, start_date: t.start_date ?? "", deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 });
-        const saveEdit = async () => {
-          if (!editing || !editing.title.trim()) return;
-          const patch: Record<string, unknown> = {};
-          if (editing.title.trim() !== t.title) patch.title = editing.title.trim();
-          if (editing.description !== (t.description ?? "")) patch.description = editing.description;
-          if (editing.priority !== t.priority) patch.priority = editing.priority;
-          if (editing.deadline !== (t.deadline ?? "")) patch.deadline = editing.deadline;
-          if (editing.start_date !== (t.start_date ?? "")) patch.start_date = editing.start_date;
-          if (canManage && editing.assigned_to && editing.assigned_to !== t.assigned_to) patch.assigned_to = editing.assigned_to;
-          if (Object.keys(patch).length === 0) { setEditing(null); return; }
-          if (editing.reason?.trim()) patch.reason = editing.reason.trim(); // v1.315.0 (TK-4) - why another person's task is renamed or moved
-          if (await update(t.id, patch)) setEditing(null);
-        };
-        return (
-          <SideDrawer open onClose={closeDetail} wide full title={t.title}
-            subtitle={<span className={tk.badges}>
-              <span className={`${PRIORITY_CHIP[t.priority] ?? chipNeutral} ${tk.cap}`}>{priorityL(t.priority)}</span>
-              <StateChip status={t.status} stage={t.stage ?? null} />{/* v1.246.0 - status and stage together */}
-              {t.deadline && (t.status === "completed"
-                ? <span className={chipNeutral}>{t.closed_late_days ? L(`Was due ${dmy(t.deadline)} · closed ${t.closed_late_days} day(s) late`, `Sepatutnya ${dmy(t.deadline)} · ditutup lewat ${t.closed_late_days} hari`) : L(`Was due ${dmy(t.deadline)}`, `Sepatutnya ${dmy(t.deadline)}`)}</span>
-                : <span className={isOverdue(t) ? chipDanger : chipNeutral}>{isOverdue(t) ? L(`Overdue — was due ${dmy(t.deadline)}`, `Lewat — sepatutnya ${dmy(t.deadline)}`) : L(`Due ${dmy(t.deadline)}`, `Perlu siap ${dmy(t.deadline)}`)}</span>)}
-            </span>}
-            footer={(ackControl(t) || deleteBtn(t)) ? <span className={tk.drawerFoot}>{ackControl(t)}{deleteBtn(t)}</span> : undefined}>
-            <div className={tk.detail} data-record={`task:${t.id}`}>
+      {detail && present === "drawer" && (
+          <SideDrawer open onClose={closeDetail} wide full title={detail.t.title} subtitle={detail.subtitle} footer={detail.foot}>
+            <div className={tk.detail} data-record={`task:${detail.t.id}`}>
               {/* v1.246.0 - Details (the task information and checklist, as
                   before) · Updates & Comments · Files · Activity, the review
                   bar and the helpers: task-progress.tsx, the same pieces the
                   project rows and the phone open */}
-              <TaskProgressTabs key={`${t.id}:${sheetFor === t.id ? "s" : "d"}`} taskId={t.id} startSheet={sheetFor === t.id} onChanged={() => { setSheetFor(null); void load(); }} details={<>
-              <section className={tk.detailSec} aria-label={L("Task information", "Maklumat tugasan")}>
-                <div className={tk.detailHead}>
-                  <p className={tk.title}>{L("Task information", "Maklumat tugasan")}</p>
-                  {canEdit && !editing && <button type="button" className={btnSm} onClick={startEdit}><AppIcon name="edit" />{L("Edit", "Sunting")}</button>}
-                </div>
-                {editing ? (
-                  <div className={tk.editForm}>
-                    <Sub t={L("Title *", "Tajuk *")}><input className={inputClass} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></Sub>
-                    {editing.title.trim() !== t.title && t.assigned_to !== user.id && (
-                      <Sub t={L("Reason for the title change *", "Sebab tajuk berubah *")}><input className={inputClass} value={editing.reason ?? ""} maxLength={300} data-testid="edit-reason" placeholder={L("e.g. the period lives in the dates", "cth. tempoh ada pada tarikh")} onChange={(e) => setEditing({ ...editing, reason: e.target.value })} /></Sub>
-                    )}
-                    <Sub t={L("Description", "Keterangan")}><textarea className={inputClass} rows={3} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Sub>
-                    <div className={tk.editRow}>
-                      <Sub t={L("Priority", "Keutamaan")}>
-                        <select className={inputClass} value={editing.priority} onChange={(e) => setEditing({ ...editing, priority: e.target.value })}>
-                          {["low", "normal", "high", "urgent"].map((p) => <option key={p} value={p}>{priorityL(p)}</option>)}
-                        </select>
-                      </Sub>
-                      <Sub t={L("Start date", "Tarikh mula")}><input type="date" className={inputClass} value={editing.start_date} max={editing.deadline || undefined} onChange={(e) => setEditing({ ...editing, start_date: e.target.value })} /></Sub>
-                      <Sub t={L("Due date", "Tarikh siap")}><input type="date" className={inputClass} value={editing.deadline} min={editing.start_date || undefined} onChange={(e) => setEditing({ ...editing, deadline: e.target.value })} /></Sub>
-                    </div>
-                    {canManage && (
-                      <Sub t={L("Assigned to", "Diberikan kepada")}>
-                        <select className={inputClass} value={editing.assigned_to} onChange={(e) => setEditing({ ...editing, assigned_to: Number(e.target.value) })}>
-                          {!team.some((u) => u.id === editing.assigned_to) && <option value={editing.assigned_to}>{t.assignee ?? L("Current assignee", "Penerima semasa")}</option>}
-                          {team.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                        </select>
-                      </Sub>
-                    )}
-                    <p className={tk.hint}>{L("Saved through the same update the Roster's Edit uses; a new assignee is told and asked to acknowledge.", "Disimpan melalui kemas kini yang sama digunakan oleh Sunting Roster; penerima baharu dimaklumkan dan diminta mengakui.")}</p>
-                    <span className={tk.editBtns}>
-                      <button type="button" className={btnSm} onClick={() => setEditing(null)}>{L("Cancel", "Batal")}</button>
-                      <button type="button" className={btnClass} disabled={!editing.title.trim()} onClick={() => void saveEdit()}>{L("Save changes", "Simpan perubahan")}</button>
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    <p className={tk.label}>{L("Description", "Keterangan")}</p>
-                    {t.description ? <p className={tk.descBox}>{t.description}</p> : <p className={tk.muted}>{L("No description.", "Tiada keterangan.")}</p>}
-                    <dl className={tk.facts}>
-                      <div><dt>{L("Assigned to", "Diberikan kepada")}</dt><dd>{t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}{positionOf(t.assigned_to) ? <span className={tk.muted}> · {positionOf(t.assigned_to)}</span> : null}</span></span> : mine ? L("You", "Anda") : "—"}</dd></div>
-                      {creator && <div><dt>{L("Created by", "Dibuat oleh")}</dt><dd>{creator}</dd></div>}
-                      <div><dt>{L("Priority", "Keutamaan")}</dt><dd className={tk.cap}>{priorityL(t.priority)}</dd></div>
-                      <div><dt>{L("Start date", "Tarikh mula")}</dt><dd>{t.start_date ? dmy(t.start_date) : L("Not set", "Belum ditetapkan")}</dd></div>
-                      <div><dt>{L("Due date", "Tarikh siap")}</dt><dd>{t.deadline ? dmy(t.deadline) : L("No due date", "Tiada tarikh siap")}</dd></div>
-                      <div><dt>{L("Acknowledged", "Diakui")}</dt><dd>{!isAssigned(t) ? L("Not needed — self-set", "Tidak perlu — ditetapkan sendiri") : t.acknowledged ? L("Yes", "Ya") : L("Not yet", "Belum")}</dd></div>
-                    </dl>
-                  </>
-                )}
-              </section>
-              <section className={tk.detailSec} aria-label={L("Deliverables checklist", "Senarai semak hasil kerja")}>
-                <div className={tk.detailHead}>
-                  <p className={tk.title}>{L(`Deliverables checklist (${t.item_done ?? 0}/${t.item_count ?? 0})`, `Senarai semak hasil kerja (${t.item_done ?? 0}/${t.item_count ?? 0})`)}</p>
-                </div>
-                {progressBar(t)}
-                {checklist(t)}
-              </section>
-              </>} />
+              <TaskProgressTabs key={`${detail.t.id}:${sheetFor === detail.t.id ? "s" : "d"}`} taskId={detail.t.id} startSheet={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} details={<>{detail.info}{detail.check}</>} />
             </div>
           </SideDrawer>
-        );
-      })()}
+      )}
     </TabPage>
   );
 }

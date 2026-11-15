@@ -1,0 +1,57 @@
+/* v1.318.0 - what stands inside the clock-in / clock-out confirmation (punch-receipt.tsx).
+   The sheet itself is the shared one (components/ui/result-sheet). Tokens only. */
+.waitTitle { margin: 0.5rem 0 0; font-size: 1.0625rem; font-weight: 700; }
+.waitSub { margin: 0; font-size: 0.875rem; color: var(--muted-foreground); }
+.body { display: flex; flex-direction: column; align-items: center; width: 100%; }
+
+.tick {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 4.5rem; height: 4.5rem; margin-top: 0.5rem; border-radius: var(--radius-full);
+  background: var(--success); color: var(--card);
+  animation: punch-pop 0.32s ease-out;
+}
+@keyframes punch-pop { from { transform: scale(0.7); opacity: 0; } 70% { transform: scale(1.06); } to { transform: none; opacity: 1; } }
+.title { margin: 0.75rem 0 0; font-size: clamp(1.375rem, 6vw, 1.75rem); font-weight: 800; line-height: 1.15; color: var(--success); }
+.lead { margin: 0.375rem 0 0; font-size: 0.9375rem; }
+.note { margin: 0.5rem 0 0; padding: 0.25rem 0.75rem; border-radius: var(--radius-full); background: var(--warning-soft); color: var(--warning); font-size: 0.8125rem; font-weight: 600; }
+
+.facts {
+  /* three across where they fit, wrapping on the narrowest phones - the 1px gap is the divider */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(6.25rem, 1fr)); gap: 1px; width: 100%; margin: 1rem 0 0; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius-card-v2); background: var(--border); text-align: left;
+}
+.facts > div { min-width: 0; padding: 0.625rem 0.625rem; background: var(--card); }
+.facts dt { display: flex; align-items: center; gap: 0.3125rem; font-size: 0.6875rem; color: var(--muted-foreground); }
+.facts dd { margin: 0.125rem 0 0; font-size: 0.875rem; font-weight: 700; overflow-wrap: anywhere; }
+.facts dd small { display: block; font-size: 0.6875rem; font-weight: 500; color: var(--muted-foreground); }
+
+.place {
+  display: flex; align-items: center; gap: 0.75rem; width: 100%; margin: 0.75rem 0 0; padding: 0.75rem;
+  border-radius: var(--radius-card-v2); background: var(--success-soft); color: var(--success); text-align: left;
+}
+.place[data-tone="warn"] { background: var(--warning-soft); color: var(--warning); }
+.place[data-tone="plain"] { background: var(--secondary); color: var(--foreground); }
+.pin { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-full); background: color-mix(in srgb, currentColor 14%, transparent); }
+/* a bold line over a quiet one (the place, and who recorded it) - named, so nothing inside an avatar or an icon is restyled */
+.pair { min-width: 0; }
+.pair > strong { display: block; font-size: 0.9375rem; }
+.pair > span { display: block; font-size: 0.8125rem; color: var(--muted-foreground); }
+.ot { display: flex; align-items: flex-start; gap: 0.5rem; width: 100%; margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--muted-foreground); text-align: left; }
+
+.by { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin: 1rem 0 0; text-align: left; }
+
+.done {
+  width: 100%; min-height: 3rem; margin-top: 1rem; border: 0; border-radius: var(--radius-full);
+  background: var(--success); color: var(--card); font-size: 1.0625rem; font-weight: 700; cursor: pointer;
+}
+
+.done:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* clock-out wears the gold */
+.body[data-kind="out"] .tick, .body[data-kind="out"] .done { background: var(--gold-solid); }
+.body[data-kind="out"] .title { color: var(--warning); }
+.body[data-kind="out"] .place[data-tone="ok"] { background: var(--warning-soft); color: var(--warning); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tick { animation: none; }
+}

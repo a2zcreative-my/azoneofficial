@@ -343,14 +343,7 @@ export function WeeklyRhythm({ checkpoint }: { checkpoint: string }) {
     </ol>
   );
 }
-export function CashWatchPlaceholder() {
-  return (
-    <div className={css.cash}>
-      <AppIcon name="lock" />
-      <span><strong>{L("Cash Watch", "Pantauan Tunai")}</strong> · {L("Not available until a bank account per company and verified opening balances are entered. A2Z Creative Marketing and AZ ONE OFFICIAL are never added together.", "Belum tersedia sehingga akaun bank setiap syarikat dan baki pembukaan disahkan dimasukkan. A2Z Creative Marketing dan AZ ONE OFFICIAL tidak dicampur.")}</span>
-    </div>
-  );
-}
+/* v1.317.0 (the duplicate-function audit, D-9) - CashWatchPlaceholder left: nothing drew it any more */
 
 /* ---------------- the week's allocation (CEO, COO, super admin edit) ---------------- */
 interface AllocResp {

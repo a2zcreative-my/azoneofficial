@@ -38,6 +38,73 @@ const MAX_CENTS = 1_000_000_000; // RM 10 million, the cents() ceiling in shared
 
 export interface PkgLine { name: string; qty: number; unit_price_cents: number; uom?: string; disc_cents?: number; sub?: string[] }
 
+/* v1.317.0 (the duplicate-function audit, D-3; the CEO, 15-11-2026: "fix the
+   issue as per recommended") - ONE PACKAGE LIST. The public Packages page had
+   its own list (system_meta packages_json: a name, a price label and points,
+   typed by hand on the same screen as this library), so a name or a price
+   changed in one never changed the other. The library is the master now:
+   the CEO marks which ACTIVE packages the public page shows, and may give
+   each a price label; the name and the points are the package's own.
+
+   What is kept beside the library is a POINTER only - which package ids, in
+   which order, and each one's label (system_meta packages_public). No name,
+   price or line is copied. The earlier rate card is not deleted and not
+   edited any more: the public page goes on showing it until the first
+   package is marked, so nothing changes on the day this is deployed. Once
+   the CEO has marked one, the earlier card never comes back - not even if
+   every marked package is later archived or taken off. */
+export const PACKAGE_PUBLIC_ROLES = ["ceo", "super_admin"]; // who published the rate card before; unchanged
+export const PUBLIC_MAX = 6;
+export interface PublicTier { name: string; price_label: string; points: string[] }
+interface PublicPointer { id: number; price_label: string }
+const rmLabel = (cents: number) => `RM ${(cents / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** null = the CEO has never marked a package (the earlier card is still what the public page shows) */
+async function publicPointers(env: Env): Promise<PublicPointer[] | null> {
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_public'`).first<{ value: string }>();
+    if (!row) return null;
+    const v = JSON.parse(row.value);
+    return Array.isArray(v) ? v.map((x: { id?: unknown; price_label?: unknown }) => ({ id: Number(x?.id), price_label: String(x?.price_label ?? "").trim().slice(0, 60) })).filter((x) => Number.isInteger(x.id) && x.id > 0).slice(0, PUBLIC_MAX) : [];
+  } catch { return null; }
+}
+
+/** the public page's tiers, read from the library: marked AND still active, in the order they were marked */
+export async function libraryPublicTiers(env: Env): Promise<PublicTier[]> {
+  const ptr = await publicPointers(env) ?? [];
+  if (!ptr.length) return [];
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT p.id, p.name, v.items, v.total_cents FROM sales_packages p
+         LEFT JOIN sales_package_versions v ON v.package_id = p.id AND v.version = p.current_version
+        WHERE p.status = 'active' AND p.id IN (${ptr.map((_, i) => `?${i + 1}`).join(",")})`,
+    ).bind(...ptr.map((x) => x.id)).all<{ id: number; name: string; items: string | null; total_cents: number | null }>();
+    const by = new Map((results ?? []).map((r) => [r.id, r]));
+    return ptr.flatMap((x) => {
+      const r = by.get(x.id);
+      if (!r) return [];
+      let items: PkgLine[] = [];
+      try { items = normalizeLines(JSON.parse(String(r.items ?? "[]"))); } catch { items = []; }
+      return [{ name: r.name, price_label: x.price_label || rmLabel(Number(r.total_cents ?? 0)), points: items.map((i) => i.name).filter(Boolean).slice(0, 8) }];
+    });
+  } catch { return []; }
+}
+
+/** the earlier hand-typed rate card, as saved - read only, shown until a package is marked public */
+async function legacyRateCard(env: Env): Promise<PublicTier[]> {
+  try {
+    const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
+    const v = row ? JSON.parse(row.value) : null;
+    return Array.isArray(v) ? v as PublicTier[] : [];
+  } catch { return []; }
+}
+
+/** what the public Packages page shows: the library's marked packages; the earlier card only while none is marked */
+export async function publicRateCard(env: Env): Promise<PublicTier[]> {
+  if ((await publicPointers(env)) === null) return legacyRateCard(env);
+  return libraryPublicTiers(env);
+}
+
 /** A service line exactly as POST /docs keeps it (staff.ts lineExtras):
     name to 200, qty > 0, unit >= 0 in cents, UOM to 12 upper case, the line
     discount capped at the line, up to 10 inclusions of 160. A service line
@@ -158,14 +225,21 @@ export async function handlePackages(
           ORDER BY CASE p.status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, p.name COLLATE NOCASE`,
       ).all<Record<string, unknown>>();
       const issuer = params.get("issuer");
+      const ptrSaved = await publicPointers(env);
+      const ptr = ptrSaved ?? [];
       const rows = (results ?? [])
         .filter((r) => !issuer || String(r.issuers).split(",").includes(issuer))
         .map((r) => {
           let items: PkgLine[] = [];
           try { items = normalizeLines(JSON.parse(String(r.items ?? "[]"))); } catch { items = []; }
-          return { ...r, issuers: String(r.issuers).split(","), items, item_count: items.length };
+          const pub = ptr.find((x) => x.id === Number(r.id));
+          return { ...r, issuers: String(r.issuers).split(","), items, item_count: items.length, public: Boolean(pub) && r.status === "active", public_label: pub?.price_label ?? "" };
         });
-      return json({ packages: rows, can_manage: manage });
+      /* v1.317.0 (D-3) - who marks a package for the public page, and whether the page still shows the earlier card */
+      const canPublish = PACKAGE_PUBLIC_ROLES.includes(user.role);
+      const showing = canPublish ? (await libraryPublicTiers(env)).length : 0;
+      return json({ packages: rows, can_manage: manage, can_publish: canPublish,
+        ...(canPublish ? { public_showing: showing, legacy_public_tiers: ptrSaved === null ? (await legacyRateCard(env)).length : 0 } : {}) });
     } catch (e) {
       if (skew(e)) return json({ packages: [], can_manage: manage, pending_migration: true });
       throw e;
@@ -295,6 +369,36 @@ export async function handlePackages(
         name: idn.name, changed, ...(next ? { from_version: cur.current_version, version: next, total_before_cents: ver?.total_cents ?? null, total_cents: ln?.total ?? null } : {}),
       });
       return json({ ok: true, id: cur.id, version: next ?? cur.current_version, new_version: next !== null });
+    } catch (e) { if (skew(e)) return migrationMissing(); throw e; }
+  }
+
+  /* v1.317.0 (D-3) - mark an ACTIVE package for the public Packages page, or take it off.
+     The CEO and super admin only (who published the rate card before); six at most. */
+  const pb = path.match(/^\/packages\/(\d+)\/public$/);
+  if (pb && method === "POST") {
+    if (!PACKAGE_PUBLIC_ROLES.includes(user.role)) return err("forbidden", "Only the CEO chooses what the public Packages page shows", 403);
+    if (typeof body?.on !== "boolean") return err("invalid_input", "on is true or false", 400);
+    const label = str(body?.price_label, 60) ? String(body!.price_label).trim() : "";
+    try {
+      const cur = await env.DB.prepare(`SELECT id, name, status FROM sales_packages WHERE id = ?1`).bind(Number(pb[1])).first<{ id: number; name: string; status: string }>();
+      if (!cur) return err("not_found", "Package not found", 404);
+      const before = await publicPointers(env) ?? [];
+      const rest = before.filter((x) => x.id !== cur.id);
+      if (body.on) {
+        if (cur.status !== "active") return err("invalid_state", "Only an active package is shown on the public page - activate it first", 409);
+        /* a package marked earlier and archived or deleted since holds no place */
+        const live = (await env.DB.prepare(`SELECT id FROM sales_packages WHERE status = 'active'`).all<{ id: number }>()).results ?? [];
+        const kept = rest.filter((x) => live.some((l) => l.id === x.id));
+        if (kept.length >= PUBLIC_MAX) return err("public_full", `The public page shows ${PUBLIC_MAX} packages at most - take one off first`, 409);
+        const was = before.findIndex((x) => x.id === cur.id);
+        const next = was >= 0 ? before.map((x) => (x.id === cur.id ? { id: cur.id, price_label: label } : x)).filter((x) => x.id === cur.id || kept.some((k) => k.id === x.id)) : [...kept, { id: cur.id, price_label: label }];
+        await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('packages_public', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(JSON.stringify(next)).run();
+      } else {
+        if (rest.length === before.length) return json({ ok: true, public: false, showing: (await libraryPublicTiers(env)).length });
+        await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('packages_public', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(JSON.stringify(rest)).run();
+      }
+      await audit(env, user.id, "package.public", "sales_packages", String(cur.id), { name: cur.name, on: body.on, ...(body.on ? { price_label: label } : {}) });
+      return json({ ok: true, public: body.on, showing: (await libraryPublicTiers(env)).length });
     } catch (e) { if (skew(e)) return migrationMissing(); throw e; }
   }
 

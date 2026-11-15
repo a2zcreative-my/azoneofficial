@@ -4,6 +4,7 @@ import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, ru
 // without importing it, so every pass threw a silent ReferenceError and the
 // feature never fired once.
 import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecoveryAdmin, ownerStepUp, currentStaffSql, staffRolesSql, issueSetPasswordLink, ownerOffHint, type StaffUser } from "./staff";
+import { publicRateCard } from "./packages"; // v1.317.0 - the public Packages page reads the one package list
 import { runDueRecoveries } from "./recovery"; // v1.268.0 - Phase R
 import { handlePasskeys, passkeySettings, revokePasskeyStatements, passkeysMigrated } from "./passkeys"; // v1.269.0 - Phase 2A
 import { googleDiscovery, pkcePair, verifyGoogleIdToken } from "./google-oidc"; // v1.265.0 - Google OpenID Connect
@@ -3058,11 +3059,13 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   /* v1.4.273: the public package rate card (null until the CEO sets tiers). */
+  /* v1.317.0 (the duplicate-function audit, D-3) - read from the ONE package list: the
+     active packages the CEO marked in Sales > Packages. The earlier hand-typed card is
+     shown only while no package is marked (packages.ts publicRateCard). */
   if (path === "/api/v1/packages" && method === "GET") {
     try {
-      const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'packages_json'`).first<{ value: string }>();
-      const pk = row ? JSON.parse(row.value) : null;
-      return json({ packages: Array.isArray(pk) && pk.length ? pk : null });
+      const pk = await publicRateCard(env);
+      return json({ packages: pk.length ? pk : null });
     } catch { return json({ packages: null }); }
   }
 
