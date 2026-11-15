@@ -173,11 +173,12 @@ ok("a figure that is not known yet is busy, never 0", /busy=\{!loaded\}/.test(ta
 
 /* ---- 5. pill rows, not hand-rolled ---- */
 /* v1.221.0 - Companies 2.0 moved to the underline tabs (LineTabs), like Finance and Profile */
-for (const [file, src] of [["leave.tsx", read("components/portal/leave.tsx")], ["threads-panel.tsx", read("components/portal/threads-panel.tsx")]]) {
+/* v1.309.0 - Leave 4.0 (L-11): Leave's pill chooser gave way to the management tiles, the policy card and the queue */
+for (const [file, src] of [["threads-panel.tsx", read("components/portal/threads-panel.tsx")]]) {
   ok(`${file} switches with the shared pill (tabPill / tabPillOn), not a hand-rolled one`, /tabPillOn : tabPill/.test(src) && !/bg-primary text-primary-foreground rounded-full px-3 py-1/.test(src));
 }
 ok("Companies switches with the shared underline tabs (LineTabs) - Ownership Review, Staff Access, Audit & History - not a hand-rolled row", (() => { const c = read("components/portal/companies-panel.tsx"); return /<LineTabs value=\{view\}/.test(c) && ['L("Ownership Review"', 'L("Staff Access"', 'L("Audit & History"'].every((t) => c.includes(t)) && !/role="tablist"/.test(c) && !/bg-primary text-primary-foreground rounded-full px-3 py-1/.test(c); })());
-ok("Leave's chooser still toggles off (v1.92.0) and wears the shared pill", /className=\{mgmt === "company" \? tabPillOn : tabPill\}\s*onClick=\{\(\) => setMgmt\(mgmt === "company" \? "" : "company"\)\}/.test(read("components/portal/leave.tsx")));
+ok("Leave's management is one view: the tiles and policy, the queue, then the register - no chooser hiding one of them (v1.309.0 L-11)", (() => { const lt = read("components/portal/leave.tsx"); return /<ApprovalsHead4 /.test(lt) && /<ApprovalQueue4 /.test(lt) && !/setMgmt\(/.test(lt); })());
 ok("the Dashboard's Work overview, the Sales work card and Inventory's Record card keep their pill rows", /<SectionTabs value=\{aroundTab\}/.test(read("components/portal/dashboard.tsx")) && /* v1.191.0 - the Sales work card's pill row is the Documents row */ /role="tablist" className=\{`erp-pill-row \$\{sc\.pills\}`\}/.test(read("components/portal/sales.tsx")) && /<SectionTabs value=\{recordTab\}/.test(read("components/portal/role-panels.tsx")));
 
 /* ---- 6. the reference ---- */

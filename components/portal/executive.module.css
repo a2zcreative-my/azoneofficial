@@ -1192,3 +1192,5 @@ span.rowMain {
     height: 1rem;
   }
 }
+/* v1.309.0 - the view switch wears a chevron (it used the trend-down arrow), turned while open */
+.vsChip[aria-expanded="true"] svg { transform: rotate(180deg); }

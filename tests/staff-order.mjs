@@ -370,15 +370,19 @@ const page = readPortalSource(root);
      The chips are gone and the rest-day half moved to the Leave tab, ABOVE
      the register, because crediting is what turns work into a leave record
      and the register is where that record then appears. */
-  ok("the card is on the Leave tab, above the whole-company register",
-     /<RestDayCreditCard role=\{user\.role\} \/>[\s\S]{0,2000}?Leave — whole company/.test(page),
-     "on the Staff tab it sat beside a directory that has nothing to do with leave");
+  /* v1.309.0 (Leave 4.0, L-8, the CEO 15-11-2026) - a rest day worked is an
+     ATTENDANCE question (pay it as overtime, or credit replacement leave), so
+     the card moved beside Attendance's overtime queue; Leave keeps only the
+     read-only credit ledger. Still one card, one place. */
+  ok("the card is in Attendance, beside the overtime queue - and nowhere in Leave",
+     /<RestDayCreditCard role=\{user\.role\} \/>/.test(read("components/portal/attendance-exceptions.tsx")) && !/RestDayCreditCard/.test(page),
+     "two places deciding one rest day is how a day is paid and credited twice");
   ok("the unpaid chips are gone from it",
      !/Unpaid days recorded this month/.test(card) && !/undoUnpaid/.test(card),
      "two lists of the same records is how two screens start disagreeing about what was deducted");
   ok("and the register is where an unpaid record is now managed",
      /* v1.206.0 - the register is a table; the unpaid type cell carries lv.danger */
-     /\$\{l\.type === "unpaid" \? lv\.danger : ""\}/.test(page) && /\.danger \{[^}]*color: var\(--danger\)/.test(read("components/portal/leave-page.module.css")),
+     /l\.type === "unpaid" \? lv\.danger : ""/.test(page) && /\.danger \{[^}]*color: var\(--danger\)/.test(read("components/portal/leave-page.module.css")),
      "the chips were the only thing making an unpaid day stand out - the register has to do that job now");
   ok("it is CEO-only on the client too",
      /const canReview = \["ceo", "super_admin"\]\.includes\(role\);/.test(card)

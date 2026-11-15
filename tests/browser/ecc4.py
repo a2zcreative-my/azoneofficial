@@ -148,8 +148,9 @@ with sync_playwright() as p:
     ctx.close()
 
     # ---------------- moved into their modules ----------------
-    ctx, pg, errs = open_page(b, 4177, 1440, path="/portal?tab=Attendance")
-    check("the Daily Attendance Statistic is on Attendance -> Overview", pg.get_by_text("Daily Attendance Statistic").filter(visible=True).count() == 1)
+    # v1.307.0 (Attendance 4.0) moved the month statistic to Attendance -> Reports
+    ctx, pg, errs = open_page(b, 4177, 1440, path="/portal?tab=Attendance&view=reports")
+    check("the Daily Attendance Statistic is on Attendance -> Reports", pg.get_by_text("Daily Attendance Statistic").filter(visible=True).count() == 1)
     ctx.close()
     ctx, pg, errs = open_page(b, 4177, 1440, path="/portal?tab=Finance")
     check("Financial health is on Finance -> Overview", vis(pg, "finance-health"))

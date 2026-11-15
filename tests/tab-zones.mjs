@@ -361,9 +361,10 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Claims: five tabs in the brief's order", ["Overview", "Submit Claim", "My Claims", "Approvals", "Reports & Payments"].map((t) => claimsP.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])));
   ok("Claims: each zone stays mounted under the other tabs", (claimsP.match(/className=\{view !== [a-zA-Z"]+ \? cov\.off : ""\}/g) ?? []).length >= 5 && /hidden=\{view !== "overview"\}/.test(claimsP));
   /* v1.196.0 - the history is searched (mine.filter(matchQ)); five tabs, each zone kept mounted */
-  ok("Leave: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{view !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 6);
+  ok("Leave: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{shown !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 5); /* v1.309.0 - Leave 4.0: the shown view (a view a person does not have falls back to the Overview) */
   /* v1.206.0 - the company register is one table (shown.map), the history a table of yours (mine.filter(matchQ)) */
-  ok("Leave: application, company register, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['L("Apply for leave"', 'shown.map((l)', 'mine.filter(matchQ)']));
+  /* v1.309.0 - Leave 4.0: the Apply form (leave4.tsx), the queue and the company register, then your history */
+  ok("Leave: application, approval queue, company register, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['<ApplyLeave4 ', '<ApprovalQueue4 ', 'shown.map((l)', 'mine.filter(matchQ)']));
   /* v1.200.0 - five tabs: my work and all work (the active rows by default) before
      creation, then the company-wide progress and the completion archive */
   /* v1.209.0 (the owner's Tasks brief, 25-10-2026): Create is a drawer from

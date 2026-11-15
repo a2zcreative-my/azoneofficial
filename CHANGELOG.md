@@ -10,6 +10,25 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.309.0] - 2026-11-15 - Leave Workspace 4.0: one engine, five views, the server counts the days - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 15-11-2026: "approve as recommend and make sure it is correct flow" on claude/LEAVE-WORKSPACE-4.0-BLUEPRINT.md (L-0 ... L-15). **No migration, no new table, no tab-access change, no record rewritten.** Two **rule changes** (L-1 the switch retired, L-12 the override narrowed) and one **flow change** (L-3 the server counts the days), below.
+
+- **Five views, in the address** (`/portal?tab=Leave&view=overview|apply|mine|calendar|manage`, Back/Forward; the view switch and Apply on a phone; a view a person does not have falls back to the Overview - never a blank page):
+  - **Overview (ref 5, leave4.tsx):** Applications this month · Approved · Pending · Rejected · **On Leave Today (n of m staff)**; Pending Requests (what waits on you, Review); **Team Availability** from Attendance's own day verdict (`GET /staff/leave/availability`, counts only); Today's Leave and the next 7 days (approved only; type only for the approval chain - D6).
+  - **Apply Leave (ref 1):** three steps (Details, Review, Submitted); **Working Days counted by the server** (`GET /staff/leave/quote` - the roster's working days less the public holidays the person is entitled to, a half day 0.5 on one working day, what was not counted named); reason required (5-500); attachment (PDF / JPG / PNG <= 10 MB, required for medical); **Leave Balance Impact** (before, this request, after); the **Approval Route** the request will be frozen with, with HR's check as information only.
+  - **My Leave (ref 2):** Annual, Medical, Replacement as available / entitled with pending; the unpaid types as one line of what they cost; the ledger and the replacement credits in View details; history with Request #, Last update and a type filter, row actions behind one menu.
+  - **Team Calendar (ref 3):** one month grid (team leave, public holiday, pending, today) with the person-by-day strip as a "By person" view for managers; Team Availability and Who's Away by Department beside it. The Overview's mini calendar is gone.
+  - **Approvals & Management (ref 4):** Leave Management tiles (pending on you, approved this year, routing needs configuration), **Leave Policy & Entitlements** read from the rules (`GET /staff/leave/policy`), **Manage Policy** = the entitlement editor in a drawer, the **Approval Queue** (View · Approve · Reject · Send back), then the register (list only - decisions in the queue and the drawer).
+- **L-1:** the legacy / organisation switch is retired - `PUT /staff/leave/routing` answers 410 for everyone; every new request is routed by the chart; old-rule requests still in flight finish under their own rule. The stored setting row is untouched.
+- **L-3:** `POST /staff/leave` ignores the client's `days` and stores the server's count; a returned request resubmitted on its own dates keeps the days it was submitted with (never recalculated).
+- **L-6 / L-7:** one balance (`leaveLedger`): entitled + adjustments - approved - pending, on the balance screen, the preview and the submission. **Replacement leave is now held to its credits** (before, a replacement request was never checked).
+- **L-8:** rest days worked (credit replacement or pay overtime) are decided in **Attendance -> Exceptions** only (the same card and routes); Leave shows the credits read only (`GET /staff/leave/replacement-credits`).
+- **L-12:** deciding in an approver's place is the **verified owner's** alone (the Super Admin no longer), always with a reason and the authenticator, approve **and** reject; offered only in the request's drawer.
+- **Attachments:** `POST /staff/leave/attachment` (private R2 + media, the uploader recorded); `GET /staff/leave/:id/attachment` for the applicant, the route, HR and the CEO, every other read audited.
+- The phone view switch (shared) wears a chevron instead of the trend arrow.
+- **Tests:** new `tests/leave4.mjs` (50 checks by direct request and on the source, 15 mutations); browser `leave4.py`; `go-live-v` and `go-live-l` (old-rule requests made as production holds them), `leave-module`, `unpaid-leave`, `tab-zones`, `tab-concept`, `staff-order`, `action-feedback`, `attendance4` follow the approved changes.
+
 ## [1.308.0] - 2026-11-15 - Staff Workspace 4.0: one master record, six views - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 15-11-2026: "approve as recommended" on claude/STAFF-WORKSPACE-4.0-BLUEPRINT.md (S-0 ... S-14). **No migration, no permission change, no tab-access change, no data touched.** One **access tightening** (S-1) on the server, below.

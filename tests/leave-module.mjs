@@ -93,7 +93,8 @@ const overview = read("components/portal/leave-overview.tsx");
   ok("the drawer's decisions wait on you (the stage) and never on your own", /const waitsOnMe = d \? inProgress && d\.can_act === true && !own : false;/.test(drawer) && /\{waitsOnMe && \(/.test(drawer)); // v1.252.0 - the server's can_act
   ok("the override is the CEO's, the amend and remove the CEO's, the cancel your own", /\{!waitsOnMe && inProgress && canOverride && !own && \(/.test(drawer) && /\{canAmend && !inProgress && \(/.test(drawer) && /\{own && inProgress && <button/.test(drawer));
   ok("the drawer calls only the page's own functions", !/\bapi\(|csrfFetch/.test(drawer) && /act\(d\.id, "approve"\)/.test(drawer) && /overrideAct\(d, "approve"\)/.test(drawer) && /removeLeave\(d\)/.test(drawer));
-  ok("the gates are the ones they were", /const canOverride = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(leave) && /const canAmend = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(leave));
+  /* v1.309.0 (L-12, the CEO 15-11-2026) - the override is the verified owner's alone (the Super Admin no longer); amend and remove unchanged */
+  ok("the gates are the ones approved", /const canOverride = user\.role === "ceo" && user\.is_owner === true;/.test(leave) && /const canAmend = \["ceo", "super_admin"\]\.includes\(user\.role\);/.test(leave));
   ok("the drawer sits outside every zone", leave.indexOf("THE LEAVE DETAILS DRAWER") > leave.lastIndexOf("</TabZone>"));
 }
 

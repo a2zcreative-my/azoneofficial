@@ -473,7 +473,7 @@ export function ViewSwitch<T extends string>({ value, options, onChange, label }
     <div className={css.vsWrap} onKeyDown={(e) => { if (e.key === "Escape" && open) { e.stopPropagation(); setOpen(false); } }}
       onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false); }}>
       <button type="button" className={css.vsChip} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="view-switch">
-        {cur[1]} <AppIcon name={open ? "up" : "down"} />
+        {cur[1]} <AppIcon name="expand" />
       </button>
       {open && (
         <div role="menu" className={css.vsMenu} aria-label={label ?? L("Dashboard view", "Paparan papan pemuka")}>

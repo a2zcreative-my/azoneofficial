@@ -1729,6 +1729,67 @@ async function leaveCoverageFor(env: Env, userId: number, start: string, end: st
   return { day_part: "full", coverage_json: null };
 }
 
+/* v1.309.0 - LEAVE WORKSPACE 4.0 (the CEO, 15-11-2026: "approve as recommend
+   and make sure it is correct flow", L-3 in claude/LEAVE-WORKSPACE-4.0-
+   BLUEPRINT.md). THE DAYS A LEAVE COSTS, worked out here and nowhere else:
+   every date in the range read against the person's own roster (a rest day
+   costs nothing) and HR's holiday calendar (a public holiday the person is
+   entitled to costs nothing - holidayEntitles, the rule Attendance and
+   Payroll read). A half day is 0.5 on one working day. The applicant no
+   longer types a number: the preview (GET /leave/quote) and the submission
+   (checkLeave) call this same function, so what the form shows is what is
+   stored. Requests submitted before 1.309.0 keep their days untouched. */
+export interface LeaveDayLine { d: string; kind: "work" | "rest_day" | "holiday"; count: number; holiday: string | null }
+export const LEAVE_MAX_SPAN = 92;
+export async function leaveDayCount(env: Env, userId: number, start: string, end: string, part: unknown): Promise<{ days: number; lines: LeaveDayLine[]; error?: string }> {
+  if (!validDay(start) || !validDay(end) || end < start) return { days: 0, lines: [], error: "Choose real dates - the end must not be before the start" };
+  const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000 + 1;
+  if (span > LEAVE_MAX_SPAN) return { days: 0, lines: [], error: `A leave cannot span more than ${LEAVE_MAX_SPAN} calendar days` };
+  const half = part === "first_half" || part === "second_half";
+  if (half && start !== end) return { days: 0, lines: [], error: "Half-day leave needs one date and a first or second half" };
+  const who = await env.DB.prepare(`SELECT joined_on FROM users WHERE id = ?1`).bind(userId).first<{ joined_on: string | null }>().catch(() => null);
+  const weekBefore = new Date(Date.parse(`${start}T00:00:00Z`) - 7 * 86400000).toISOString().slice(0, 10);
+  const hols = await holidayRows(env, weekBefore, end);
+  const at = await shiftResolver(env).catch(() => null);
+  const lines: LeaveDayLine[] = [];
+  for (let t = Date.parse(`${start}T00:00:00Z`); t <= Date.parse(`${end}T00:00:00Z`); t += 86400000) {
+    const d = new Date(t).toISOString().slice(0, 10);
+    const sh = at ? at(userId, d) : null;
+    const h = hols.find((x) => x.holiday_date === d) ?? null;
+    if (sh && sh.kind === "rest_day") lines.push({ d, kind: "rest_day", count: 0, holiday: null });
+    else if (h && holidayEntitles(h, hols, who?.joined_on ?? null)) lines.push({ d, kind: "holiday", count: 0, holiday: h.name || "Public holiday" });
+    else lines.push({ d, kind: "work", count: half ? 0.5 : 1, holiday: null });
+  }
+  const days = lines.reduce((n, l) => n + l.count, 0);
+  if (days === 0) {
+    const why = lines.every((l) => l.kind === "holiday") ? "a public holiday" : lines.some((l) => l.kind === "holiday") ? "rest days and public holidays" : "a rest day on your roster";
+    return { days: 0, lines, error: `${start === end ? start : `${start} to ${end}`} is ${why} - there is no working day to take leave from.` };
+  }
+  return { days, lines };
+}
+
+/* v1.309.0 (L-6 / L-7) - ONE ANSWER TO "HOW MUCH IS LEFT": the entitlement
+   ledger (leave_balances: the year's entitlement, the CEO's adjust - which is
+   where credited replacement days land - and used_adjust) against the leave
+   rows. Approved and pending days both hold the balance, because a pending
+   request is refused anything already promised to another (the rule
+   checkLeave has enforced since v1.243.0). The balance screen, the preview
+   and the submission all read this. Emergency and unpaid have no ceiling. */
+export const LEAVE_CAPPED_TYPES: readonly string[] = ["annual", "medical", "replacement"];
+export async function leaveLedger(env: Env, userId: number, year: number, type: string, excludeId = 0): Promise<{ entitled: number; adjust: number; approved: number; pending: number; used_adjust: number; available: number; capped: boolean }> {
+  const row = await leaveBalanceRow(env, userId, year, type);
+  const sums = await env.DB.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN status = 'approved' THEN days ELSE 0 END), 0) AS approved,
+            COALESCE(SUM(CASE WHEN status NOT IN ('approved', 'rejected', 'cancelled') THEN days ELSE 0 END), 0) AS pending
+       FROM leave_requests WHERE user_id = ?1 AND type = ?2 AND start_date LIKE ?3 || '%' AND id != ?4`,
+  ).bind(userId, type, String(year), excludeId).first<{ approved: number; pending: number }>().catch(() => null);
+  const entitled = row.entitled ?? DEFAULT_ENTITLEMENT[type] ?? 0;
+  const adjust = row.adjust ?? 0;
+  const approved = Number(sums?.approved ?? 0), pending = Number(sums?.pending ?? 0), usedAdj = row.used_adjust ?? 0;
+  const available = Math.round((entitled + adjust - approved - pending - usedAdj) * 100) / 100;
+  return { entitled, adjust, approved, pending, used_adjust: usedAdj, available, capped: LEAVE_CAPPED_TYPES.includes(type) };
+}
+
 /* v1.9.1 — office geofence for clock in/out (replaces the selfie step).
    One system_meta row holds the office point + radius; the punch route
    refuses punches taken outside it. Honest limitation, stated to the CEO:
@@ -2206,12 +2267,14 @@ export async function leaveOrgList(env: Env): Promise<OrgPerson[]> {
 }
 /** The CEO's switch (business_settings.leave_routing): "legacy" until he
     turns it on. Requests already routed keep their route whatever it says. */
-export async function leaveRoutingMode(env: Env): Promise<"legacy" | "organisation"> {
-  try {
-    const r = await env.DB.prepare(`SELECT value FROM business_settings WHERE key = 'leave_routing'`).first<{ value: string | null }>();
-    const v = r?.value ? (JSON.parse(r.value) as { mode?: string }).mode : null;
-    return v === "organisation" ? "organisation" : "legacy";
-  } catch { return "legacy"; }
+/* v1.309.0 (L-1, the CEO 15-11-2026) - THE SWITCH IS RETIRED. Approval by
+   the Organisation chart is the one rule for every new request; the old
+   role chain survives only for the requests submitted under it, which its
+   own rule (leaveCanActAt) still decides until each closes. The stored
+   business_settings row is left exactly as it is - nothing is deleted. */
+export async function leaveRoutingMode(_env: Env): Promise<"legacy" | "organisation"> {
+  void _env;
+  return "organisation";
 }
 export async function addLeaveDecision(env: Env, leaveId: number, step: number | null, kind: string, actorId: number, extra: { from?: number | null; to?: number | null; note?: string | null } = {}): Promise<void> {
   await env.DB.prepare(`INSERT INTO leave_decisions (leave_id, step_no, kind, actor_id, from_user, to_user, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`)
@@ -2927,7 +2990,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) // v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && path !== "/leave/attachment" // v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -6399,47 +6462,63 @@ async function handleStaffRoutes(
      (POST /leave) and a returned one resubmitted with new dates (PATCH
      action resubmit, excludeId = itself so it does not clash with its own
      days). Moved here unchanged from POST /leave. */
-  const checkLeave = async (uid: number, b: Record<string, unknown> | null, excludeId = 0): Promise<Response | { sdL: string; edL: string; coverage: Awaited<ReturnType<typeof leaveCoverageFor>> }> => {
-      if (
-        !b || typeof b.type !== "string" || !LEAVE_TYPES.includes(b.type as never) ||
-        !str(b.start_date, 10) || !str(b.end_date, 10) ||
-        typeof b.days !== "number" || b.days <= 0 || b.days > 60
-      ) {
-        return err("invalid_input", "type, start_date, end_date, and days are required", 400);
+  const checkLeave = async (uid: number, bIn: Record<string, unknown> | null, excludeId = 0, keepDays = false): Promise<Response | { sdL: string; edL: string; days: number; coverage: Awaited<ReturnType<typeof leaveCoverageFor>> }> => {
+      if (!bIn || typeof bIn.type !== "string" || !LEAVE_TYPES.includes(bIn.type as never) || !str(bIn.start_date, 10) || !str(bIn.end_date, 10)) {
+        return err("invalid_input", "type, start_date and end_date are required", 400);
       }
+      /* v1.309.0 (L-3) - THE SERVER COUNTS THE DAYS. Whatever number the
+         client sends is ignored: the days are the working days of the range
+         on the person's roster, less the public holidays they are entitled
+         to (leaveDayCount, the preview's own). A half day is chosen with
+         day_part, on one working date. keepDays: a returned request
+         resubmitted on its ORIGINAL dates keeps the days it was submitted
+         with - an existing record is never recalculated. */
+      let b: Record<string, unknown> = bIn;
+      const sd0 = String(bIn.start_date), ed0 = String(bIn.end_date);
+      if (!validDay(sd0) || !validDay(ed0) || ed0 < sd0) return err("invalid_input", "start_date and end_date must be real dates, and the end must not precede the start", 400);
+      if (!keepDays) {
+        const halfAsked = bIn.day_part === "first_half" || bIn.day_part === "second_half";
+        if (bIn.days === 0.5 && !halfAsked) return err("invalid_input", "Half-day leave needs one date and a first or second half", 400);
+        const cnt = await leaveDayCount(env, uid, sd0, ed0, bIn.day_part);
+        if (cnt.error) return err("invalid_input", cnt.error, 400);
+        if (cnt.days > 60) return err("invalid_input", `${cnt.days} working days is more than one request may hold (60). Split it into two requests.`, 400);
+        b = { ...bIn, days: cnt.days, day_part: halfAsked ? bIn.day_part : "full" };
+      } else if (typeof b.days !== "number" || b.days <= 0 || b.days > 60) {
+        return err("invalid_input", "days is required", 400);
+      }
+      const days = b.days as number;
       /* v1.243.0 (go-live audit D6) - FOUR THINGS A LEAVE REQUEST MUST BE:
          real dates in the right order, not far in the past or the future;
          no more days than the span holds; not overlapping another request of
          this person that is still live (applied, in review, or approved); and
-         for annual leave, within what is left of the year's entitlement. */
-      const sdL = String(b.start_date), edL = String(b.end_date);
-      if (!validDay(sdL) || !validDay(edL) || edL < sdL) return err("invalid_input", "start_date and end_date must be real dates, and the end must not precede the start", 400);
+         within what is left of the year's entitlement. */
+      const sdL = sd0, edL = ed0;
       const todayL = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       const daysBack = (Date.parse(`${todayL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000;
       const daysAhead = (Date.parse(`${sdL}T00:00:00Z`) - Date.parse(`${todayL}T00:00:00Z`)) / 86400000;
       if (daysBack > 60) return err("invalid_input", "A leave cannot start more than 60 days ago. Ask HR to record an older one.", 400);
       if (daysAhead > 400) return err("invalid_input", "A leave cannot start more than 400 days ahead.", 400);
       const spanDays = (Date.parse(`${edL}T00:00:00Z`) - Date.parse(`${sdL}T00:00:00Z`)) / 86400000 + 1;
-      if (b.days > spanDays) return err("invalid_input", `${b.days} day(s) do not fit in ${sdL} to ${edL} (${spanDays} calendar day(s)).`, 400);
+      if (days > spanDays) return err("invalid_input", `${days} day(s) do not fit in ${sdL} to ${edL} (${spanDays} calendar day(s)).`, 400);
       const clashL = await env.DB.prepare(
         `SELECT id, type, start_date, end_date, status FROM leave_requests
           WHERE user_id = ?1 AND status NOT IN ('rejected', 'cancelled') AND start_date <= ?3 AND end_date >= ?2 AND id != ?4 LIMIT 1`,
       ).bind(uid, sdL, edL, excludeId).first<{ id: number; type: string; start_date: string; end_date: string; status: string }>();
       if (clashL) return err("overlap", `You already have ${clashL.type} leave ${clashL.status === "approved" ? "approved" : "applied"} for ${clashL.start_date}${clashL.end_date !== clashL.start_date ? ` to ${clashL.end_date}` : ""}. Cancel or amend that one first.`, 409);
-      if (b.type === "annual" || b.type === "medical") {
+      /* v1.309.0 (L-6) - replacement leave is held to its balance too: it is
+         earned only through credited rest days (replacement_credits), and
+         before this a request for it was never checked against them. */
+      if (LEAVE_CAPPED_TYPES.includes(String(b.type))) {
         const yearL = Number(sdL.slice(0, 4));
-        const rowL = await leaveBalanceRow(env, uid, yearL, b.type);
-        const usedL = await env.DB.prepare(
-          `SELECT COALESCE(SUM(days), 0) AS used FROM leave_requests WHERE user_id = ?1 AND type = ?2 AND status NOT IN ('rejected', 'cancelled') AND start_date LIKE ?3 || '%' AND id != ?4`,
-        ).bind(uid, b.type, String(yearL), excludeId).first<{ used: number }>();
-        const entitledL = (rowL.entitled ?? DEFAULT_ENTITLEMENT[b.type] ?? 0) + (rowL.adjust ?? 0);
-        const leftL = entitledL - ((usedL?.used ?? 0) + (rowL.used_adjust ?? 0));
-        if (b.days > leftL) return err("over_entitlement", `Only ${Math.max(0, leftL)} day(s) of ${b.type} leave are left for ${yearL} (${entitledL} entitled, ${entitledL - leftL} taken or applied). ${b.type === "annual" ? "Apply for the days you have, or for unpaid leave." : "Attach the medical certificate and ask HR to adjust the entitlement."}`, 400);
+        const lg = await leaveLedger(env, uid, yearL, String(b.type), excludeId);
+        const leftL = lg.available;
+        const entitledL = lg.entitled + lg.adjust;
+        if (days > leftL) return err("over_entitlement", `Only ${Math.max(0, leftL)} day(s) of ${b.type} leave are left for ${yearL} (${entitledL} entitled, ${Math.round((entitledL - leftL) * 100) / 100} taken or applied). ${b.type === "annual" ? "Apply for the days you have, or for unpaid leave." : b.type === "replacement" ? "Replacement leave is earned from rest days worked and credited in Attendance." : "Attach the medical certificate and ask HR to adjust the entitlement."}`, 400);
       }
-      const coverage = await leaveCoverageFor(env, uid, sdL, edL, b.days, b.day_part);
+      const coverage = await leaveCoverageFor(env, uid, sdL, edL, days, b.day_part);
       if (coverage.error) return err("invalid_input", coverage.error, 400);
       /* a full day of leave on a day the pattern gives no hours to is not a leave day */
-      if (!isPartialLeave({ days: b.days, day_part: coverage.day_part, coverage_json: coverage.coverage_json, start_date: sdL, end_date: edL } as LeaveCoverage)) {
+      if (!isPartialLeave({ days, day_part: coverage.day_part, coverage_json: coverage.coverage_json, start_date: sdL, end_date: edL } as LeaveCoverage)) {
         let working = 0;
         const atL = await shiftResolver(env).catch(() => null); // read the schedule once, not per day
         for (let t = Date.parse(`${sdL}T00:00:00Z`); t <= Date.parse(`${edL}T00:00:00Z`); t += 86400000) {
@@ -6448,9 +6527,9 @@ async function handleStaffRoutes(
           if (!shL || shL.kind !== "rest_day") working += 1;
         }
         if (working === 0) return err("invalid_input", `${sdL === edL ? sdL : `${sdL} to ${edL}`} is a rest day on your pattern - there is no working day to take leave from.`, 400);
-        if (b.days > working) return err("invalid_input", `${b.days} day(s) asked, but only ${working} working day(s) fall in ${sdL} to ${edL}.`, 400);
+        if (days > working) return err("invalid_input", `${days} day(s) asked, but only ${working} working day(s) fall in ${sdL} to ${edL}.`, 400);
       }
-      return { sdL, edL, coverage };
+      return { sdL, edL, days, coverage };
   };
   if (path === "/leave" && method === "POST") {
     /* v1.93.0 — a part-time host has no leave to apply for. Said here, so
@@ -6459,14 +6538,30 @@ async function handleStaffRoutes(
     if (await isHourlyUserId(env, user.id)) {
       return err("forbidden", "Part-time hosts are paid by the hour and have no leave entitlement", 403);
     }
+    /* v1.309.0 (L-5) - the reason is required: the approver reads it */
+    const reasonA = typeof body?.reason === "string" ? body.reason.trim() : "";
+    if (reasonA.length < 5 || reasonA.length > 500) return err("reason_required", "Give the reason for the leave (5 to 500 characters) - your approver reads it", 400);
+    /* v1.309.0 (L-4) - the supporting document: the applicant's OWN upload
+       (POST /leave/attachment), never attached to another request; required
+       for medical leave (the medical certificate) */
+    const mediaA = typeof body?.mc_media_id === "number" && body.mc_media_id > 0 ? body.mc_media_id : null;
+    if (body?.type === "medical" && !mediaA) return err("attachment_required", "Attach the medical certificate (PDF, JPG or PNG, up to 10 MB)", 400);
+    if (mediaA) {
+      const m = await env.DB.prepare(`SELECT id FROM media WHERE id = ?1 AND uploaded_by = ?2 AND r2_key LIKE 'private/leave/%'`).bind(mediaA, user.id).first<{ id: number }>();
+      if (!m) return err("invalid_input", "That attachment is not one you uploaded - upload the file again", 400);
+      const used = await env.DB.prepare(`SELECT id FROM leave_requests WHERE mc_media_id = ?1 LIMIT 1`).bind(mediaA).first<{ id: number }>();
+      if (used) return err("invalid_input", "That attachment already belongs to another leave request - upload the file again", 400);
+    }
     const chk = await checkLeave(user.id, body);
     if (chk instanceof Response) return chk;
-    const { coverage } = chk;
+    const { coverage, days: daysA } = chk;
     const b = body!;
-    /* v1.260.0 - THE ORGANISATION ROUTE, when the CEO has switched it on.
-       The applicant is the session (nothing in the body names an approver);
-       the route is frozen on the request now. */
-    if ((await leaveRoutingMode(env)) === "organisation") {
+    /* v1.260.0 / v1.309.0 (L-1) - THE ORGANISATION ROUTE, always. The CEO's
+       legacy / organisation switch is retired: every new request is routed
+       by the chart. The applicant is the session (nothing in the body names
+       an approver); the route is frozen on the request now. Requests from
+       before keep the rule they were submitted under. */
+    {
       const route = leaveRoute(await leaveOrgList(env), user.id);
       const span = `${String(b.start_date)}${b.end_date !== b.start_date ? ` to ${String(b.end_date)}` : ""}`;
       if (route.kind === "executive_record") {
@@ -6477,17 +6572,17 @@ async function handleStaffRoutes(
         if (stepUp) return stepUp;
       }
       const stage = route.kind === "executive_record" ? "approved" : route.kind === "routing_required" ? "routing_required" : "routed";
-      const resR = await env.DB.prepare(
+      const res = await env.DB.prepare(
         `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json, stage, status, route_json, route_version, step_no, approver_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) RETURNING id`,
       ).bind(
-        user.id, b.type, b.start_date, b.end_date, b.days, str(b.reason, 1000) ? b.reason : null, typeof b.mc_media_id === "number" ? b.mc_media_id : null,
+        user.id, b.type, chk.sdL, chk.edL, daysA, reasonA, mediaA,
         coverage.day_part, coverage.coverage_json, stage, stage === "approved" ? "approved" : "pending",
         JSON.stringify(route), LEAVE_ROUTE_VERSION, route.kind === "manager" ? 1 : null, route.kind === "manager" ? route.steps[0]!.approver.id : null,
       ).first<{ id: number }>();
-      const idR = resR?.id;
-      await stampIssuer(env, "leave_requests", idR);
-      await audit(env, user.id, "leave.apply", "leave_requests", String(idR), { route: route.kind, ...(route.steps[0] ? { approver: route.steps[0].approver.id } : {}) });
+      const idR = res?.id;
+      await stampIssuer(env, "leave_requests", res?.id);
+      await audit(env, user.id, "leave.apply", "leave_requests", String(idR), { route: route.kind, days: daysA, ...(route.steps[0] ? { approver: route.steps[0].approver.id } : {}), ...(mediaA ? { attachment: mediaA } : {}) });
       if (idR && route.kind === "executive_record") {
         await addLeaveDecision(env, idR, null, "recorded", user.id);
         await audit(env, user.id, "leave.executive_record", "leave_requests", String(idR));
@@ -6501,22 +6596,8 @@ async function handleStaffRoutes(
         const wd = await leaveWorkingDaysUntil(env, String(b.start_date));
         await notifyLeaveActors(env, idR, "routed", user.role, user.id, `${wd <= 1 ? "URGENT - " : ""}${user.name} applied for ${String(b.type)} leave (${span}) - it waits on your approval`, "", route.steps[0]!.approver.id);
       }
-      return json({ id: idR, stage, route: route.kind, ...(route.steps[0] ? { approver: route.steps[0].approver.name } : {}) }, 201);
+      return json({ id: idR, stage, days: daysA, route: route.kind, ...(route.steps[0] ? { approver: route.steps[0].approver.name } : {}) }, 201);
     }
-    const res = await env.DB.prepare(
-      `INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, mc_media_id, day_part, coverage_json)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
-    ).bind(
-      user.id, b.type, b.start_date, b.end_date, b.days,
-      str(b.reason, 1000) ? b.reason : null,
-      typeof b.mc_media_id === "number" ? b.mc_media_id : null,
-      coverage.day_part, coverage.coverage_json,
-    ).first<{ id: number }>();
-    await stampIssuer(env, "leave_requests", res?.id);
-    await audit(env, user.id, "leave.apply", "leave_requests", String(res?.id));
-    /* v1.252.0 (D3) - HR is told a request is waiting on them */
-    if (res?.id) await notifyLeaveActors(env, res.id, "applied", user.role, user.id, `${user.name} applied for ${String(b.type)} leave (${String(b.start_date)}${b.end_date !== b.start_date ? ` to ${String(b.end_date)}` : ""}) - it waits on your review`);
-    return json({ id: res?.id }, 201);
   }
 
   if (path === "/leave" && method === "GET") {
@@ -6624,8 +6705,14 @@ async function handleStaffRoutes(
       }
       const { route_json: _rj, ...rest } = l;
       void _rj;
+      /* v1.309.0 - "Last update" on My Leave: the latest moment the record
+         itself moved (submitted, a decision, a return, a withdrawal) */
+      const stamps = [l.created_at, l.hr_at, l.preapp_at, l.final_at, l.cancelled_at, l.returned_at, ...(decOf.get(Number(l.id)) ?? []).map((d) => d.created_at)]
+        .filter((x): x is string => typeof x === "string" && x.length > 0).sort();
       return {
         ...rest,
+        last_update: stamps[stamps.length - 1] ?? null,
+        has_attachment: Boolean(l.mc_media_id),
         route: route ? { kind: route.kind, steps: route.steps.map((x) => ({ n: x.n, approver: x.approver, final: x.final })), applicant: route.applicant } : null,
         timeline: routed ? leaveRoutedTimeline(ev, route!, decOf.get(Number(l.id)) ?? [], touched, payroll) : leaveTimeline(ev, touched, payroll),
         waiting_on: leaveWaitingOn(st, String(l.applicant_role ?? "")),
@@ -6654,21 +6741,151 @@ async function handleStaffRoutes(
     const mode = await leaveRoutingMode(env);
     let mine: LeaveRoute | null = null;
     try { mine = leaveRoute(await leaveOrgList(env), user.id); } catch { mine = null; }
-    return json({ mode, can_set: user.role === "ceo", my_route: mine ? { kind: mine.kind, steps: mine.steps.map((x) => ({ n: x.n, approver: x.approver, final: x.final })) } : null });
+    return json({ mode, can_set: false, my_route: mine ? { kind: mine.kind, steps: mine.steps.map((x) => ({ n: x.n, approver: x.approver, final: x.final })) } : null });
   }
+  /* v1.309.0 (L-1) - the legacy / organisation switch is gone: one
+     approval workflow. Answered for anyone, the CEO included. */
   if (path === "/leave/routing" && method === "PUT") {
-    if (user.role !== "ceo") return err("forbidden", "Only the CEO switches how leave is approved", 403);
-    const to = body?.mode === "organisation" ? "organisation" : body?.mode === "legacy" ? "legacy" : null;
-    if (!to) return err("invalid_input", "mode is organisation or legacy", 400);
-    try { await env.DB.prepare(`SELECT route_json FROM leave_requests LIMIT 0`).all(); } catch { return err("migration_missing", "Run migration 0171 first (PUSH.bat)", 503); }
-    const stepUp = await requireFreshTotp(env, user, body?.totp, err, "change how leave is approved");
-    if (stepUp) return stepUp;
-    const from = await leaveRoutingMode(env);
-    await env.DB.prepare(`INSERT INTO business_settings (key, value, updated_by, updated_at) VALUES ('leave_routing', ?1, ?2, datetime('now'))
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-      .bind(JSON.stringify({ mode: to }), user.id).run();
-    await audit(env, user.id, "leave.routing_mode", "business_settings", "leave_routing", { from, to });
-    return json({ ok: true, mode: to });
+    return err("gone", "Leave is always approved by the Organisation chart - the old switch was retired in 1.309.0", 410);
+  }
+
+  /* v1.309.0 (L-3 / L-6) - THE PREVIEW BEFORE SUBMITTING: the days the
+     server will count, why (each date: working, rest day, public holiday),
+     the balance before and after, and the route the request would be
+     frozen with if it were sent now. The session's own leave only, and it
+     writes nothing - the checks are checkLeave's own, run without the
+     insert, so the form can never promise what the submission refuses. */
+  if (path === "/leave/quote" && method === "GET") {
+    const q = new URL(request.url).searchParams;
+    if (q.get("user_id") && Number(q.get("user_id")) !== user.id) return err("forbidden", "The preview is for your own leave only", 403);
+    if (await isHourlyUserId(env, user.id)) return err("forbidden", "Part-time hosts are paid by the hour and have no leave entitlement", 403);
+    const typeQ = q.get("type") ?? "";
+    const startQ = q.get("start") ?? "", endQ = q.get("end") || startQ;
+    const partQ = q.get("part") === "first_half" || q.get("part") === "second_half" ? q.get("part") : "full";
+    if (!LEAVE_TYPES.includes(typeQ as never) || !validDay(startQ) || !validDay(endQ)) return err("invalid_input", "type, start and end (YYYY-MM-DD) are required", 400);
+    const cnt = await leaveDayCount(env, user.id, startQ, endQ, partQ);
+    const chk = cnt.error ? null : await checkLeave(user.id, { type: typeQ, start_date: startQ, end_date: endQ, day_part: partQ });
+    let problem: { code: string; message: string } | null = cnt.error ? { code: "invalid_input", message: cnt.error } : null;
+    if (chk instanceof Response) {
+      const j = (await chk.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+      problem = { code: j?.error?.code ?? "invalid_input", message: j?.error?.message ?? "This leave cannot be submitted" };
+    }
+    const lg = await leaveLedger(env, user.id, Number(startQ.slice(0, 4)), typeQ);
+    let route: LeaveRoute | null = null;
+    try { route = leaveRoute(await leaveOrgList(env), user.id); } catch { route = null; }
+    return json({
+      type: typeQ, start: startQ, end: endQ, part: partQ, days: cnt.days, lines: cnt.lines, problem,
+      unpaid: typeQ === "unpaid" || (typeQ === "emergency" && startQ >= UNPAID_FROM),
+      balance: lg.capped ? { before: lg.available, request: cnt.days, after: Math.round((lg.available - cnt.days) * 100) / 100, entitled: lg.entitled + lg.adjust, approved: lg.approved, pending: lg.pending } : null,
+      needs_attachment: typeQ === "medical",
+      route: route ? { kind: route.kind, steps: route.steps.map((x) => ({ n: x.n, approver: x.approver, final: x.final })) } : null,
+    });
+  }
+
+  /* v1.309.0 (Approvals & Management, ref 4) - THE POLICY IN FORCE, read
+     from the rules themselves (never a figure typed into a screen): the
+     default yearly entitlement per type, which types cost pay, and the
+     submission rules. Everyone may read it; only the entitlement editor
+     (leave_entitlement) changes a person's figures. */
+  if (path === "/leave/policy" && method === "GET") {
+    return json({
+      defaults: DEFAULT_ENTITLEMENT,
+      capped: LEAVE_CAPPED_TYPES,
+      unpaid: ["unpaid", "emergency"],
+      unpaid_from: UNPAID_FROM,
+      attachment: { required_for: ["medical"], types: ["application/pdf", "image/jpeg", "image/png"], max_mb: 10 },
+      reason: { min: 5, max: 500 },
+      days_rule: "roster working days, less the public holidays the person is entitled to; a half day is 0.5 on one working day",
+      route_rule: "up the Organisation chart to the CEO; the CEO's own leave is an Executive Leave Record",
+      can_edit: can(user.role, "leave_entitlement"),
+    });
+  }
+
+  /* v1.309.0 (L-4) - THE SUPPORTING DOCUMENT: one PDF, JPG or PNG of up to
+     10 MB, uploaded by the applicant before submitting (the request names it
+     by mc_media_id - a column leave_requests has always had). Private R2,
+     the media row records who uploaded it; nothing is public. */
+  if (path === "/leave/attachment" && method === "POST") {
+    if (await isHourlyUserId(env, user.id)) return err("forbidden", "Part-time hosts have no leave to attach a document to", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim();
+    const LEAVE_FILES: Record<string, "document" | "image"> = { "application/pdf": "document", "image/jpeg": "image", "image/png": "image" };
+    const kind = LEAVE_FILES[ct];
+    if (!kind) return err("invalid_input", "PDF, JPG or PNG files only", 400);
+    if (!request.body) return err("invalid_input", "File body required", 400);
+    const name = (request.headers.get("X-File-Name") ?? "attachment").slice(0, 160);
+    const key = `private/leave/${user.id}/${Date.now()}-${name.replace(/[^A-Za-z0-9._-]/g, "_")}`;
+    const rejected = await putGuarded(env.MEDIA, key, request, { max: 10 * 1048576, contentType: ct });
+    if (rejected) return rejected;
+    const media = await env.DB.prepare(`INSERT INTO media (r2_key, kind, alt, uploaded_by) VALUES (?1, ?2, ?3, ?4) RETURNING id`).bind(key, kind, name, user.id).first<{ id: number }>();
+    await audit(env, user.id, "leave.attachment_upload", "media", String(media?.id ?? ""), { name, type: ct });
+    return json({ media_id: media?.id, name }, 201);
+  }
+  const leaveFile = path.match(/^\/leave\/(\d+)\/attachment$/);
+  if (leaveFile && method === "GET") {
+    const rowF = await env.DB.prepare(
+      `SELECT l.id, l.user_id, l.approver_id, l.route_json, m.r2_key, m.alt FROM leave_requests l JOIN media m ON m.id = l.mc_media_id WHERE l.id = ?1`,
+    ).bind(Number(leaveFile[1])).first<{ id: number; user_id: number; approver_id: number | null; route_json: string | null; r2_key: string; alt: string | null }>();
+    if (!rowF) return err("not_found", "This leave has no attachment", 404);
+    /* the applicant, the people on its route (any step, or a step decided or
+       reassigned), HR and the CEO (hr_manage) - nobody else, by role or not */
+    const routeF = parseLeaveRoute(rowF.route_json);
+    const onRoute = rowF.approver_id === user.id || Boolean(routeF?.steps.some((x) => x.approver.id === user.id))
+      || Boolean(await env.DB.prepare(`SELECT 1 AS x FROM leave_decisions WHERE leave_id = ?1 AND (actor_id = ?2 OR to_user = ?2) LIMIT 1`).bind(rowF.id, user.id).first().catch(() => null));
+    if (rowF.user_id !== user.id && !onRoute && !can(user.role, "hr_manage")) return err("not_found", "This leave has no attachment", 404);
+    const obj = await env.MEDIA.get(rowF.r2_key);
+    if (!obj) return err("not_found", "File missing from storage", 404);
+    if (rowF.user_id !== user.id) await audit(env, user.id, "leave.attachment_view", "leave_requests", String(rowF.id));
+    const ctF = obj.httpMetadata?.contentType ?? "application/octet-stream";
+    return new Response(obj.body, { headers: {
+      "Content-Type": ctF,
+      "Content-Disposition": `inline; filename="${(rowF.alt ?? "attachment").replace(/[^A-Za-z0-9._ -]/g, "_")}"`,
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, no-store",
+    } });
+  }
+
+  /* v1.309.0 (L-8) - THE REPLACEMENT-CREDIT LEDGER, read only. Credits are
+     decided in Attendance (a rest day worked, or overtime converted); Leave
+     shows where a replacement balance came from. Your own; HR and the
+     entitlement holders anyone's (?user_id), or everyone's (?all=1). */
+  if (path === "/leave/replacement-credits" && method === "GET") {
+    const q = new URL(request.url).searchParams;
+    const mayAll = can(user.role, "hr_manage") || can(user.role, "leave_entitlement");
+    const forU = Number(q.get("user_id") ?? 0);
+    if (forU && forU !== user.id && !mayAll) return err("forbidden", "Only HR and the CEO read another person's credits", 403);
+    const all = q.get("all") === "1" && mayAll;
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT c.id, c.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, c.work_date, c.days, c.minutes, c.created_at,
+                COALESCE(NULLIF(TRIM(b.full_name), ''), b.name) AS credited_by_name
+           FROM replacement_credits c JOIN users u ON u.id = c.user_id LEFT JOIN users b ON b.id = c.credited_by
+          ${all ? "" : "WHERE c.user_id = ?1"} ORDER BY c.work_date DESC LIMIT 300`,
+      ).bind(...(all ? [] : [forU || user.id])).all();
+      return json({ credits: results });
+    } catch { return json({ credits: [] }); }
+  }
+
+  /* v1.309.0 (Overview, Team Calendar) - WHO IS AVAILABLE ON A DAY, counts
+     only, from Attendance's own day verdict (attendanceDay - one answer for
+     the roster, holidays and approved leave): available, on approved
+     full-day leave, off (rest day or public holiday), and how many of the
+     available have a request still pending. Names and types stay where
+     their own privacy rule already is (/leave/month). */
+  if (path === "/leave/availability" && method === "GET") {
+    const dq = new URL(request.url).searchParams.get("day");
+    const dayA = dq && validDay(dq) ? dq : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const people = (await attendanceDay(env, dayA)).filter((p) => p.verdict.status !== "not_employed");
+    const onLeave = people.filter((p) => p.verdict.status === "leave");
+    const off = people.filter((p) => p.verdict.status === "rest_day" || p.verdict.status === "holiday");
+    const ids = new Set(people.map((p) => p.id));
+    let pending = 0;
+    try {
+      const pr = (await env.DB.prepare(
+        `SELECT DISTINCT user_id FROM leave_requests WHERE status NOT IN ('approved', 'rejected', 'cancelled') AND start_date <= ?1 AND end_date >= ?1`,
+      ).bind(dayA).all<{ user_id: number }>()).results ?? [];
+      pending = pr.filter((r) => ids.has(r.user_id) && !onLeave.some((p) => p.id === r.user_id)).length;
+    } catch { /* pre-leave_requests */ }
+    return json({ day: dayA, total: people.length, available: people.length - onLeave.length - off.length, on_leave: onLeave.length, off: off.length, pending });
   }
 
   /* v1.264.0 - SIGN-IN METHODS (claude/AUTH-2.0-AUDIT.md rev 3 sec. 10,
@@ -6880,7 +7097,7 @@ async function handleStaffRoutes(
     const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
     try {
       const { results } = await env.DB.prepare(
-        `SELECT l.id, l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.photo_key, u.position,
+        `SELECT l.id, l.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.photo_key, u.position, u.department,
                 l.type, l.start_date, l.end_date, l.days, l.day_part, l.status, l.reason, l.created_at
            FROM leave_requests l JOIN users u ON u.id = l.user_id
           WHERE l.status != 'cancelled' AND l.start_date <= ?2 AND l.end_date >= ?1
@@ -6914,7 +7131,7 @@ async function handleStaffRoutes(
        top of this file, which is now the only place that rule is written.
        v1.62.0 adds the CEO's `adjust` and `used_adjust` on top. */
     const monthMYT = new Date(Date.now() + 8 * 3600 * 1000).getUTCMonth() + 1;
-    const balances: Record<string, { entitled: number; used: number; accrued: number; adjust: number }> = {};
+    const balances: Record<string, { entitled: number; used: number; accrued: number; adjust: number; pending?: number; available?: number; capped?: boolean }> = {};
     /* v1.93.0 — a part-time host: every type reads zero, and the response
        says why, so the tab can say it instead of showing five empty tiles. */
     if (await isHourlyUserId(env, balUser)) {
@@ -6930,11 +7147,17 @@ async function handleStaffRoutes(
       ).bind(balUser, t, String(year)).first<{ used: number }>();
       const entitled = row.entitled ?? DEFAULT_ENTITLEMENT[t] ?? 0;
       const adjust = row.adjust ?? 0;
+      /* v1.309.0 (L-7) - the pending days and what is AVAILABLE, from the
+         same ledger the submission is checked against (leaveLedger) */
+      const lg = await leaveLedger(env, balUser, year, t);
       balances[t] = {
         entitled,
         used: (used?.used ?? 0) + (row.used_adjust ?? 0),
         accrued: leaveAccrual(t, entitled, year, monthMYT, adjust),
         adjust,
+        pending: lg.pending,
+        available: lg.available,
+        capped: lg.capped,
       };
     }
     return json({ year, month: monthMYT, balances, user_id: balUser });
@@ -7092,9 +7315,12 @@ async function handleStaffRoutes(
        bypass is NOT a silent shortcut: hr_by and preapp_by stay NULL while
        final_by carries the CEO - the timeline shows those stages as skipped,
        never as signed - and audit_log records the stage it jumped from. */
-    const OVERRIDE_ROLES: readonly Role[] = ["super_admin", "ceo"];
-    if (body?.override === true && !OVERRIDE_ROLES.includes(user.role)) {
-      return err("forbidden", "Only the CEO can decide outside the approval chain", 403);
+    /* v1.309.0 (L-12, the CEO 15-11-2026) - ONLY THE VERIFIED OWNER decides
+       in an approver's place: the CEO account named company owner with 2FA
+       on (is_owner, decided once in index.ts). The Super Admin, a system
+       account that is never a routed approver, no longer can. */
+    if (body?.override === true && !(user.role === "ceo" && user.is_owner === true)) {
+      return err("forbidden", "Only the company owner (the CEO) can decide in place of the approver", 403);
     }
     const override = body?.override === true;
     /* Nobody signs their own leave - the whole integrity of the form. */
@@ -7106,8 +7332,15 @@ async function handleStaffRoutes(
     }
     /* v1.260.0 (D7) - on a routed request the override is "decide in place
        of the approver": a reason, the authenticator, and the approver told */
-    if (override && route && (!comment || comment.length < 5)) {
+    /* v1.309.0 (L-12) - every override, routed or from before, approve or
+       reject: a reason the approver and the applicant read, and the
+       authenticator code. Asked here, before anything is written. */
+    if (override && (!comment || comment.length < 5)) {
       return err("reason_required", "Give the reason for deciding in place of the approver (at least 5 characters)", 400);
+    }
+    if (override && action === "reject") {
+      const stepUpR = await requireFreshTotp(env, user, body?.totp, err, "reject in place of the approver");
+      if (stepUpR) return stepUpR;
     }
 
     /* Owner may withdraw while the request is still moving (a returned one
@@ -7164,8 +7397,13 @@ async function handleStaffRoutes(
         day_part: body?.day_part ?? before?.day_part ?? null,
         reason: str(body?.reason, 1000) ? body!.reason : (before?.reason ?? null),
       };
-      const chk = await checkLeave(row.user_id, next, Number(id));
+      /* v1.309.0 (L-3) - the same dates and the same half keep the days the
+         request was submitted with (never recalculated); new dates are
+         counted by the server, like a new request */
+      const sameDates = next.start_date === row.start_date && next.end_date === row.end_date && (next.day_part ?? "full") === (before?.day_part ?? "full");
+      const chk = await checkLeave(row.user_id, sameDates ? { ...next, days: row.days } : next, Number(id), sameDates);
       if (chk instanceof Response) return chk;
+      next.days = chk.days;
       const r = await env.DB.prepare(
         `UPDATE leave_requests SET stage = ?2, start_date = ?3, end_date = ?4, days = ?5, reason = ?6, day_part = ?7, coverage_json = ?8 WHERE id = ?1 AND stage = 'returned'`,
       ).bind(id, row.returned_from, chk.sdL, chk.edL, next.days, next.reason, chk.coverage.day_part, chk.coverage.coverage_json).run();

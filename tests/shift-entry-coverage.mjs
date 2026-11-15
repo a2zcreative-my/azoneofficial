@@ -53,7 +53,7 @@ try {
   assert.equal(night.clocked_in, true);
   assert.equal(night.clock_out_at, `${day}T17:00:00.000Z`);
   const staff = readFileSync("worker/src/staff.ts", "utf8");
-  assert.match(staff, /day_part, coverage_json\)\s*VALUES/);
+  assert.match(staff, /day_part, coverage_json(?:, [a-z_, ]+)?\)\s*VALUES/); // v1.309.0 - the one INSERT also freezes the route
   assert.match(staff, /coverage_review/);
   assert.match(staff, /partial_review\.push/);
   // Exercise the API against an isolated SQLite copy of the real schema.

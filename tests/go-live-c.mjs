@@ -136,7 +136,9 @@ async function runtime(workerBundle) {
     ok((await ap({ start_date: "2025-03-02", end_date: "2025-03-02", days: 1 })).status === 400, "D6 a date in 2025 is refused");
     const sun = await ap({ start_date: "2026-11-08", end_date: "2026-11-08", days: 1 });
     ok(sun.status === 400 && /rest day/.test(sun.j?.error?.message ?? ""), "D6 a full day of leave on a rest day (Sunday) is refused", sun.text.slice(0, 160));
-    ok((await ap({ start_date: "2026-11-10", end_date: "2026-11-10", days: 3 })).status === 400, "D6 more days than the span holds is refused");
+    /* v1.309.0 (L-3) - the client's number is no longer trusted at all: the server counts the days */
+    const span3 = await ap({ start_date: "2026-11-10", end_date: "2026-11-10", days: 3 });
+    ok(span3.status === 201 && span3.j?.days === 1, "D6 / L-3 asking 3 days for one date stores the 1 working day the server counts - never more days than the span holds", span3.text.slice(0, 160));
 
     /* ---------- D8: HR reads a named person's balance ---------- */
     const bal = await call(`/staff/leave/balance?user_id=${U.aina}`, U.hr);

@@ -85,6 +85,8 @@ async function runtime(workerBundle) {
     (9,'Nora','Nora New','nora@a2z.test','sales_marketing',1,'x',1,'${SECRET}','permanent',300000,'Sales Executive','Sales and Marketing',NULL),
     (10,'Tim','Tim Lead','tim@a2z.test','sales_marketing',1,'x',1,'${SECRET}','permanent',350000,'Team Lead','Sales and Marketing',3),
     (11,'Kim','Kim Junior','kim@a2z.test','sales_marketing',1,'x',1,'${SECRET}','permanent',250000,'Sales Executive','Sales and Marketing',10)`);
+  /* v1.309.0 (L-12) - the CEO is the verified company owner: only he decides in an approver's place */
+  db.exec(`INSERT INTO system_meta (key, value) VALUES ('company_owner', '{"user_id":1,"set_by":2,"set_by_name":"Root","set_at":"2026-11-02 06:00:54","reason":"test"}')`);
   const mod = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`));
   const app = mod.default;
   const tok = {};
@@ -109,13 +111,13 @@ async function runtime(workerBundle) {
   ]));
   const money0 = money();
   try {
-    /* ---------- D9: the switch, off by default ---------- */
-    ok((await call(`/leave/routing`, U.aina)).j?.mode === "legacy", "D9 the switch is OFF until the CEO turns it on");
-    const L0 = (await apply(U.aina, "2026-11-23")).j?.id;
-    ok(one(`SELECT stage, route_json FROM leave_requests WHERE id = ?`, L0)?.stage === "applied" && one(`SELECT route_json FROM leave_requests WHERE id = ?`, L0).route_json === null, "with the switch off, a request follows the previous rules (HR first) and carries no route");
-    ok((await call(`/leave/routing`, U.coo, "PUT", { mode: "organisation" })).status === 403 && (await call(`/leave/routing`, U.hana, "PUT", { mode: "organisation" })).status === 403 && (await call(`/leave/routing`, U.sa, "PUT", { mode: "organisation" })).status === 403, "13: only the CEO turns it on - not the COO, HR or the Super Admin");
-    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "organisation" })).status === 401, "...and with his authenticator code");
-    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "organisation", totp: code() })).j?.mode === "organisation" && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'leave.routing_mode'`) === 1, "the CEO turns it on; it is audited");
+    /* ---------- D9 -> v1.309.0 (L-1): the switch is RETIRED - one rule for every new request ---------- */
+    ok((await call(`/leave/routing`, U.aina)).j?.mode === "organisation" && (await call(`/leave/routing`, U.ceo)).j?.can_set === false, "v1.309.0 L-1: approval by the Organisation chart is the one rule - nobody holds a switch");
+    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "legacy", totp: code() })).status === 410 && (await call(`/leave/routing`, U.sa, "PUT", { mode: "legacy" })).status === 410 && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'leave.routing_mode'`) === 0, "...turning it back to the old role chain is refused (410) for everyone, the CEO included, and nothing is written");
+    /* a request submitted BEFORE 1.309.0 under the old role chain, as production keeps it (stage applied, no route) */
+    db.exec(`INSERT INTO leave_requests (id, user_id, type, start_date, end_date, days, reason, status, stage, created_at) VALUES (400, 5, 'emergency', '2026-11-23', '2026-11-23', 1, 'Family matter', 'pending', 'applied', datetime('now'))`);
+    const L0 = 400;
+    ok(one(`SELECT stage, route_json FROM leave_requests WHERE id = ?`, L0)?.stage === "applied" && one(`SELECT route_json FROM leave_requests WHERE id = ?`, L0).route_json === null, "an old-rule request keeps the rule it was submitted under (HR first, no route)");
     const myR = (await call(`/leave/routing`, U.aina)).j?.my_route;
     ok(myR?.steps?.map((x) => `${x.approver.name}${x.final ? "*" : ""}`).join(">") === "Cee Officer>Alif Farhan*" && (await call(`/leave/routing`, U.ceo)).j?.my_route?.kind === "executive_record", "v1.261.0 Your approval route: Aina -> the CCO -> the CEO (final), up the chart; the CEO -> Executive Leave Record", JSON.stringify(myR));
     /* ---------- 1, 2: an ordinary employee -> their reporting manager, final ---------- */
@@ -236,16 +238,15 @@ async function runtime(workerBundle) {
     await mod.leaveEscalationSweep(env);
     ok(noticed(U.ceo, `leave:${u}:esc:urgent`) === 1 && noticed(U.hana, `leave:${u}:esc:urgent`) === 1 && noticed(U.lia, `leave:${u}:esc:%`) === 0, "D4: starting tomorrow, after 4 hours the approver's own manager (the CEO) and HR are told - once");
     ok(one(`SELECT stage FROM leave_requests WHERE id = ?`, u).stage === "routed", "never auto-approved");
-    /* ---------- D9: switching back keeps every frozen route ---------- */
-    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "legacy", totp: code() })).j?.mode === "legacy", "the CEO switches it back (the operational rollback)");
+    /* ---------- v1.309.0 (L-1): with no switch, frozen routes and new requests both follow the chart ---------- */
+    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "legacy", totp: code() })).status === 410, "the old switch cannot turn the chart off");
     ok(one(`SELECT stage, approver_id FROM leave_requests WHERE id = ?`, q).approver_id === U.cco && (await rowOf(U.cco, q))?.can_act === true && (await rowOf(U.hana, q))?.can_act === false, "a routed request in flight keeps its approver and route - nothing re-staged");
     const z = (await apply(U.aina, "2026-12-15")).j?.id;
-    ok(one(`SELECT stage FROM leave_requests WHERE id = ?`, z).stage === "applied", "a new request follows the previous rules again");
+    ok(one(`SELECT stage FROM leave_requests WHERE id = ?`, z).stage === "routed", "a new request is routed by the chart - never the previous rules");
     ok((await patch(q, U.cco, { action: "approve" })).j?.stage === "routed" && one(`SELECT approver_id FROM leave_requests WHERE id = ?`, q).approver_id === U.ceo, "...and the frozen route is still decided along it (the CCO, then the CEO)");
     /* ---------- v1.261.0: a request frozen with the older route (the manager alone) ---------- */
     db.exec(`INSERT INTO leave_requests (id, user_id, type, start_date, end_date, days, status, stage, route_json, route_version, step_no, approver_id, created_at) VALUES
       (500, 6, 'emergency', '2026-12-21', '2026-12-21', 1, 'pending', 'routed', '${JSON.stringify({ v: 1, kind: "manager", applicant: { id: 6, name: "Hana HR", position: null, role: "hr_admin", department: null, manager_id: 4 }, steps: [{ n: 1, key: "line", approver: { id: 4, name: "Cee Officer", position: "Chief Commercial Officer", role: "cco", department: "Management" }, basis: "reporting_line", final: true }] })}', 1, 1, 4, datetime('now'))`);
-    ok((await call(`/leave/routing`, U.ceo, "PUT", { mode: "organisation", totp: code() })).j?.mode === "organisation", "the CEO turns it back on");
     ok((await rowOf(U.ceo, 500))?.can_reroute === true && (await patch(500, U.ceo, { action: "reroute", comment: "Up the chart to the CEO" })).j?.stage === "routed", "an older one-step route, nothing decided, can be re-routed up the chart - explicitly, with a reason");
     ok(JSON.parse(one(`SELECT route_json FROM leave_requests WHERE id = 500`).route_json).steps.length === 2 && one(`SELECT approver_id FROM leave_requests WHERE id = 500`).approver_id === U.cco, "...it now goes the CCO, then the CEO");
     ok((await patch(500, U.ceo, { action: "reroute", comment: "Again please" })).status === 400, "a current route is not re-routed");
@@ -280,10 +281,10 @@ const MUT = [
   ["worker/src/staff.ts", "a step is reassigned to anyone", "      if (!target) return err(\"invalid_input\", \"The new approver must be above the applicant on the Organisation chart\", 400);", "      if (!target && to !== to) return err(\"invalid_input\", \"x\", 400);"],
   ["worker/src/staff.ts", "the Executive Leave Record without the CEO's code", "        const stepUp = await requireFreshTotp(env, user, b.totp, err, \"record your own leave\");\n        if (stepUp) return stepUp;", "        const stepUp = null;\n        if (stepUp) return stepUp;"],
   ["worker/src/staff.ts", "HR verifies her own request", "      if (row.user_id === user.id) return err(\"forbidden\", \"You cannot check your own request", "      if (false) return err(\"forbidden\", \"You cannot check your own request"],
-  ["worker/src/staff.ts", "anyone flips the switch", "    if (user.role !== \"ceo\") return err(\"forbidden\", \"Only the CEO switches how leave is approved\", 403);", "    if (false) return err(\"forbidden\", \"Only the CEO switches how leave is approved\", 403);"],
+  ["worker/src/staff.ts", "the retired switch comes back as the old role chain", "  return \"organisation\";\n}", "  return \"legacy\";\n}"],
   ["worker/src/staff.ts", "escalation ignores the start date", "    if (wd <= 1) { if (waited >= 4)", "    if (wd <= 1) { if (waited >= 72)"],
   ["worker/src/staff.ts", "every executive is asked", "      const who = stage === \"routed\" ? (approverId ? [approverId] : [])", "      const who = stage === \"routed\" ? [1, 3, 4, ...(approverId ? [approverId] : [])]"],
-  ["worker/src/staff.ts", "the override needs no reason", "    if (override && route && (!comment || comment.length < 5)) {", "    if (false) {"],
+  ["worker/src/staff.ts", "the override needs no reason", "    if (override && (!comment || comment.length < 5)) {", "    if (false) {"],
   ["worker/src/staff.ts", "a line change redirects the pending request", "    try {\n      const pend = (await env.DB.prepare(", "    try { await env.DB.prepare(`UPDATE leave_requests SET approver_id = ?1 WHERE user_id = ?2 AND stage = 'routed'`).bind(managerId, id).run();\n      const pend = (await env.DB.prepare("],
 ];
 for (const [file, name, from, to] of MUT) {

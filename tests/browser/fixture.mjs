@@ -314,6 +314,13 @@ const leave = [
     route: { kind: "routing_required", steps: [] }, approver_id: null, waiting_on: "configuration", can_route: true, can_reassign: false, can_hr_check: false, can_reroute: false,
     timeline: [T("submitted", "done", "Farid Zul", D + "16 11:00:00"), T("routing", "now", null, null, null, { routing_required: true }), T("effect", "todo")] },
 ];
+/* v1.309.0 (LEAVE4=1) - a routed request at its FINAL step, which is the viewer's (the CEO's queue) */
+const leave4Extra = [
+  { id: 9, type: "medical", start_date: D + "24", end_date: D + "25", days: 2, status: "pending", stage: "routed", applicant_role: "sales_marketing", user_id: 9006, user_name: "Siti", user_full: "Siti Nur Hidayah", user_position: "Designer", user_department: "Sales and Marketing", created_at: D + "17 09:00:00",
+    route: { kind: "manager", steps: [{ n: 1, approver: { id: 9005, name: "Zulkifli Ops", position: "Chief Operational Officer", role: "coo" }, final: false }, { n: 2, approver: { id: 9001, name: "Fixture Person", position: "CEO", role: "ceo" }, final: true }] },
+    approver_id: 9001, approver_name: "Fixture Person", approver_position: "CEO", waiting_on: "approver", can_act: ROLE === "ceo", has_attachment: true, last_update: D + "17 11:00:00",
+    timeline: [T("submitted", "done", "Siti", D + "17 09:00:00"), T("line", "done", "Zulkifli Ops", D + "17 11:00:00"), T("line", "now"), T("effect", "todo")] },
+];
 const leaveCanAct = (l) => {
   if (l.user_id === 9001) return false;
   const HR = ["super_admin", "admin", "hr_admin"], PRE = ["super_admin", "admin", "coo", "cco"], FIN = ["super_admin", "admin", "ceo"];
@@ -810,7 +817,31 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     recipients: [{ id: 9002, name: "Nur Aisyah binti Rahman", department: "Sales", acked_at: D + "16 02:00:00", last_version: 2 }, { id: 9004, name: "Tan Mei Ling", department: "Sales", acked_at: null, last_version: 1 }] };
   if (/^\/staff\/announcements\/\d+\/versions$/.test(p)) data = { current: 2, versions: [{ version: 1, title: "Sales targets for October", body: "Targets are on the Sales tab.", category: "kpi", replaced_at: D + "15 03:00:00" }],
     my_acks: [{ version: 1, acked_at: "2026-08-31 01:00:00" }] };
-  if (p === "/staff/leave") data = { routing: "organisation", leave: (q.get("all") ? leave : leave.filter((l) => l.user_id === 9001)).map((l) => ({ ...l, can_act: leaveCanAct(l) })) };
+  /* v1.309.0 - LEAVE WORKSPACE 4.0 reads (invented): the preview the server
+     works out (weekdays, less HR's holidays), today's availability, the
+     policy in force and the replacement credits */
+  if (p === "/staff/leave/quote") {
+    const a = q.get("start") ?? "", b = q.get("end") || a, part = q.get("part"), type = q.get("type") ?? "annual";
+    const hol = { "2026-09-16": "Malaysia Day", "2026-11-08": "Deepavali", "2026-11-09": "Deepavali (replacement)" };
+    const lines = [];
+    for (let t = Date.parse(a + "T00:00:00Z"); a && t <= Date.parse(b + "T00:00:00Z") && lines.length < 92; t += 86400000) {
+      const d = new Date(t).toISOString().slice(0, 10), w = new Date(t).getUTCDay();
+      lines.push(w === 0 || w === 6 ? { d, kind: "rest_day", count: 0, holiday: null } : hol[d] ? { d, kind: "holiday", count: 0, holiday: hol[d] } : { d, kind: "work", count: part ? 0.5 : 1, holiday: null });
+    }
+    const days = lines.reduce((n, x) => n + x.count, 0);
+    const capped = ["annual", "medical", "replacement"].includes(type);
+    const before = type === "annual" ? 12 : type === "medical" ? 14 : type === "replacement" ? 1 : 0;
+    const problem = days === 0 ? { code: "invalid_input", message: `${a} is a rest day on your roster - there is no working day to take leave from.` }
+      : capped && days > before ? { code: "over_entitlement", message: `Only ${before} day(s) of ${type} leave are left for 2026.` } : null;
+    data = { type, start: a, end: b, part: part ?? "full", days, lines, problem, unpaid: ["unpaid", "emergency"].includes(type),
+      balance: capped ? { before, request: days, after: before - days, entitled: type === "replacement" ? 1 : 14, approved: type === "annual" ? 2 : 0, pending: 0 } : null,
+      needs_attachment: type === "medical",
+      route: ROLE === "ceo" ? { kind: "executive_record", steps: [] } : { kind: "manager", steps: [{ n: 1, approver: { id: 9005, name: "Zulkifli Ops", position: "Chief Operational Officer", role: "coo" }, final: false }, { n: 2, approver: { id: 9001, name: "Fixture Person", position: "CEO", role: "ceo" }, final: true }] } };
+  }
+  if (p === "/staff/leave/availability") data = { day: q.get("day") ?? D + "18", total: 7, available: 5, on_leave: 2, off: 0, pending: 1 };
+  if (p === "/staff/leave/policy") data = { defaults: { annual: 14, medical: 14, emergency: 0, replacement: 0, unpaid: 0 }, capped: ["annual", "medical", "replacement"], unpaid: ["unpaid", "emergency"], can_edit: ["ceo", "super_admin"].includes(ROLE) };
+  if (p === "/staff/leave/replacement-credits") data = { credits: [{ id: 1, user_id: 9001, name: "Fixture Person", work_date: D + "06", days: 1, minutes: 480, created_at: D + "07 02:00:00", credited_by_name: "Fixture Person" }] };
+  if (p === "/staff/leave") data = { routing: "organisation", leave: (q.get("all") ? [...leave, ...(process.env.LEAVE4 ? leave4Extra : [])] : leave.filter((l) => l.user_id === 9001)).map((l) => ({ ...l, can_act: l.can_act ?? leaveCanAct(l) })) };
   /* v1.252.0 - the thread and the activity of one leave; the applicant (9001's own) never gets an internal note */
   {
     const lc = /^\/staff\/leave\/(\d+)\/(comments|activity)$/.exec(p);

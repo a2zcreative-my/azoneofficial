@@ -111,13 +111,24 @@ async function runtime(workerBundle) {
     (() => { try { return db.prepare(`SELECT * FROM leave_balances ORDER BY rowid`).all(); } catch { return []; } })(),
   ]));
   const money0 = money();
+  /* v1.309.0 (L-1) - the old role chain is no longer where a NEW request goes;
+     it lives on for the requests submitted under it. Those are made here the
+     way production holds them (stage applied, no route), and every rule
+     below is the old chain's, unchanged. */
+  const legacyApply = async (uid, b) => {
+    const id = Number(db.prepare(`INSERT INTO leave_requests (user_id, type, start_date, end_date, days, reason, status, stage, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', 'applied', datetime('now')) RETURNING id`)
+      .get(uid, b.type, b.start_date, b.end_date, b.days ?? 1, b.reason ?? null).id);
+    return { status: 201, j: { id } };
+  };
+  db.exec(`INSERT INTO system_meta (key, value) VALUES ('company_owner', '{"user_id":1,"set_by":2,"set_by_name":"Root","set_at":"2026-11-02 06:00:54","reason":"test"}')`);
   try {
     /* ---------- submitted, waiting on HR ---------- */
-    const ap = await call(`/leave`, U.aina, "POST", { type: "emergency", start_date: "2026-11-10", end_date: "2026-11-11", days: 2, reason: "Family matter" });
+    const ap = await legacyApply(U.aina, { type: "emergency", start_date: "2026-11-10", end_date: "2026-11-11", days: 2, reason: "Family matter" });
     const A = ap.j?.id;
     let l = await rowOf(U.aina, A);
     ok(ap.status === 201 && states(l) === "submitted:done hr:now pre:todo final:todo effect:todo" && l.waiting_on === "hr" && l.timeline[0].at, "a new application shows Submitted (with its time), then waits on HR", `${ap.status} ${states(l)}`);
-    ok(noticed(U.hana, `leave:${A}:applied`) === 1 && noticed(U.hani, `leave:${A}:applied`) === 1 && noticed(U.coo, `leave:${A}:applied`) === 0 && noticed(U.sa, `leave:${A}:applied`) === 0, "HR is notified it waits on them (both HR officers) - nobody else");
+    const fresh = await call(`/leave`, U.hani, "POST", { type: "emergency", start_date: "2026-12-28", end_date: "2026-12-28", reason: "Family matter" });
+    ok(fresh.status === 201 && fresh.j?.stage !== "applied" && one(`SELECT route_json FROM leave_requests WHERE id = ?`, fresh.j?.id)?.route_json !== null, "v1.309.0 L-1: a NEW request never goes on the old chain - it is routed by the Organisation chart", fresh.text.slice(0, 160));
     ok(l.can_act === false && (await rowOf(U.hana, A, true))?.can_act === true && (await rowOf(U.coo, A, true))?.can_act === false, "only HR can act at this stage (the server says so per person)");
     ok((await call(`/leave/${A}`, U.coo, "PATCH", { action: "approve" })).status === 403, "an unauthorised officer cannot approve it");
     /* ---------- HR review, then EITHER the COO or the CCO ---------- */
@@ -140,7 +151,7 @@ async function runtime(workerBundle) {
     ok((await call(`/leave/${A}`, U.ceo, "PATCH", { action: "approve", totp: code() })).status === 409, "a returned request cannot be approved until it comes back");
     ok((await call(`/leave/${A}`, U.lia, "PATCH", { action: "resubmit", comment: "Me" })).status === 403, "only the applicant resubmits");
     ok((await call(`/leave/${A}`, U.aina, "PATCH", { action: "resubmit" })).j?.error?.code === "reason_required", "...with an answer");
-    const B = (await call(`/leave`, U.aina, "POST", { type: "emergency", start_date: "2026-11-20", end_date: "2026-11-20", days: 1 })).j?.id;
+    const B = (await legacyApply(U.aina, { type: "emergency", start_date: "2026-11-20", end_date: "2026-11-20", days: 1 })).j?.id;
     const clash = await call(`/leave/${A}`, U.aina, "PATCH", { action: "resubmit", comment: "Moved to the 20th", start_date: "2026-11-20", end_date: "2026-11-20", days: 1 });
     ok(clash.status === 409 && clash.j?.error?.code === "overlap" && one(`SELECT stage FROM leave_requests WHERE id = ?`, A).stage === "returned", "new dates pass the same checks as a new request (an overlap is refused)", clash.text.slice(0, 120));
     const rs = await call(`/leave/${A}`, U.aina, "PATCH", { action: "resubmit", comment: "Lia covers them - moved one day", start_date: "2026-11-12", end_date: "2026-11-13", days: 2 });
@@ -156,28 +167,28 @@ async function runtime(workerBundle) {
     ok(states(l) === "submitted:done hr:done pre:done final:done effect:done" && l.timeline[3].who === "Alif" && l.timeline[4].at === l.final_at && l.waiting_on === null, "approved: every step done, in Attendance and Payroll from the approval time", states(l));
     ok((await call(`/leave/${A}`, U.ceo, "PATCH", { action: "reject", comment: "Changed my mind" })).status === 403, "a decided request is not decided again");
     /* ---------- rejection ---------- */
-    const C = (await call(`/leave`, U.lia, "POST", { type: "emergency", start_date: "2026-11-16", end_date: "2026-11-16", days: 1 })).j?.id;
+    const C = (await legacyApply(U.lia, { type: "emergency", start_date: "2026-11-16", end_date: "2026-11-16", days: 1 })).j?.id;
     ok((await call(`/leave/${C}`, U.hana, "PATCH", { action: "reject" })).j?.error?.code === "reason_required", "a rejection needs the reason the applicant reads");
     ok((await call(`/leave/${C}`, U.hana, "PATCH", { action: "reject", comment: "Stock count that day" })).j?.stage === "rejected", "HR rejects it");
     l = await rowOf(U.lia, C);
     ok(states(l) === "submitted:done hr:rejected pre:off final:off effect:off" && l.timeline[1].text === "Stock count that day" && l.timeline[1].who === "Hana", "rejected: the step it was rejected at, with who and why; nothing after it goes on", states(l));
     ok(/Stock count/.test(one(`SELECT message FROM notifications WHERE user_id = ? AND ref = ?`, U.lia, `leave:${C}`)?.message ?? "") && JSON.parse(one(`SELECT detail FROM audit_log WHERE action = 'leave.reject' AND entity_id = ?`, String(C)).detail).from_stage === "applied", "the applicant reads the reason; the audit keeps the stage");
     /* ---------- approve and reject at once ---------- */
-    const D = (await call(`/leave`, U.lia, "POST", { type: "emergency", start_date: "2026-11-17", end_date: "2026-11-17", days: 1 })).j?.id;
+    const D = (await legacyApply(U.lia, { type: "emergency", start_date: "2026-11-17", end_date: "2026-11-17", days: 1 })).j?.id;
     { let go; const p = new Promise((r) => { go = r; }); barrier = { n: 0, p, go }; }
     const race = await Promise.all([call(`/leave/${D}`, U.hana, "PATCH", { action: "approve" }), call(`/leave/${D}`, U.hani, "PATCH", { action: "reject", comment: "Clashes with the audit" })]);
     barrier = null;
     const dr = one(`SELECT stage, hr_by, final_by FROM leave_requests WHERE id = ?`, D);
     ok(race.filter((r) => r.status === 200).length === 1 && race.some((r) => r.status === 409) && ((dr.stage === "hr_reviewed" && dr.hr_by === 6 && dr.final_by === null) || (dr.stage === "rejected" && dr.hr_by === null)), "two HR officers at once, one approving and one rejecting: one decision stands, the other is refused - a rejected request never comes back", JSON.stringify([race.map((r) => r.status), dr]));
     /* ---------- withdrawal ---------- */
-    const E = (await call(`/leave`, U.lia, "POST", { type: "emergency", start_date: "2026-11-18", end_date: "2026-11-18", days: 1 })).j?.id;
+    const E = (await legacyApply(U.lia, { type: "emergency", start_date: "2026-11-18", end_date: "2026-11-18", days: 1 })).j?.id;
     await call(`/leave/${E}`, U.hana, "PATCH", { action: "approve" });
     ok((await call(`/leave/${E}`, U.lia, "PATCH", { action: "cancel" })).j?.stage === "cancelled", "the applicant withdraws it");
     l = await rowOf(U.lia, E);
     ok(states(l) === "submitted:done hr:done pre:withdrawn final:off effect:off" && l.timeline[2].at && audit("leave.cancel", E), "withdrawn: the time is kept, the trail has a line, nothing after it goes on", states(l));
     ok(noticed(U.coo, `leave:${E}:hr_reviewed:withdrawn`) === 1 && noticed(U.cco, `leave:${E}:hr_reviewed:withdrawn`) === 1, "the COO and the CCO are told there is nothing to decide");
     /* ---------- COO's own route ---------- */
-    const F = (await call(`/leave`, U.coo, "POST", { type: "emergency", start_date: "2026-11-19", end_date: "2026-11-19", days: 1 })).j?.id;
+    const F = (await legacyApply(U.coo, { type: "emergency", start_date: "2026-11-19", end_date: "2026-11-19", days: 1 })).j?.id;
     await call(`/leave/${F}`, U.hana, "PATCH", { action: "approve" });
     l = await rowOf(U.coo, F);
     ok(states(l) === "submitted:done hr:done final:now effect:todo" && l.waiting_on === "ceo" && noticed(U.ceo, `leave:${F}:hr_reviewed`) === 1 && noticed(U.cco, `leave:${F}:hr_reviewed`) === 0, "a COO's leave skips pre-approval: HR, then the CEO (told)", states(l));
@@ -191,8 +202,10 @@ async function runtime(workerBundle) {
     ok(l.timeline[3].at === l.preapp_at && JSON.stringify(l.timeline[3].payroll) === JSON.stringify([{ month: "2026-11", state: "not_prepared", at: null }]), "Attendance from the approval; Payroll said as its records have it (not prepared yet)", JSON.stringify(l.timeline[3]));
     ok(await sigMsg(F, "pre") === "No signature applies at this stage" && await sigMsg(F, "ceo") !== "No signature applies at this stage", "the form: the CEO's decision goes in the CEO box, not the pre-approval box");
     /* ---------- the CEO's override ---------- */
-    const G = (await call(`/leave`, U.lia, "POST", { type: "emergency", start_date: "2026-11-23", end_date: "2026-11-23", days: 1 })).j?.id;
-    await call(`/leave/${G}`, U.ceo, "PATCH", { action: "approve", override: true, totp: code() });
+    const G = (await legacyApply(U.lia, { type: "emergency", start_date: "2026-11-23", end_date: "2026-11-23", days: 1 })).j?.id;
+    ok((await call(`/leave/${G}`, U.sa, "PATCH", { action: "approve", override: true, comment: "Approved as discussed", totp: code() })).status === 403, "v1.309.0 L-12: the Super Admin no longer decides in an approver's place");
+    ok((await call(`/leave/${G}`, U.ceo, "PATCH", { action: "approve", override: true, totp: code() })).j?.error?.code === "reason_required", "v1.309.0 L-12: every override states its reason, a request from before too");
+    await call(`/leave/${G}`, U.ceo, "PATCH", { action: "approve", override: true, comment: "Approved as discussed", totp: code() });
     l = await rowOf(U.lia, G);
     ok(states(l) === "submitted:done hr:skipped pre:skipped final:done effect:done" && l.timeline[3].flags?.override === true, "a CEO override shows the skipped stages as skipped - never as signed", states(l));
     ok(l.timeline[3].flags?.override_from === "applied" && l.timeline[1].flags?.override === true && l.timeline[3].flags?.by_role === "ceo", "v1.259.0: the override is named from its audit row, with the stage it decided at", JSON.stringify(l.timeline[3]));
@@ -262,7 +275,7 @@ if (given || process.env.NOMUT) {
 const MUT = [
   ["worker/src/staff.ts", "an approval does not check the stage it read", "`UPDATE leave_requests SET stage = ?2, status = ?4, review_comment = COALESCE(?5, review_comment), ${col} WHERE id = ?1 AND stage = ?6`", "`UPDATE leave_requests SET stage = ?2, status = ?4, review_comment = COALESCE(?5, review_comment), ${col} WHERE id = ?1 AND ?6 IS NOT NULL`"],
   ["worker/src/staff.ts", "a rejection does not check the stage it read", "review_comment = ?2, final_by = ?3, final_at = datetime('now') WHERE id = ?1 AND stage = ?4`", "review_comment = ?2, final_by = ?3, final_at = datetime('now') WHERE id = ?1 AND ?4 IS NOT NULL`"],
-  ["worker/src/staff.ts", "a resubmission skips the checks", "      const chk = await checkLeave(row.user_id, next, Number(id));\n      if (chk instanceof Response) return chk;", "      const chk = { sdL: String(next.start_date), edL: String(next.end_date), coverage: { day_part: null, coverage_json: null } };"],
+  ["worker/src/staff.ts", "a resubmission skips the checks", "      const chk = await checkLeave(row.user_id, sameDates ? { ...next, days: row.days } : next, Number(id), sameDates);\n      if (chk instanceof Response) return chk;", "      const chk = { sdL: String(next.start_date), edL: String(next.end_date), days: Number(next.days), coverage: { day_part: null, coverage_json: null } };"],
   ["worker/src/staff.ts", "a rejection needs no reason", "      if (!comment || comment.length < 5) return err(\"reason_required\", \"Give the reason for the rejection", "      if (false) return err(\"reason_required\", \"Give the reason for the rejection"],
   ["worker/src/staff.ts", "the applicant reads internal notes", "WHERE c.leave_id = ?1 ${internalOk ? \"\" : \"AND c.visibility = 'employee'\"} ORDER BY c.id`", "WHERE c.leave_id = ?1 ORDER BY c.id`"],
   ["worker/src/leave-chain.ts", "an override shows skipped stages as signed", "      : { key: k, state: \"skipped\", who: null, at: null, text: null, flags: overridden ? { override: true } : { not_recorded: true } });", "      : { key: k, state: \"done\", who: null, at: null, text: null, flags: overridden ? { override: true } : { not_recorded: true } });"],

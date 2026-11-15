@@ -368,6 +368,9 @@ export interface LeaveReq {
   /* v1.28.0 — per-document legal issuer (migration 0073). NULL/absent =
      legacy row = AZ ONE OFFICIAL; 'a2z' = A2Z CREATIVE MARKETING. */
   issuer_code?: string | null;
+  /* v1.309.0 - the latest moment the record moved, and whether a document is on file */
+  last_update?: string | null;
+  has_attachment?: boolean;
 }
 
 /** v1.116.0 (Dashboard) / v1.117.0 (Ecommerce) - the zone captions a tab

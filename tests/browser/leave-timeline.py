@@ -32,6 +32,12 @@ def open_page(b, port, w=1440, h=1000):
 def tab(pg, name, scope=None):
     t = (scope or pg).get_by_role("tab", name=name, exact=True)
     if t.count(): t.first.click(); pg.wait_for_timeout(1000); return True
+    # v1.309.0 - a phone switches views with the view switch (the tab row is the desktop's)
+    sw = pg.locator("[data-testid=leave-view-bar] [data-testid=view-switch]")
+    if sw.count() and sw.first.is_visible():
+        sw.first.click(); pg.wait_for_timeout(300)
+        it = pg.get_by_role("menuitemradio").filter(has_text=name)
+        if it.count(): it.first.click(); pg.wait_for_timeout(1000); return True
     return False
 
 def patches(reqs, lid):
@@ -161,21 +167,26 @@ with sync_playwright() as p:
     check("Route now sends the route action", len(sent) >= 1 and sent[-1].get("action") == "route", sent)
     check("no page errors (routed)", not errs, errs)
     pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
-    tab(pg, "Overview")
-    ar = pg.get_by_test_id("approval-route")
-    check("Your approval route: the CEO's is an Executive Leave Record, and only he sees the switch", ar.count() == 1 and "Executive Leave Record" in ar.inner_text() and "Switch back to the previous rules" in ar.inner_text(), ar.inner_text()[:300] if ar.count() else "")
+    # v1.309.0 (L-1) - the route is shown on Apply, before submitting; nobody holds a switch any more
+    tab(pg, "Apply Leave")
+    pg.get_by_test_id("apply-start").fill("2026-09-21"); pg.wait_for_timeout(900)
+    check("Your approval route, on Apply: the CEO's is an Executive Leave Record - and there is no switch", pg.get_by_test_id("route-exec").count() == 1 and "Switch back to the previous rules" not in pg.locator("main").inner_text(), pg.get_by_test_id("apply-route").inner_text()[:300])
     ctx.close()
     ctx = b.new_context(viewport={"width": 1440, "height": 1000})
     pg = ctx.new_page(); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.clock.set_fixed_time("2026-09-18T02:00:00Z")
     pg.goto("http://127.0.0.1:4177/portal?tab=Leave"); pg.wait_for_timeout(2600)
-    tab(pg, "Overview")
-    up = pg.locator("section[aria-label='Upcoming team leave']")
-    ut = up.inner_text() if up.count() else ""
-    check("Upcoming Team Leave says Tentative for leave still waiting for a decision - never just a date", up.locator("[data-state=tentative]").count() >= 1 and "Pending" not in ut and "Siti Withheld" in ut, ut[:300])
-    check("...a withheld type reads as plain leave, with no reason shown", "Withheld" not in ut.replace("Siti Withheld", "") and "Dental surgery" not in ut, ut[:300])
-    check("the month calendar draws tentative leave as a hollow dot, with its legend", pg.locator("[data-state=tentative]").count() >= 2 and "Tentative" in (pg.locator("p[class*=legend]").first.inner_text() if pg.locator("p[class*=legend]").count() else ""))
+    # v1.309.0 - Tentative or Approved is said on the one Team Calendar (the Overview lists approved leave only)
+    tab(pg, "Team Calendar")
+    cal = pg.locator("section[aria-label='Leave calendar']")
+    check("the month marks leave still waiting as pending - never as leave taken", "pending" in cal.inner_text() and "Pending Leave" in cal.inner_text(), cal.inner_text()[:300])
+    cal.get_by_role("button", name="24-09-2026", exact=False).first.click(); pg.wait_for_timeout(500)
+    dl = cal.inner_text()
+    check("a day's list says Tentative for a request still waiting", cal.locator("[data-state=tentative]").count() >= 1 and "Tentative" in dl, dl[-300:])
+    cal.get_by_role("button", name="27-09-2026", exact=False).first.click(); pg.wait_for_timeout(500)
+    dl = cal.inner_text()
+    check("...a withheld type reads as plain leave, with no reason shown", "Siti Withheld" in dl and "Dental surgery" not in dl and "Withheld" not in dl.replace("Siti Withheld", ""), dl[-300:])
     check("no page errors (overview)", not errs, errs)
     ctx.close()
 

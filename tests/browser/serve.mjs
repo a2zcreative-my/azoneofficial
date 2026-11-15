@@ -68,6 +68,7 @@ let manualPaid = null;
 let projectMade = false;
 const projectPosts = [];
 const taskPosts = []; // v1.246.0
+const leavePosts = []; // v1.309.0 - Leave 4.0 writes, for the probe at /__leave
 const salesPosts = []; // v1.262.0 - Sales discipline writes, for the probe at /__sales
 /* v1.269.0 - Phase 2A: PASSKEYS=1 means stage A; what the browser posted is kept for /__passkeys */
 const pk = { creds: [], posts: [], issued: [], n: 0 };
@@ -111,6 +112,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/__payments") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pay)); return; }
   if (url.pathname === "/__passkeys") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pk)); return; }
+  if (url.pathname === "/__leave") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: leavePosts })); return; }
   if (url.pathname === "/__sales") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: salesPosts })); return; }
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
@@ -495,6 +497,24 @@ const server = http.createServer((req, res) => {
       if (req.method === "POST" && /^\/staff\/projects\/\d+\/(updates|files|owner|status)$/.test(p)) {
         projectPosts.push({ p, body: p.endsWith("/files") ? `<${body.length} bytes>` : body, key: req.headers["idempotency-key"] ?? null, name: req.headers["x-file-name"] ?? null, csrf: req.headers["x-csrf-token"] ?? null });
         res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 900 + projectPosts.length })); return;
+      }
+      /* v1.309.0 - LEAVE 4.0: the attachment, a new request and a decision,
+         answered as staff.ts would and recorded at /__leave (the worker's
+         own rules are proven by tests/leave4.mjs) */
+      if (req.method === "POST" && p === "/staff/leave/attachment") {
+        leavePosts.push({ method: "POST", p, body: `<${body.length} bytes>`, name: req.headers["x-file-name"] ?? null, type: req.headers["content-type"] ?? null });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ media_id: 77, name: req.headers["x-file-name"] ?? "file" })); return;
+      }
+      if (req.method === "POST" && p === "/staff/leave") {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        leavePosts.push({ method: "POST", p, body: b });
+        if (String(b.reason ?? "").trim().length < 5) { res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "reason_required", message: "Give the reason for the leave (5 to 500 characters)" } })); return; }
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 21, stage: "routed", days: 3, route: "manager", approver: "Zulkifli Ops" })); return;
+      }
+      if (req.method === "PATCH" && /^\/staff\/leave\/\d+$/.test(p)) {
+        let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+        leavePosts.push({ method: "PATCH", p, body: b });
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, stage: b.action === "approve" ? "approved" : b.action === "return" ? "returned" : "rejected" })); return;
       }
       /* v1.251.0 - Add User (invite): the worker's answer with email sending off - the link shown once */
       if (req.method === "POST" && p === "/users") {

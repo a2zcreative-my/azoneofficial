@@ -23,6 +23,7 @@
 import { useState } from "react";
 import { L, type User } from "@/components/portal/page-shared";
 import { AttendanceAdminPanel } from "@/components/portal/lazy-panels";
+import { RestDayCreditCard } from "@/components/portal/rest-day-credits"; // v1.309.0 (L-8) - rest days worked are decided here, not on Leave
 import { TabZone } from "@/components/portal/tab-concept";
 import { AppIcon } from "@/components/ui/app-icon";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -131,6 +132,18 @@ export function AttendanceExceptions({ user }: { user: User }) {
         )}
         {!canCorrect && !canOt && <p className={css.boundary}>{L("Decisions are made by the CEO (forgotten punches) and the CEO, COO or an admin (overtime).", "Keputusan dibuat oleh CEO (ketukan terlupa) dan CEO, COO atau admin (OT).")}</p>}
       </section>
+
+      {/* v1.309.0 (Leave 4.0, L-8) - REST DAYS WORKED: credit replacement
+          leave or pay as overtime. One question, one module: it is an
+          attendance decision, so it lives beside the overtime queue. Same
+          card, same routes, same CEO-only gate (it renders nothing for
+          anyone else). Leave keeps only the read-only credit ledger. */}
+      {["ceo", "super_admin"].includes(user.role) && (
+        <TabZone label={L("Rest days worked", "Hari rehat bekerja")} hint={L("Credit replacement leave or pay as overtime - one answer per day.", "Kreditkan cuti gantian atau bayar sebagai OT - satu jawapan setiap hari.")}>
+          <span id="rest-day-work" />
+          <RestDayCreditCard role={user.role} />
+        </TabZone>
+      )}
 
       {canCorrect && (
         <TabZone label={L("Corrections & back-entry", "Pembetulan & kemasukan lampau")} hint={L("Find a record, add a day worked before the system, or amend an overtime stretch - each is marked and audit-logged.", "Cari rekod, tambah hari bekerja sebelum sistem, atau pinda OT - setiap satu ditanda dan dilog audit.")}>

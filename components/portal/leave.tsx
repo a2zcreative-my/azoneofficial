@@ -6,13 +6,12 @@ import { openPrintPreview } from "@/components/ui/document-preview";
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
 import { L, LeaveReq, User, leaveTypeL, withStepUp } from "@/components/portal/page-shared";
-import { RestDayCreditCard } from "@/components/portal/rest-day-credits";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { Skel, SkelTable } from "@/components/ui/skeleton";
+import { SkelTable } from "@/components/ui/skeleton";
 import { SubR } from "@/components/ui/sub-label";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { api } from "@/lib/api";
@@ -24,7 +23,7 @@ import { dmy, dmyMYT, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
 import { properName } from "@/lib/names";
-import { btnClass, btnSm, card, chipSmNeutral, chipSmWarn, inputClass, rowHead, tabPill, tabPillOn, td, tdR2, th, thR2, inputClassSm, textareaClass } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipSmNeutral, chipSmWarn, inputClass, rowHead, td, tdR2, th, thR2, inputClassSm, textareaClass } from "@/lib/ui-styles";
 import { AppIcon } from "@/components/ui/app-icon";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
@@ -35,7 +34,11 @@ import { DOC } from "@/lib/doc-theme";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { isPartialLeave, savedCoverage } from "@/lib/leave-coverage";
 import { LeaveCalendar } from "@/components/portal/leave-calendar"; // v1.181.17
-import { BalanceCard, LeaveOverview, leaveChip, TeamCalendarGrid, monthName, type LeaveView } from "@/components/portal/leave-overview"; // v1.196.0; BalanceCard v1.206.0
+import { leaveChip, TeamCalendarGrid, monthName } from "@/components/portal/leave-overview"; // v1.196.0
+import { ApplyLeave4, ApprovalQueue4, ApprovalsHead4, LeaveOverview4, MyBalances4, RowMenu, TeamSide, isLeaveView, period, typeName, type Balance4, type LeaveView4 as LeaveView } from "@/components/portal/leave4"; // v1.309.0 - Leave Workspace 4.0
+import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.309.0 - the phone view switch
+import { useTabViewAddress } from "@/lib/tab-view"; // v1.309.0 - the view in the address
+import l4 from "./leave4.module.css";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs"; // v1.196.0
 import lv from "./leave-page.module.css"; // v1.196.0 - the Leave page's tabs
 import { usePortal } from "@/components/portal/portal-provider"; // v1.206.0 - the drawer's related links
@@ -976,17 +979,15 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      Management. Every zone below is the zone it was, shown under its tab and
      hidden - never unmounted - under the others, so a half-typed application
      survives a look at the calendar. The gates are the ones the zones had. */
-  /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
-  const [view, setView] = useState<LeaveView>(() => (["overview", "apply", "mine", "calendar", "manage"].includes(initialView ?? "") ? initialView as LeaveView : "overview"));
+  /* v1.203.0 - a Dashboard quick action may open a tab straight on its form.
+     v1.309.0 (L-0) - and every view has its address (?tab=Leave&view=...),
+     Back and Forward move between them. */
+  const [view, setView] = useState<LeaveView>(() => (isLeaveView(initialView ?? null) ? initialView as LeaveView : "overview"));
+  const [seenStart, setSeenStart] = useState(initialView);
+  if (initialView !== seenStart) { setSeenStart(initialView); if (isLeaveView(initialView ?? null)) setView(initialView as LeaveView); }
   const [leaveQ, setLeaveQ] = useState("");
-  const [draft, setDraft] = useState({
-    type: "annual",
-    start_date: "",
-    end_date: "",
-    days: 1,
-    day_part: "full",
-    reason: "",
-  });
+  const [mineType, setMineType] = useState("");
+  const [policyOpen, setPolicyOpen] = useState(false);
   const canApproveRole = [
     "super_admin",
     "admin",
@@ -1003,8 +1004,6 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      if necessary or to remove if require. filter by month") — the decided
      list was five lines of plain text with no way to reach any of them. */
   const [leaveMonth, setLeaveMonth] = useState("");
-  /* v1.92.0 — which management area is open below the personal half. */
-  const [mgmt, setMgmt] = useState<"" | "company" | "entitlement">("company");
   /* v1.91.0 — which company-board row is open. */
   /* v1.206.0 - the company register's filters and page, and My Leave's status */
   const [regQ, setRegQ] = useState("");
@@ -1063,77 +1062,29 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
     if (f.kind !== "leave") return;
     setLeaveQ(""); setLeaveMonth(""); setRegQ(""); setRegDept(""); setRegStatus(""); setMineStatus("");
     if (mine.some((l) => l.id === f.id)) { setView("mine"); setDrawerId(f.id); return; }
-    if (canApprove && all.some((l) => l.id === f.id)) { setView("manage"); setMgmt("company"); setDrawerId(f.id); return; }
+    if (canApprove && all.some((l) => l.id === f.id)) { setView("manage"); setDrawerId(f.id); return; }
     setView(canApprove ? "manage" : "mine");
   });
   useScrollToRecord(focused);
 
-  /* v1.90.2 — CEO, 04-09-2026: *"One of my staff unable to update their
-     leave application, please check any bug?"* Her screenshot: start date
-     filled, END DATE EMPTY, days 1, Submit pressed - and nothing. This
-     function used to `return` in silence whenever the end date was blank,
-     so a one-day leave, the commonest kind, needed a second date typed
-     that nobody said was required. Three changes: a blank end date means
-     the same day; a bad request is SAID, not swallowed; the server's answer
-     is reported either way (guard #25 - every mutation reports). */
-  const apply = async () => {
-    const start = draft.start_date;
-    const end = draft.end_date || draft.start_date;
-    if (!start) {
-      showLeaveToast(L("Not sent", "Tidak dihantar"), L("Pick the first day of the leave", "Pilih hari pertama cuti"), "notice");
-      return;
-    }
-    if (end < start) {
-      showLeaveToast(L("Not sent", "Tidak dihantar"), L("The end date is before the start date", "Tarikh tamat lebih awal daripada tarikh mula"), "notice");
-      return;
-    }
-    if (!(draft.days > 0)) {
-      showLeaveToast(L("Not sent", "Tidak dihantar"), L("Days must be at least 0.5", "Hari mestilah sekurang-kurangnya 0.5"), "notice");
-      return;
-    }
-    if ((draft.days === 0.5 && (start !== end || !["first_half", "second_half"].includes(draft.day_part))) ||
-        (draft.days !== 0.5 && !Number.isInteger(draft.days))) {
-      showLeaveToast(L("Not sent", "Tidak dihantar"), L("Half-day leave needs one date and a first or second half. Submit full days separately.", "Cuti separuh hari memerlukan satu tarikh dan separuh pertama atau kedua. Hantar hari penuh secara berasingan."), "notice");
-      return;
-    }
-    /* v1.260.0 - the CEO's own leave is an Executive Leave Record, which asks
-       for his authenticator code (withStepUp asks only when the server does) */
-    type Applied = { id?: number; stage?: string; route?: string; approver?: string; error?: { code?: string; message?: string } };
-    let res = await api<Applied>(`/staff/leave`, {
-      method: "POST",
-      body: JSON.stringify({ ...draft, start_date: start, end_date: end }),
-    });
+  /* v1.309.0 (L-3) - THE ONE SENDER of a new request, used by the Apply
+     form (leave4.tsx). The form has already shown the server's own count and
+     checks (GET /leave/quote); this sends, asks for the CEO's authenticator
+     code only when the server says an Executive Leave Record needs it, and
+     reports a phone with no signal honestly (lib/outbox.ts keeps it). */
+  type Applied = { id?: number; stage?: string; route?: string; approver?: string; days?: number; error?: { code?: string; message?: string } };
+  const submitLeave = async (body: Record<string, unknown>) => {
+    let res = await api<Applied>(`/staff/leave`, { method: "POST", body: JSON.stringify(body) });
     if (!res.ok && res.status === 401 && res.data?.error?.code === "totp_required") {
-      const stepped = await withStepUp<Applied>((totp) => api(`/staff/leave`, { method: "POST", body: JSON.stringify({ ...draft, start_date: start, end_date: end, ...(totp ? { totp } : {}) }) }), prompt);
+      const stepped = await withStepUp<Applied>((totp) => api(`/staff/leave`, { method: "POST", body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) }), prompt);
       res = { ...res, ...stepped };
     }
-    if (!res.ok) {
-      showLeaveToast(L("Not sent", "Tidak dihantar"),
-        res.data?.error?.message ?? L("The server refused the request", "Pelayan menolak permohonan"), "notice");
-      return;
+    if (res.ok || res.queued) {
+      showLeaveToast(res.queued ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Leave requested", "Cuti dimohon"),
+        res.queued ? L("Saved on this phone. It is sent the moment you are back online.", "Disimpan pada telefon ini. Ia dihantar sebaik sahaja anda kembali dalam talian.") : "", res.queued ? "notice" : "success");
+      void load();
     }
-    /* v1.105.0 - kept on the phone (lib/outbox.ts); sent when the signal is
-       back. Not "requested" yet, and the toast must not say it is. */
-    showLeaveToast(
-      res.queued ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Leave requested", "Cuti dimohon"),
-      res.queued
-        ? L("Saved on this phone. It will be sent to HR the moment you are back online.", "Disimpan pada telefon ini. Ia akan dihantar kepada HR sebaik sahaja anda kembali dalam talian.")
-        : `${leaveTypeL(draft.type)} · ${draft.days} ${L("day(s)", "hari")} · ${dmy(start)}${end !== start ? ` – ${dmy(end)}` : ""} · ${
-          res.data?.route === "manager" ? L(`waiting for ${properName(res.data.approver ?? "")}`, `menunggu ${properName(res.data.approver ?? "")}`)
-          : res.data?.route === "executive_record" ? L("recorded (Executive Leave Record)", "direkod (Rekod Cuti Eksekutif)")
-          : res.data?.route === "routing_required" ? L("HR or the CEO routes it to your manager", "HR atau CEO menghalakannya kepada pengurus anda")
-          : L("waiting for HR", "menunggu HR")}`,
-      res.queued ? "notice" : "success",
-    );
-    setDraft({
-      type: "annual",
-      start_date: "",
-      end_date: "",
-      days: 1,
-      day_part: "full",
-      reason: "",
-    });
-    void load();
+    return { ok: res.ok, queued: res.queued, data: res.data };
   };
   const act = async (id: number, action: string, comment = "", extra: Record<string, unknown> = {}) => {
     /* v1.252.0 - a rejection says why (the applicant reads it); a return
@@ -1224,7 +1175,9 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      your own application, so this button cannot do anything a hand-made
      request could not. The stages skipped stay visibly unsigned on the
      printed form — that is the record. */
-  const canOverride = ["ceo", "super_admin"].includes(user.role);
+  /* v1.309.0 (L-12) - only the verified company owner (the server decides
+     is_owner; this only decides what is drawn - the route refuses anyone else) */
+  const canOverride = user.role === "ceo" && user.is_owner === true;
   /* v1.260.0 - Route now, Re-route, Reassign, the HR check: one sender */
   const [reassign, setReassign] = useState<{ id: number; to: number; why: string } | null>(null);
   const routeAct = async (id: number, action: string, ask?: { title: string; label: string }, extra: Record<string, unknown> = {}) => {
@@ -1264,8 +1217,10 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       return;
     /* v1.260.0 (D7) - on a routed request the override decides in the
        approver's place: the reason is required and the approver is told */
+    /* v1.309.0 (L-12) - every override states its reason (routed or not,
+       approve or reject); the authenticator is asked for both */
     let why = "";
-    if (l.route) {
+    {
       const p = await prompt({ title: L("Why are you deciding in the approver's place?", "Mengapa anda membuat keputusan bagi pihak pelulus?"), label: L(`The reason - ${waitingOnLabel(l)} is told (at least 5 characters)`, `Sebabnya - ${waitingOnLabel(l)} dimaklumkan (sekurang-kurangnya 5 aksara)`), required: true, confirmLabel: action === "approve" ? L("Approve now", "Luluskan terus") : L("Reject now", "Tolak terus") });
       if (!p?.value?.trim()) return;
       why = p.value.trim();
@@ -1296,8 +1251,6 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      `leave_entitlement` permission exactly; the API refuses anyone else
      regardless of what the client renders. */
   const canSetEntitlement = holds("leave_entitlement", ["ceo", "super_admin"].includes(user.role));
-  /* the badge on the chooser: how many applications are still in progress */
-  const mgmtPending = all.filter((l) => !["approved", "rejected", "cancelled"].includes(l.stage ?? l.status)).length;
   /* v1.196.0 - the search over a leave list: the person, the type, the
      reason or the leave number */
   const qNeedle = leaveQ.trim().toLowerCase();
@@ -1307,214 +1260,67 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
   const canManage = canApprove || canSetEntitlement;
   const openView = (v: LeaveView) => { setView(v); window.scrollTo({ top: 0 }); };
 
+  const VIEW_TABS: readonly (readonly [LeaveView, string, string])[] = [
+    ["overview", L("Overview", "Gambaran"), L("This month, waiting on you, who is away", "Bulan ini, menunggu anda, siapa bercuti")],
+    ...(!hourly ? ([["apply", L("Apply Leave", "Mohon Cuti"), L("A new request, checked as you type", "Permohonan baharu, disemak semasa ditaip")], ["mine", L("My Leave", "Cuti Saya"), L("Balance and history", "Baki dan sejarah")]] as const) : []),
+    ["calendar", L("Team Calendar", "Kalendar Pasukan"), L("Leave, holidays and availability", "Cuti, cuti umum dan ketersediaan")],
+    ...(canManage ? ([["manage", L("Approvals & Management", "Kelulusan & Pengurusan"), L("The queue, policy and every request", "Barisan, dasar dan setiap permohonan")]] as const) : []),
+  ];
+  /* a view this person does not have (a part-timer's Apply, a staff member's
+     Approvals) falls back to the Overview once their lists are known - never
+     a blank page; the address follows what is shown */
+  const shown: LeaveView = !loaded || VIEW_TABS.some((t) => t[0] === view) ? view : "overview";
+  useTabViewAddress("Leave", shown, setView, isLeaveView);
+  const [calYm, setCalYm] = useState(mytToday().slice(0, 7));
+  const [calDay, setCalDay] = useState(mytToday());
+  const [byPerson, setByPerson] = useState(false);
+  const canByPerson = holds("team_manage", ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(user.role));
+
   return (
-    /* v1.173.0 (tab concept): MY BALANCES (the tiles), APPLY, THE COMPANY
-       (the rest-day credits, the chooser, the board or the entitlement
-       table) and MY HISTORY - four captioned zones in the v1.92.0 order. */
+    /* v1.309.0 - LEAVE WORKSPACE 4.0: five views (the CEO's five references),
+       each zone mounted once and hidden under the others, so a half-typed
+       application survives a look at the calendar. One engine underneath. */
     <TabPage>
       {overrideConfirmNode}
       {stepUpNode}
       {removeLeaveNode}
       {leaveToastNode}
-      {/* v1.196.0 - the tab row, with the month and Apply leave at the right */}
-      <LineTabs value={view} onChange={(k) => openView(k)} label={L("Leave", "Cuti")} tabs={[
-        ["overview", L("Overview", "Gambaran")],
-        ...(!hourly ? ([["apply", L("Apply Leave", "Mohon Cuti")], ["mine", L("My Leave", "Cuti Saya")]] as const) : []),
-        ["calendar", L("Team Calendar", "Kalendar Pasukan")],
-        ...(canManage ? ([["manage", L("Approvals & Management", "Kelulusan & Pengurusan")]] as const) : []),
-      ] as readonly (readonly [LeaveView, string])[]}
-        aside={
-          <TabAside>
-            <TabPeriod>{monthName(mytToday().slice(0, 7))}</TabPeriod>
-            {!hourly && <TabAction icon="add" onClick={() => openView("apply")}>{L("Apply leave", "Mohon cuti")}</TabAction>}
-          </TabAside>
-        } />
-      <TabZone label={L("Overview", "Gambaran")} className={view !== "overview" ? lv.off : ""}>
-        <LeaveOverview userId={user.id} types={LEAVE_TYPES} unpaidTypes={UNPAID_LEAVE_TYPES} balances={balances} mine={mine} loaded={loaded} hourly={hourly}
-          inProgress={canApprove ? mgmtPending : null} canManage={canManage} open={openView}
-          onView={(id) => setDrawerId(id)} />
-      </TabZone>
-      <TabZone label={L("My balances", "Baki saya")} className={view !== "mine" && !(hourly && view === "overview") ? lv.off : ""}>
-      {/* v1.77.0 — skeleton until the first fetch lands: one tile per leave
-          type in the same grid, so the row is the same height either way. */}
-      {!loaded && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-hidden>
-          {LEAVE_TYPES.map((t) => (
-            <div key={t} className={card}>
-              <Skel className="h-3 w-20" />
-              <Skel className="mt-2 h-6 w-24" />
-              <Skel className="mt-1.5 h-2.5 w-28 max-w-full" />
-            </div>
-          ))}
-        </div>
-      )}
-      {loaded && hourly && (
-        <div className={card}>
-          <p className="text-sm font-semibold">{L("Leave", "Cuti")}</p>
-          <p className="text-muted-foreground mt-1 text-xs">
-            {L("You are a part-time host, paid by the hour, so there is no annual, medical or emergency leave entitlement and nothing to apply for here. Days you do not work are simply not billed.",
-               "Anda hos sambilan yang dibayar mengikut jam, jadi tiada kelayakan cuti tahunan, perubatan atau kecemasan dan tiada apa yang perlu dimohon di sini. Hari yang anda tidak bekerja tidak dibilkan.")}
-          </p>
-        </div>
-      )}
-      {loaded && !hourly && (
-        /* v1.206.0 - one card a type (leave-overview.tsx BalanceCard, the
-           Overview's own): eligible now for the paid types, and for the
-           unpaid, unrestricted ones what they cost instead of a balance */
-        <section className={card} aria-label={L("Available leave balances", "Baki cuti tersedia")}>
-          <p className={lv.title}>{L("Available leave balances", "Baki cuti tersedia")}</p>
-          <ul className={lv.balCards}>
-            {LEAVE_TYPES.map((t) => <BalanceCard key={t} type={t} b={balances[t]} unpaid={UNPAID_LEAVE_TYPES.includes(t)} />)}
-          </ul>
-        </section>
-      )}
+      <div className="erp-desktop-only">
+        <LineTabs value={shown} onChange={(k) => openView(k)} label={L("Leave", "Cuti")} tabs={VIEW_TABS.map(([k, t]) => [k, t] as const)}
+          aside={
+            <TabAside>
+              <TabPeriod>{monthName(mytToday().slice(0, 7))}</TabPeriod>
+              {!hourly && <TabAction icon="add" onClick={() => openView("apply")}>{L("Apply Leave", "Mohon Cuti")}</TabAction>}
+            </TabAside>
+          } />
+      </div>
+      <div className={`erp-phone-only ${l4.viewBar}`} data-testid="leave-view-bar">
+        <ViewSwitch value={shown} onChange={(k) => openView(k)} label={L("Leave view", "Paparan cuti")} options={VIEW_TABS} />
+        {!hourly && shown !== "apply" && <TabAction icon="add" onClick={() => openView("apply")}>{L("Apply", "Mohon")}</TabAction>}
+      </div>
+
+      <TabZone label={L("Overview", "Gambaran")} className={shown !== "overview" ? lv.off : ""}>
+        <LeaveOverview4 userId={user.id} mine={mine} all={all} company={canApproveRole} loaded={loaded} hourly={hourly}
+          open={openView} onView={(id) => setDrawerId(id)} />
       </TabZone>
 
       {!hourly && (
-      <TabZone label={L("Apply", "Mohon")} className={view !== "apply" ? lv.off : ""}>
-        <div className={card}>
-          <p className="text-sm font-semibold">
-            {L("Apply for leave", "Mohon cuti")}
-          </p>
-          <div className="mt-3 space-y-3">
-            <Sub t={L("Leave type", "Jenis cuti")}>
-              <select
-                className={inputClass}
-                value={draft.type}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, type: e.target.value }))
-                }
-              >
-                {/* v1.146.0 — the cost is named where the choice is made.
-                    Somebody applying for emergency leave believing it is paid
-                    finds out on their payslip, which is the worst place to
-                    find out anything. */}
-                {LEAVE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {leaveTypeL(t)}
-                    {UNPAID_LEAVE_TYPES.includes(t) ? L(" — unpaid", " — tanpa gaji") : ""}
-                  </option>
-                ))}
-              </select>
-            </Sub>
-            <div className="grid grid-cols-2 gap-3">
-              <Sub t={L("Start date", "Tarikh mula")}>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={draft.start_date}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      start_date: e.target.value,
-                      /* a one-day leave is the common case: the end follows
-                         the start until somebody moves it later */
-                      end_date: !d.end_date || d.end_date < e.target.value ? e.target.value : d.end_date,
-                    }))
-                  }
-                />
-              </Sub>
-              <Sub t={L("End date", "Tarikh tamat")}>
-                <input
-                  type="date"
-                  className={inputClass}
-                  value={draft.end_date}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, end_date: e.target.value }))
-                  }
-                />
-              </Sub>
-            </div>
-            <Sub t={L("Days (0.5 = half day)", "Hari (0.5 = separuh hari)")}>
-              <input
-                type="number"
-                min={0.5}
-                step={0.5}
-                className={inputClass}
-                value={draft.days}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, days: Number(e.target.value), day_part: Number(e.target.value) === 0.5 ? "" : "full" }))
-                }
-              />
-            </Sub>
-            {draft.days === 0.5 && (
-              <Sub t={L("Scheduled workday half", "Separuh hari bekerja berjadual")}>
-                <select className={inputClass} value={draft.day_part} onChange={e => setDraft(d => ({ ...d, day_part: e.target.value }))}>
-                  <option value="">{L("Select half", "Pilih separuh")}</option>
-                  <option value="first_half">{L("First half", "Separuh pertama")}</option>
-                  <option value="second_half">{L("Second half", "Separuh kedua")}</option>
-                </select>
-              </Sub>
-            )}
-            <Sub t={L("Reason (optional)", "Sebab (pilihan)")}>
-              <textarea
-                className={inputClass}
-                rows={2}
-                placeholder={L(
-                  "e.g. Family matters in Melaka",
-                  "cth. Urusan keluarga di Melaka"
-                )}
-                value={draft.reason}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, reason: e.target.value }))
-                }
-              />
-            </Sub>
-            <button
-              type="button"
-              className={btnClass}
-              onClick={() => void apply()}
-            >
-              {L("Submit request", "Hantar permohonan")}
-            </button>
-          </div>
-        </div>
+      <TabZone label={L("Apply", "Mohon")} className={shown !== "apply" ? lv.off : ""}>
+        <ApplyLeave4 types={LEAVE_TYPES} toast={showLeaveToast} submit={submitLeave} onSubmitted={() => void load()} />
       </TabZone>
       )}
 
-      {(canApprove || canSetEntitlement) && (
-      <TabZone label={L("The company", "Syarikat")} className={view !== "manage" ? lv.off : ""}>
-      {/* v1.86.0 (CEO: "leave to review should inside the leave") — rest-day
-          work waiting to become replacement leave. It is the one half of the
-          old "Leave to review" card that is NOT a leave record: the other
-          half listed unpaid days the register below already carries, which is
-          what made the two cards look like the same function. CEO-only, and
-          it renders nothing for anyone else. v1.173.0: inside THE COMPANY,
-          whose roles include the one this renders for. */}
-      <RestDayCreditCard role={user.role} />
-
-      {/* v1.92.0 — CEO, 04-09-2026: *"Leave entitlement and Leave — whole
-          company should be in the minimalist interface and below of the
-          table mine eligible leave and Apply for leave."* The entitlement
-          editor used to sit ABOVE the CEO's own balances and form — a table
-          for the whole company before the four boxes he came to use. Both
-          management areas now sit below, behind one chooser, one open at a
-          time: the board first, because it is the one with things waiting. */}
-      {/* v1.173.0: the chooser wears the shared pill (tabPill / tabPillOn,
-          lib/ui-styles.ts) - the same row every other card switches with.
-          It still toggles OFF (press the open one again) as v1.92.0 gave it. */}
-      {(canApprove || canSetEntitlement) && (
-        <div className="erp-pill-row">
-          {canApprove && (
-            <button type="button" aria-pressed={mgmt === "company"}
-              className={mgmt === "company" ? tabPillOn : tabPill}
-              onClick={() => setMgmt(mgmt === "company" ? "" : "company")}>
-              {L("Leave — whole company", "Cuti — seluruh syarikat")}
-              {mgmtPending > 0 && <span className="erp-chip erp-chip-danger erp-chip-count">{mgmtPending}</span>}
-            </button>
-          )}
-          {canSetEntitlement && (
-            <button type="button" aria-pressed={mgmt === "entitlement"}
-              className={mgmt === "entitlement" ? tabPillOn : tabPill}
-              onClick={() => setMgmt(mgmt === "entitlement" ? "" : "entitlement")}>
-              {L("Leave entitlement", "Kelayakan cuti")}
-            </button>
-          )}
-        </div>
+      {!hourly && (
+      <TabZone label={L("My balance", "Baki saya")} className={shown !== "mine" ? lv.off : ""}>
+        <MyBalances4 balances={balances as Record<string, Balance4>} loaded={loaded} userId={user.id} />
+      </TabZone>
       )}
-      {canSetEntitlement && mgmt === "entitlement" && <LeaveEntitlement />}
 
-      {canApprove && mgmt === "company" &&
+      {canManage && (
+      <TabZone label={L("Approvals & management", "Kelulusan & pengurusan")} className={shown !== "manage" ? lv.off : ""}>
+        <ApprovalsHead4 all={all} loaded={loaded} canEditPolicy={canSetEntitlement} onManagePolicy={() => setPolicyOpen(true)} />
+        {canApprove && <ApprovalQueue4 all={all} loaded={loaded} onView={(id) => setDrawerId(id)} act={(id, a) => void act(id, a)} />}
+      {canApprove &&
         (() => {
           /* v1.21.0 — the whole approval chain sees the whole board.
              v1.206.0 - one register, as a table: what is in progress first
@@ -1543,8 +1349,8 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
             <section className={card} aria-label={L("Leave — whole company", "Cuti — seluruh syarikat")}>
               <div className={lv.regHead}>
                 <div>
-                  <p className={lv.title}>{L("Leave — whole company", "Cuti — seluruh syarikat")}</p>
-                  <p className={lv.sub}>{L("Everything in progress and whose approval it waits on, then every decided record — including unpaid days recorded from Attendance. Decision buttons appear on the ones waiting on you.", "Semua yang sedang diproses dan kelulusan siapa yang ditunggu, kemudian setiap rekod yang diputuskan — termasuk hari tanpa gaji yang direkodkan dari Kehadiran. Butang keputusan muncul pada yang menunggu anda.")}</p>
+                  <p className={lv.title}>{canApproveRole ? L("All leave requests", "Semua permohonan cuti") : L("Requests routed to you", "Permohonan yang dihalakan kepada anda")}</p>
+                  <p className={lv.sub}>{L("Everything in progress and whose approval it waits on, then every decided record — including unpaid days recorded from Attendance. Decide in the Approval Queue above or in the request's details.", "Semua yang sedang diproses dan kelulusan siapa yang ditunggu, kemudian setiap rekod yang diputuskan — termasuk hari tanpa gaji yang direkodkan dari Kehadiran. Putuskan dalam Barisan Kelulusan di atas atau dalam butiran permohonan.")}</p>
                 </div>
               </div>
               <div className={lv.filters}>
@@ -1595,8 +1401,8 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                                 <span className={lv.personText}><strong>{who(l)}</strong><span>{l.user_department || l.user_position || "—"}</span></span>
                               </button>
                             </td>
-                            <td data-label={L("Leave type", "Jenis cuti")} className={`${lv.cap} ${l.type === "unpaid" ? lv.danger : ""}`}>{leaveTypeL(l.type)}</td>
-                            <td data-label={L("Leave period", "Tempoh cuti")}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}<span className={lv.cov}>{coverageLabel(l)}</span></td>
+                            <td data-label={L("Leave type", "Jenis cuti")} className={l.type === "unpaid" ? lv.danger : ""}>{typeName(l.type)}</td>
+                            <td data-label={L("Leave period", "Tempoh cuti")}>{period(l.start_date, l.end_date)}<span className={lv.cov}>{coverageLabel(l)}</span></td>
                             <td data-label={L("Days", "Hari")} className={lv.num}>{l.days}</td>
                             <td data-label={L("Status", "Status")}>
                               <span className={lv.statusCell}>
@@ -1609,20 +1415,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                             </td>
                             <td className={lv.actCell}>
                               <span>
-                                {mine && (
-                                  <>
-                                    <button type="button" className={rowBtnPrimary} onClick={() => void act(l.id, "approve")}>
-                                      {l.stage === "routed" ? L("Approve", "Luluskan") : l.stage === "applied" ? L("Mark reviewed", "Tanda disemak") : l.stage === "hr_reviewed" ? L("Pre-approve", "Pra-lulus") : L("Final approve", "Kelulusan akhir")}
-                                    </button>
-                                    <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "reject")}>{L("Reject", "Tolak")}</button>
-                                  </>
-                                )}
-                                {!mine && inProgress && canOverride && l.user_id !== user.id && (
-                                  <>
-                                    <button type="button" className={rowBtn} title={L("Approve without waiting for the stages before you", "Luluskan tanpa menunggu peringkat sebelum anda")} onClick={() => void overrideAct(l, "approve")}>{L("Approve now", "Luluskan terus")}</button>
-                                    <button type="button" className={rowBtnDanger} onClick={() => void overrideAct(l, "reject")}>{L("Reject", "Tolak")}</button>
-                                  </>
-                                )}
+                                {/* v1.309.0 - decisions are made in the Approval Queue above and in the drawer; the register lists */}
                                 <button type="button" className={rowBtn} onClick={() => setDrawerId(l.id)}>{L("View", "Lihat")}</button>
                               </span>
                             </td>
@@ -1651,36 +1444,56 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
         })()}
       </TabZone>
       )}
+      {/* v1.309.0 (ref 4) - Manage Policy: the CEO's entitlement editor, in a drawer */}
+      {canSetEntitlement && (
+        <SideDrawer open={policyOpen} onClose={() => setPolicyOpen(false)} wide title={L("Leave entitlement", "Kelayakan cuti")} subtitle={L("Each person's yearly figure - every change is audited", "Angka tahunan setiap orang - setiap perubahan diaudit")}>
+          <LeaveEntitlement />
+        </SideDrawer>
+      )}
       {/* v1.307.0 - ATTENDANCE 4.0: Attendance's Settings tab is gone; its
           unpaid-day editor (an APPROVED unpaid leave record, what payroll
           reads) is a leave record, so it lives with the company's leave. The
           same card, the same gate as before: unpaid_leave, the CEO's. */}
-      {view === "manage" && holds("unpaid_leave", ["ceo", "super_admin"].includes(user.role)) && (
+      {shown === "manage" && holds("unpaid_leave", ["ceo", "super_admin"].includes(user.role)) && (
         <TabZone label={L("Unpaid leave days", "Hari cuti tanpa gaji")} hint={L("Record or correct a full or half unpaid day - it is stored as an approved unpaid leave record.", "Rekod atau betulkan hari tanpa gaji penuh atau separuh - disimpan sebagai rekod cuti tanpa gaji yang diluluskan.")}>
           <AttendanceAdminPanel role={user.role} areas={["unpaid"]} showPending={false} />
         </TabZone>
       )}
-      {/* v1.196.0 - THE TEAM CALENDAR: the month at a glance for everyone
-          (leave-overview.tsx), then - managers only, as before - who is
-          away person by person, with the department clashes (v1.181.17) */}
-      <TabZone label={L("Team calendar", "Kalendar pasukan")} className={view !== "calendar" ? lv.off : ""}>
-        <TeamCalendarGrid userId={user.id} />
-        {/* v1.181.17 (ERP roadmap phase 5) - who is away this month, so a
-            clash shows before a decision; managers only */}
-        <LeaveCalendar />
+      {/* v1.309.0 (L-9) - ONE TEAM CALENDAR: the month grid with its legend,
+          the day's availability and who is away by department beside it;
+          managers may switch the grid to the person-by-day strip (the same
+          month, with the department clash marks) */}
+      <TabZone label={L("Team calendar", "Kalendar pasukan")} className={shown !== "calendar" ? lv.off : ""}>
+        {canByPerson && (
+          <div className={l4.calTools} role="group" aria-label={L("Calendar view", "Paparan kalendar")}>
+            <button type="button" aria-pressed={!byPerson} onClick={() => setByPerson(false)}>{L("Month", "Bulan")}</button>
+            <button type="button" aria-pressed={byPerson} onClick={() => setByPerson(true)} data-testid="cal-by-person">{L("By person", "Ikut orang")}</button>
+          </div>
+        )}
+        <div className={l4.calLayout}>
+          <div>
+            {byPerson && canByPerson ? <LeaveCalendar /> : <TeamCalendarGrid userId={user.id} onMonth={setCalYm} onDay={setCalDay} />}
+          </div>
+          <TeamSide ym={calYm} day={calDay} />
+        </div>
       </TabZone>
     {!hourly && (
-      <TabZone label={L("My history", "Sejarah saya")} className={view !== "mine" ? lv.off : ""}>
+      <TabZone label={L("My history", "Sejarah saya")} className={shown !== "mine" ? lv.off : ""}>
         {/* v1.206.0 - your applications as a table, each opening the details
             drawer; Print form, Send PDF and Cancel (while in progress) on the
             row as before */}
-        <section className={card} aria-label={L("My leave history", "Sejarah cuti saya")}>
-          <p className={lv.title}>{L("My leave history", "Sejarah cuti saya")}</p>
+        <section className={card} aria-label={L("My leave history", "Sejarah cuti saya")} data-testid="leave-history">
+          <p className={lv.title}>{L("Leave History", "Sejarah Cuti")}</p>
+          <p className={lv.sub}>{L("All your leave requests and their current status.", "Semua permohonan cuti anda dan status semasanya.")}</p>
           <div className={lv.filters}>
             <label className={lv.searchField}>
               <AppIcon name="search" />
-              <input value={leaveQ} onChange={(e) => setLeaveQ(e.target.value)} placeholder={L("Search staff, leave type, reason or leave no.", "Cari kakitangan, jenis cuti, sebab atau no. cuti")} aria-label={L("Search leave", "Cari cuti")} />
+              <input value={leaveQ} onChange={(e) => setLeaveQ(e.target.value)} placeholder={L("Search by request, leave type…", "Cari mengikut permohonan, jenis cuti…")} aria-label={L("Search leave", "Cari cuti")} />
             </label>
+            <select className={inputClassSm} value={mineType} onChange={(e) => setMineType(e.target.value)} aria-label={L("Leave type", "Jenis cuti")}>
+              <option value="">{L("All leave types", "Semua jenis cuti")}</option>
+              {LEAVE_TYPES.map((t) => <option key={t} value={t}>{leaveTypeL(t)}</option>)}
+            </select>
             <select className={inputClassSm} value={mineStatus} onChange={(e) => setMineStatus(e.target.value as typeof mineStatus)} aria-label={L("Status", "Status")}>
               <option value="">{L("All statuses", "Semua status")}</option>
               <option value="progress">{L("In progress", "Sedang diproses")}</option>
@@ -1696,11 +1509,11 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
             <div className={lv.regWrap}>
               <table className={lv.reg} aria-label={L("My leave history", "Sejarah cuti saya")}>
                 <thead><tr>
-                  <th>{L("Leave no.", "No. cuti")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Leave period", "Tempoh cuti")}</th>
-                  <th className={lv.num}>{L("Days", "Hari")}</th><th>{L("Status", "Status")}</th><th><span className={lv.srOnly}>{L("Actions", "Tindakan")}</span></th>
+                  <th>{L("Request #", "Permohonan #")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Period", "Tempoh")}</th>
+                  <th className={lv.num}>{L("Days", "Hari")}</th><th>{L("Status", "Status")}</th><th>{L("Last update", "Kemas kini terakhir")}</th><th><span className={lv.srOnly}>{L("Actions", "Tindakan")}</span></th>
                 </tr></thead>
                 <tbody>
-                  {mine.filter(matchQ).filter((l) => { const st = l.stage ?? l.status; return !mineStatus || (mineStatus === "progress" ? !["approved", "rejected", "cancelled"].includes(st) : st === mineStatus); }).map((l) => {
+                  {mine.filter(matchQ).filter((l) => !mineType || l.type === mineType).filter((l) => { const st = l.stage ?? l.status; return !mineStatus || (mineStatus === "progress" ? !["approved", "rejected", "cancelled"].includes(st) : st === mineStatus); }).map((l) => {
                     const st = (l as LeaveReq).stage ?? l.status;
                     const inProgress = !["approved", "rejected", "cancelled"].includes(st);
                     const chip = leaveChip(st);
@@ -1709,17 +1522,19 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                         <td className={lv.personCell}>
                           <button type="button" className={lv.leaveNo} onClick={() => setDrawerId(l.id)} title={L("Type, period, reason, comments and the approval trail", "Jenis, tempoh, sebab, komen dan jejak kelulusan")}>{leaveNoOf(l)}</button>
                         </td>
-                        <td data-label={L("Leave type", "Jenis cuti")} className={lv.cap}>{leaveTypeL(l.type)}</td>
-                        <td data-label={L("Leave period", "Tempoh cuti")}>{dmy(l.start_date)}{l.end_date !== l.start_date ? ` – ${dmy(l.end_date)}` : ""}<span className={lv.cov}>{coverageLabel(l)}</span></td>
+                        <td data-label={L("Leave type", "Jenis cuti")}>{typeName(l.type)}</td>
+                        <td data-label={L("Leave period", "Tempoh cuti")}>{period(l.start_date, l.end_date)}<span className={lv.cov}>{coverageLabel(l)}</span></td>
                         <td data-label={L("Days", "Hari")} className={lv.num}>{l.days}</td>
                         <td data-label={L("Status", "Status")}><span className={lv.statusCell}><LeaveDots l={l} />{inProgress ? <span className={chipSmWarn}>{l.stage === "returned" ? L("Returned - your answer needed", "Dikembalikan - jawapan anda diperlukan") : stageL(st)}</span> : <span className={chip[0]}>{chip[1]}</span>}</span></td>
+                        <td data-label={L("Last update", "Kemas kini terakhir")} className={lv.muted}>{dmyMYT(l.last_update ?? l.final_at ?? l.created_at) || "—"}</td>
                         <td className={lv.actCell}>
-                          <span>
+                          <span className={l4.rowActs}>
                             <button type="button" className={rowBtn} onClick={() => setDrawerId(l.id)}>{L("View", "Lihat")}</button>
-                            <button type="button" className={rowBtn} title={L("Print the Leave Application Form", "Cetak Borang Permohonan Cuti")} onClick={() => printLeaveForm(l, user.name)}>{L("Print form", "Cetak borang")}</button>
-                            {/* v1.4.246: the same form as a real PDF file, into the share sheet. */}
-                            <button type="button" className={rowBtn} title={L("Send the leave form as a PDF file", "Hantar borang cuti sebagai fail PDF")} onClick={() => void sendLeavePdf(l)}>{L("Send PDF", "Hantar PDF")}</button>
-                            {inProgress && <button type="button" className={rowBtnDanger} onClick={() => void act(l.id, "cancel")}>{L("Withdraw", "Tarik balik")}</button>}
+                            <RowMenu label={L("More actions", "Lagi tindakan")} items={[
+                              { label: L("Print form", "Cetak borang"), onClick: () => printLeaveForm(l, user.name) },
+                              { label: L("Send PDF", "Hantar PDF"), onClick: () => void sendLeavePdf(l) },
+                              ...(inProgress ? [{ label: L("Withdraw", "Tarik balik"), onClick: () => void act(l.id, "cancel"), danger: true }] : []),
+                            ]} />
                           </span>
                         </td>
                       </tr>
@@ -1799,6 +1614,12 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                   </span>
                   {inProgress ? <span className={waitsOnMe ? chipSmWarn : chipSmNeutral}>{d.stage === "returned" ? L("Returned to the applicant", "Dikembalikan kepada pemohon") : <>{L("Waiting on", "Menunggu")} {waitingOnLabel(d)}</>}</span> : <span className={leaveChip(st)[0]}>{leaveChip(st)[1]}</span>}
                 </div>
+                {/* v1.309.0 (L-4) - the supporting document, read through its own gated route (the applicant, the route, HR and the CEO) */}
+                {d.has_attachment && (
+                  <a className={rowBtn} href={`/api/v1/staff/leave/${d.id}/attachment`} target="_blank" rel="noopener noreferrer" data-testid="leave-attachment">
+                    <AppIcon name="attach" /> {L("Open the attachment", "Buka lampiran")}
+                  </a>
+                )}
                 {/* v1.260.0 - what the route needs the reader to know */}
                 {d.stage === "routing_required" && <p className={lv.note} role="status" data-testid="routing-required">{L("Approval routing requires configuration: this person has no reporting manager on the Organisation chart. Set it there, then Route now.", "Laluan kelulusan perlu ditetapkan: orang ini tiada pengurus pelapor pada carta Organisasi. Tetapkannya di sana, kemudian Halakan sekarang.")}</p>}
                 {d.line_changed && <p className={lv.note} role="status" data-testid="line-changed">{L(`Reporting line changed since submission - now ${properName(d.line_changed)}. This request stays with ${waitingOnLabel(d)} as submitted; reassign it if needed.`, `Garis pelaporan berubah selepas permohonan - kini ${properName(d.line_changed)}. Permohonan ini kekal dengan ${waitingOnLabel(d)} seperti dihantar; serah semula jika perlu.`)}</p>}

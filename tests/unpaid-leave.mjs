@@ -85,12 +85,12 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
 
 /* ---- 4. the leave override ---- */
 {
-  ok("override is refused to everyone but the CEO",
-     /body\?\.override === true && !OVERRIDE_ROLES\.includes\(user\.role\)/.test(staff));
-  const m = staff.match(/const OVERRIDE_ROLES: readonly Role\[\] = \[([^\]]*)\]/);
-  const roles = m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort() : [];
-  ok("OVERRIDE_ROLES is the CEO and the break-glass account",
-     JSON.stringify(roles) === JSON.stringify(["ceo", "super_admin"]), roles.join(", "));
+  /* v1.309.0 (L-12, the CEO 15-11-2026) - the override is the VERIFIED OWNER's
+     alone: the CEO account named company owner (is_owner); the Super Admin no longer */
+  ok("override is refused to everyone but the verified owner",
+     /body\?\.override === true && !\(user\.role === "ceo" && user\.is_owner === true\)/.test(staff));
+  ok("no role list hands the override to the Super Admin any more",
+     !/const OVERRIDE_ROLES: readonly Role\[\] = \[[^\]]*"super_admin"/.test(staff) && /if \(override && \(!comment \|\| comment\.length < 5\)\)/.test(staff));
   ok("nobody approves their own leave, override or not",
      /override && row\.user_id === user\.id[\s\S]{0,120}?You cannot approve your own leave/.test(staff),
      "this is the one rule the bypass must never relax");
@@ -106,10 +106,10 @@ ok("DELETE /attendance/unpaid checks unpaid_leave",
      /const canAct = \(u: \{ id: number; role: string \}\) => leaveCanActAt\(u, row\.stage, row\.applicant_role, row\.user_id, row\.approver_id\);/.test(staff)
        && /if \(!override && !canAct\(user\)\) return err\("forbidden"/.test(staff) && /if \(!canAct\(user\)\) \{\n\s+return err\("forbidden", "You cannot approve this request at its current stage", 403\);/.test(staff),
      "the override must be an extra door, not a replacement for the chain");
-  ok("the client only offers the override to the CEO",
-     /const canOverride = \["ceo", "super_admin"\]\.includes\(user\.role\)/.test(page));
+  ok("the client only offers the override to the verified owner",
+     /const canOverride = user\.role === "ceo" && user\.is_owner === true;/.test(page));
   ok("the client never offers it on your own application",
-     /canOverride && l\.user_id !== user\.id/.test(page));
+     /inProgress && canOverride && !own && \(/.test(page));
 }
 
 /* ---- 5. recording an unpaid day ---- */
@@ -325,8 +325,10 @@ ok("the attendance panel is actually given the role",
   ok("setting one hourly entitlement is refused", /has no leave entitlement to set", 400\)/.test(staff));
   ok("adjusting one hourly balance is refused", /has no leave entitlement to adjust", 400\)/.test(staff));
   ok("apply-to-all skips hourly hosts", /\.filter\(\(p\) => !p\.hourly\);/.test(staff));
-  ok("the Leave tab hides the form and the tiles from an hourly host and says why",
-     /\{loaded && hourly && \(/.test(page) && /\{loaded && !hourly && \(/.test(page) && /\{!hourly && \(\s*<TabZone label=\{L\("Apply", "Mohon"\)\}(?: className=\{view !== "apply" \? lv\.off : ""\})?>\s*<div className=\{card\}>\s*<p className="text-sm font-semibold">\s*\{L\("Apply for leave"/.test(page));
+  /* v1.309.0 - Leave 4.0: the Apply and My Leave views are not offered to an hourly host; the Overview says why */
+  ok("the Leave tab hides the form and the balance from an hourly host and says why",
+     /\{!hourly && \(\s*<TabZone label=\{L\("Apply", "Mohon"\)\}/.test(page) && /\{!hourly && \(\s*<TabZone label=\{L\("My balance", "Baki saya"\)\}/.test(page)
+       && /\.\.\.\(!hourly \? \(\[\["apply"/.test(page) && /\{hourly && <p className=\{css\.note\}>\{L\("You are a part-time host, paid by the hour/.test(read("components/portal/leave4.tsx")));
      /* v1.173.0 (tab concept): the Apply card is the APPLY zone's one card; still gated on !hourly.
         v1.196.0: the zone is the Apply Leave tab, and that tab is not offered to an hourly host. */
   ok("the entitlement table shows one quiet cell for an hourly row instead of boxes",
@@ -467,11 +469,12 @@ ok("the attendance panel is actually given the role",
   const leaveTab = read("components/portal/leave.tsx");
   ok("the browser holds the same list", /UNPAID_LEAVE_TYPES: readonly string\[\] = \["unpaid", "emergency"\]/.test(leaveTab));
   ok("the cost is named where the leave is chosen",
-     /UNPAID_LEAVE_TYPES\.includes\(t\) \? L\(" — unpaid"/.test(leaveTab),
+     /\["unpaid", "emergency"\]\.includes\(t\) \? L\(" — unpaid"/.test(read("components/portal/leave4.tsx")),
      "finding out on the payslip is the worst place to find out");
   /* v1.206.0 - the tiles became BalanceCard (leave-overview.tsx), shared by the Overview and My Leave */
+  /* v1.309.0 - My Leave's cards are the capped types only; the unpaid ones are one line of what they cost */
   ok("an unrestricted type does not pretend to have a balance",
-     /No limit · \$\{v\.used\} taken this year/.test(read("components/portal/leave-overview.tsx")) && /<BalanceCard key=\{t\} type=\{t\} b=\{balances\[t\]\} unpaid=\{UNPAID_LEAVE_TYPES\.includes\(t\)\} \/>/.test(leaveTab),
+     /const CAPPED = \["annual", "medical", "replacement"\] as const;/.test(read("components/portal/leave4.tsx")) && /Emergency and unpaid leave: no limit/.test(read("components/portal/leave4.tsx")) && /Unpaid leave - no balance to use up/.test(read("components/portal/leave4.tsx")),
      "\"0 eligible now\" reads as \"you may not take any\", which is the opposite of the rule");
   ok("emergency has left the entitlement grid",
      /export const ENT_TYPES = \["annual"\] as const;/.test(leaveTab),
