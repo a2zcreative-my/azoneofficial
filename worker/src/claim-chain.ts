@@ -24,11 +24,30 @@
  * is invented.
  */
 
-export type ClaimChain = "staff" | "hr" | "exec" | "top";
+export type ClaimChain = "staff" | "hr" | "exec" | "top" | "ceo";
 export const claimChain = (role: string): ClaimChain =>
   ["marketing", "sales_marketing", "editor", "live_host"].includes(role) ? "staff"
     : role === "hr_admin" ? "hr"
       : ["coo", "cco"].includes(role) ? "exec" : "top";
+/* v1.310.0 - CLAIMS WORKSPACE 4.0 (the CEO, 15-11-2026: "approve as
+   recommended", C-1 in claude/CLAIMS-WORKSPACE-4.0-BLUEPRINT.md: "Never
+   allow self-approval, including executive claims"). THE CEO'S OWN CLAIM -
+   raised by him, or paid to him - is decided by the COO, one step, and its
+   payment confirmed by the COO too. The CEO never decides or pays it; the
+   1.271.0 executive record no longer covers claims. */
+export const claimIsCeoOwn = (r: { claimant_role?: string | null; payee_role?: string | null }): boolean =>
+  r.claimant_role === "ceo" || r.payee_role === "ceo";
+/** The chain THIS claim follows (the claimant's, or the CEO's own). */
+/** v1.310.0 (C-1) - the CEO's own claim is the COO's to decide, and nobody
+    decides a claim they raised or are paid. A claim between the two of them
+    (the CEO's paid to the COO, the COO's paid to the CEO) would have nobody
+    to decide it, so it is never made: the claimant raises it in the
+    payee's name instead. */
+export const claimHasNoDecider = (claimantRole: string | null | undefined, payeeRole: string | null | undefined): boolean =>
+  (claimantRole === "ceo" && payeeRole === "coo") || (claimantRole === "coo" && payeeRole === "ceo");
+export const NO_DECIDER_MSG = "Nobody could decide this claim: the CEO's own claim is decided by the COO, and nobody decides a claim paid to them. Raise it in the payee's own name instead.";
+export const claimChainOf = (r: { claimant_role?: string | null; payee_role?: string | null }): ClaimChain =>
+  claimIsCeoOwn(r) ? "ceo" : claimChain(r.claimant_role ?? "");
 
 /** The decision stages of a chain, in order. */
 export type ClaimStageKey = "hr" | "pre" | "final";
@@ -38,7 +57,7 @@ export function claimStages(chain: ClaimChain): ClaimStageKey[] {
 
 /** Who signs a stage, by role. */
 export function claimStageRole(chain: ClaimChain, k: ClaimStageKey): "hr_admin" | "coo" | "cco" | "ceo" {
-  return k === "hr" ? "hr_admin" : k === "pre" ? (chain === "staff" ? "coo" : "cco") : "ceo";
+  return k === "hr" ? "hr_admin" : k === "pre" ? (chain === "staff" ? "coo" : "cco") : chain === "ceo" ? "coo" : "ceo";
 }
 
 export interface ClaimChainRow {
@@ -50,6 +69,7 @@ export interface ClaimChainRow {
   pre_approved_at?: string | null;
   decided_at?: string | null;
   paid_at?: string | null;
+  payment_proof_key?: string | null;
   payee_user_id?: number | null;
   payee_role?: string | null;
   returned_from?: string | null;
@@ -65,7 +85,7 @@ export const claimReturnOpen = (r: ClaimChainRow): boolean => !!r.returned_at &&
     waived, and with it every stage that depends on it, so the claim stands
     at the CEO. */
 export function claimCurrentStage(r: ClaimChainRow): ClaimStageKey {
-  const chain = claimChain(r.claimant_role ?? "");
+  const chain = claimChainOf(r);
   if (chain === "staff") {
     if (!r.hr_reviewed_at) return r.payee_role === "hr_admin" ? "final" : "hr";
     if (!r.pre_approved_at) return r.payee_role === "coo" ? "final" : "pre";
@@ -82,13 +102,15 @@ export function claimWaitingOn(r: ClaimChainRow): ClaimWaiter | null {
   if (r.status !== "pending") return null;
   if (claimReturnOpen(r)) return "applicant";
   const k = claimCurrentStage(r);
-  const role = claimStageRole(claimChain(r.claimant_role ?? ""), k);
+  const role = claimStageRole(claimChainOf(r), k);
   return role === "hr_admin" ? "hr" : role;
 }
 
-export type ClaimAction = "review" | "preapprove" | "approve" | "reject" | "return" | "resubmit" | "pay";
+export type ClaimAction = "review" | "preapprove" | "approve" | "reject" | "return" | "resubmit" | "pay" | "proof";
 const ADMIN_TIER = ["admin", "super_admin"];
-const DECIDERS = ["super_admin", "ceo"]; // = PERMS.claims_decide
+/* v1.310.0 (C-2) - the CEO only: the Super Admin, a system account, no
+   longer approves or pays money (= PERMS.claims_decide) */
+const DECIDERS = ["ceo"];
 
 /** What this person may do to this claim NOW - exactly what the endpoints
     accept (POST /claims/:id/review, /preapprove, /decide, /return,
@@ -96,13 +118,14 @@ const DECIDERS = ["super_admin", "ceo"]; // = PERMS.claims_decide
     draw the buttons the server would take. */
 export function claimActions(r: ClaimChainRow, actor: { id: number; role: string; is_owner?: boolean }): ClaimAction[] {
   const out: ClaimAction[] = [];
-  const chain = claimChain(r.claimant_role ?? "");
+  const chain = claimChainOf(r);
   const own = r.user_id === actor.id;
   const payee = r.payee_user_id != null && r.payee_user_id === actor.id;
-  /* v1.271.0 (Phase 0, decision-policy.ts) - a decider never decides or pays
-     their own claim, or one paid to them; the company owner's own claim is
-     an executive record, so his buttons stay */
-  const decider = DECIDERS.includes(actor.role) && (!(own || payee) || (actor.role === "ceo" && actor.is_owner === true));
+  /* v1.271.0 (Phase 0) - a decider never decides or pays their own claim,
+     or one paid to them. v1.310.0 (C-1) - nor does the CEO, the executive
+     record no longer covering claims: the CEO's own claim is the COO's to
+     decide and to pay, and nobody else's. */
+  const decider = !(own || payee) && (chain === "ceo" ? actor.role === "coo" : DECIDERS.includes(actor.role));
   if (r.status === "pending") {
     const open = claimReturnOpen(r);
     if (open) {
@@ -118,6 +141,10 @@ export function claimActions(r: ClaimChainRow, actor: { id: number; role: string
     if (decider) out.push("reject");
   }
   if (r.status === "approved" && !r.paid_at && decider) out.push("pay");
+  /* v1.310.0 (C-5) - the payer attaches the bank slip after Mark paid,
+     exactly as POST /claims/:id/payment-proof accepts: never on their own
+     claim or one paid to them */
+  if (r.status === "approved" && r.paid_at && !r.payment_proof_key && decider) out.push("proof");
   return out;
 }
 
@@ -130,7 +157,9 @@ export function claimMyTurn(r: ClaimChainRow, actor: { id: number; role: string;
   if (w === "applicant") return acts.includes("resubmit");
   if (w === "payment") return acts.includes("pay");
   if (w === "hr") return acts.includes("review");
-  if (w === "coo" || w === "cco") return acts.includes("preapprove");
+  /* v1.310.0 (C-1) - the COO decides the CEO's own claim: then the approval
+     is his turn (the CEO's early approval elsewhere stays an override) */
+  if (w === "coo" || w === "cco") return acts.includes("preapprove") || (claimChainOf(r) === "ceo" && acts.includes("approve"));
   if (w === "ceo") return acts.includes("approve");
   return false;
 }
@@ -138,7 +167,7 @@ export function claimMyTurn(r: ClaimChainRow, actor: { id: number; role: string;
 /** The stages an approval made now would pass without a signature - what
     the CEO is told before an override ("Approve (skip CCO pre-approval)"). */
 export function claimSkippedIfApproved(r: ClaimChainRow): ("hr" | "pre")[] {
-  const chain = claimChain(r.claimant_role ?? "");
+  const chain = claimChainOf(r);
   const out: ("hr" | "pre")[] = [];
   if (chain === "staff") {
     if (!r.hr_reviewed_at && r.payee_role !== "hr_admin") out.push("hr");
@@ -185,7 +214,7 @@ export interface ClaimStep {
     at, with the reason. The payment step is done ONLY when Mark paid
     recorded it; an approved claim waits at Payment due. */
 export function claimTimeline(r: ClaimTimelineRow): ClaimStep[] {
-  const chain = claimChain(r.claimant_role ?? "");
+  const chain = claimChainOf(r);
   const order = claimStages(chain);
   const roleOf = (k: ClaimStageKey) => claimStageRole(chain, k);
   const sig: Record<ClaimStageKey, [string | null, string | null]> = {

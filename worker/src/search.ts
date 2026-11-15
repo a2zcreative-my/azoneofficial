@@ -42,7 +42,7 @@
 import type { Env } from "./index";
 import { can } from "./permissions";
 import { leaveSeesAll } from "./leave-chain";
-import { claimScope } from "./claims-scope";
+import { claimReadsAll, claimScope } from "./claims-scope";
 
 export interface Hit {
   kind: "hotel" | "contact" | "staff" | "client" | "document" | "invoice" | "stock" | "asset" | "task" | "leave" | "claim"; // v1.183.0 - "order" (Web Orders) retired; v1.205.0 invoice, leave, claim
@@ -251,7 +251,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
   /* v1.205.0 - claims: the GET /claims scope itself (claimScope). The amount
      is not returned: a figure stays on the claim, behind its own screen. */
   if (allowed.has("claim")) {
-    const allClaims = can(user.role, "claims_decide");
+    const allClaims = claimReadsAll(user.role, can(user.role, "claims_decide")); // v1.310.0 - the Super Admin keeps its read-only view
     const scope = claimScope(user.role, allClaims, true, "?2");
     const match = `(u.name LIKE ?1 ESCAPE '\\' OR u.full_name LIKE ?1 ESCAPE '\\' OR c.description LIKE ?1 ESCAPE '\\' OR c.category LIKE ?1 ESCAPE '\\')`;
     stmts.push({

@@ -117,11 +117,14 @@ export const claimChain = (role: string): "staff" | "hr" | "exec" | "top" =>
  */
 export function claimStepFor(
   viewer: { id: number; role: string; is_owner?: boolean },
-  claim: { user_id: number; payee_user_id: number | null; claimant_role: string; hr_reviewed_at: string | null; pre_approved_at: string | null },
+  claim: { user_id: number; payee_user_id: number | null; claimant_role: string; hr_reviewed_at: string | null; pre_approved_at: string | null; payee_role?: string | null },
 ): "hr_review" | "pre_approve" | "decide" | null {
   if (claim.user_id === viewer.id) return null;              // never your own
-  /* v1.271.0 (Phase 0) - nor a claim paid to you (decision-policy.ts), the company owner apart */
-  if (claim.payee_user_id === viewer.id && !(viewer.role === "ceo" && viewer.is_owner === true)) return null;
+  /* v1.271.0 (Phase 0) - nor a claim paid to you (decision-policy.ts).
+     v1.310.0 (Claims 4.0, C-1) - the company owner included: the CEO's own
+     claim (raised by him or paid to him) waits on the COO, one step. */
+  if (claim.payee_user_id === viewer.id) return null;
+  if (claim.claimant_role === "ceo" || claim.payee_role === "ceo") return viewer.role === "coo" ? "decide" : null;
   const chain = claimChain(claim.claimant_role);
   const adminTier = viewer.role === "admin" || viewer.role === "super_admin";
   if (can(viewer.role, "claims_decide")) {
@@ -186,11 +189,11 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   await guard("claims", async () => {
     const { results } = await env.DB.prepare(
       `SELECT c.id, c.user_id, c.payee_user_id, c.amount_cents, c.description, c.created_at, c.hr_reviewed_at, c.pre_approved_at,
-              u.role AS claimant_role, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
-         FROM claims c JOIN users u ON u.id = c.user_id
+              u.role AS claimant_role, py.role AS payee_role, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
+         FROM claims c JOIN users u ON u.id = c.user_id LEFT JOIN users py ON py.id = c.payee_user_id
         WHERE c.status = 'pending'
         ORDER BY c.created_at ASC LIMIT 200`,
-    ).all<{ id: number; user_id: number; payee_user_id: number | null; amount_cents: number; description: string | null; created_at: string; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; name: string }>();
+    ).all<{ id: number; user_id: number; payee_user_id: number | null; amount_cents: number; description: string | null; created_at: string; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; payee_role: string | null; name: string }>();
     for (const c of results) {
       const step = claimStepFor(user, c);
       if (!step) continue;

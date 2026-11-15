@@ -10,7 +10,10 @@
  *              decisions - 10 routes; refused 403 self_approval, audited
  *   owner      the verified company owner's own record is an EXECUTIVE RECORD:
  *              it goes through, is audited auth.executive_self_record and the
- *              COO is told; the route's own code (claim approval) still applies
+ *              COO is told - EXCEPT a claim (v1.310.0, C-1): the CEO's own
+ *              claim, or one paid to him, is decided and paid by the COO
+ *   claims     v1.310.0 (C-2): only the CEO decides and pays claims; the
+ *              Super Admin no longer does
  *   not owner  the Super Admin, a second CEO-role account, HR admin, the COO -
  *              and any role given these permissions in Roles & Permissions -
  *              are refused on their own records and allowed on others'
@@ -81,7 +84,7 @@ async function runtime(workerBundle) {
   const selfRefused = (r) => r.status === 403 && r.j?.error?.code === "self_approval";
   const audits = (a) => db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = ?`).get(a).n;
   const claim = (uid, payee = null, status = "pending") => Number(db.prepare(
-    `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, status, payee_user_id) VALUES (?, '2026-11-04', 'travel', 5000, 'Parking', ?, ?) RETURNING id`,
+    `INSERT INTO claims (user_id, claim_date, category, amount_cents, description, status, payee_user_id, receipt_key) VALUES (?, '2026-11-04', 'travel', 5000, 'Parking', ?, ?, 'claims/receipt-test.png') RETURNING id`,
   ).get(uid, status, payee).id);
   const claimRow = (id) => db.prepare(`SELECT status, decided_by, paid_at FROM claims WHERE id = ?`).get(id);
   const punch = (uid, pending = 0) => Number(db.prepare(
@@ -95,44 +98,77 @@ async function runtime(workerBundle) {
   ).get(key, uid).id);
 
   try {
-    /* ---------- claims: decide ---------- */
+    /* ---------- claims: decide ----------
+       v1.310.0 (Claims 4.0, approved 15-11-2026): C-2 the Super Admin no
+       longer approves or pays claims at all; C-1 the CEO's own claim (raised
+       by him or paid to him) is the COO's to decide and pay - a claim is
+       never an executive record. Every original intent is kept: nobody
+       decides their own claim, refusals are audited, a grant in Roles &
+       Permissions cannot open the hole, the buttons follow the rule. */
+    const forbidden = (r) => r.status === 403;
+    const NOTE = "Urgent site purchase, receipt checked";
     const cSA = claim(2);
     const r1 = await call(`/claims/${cSA}/decide`, 2, "POST", { action: "approve", totp: code() });
-    ok(selfRefused(r1) && claimRow(cSA).status === "pending", "the Super Admin cannot approve their own claim", r1.text);
-    ok(selfRefused(await call(`/claims/${cSA}/decide`, 2, "POST", { action: "reject" })), "...nor reject it");
-    ok(audits("auth.self_approval_refused") >= 2, "a refusal is audited");
+    ok(forbidden(r1) && claimRow(cSA).status === "pending", "the Super Admin cannot approve their own claim", r1.text);
+    ok(forbidden(await call(`/claims/${cSA}/decide`, 2, "POST", { action: "reject", totp: code() })), "...nor reject it");
     const cPayee = claim(10, 2);
-    ok(selfRefused(await call(`/claims/${cPayee}/decide`, 2, "POST", { action: "approve", totp: code() })), "the Super Admin cannot approve a claim paid to them");
+    ok(forbidden(await call(`/claims/${cPayee}/decide`, 2, "POST", { action: "approve", totp: code(), note: NOTE })), "the Super Admin cannot approve a claim paid to them");
     const cEd = claim(10);
-    const r2 = await call(`/claims/${cEd}/decide`, 2, "POST", { action: "approve", totp: code() });
-    ok(r2.status === 200 && claimRow(cEd).status === "approved", "the Super Admin still approves someone else's claim", r2.text);
+    const r2s = await call(`/claims/${cEd}/decide`, 2, "POST", { action: "approve", totp: code(), note: NOTE });
+    ok(forbidden(r2s) && claimRow(cEd).status === "pending", "C-2: the Super Admin no longer approves someone else's claim either", r2s.text);
+    const r2 = await call(`/claims/${cEd}/decide`, 1, "POST", { action: "approve", totp: code(), note: NOTE });
+    ok(r2.status === 200 && claimRow(cEd).status === "approved", "the CEO approves someone else's claim", r2.text);
     const c12 = claim(12);
-    ok(selfRefused(await call(`/claims/${c12}/decide`, 12, "POST", { action: "approve", totp: code() })), "a second CEO-role account that is not the owner cannot approve its own claim");
+    const r12 = await call(`/claims/${c12}/decide`, 12, "POST", { action: "approve", totp: code() });
+    ok(forbidden(r12) && claimRow(c12).status === "pending", "a second CEO-role account that is not the owner cannot approve its own claim", r12.text);
     const cOwn = claim(1);
-    ok((await call(`/claims/${cOwn}/decide`, 1, "POST", { action: "approve" })).status === 401, "the owner's own claim approval still asks for his authenticator code");
-    const before = audits("auth.executive_self_record");
-    const r3 = await call(`/claims/${cOwn}/decide`, 1, "POST", { action: "approve", totp: code() });
-    ok(r3.status === 200 && claimRow(cOwn).status === "approved", "the company owner approves his own claim (executive record)", r3.text);
-    ok(audits("auth.executive_self_record") === before + 1, "...recorded as an executive record");
-    ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 3 AND message LIKE 'For the record: the CEO%'`).get().n >= 1, "...and the COO is told");
+    const execBefore = audits("auth.executive_self_record");
+    const refusedBefore = audits("auth.self_approval_refused");
+    const r3o = await call(`/claims/${cOwn}/decide`, 1, "POST", { action: "approve", totp: code() });
+    ok(forbidden(r3o) && claimRow(cOwn).status === "pending", "C-1: the company owner cannot approve his own claim", r3o.text);
+    ok(forbidden(await call(`/claims/${cOwn}/decide`, 1, "POST", { action: "reject", totp: code() })), "...nor reject it");
+    ok(audits("auth.executive_self_record") === execBefore, "...and no executive record is written for a claim");
+    ok(forbidden(await call(`/claims/${cOwn}/decide`, 12, "POST", { action: "approve", totp: code() })), "another CEO-role account cannot decide the CEO's claim");
+    ok(forbidden(await call(`/claims/${cOwn}/decide`, 2, "POST", { action: "approve", totp: code() })), "...nor can the Super Admin");
+    ok((await call(`/claims/${cOwn}/decide`, 3, "POST", { action: "approve" })).status === 401, "the COO's approval of the CEO's claim still asks for an authenticator code");
+    const r3 = await call(`/claims/${cOwn}/decide`, 3, "POST", { action: "approve", totp: code() });
+    ok(r3.status === 200 && claimRow(cOwn).status === "approved" && claimRow(cOwn).decided_by === 3, "the COO approves the CEO's own claim, in one step", r3.text);
+    const cCeoToCoo = claim(1, 3);
+    const rcc = await call(`/claims/${cCeoToCoo}/decide`, 3, "POST", { action: "approve", totp: code() });
+    ok(selfRefused(rcc) && claimRow(cCeoToCoo).status === "pending", "the COO cannot approve the CEO's claim when it is paid to the COO", rcc.text);
+    const cToCeo = claim(10, 1);
+    ok(forbidden(await call(`/claims/${cToCeo}/decide`, 1, "POST", { action: "approve", totp: code(), note: NOTE })), "the CEO cannot approve a claim paid to him");
+    const r3p = await call(`/claims/${cToCeo}/decide`, 3, "POST", { action: "approve", totp: code() });
+    ok(r3p.status === 200 && claimRow(cToCeo).status === "approved", "...the COO decides it", r3p.text);
 
     /* ---------- claims: paid ---------- */
     const cSA2 = claim(2, null, "approved");
-    ok(selfRefused(await call(`/claims/${cSA2}/paid`, 2, "POST", {})) && !claimRow(cSA2).paid_at, "the Super Admin cannot mark their own claim paid");
+    ok(forbidden(await call(`/claims/${cSA2}/paid`, 2, "POST", {})) && !claimRow(cSA2).paid_at, "the Super Admin cannot mark their own claim paid");
     ok(db.prepare(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE ref = ?`).get(`CLM-${cSA2}`).n === 0, "...and no cash book row is written");
     const cPay2 = claim(10, 2, "approved");
-    ok(selfRefused(await call(`/claims/${cPay2}/paid`, 2, "POST", {})), "...nor a claim paid to them");
-    const r4 = await call(`/claims/${cEd}/paid`, 2, "POST", {});
-    ok(r4.status === 200 && claimRow(cEd).paid_at, "the Super Admin still pays someone else's claim", r4.text);
-    const r5 = await call(`/claims/${cOwn}/paid`, 1, "POST", {});
-    ok(r5.status === 200 && claimRow(cOwn).paid_at, "the owner marks his own claim paid (executive record)", r5.text);
+    ok(forbidden(await call(`/claims/${cPay2}/paid`, 2, "POST", {})), "...nor a claim paid to them");
+    const r4s = await call(`/claims/${cEd}/paid`, 2, "POST", {});
+    ok(forbidden(r4s) && !claimRow(cEd).paid_at, "C-2: the Super Admin no longer pays someone else's claim", r4s.text);
+    const r4 = await call(`/claims/${cEd}/paid`, 1, "POST", {});
+    ok(r4.status === 200 && claimRow(cEd).paid_at, "the CEO pays someone else's claim", r4.text);
+    const r5o = await call(`/claims/${cOwn}/paid`, 1, "POST", {});
+    ok(forbidden(r5o) && !claimRow(cOwn).paid_at, "C-1: the owner cannot mark his own claim paid", r5o.text);
+    ok(forbidden(await call(`/claims/${cToCeo}/paid`, 1, "POST", {})), "...nor a claim paid to him");
+    const r5 = await call(`/claims/${cOwn}/paid`, 3, "POST", {});
+    ok(r5.status === 200 && claimRow(cOwn).paid_at, "the COO marks the CEO's own claim paid", r5.text);
 
     /* ---------- the permission matrix cannot open the hole ---------- */
     db.exec(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', '{"perms":{"claims_decide":["super_admin","ceo","hr_admin"]}}')`);
     const cHr = claim(7);
-    ok(selfRefused(await call(`/claims/${cHr}/decide`, 7, "POST", { action: "approve", totp: code() })), "HR admin given claims_decide in Roles & Permissions still cannot approve their own claim");
-    const r6 = await call(`/claims/${claim(10)}/decide`, 7, "POST", { action: "approve", totp: code() });
+    ok(selfRefused(await call(`/claims/${cHr}/decide`, 7, "POST", { action: "approve", totp: code(), note: NOTE })), "HR admin given claims_decide in Roles & Permissions still cannot approve their own claim");
+    ok(audits("auth.self_approval_refused") >= refusedBefore + 1, "a refusal is audited");
+    const r6 = await call(`/claims/${claim(10)}/decide`, 7, "POST", { action: "approve", totp: code(), note: NOTE });
     ok(r6.status === 200, "...and can approve someone else's (the grant works)", r6.text);
+    const cOwnG = claim(1);
+    ok(forbidden(await call(`/claims/${cOwnG}/decide`, 7, "POST", { action: "approve", totp: code(), note: NOTE })), "...but a grant never reaches the CEO's own claim (the COO's)");
+    const cHrA = claim(7, null, "approved");
+    const rHp = await call(`/claims/${cHrA}/paid`, 7, "POST", {});
+    ok(selfRefused(rHp) && !claimRow(cHrA).paid_at, "...nor mark their own claim paid", rHp.text);
     db.exec(`DELETE FROM system_meta WHERE key = 'role_permissions'`);
 
     /* ---------- the claim list's buttons follow the rule ---------- */
@@ -142,6 +178,17 @@ async function runtime(workerBundle) {
     const listO = await call("/claims?scope=all", 1);
     const theirs = (listO.j?.claims ?? []).find((c) => c.id === cSA);
     ok(theirs && (theirs.actions ?? []).includes("approve"), "...the owner is offered approve on the Super Admin's claim", JSON.stringify(theirs ?? {}).slice(0, 200));
+    const ownRow = (listO.j?.claims ?? []).find((c) => c.id === cOwnG);
+    ok(ownRow && !(ownRow.actions ?? []).includes("approve"), "the owner is not offered approve on his own claim", JSON.stringify(ownRow ?? {}).slice(0, 200));
+    const cOther = claim(10);
+    const listS = await call("/claims?scope=all", 2);
+    const saOther = (listS.j?.claims ?? []).find((c) => c.id === cOther);
+    ok(saOther && !(saOther.actions ?? []).some((a) => a === "approve" || a === "pay"), "C-2: the Super Admin is offered neither approve nor pay on anyone's claim", JSON.stringify(saOther ?? {}).slice(0, 200));
+    const listC = await call("/claims?scope=all", 3);
+    const cooPayee = (listC.j?.claims ?? []).find((c) => c.id === cCeoToCoo);
+    ok(cooPayee && !(cooPayee.actions ?? []).includes("approve"), "the COO is not offered approve on the CEO's claim paid to the COO", JSON.stringify(cooPayee ?? {}).slice(0, 200));
+    const cooRow = (listC.j?.claims ?? []).find((c) => c.id === cOwnG);
+    ok(cooRow && (cooRow.actions ?? []).includes("approve"), "...the COO is offered approve on it", JSON.stringify(cooRow ?? {}).slice(0, 200));
 
     /* ---------- forgotten punches ---------- */
     const pSA = punch(2, 1);
@@ -149,6 +196,8 @@ async function runtime(workerBundle) {
     ok(db.prepare(`SELECT pending_approval AS p FROM attendance_records WHERE id = ?`).get(pSA).p === 1, "...it stays pending for another approver");
     ok(selfRefused(await call("/attendance/pending/decide", 2, "POST", { id: pSA, action: "reject" })), "...nor reject (delete) it");
     ok((await call("/attendance/pending/decide", 1, "POST", { id: pSA, action: "approve" })).status === 200, "the owner approves the Super Admin's forgotten punch");
+    const p12 = punch(12, 1);
+    ok(selfRefused(await call("/attendance/pending/decide", 12, "POST", { id: p12, action: "approve" })), "a second CEO-role account that is not the owner cannot approve its own forgotten punch");
     const pOwn = punch(1, 1);
     ok((await call("/attendance/pending/decide", 1, "POST", { id: pOwn, action: "approve" })).status === 200, "the owner's own forgotten punch is an executive record");
 
@@ -184,7 +233,8 @@ async function runtime(workerBundle) {
 
     /* ---------- the wiring ---------- */
     const staffSrc = readFileSync(join(root, "worker/src/staff.ts"), "utf8");
-    ok((staffSrc.match(/await refuseSelf\(env, user, "/g) ?? []).length === 9, "staff.ts calls the rule in exactly nine routes");
+    ok(readFileSync(join(root, "worker/src/decision-policy.ts"), "utf8").includes('export const NEVER_EXECUTIVE: readonly SelfDecision[] = ["claim.decide", "claim.paid", "claim.proof"];'), "C-1: a claim decision, payment or proof is never an executive record (defence behind the COO rule)");
+    ok((staffSrc.match(/await refuseSelf\(env, user, "/g) ?? []).length === 10, "staff.ts calls the rule in exactly ten routes (v1.310.0 adds the payment proof upload)");
     ok(/await refuseSelf\(env, user, "commission\.decide"/.test(readFileSync(join(root, "worker/src/commission.ts"), "utf8")), "commission.ts calls it in the ledger decision");
   } catch (e) {
     out.push([false, `runtime: ${e?.stack ?? e}`]);
@@ -218,9 +268,12 @@ const MUT = [
   ["worker/src/commission.ts", "commission decide not guarded", [['    if (selfCom) return selfCom;\n', ""]]],
   [P, "everyone treated as the owner", [['export const isExecutiveOwner = (actor: Actor): boolean => actor.role === "ceo" && actor.is_owner === true;', "export const isExecutiveOwner = (actor: Actor): boolean => actor.role === \"ceo\" || actor.role === \"super_admin\";"]]],
   [P, "any CEO-role account treated as the owner", [['actor.role === "ceo" && actor.is_owner === true;', 'actor.role === "ceo";']]],
-  [P, "the owner refused too", [["  if (isExecutiveOwner(actor)) {", "  if (false) {"]]],
+  [P, "the owner refused too", [["  if (isExecutiveOwner(actor) && !NEVER_EXECUTIVE.includes(action)) {", "  if (false) {"]]],
   [P, "no audit of a refusal", [['  await audit(env, actor.id, "auth.self_approval_refused", entity, String(entityId), { action, role: actor.role });\n', ""]]],
-  ["worker/src/claim-chain.ts", "buttons offered on one's own claim", [['DECIDERS.includes(actor.role) && (!(own || payee) || (actor.role === "ceo" && actor.is_owner === true));', "DECIDERS.includes(actor.role);"]]],
+  ["worker/src/claim-chain.ts", "buttons offered on one's own claim", [['const decider = !(own || payee) && (chain', "const decider = (chain"]]],
+  ["worker/src/claim-chain.ts", "the Super Admin a claim decider again", [['const DECIDERS = ["ceo"];', 'const DECIDERS = ["ceo", "super_admin"];']]],
+  ["worker/src/permissions.ts", "the Super Admin given claims_decide again", [['claims_decide: ["ceo"]', 'claims_decide: ["super_admin", "ceo"]']]],
+  [S, "the CEO's own claim open to any decider", [['claimIsCeoOwn(r) ? user.role === "coo" : can(user.role, "claims_decide")', 'can(user.role, "claims_decide") || user.role === "coo"']]],
 ];
 for (const [file, name, reps] of NOMUT ? [] : MUT) {
   n++;

@@ -39,8 +39,8 @@ import { handleFa } from "./fa"; // v1.284.0 - Financial Advisory (internal rele
 import { handleAssetHistory, readProfile, writeProfile, changesOf, handleCustody, custodyLive, PENDING_SQL, handleCare, careLive, CARE_STATUSES } from "./assets"; // v1.303.0 - Assets Workspace 4.0 phase 1; v1.304.0 - phase 2 custody; v1.305.0 - phase 3 care
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { handleSearch } from "./search"; // v1.107.0 - search everything
-import { claimScope } from "./claims-scope"; // v1.205.0 - one claims scope for the list and the search
-import { claimActions, claimChain, claimCurrentStage, claimMyTurn, claimReturnOpen, claimSkippedIfApproved, claimTimeline, claimWaitingOn, type ClaimChainRow, type ClaimTimelineRow } from "./claim-chain"; // v1.254.0 - the claim chain, one copy
+import { claimReadsAll, claimScope } from "./claims-scope"; // v1.205.0 - one claims scope for the list and the search; v1.310.0 - the read-all rule
+import { claimActions, claimChain, claimChainOf, claimHasNoDecider, NO_DECIDER_MSG, claimIsCeoOwn, claimCurrentStage, claimMyTurn, claimReturnOpen, claimSkippedIfApproved, claimTimeline, claimWaitingOn, type ClaimChainRow, type ClaimTimelineRow } from "./claim-chain"; // v1.254.0 - the claim chain, one copy
 import { handleSalesMap } from "./sales-map"; // v1.113.0
 import { handleWatchers } from "./watchers"; // v1.108.0 - rules over the company data
 import { BREAK_AFTER_MINUTES, hourlyPaidForSessions } from "./hourly"; // v1.109.0 - paid by the clock, less the break; v1.133.0 - per session
@@ -151,6 +151,19 @@ async function salaryAdvanceResolver(env: Env, month: string) {
   ).bind(month).all<{ user_id: number; cents: number }>();
   const byUser = new Map(results.map((r) => [r.user_id, r.cents]));
   return (userId: number) => byUser.get(userId) ?? 0;
+}
+
+/** v1.310.0 (Claims 4.0, C-11) - PAYROLL'S OWN RULE for an advance paid
+    after a payroll row was saved: every payroll computation (save, recompute,
+    the hourly rows) nets `- advance` from the paid advances of the month
+    (salaryAdvanceCents / salaryAdvanceResolver), so a newly paid advance
+    moves a saved net by exactly its amount, never below zero. The ONE place
+    outside a payroll computation that moves a net; Claims calls it. */
+export async function payrollApplyAdvance(env: Env, userId: number, month: string, cents: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE payroll_entries SET net_cents = CASE WHEN net_cents IS NULL THEN NULL ELSE MAX(0, net_cents - ?1) END,
+       updated_at = datetime('now') WHERE user_id = ?2 AND month = ?3`,
+  ).bind(cents, userId, month).run();
 }
 
 /** v1.181.4 - WHICH REQUESTS the advance line on a payslip is made of. The
@@ -7907,9 +7920,11 @@ async function handleStaffRoutes(
      CEO instead of pinging someone who is forbidden from acting, and the CEO
      is told why. payeeRole is the payee's role (null = no payee). */
   const notifyClaimFirstStage = async (claimantRole: string, claimantName: string, claimId: string | number, cents: number, prefix: string, payeeRole?: string | null) => {
-    const chain = claimChain(claimantRole);
+    const chain = claimChainOf({ claimant_role: claimantRole, payee_role: payeeRole ?? null });
     const msg = `${prefix}: ${claimantName} — RM ${(cents / 100).toFixed(2)}`;
-    if (chain === "staff" && payeeRole !== "hr_admin") await notifyRoles(["hr_admin"], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
+    /* v1.310.0 (C-1) - the CEO's own claim waits on the COO */
+    if (chain === "ceo") await notifyRoles(["coo"], 0, `${msg} (the CEO's own claim - your decision)`, `claim:${claimId}`);
+    else if (chain === "staff" && payeeRole !== "hr_admin") await notifyRoles(["hr_admin"], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
     else if (chain === "hr" && payeeRole !== "cco") await notifyRoles(["cco"], 0, `${msg} (pre-approval needed)`, `claim:${claimId}`);
     else if (chain === "staff" || chain === "hr") await notifyRoles(["ceo"], 0, `${msg} (pre-approver is the payee — for your direct decision)`, `claim:${claimId}`);
     else await notifyRoles(["ceo"], 0, msg, `claim:${claimId}`);
@@ -7990,11 +8005,108 @@ async function handleStaffRoutes(
   const claimRolesOf = (w: string | null): string[] =>
     w === "hr" ? ["hr_admin"] : w === "coo" ? ["coo"] : w === "cco" ? ["cco"] : w === "ceo" ? ["ceo"] : [];
   const claimBusy = () => err("already_decided", "Someone has just acted on this claim - reload to see where it stands", 409);
+  /* v1.310.0 (Claims 4.0) - WHO DECIDES AND PAYS THIS CLAIM: the CEO
+     (claims_decide), except on the CEO's own claim - raised by him or paid to
+     him - which is the COO's alone (C-1). The self rule (refuseSelf) still
+     runs after this at every route. */
+  const claimDeciderOk = (r: { claimant_role?: string | null; payee_role?: string | null }) =>
+    claimIsCeoOwn(r) ? user.role === "coo" : can(user.role, "claims_decide");
+  /* v1.310.0 - one visibility rule for a claim's files: exactly whoever reads
+     it in the list (claims-scope.ts) */
+  const claimVisible = async (id: string | number): Promise<boolean> => {
+    if (claimReadsAll(user.role, can(user.role, "claims_decide"))) return true;
+    return Boolean(await env.DB.prepare(`${claimChainSql}${claimScope(user.role, false, true, "?1")} AND c.id = ?2`).bind(user.id, id).first().catch(() => null));
+  };
+  /* v1.310.0 (C-8) - a reimbursement needs its receipt before it is approved;
+     a mileage-only claim and a salary advance do not */
+  const claimNeedsReceipt = (r: { claim_type?: string | null; receipt_key?: string | null; items?: string | null }): boolean => {
+    if (r.claim_type === "salary_advance" || r.receipt_key) return false;
+    try {
+      const its = r.items ? (JSON.parse(r.items) as { km?: number }[]) : [];
+      if (its.length && its.every((i) => typeof i.km === "number" && i.km > 0)) return false;
+    } catch { /* unreadable items: a receipt is needed */ }
+    return true;
+  };
   const claimReturnedErr = () => err("returned", "This claim is with the claimant for more information - it continues when they answer", 409);
+  /* v1.310.0 (Claims 4.0, C-10) - THE MONTH'S CLAIMS REPORT, worked out on
+     the server for the reader's own scope (claims-scope.ts - the list's rule)
+     and never cut at the list's 200 rows. Two clocks, never mixed:
+       by claim date   the claims dated in the month (submitted, approved,
+                       paid of those, still due, pending, rejected, by category)
+       by payment date the payments whose BANK DATE (the claim's live cash
+                       book row, Malaysia time) falls in the month - the day
+                       the money left, not the day Mark paid was pressed
+     plus the salary advances recovered by that payroll month. Each payment
+     says where it stands in Finance: booked, reversed, or not booked. */
+  if (path === "/claims/report" && method === "GET") {
+    if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
+    const mq = new URL(request.url).searchParams.get("month");
+    const month = mq && /^\d{4}-\d{2}$/.test(mq) ? mq : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
+    const all = claimReadsAll(user.role, can(user.role, "claims_decide"));
+    const scope = claimScope(user.role, all, true, "?1");
+    const from = `${month}-01`;
+    const ahead = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 15)).toISOString().slice(0, 10);
+    const before = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1) - 86400000).toISOString().slice(0, 10);
+    type RepRow = { id: number; user_id: number; status: string; claim_type: string | null; category: string; items: string | null; amount_cents: number; claim_date: string; created_at: string; paid_at: string | null; payroll_month: string | null; proof: number; claim_no: string; claimant: string | null; bank_date: string | null; live: number | null; reversed: number | null; decided_at: string | null };
+    let rows: RepRow[] = [];
+    try {
+      rows = (await env.DB.prepare(
+        `SELECT c.id, c.user_id, c.status, c.claim_type, c.category, c.items, c.amount_cents, c.claim_date, c.created_at, c.paid_at, c.payroll_month, c.decided_at,
+                CASE WHEN c.payment_proof_key IS NOT NULL THEN 1 ELSE 0 END AS proof,
+                'CLM-AZOO' || strftime('%d%m', c.created_at) || substr(strftime('%Y', c.created_at), 3, 2) || '-' ||
+                  (SELECT COUNT(*) FROM claims c2 WHERE date(c2.created_at) = date(c.created_at) AND c2.id <= c.id) AS claim_no,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS claimant,
+                /* the bank date of the claim's cash row: the live one, else the
+                   last one Finance reversed (shown as reversed, on its own day) */
+                (SELECT COALESCE(e.effective_date, e.entry_date) FROM cashflow_entries e WHERE (e.ref = 'CLM-' || c.id OR e.ref LIKE 'CLM-' || c.id || '#%') AND e.reversal_of IS NULL
+                    ORDER BY CASE WHEN EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = e.id) THEN 1 ELSE 0 END, e.id DESC LIMIT 1) AS bank_date,
+                (SELECT 1 FROM cashflow_entries e WHERE (e.ref = 'CLM-' || c.id OR e.ref LIKE 'CLM-' || c.id || '#%') AND e.reversal_of IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = e.id) LIMIT 1) AS live,
+                (SELECT 1 FROM cashflow_entries e WHERE (e.ref = 'CLM-' || c.id OR e.ref LIKE 'CLM-' || c.id || '#%') AND EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = e.id) LIMIT 1) AS reversed
+           FROM claims c LEFT JOIN users u ON u.id = c.user_id${scope ? `${scope} AND` : " WHERE"}
+            (substr(c.claim_date, 1, 7) = ?${all ? 1 : 2} OR c.payroll_month = ?${all ? 1 : 2} OR (c.paid_at IS NOT NULL AND date(c.paid_at, '+8 hours') BETWEEN ?${all ? 2 : 3} AND ?${all ? 3 : 4}))
+          ORDER BY c.claim_date, c.id`,
+      ).bind(...(all ? [month, before, ahead] : [user.id, month, before, ahead])).all<RepRow>()).results ?? [];
+    } catch { rows = []; }
+    const mytDay = (utc: string) => new Date(Date.parse(`${utc.replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const payDay = (r: RepRow) => (r.paid_at ? (r.bank_date ?? mytDay(r.paid_at)) : null);
+    const finance = (r: RepRow): "booked" | "reversed" | "not_booked" => (r.live ? "booked" : r.reversed ? "reversed" : "not_booked");
+    const sum = (l: RepRow[]) => ({ n: l.length, cents: l.reduce((a, r) => a + r.amount_cents, 0) });
+    const dated = rows.filter((r) => (r.claim_date ?? "").slice(0, 7) === month);
+    const approved = dated.filter((r) => r.status === "approved");
+    const cats = new Map<string, { approved_cents: number; paid_cents: number }>();
+    for (const r of approved) {
+      let its: { category?: string; amount_cents?: number }[] = [];
+      try { its = r.items ? JSON.parse(r.items) as typeof its : []; } catch { its = []; }
+      if (!its.length) its = [{ category: r.category, amount_cents: r.amount_cents }];
+      for (const it of its) {
+        const k = it.category ?? "other";
+        const cur = cats.get(k) ?? { approved_cents: 0, paid_cents: 0 };
+        cur.approved_cents += it.amount_cents ?? 0;
+        if (r.paid_at) cur.paid_cents += it.amount_cents ?? 0;
+        cats.set(k, cur);
+      }
+    }
+    const payments = rows.filter((r) => { const d = payDay(r); return !!d && d.slice(0, 7) === month; }).sort((a, b) => (payDay(b) ?? "").localeCompare(payDay(a) ?? ""));
+    const show = (r: RepRow) => ({ id: r.id, claim_no: r.claim_no, claimant: r.claimant, user_id: r.user_id, claim_date: r.claim_date, amount_cents: r.amount_cents, status: r.status, claim_type: r.claim_type, category: r.category, paid_at: r.paid_at, pay_day: payDay(r), finance: r.paid_at ? finance(r) : null, proof: !!r.proof, payroll_month: r.payroll_month });
+    return json({
+      month,
+      by_claim_date: {
+        submitted: sum(dated), approved: sum(approved), paid: sum(approved.filter((r) => r.paid_at)), due: sum(approved.filter((r) => !r.paid_at)),
+        pending: sum(dated.filter((r) => r.status === "pending")), rejected: sum(dated.filter((r) => r.status === "rejected")),
+        categories: [...cats.entries()].map(([category, v]) => ({ category, ...v })).sort((a, b) => b.approved_cents - a.approved_cents),
+        claims: dated.map(show),
+      },
+      /* the cash the month paid out: a payment Finance reversed is listed, marked, never summed as paid */
+      by_payment_date: { paid: sum(payments.filter((r) => finance(r) !== "reversed")), payments: payments.map(show) },
+      advances: rows.filter((r) => r.claim_type === "salary_advance" && r.status !== "rejected" && r.payroll_month === month).map(show),
+      reads_others: all || ["hr_admin", "coo", "cco", "admin"].includes(user.role),
+    });
+  }
   if (path === "/claims" && method === "GET") {
     if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     // Deciders see everyone's claims (the approval queue); submitters their own.
-    const all = can(user.role, "claims_decide");
+    const all = claimReadsAll(user.role, can(user.role, "claims_decide")); // v1.310.0 - the Super Admin reads, no longer decides
     // v1.4.106: reviewers see the claims their stage covers, plus their own.
     // v1.4.173: py = the payee (who to actually PAY) — internal remark for
     // the CEO/admin tier + hr_admin only; stripped for everyone else below
@@ -8041,7 +8153,7 @@ async function handleStaffRoutes(
         if (r.payee_user_id !== user.id) { delete r.payee_user_id; delete r.payee_name; delete r.payee_full; delete r.payee_role; }
       }
     }
-    return json({ claims: results, can_decide: all });
+    return json({ claims: results, can_decide: can(user.role, "claims_decide"), reads_all: all });
   }
   /* ---- v1.254.0 (the owner, D1) - RETURNED FOR MORE INFORMATION. Whoever
      may act on the claim now (the stage's approver, or the CEO) asks the
@@ -8100,7 +8212,7 @@ async function handleStaffRoutes(
   if (claimTalk) {
     if (!can(user.role, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cid = Number(claimTalk[1]);
-    const all = can(user.role, "claims_decide");
+    const all = claimReadsAll(user.role, can(user.role, "claims_decide"));
     const scope = claimScope(user.role, all, true, "?1");
     const seen = await env.DB.prepare(
       all ? `${claimChainSql} WHERE c.id = ?1`
@@ -8179,9 +8291,12 @@ async function handleStaffRoutes(
     let newPayee: number | null = null;
     if (pid > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent')`,
-      ).bind(pid).first<{ id: number }>();
+        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent')`,
+      ).bind(pid).first<{ id: number; role: string }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
+      /* v1.310.0 (C-1) - never a claim nobody could decide */
+      const clr = await env.DB.prepare(`SELECT u.role AS r FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`).bind(claimPayee[1]).first<{ r: string | null }>();
+      if (claimHasNoDecider(clr?.r, pu.role)) return err("no_decider", NO_DECIDER_MSG, 400);
       newPayee = pu.id;
     }
     if ((cur.payee_user_id ?? null) === newPayee) return json({ ok: true, unchanged: true });
@@ -8202,6 +8317,7 @@ async function handleStaffRoutes(
     ).bind(claimReview[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; claimant_role: string; claimant_name: string }>();
     if (!cr) return err("not_found", "Claim not found", 404);
     if (cr.status !== "pending") return err("invalid_state", "Already decided", 400);
+    { const own = await readClaimChain(claimReview[1]!); if (own && claimIsCeoOwn(own)) return err("invalid_state", "The CEO's own claim is decided by the COO, in one step", 400); } // v1.310.0 (C-1)
     if (claimChain(cr.claimant_role) !== "staff") return err("invalid_state", "This claim does not need an HR review", 400);
     if (cr.hr_reviewed_at) return err("invalid_state", "Already reviewed by HR", 400);
     if (cr.user_id === user.id) return err("forbidden", "No self-review", 403);
@@ -8233,6 +8349,7 @@ async function handleStaffRoutes(
     ).bind(claimPre[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; claimant_name: string }>();
     if (!cp) return err("not_found", "Claim not found", 404);
     if (cp.status !== "pending") return err("invalid_state", "Already decided", 400);
+    { const own = await readClaimChain(claimPre[1]!); if (own && claimIsCeoOwn(own)) return err("invalid_state", "The CEO's own claim is decided by the COO, in one step", 400); } // v1.310.0 (C-1)
     // v1.4.174: a COO/CCO who is the PAYEE of this claim doesn't pre-approve
     // it — conflict of interest; the CEO decides directly (override exists).
     try {
@@ -8398,6 +8515,11 @@ async function handleStaffRoutes(
       const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(payrollMonthE).first();
       if (released) return err("month_released", "That payroll month has already been released. Choose a later month.", 409);
     }
+    /* v1.310.0 (C-1) - an edit never makes a claim nobody could decide */
+    if (typeof body?.payee_user_id === "number" && body.payee_user_id > 0) {
+      const pr = await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(body.payee_user_id).first<{ role: string }>();
+      if (claimHasNoDecider(user.role, pr?.role)) return err("no_decider", NO_DECIDER_MSG, 400);
+    }
     const wasRejected = cur.status === "rejected";
     await env.DB.prepare(
       `UPDATE claims SET claim_date = ?1, category = ?2, amount_cents = ?3, description = ?4, items = ?5,
@@ -8445,7 +8567,12 @@ async function handleStaffRoutes(
   const claimProof = path.match(/^\/claims\/(\d+)\/payment-proof$/);
   if (claimProof && method === "POST") {
     // v1.4.118: the payout proof (bank slip) — CEO only, after Mark paid.
-    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO attaches payment proof", 403);
+    const stP = await readClaimChain(claimProof[1]!);
+    if (!stP) return err("not_found", "Claim not found", 404);
+    if (!claimDeciderOk(stP)) return err("forbidden", claimIsCeoOwn(stP) ? "The COO attaches the payment proof of the CEO's own claim" : "Only the CEO attaches payment proof", 403);
+    /* v1.310.0 (C-5) - never on your own claim, the CEO included */
+    const selfProof = await refuseSelf(env, user, "claim.proof", [stP.user_id, stP.payee_user_id], "claims", claimProof[1]!);
+    if (selfProof) return selfProof;
     const rowP = await env.DB.prepare(`SELECT status, paid_at, user_id FROM claims WHERE id = ?1`)
       .bind(claimProof[1]).first<{ status: string; paid_at: string | null; user_id: number }>();
     if (!rowP) return err("not_found", "Claim not found", 404);
@@ -8471,7 +8598,7 @@ async function handleStaffRoutes(
       .bind(claimProof[1]).first<{ user_id: number; payment_proof_key: string | null }>();
     if (!rowG?.payment_proof_key) return err("not_found", "No payment proof attached", 404);
     // v1.4.121: HR reads payout proofs for compilation (proof exists ⇒ paid).
-    if (rowG.user_id !== user.id && !can(user.role, "claims_decide") && user.role !== "hr_admin") return err("forbidden", "Not your claim", 403);
+    if (rowG.user_id !== user.id && !(await claimVisible(claimProof[1]!))) return err("forbidden", "Not your claim", 403); // v1.310.0 - the list's own rule
     const objP = await env.MEDIA.get(rowG.payment_proof_key);
     if (!objP) return err("not_found", "Payment proof file missing", 404);
     return new Response(objP.body, { headers: { "Content-Type": objP.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
@@ -8480,7 +8607,10 @@ async function handleStaffRoutes(
   if (claimPaid && method === "POST") {
     // v1.4.101: after approval the CEO records the actual payment — the
     // claimant sees PAID and the date on their submission.
-    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO marks claims paid", 403);
+    /* v1.310.0 (C-1) - the CEO pays; the CEO's own claim, the COO */
+    const stPaid = await readClaimChain(claimPaid[1]!);
+    if (!stPaid) return err("not_found", "Claim not found", 404);
+    if (!claimDeciderOk(stPaid)) return err("forbidden", claimIsCeoOwn(stPaid) ? "The COO confirms the payment of the CEO's own claim" : "Only the CEO marks claims paid", 403);
     const cRow = await env.DB.prepare(`SELECT user_id, COALESCE(payee_user_id, user_id) AS recipient_id, status, amount_cents, paid_at, claim_type, payroll_month, decided_at FROM claims WHERE id = ?1`)
       .bind(claimPaid[1]).first<{ user_id: number; recipient_id: number; status: string; amount_cents: number; paid_at: string | null; claim_type: string; payroll_month: string | null; decided_at: string | null }>();
     if (!cRow) return err("not_found", "Claim not found", 404);
@@ -8506,15 +8636,20 @@ async function handleStaffRoutes(
       if (!cRow.payroll_month) return err("invalid_state", "This salary advance has no payroll month", 400);
       const released = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(cRow.payroll_month).first();
       if (released) return err("month_released", "That payroll month has already been released. Edit the advance to a later month before paying it.", 409);
+      /* v1.310.0 (C-11) - nor once that month's salaries have been PAID: the
+         net would change after the money left the bank */
+      const salPaid = await env.DB.prepare(`SELECT 1 AS x FROM payroll_payments WHERE month = ?1`).bind(cRow.payroll_month).first().catch(() => null);
+      if (salPaid) return err("month_paid", "That payroll month's salaries are already paid. Edit the advance to a later month before paying it.", 409);
     }
     const paid = await env.DB.prepare(`UPDATE claims SET paid_at = datetime('now') WHERE id = ?1 AND paid_at IS NULL`)
       .bind(claimPaid[1]).run();
     if ((paid.meta?.changes ?? 0) === 0) return json({ ok: true, already_paid: true });
+    /* v1.310.0 (C-11) - PAYROLL IS THE RECOVERY SOURCE: the payslip's net
+       moves through Payroll's own advance rule (payrollApplyAdvance - the same
+       "- advance" every payroll computation subtracts), never a second
+       formula written here */
     if (cRow.claim_type === "salary_advance" && cRow.payroll_month) {
-      await env.DB.prepare(
-        `UPDATE payroll_entries SET net_cents = CASE WHEN net_cents IS NULL THEN NULL ELSE MAX(0, net_cents - ?1) END,
-           updated_at = datetime('now') WHERE user_id = ?2 AND month = ?3`,
-      ).bind(cRow.amount_cents, cRow.recipient_id, cRow.payroll_month).run();
+      await payrollApplyAdvance(env, cRow.recipient_id, cRow.payroll_month, cRow.amount_cents);
     }
     const isAdvance = cRow.claim_type === "salary_advance";
     await recordBankMovement(env, user.id, `CLM-${claimPaid[1]}`, cRow.amount_cents,
@@ -8592,6 +8727,7 @@ async function handleStaffRoutes(
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       payeeId = pu.id;
       payeeRole = pu.role;
+      if (claimHasNoDecider(user.role, pu.role)) return err("no_decider", NO_DECIDER_MSG, 400); // v1.310.0 (C-1)
     }
     let res = await env.DB.prepare(
       `INSERT OR IGNORE INTO claims (user_id, claim_date, category, amount_cents, description, items, payee_user_id, claim_type, payroll_month, submission_key)
@@ -8674,41 +8810,38 @@ async function handleStaffRoutes(
     if (!row?.receipt_key) return err("not_found", "No receipt attached", 404);
     // v1.4.133: receipt visibility mirrors claim-list visibility — anyone who
     // can see the claim (chain reviewers included) can open its receipt.
-    // Fixes the CCO's raw "Not your claim" 403 when opening a receipt link.
-    const STAFF_CHAIN_ROLES = ["marketing", "sales_marketing", "editor", "live_host"];
-    const canView =
-      row.user_id === user.id ||
-      can(user.role, "claims_decide") ||
-      (user.role === "hr_admin" && (row.status === "approved" || STAFF_CHAIN_ROLES.includes(row.claimant_role ?? ""))) ||
-      (["coo", "admin"].includes(user.role) && STAFF_CHAIN_ROLES.includes(row.claimant_role ?? "")) ||
-      (user.role === "cco" && row.claimant_role === "hr_admin");
+    // v1.310.0 - the list's own rule (claims-scope.ts), not a copy of it: the
+    // COO reads the CEO's own claim he decides.
+    const canView = row.user_id === user.id || await claimVisible(clMatch[1]!);
     if (!canView) return err("forbidden", "Not your claim", 403);
     const obj = await env.MEDIA.get(row.receipt_key);
     if (!obj) return err("not_found", "Receipt file missing", 404);
     return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream", "Cache-Control": "private, max-age=300" } });
   }
   if (clMatch && clMatch[2] === "/decide" && method === "POST") {
-    // Per the CEO's instruction: EVERY claim decision is the CEO's.
-    if (!can(user.role, "claims_decide")) return err("forbidden", "Only the CEO decides claims", 403);
     const action = body?.action;
     if (action !== "approve" && action !== "reject") return err("invalid_input", "action must be approve or reject", 400);
-    /* v1.127.0: an APPROVAL puts the CEO chop on the form and releases money,
-       so it needs a live code. A REJECTION attaches no signature and stops
-       the money, so it is not gated - the gate is on the signature, not on
-       the click. */
-    if (action === "approve") {
+    const row = await env.DB.prepare(
+      `SELECT c.user_id, c.payee_user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, c.claim_type, c.receipt_key, c.items, u.role AS claimant_role, py.role AS payee_role
+       FROM claims c LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users py ON py.id = c.payee_user_id WHERE c.id = ?1`,
+    ).bind(clMatch[1]).first<{ user_id: number; payee_user_id: number | null; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claim_type: string | null; receipt_key: string | null; items: string | null; claimant_role: string; payee_role: string | null }>();
+    if (!row) return err("not_found", "Claim not found", 404);
+    // Per the CEO's instruction: EVERY claim decision is the CEO's - v1.310.0
+    // (C-1): except his own claim, which is the COO's.
+    if (!claimDeciderOk(row)) return err("forbidden", claimIsCeoOwn(row) ? "The CEO's own claim is decided by the COO" : "Only the CEO decides claims", 403);
+    /* v1.310.0 (C-1) - never on your own claim or a claim paid to you, the
+       CEO included (a claim is never an executive record) - checked before
+       the authenticator is asked for */
+    const selfDec = await refuseSelf(env, user, "claim.decide", [row.user_id, row.payee_user_id], "claims", clMatch[1]!);
+    if (selfDec) return selfDec;
+    if (row.status !== "pending") return err("invalid_state", "Already decided", 400);
+    /* v1.127.0: an APPROVAL puts the chop on the form and releases money, so
+       it needs a live code. v1.310.0 (C-3): a REJECTION too - both are the
+       decision. */
+    {
       const stepUp = await requireFreshTotp(env, user, body?.totp, err);
       if (stepUp) return stepUp;
     }
-    const row = await env.DB.prepare(
-      `SELECT c.user_id, c.payee_user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role
-       FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
-    ).bind(clMatch[1]).first<{ user_id: number; payee_user_id: number | null; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string }>();
-    if (!row) return err("not_found", "Claim not found", 404);
-    /* v1.271.0 (Phase 0) - never on your own claim or a claim paid to you;
-       the company owner's own claim is an executive record */
-    const selfDec = await refuseSelf(env, user, "claim.decide", [row.user_id, row.payee_user_id], "claims", clMatch[1]!);
-    if (selfDec) return selfDec;
     if (row.status !== "pending") return err("invalid_state", "Already decided", 400);
     /* v1.254.0 (D1) - an approval waits while the claimant answers a
        question; a rejection may still be made */
@@ -8720,8 +8853,10 @@ async function handleStaffRoutes(
     // a deliberate override, not a skipped process.
     let chainOverride: string | null = null;
     let conflictWaived: string | null = null;
+    /* v1.310.0 (C-8) - a reimbursement is approved with its receipt */
+    if (action === "approve" && claimNeedsReceipt(row)) return err("receipt_required", "Attach the receipt before this claim is approved (a mileage-only claim and a salary advance need none)", 400);
     if (action === "approve") {
-      const chainD = claimChain(row.claimant_role);
+      const chainD = claimChainOf(row);
       /* v1.4.175: a stage whose approver IS the payee is WAIVED — the guard
          (v1.4.174) forbids them from acting, so their missing signature is
          the DESIGNED route to the CEO, not a bypass. Only genuinely skipped
@@ -8743,6 +8878,10 @@ async function handleStaffRoutes(
       }
       if (skipped.length > 0) chainOverride = skipped.join(" + ");
       if (waived.length > 0) conflictWaived = waived.join(" + ");
+      /* v1.310.0 (C-3) - approving past a stage states why, in the CEO's words */
+      if (chainOverride && !(typeof body?.note === "string" && body.note.trim().length >= 5)) {
+        return err("reason_required", `Give the reason for approving before ${chainOverride} (at least 5 characters)`, 400);
+      }
     }
     const status = action === "approve" ? "approved" : "rejected";
     const noteBase = typeof body?.note === "string" && body.note ? body.note.slice(0, 400) : "";

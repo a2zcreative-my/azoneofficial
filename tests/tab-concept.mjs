@@ -117,7 +117,7 @@ const BODY = {
   "Announcements": ["components/portal/announcements.tsx#Announcements", "components/portal/news-parts.tsx#NewsStats"], // v1.295.0 - News N1: the shared stat strip lives with the News parts
   "Staff Details": ["components/staff/staff-directory.tsx#StaffDirectory"],
   "Leave": ["components/portal/leave.tsx#Leave"],
-  "Claims": ["components/portal/role-panels.tsx#ClaimsPanel"],
+  "Claims": ["components/portal/role-panels.tsx#ClaimsPanel", "components/portal/claims-overview.tsx#ClaimsOverview"], // v1.310.0 - Claims 4.0: the five figures live in the Overview
   "Payroll": ["components/portal/payroll-panel.tsx#PayrollPanel"],
   "Finance": ["components/portal/finance-panels.tsx", "components/portal/role-panels.tsx#ExpensesPanel"], // v1.219.0 - Finance 2.0: the page is its own tabbed panel
   "Accounting": ["components/portal/accounting-panel.tsx#AccountingPanel"],
@@ -165,7 +165,11 @@ for (const tab of SUMMARY) {
 /* v1.183.0 - the Enquiries "figure is a door" check left with the panel;
    Claims below carries the same rule */
 const claims = componentOf(read("components/portal/role-panels.tsx"), "ClaimsPanel");
-ok("Claims' figures scope the list, by claim date, this month", /const monthScope = \(canDecide \? claims : claims\.filter\(\(c\) => c\.user_id === userId\)\)\.filter\(\(c\) => \(c\.claim_date \?\? ""\)\.slice\(0, 7\) === nowMytMonth\);/.test(claims) && /onClick=\{\(\) => scopeList\("pending"\)\}/.test(claims));
+/* v1.310.0 (Claims 4.0, ref 1) - the five figures are the Overview's, by
+   claim date, this month, over the panel's own scope; each one scopes the list
+   (onTile sets the same claimF filter the lists read) */
+const claimsOv = componentOf(read("components/portal/claims-overview.tsx"), "ClaimsOverview");
+ok("Claims' figures scope the list, by claim date, this month", /const m = scope\.filter\(\(c\) => \(c\.claim_date \?\? ""\)\.slice\(0, 7\) === month\);/.test(claimsOv) && /month=\{nowMytMonth\}/.test(claims) && /onClick=\{\(\) => onTile\("pending"\)\}/.test(claimsOv) && /const onTile = \(k: [^)]*\) => \{\s*setClaimF\(k\);/.test(claims));
 const tasks = read("components/portal/tasks.tsx");
 /* v1.203.0 - the rule moved to lib/task-figures.ts so the Dashboard's Task Overview reads it too */
 ok("Tasks' overdue figure uses the list's own rule (deadline before today, not completed), shared with the Dashboard", /const overdueCount = openTasks\.filter\(\(t\) => !!t\.deadline && t\.deadline < todayISO\)\.length;/.test(read("lib/task-figures.ts")) && /taskFigures\(tasks, todayISO\)/.test(tasks) && /taskFigures\(tasks, today\)/.test(read("components/portal/dashboard-overview.tsx")));

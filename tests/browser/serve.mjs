@@ -498,6 +498,11 @@ const server = http.createServer((req, res) => {
         projectPosts.push({ p, body: p.endsWith("/files") ? `<${body.length} bytes>` : body, key: req.headers["idempotency-key"] ?? null, name: req.headers["x-file-name"] ?? null, csrf: req.headers["x-csrf-token"] ?? null });
         res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, id: 900 + projectPosts.length })); return;
       }
+      /* v1.310.0 - CLAIMS 4.0: a new claim answers with its id, as staff.ts
+         does (the form then uploads the receipt to that id); the rules are
+         proven by direct request in tests/claims4.mjs */
+      if (req.method === "POST" && p === "/staff/claims") { res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 31 })); return; }
+      if (req.method === "POST" && /^\/staff\/claims\/\d+\/(receipt|payment-proof)$/.test(p)) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return; }
       /* v1.309.0 - LEAVE 4.0: the attachment, a new request and a decision,
          answered as staff.ts would and recorded at /__leave (the worker's
          own rules are proven by tests/leave4.mjs) */

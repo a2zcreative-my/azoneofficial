@@ -66,8 +66,11 @@ import { InventoryOverview, InventoryReports, type InvOpen, type InvView } from 
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs"; // v1.193.0
 import ivc from "./inventory-overview.module.css"; // v1.193.0 - the Inventory page's tabs
 import { ClaimsOverview, ClaimsReports, monthName, type ClaimsView, type OvClaim } from "@/components/portal/claims-overview"; // v1.194.0
+import { ClaimReview, ClaimSteps, ClaimSubmitAside, MyClaims4, isClaimsView, needsReceipt, type ClaimStep4 } from "@/components/portal/claims4"; // v1.310.0 - Claims Workspace 4.0
+import c4 from "./claims4.module.css"; // v1.310.0
+import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.310.0 - the phone view switch
+import { useTabViewAddress } from "@/lib/tab-view"; // v1.310.0 - the view in the address
 import cov from "./claims-overview.module.css"; // v1.194.0 - the Claims page's tabs
-import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // v1.194.0
 import { ClaimDots, ClaimDrawer, approveLabel, claimStatusChip, type ClaimActionKey, type ClaimStep, type ClaimWaiter } from "@/components/portal/claim-detail"; // v1.254.0
 
 /* v1.26 BM sweep: display-time translation ONLY — stored values, API payloads
@@ -4306,11 +4309,18 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
      decider's approval history and sits under Approvals; everyone else's
      records are My Claims. */
   /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
-  const [view, setView] = useState<ClaimsView>(() => (["overview", "submit", "mine", "approvals", "reports"].includes(initialView ?? "") ? initialView as ClaimsView : "overview"));
+  const [view, setView] = useState<ClaimsView>(() => (isClaimsView(initialView ?? null) ? initialView as ClaimsView : "overview"));
+  /* v1.310.0 - the Submit Claim steps (reference 2) and the Approvals list shown */
+  const [step, setStep] = useState<ClaimStep4>(1);
+  const [appSeg, setAppSeg] = useState<"mine" | "all" | "pay" | "done">("mine");
   const [claimQ, setClaimQ] = useState("");
   const [repMonth, setRepMonth] = useState(() => mytToday().slice(0, 7));
   const [claims, setClaims] = useState<Claim[]>([]);
   const [canDecide, setCanDecide] = useState(false);
+  /* v1.310.0 - the server says whether this list holds other people's claims
+     (a reader of every claim: the CEO, the Super Admin) */
+  const [readsAll, setReadsAll] = useState(false);
+  const [version, setVersion] = useState(0);
   const [msg, setMsg] = useState("");
   // v1.4.95: one claim form, several expense lines — like the paper form.
   const emptyItem = { claim_date: "", category: "travel", description: "", amount: "", km: "" };
@@ -4377,8 +4387,9 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
   /* v1.77.0 — skeleton until the first fetch lands (`claims` starts []). */
   const [loaded, setLoaded] = useState(false);
   const load = useCallback(async () => {
-    const res = await api<{ claims: Claim[]; can_decide: boolean }>(`/claims`);
-    if (res.ok && res.data) { setClaims(res.data.claims); setCanDecide(res.data.can_decide); }
+    const res = await api<{ claims: Claim[]; can_decide: boolean; reads_all?: boolean }>(`/claims`);
+    if (res.ok && res.data) { setClaims(res.data.claims); setCanDecide(res.data.can_decide); setReadsAll(res.data.reads_all ?? res.data.can_decide); }
+    setVersion((v) => v + 1);
     setLoaded(true);
   }, []);
   useEffect(() => { void load().finally(() => setLoaded(true)); }, [load]);
@@ -4409,21 +4420,40 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
 
   const rmc = (c: number) => `RM ${rmBare(c)}`;
 
-  const submit = async () => {
-    const isAdv = claimType === "salary_advance";
-    let filled = items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
-    if (isAdv) {
+  /* v1.310.0 - one check of the details, used by Next (step 1) and by the
+     submission itself, so a step can never pass what the submit refuses */
+  const filledItems = () => items.filter((i) => i.claim_date || Number(i.amount) || Number(i.km) || i.description.trim());
+  const detailsProblem = (): string => {
+    if (claimType === "salary_advance") {
       /* v1.181.5 - an advance is not an expense list: one amount, one
          reason, today's date (or the original date when editing). */
-      const advCents = Math.round(Number(advAmount) * 100);
-      if (!(advCents > 0)) { setMsg(L("Enter the amount you need in advance.", "Masukkan amaun pendahuluan yang diperlukan.")); return; }
-      if (purpose.trim().length < 3) { setMsg(L("Say why the advance is needed - it is printed on the request.", "Nyatakan sebab pendahuluan diperlukan - ia dicetak pada permohonan.")); return; }
-      filled = [{ claim_date: advDate || mytToday(), category: "other", description: purpose.trim(), amount: (advCents / 100).toFixed(2), km: "" }];
-    } else {
-      if (filled.length === 0) { setMsg(L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).")); return; }
-      if (filled.some((i) => !i.claim_date || lineCents(i) <= 0)) { setMsg(L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.")); return; }
+      if (!(Math.round(Number(advAmount) * 100) > 0)) return L("Enter the amount you need in advance.", "Masukkan amaun pendahuluan yang diperlukan.");
+      if (purpose.trim().length < 3) return L("Say why the advance is needed - it is printed on the request.", "Nyatakan sebab pendahuluan diperlukan - ia dicetak pada permohonan.");
+      if (!/^\d{4}-\d{2}$/.test(recoverMonth)) return L("Choose the payroll month for recovery.", "Pilih bulan gaji untuk potongan.");
+      return "";
     }
-    if (claimType === "salary_advance" && !/^\d{4}-\d{2}$/.test(recoverMonth)) { setMsg(L("Choose the payroll month for recovery.", "Pilih bulan gaji untuk potongan.")); return; }
+    const f = filledItems();
+    if (f.length === 0) return L("Add at least one item (date + amount, or km for mileage).", "Tambah sekurang-kurangnya satu item (tarikh + amaun, atau km untuk perbatuan).");
+    if (f.some((i) => !i.claim_date || lineCents(i) <= 0)) return L("Every item needs a date and an amount - for mileage, the km.", "Setiap item perlukan tarikh dan amaun - untuk perbatuan, km.");
+    return "";
+  };
+  /* C-8 - a reimbursement is approved with its receipt; a claim whose every
+     line is mileage needs none (the server's claimNeedsReceipt) */
+  const editingHasReceipt = editingClaim ? Boolean(claims.find((x) => x.id === editingClaim.id)?.receipt_key) : false;
+  const receiptMissing = () => claimType !== "salary_advance" && !receipt && !editingHasReceipt
+    && needsReceipt("reimbursement", filledItems().map((i) => ({ km: isMileage(i) ? i.km : "" })));
+  const goStep = (to: ClaimStep4) => {
+    if (to > step && step === 1) { const p = detailsProblem(); if (p) { setMsg(p); return; } }
+    if (to > step && step === 2 && receiptMissing()) { setMsg(L("Attach the receipt (photo or PDF). A reimbursement cannot be approved without it; a mileage-only claim needs none.", "Lampirkan resit (foto atau PDF). Bayaran balik tidak boleh diluluskan tanpanya; tuntutan perbatuan sahaja tidak memerlukannya.")); return; }
+    setMsg(""); setStep(to);
+  };
+  const submit = async () => {
+    const isAdv = claimType === "salary_advance";
+    const problem = detailsProblem();
+    if (problem) { setMsg(problem); setStep(1); return; }
+    if (receiptMissing()) { setStep(2); return; }
+    let filled = filledItems();
+    if (isAdv) filled = [{ claim_date: advDate || mytToday(), category: "other", description: purpose.trim(), amount: (Math.round(Number(advAmount) * 100) / 100).toFixed(2), km: "" }];
     if (submitLock.current) return;
     submitLock.current = true;
     setSubmitting(true);
@@ -4462,8 +4492,9 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       }
       if (receiptProblemE) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblemE, "notice");
       else showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
-      setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth);
+      setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); setStep(1);
       void load();
+      setView("mine");
       revealAnchor("claims-list"); // v1.172.1 - back to the list
       return;
     }
@@ -4483,7 +4514,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
         "notice");
       setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setPayeeId(0);
       setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
-      setReceipt(null);
+      setReceipt(null); setStep(1);
       return;
     }
     if (!res.ok || !res.data?.id) { setMsg(res.data?.error?.message ?? L("Could not submit the claim", "Tidak dapat menghantar tuntutan")); return; }
@@ -4504,10 +4535,11 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     }
     setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setPayeeId(0);
     setClaimType("reimbursement"); setPayrollMonth(currentMonth); submissionKey.current = crypto.randomUUID();
-    setReceipt(null);
+    setReceipt(null); setStep(1);
     if (receiptProblem) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblem, "notice");
     else showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
     void load();
+    setView("mine"); // v1.310.0 - My Claims, where the new claim now sits
     revealAnchor("claims-list"); // v1.172.1 - back to the list, where the new claim now sits
     } finally {
       submitLock.current = false;
@@ -4537,11 +4569,17 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       const missingSkipped = cl?.status === "pending" ? (cl.skip_if_approved ?? []) : [];
       const anyWaived = cl?.status === "pending" && (cl.timeline ?? []).some((s) => s.state === "skipped" && s.flags?.waived);
       if (missingSkipped.length > 0) {
-        if (!(await confirm({
+        /* v1.310.0 (C-3) - approving past a stage states why; the server
+           refuses it without a reason of five characters or more */
+        const r = await prompt({
           title: L("Approve past the incomplete chain?", "Luluskan melangkaui rantaian yang belum lengkap?"),
-          message: L("The approval chain has not finished for this claim.\nThe bypass will be recorded on the claim and in the audit log.", "Rantaian kelulusan belum selesai untuk tuntutan ini.\nPintasan ini akan direkodkan pada tuntutan dan dalam log audit."),
-          confirmLabel: L("Approve as CEO", "Luluskan sebagai CEO"),
-        }))) return;
+          message: L("The approval chain has not finished for this claim.\nThe bypass and your reason are recorded on the claim and in the audit log.", "Rantaian kelulusan belum selesai untuk tuntutan ini.\nPintasan ini dan sebab anda direkodkan pada tuntutan dan dalam log audit."),
+          label: L("Reason for approving now (at least 5 characters)", "Sebab meluluskan sekarang (sekurang-kurangnya 5 aksara)"),
+          initial: note[id] ?? "", required: true, confirmLabel: L("Approve as CEO", "Luluskan sebagai CEO"),
+        });
+        if (!r) return;
+        if (r.value.trim().length < 5) { showToast(L("No changes", "Tiada perubahan"), L("Give the reason for approving before the chain is complete (at least 5 characters).", "Nyatakan sebab meluluskan sebelum rantaian lengkap (sekurang-kurangnya 5 aksara)."), "notice"); return; }
+        reason = r.value.trim();
       } else if (anyWaived) {
         if (!(await confirm({
           title: L("Approve directly?", "Luluskan terus?"),
@@ -4551,12 +4589,12 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       }
     }
     /* v1.127.0: approving a claim releases money and puts the CEO chop on the
-       form, so the server asks for a live authenticator code. Rejecting signs
-       nothing and is not gated. */
+       form, so the server asks for a live authenticator code. v1.310.0
+       (C-3): a rejection asks for it too - both are the decision. */
     const res = await withStepUp<{ ok?: boolean; error?: { message?: string } }>(
       (totp) => api(`/claims/${id}/decide`, {
         method: "POST",
-        body: JSON.stringify({ action, note: (action === "reject" ? reason : note[id]) || undefined, ...(totp ? { totp } : {}) }),
+        body: JSON.stringify({ action, note: (action === "reject" || reason ? reason : note[id]) || undefined, ...(totp ? { totp } : {}) }),
       }),
       prompt,
     );
@@ -4611,7 +4649,6 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
   };
   const [drawerId, setDrawerId] = useState<number | null>(null);
   const drawerClaim = drawerId === null ? null : claims.find((x) => x.id === drawerId) ?? null;
-  const [onlyMine, setOnlyMine] = useState(true);
 
   const badgeCls: Record<string, string> = {
     pending: "erp-chip-warning",
@@ -4619,11 +4656,12 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     rejected: "erp-chip-danger",
   };
   const pending = claims.filter((c) => c.status === "pending");
-  const decided = claims.filter((c) => c.status !== "pending");
   // v1.4.121: HR's read-only APPROVED history (incl. paid) for printing the
   // claim form + payout proof for compilation. Their main list stays personal.
   const hrHistory = role === "hr_admin" ? claims.filter((c) => c.status === "approved") : [];
-  const mainList = role === "hr_admin" ? claims.filter((c) => c.user_id === userId || c.status !== "approved") : claims;
+  /* v1.310.0 (C-4, F-2) - the old mainList, which showed HR and the
+     reviewers other people's claims as "My claims", is gone: My Claims is
+     mineOnly (below), the rest is under Approvals */
 
   const claimItems = (c: Claim): { claim_date: string; category: string; description?: string; amount_cents: number; km?: number; rate_cents_per_km?: number }[] => {
     try {
@@ -4633,6 +4671,77 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     return [{ claim_date: c.claim_date, category: c.category, description: c.description ?? "", amount_cents: c.amount_cents }];
   };
 
+  /* v1.310.0 - the claimant's own buttons (attach the receipt, delete, edit),
+     one definition for the approval rows and the My Claims cards */
+  const ownActs = (c: Claim) => (
+    <>
+      {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && c.claim_type !== "salary_advance" && (
+        <>
+          <label className={`${rowBtn} ${cl.pointer}`} aria-busy={uploading === c.id || undefined} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
+            <><AppIcon name="attach" className={cl.chipIcon} />{uploading === c.id ? L("Uploading…", "Memuat naik…") : L("Attach receipt", "Lampirkan resit")}</>
+            <input type="file" accept="image/*,application/pdf" className={cl.fileInput} disabled={uploading !== null}
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                setUploading(c.id);
+                try {
+                  if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                  if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                  const comp = await compressImage(f);
+                  if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
+                  const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/receipt`, {
+                    method: "POST",
+                    headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
+                  });
+                  if (up.ok) {
+                    let resub = false;
+                    try { resub = Boolean(((await up.json()) as { resubmitted?: boolean })?.resubmitted); } catch { /* body optional */ }
+                    showToast(L("Saved", "Disimpan"), resub ? L("Receipt attached — claim RESUBMITTED for approval", "Resit dilampirkan — tuntutan DIHANTAR SEMULA untuk kelulusan") : L("Receipt attached to your claim", "Resit dilampirkan pada tuntutan anda"));
+                    void load();
+                  }
+                  else showToast(L("Receipt not attached", "Resit tidak dilampirkan"), await uploadFailure(up), "notice");
+                } finally { setUploading(null); }
+              }} />
+          </label>
+        </>
+      )}
+      {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
+        <>
+          <button type="button" className={rowBtnDanger} title={L("Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records", "Padam tuntutan ini — dibenarkan semasa menunggu atau ditolak; tuntutan diluluskan/dibayar ialah rekod kekal")}
+            onClick={async () => {
+              if (!(await confirm({
+                title: `${L("Delete claim", "Padam tuntutan")} ${claimNoOf(c)}?`,
+                message: `RM ${rmBare(c.amount_cents)} ${L("— this cannot be undone. The attached receipt is removed too.", "— ini tidak boleh dibatalkan. Resit yang dilampirkan turut dibuang.")}`,
+                confirmLabel: L("Delete claim", "Padam tuntutan"), variant: "danger",
+              }))) return;
+              const r = await api<{ error?: { message?: string } }>(`/claims/${c.id}/delete`, { method: "POST", body: JSON.stringify({}) });
+              if (r.ok) { showToast(L("Saved", "Disimpan"), `${L("Claim", "Tuntutan")} ${claimNoOf(c)} ${L("deleted", "dipadam")}`); void load(); }
+              else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice");
+            }}>
+            {L("Delete", "Padam")}
+          </button>
+          <button type="button" className={rowBtn} title={c.status === "rejected" ? L("Fix and resubmit for CEO approval", "Betulkan dan hantar semula untuk kelulusan CEO") : L("Edit — allowed until the CEO decides", "Sunting — dibenarkan sehingga CEO membuat keputusan")}
+            onClick={() => {
+              setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
+              setPayeeId(c.payee_user_id ?? 0); // v1.4.173
+              setClaimType(c.claim_type === "salary_advance" ? "salary_advance" : "reimbursement");
+              setPayrollMonth(c.payroll_month ?? currentMonth);
+              setPurpose(c.description ?? "");
+              /* v1.181.5 - an advance edits as an amount and a reason */
+              setAdvAmount(c.claim_type === "salary_advance" ? (c.amount_cents / 100).toFixed(2) : "");
+              setAdvDate(c.claim_type === "salary_advance" ? (c.claim_date ?? c.created_at.slice(0, 10)) : "");
+              setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
+              setReceipt(null);
+              setStep(1); setView("submit"); // v1.310.0 - the form is the Submit Claim view
+              requestAnimationFrame(() => document.getElementById("claim-form")?.scrollIntoView({ block: "start" }));
+            }}>
+            {c.status === "rejected" ? L("Edit & resubmit", "Sunting & hantar semula") : L("Edit", "Sunting")}
+          </button>
+        </>
+      )}
+    </>
+  );
   // v1.4.95: minimalist rows — one line collapsed; Details ▾ opens items,
   // receipt, print form and the decision trail.
   const claimRow = (c: Claim, actions: boolean) => (
@@ -4677,70 +4786,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
         <div className={`${rowActions} ${cl.rowActions}`}>
           <span>{dmy(c.claim_date)}</span>
           <button type="button" className={rowBtn} data-testid={`claim-view-${c.id}`} onClick={() => setDrawerId(c.id)}>{L("View", "Lihat")}</button>
-          {c.user_id === userId && ["pending", "rejected"].includes(c.status) && !c.receipt_key && c.claim_type !== "salary_advance" && (
-            <>
-              <label className={`${rowBtn} ${cl.pointer}`} aria-busy={uploading === c.id || undefined} title={L("Attach the receipt photo/PDF directly — no need to edit the claim", "Lampirkan foto/PDF resit terus — tidak perlu sunting tuntutan")}>
-                <><AppIcon name="attach" className={cl.chipIcon} />{uploading === c.id ? L("Uploading…", "Memuat naik…") : L("Attach receipt", "Lampirkan resit")}</>
-                <input type="file" accept="image/*,application/pdf" className={cl.fileInput} disabled={uploading !== null}
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!f) return;
-                    setUploading(c.id);
-                    try {
-                      if (f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                      if (f.size > 40 * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                      const comp = await compressImage(f);
-                      if (comp.size > MAX_RECEIPT_MB * 1024 * 1024) { showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice"); return; }
-                      const up = await csrfFetch(`/api/v1/staff/claims/${c.id}/receipt`, {
-                        method: "POST",
-                        headers: { "Content-Type": comp.type || f.type || "image/jpeg" }, body: comp,
-                      });
-                      if (up.ok) {
-                        let resub = false;
-                        try { resub = Boolean(((await up.json()) as { resubmitted?: boolean })?.resubmitted); } catch { /* body optional */ }
-                        showToast(L("Saved", "Disimpan"), resub ? L("Receipt attached — claim RESUBMITTED for approval", "Resit dilampirkan — tuntutan DIHANTAR SEMULA untuk kelulusan") : L("Receipt attached to your claim", "Resit dilampirkan pada tuntutan anda"));
-                        void load();
-                      }
-                      else showToast(L("Receipt not attached", "Resit tidak dilampirkan"), await uploadFailure(up), "notice");
-                    } finally { setUploading(null); }
-                  }} />
-              </label>
-            </>
-          )}
-          {c.user_id === userId && ["pending", "rejected"].includes(c.status) && (
-            <>
-              <button type="button" className={rowBtnDanger} title={L("Delete this claim — allowed while pending or rejected; approved/paid claims are permanent records", "Padam tuntutan ini — dibenarkan semasa menunggu atau ditolak; tuntutan diluluskan/dibayar ialah rekod kekal")}
-                onClick={async () => {
-                  if (!(await confirm({
-                    title: `${L("Delete claim", "Padam tuntutan")} ${claimNoOf(c)}?`,
-                    message: `RM ${rmBare(c.amount_cents)} ${L("— this cannot be undone. The attached receipt is removed too.", "— ini tidak boleh dibatalkan. Resit yang dilampirkan turut dibuang.")}`,
-                    confirmLabel: L("Delete claim", "Padam tuntutan"), variant: "danger",
-                  }))) return;
-                  const r = await api<{ error?: { message?: string } }>(`/claims/${c.id}/delete`, { method: "POST", body: JSON.stringify({}) });
-                  if (r.ok) { showToast(L("Saved", "Disimpan"), `${L("Claim", "Tuntutan")} ${claimNoOf(c)} ${L("deleted", "dipadam")}`); void load(); }
-                  else showToast(L("No changes", "Tiada perubahan"), r.data?.error?.message ?? L("Delete failed", "Padaman gagal"), "notice");
-                }}>
-                {L("Delete", "Padam")}
-              </button>
-              <button type="button" className={rowBtn} title={c.status === "rejected" ? L("Fix and resubmit for CEO approval", "Betulkan dan hantar semula untuk kelulusan CEO") : L("Edit — allowed until the CEO decides", "Sunting — dibenarkan sehingga CEO membuat keputusan")}
-                onClick={() => {
-                  setEditingClaim({ id: c.id, no: claimNoOf(c), wasRejected: c.status === "rejected" });
-                  setPayeeId(c.payee_user_id ?? 0); // v1.4.173
-                  setClaimType(c.claim_type === "salary_advance" ? "salary_advance" : "reimbursement");
-                  setPayrollMonth(c.payroll_month ?? currentMonth);
-                  setPurpose(c.description ?? "");
-                  /* v1.181.5 - an advance edits as an amount and a reason */
-                  setAdvAmount(c.claim_type === "salary_advance" ? (c.amount_cents / 100).toFixed(2) : "");
-                  setAdvDate(c.claim_type === "salary_advance" ? (c.claim_date ?? c.created_at.slice(0, 10)) : "");
-                  setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
-                  setReceipt(null);
-                  requestAnimationFrame(() => document.getElementById("claim-form")?.scrollIntoView({ block: "start" }));
-                }}>
-                {c.status === "rejected" ? L("Edit & resubmit", "Sunting & hantar semula") : L("Edit", "Sunting")}
-              </button>
-            </>
-          )}
+          {ownActs(c)}
           {/* the payee mark stays visible without opening the record */}
           {c.payee_user_id === userId
             ? <span className={chipSmSuccess} title={L("This claim was raised on your behalf — the payment comes to you; track its status here","Tuntutan ini dibuat bagi pihak anda — bayaran datang kepada anda; jejak statusnya di sini")}><><AppIcon name="money" className={cl.chipIconSm} />{L("pays to you","dibayar kepada anda")}</></span>
@@ -4824,7 +4870,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
               {L("Decided by", "Diputuskan oleh")} {properName(c.decided_by_name)}{c.decision_note ? ` — ${c.decision_note}` : ""}
             </p>
           )}
-          {canDecide && c.paid_at && !c.payment_proof_key && (
+          {(c.actions ?? []).includes("proof") && (
             <label className={`${rowBtn} erp-mt-2 ${cl.pointer}`} aria-busy={uploading === c.id || undefined}
               title={L("Attach the bank-transfer slip as payout proof — the claimant is notified", "Lampirkan slip pindahan bank sebagai bukti bayaran — penuntut dimaklumkan")}>
               <><AppIcon name="attach" className={cl.chipIcon} />{uploading === c.id ? L("Uploading…", "Memuat naik…") : L("Attach payment receipt (bank slip)", "Lampirkan resit bayaran (slip bank)")}</>
@@ -4905,55 +4951,74 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     </div>
   );
 
-  /* v1.173.0 (tab concept) - the summary tier: this person's (or, for a
-     decider, the company's) claims this month, by claim date - the same
-     rule the month strip in the list uses. Each figure scopes the list. */
+  /* v1.310.0 - CLAIMS WORKSPACE 4.0. Who sees what (C-4): My Claims holds
+     this person's own claims and the claims paid to them, nobody else's;
+     everything else this person may read (the server's scope) is under
+     Approvals, and never their own - nobody decides their own claim. */
   const nowMytMonth = mytToday().slice(0, 7);
-  const monthScope = (canDecide ? claims : claims.filter((c) => c.user_id === userId)).filter((c) => (c.claim_date ?? "").slice(0, 7) === nowMytMonth);
-  const sumCents = (list: typeof claims) => list.reduce((a, c) => a + c.amount_cents, 0);
-  const monthPending = monthScope.filter((c) => c.status === "pending");
-  const monthApproved = monthScope.filter((c) => c.status === "approved");
-  const monthPaid = monthApproved.filter((c) => c.paid_at);
-  const monthRejected = monthScope.filter((c) => c.status === "rejected");
-  /* v1.194.0 - a figure scopes the records and opens the tab that holds
-     them: a decider's pending claims are under Approvals, the rest of a
-     decider's records are its approval history, everyone else's are theirs */
+  const isMine = (c: Claim) => c.user_id === userId || c.payee_user_id === userId;
   const showApprovals = canDecide || ["hr_admin", "coo", "cco", "admin", "super_admin"].includes(role);
-  const recordsTab: ClaimsView = canDecide ? "approvals" : "mine";
-  const scopeList = (k: string) => {
-    setClaimF(claimF === k ? "" : k);
-    setView(k === "pending" && showApprovals ? "approvals" : recordsTab);
-  };
+  /* the Overview counts the company only for a reader of every claim */
+  const showStaff = canDecide || readsAll;
+  const mineOnly = claims.filter(isMine);
+  const others = claims.filter((c) => !isMine(c));
+  const waitingMine = pending.filter((c) => !isMine(c) && c.my_turn);
+  const allPending = pending.filter((c) => !isMine(c));
+  const toPay = others.filter((c) => c.status === "approved" && !c.paid_at && (c.actions ?? []).includes("pay"));
+  type Seg = "mine" | "all" | "pay" | "done";
+  const segFor = (c: Claim): Seg => c.status === "pending" ? (c.my_turn ? "mine" : "all") : (c.actions ?? []).includes("pay") ? "pay" : "done";
   const openClaims = (v: ClaimsView) => { setView(v); window.scrollTo({ top: 0 }); };
   /* the search over a claim list: number, person, purpose or category */
   const qNeedle = claimQ.trim().toLowerCase();
   const matchQ = (c: Claim) => !qNeedle || [claimNoOf(c), c.claimant ?? "", c.claimant_full ?? "", c.description ?? "", catLabel(c.category)].some((t) => t.toLowerCase().includes(qNeedle));
-  const mineOnly = claims.filter((c) => c.user_id === userId);
+  /* a figure's filter: Approved is approved and not yet paid (C-5) */
+  const passF = (c: Claim) => !claimF || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : claimF === "approved" ? c.status === "approved" && !c.paid_at : c.status === claimF);
   const claimMonths = [...new Set([mytToday().slice(0, 7), ...claims.map((c) => (c.claim_date ?? "").slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m))])].sort().reverse();
-  const viewClaim = (c: OvClaim) => {
+  const openClaim = (c: Claim) => {
     setExpanded(c.id);
-    setView(c.status === "pending" && showApprovals && (canDecide || c.user_id !== userId) ? "approvals" : c.user_id === userId ? "mine" : recordsTab);
+    if (isMine(c) || !showApprovals) setView("mine");
+    else { setAppSeg(segFor(c)); setView("approvals"); }
+  };
+  const viewClaim = (c: OvClaim) => { const cc = claims.find((x) => x.id === c.id); if (cc) { openClaim(cc); window.scrollTo({ top: 0 }); } };
+  const onTile = (k: "" | "pending" | "approved" | "paid" | "rejected") => {
+    setClaimF(k); setClaimQ("");
+    if (showStaff && showApprovals) { setAppSeg(k === "pending" ? "all" : k === "approved" && toPay.length > 0 ? "pay" : "done"); setView("approvals"); }
+    else setView("mine");
     window.scrollTo({ top: 0 });
   };
   /* v1.205.0 - a search hit, a notification or a Desk item opens the claim
-     on the tab viewClaim picks (the overview's own rule), the filters
-     cleared and the record expanded */
+     where it lives, the filters cleared */
   const focused = useRecordFocus(focus, loaded, (f) => {
     if (f.kind !== "claim") return;
     const c = claims.find((x) => x.id === f.id);
     setClaimF(""); setClaimQ("");
-    if (!c) { setView(recordsTab); return; }
-    setExpanded(c.id);
-    setView(c.status === "pending" && showApprovals && (canDecide || c.user_id !== userId) ? "approvals" : c.user_id === userId ? "mine" : recordsTab);
+    if (!c) { setView("mine"); return; }
+    openClaim(c);
   });
   useScrollToRecord(focused);
   const searchBox = (
     <div className={cov.search}>
       <input className={inputClassSm} value={claimQ} onChange={(e) => setClaimQ(e.target.value)}
         placeholder={L("Search claim no., staff, purpose or category", "Cari no. tuntutan, kakitangan, tujuan atau kategori")} aria-label={L("Search claims", "Cari tuntutan")} />
-      {claimF && <button type="button" className={btnSm} onClick={() => setClaimF("")}>{L(`Filter: ${statusLabel(claimF)} ✕`, `Tapis: ${statusLabel(claimF)} ✕`)}</button>}
+      {claimF && <button type="button" className={btnSm} onClick={() => setClaimF("")}>{L(`Filter: ${claimF === "approved" ? "Payment due" : statusLabel(claimF)} ✕`, `Tapis: ${claimF === "approved" ? "Bayaran perlu dibuat" : statusLabel(claimF)} ✕`)}</button>}
     </div>
   );
+  const VIEW_TABS: readonly (readonly [ClaimsView, string, string])[] = [
+    ["overview", L("Overview", "Gambaran"), L("This month, what needs you, recent claims", "Bulan ini, perlu perhatian, tuntutan terkini")],
+    ["submit", L("Submit Claim", "Hantar Tuntutan"), L("A reimbursement or a salary advance", "Bayaran balik atau pendahuluan gaji")],
+    ["mine", L("My Claims", "Tuntutan Saya"), L("Your claims and their progress", "Tuntutan anda dan kemajuannya")],
+    ...(showApprovals ? ([["approvals", L("Approvals", "Kelulusan"), L("Waiting on you, payments, the register", "Menunggu anda, bayaran, daftar")]] as const) : []),
+    ["reports", L("Reports & Payments", "Laporan & Bayaran"), L("By claim date or bank date", "Ikut tarikh tuntutan atau tarikh bank")],
+  ];
+  /* a view this person does not have falls back to the Overview, never a
+     blank page; the address follows what is shown */
+  const shown: ClaimsView = VIEW_TABS.some((t) => t[0] === view) ? view : "overview";
+  useTabViewAddress("Claims", shown, setView, isClaimsView);
+  const segList: Record<Seg, Claim[]> = { mine: waitingMine, all: allPending, pay: toPay, done: others };
+  const filledNow = filledItems();
+  const totalNow = claimType === "salary_advance" ? Math.round(Number(advAmount) * 100) || 0 : filledNow.reduce((a, i) => a + lineCents(i), 0);
+  const mileageOnlyNow = claimType !== "salary_advance" && !needsReceipt("reimbursement", filledNow.map((i) => ({ km: isMileage(i) ? i.km : "" })));
+  const payeeName = payeeId > 0 ? properName(staffOptions.find((u) => u.id === payeeId)?.full_name || staffOptions.find((u) => u.id === payeeId)?.name || "") : null;
 
   return (
     <TabPage>
@@ -4975,80 +5040,76 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
         onResubmit={(c, answer) => answerClaim(c.id, answer)}
         onOpenReceipt={(c) => openAttachment(`/api/v1/staff/claims/${c.id}/receipt`, L("Receipt", "Resit"))}
         onOpenProof={(c) => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))} />
-      {/* v1.194.0 - the tab row, with the month and Submit claim at the right */}
-      <LineTabs value={view} onChange={(k) => openClaims(k)} label={L("Claims", "Tuntutan")} tabs={[
-        ["overview", L("Overview", "Gambaran")],
-        ["submit", L("Submit Claim", "Hantar Tuntutan")],
-        ["mine", L("My Claims", "Tuntutan Saya")],
-        ...(showApprovals ? ([["approvals", L("Approvals", "Kelulusan")]] as const) : []),
-        ["reports", L("Reports & Payments", "Laporan & Bayaran")],
-      ] as readonly (readonly [ClaimsView, string])[]}
-        aside={
-          <TabAside>
-            <TabPeriod>{monthName(nowMytMonth)}</TabPeriod>
-            <TabAction icon="add" onClick={() => openClaims("submit")}>{L("Submit claim", "Hantar tuntutan")}</TabAction>
-          </TabAside>
-        } />
-      <section className="erp-stack-tight erp-tab-zone" hidden={view !== "overview"}>
-      {/* the month by claim date, each figure scoping the records (v1.88.0);
-          approval and payment are counted apart */}
-      <KpiRow label={L("Claims this month", "Tuntutan bulan ini")}>
-        <KpiTile icon="pending" tone="gold" label={L("Pending Approval", "Menunggu Kelulusan")} value={monthPending.length} busy={!loaded}
-          sub={L(`Total amount: ${fmtRM(sumCents(monthPending))}`, `Jumlah amaun: ${fmtRM(sumCents(monthPending))}`)}
-          onClick={() => scopeList("pending")} title={L("Show only pending claims", "Tunjuk tuntutan menunggu sahaja")} />
-        <KpiTile icon="success" tone="green" label={L("Approved (This Month)", "Diluluskan (Bulan Ini)")} value={monthApproved.length} busy={!loaded}
-          sub={L(`Total amount: ${fmtRM(sumCents(monthApproved))}`, `Jumlah amaun: ${fmtRM(sumCents(monthApproved))}`)}
-          onClick={() => scopeList("approved")} title={L("Show only approved claims", "Tunjuk tuntutan diluluskan sahaja")} />
-        <KpiTile icon="paid" tone="blue" label={L("Paid (This Month)", "Dibayar (Bulan Ini)")} value={monthPaid.length} busy={!loaded}
-          sub={L(`Total amount: ${fmtRM(sumCents(monthPaid))}`, `Jumlah amaun: ${fmtRM(sumCents(monthPaid))}`)}
-          bar={{ pct: sumCents(monthApproved) > 0 ? (sumCents(monthPaid) / sumCents(monthApproved)) * 100 : 0, tone: "blue" }}
-          onClick={() => scopeList("paid")} title={L("Show only paid claims", "Tunjuk tuntutan dibayar sahaja")} />
-        <KpiTile icon="error" tone="red" label={L("Rejected (This Month)", "Ditolak (Bulan Ini)")} value={monthRejected.length} busy={!loaded}
-          sub={L(`Total amount: ${fmtRM(sumCents(monthRejected))}`, `Jumlah amaun: ${fmtRM(sumCents(monthRejected))}`)}
-          onClick={() => scopeList("rejected")} title={L("Show only rejected claims", "Tunjuk tuntutan ditolak sahaja")} />
-      </KpiRow>
-      <ClaimsOverview scope={canDecide ? claims : mineOnly} mine={mineOnly} month={nowMytMonth} loaded={loaded} showStaff={canDecide}
-        waitingOnMe={showApprovals ? pending.filter((c) => canDecide || c.user_id !== userId).length : null}
-        noOf={(c) => claimNoOf(c as Claim)} catOf={catLabel} itemsOf={(c) => claimItems(c as Claim)}
-        onView={viewClaim} onSubmit={() => openClaims("submit")} onApprovals={() => openClaims(showApprovals ? "approvals" : "mine")}
-        onMine={() => openClaims("mine")} onReports={() => openClaims("reports")} />
+      {/* v1.310.0 - the five views; on a phone the view switch and Submit */}
+      <div className="erp-desktop-only">
+        <LineTabs value={shown} onChange={(k) => openClaims(k)} label={L("Claims", "Tuntutan")} tabs={VIEW_TABS.map(([k, t]) => [k, t] as const)}
+          aside={
+            <TabAside>
+              <TabPeriod>{monthName(nowMytMonth)}</TabPeriod>
+              <TabAction icon="add" onClick={() => openClaims("submit")}>{L("Submit claim", "Hantar tuntutan")}</TabAction>
+            </TabAside>
+          } />
+      </div>
+      <div className={`erp-phone-only ${c4.viewBar}`} data-testid="claims-view-bar">
+        <ViewSwitch value={shown} onChange={(k) => openClaims(k)} label={L("Claims view", "Paparan tuntutan")} options={VIEW_TABS} />
+        {shown !== "submit" && <TabAction icon="add" onClick={() => openClaims("submit")}>{L("Submit", "Hantar")}</TabAction>}
+      </div>
+      <section className="erp-stack-tight erp-tab-zone" hidden={shown !== "overview"}>
+        <ClaimsOverview scope={showStaff ? claims : mineOnly} mine={mineOnly} month={nowMytMonth} loaded={loaded} showStaff={showStaff}
+          waiting={waitingMine} toPay={toPay}
+          noOf={(c) => claimNoOf(c as Claim)} catOf={catLabel} itemsOf={(c) => claimItems(c as Claim)}
+          onView={viewClaim} onSubmit={() => openClaims("submit")}
+          onApprovals={() => { setAppSeg("mine"); openClaims(showApprovals ? "approvals" : "mine"); }}
+          onPayments={() => { setAppSeg("pay"); openClaims("approvals"); }}
+          onMine={() => openClaims("mine")} onTile={onTile} />
       </section>
       {showApprovals && (
-        <TabZone label={L("Waiting on me", "Menunggu saya")} className={view !== "approvals" ? cov.off : ""}>
+        <TabZone label={L("Approvals", "Kelulusan")} className={shown !== "approvals" ? cov.off : ""}>
         <div id="claims-pending" className={`${card} ${cl.anchor}`}>
           <p className="erp-heading">
-            {L("Pending approvals", "Kelulusan menunggu")}
-            {pending.length > 0 && (
-              <span className={`${chipSmWarn} ${cl.countChip}`}>{pending.length}</span>
+            {L("Approvals", "Kelulusan")}
+            {waitingMine.length > 0 && (
+              <span className={`${chipSmWarn} ${cl.countChip}`}>{waitingMine.length}</span>
             )}
           </p>
+          <p className="erp-meta erp-mt-half">{L("Never your own claim, nor one paid to you: those are in My Claims, decided by someone else.", "Bukan tuntutan anda sendiri, atau yang dibayar kepada anda: itu dalam Tuntutan Saya, diputuskan oleh orang lain.")}</p>
           <div className={cl.pendingList}>
             {/* v1.77.0 — skeleton until the first fetch lands. */}
             {!loaded && <SkelRows rows={2} />}
             {/* v1.254.0 - Waiting for my approval: the claims at this
-                person's own stage (the server's my_turn); All pending shows
-                every pending claim they can read */}
-            <div className="erp-segmented erp-mt-2" role="group" aria-label={L("Which pending claims", "Tuntutan menunggu yang mana")}>
-              <button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine(true)}>{L("Waiting for my approval", "Menunggu kelulusan saya")} ({pending.filter((c) => c.my_turn && (canDecide || c.user_id !== userId)).length})</button>
-              <button type="button" aria-pressed={!onlyMine} onClick={() => setOnlyMine(false)}>{L("All pending", "Semua menunggu")} ({pending.filter((c) => canDecide || c.user_id !== userId).length})</button>
+                person's own stage (the server's my_turn). v1.310.0 - All
+                pending is what they may read (in their review scope, read
+                only unless the server offers an action); Ready for payment
+                is what they mark paid; All claims is the register. */}
+            <div className="erp-segmented erp-mt-2" role="group" aria-label={L("Which claims", "Tuntutan yang mana")}>
+              <button type="button" aria-pressed={appSeg === "mine"} onClick={() => setAppSeg("mine")}>{L("Waiting for my approval", "Menunggu kelulusan saya")} ({waitingMine.length})</button>
+              <button type="button" aria-pressed={appSeg === "all"} onClick={() => setAppSeg("all")}>{L("All pending", "Semua menunggu")} ({allPending.length})</button>
+              <button type="button" aria-pressed={appSeg === "pay"} onClick={() => setAppSeg("pay")}>{L("Ready for payment", "Sedia untuk dibayar")} ({toPay.length})</button>
+              <button type="button" aria-pressed={appSeg === "done"} onClick={() => setAppSeg("done")}>{L("All claims", "Semua tuntutan")} ({others.length})</button>
             </div>
-            {loaded && pending.filter((c) => (onlyMine ? c.my_turn && (canDecide || c.user_id !== userId) : canDecide || c.user_id !== userId)).length === 0 && <p className="erp-text-sm erp-muted">{L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
-            {pending.filter((c) => (onlyMine ? c.my_turn && (canDecide || c.user_id !== userId) : canDecide || c.user_id !== userId)).map((c) => claimRow(c, true))}
+            {appSeg === "done" && searchBox}
+            {loaded && segList[appSeg].filter(appSeg === "done" ? (c) => matchQ(c) && passF(c) : () => true).length === 0 && <p className="erp-text-sm erp-muted">{appSeg === "pay" ? L("No approved claim is waiting for your payment.", "Tiada tuntutan diluluskan menunggu bayaran anda.") : appSeg === "done" ? L("No claims.", "Tiada tuntutan.") : L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
+            {segList[appSeg].filter(appSeg === "done" ? (c) => matchQ(c) && passF(c) : () => true).map((c) => claimRow(c, true))}
           </div>
         </div>
         </TabZone>
       )}
 
-      <TabZone label={L("Submit", "Hantar")} className={view !== "submit" ? cov.off : ""}>
+      <TabZone label={L("Submit", "Hantar")} className={shown !== "submit" ? cov.off : ""}>
+      <div className={c4.submitGrid}>
       <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
         <p className="erp-heading">
           {editingClaim
-            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
+            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setStep(1); setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
             : claimType === "salary_advance" ? L("Request a salary advance", "Mohon pendahuluan gaji") : L("Submit a claim", "Hantar tuntutan")}
         </p>
         <p className="erp-meta erp-mt-half">
           {L("Submit a reimbursement or request a salary advance. Every request follows the approval chain; a paid advance is recovered automatically from the selected payroll month.", "Hantar bayaran balik atau mohon pendahuluan gaji. Setiap permohonan melalui rantaian kelulusan; pendahuluan yang dibayar dipotong automatik daripada bulan gaji dipilih.")}
         </p>
+        {/* v1.310.0 - three steps (reference 2): the details, the
+            attachments, then the review and the one submission */}
+        <ClaimSteps step={step} />
+        {step === 1 && (<>
         <div className="erp-segmented erp-mt-3" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
           {(["reimbursement", "salary_advance"] as const).map((t) => (
             <button key={t} type="button" aria-pressed={claimType === t}
@@ -5197,119 +5258,89 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
           </p>
         </div>
         </>)}
-        <div className={cl.submitRow}>
-          {claimType !== "salary_advance" && (
-          <label className={`${btnSm} ${cl.pointer} ${cl.startLeft}`}>
-            {receipt ? `${L("Receipt:", "Resit:")} ${receipt.name}` : L("Attach receipt (image/PDF)", "Lampirkan resit (imej/PDF)")}
-            <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
+        </>)}
+        {step === 2 && (
+          <div className={c4.attach}>
+            {claimType === "salary_advance" ? (
+              <p className="erp-meta">{L("A salary advance needs no receipt: the printed request, once signed, authorises the payroll deduction.", "Pendahuluan gaji tidak memerlukan resit: permohonan bercetak, setelah ditandatangani, membenarkan potongan gaji.")}</p>
+            ) : (
+              <>
+                <label className={c4.drop} data-has={receipt || editingHasReceipt ? "true" : "false"} data-testid="claim-receipt-drop">
+                  <AppIcon name={receipt || editingHasReceipt ? "success" : "attach"} />
+                  <span>
+                    <strong>{receipt ? `${L("Receipt:", "Resit:")} ${receipt.name}` : editingHasReceipt ? L("A receipt is already attached - choose a file to replace it", "Resit sudah dilampirkan - pilih fail untuk menggantikannya") : L("Attach receipt (image/PDF)", "Lampirkan resit (imej/PDF)")}</strong>
+                    <em>{mileageOnlyNow ? L("Every line is mileage - no receipt is needed.", "Setiap baris ialah perbatuan - tiada resit diperlukan.") : L(`Required for a reimbursement · photo or PDF, up to ${MAX_RECEIPT_MB} MB`, `Wajib untuk bayaran balik · foto atau PDF, sehingga ${MAX_RECEIPT_MB} MB`)}</em>
+                  </span>
+                  <input type="file" accept="image/*,application/pdf" className={cl.fileInput}
               onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                // v1.4.110: PDFs can't be compressed client-side — hard limit
-                // now. Oversized photos get a chance: compression runs on
-                // submit, and only if still too big is the upload refused.
-                if (f && f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) {
-                  showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice");
-                  e.target.value = "";
-                  setReceipt(null);
-                  return;
-                }
-                if (f && f.size > 40 * 1024 * 1024) {
-                  showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice");
-                  e.target.value = "";
-                  setReceipt(null);
-                  return;
-                }
-                setReceipt(f);
-              }} />
-          </label>
-          )}
-          <button type="button" disabled={submitting} className={`${btnClass} ${cl.startLeft}`}
-            onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>
+                    const f = e.target.files?.[0] ?? null;
+                    // v1.4.110: PDFs can't be compressed client-side — hard limit
+                    // now. Oversized photos get a chance: compression runs on
+                    // submit, and only if still too big is the upload refused.
+                    if (f && f.type === "application/pdf" && f.size > MAX_RECEIPT_MB * 1024 * 1024) {
+                      showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice");
+                      e.target.value = "";
+                      setReceipt(null);
+                      return;
+                    }
+                    if (f && f.size > 40 * 1024 * 1024) {
+                      showToast(L("No changes", "Tiada perubahan"), receiptTooBig(), "notice");
+                      e.target.value = "";
+                      setReceipt(null);
+                      return;
+                    }
+                    setReceipt(f);
+                  }} />
+                </label>
+                {receipt && <button type="button" className={`${btnSm} ${cl.startLeft}`} onClick={() => setReceipt(null)}>{L("Remove the file", "Buang fail")}</button>}
+              </>
+            )}
+          </div>
+        )}
+        {step === 3 && (
+          <ClaimReview advance={claimType === "salary_advance"} purpose={purpose} editingNo={editingClaim?.no ?? null}
+            lines={filledNow.map((i) => ({ claim_date: i.claim_date, category: i.category, description: i.description, amount_cents: lineCents(i), ...(isMileage(i) ? { km: Math.round(Number(i.km) * 10) / 10 } : {}) }))}
+            total={totalNow} receiptName={receipt?.name ?? null} hasReceipt={editingHasReceipt} payee={payeeName}
+            recoverMonthLabel={payMonthLabel(recoverMonth)} catOf={catLabel} />
+        )}
+        <div className={c4.stepNav}>
+          {step > 1 ? <button type="button" className={btnSm} onClick={() => goStep((step - 1) as ClaimStep4)}>{L("Back", "Kembali")}</button> : <span />}
+          {step < 3
+            ? <button type="button" className={btnClass} onClick={() => goStep((step + 1) as ClaimStep4)}>{L("Next", "Seterusnya")}</button>
+            : <button type="button" disabled={submitting} className={btnClass}
+                onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>}
         </div>
         {msg && <p className={cl.formMsg}>{msg}</p>}
       </div>
-      </TabZone>
-
-      {/* v1.194.0 - a decider's own claims, for My Claims (their records
-          card is the company's, under Approvals) */}
-      {canDecide && (
-        <TabZone label={L("My claims", "Tuntutan saya")} className={view !== "mine" ? cov.off : ""}>
-          <div className={card}>
-            <p className="erp-heading">{L("My claims", "Tuntutan saya")}</p>
-            {searchBox}
-            <div className={cl.list}>
-              {!loaded && <SkelRows rows={3} />}
-              {loaded && mineOnly.length === 0 && <p className="erp-text-sm erp-muted">{L("You have not claimed anything yet.", "Anda belum membuat sebarang tuntutan.")}</p>}
-              {mineOnly.filter(matchQ)
-                .filter((c) => !claimF || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : c.status === claimF))
-                .map((c) => claimRow(c, false))}
-            </div>
-          </div>
-        </TabZone>
-      )}
-      <TabZone label={canDecide ? L("Approval history", "Sejarah kelulusan") : L("The records", "Rekod")} className={view !== recordsTab ? cov.off : ""}>
-      <div id="claims-list" className={`${card} ${cl.anchor}`}>
-        <p className="erp-heading">{canDecide ? L("All claims", "Semua tuntutan") : L("My claims", "Tuntutan saya")}</p>
-        {(() => {
-          // v1.4.147: overall of the present month, by CLAIM DATE (the same
-          // month-attribution rule the Expenses tab uses).
-          const nowMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
-          const scope = canDecide ? claims : claims.filter((c) => c.user_id === userId);
-          const mine = scope.filter((c) => (c.claim_date ?? "").slice(0, 7) === nowMyt);
-          if (mine.length === 0) return null;
-          const sum = (list: typeof mine) => list.reduce((a, c) => a + c.amount_cents, 0);
-          const fmt = fmtRM; // v1.4.272: global
-          const approved = mine.filter((c) => c.status === "approved");
-          const paid = approved.filter((c) => c.paid_at);
-          const pending = mine.filter((c) => c.status === "pending");
-          const rejected = mine.filter((c) => c.status === "rejected");
-          return (
-            <div className={`erp-card-inset ${cl.monthStrip}`}>
-              <span className="erp-strong">{dmy(nowMyt)} · {mine.length} {L("claim", "tuntutan")}{mine.length === 1 ? "" : L("s", "")} · {fmt(sum(mine))}</span>
-              {/* v1.88.0 (CEO: "clickable data without me need to open another
-                  new tabs") — these were four figures you could read and not
-                  follow, above a list of every claim. Each one now scopes the
-                  list below to what it counts. */}
-              {([["approved", L("Approved","Diluluskan"), approved, cl.toneSuccess],
-                 ["paid", L("— of which paid","— daripadanya dibayar"), paid, cl.toneSuccess],
-                 ["pending", L("Pending","Menunggu"), pending, cl.toneWarning],
-                 ...(rejected.length > 0 ? [["rejected", L("Rejected","Ditolak"), rejected, cl.toneDanger] as const] : []),
-               ] as [string, string, typeof mine, string | undefined][]).map(([k, lbl, list, tone]) => (
-                <button key={k} type="button" aria-pressed={claimF === k}
-                  className={`${tone ?? ""} ${cl.monthFilter} ${claimF === k ? cl.monthFilterOn : ""}`}
-                  title={L("Show only these claims", "Tunjuk tuntutan ini sahaja")}
-                  onClick={() => setClaimF(claimF === k ? "" : k)}>
-                  {lbl} {list.length} · {fmt(sum(list))}{claimF === k ? " ✕" : ""}
-                </button>
-              ))}
-              <span className="erp-muted">{L("by claim date — matches the Expenses month figure", "ikut tarikh tuntutan — sepadan dengan angka bulan Perbelanjaan")}</span>
-            </div>
-          );
-        })()}
-        {searchBox}
-        <div className={cl.list}>
-          {/* v1.77.0 — skeleton until the first fetch lands. */}
-          {!loaded && <SkelRows rows={4} />}
-          {loaded && (canDecide ? decided : mainList).length === 0 && <p className="erp-text-sm erp-muted">{L("No claims yet.", "Tiada tuntutan lagi.")}</p>}
-          {(canDecide ? decided : mainList)
-            .filter(matchQ)
-            .filter((c) => !claimF
-              || (claimF === "paid" ? c.status === "approved" && Boolean(c.paid_at) : c.status === claimF))
-            .map((c) => claimRow(c, false))}
-        </div>
+      <ClaimSubmitAside advance={claimType === "salary_advance"} rateCents={rateCents} mileageOnly={mileageOnlyNow} recoverMonthLabel={payMonthLabel(recoverMonth)} />
       </div>
-
       </TabZone>
 
-      {/* v1.194.0 - Reports & Payments: the month's report from the same list
-          (claims-overview.tsx), then HR's compilation, as it was */}
-      <TabZone label={L("Reports and payments", "Laporan dan bayaran")} className={view !== "reports" ? cov.off : ""}>
-      <ClaimsReports scope={canDecide ? claims : role === "hr_admin" ? claims : mineOnly} month={repMonth} months={claimMonths} onMonth={setRepMonth}
-        loaded={loaded} showStaff={canDecide || role === "hr_admin"}
-        noOf={(c) => claimNoOf(c as Claim)} catOf={catLabel} itemsOf={(c) => claimItems(c as Claim)}
-        canSeeProof={(c) => c.user_id === userId || canDecide || role === "hr_admin"}
-        openProof={(c) => openAttachment(`/api/v1/staff/claims/${c.id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}
-        onView={viewClaim} />
+      {/* v1.310.0 (C-4) - MY CLAIMS: this person's own claims and the claims
+          paid to them, for everyone - a decider and a reviewer too. Other
+          people's claims are never listed here (they are under Approvals). */}
+      <TabZone label={L("My claims", "Tuntutan saya")} className={shown !== "mine" ? cov.off : ""}>
+        <MyClaims4 list={mineOnly.filter((c) => matchQ(c) && passF(c))} loaded={loaded} userId={userId}
+          noOf={(c) => claimNoOf(c as Claim)} catOf={catLabel} itemsOf={(c) => claimItems(c as Claim)}
+          toolbar={searchBox}
+          actions={(c) => (
+            <>
+              <button type="button" className={rowBtn} data-testid={`claim-view-${c.id}`} onClick={() => setDrawerId(c.id)}>{L("View", "Lihat")}</button>
+              {ownActs(c as Claim)}
+              {(c as Claim).receipt_key && <button type="button" className={rowBtn} onClick={() => openAttachment(`/api/v1/staff/claims/${c.id}/receipt`, L("Receipt", "Resit"))}>{L("View receipt", "Lihat resit")}</button>}
+              <button type="button" className={rowBtn} onClick={() => void printClaimForm(c as Claim)}>{L("Print form", "Cetak borang")}</button>
+              <button type="button" className={rowBtn} onClick={() => void sendClaimPdf(c as Claim)}>{L("Send PDF", "Hantar PDF")}</button>
+            </>
+          )} />
+      </TabZone>
+
+      {/* v1.310.0 (C-10) - Reports & Payments: the server's report, by claim
+          date or by bank date, then HR's compilation, as it was */}
+      <TabZone label={L("Reports and payments", "Laporan dan bayaran")} className={shown !== "reports" ? cov.off : ""}>
+      <ClaimsReports month={repMonth} months={claimMonths} onMonth={setRepMonth} version={version} catOf={catLabel}
+        canSeeProof={(c) => c.user_id === userId || canDecide || role === "hr_admin" || role === "coo"}
+        openProof={(id) => openAttachment(`/api/v1/staff/claims/${id}/payment-proof`, L("Payment proof", "Bukti bayaran"))}
+        onView={(id) => setDrawerId(id)} />
       {role === "hr_admin" && (
         <div className={card}>
           <p className="erp-heading">{L("Approved claims history — compilation", "Sejarah tuntutan diluluskan — kompilasi")}</p>

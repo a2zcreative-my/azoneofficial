@@ -24,7 +24,7 @@ import { audit, err } from "./shared";
 import { notify } from "./staff";
 
 export type SelfDecision =
-  | "claim.decide" | "claim.paid"
+  | "claim.decide" | "claim.paid" | "claim.proof"
   | "punch.forgotten" | "attendance.manual" | "attendance.amend" | "attendance.delete"
   | "unpaid.record" | "unpaid.change" | "unpaid.remove"
   | "commission.decide";
@@ -33,6 +33,7 @@ export type SelfDecision =
 export const SELF_DECISIONS: Record<SelfDecision, string> = {
   "claim.decide": "decided his own claim",
   "claim.paid": "marked his own claim paid",
+  "claim.proof": "attached the payment proof of his own claim",
   "punch.forgotten": "approved his own forgotten punch",
   "attendance.manual": "added a punch to his own attendance",
   "attendance.amend": "changed a punch on his own attendance",
@@ -44,6 +45,8 @@ export const SELF_DECISIONS: Record<SelfDecision, string> = {
 };
 
 type Actor = { id: number; role: string; is_owner?: boolean };
+/** v1.310.0 - the decisions that stay refused even to the verified owner */
+export const NEVER_EXECUTIVE: readonly SelfDecision[] = ["claim.decide", "claim.paid", "claim.proof"];
 
 /** True when the actor is one of the people the record belongs to. */
 export function isOwnRecord(actor: { id: number }, people: readonly (number | null | undefined)[]): boolean {
@@ -62,7 +65,10 @@ export async function refuseSelf(
   people: readonly (number | null | undefined)[], entity: string, entityId: string | number,
 ): Promise<Response | null> {
   if (!isOwnRecord(actor, people)) return null;
-  if (isExecutiveOwner(actor)) {
+  /* v1.310.0 (Claims 4.0, C-1, the CEO 15-11-2026: "Never allow
+     self-approval, including executive claims") - a claim is never an
+     executive record: the CEO's own claim is decided and paid by the COO. */
+  if (isExecutiveOwner(actor) && !NEVER_EXECUTIVE.includes(action)) {
     await audit(env, actor.id, "auth.executive_self_record", entity, String(entityId), { action });
     try {
       const coo = await env.DB.prepare(

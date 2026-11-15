@@ -164,7 +164,11 @@ export async function handleErp(
       } catch { /* expenses table variant — skip */ }
       try {
         const cl = await env.DB.prepare(
-          `SELECT id, amount_cents, claim_type, date(paid_at, '+8 hours') AS day FROM claims WHERE paid_at IS NOT NULL`,
+          /* v1.310.0 (Claims 4.0, C-7) - never a claim whose payment Finance
+             REVERSED: bookCash would book it again under CLM-n#2 (a reversed
+             row no longer blocks the ref), one payment posted twice */
+          `SELECT id, amount_cents, claim_type, date(paid_at, '+8 hours') AS day FROM claims WHERE paid_at IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM cashflow_entries e WHERE e.ref = 'CLM-' || claims.id AND EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = e.id))`,
         ).all<{ id: number; amount_cents: number; claim_type: string | null; day: string | null }>();
         for (const r of cl.results ?? []) {
           /* the same category the pay-out route books (salary_advances for an advance) */

@@ -100,8 +100,13 @@ const ok = (label, cond, extra = "") => {
      /a\.status === statusF/, "keying on a translated label breaks the filter the moment somebody switches to BM"],
     ["the state chips scope the customer list", "components/portal/elfia-traffic-panel.tsx",
      /aria-pressed=\{stateF === st\}/, "every state on the MAP above has been a button since v1.43.0"],
+    /* v1.310.0 (Claims 4.0) - the month strip above the list left with the
+       old records card; the Overview's five figures are the summary now, and
+       each one opens the claims it counts, filtered */
     ["the claims summary scopes the claim list", "components/portal/role-panels.tsx",
-     /aria-pressed=\{claimF === k\}/, "four figures above a list of every claim, none of which opened it"],
+     /const onTile = \(k: [^)]*\) => \{\s*setClaimF\(k\);/, "four figures above a list of every claim, none of which opened it"],
+    ["...from each of the Overview's figures", "components/portal/claims-overview.tsx",
+     /onClick=\{\(\) => onTile\("pending"\)\}[\s\S]*onClick=\{\(\) => onTile\("approved"\)\}[\s\S]*onClick=\{\(\) => onTile\("paid"\)\}[\s\S]*onClick=\{\(\) => onTile\("rejected"\)\}/, "four figures above a list of every claim, none of which opened it"],
     /* v1.182.1 - the rail badge checks left with components/portal/side-columns.tsx
        (the Dashboard's "Calendar and team overview" fold is gone). */
     /* v1.91.0 — CEO: "Leave — whole company I want to have a clickable to

@@ -37,7 +37,7 @@ export interface ClaimStep {
   flags?: Record<string, string | boolean>;
 }
 export type ClaimWaiter = "hr" | "coo" | "cco" | "ceo" | "applicant" | "payment" | null;
-export type ClaimActionKey = "review" | "preapprove" | "approve" | "reject" | "return" | "resubmit" | "pay";
+export type ClaimActionKey = "review" | "preapprove" | "approve" | "reject" | "return" | "resubmit" | "pay" | "proof";
 
 /** The fields the drawer reads (the panel's Claim row satisfies it). */
 export interface ClaimLike {
@@ -126,7 +126,7 @@ export function claimStages(c: ClaimLike): Stage[] {
     }
     const title = s.key === "hr" ? L("HR review", "Semakan HR")
       : s.key === "pre" ? L(`Pre-approval - ${role}`, `Pra-kelulusan - ${role}`)
-        : L("Approval - CEO", "Kelulusan - CEO");
+        : L(`Approval - ${role || "CEO"}`, `Kelulusan - ${role || "CEO"}`); // v1.310.0 (C-1) - the CEO's own claim: the COO
     if (s.state === "done") return { key: s.key, state: s.state, title,
       sub: by ? L(`by ${by}`, `oleh ${by}`) : undefined, aside: when ?? undefined,
       note: s.text ?? undefined, warn: s.flags?.override ? L("Approved before the chain was complete - recorded as a CEO override", "Diluluskan sebelum rantaian lengkap - direkod sebagai pintasan CEO") : undefined };
@@ -187,7 +187,7 @@ export function ClaimDrawer({ c, userId, number, category, items, onClose, onAct
     <SideDrawer open={c !== null} onClose={onClose} wide full
       title={c ? `${L("Claim details", "Butiran tuntutan")} - ${number(c)}` : ""}
       subtitle={c ? `${who}${c.claimant_position ? ` · ${c.claimant_position}` : ""} · ${fmtRM(c.amount_cents)}` : undefined}
-      footer={c && acts.some((a) => a !== "resubmit") ? (
+      footer={c && acts.some((a) => a !== "resubmit" && a !== "proof") ? (
         <span className={lv.drawerActions} data-testid="claim-actions">
           {acts.includes("review") && <button type="button" className={rowBtnPrimary} onClick={() => onAct(c, "review")}>{L("HR review OK", "Semakan HR OK")}</button>}
           {acts.includes("preapprove") && <button type="button" className={rowBtnPrimary} onClick={() => onAct(c, "preapprove")}>{L("Pre-approve", "Pra-lulus")}</button>}

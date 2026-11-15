@@ -10,6 +10,24 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.310.0] - 2026-11-15 - Claims Workspace 4.0: one claims engine, one approval flow, no self-approval - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 15-11-2026: "approve as recommended" on claude/CLAIMS-WORKSPACE-4.0-BLUEPRINT.md (C-0 ... C-13; P1 + P2 only - C-6 Reverse payment needs a migration and is P3, not in this release). **No migration, no new table, no tab-access change, no historical claim, payment or audit row rewritten.**
+
+- **Five views, in the address** (`/portal?tab=Claims&view=overview|submit|mine|approvals|reports`, Back/Forward; the view switch and Submit on a phone; a view a person does not have falls back to the Overview):
+  - **Overview (ref 1):** Total Claims = Pending Approval + Approved (awaiting payment) + Paid + Rejected, by claim month; **Claims by Category** donut; **Requires Attention** (waiting for your approval, ready for payment, missing receipt, a question for you, rejected this month); Recent Claims. Each figure opens the claims it counts.
+  - **Submit Claim (ref 2):** three steps (Claim Details -> Attachments -> Review & Submit) beside **My Claim Info** (mileage rate, salary advance rule, "approved is not paid") and **Required Documents**. The receipt is asked for at Attachments (C-8), not for a mileage-only claim or an advance.
+  - **My Claims (ref 3):** your own claims and the claims paid to you - **nobody else's** (C-4; the old list that showed HR and reviewers other people's claims as "My claims" is gone) - as cards with the server's stages left to right.
+  - **Approvals:** Waiting for my approval · All pending · **Ready for payment** · All claims; never your own claim.
+  - **Reports & Payments:** the server's report (`GET /staff/claims/report?month=`, C-10), **by claim date or by bank date**, each payment with its Finance status (booked / reversed / not in the cash book), advances, categories, a CSV with both dates. HR's compilation is kept.
+- **C-1:** the CEO's own claim (raised by him or paid to him) is decided **and paid by the COO, in one step**; the CEO never - the company owner included (`NEVER_EXECUTIVE`: a claim is never an executive record). A claim between the CEO and the COO (one's claim paid to the other) is refused (`no_decider`) - nobody could decide it.
+- **C-2:** the Super Admin no longer approves or pays claims (`claims_decide: ["ceo"]`); it still reads every claim.
+- **C-3:** a rejection asks for the authenticator code too; approving past a stage needs a reason (5+ characters), recorded on the claim.
+- **C-5:** approved is "Payment due" until Mark paid with the bank date; the payment proof only after Mark paid, by the payer, never on one's own claim (`proof` action).
+- **C-7:** the cash back-fill never books again a claim whose payment Finance reversed.
+- **C-11:** paying a salary advance moves the payslip through Payroll's own rule (`payrollApplyAdvance`) and is refused into a month whose salaries are paid (`month_paid`).
+- **Tests:** new `tests/claims4.mjs` (60 checks by direct request and on the source, 18 mutations caught); browser `claims4.py` (69 checks); `self-approval`, `go-live-k`, `signature-entities`, `claims-timeline.py` updated to the approved rules.
+
 ## [1.309.0] - 2026-11-15 - Leave Workspace 4.0: one engine, five views, the server counts the days - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 15-11-2026: "approve as recommend and make sure it is correct flow" on claude/LEAVE-WORKSPACE-4.0-BLUEPRINT.md (L-0 ... L-15). **No migration, no new table, no tab-access change, no record rewritten.** Two **rule changes** (L-1 the switch retired, L-12 the override narrowed) and one **flow change** (L-3 the server counts the days), below.

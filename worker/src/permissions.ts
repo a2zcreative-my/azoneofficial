@@ -26,7 +26,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   team_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"],
-  claims_decide: ["super_admin", "ceo"],
+  claims_decide: ["ceo"], // v1.310.0 (Claims 4.0, C-2) - the Super Admin no longer approves or pays claims
   revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   expenses: ["super_admin", "admin", "ceo", "coo"],
   sales: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],

@@ -13,7 +13,13 @@ a phone: no sideways page, the drawer full screen, the actions on screen.
 
 Servers (servers.txt): 4177 ROLE=ceo (decides; claim 13 is his own and
 returned with a question), 4181 ROLE=hr_admin, 4182 ROLE=sales_marketing.
-Invented people only."""
+Invented people only.
+
+v1.310.0 (Claims 4.0, approved 15-11-2026): C-1 the CEO's own claim is the
+COO's, so it is no longer in his Approvals (Waiting for my approval 1, All
+pending 3) - he reads it in My Claims; C-4 an employee's My Claims is their
+own claims, so the employee opens their own claim. A phone reaches Approvals
+through the view address (the tab row is the view switch there)."""
 import json, urllib.parse
 from playwright.sync_api import sync_playwright
 
@@ -22,12 +28,12 @@ def check(name, cond, detail=""):
     results.append((name, bool(cond)))
     print(("PASS " if cond else "FAIL ") + name + ("" if cond else f"  [{str(detail)[:300]}]"))
 
-def open_page(b, port, w=1440, h=1000):
+def open_page(b, port, w=1440, h=1000, view=None):
     ctx = b.new_context(viewport={"width": w, "height": h}, is_mobile=w < 500, has_touch=w < 500)
     pg = ctx.new_page(); errs = []; reqs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.on("request", lambda r: reqs.append((r.method, r.url, r.post_data)))
-    pg.goto(f"http://127.0.0.1:{port}/portal?tab=Claims"); pg.wait_for_timeout(2600)
+    pg.goto(f"http://127.0.0.1:{port}/portal?tab=Claims" + (f"&view={view}" if view else "")); pg.wait_for_timeout(2600)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
     return ctx, pg, errs, reqs
 
@@ -67,10 +73,11 @@ with sync_playwright() as p:
     # ---- the CEO ----
     ctx, pg, errs, reqs = open_page(b, 4177)
     approvals(pg)
-    mine = pg.get_by_role("button", name="Waiting for my approval (2)")
+    mine = pg.get_by_role("button", name="Waiting for my approval (1)")
     check("Approvals opens on Waiting for my approval: the claims at the CEO's own stage", mine.count() == 1 and mine.get_attribute("aria-pressed") == "true"
           and pg.locator("[data-record='claim:12']").count() >= 1 and pg.locator("[data-record='claim:11']").filter(visible=True).count() == 0)
-    pg.get_by_role("button", name="All pending (4)").click(); pg.wait_for_timeout(600)
+    pg.get_by_role("button", name="All pending (3)").click(); pg.wait_for_timeout(600)
+    check("C-1: the CEO's own pending claim is not in his Approvals", pg.locator("[data-record='claim:13']").filter(visible=True).count() == 0)
     r11 = pg.locator("[data-record='claim:11']").filter(visible=True).first
     t11 = r11.inner_text()
     check("All pending shows every pending claim; an HR claim says it waits on the CCO, with the progress dots", "Waiting on CCO" in t11 and r11.get_by_test_id("stage-dots").count() == 1, t11[:200])
@@ -97,7 +104,9 @@ with sync_playwright() as p:
     dlg.get_by_role("tab", name="Activity", exact=True).click(); pg.wait_for_timeout(900)
     check("Activity lists the audit trail, apart from comments", "Submitted" in pg.get_by_test_id("claim-activity").inner_text())
     close(pg)
-    # approved, not paid
+    # approved, not paid - under Ready for payment (v1.310.0)
+    pg.get_by_role("button", name="Ready for payment (1)").click(); pg.wait_for_timeout(600)
+    check("Ready for payment lists the approved claim the CEO pays", pg.locator("[data-record='claim:9']").filter(visible=True).count() == 1)
     dlg = drawer(pg, 9)
     check("an approved claim reads Payment due - the payment step is current, not done", states(pg) == ["done", "done", "now"] and "Payment due" in pg.get_by_test_id("claim-timeline").inner_text(), states(pg))
     reqs.clear(); pg.get_by_test_id("claim-actions").get_by_role("button", name="Mark paid").click(); pg.wait_for_timeout(600)
@@ -108,7 +117,8 @@ with sync_playwright() as p:
     sent = posts(reqs, "/claims/9/paid")
     check("...and sends the bank date", len(sent) == 1 and sent[0].get("paid_on") == "2026-11-01", sent)
     close(pg)
-    # paid
+    # paid - in the register, All claims (v1.310.0)
+    pg.get_by_role("button", name="All claims (6)").click(); pg.wait_for_timeout(600)
     dlg = drawer(pg, 8)
     tt = pg.get_by_test_id("claim-timeline").inner_text()
     check("a paid claim: Payment confirmed, who recorded it and the bank date", states(pg)[-1] == "done" and "Payment confirmed" in tt and "bank date" in tt, tt[-200:])
@@ -119,7 +129,8 @@ with sync_playwright() as p:
     dlg = drawer(pg, 10)
     check("a rejected claim ends red at its stage, with the reason; no payment", "rejected" in states(pg) and states(pg)[-1] == "off" and "Personal parking" in pg.get_by_test_id("claim-timeline").inner_text(), states(pg))
     close(pg)
-    # his own claim, returned to him
+    # his own claim, returned to him - in My Claims (C-4)
+    pg.get_by_role("tab", name="My Claims", exact=True).first.click(); pg.wait_for_timeout(900)
     dlg = drawer(pg, 13)
     box = pg.get_by_test_id("claim-resubmit")
     check("the claimant sees the question and Answer & resubmit", box.count() == 1 and "Which client attended the lunch" in box.inner_text() and "returned" in states(pg))
@@ -148,16 +159,15 @@ with sync_playwright() as p:
     import re
     btns = [t.strip() for t in pg.locator("main button").all_inner_texts()]
     check("an employee has no Approve, Reject or Mark paid button anywhere on Claims", not any(re.match(r"^(Approve( \(|$)|Reject$|Mark paid|Return for info)", t) for t in btns), btns)
-    pg.get_by_test_id("claim-view-7").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
+    pg.get_by_test_id("claim-view-13").filter(visible=True).first.click(); pg.wait_for_timeout(1200)
     check("...and the drawer of a claim they read has no decision actions", pg.get_by_test_id("claim-drawer").count() == 1 and pg.get_by_test_id("claim-actions").count() == 0)
     check("no page errors (employee)", not errs, errs)
     ctx.close()
 
     # ---- phones ----
     for w in [320, 375, 390, 430]:
-        ctx, pg, errs, _ = open_page(b, 4177, w=w, h=860)
-        approvals(pg)
-        pg.get_by_role("button", name="All pending (4)").click(); pg.wait_for_timeout(600)
+        ctx, pg, errs, _ = open_page(b, 4177, w=w, h=860, view="approvals")
+        pg.get_by_role("button", name="All pending (3)").click(); pg.wait_for_timeout(600)
         check(f"phone {w}px: Approvals does not scroll sideways", pg.evaluate(FITS))
         drawer(pg, 11)
         check(f"phone {w}px: the drawer fits, with the vertical timeline", pg.evaluate(FITS) and pg.evaluate(INSIDE, w) == 0 and pg.get_by_test_id("claim-timeline").is_visible())

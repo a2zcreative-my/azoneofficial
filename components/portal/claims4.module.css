@@ -1,0 +1,97 @@
+/* v1.310.0 - Claims Workspace 4.0 (references 1 to 3). Tokens only. */
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.noteText { display: grid; gap: 0.125rem; min-width: 0; flex: 1 1 auto; }
+.noteText > span { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.viewBar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.cap { text-transform: capitalize; }
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.mono { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+.empty { padding: 1rem 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); list-style: none; }
+
+/* submit */
+.submitGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+.stepper { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin: 1rem 0; padding: 0; list-style: none; }
+.stepper li { display: grid; justify-items: center; gap: 0.375rem; position: relative; font-size: var(--type-caption-size); color: var(--muted-foreground); text-align: center; }
+.stepper li + li::before { content: ""; position: absolute; top: 0.9375rem; right: calc(50% + 1.25rem); width: calc(100% - 2rem); border-top: 2px solid var(--border); }
+.stepper li[data-state="done"] + li::before, .stepper li[data-state="now"]::before { border-top-color: var(--gold-solid); }
+.stepNum { display: grid; place-items: center; width: 2rem; height: 2rem; border: 2px solid var(--border); border-radius: var(--radius-full); background: var(--card); font-weight: 700; color: var(--foreground); }
+.stepNum svg { width: 1rem; height: 1rem; }
+.stepper li[data-state="now"] { color: var(--foreground); font-weight: 600; }
+.stepper li[data-state="now"] .stepNum, .stepper li[data-state="done"] .stepNum { border-color: var(--gold-solid); background: var(--gold-solid); color: var(--primary); }
+.stepNav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.stepNav > :first-child { margin-right: auto; }
+.attach { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+.drop { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.75rem; padding: 1rem; border: 1px dashed var(--border); border-radius: var(--radius-card); cursor: pointer; font-size: var(--type-body-sm-size); }
+.drop > svg { width: 1.5rem; height: 1.5rem; color: var(--muted-foreground); }
+.drop > span { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.drop em { font-style: normal; color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.drop:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
+.drop[data-has="true"] { border-style: solid; border-color: var(--success); background: var(--success-soft); }
+.drop[data-has="true"] > svg { color: var(--success); }
+.aside { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+.asideTitle { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.75rem; font-weight: 600; }
+.asideTitle svg { width: 1.125rem; height: 1.125rem; color: color-mix(in srgb, var(--gold-solid) 70%, var(--foreground)); }
+.facts { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; font-size: var(--type-body-sm-size); }
+.facts li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 0.75rem; padding: 0.5rem 0; }
+.facts li + li { border-top: 1px solid var(--border); }
+.facts span { color: var(--muted-foreground); }
+.facts strong { font-weight: 600; text-align: right; overflow-wrap: anywhere; }
+.docs { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; font-size: var(--type-body-sm-size); }
+.docs li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.625rem; align-items: start; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-card); }
+.docs li > svg { width: 1.125rem; height: 1.125rem; margin-top: 0.125rem; color: var(--muted-foreground); }
+.docs li[data-need="required"] { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: var(--warning-soft); }
+.docs li[data-need="required"] > svg { color: var(--warning); }
+.docs li[data-need="none"] > svg { color: var(--success); }
+.docs span { display: grid; gap: 0.125rem; min-width: 0; }
+.docs em { font-style: normal; color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.review { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+.reviewGrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin: 0; }
+.reviewGrid > div { display: grid; gap: 0.125rem; min-width: 0; }
+.reviewGrid dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.reviewGrid dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.reviewLines { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius-card); }
+.reviewLines li { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.75rem; font-size: var(--type-body-sm-size); }
+.reviewLines li + li { border-top: 1px solid var(--border); }
+.reviewLine { display: grid; gap: 0.125rem; min-width: 0; }
+.reviewLine > span { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: anywhere; }
+.reviewTotal { display: flex; justify-content: space-between; align-items: baseline; margin: 0; padding: 0.625rem 0.75rem; border-radius: var(--radius-control); background: color-mix(in srgb, var(--gold-solid) 14%, var(--card)); }
+.reviewTotal strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+
+/* my claims */
+.mineHead { display: grid; gap: 0.75rem; }
+.cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.claimCard { display: grid; gap: 0.625rem; min-width: 0; padding: 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
+.cardTop { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+.cardId { display: grid; gap: 0.125rem; min-width: 0; }
+.cardAmt { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cardChips { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+.cardDesc { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
+.cardActions { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+.track { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; margin: 0; padding: 0; list-style: none; }
+.track li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.5rem; position: relative; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.trackDot { display: grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 2px solid var(--border); border-radius: var(--radius-full); background: var(--card); color: var(--card); }
+.trackDot svg { width: 0.75rem; height: 0.75rem; }
+.trackText { display: grid; min-width: 0; }
+.trackText strong { color: var(--foreground); font-weight: 600; overflow-wrap: anywhere; }
+.trackText em { font-style: normal; }
+.track li[data-state="done"] .trackDot { border-color: var(--success); background: var(--success); }
+.track li[data-state="now"] .trackDot, .track li[data-state="returned"] .trackDot { border-color: var(--gold-solid); background: color-mix(in srgb, var(--gold-solid) 30%, var(--card)); }
+.track li[data-state="rejected"] .trackDot { border-color: var(--danger); background: var(--danger); }
+.track li[data-state="skipped"], .track li[data-state="off"] { opacity: 0.6; }
+
+@media (min-width: 768px) {
+  .reviewGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mineHead { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .track { grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 0.5rem; }
+  .track li { grid-template-columns: minmax(0, 1fr); justify-items: center; align-items: start; align-content: start; text-align: center; }
+  .track li + li::before { content: ""; position: absolute; top: 0.625rem; right: calc(50% + 0.875rem); width: calc(100% - 1.25rem); border-top: 2px solid var(--border); }
+  .track li[data-state="done"] + li::before { border-top-color: var(--success); }
+}
+@media (min-width: 1024px) {
+  .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .submitGrid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .stepNav { position: sticky; bottom: calc(4.75rem + env(safe-area-inset-bottom)); z-index: 2; margin: 1rem -0.25rem 0; padding: 0.75rem 0.25rem; background: var(--card); }
+}

@@ -78,7 +78,7 @@ async function runtime(workerBundle) {
   const env = {
     DB: { prepare: shim, batch: async (list) => { db.exec("BEGIN"); try { for (const s of list) s._run(); db.exec("COMMIT"); } catch (e) { db.exec("ROLLBACK"); throw e; } return []; } },
     SESSION_PEPPER: "pepper", COMPANY_DOMAIN: "a2z.test", ALLOWED_ORIGINS: "https://portal.a2z.test",
-    MEDIA: { put: async () => {}, get: async () => null, head: async () => null, list: async () => ({ objects: [] }), delete: async () => {} },
+    MEDIA: { put: async (_k, body) => { if (body && typeof body === "object" && "getReader" in body) await new Response(body).arrayBuffer(); }, get: async () => null, /* v1.310.0 - a stored receipt's stream is read to its end, as R2 does */ head: async () => null, list: async () => ({ objects: [] }), delete: async () => {} },
   };
   if (!globalThis.FixedLengthStream) globalThis.FixedLengthStream = class extends TransformStream { constructor() { super(); } };
   const RealDate = globalThis.Date;
@@ -118,7 +118,10 @@ async function runtime(workerBundle) {
   const rowOf = async (uid, id) => ((await call(`/claims`, uid)).j?.claims ?? []).find((c) => c.id === id);
   const states = (c) => (c?.timeline ?? []).map((s) => `${s.key}:${s.state}`).join(" ");
   let seq = 0;
-  const submit = async (uid, amount = 11.3) => (await call(`/claims`, uid, "POST", { items: [{ claim_date: "2026-11-01", category: "stationery", description: "Printer paper", amount }], submission_key: `k-${uid}-${++seq}-0123456789abcdef` })).j?.id;
+  /* v1.310.0 (Claims 4.0, C-8) - a reimbursement is approved with its receipt: the claimant attaches it, through its own route, as the form does */
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(200).fill(0)]);
+  const attach = async (id, uid) => { const r = await app.fetch(new Request(`https://api.a2z.test/api/v1/staff/claims/${id}/receipt`, { method: "POST", headers: { origin: "https://portal.a2z.test", cookie: `azone_session=${tok[uid]}; csrf_token=c1`, "x-csrf-token": "c1", "content-type": "image/png", "content-length": String(PNG.length) }, body: PNG }), env, { waitUntil() {} }); return r.status; };
+  const submit = async (uid, amount = 11.3) => { const id = (await call(`/claims`, uid, "POST", { items: [{ claim_date: "2026-11-01", category: "stationery", description: "Printer paper", amount }], submission_key: `k-${uid}-${++seq}-0123456789abcdef` })).j?.id; if (id) await attach(id, uid); return id; };
   const cash = (id) => db.prepare(`SELECT * FROM cashflow_entries WHERE ref = ? ORDER BY id`).all(`CLM-${id}`);
   const payroll = () => sha(JSON.stringify((() => { try { return db.prepare(`SELECT * FROM payroll_entries ORDER BY rowid`).all(); } catch { return []; } })()));
   const payroll0 = payroll();
@@ -193,18 +196,20 @@ async function runtime(workerBundle) {
     c = await rowOf(U.ceo, B);
     ok(states(c) === "submitted:done pre:now final:todo payment:todo" && c.waiting_on === "cco" && JSON.stringify(c.skip_if_approved) === JSON.stringify(["pre"]) && c.my_turn === false, "(2) an HR claim waits on the CCO ('awaiting CCO'); the CEO's Approve would skip the CCO", states(c));
     ok((await rowOf(U.cco, B)).my_turn === true && noticed(U.cco, `claim:${B}`) === 1, "(3) it is the CCO's turn, and the CCO was told");
-    ok((await call(`/claims/${B}/decide`, U.ceo, "POST", { action: "approve", totp: code() })).j?.ok === true, "the CEO approves it directly");
+    ok((await call(`/claims/${B}/decide`, U.ceo, "POST", { action: "approve", totp: code() })).j?.error?.code === "reason_required", "v1.310.0 (C-3): approving before the CCO states why");
+    ok((await call(`/claims/${B}/decide`, U.ceo, "POST", { action: "approve", totp: code(), note: "CCO on leave - approved as discussed" })).j?.ok === true, "the CEO approves it directly");
     c = await rowOf(U.hana, B);
     ok(states(c) === "submitted:done pre:skipped final:done payment:now" && c.timeline[1].flags?.override === true && c.timeline[2].flags?.override === true && /CCO pre-approval bypassed/.test(c.decision_note ?? ""), "the override shows the CCO's step as skipped - never signed - and the note records it", states(c));
     /* ---------- 8. rejection is terminal, with its reason ---------- */
     const C = await submit(U.lia, 20);
-    ok((await call(`/claims/${C}/decide`, U.ceo, "POST", { action: "reject", note: "Personal purchase" })).j?.ok === true, "the CEO rejects a claim");
+    ok((await call(`/claims/${C}/decide`, U.ceo, "POST", { action: "reject", note: "Personal purchase" })).status === 401, "v1.310.0 (C-3): a rejection asks the CEO's code too");
+    ok((await call(`/claims/${C}/decide`, U.ceo, "POST", { action: "reject", note: "Personal purchase", totp: code() })).j?.ok === true, "the CEO rejects a claim");
     c = await rowOf(U.lia, C);
     ok(states(c) === "submitted:done hr:rejected pre:off final:off payment:off" && c.timeline[1].text === "Personal purchase" && c.timeline[1].who === "Alif Farhan" && c.waiting_on === null, "(8) rejected: red at the stage it stood at, with who and why; nothing after it - no payment", states(c));
     /* ---------- 10. approve and reject at once ---------- */
     const D = await submit(U.lia, 30);
-    race("c.pre_approved_at, u.role AS claimant_role\n       FROM claims c");
-    const dr = await Promise.all([call(`/claims/${D}/decide`, U.ceo, "POST", { action: "approve", totp: code() }), call(`/claims/${D}/decide`, U.sa, "POST", { action: "reject", note: "Duplicate" })]);
+    race("u.role AS claimant_role, py.role AS payee_role\n       FROM claims c"); // v1.310.0 - the decide read now carries the payee's role (C-1)
+    const dr = await Promise.all([call(`/claims/${D}/decide`, U.ceo, "POST", { action: "approve", totp: code(), note: "Approved as discussed" }), call(`/claims/${D}/decide`, U.ceo, "POST", { action: "reject", note: "Duplicate", totp: code() })]); /* v1.310.0 - the CEO on two devices (the Super Admin no longer decides, C-2) */
     barrier = null;
     ok(dr.filter((r) => r.status === 200).length === 1 && dr.some((r) => r.status === 409) && n(`SELECT COUNT(*) AS n FROM audit_log WHERE entity_id = ? AND action IN ('claim.approve', 'claim.reject')`, String(D)) === 1 && noticed(U.lia, `claim:${D}`) === 1, "(10) an approval and a rejection pressed at once: one decision stands, one notice, the other refused (409)", JSON.stringify(dr.map((r) => [r.status, r.text.slice(0, 80)])));
     /* ---------- the COO's own claim: straight to the CEO ---------- */

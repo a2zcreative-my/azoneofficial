@@ -140,7 +140,8 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
     /const advBadE = advanceShape\(parsedE, purposeE\);[\s\S]{0,160}editClaimDate = cur\.claim_date/.test(staff));
   ok("D2. the advance form has no expense lines, mileage or receipt",
     /\{claimType !== "salary_advance" && \(<>\s*\{\/\* v1\.150\.0: the company mileage rate/.test(panels)
-    && /\{claimType !== "salary_advance" && \(\s*<label className=\{`\$\{btnSm\} \$\{cl\.pointer\}/.test(panels));
+    /* v1.310.0 (Claims 4.0) - the receipt is step 2 (Attachments): an advance is told it needs none, and has no file input there */
+    && /\{claimType === "salary_advance" \? \(\s*<p className="erp-meta">\{L\("A salary advance needs no receipt/.test(panels));
   ok("D2. the advance form asks for an amount and a reason",
     /value=\{advAmount\} onChange=\{\(e\) => setAdvAmount/.test(panels) && /L\("Reason \(printed on the request\)"/.test(panels));
   ok("D2. submitting an advance sends exactly one line",

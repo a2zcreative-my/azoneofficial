@@ -23,11 +23,20 @@
 
 export const CLAIM_STAFF_CHAIN = "('marketing','sales_marketing','editor','live_host')";
 
+/* v1.310.0 (Claims 4.0) - who reads every claim: the decider (the CEO) and,
+   READ ONLY, the Super Admin - who no longer decides or pays (C-2) but keeps
+   the view it always had. */
+export const claimReadsAll = (role: string, decides: boolean): boolean => decides || role === "super_admin";
+/* v1.310.0 (C-1) - the CEO's own claims (raised by him or paid to him) are
+   the COO's to decide, so the COO reads them */
+const CEO_OWN = (withPayee: boolean) => ` OR u.role = 'ceo'${withPayee ? ` OR c.payee_user_id IN (SELECT id FROM users WHERE role = 'ceo')` : ""}`;
+
 export function claimScope(role: string, all: boolean, withPayee: boolean, me = "?1"): string {
   const P = withPayee ? ` OR c.payee_user_id = ${me}` : "";
   return all ? ""
     : role === "hr_admin" ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN} OR c.status = 'approved'${P})`
-    : ["coo", "admin"].includes(role) ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN}${P})`
+    : role === "coo" ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN}${CEO_OWN(withPayee)}${P})`
+    : role === "admin" ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN}${P})`
       : role === "cco" ? ` WHERE (c.user_id = ${me} OR u.role = 'hr_admin'${P})`
         : ` WHERE (c.user_id = ${me}${P})`;
 }

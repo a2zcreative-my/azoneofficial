@@ -332,7 +332,8 @@ const leaveCanAct = (l) => {
 const claims = [
   { id: 7, user_id: 9002, claim_date: D + "10", category: "travel", amount_cents: 4500, description: "Grab to client", status: "pending", claimant: "Nur Aisyah", claimant_full: "Nur Aisyah binti Rahman", items: "[]", claim_type: "reimbursement", created_at: D + "10 09:00:00" },
   { id: 8, user_id: 9003, claim_date: D + "04", category: "equipment", amount_cents: 18900, description: "Ring light", status: "approved", paid_at: D + "06 10:00:00", claimant: "Farid Zul", items: "[]", claim_type: "reimbursement", created_at: D + "04 09:00:00" },
-  { id: 9, user_id: 9001, claim_date: D + "02", category: "meals", amount_cents: 6200, description: "Client lunch", status: "approved", claimant: "Fixture Person", items: "[]", claim_type: "reimbursement", created_at: D + "02 09:00:00" },
+  /* v1.310.0 (C-1) - claim 9 is Farid's: the CEO no longer pays his own claim, so the claim he pays is someone else's */
+  { id: 9, user_id: 9003, claim_date: D + "02", category: "meals", amount_cents: 6200, description: "Client lunch", status: "approved", claimant: "Farid Zul", receipt_key: "claims/9-r", items: "[]", claim_type: "reimbursement", created_at: D + "02 09:00:00" },
   { id: 10, user_id: 9002, claim_date: "2026-08-28", category: "travel", amount_cents: 3000, description: "Parking", status: "rejected", claimant: "Nur Aisyah", items: "[]", claim_type: "reimbursement", created_at: "2026-08-28 09:00:00", decision_note: "Personal parking" },
   /* v1.254.0 - an HR claim waiting on the CCO ("awaiting CCO"), a COO claim
      at the CEO, and the fixture person's own claim returned with a question */
@@ -341,11 +342,19 @@ const claims = [
   { id: 13, user_id: 9001, claim_date: D + "14", category: "meals", amount_cents: 8800, description: "Team lunch", status: "pending", claimant: "Fixture Person", claimant_role: "ceo", items: "[]", claim_type: "reimbursement", created_at: D + "14 11:00:00",
     returned_at: D + "15 02:00:00", return_question: "Which client attended the lunch?" },
 ];
+/* v1.310.0 (C-1) - on the COO's server two claims of the CEO (another
+   invented person, 9010): one pending, which the COO decides in one step, and
+   one approved, which the COO pays. Nobody else's list holds them. */
+if (ROLE === "coo") claims.push(
+  { id: 14, user_id: 9010, claim_date: D + "13", category: "travel", amount_cents: 9600, description: "Toll to Seremban", status: "pending", claimant: "Dato Owner", claimant_full: "Dato Owner bin Test", claimant_role: "ceo", receipt_key: "claims/14-r", items: "[]", claim_type: "reimbursement", created_at: D + "13 08:00:00" },
+  { id: 15, user_id: 9010, claim_date: D + "11", category: "meals", amount_cents: 4200, description: "Client coffee", status: "approved", claimant: "Dato Owner", claimant_full: "Dato Owner bin Test", claimant_role: "ceo", receipt_key: "claims/15-r", items: "[]", claim_type: "reimbursement", created_at: D + "11 08:00:00" },
+);
 /* v1.254.0 - what GET /claims adds (worker/src/claim-chain.ts), per claim,
    for the role this server plays: the timeline, who it waits on, whose turn
    and what this person may do. Invented people only. */
 const claimView = (c) => {
-  const decider = ["ceo", "super_admin"].includes(ROLE);
+  /* v1.310.0 (C-1, C-2) - the CEO decides and pays; the CEO's own claim is the COO's; the Super Admin neither */
+  const decider = ROLE === "ceo";
   const S = (key, state, extra = {}) => ({ key, state, who: null, at: null, text: null, ...extra });
   const sub = S("submitted", "done", { who: c.claimant_full || c.claimant, at: c.created_at });
   const v = { 7: { timeline: [sub, S("hr", "now", { flags: { role: "hr_admin" } }), S("pre", "todo", { flags: { role: "coo" } }), S("final", "todo", { flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "hr", skip: ["hr", "pre"],
@@ -356,7 +365,9 @@ const claimView = (c) => {
     11: { timeline: [sub, S("pre", "now", { flags: { role: "cco" } }), S("final", "todo", { flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "cco", skip: ["pre"],
       acts: ROLE === "cco" ? ["preapprove", "return"] : decider ? ["approve", "return", "reject"] : [], turn: ROLE === "cco" },
     12: { timeline: [sub, S("final", "now", { flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "ceo", skip: [], acts: decider ? ["approve", "return", "reject"] : [], turn: decider },
-    13: { timeline: [sub, S("final", "returned", { who: "Tan Mei Ling", at: c.returned_at, text: c.return_question, flags: { role: "ceo" } }), S("payment", "todo")], waiting_on: "applicant", skip: [], acts: ["resubmit", ...(decider ? ["reject"] : [])], turn: true },
+    13: { timeline: [sub, S("final", "returned", { who: "Zulkifli Ops", at: c.returned_at, text: c.return_question, flags: { role: "coo" } }), S("payment", "todo")], waiting_on: "applicant", skip: [], acts: ["resubmit"], turn: true },
+    14: { timeline: [sub, S("final", "now", { flags: { role: "coo" } }), S("payment", "todo")], waiting_on: "coo", skip: [], acts: ROLE === "coo" ? ["approve", "return", "reject"] : [], turn: ROLE === "coo" },
+    15: { timeline: [sub, S("final", "done", { who: "Zulkifli Ops", at: D + "12 09:00:00", flags: { role: "coo" } }), S("payment", "now")], waiting_on: "payment", skip: [], acts: ROLE === "coo" ? ["pay"] : [], turn: ROLE === "coo" },
   }[c.id];
   if (!v) return c;
   return { ...c, timeline: v.timeline, waiting_on: v.waiting_on, my_turn: v.turn, actions: v.acts, skip_if_approved: c.status === "pending" ? v.skip : [], return_open: c.id === 13, paid_bank_date: c.id === 8 ? D + "06" : null, paid_by_name: c.id === 8 ? "Fixture Person" : null, payment_proof_key: c.id === 8 ? "claims/8-proof" : c.payment_proof_key };
@@ -856,7 +867,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     }
   }
   if (p === "/staff/leave/balance") data = { balances: { annual: { entitled: 14, used: 2, accrued: 10.5 }, medical: { entitled: 14, used: 0, accrued: 14 }, emergency: { entitled: 3, used: 0, accrued: 3 }, unpaid: { entitled: 0, used: 0 }, replacement: { entitled: 0, used: 0, accrued: 1 } }, hourly: false };
-  if (p === "/claims") data = { claims: claims.map(claimView), can_decide: ["ceo", "super_admin"].includes(ROLE) };
+  if (p === "/claims") data = { claims: claims.map(claimView), can_decide: ROLE === "ceo", reads_all: ["ceo", "super_admin"].includes(ROLE) };
   /* v1.254.0 - one claim's thread and activity; the claimant never gets an internal note */
   {
     const cc = /^\/claims\/(\d+)\/(comments|activity)$/.exec(p);
@@ -871,6 +882,24 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     }
   }
   if (p === "/claims/mileage-rate") data = { cents_per_km: 60, can_set: true };
+  /* v1.310.0 (C-10) - the server's report, worked out from the same claims the
+     way worker/src/staff.ts does: claim 8's bank date is the 6th (its cash
+     book row), everything else falls back to the payment's Malaysian day */
+  if (p === "/claims/report") {
+    const month = q.get("month") || D.slice(0, 7);
+    const no = (c) => `CLM-AZOO${c.created_at.slice(8, 10)}${c.created_at.slice(5, 7)}${c.created_at.slice(2, 4)}-${c.id}`;
+    const payDay = (c) => (c.paid_at ? (c.id === 8 ? D + "06" : c.paid_at.slice(0, 10)) : null);
+    const show = (c) => ({ id: c.id, claim_no: no(c), claimant: c.claimant_full || c.claimant, user_id: c.user_id, claim_date: c.claim_date, amount_cents: c.amount_cents, status: c.status, claim_type: c.claim_type, category: c.category, paid_at: c.paid_at ?? null, pay_day: payDay(c), finance: c.paid_at ? (c.id === 8 ? "booked" : "not_booked") : null, proof: c.id === 8, payroll_month: c.payroll_month ?? null });
+    const tot = (l) => ({ n: l.length, cents: l.reduce((a, c) => a + c.amount_cents, 0) });
+    const dated = claims.filter((c) => c.claim_date.slice(0, 7) === month);
+    const appr = dated.filter((c) => c.status === "approved");
+    const cats = {};
+    for (const c of appr) { cats[c.category] = cats[c.category] ?? { category: c.category, approved_cents: 0, paid_cents: 0 }; cats[c.category].approved_cents += c.amount_cents; if (c.paid_at) cats[c.category].paid_cents += c.amount_cents; }
+    const pays = claims.filter((c) => (payDay(c) ?? "").slice(0, 7) === month);
+    data = { month,
+      by_claim_date: { submitted: tot(dated), approved: tot(appr), paid: tot(appr.filter((c) => c.paid_at)), due: tot(appr.filter((c) => !c.paid_at)), pending: tot(dated.filter((c) => c.status === "pending")), rejected: tot(dated.filter((c) => c.status === "rejected")), categories: Object.values(cats), claims: dated.map(show) },
+      by_payment_date: { paid: tot(pays), payments: pays.map(show) }, advances: [], reads_others: ["ceo", "super_admin", "hr_admin", "coo", "cco", "admin"].includes(ROLE) };
+  }
   if (p === "/enquiries") data = { enquiries: q.get("status") ? enquiries.filter((e) => e.status === q.get("status")) : enquiries, counts: { new: 2, overdue: 1, mine: 0, contacted: 1, qualified: 0, closed: 0 }, people: staff.map((s) => ({ id: s.id, name: s.name, role: s.role })), overdue_hours: 24 };
   /* v1.199.0 - can_remove is the worker's hr_manage answer: the four roles that keep the register */
   /* v1.303.0 - asset_manage adds the COO (A3); company moves are the CEO's and COO's; the asset history (D-7) */

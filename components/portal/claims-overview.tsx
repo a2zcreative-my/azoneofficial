@@ -1,6 +1,16 @@
 "use client";
 
-/* v1.194.0 - THE CLAIMS OVERVIEW AND REPORTS, laid out as the owner's
+/* v1.310.0 - CLAIMS WORKSPACE 4.0 (the CEO, 15-11-2026: "approve as
+   recommended", C-0 ... C-13 in claude/CLAIMS-WORKSPACE-4.0-BLUEPRINT.md).
+   The Overview is reference 1: five figures for the month by claim date
+   (Total = Pending + Approved, awaiting payment + Paid + Rejected - approval
+   and payment are two facts, C-5), the month by category, what requires
+   attention and the recent claims. The Reports are the SERVER's
+   (GET /staff/claims/report, C-10): by claim date or by the bank date the
+   money left, each payment with its Finance status. Nothing here is a figure
+   from the reference pictures.
+
+   v1.194.0 - THE CLAIMS OVERVIEW AND REPORTS, laid out as the owner's
    reference photo (22-10-2026). Both are drawn from the one list the Claims
    panel already loads (GET /staff/claims - every claim for a decider, your
    own for everyone else, as the worker decides): they fetch nothing, write
@@ -15,7 +25,7 @@
 
    No figure from the mockup is used. */
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
@@ -25,8 +35,12 @@ import { downloadCsv, csvStampMyt } from "@/lib/csv";
 import { dmy, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { properName } from "@/lib/names";
+import { makeApi } from "@/lib/api";
 import { btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, selectClassSm } from "@/lib/ui-styles";
 import css from "./claims-overview.module.css";
+import c4 from "./claims4.module.css";
+
+const api = makeApi("/staff");
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -37,6 +51,7 @@ export type OvClaim = {
   description?: string | null; status: string; claimant?: string | null; claimant_full?: string | null;
   paid_at?: string | null; payment_proof_key?: string | null; claim_type?: "reimbursement" | "salary_advance";
   payroll_month?: string | null; created_at: string; items?: string | null;
+  receipt_key?: string | null; payee_user_id?: number | null; return_open?: boolean;
 };
 type Item = { claim_date: string; category: string; amount_cents: number };
 
@@ -72,53 +87,119 @@ function Head({ icon, tone, title, sub, children }: { icon: AppIconName; tone: s
   );
 }
 
-export function ClaimsOverview({ scope, mine, month, loaded, showStaff, waitingOnMe, noOf, catOf, itemsOf, onView, onSubmit, onApprovals, onMine, onReports }: {
-  /** the claims the month figures count: every claim for a decider, your own otherwise */
+/* the category palette: theme tokens only, the same order everywhere */
+const CAT_TONES = ["var(--gold-solid)", "var(--info)", "var(--success)", "var(--warning)", "var(--danger)", "var(--primary)", "var(--muted-foreground)", "var(--border)"];
+
+export function ClaimsOverview({ scope, mine, month, loaded, showStaff, waiting, toPay, noOf, catOf, itemsOf, onView, onSubmit, onApprovals, onPayments, onMine, onTile }: {
+  /** the claims the month figures count: every claim this person reads for a
+      manager (the server's scope), their own and those paid to them otherwise */
   scope: readonly OvClaim[];
+  /** their own claims and the claims paid to them (C-4) */
   mine: readonly OvClaim[];
   month: string;
   loaded: boolean;
   showStaff: boolean;
-  /** pending claims this account can act on, or null when it approves nothing */
-  waitingOnMe: number | null;
+  /** claims at this person's own stage (never their own, never paid to them) */
+  waiting: readonly OvClaim[];
+  /** approved claims this person may mark paid (the server's "pay" action) */
+  toPay: readonly OvClaim[];
   noOf: (c: OvClaim) => string;
   catOf: (k: string) => string;
   itemsOf: (c: OvClaim) => Item[];
   onView: (c: OvClaim) => void;
   onSubmit: () => void;
   onApprovals: () => void;
+  onPayments: () => void;
   onMine: () => void;
-  onReports: () => void;
+  /** a figure opens the claims it counts */
+  onTile: (k: "" | "pending" | "approved" | "paid" | "rejected") => void;
 }) {
   const recent = [...scope].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 6);
-  const monthScope = scope.filter((c) => (c.claim_date ?? "").slice(0, 7) === month);
-  /* the month by category, from each claim's own lines */
+  const m = scope.filter((c) => (c.claim_date ?? "").slice(0, 7) === month);
+  const pending = m.filter((c) => c.status === "pending");
+  const approvedDue = m.filter((c) => c.status === "approved" && !c.paid_at);
+  const paid = m.filter((c) => c.status === "approved" && c.paid_at);
+  const rejected = m.filter((c) => c.status === "rejected");
+  /* the month by category, from each claim's own lines, rejected left out */
   const byCat = new Map<string, number>();
-  for (const c of monthScope.filter((x) => x.status !== "rejected")) for (const it of itemsOf(c)) byCat.set(it.category, (byCat.get(it.category) ?? 0) + it.amount_cents);
+  for (const c of m.filter((x) => x.status !== "rejected")) for (const it of itemsOf(c)) byCat.set(it.category, (byCat.get(it.category) ?? 0) + it.amount_cents);
   const cats = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
-  const catMax = Math.max(1, ...cats.map(([, v]) => v));
-  /* your own month, by status */
-  const myMonth = mine.filter((c) => (c.claim_date ?? "").slice(0, 7) === month);
-  const myApproved = myMonth.filter((c) => c.status === "approved");
-  const myPaid = myApproved.filter((c) => c.paid_at);
-  const myPending = myMonth.filter((c) => c.status === "pending");
-  const myRejected = myMonth.filter((c) => c.status === "rejected");
-  /* what needs a look */
-  const dueToPay = scope.filter((c) => c.status === "approved" && !c.paid_at);
-  const myToFix = mine.filter((c) => c.status === "rejected" && (c.claim_date ?? "").slice(0, 7) >= month);
-  const myWaiting = mine.filter((c) => c.status === "pending");
-  const notes: { tone: string; icon: AppIconName; text: string; action?: { label: string; onClick: () => void } }[] = [];
-  if (waitingOnMe) notes.push({ tone: css.noteWarn ?? "", icon: "pending", text: L(`${waitingOnMe} claim${waitingOnMe === 1 ? "" : "s"} waiting for your decision`, `${waitingOnMe} tuntutan menunggu keputusan anda`), action: { label: L("Open approvals", "Buka kelulusan"), onClick: onApprovals } });
-  if (showStaff && dueToPay.length) notes.push({ tone: css.noteInfo ?? "", icon: "pay", text: L(`${dueToPay.length} approved claim${dueToPay.length === 1 ? "" : "s"} still to pay · ${fmtRM(sum(dueToPay))}`, `${dueToPay.length} tuntutan diluluskan belum dibayar · ${fmtRM(sum(dueToPay))}`), action: { label: L("Payments", "Bayaran"), onClick: onReports } });
-  if (myToFix.length) notes.push({ tone: css.noteDanger ?? "", icon: "warning", text: L(`${myToFix.length} of your claims ${myToFix.length === 1 ? "was" : "were"} rejected this month - edit and resubmit from My Claims`, `${myToFix.length} tuntutan anda ditolak bulan ini - sunting dan hantar semula dari Tuntutan Saya`), action: { label: L("My claims", "Tuntutan saya"), onClick: onMine } });
-  if (myWaiting.length) notes.push({ tone: css.noteNeutral ?? "", icon: "time", text: L(`${myWaiting.length} of your claims ${myWaiting.length === 1 ? "is" : "are"} waiting for approval · ${fmtRM(sum(myWaiting))}`, `${myWaiting.length} tuntutan anda menunggu kelulusan · ${fmtRM(sum(myWaiting))}`) });
+  const catTotal = cats.reduce((a, [, v]) => a + v, 0);
+  /* C-8 - a reimbursement waits for its receipt; a mileage-only claim and a
+     salary advance need none (the server's own rule) */
+  const missing = mine.filter((c) => c.status !== "approved" && c.claim_type !== "salary_advance" && !c.receipt_key
+    && !itemsOf(c).every((it) => Number((it as Item & { km?: number }).km) > 0));
+  const returned = mine.filter((c) => c.status === "pending" && c.return_open);
+  const myRejected = mine.filter((c) => c.status === "rejected" && (c.claim_date ?? "").slice(0, 7) >= month);
+  const rows: { key: string; tone: string; icon: AppIconName; title: string; sub: string; action: { label: string; onClick: () => void } }[] = [];
+  if (waiting.length) rows.push({ key: "waiting", tone: css.noteWarn ?? "", icon: "pending", title: L("Waiting for your approval", "Menunggu kelulusan anda"), sub: `${waiting.length} · ${fmtRM(sum(waiting))}`, action: { label: L("Review", "Semak"), onClick: onApprovals } });
+  if (toPay.length) rows.push({ key: "pay", tone: css.noteInfo ?? "", icon: "pay", title: L("Ready for payment", "Sedia untuk dibayar"), sub: L(`${toPay.length} approved · ${fmtRM(sum(toPay))} · not paid yet`, `${toPay.length} diluluskan · ${fmtRM(sum(toPay))} · belum dibayar`), action: { label: L("Payments", "Bayaran"), onClick: onPayments } });
+  if (missing.length) rows.push({ key: "receipt", tone: css.noteDanger ?? "", icon: "attach", title: L("Missing receipt", "Resit tiada"), sub: L(`${missing.length} of your claims cannot be approved until the receipt is attached`, `${missing.length} tuntutan anda tidak boleh diluluskan sehingga resit dilampirkan`), action: { label: L("Attach", "Lampirkan"), onClick: onMine } });
+  if (returned.length) rows.push({ key: "returned", tone: css.noteWarn ?? "", icon: "chat", title: L("Question from the approver", "Soalan daripada pelulus"), sub: L(`${returned.length} of your claims waits for your answer`, `${returned.length} tuntutan anda menunggu jawapan anda`), action: { label: L("Answer", "Jawab"), onClick: onMine } });
+  if (myRejected.length) rows.push({ key: "rejected", tone: css.noteNeutral ?? "", icon: "warning", title: L("Rejected this month", "Ditolak bulan ini"), sub: L(`${myRejected.length} of your claims - edit and resubmit from My Claims`, `${myRejected.length} tuntutan anda - sunting dan hantar semula dari Tuntutan Saya`), action: { label: L("My Claims", "Tuntutan Saya"), onClick: onMine } });
+  const tileSub = (l: readonly OvClaim[]) => L(`${l.length} claim${l.length === 1 ? "" : "s"}`, `${l.length} tuntutan`);
 
   return (
     <>
+      <KpiRow label={L(`Claims dated ${monthName(month)}`, `Tuntutan bertarikh ${monthName(month)}`)}>
+        <KpiTile icon="documents" tone="navy" label={L("Total Claims", "Jumlah Tuntutan")} value={fmtRM(sum(m))} busy={!loaded} sub={tileSub(m)}
+          onClick={() => onTile("")} title={L("Every claim dated this month", "Setiap tuntutan bertarikh bulan ini")} />
+        <KpiTile icon="pending" tone="gold" label={L("Pending Approval", "Menunggu Kelulusan")} value={fmtRM(sum(pending))} busy={!loaded} sub={tileSub(pending)}
+          onClick={() => onTile("pending")} title={L("Show only pending claims", "Tunjuk tuntutan menunggu sahaja")} />
+        <KpiTile icon="success" tone="green" label={L("Approved", "Diluluskan")} value={fmtRM(sum(approvedDue))} busy={!loaded} sub={L(`${approvedDue.length} awaiting payment`, `${approvedDue.length} menunggu bayaran`)}
+          onClick={() => onTile("approved")} title={L("Approved, not yet paid", "Diluluskan, belum dibayar")} />
+        <KpiTile icon="paid" tone="blue" label={L("Paid", "Dibayar")} value={fmtRM(sum(paid))} busy={!loaded} sub={tileSub(paid)}
+          onClick={() => onTile("paid")} title={L("Show only paid claims", "Tunjuk tuntutan dibayar sahaja")} />
+        <KpiTile icon="error" tone="red" label={L("Rejected", "Ditolak")} value={fmtRM(sum(rejected))} busy={!loaded} sub={tileSub(rejected)}
+          onClick={() => onTile("rejected")} title={L("Show only rejected claims", "Tunjuk tuntutan ditolak sahaja")} />
+      </KpiRow>
+
+      <div className={c4.split}>
+        <section className={card} aria-label={L("Claims by category", "Tuntutan mengikut kategori")}>
+          <Head icon="chart" tone={css.gold} title={<>{L("Claims by Category", "Tuntutan mengikut Kategori")} <span className={css.muted}>({monthName(month)})</span></>}
+            sub={showStaff ? L("Every claim line this month that you manage, rejected left out.", "Setiap baris tuntutan bulan ini di bawah anda, yang ditolak tidak dikira.") : L("Your claim lines this month, rejected left out.", "Baris tuntutan anda bulan ini, yang ditolak tidak dikira.")} />
+          {!loaded ? <SkelRows rows={3} /> : cats.length === 0 ? (
+            <p className={css.empty}>{L("No claim lines this month.", "Tiada baris tuntutan bulan ini.")}</p>
+          ) : (
+            <div className={css.donutRow} data-testid="claims-by-category">
+              <Donut size={132} hideLegend centerLabel={fmtRM(catTotal)} centerSub={L("this month", "bulan ini")}
+                slices={cats.map(([k, v], i) => ({ label: catOf(k), value: v, color: CAT_TONES[i % CAT_TONES.length] ?? "var(--border)" }))} />
+              <ul className={css.legend}>
+                {cats.map(([k, v], i) => (
+                  <li key={k}>
+                    <span className={css.dot} style={{ background: CAT_TONES[i % CAT_TONES.length] }} aria-hidden />
+                    <span className={`${css.legendLabel} ${css.cap}`}>{catOf(k)}</span>
+                    <span className={css.num}>{catTotal > 0 ? `${Math.round((v * 100) / catTotal)}%` : "—"}</span>
+                    <span className={css.num}>{fmtRM(v)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        <section className={card} aria-label={L("Requires attention", "Perlu perhatian")} data-testid="claims-attention">
+          <Head icon="info" tone={css.blue} title={L("Requires Attention", "Perlu Perhatian")} sub={L("Decisions, payments, receipts and questions.", "Keputusan, bayaran, resit dan soalan.")} />
+          {!loaded ? <SkelRows rows={2} /> : rows.length === 0 ? (
+            <p className={css.empty}>{L("Nothing needs you right now.", "Tiada yang memerlukan anda sekarang.")}</p>
+          ) : (
+            <ul className={css.notes}>
+              {rows.map((n) => (
+                <li key={n.key} className={`${css.note} ${n.tone}`} data-attention={n.key}>
+                  <AppIcon name={n.icon} />
+                  <span className={c4.noteText}><strong>{n.title}</strong><span>{n.sub}</span></span>
+                  <button type="button" className={btnSm} onClick={n.action.onClick}>{n.action.label}</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
       <section className={card} aria-label={L("Recent claims", "Tuntutan terkini")}>
         <Head icon="receipt" tone={css.gold} title={L("Recent Claims", "Tuntutan Terkini")}
-          sub={showStaff ? L("The latest claims across the company, with approval and payment apart.", "Tuntutan terkini seluruh syarikat, kelulusan dan bayaran berasingan.") : L("Your latest claims, with approval and payment apart.", "Tuntutan terkini anda, kelulusan dan bayaran berasingan.")}>
-          <button type="button" className={btnSm} onClick={showStaff ? onApprovals : onMine}>{L("View all claims", "Lihat semua tuntutan")}</button>
+          sub={showStaff ? L("The latest claims you manage, with approval and payment apart.", "Tuntutan terkini di bawah anda, kelulusan dan bayaran berasingan.") : L("Your latest claims, with approval and payment apart.", "Tuntutan terkini anda, kelulusan dan bayaran berasingan.")}>
+          <button type="button" className={btnSm} onClick={showStaff ? onApprovals : onMine}>{L("View all", "Lihat semua")}</button>
           <button type="button" className={btnSmPrimary} onClick={onSubmit}><AppIcon name="add" />{L("Submit Claim", "Hantar Tuntutan")}</button>
         </Head>
         <div className={css.tWrap}>
@@ -157,174 +238,136 @@ export function ClaimsOverview({ scope, mine, month, loaded, showStaff, waitingO
           </table>
         </div>
       </section>
-
-      <div className={css.split}>
-        <section className={card} aria-label={L("Needs attention", "Perlu perhatian")}>
-          <Head icon="info" tone={css.blue} title={L("Needs Attention", "Perlu Perhatian")} sub={L("Decisions, payments and claims to fix.", "Keputusan, bayaran dan tuntutan untuk dibetulkan.")} />
-          {!loaded ? <SkelRows rows={2} /> : notes.length === 0 ? (
-            <p className={css.empty}>{L("Nothing needs you right now.", "Tiada yang memerlukan anda sekarang.")}</p>
-          ) : (
-            <ul className={css.notes}>
-              {notes.map((n) => (
-                <li key={n.text} className={`${css.note} ${n.tone}`}>
-                  <AppIcon name={n.icon} />
-                  <span className={css.noteText}>{n.text}</span>
-                  {n.action && <button type="button" className={btnSm} onClick={n.action.onClick}>{n.action.label}</button>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className={card} aria-label={L("My claim summary", "Ringkasan tuntutan saya")}>
-          <Head icon="chart" tone={css.green} title={<>{L("My Claim Summary", "Ringkasan Tuntutan Saya")} <span className={css.muted}>({monthName(month)})</span></>} />
-          {!loaded ? <SkelRows rows={3} /> : myMonth.length === 0 ? (
-            <p className={css.empty}>{L("You have no claims dated this month.", "Anda tiada tuntutan bertarikh bulan ini.")}</p>
-          ) : (
-            <div className={css.donutRow}>
-              <Donut size={128} hideLegend centerLabel={String(myMonth.length)} centerSub={L("claims", "tuntutan")} slices={[
-                { label: L("Approved, unpaid", "Diluluskan, belum dibayar"), value: myApproved.length - myPaid.length, color: "var(--success)" },
-                { label: L("Paid", "Dibayar"), value: myPaid.length, color: "var(--info)" },
-                { label: L("Pending", "Menunggu"), value: myPending.length, color: "var(--warning)" },
-                { label: L("Rejected", "Ditolak"), value: myRejected.length, color: "var(--danger)" },
-              ]} />
-              <ul className={css.legend}>
-                {([
-                  [L("Approved", "Diluluskan"), myApproved, "var(--success)"],
-                  [L("of which paid", "daripadanya dibayar"), myPaid, "var(--info)"],
-                  [L("Pending", "Menunggu"), myPending, "var(--warning)"],
-                  [L("Rejected", "Ditolak"), myRejected, "var(--danger)"],
-                ] as [string, OvClaim[], string][]).map(([label, list, color]) => (
-                  <li key={label}>
-                    <span className={css.dot} style={{ background: color }} aria-hidden />
-                    <span className={css.legendLabel}>{label}</span>
-                    <span className={css.num}>{list.length}</span>
-                    <span className={css.num}>{fmtRM(sum(list))}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-
-        <section className={card} aria-label={L("Claim categories", "Kategori tuntutan")}>
-          <Head icon="documents" tone={css.gold} title={<>{L("Claim Categories", "Kategori Tuntutan")} <span className={css.muted}>({monthName(month)})</span></>}
-            sub={showStaff ? L("Every claim line this month, rejected left out.", "Setiap baris tuntutan bulan ini, yang ditolak tidak dikira.") : L("Your claim lines this month, rejected left out.", "Baris tuntutan anda bulan ini, yang ditolak tidak dikira.")} />
-          {!loaded ? <SkelRows rows={3} /> : cats.length === 0 ? (
-            <p className={css.empty}>{L("No claim lines this month.", "Tiada baris tuntutan bulan ini.")}</p>
-          ) : (
-            <ul className={css.bars}>
-              {cats.map(([k, v]) => (
-                <li key={k} className={css.barRow}>
-                  <span className={`${css.barLabel} ${css.cap}`}>{catOf(k)}</span>
-                  <span className={css.track}><span className={css.fill} style={{ width: `${Math.max(2, Math.round((v / catMax) * 100))}%` }} /></span>
-                  <span className={css.num}>{fmtRM(v)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
     </>
   );
 }
 
-export function ClaimsReports({ scope, month, months, onMonth, loaded, showStaff, noOf, catOf, itemsOf, canSeeProof, openProof, onView }: {
-  scope: readonly OvClaim[];
+/* ---- Reports & Payments: the server's report (C-10) ---- */
+type RepClaim = {
+  id: number; claim_no: string; claimant: string | null; user_id: number; claim_date: string; amount_cents: number; status: string;
+  claim_type: string | null; category: string; paid_at: string | null; pay_day: string | null;
+  finance: "booked" | "reversed" | "not_booked" | null; proof: boolean; payroll_month: string | null;
+};
+type Tot = { n: number; cents: number };
+export type ClaimsReport = {
+  month: string;
+  by_claim_date: { submitted: Tot; approved: Tot; paid: Tot; due: Tot; pending: Tot; rejected: Tot; categories: { category: string; approved_cents: number; paid_cents: number }[]; claims: RepClaim[] };
+  by_payment_date: { paid: Tot; payments: RepClaim[] };
+  advances: RepClaim[];
+  reads_others: boolean;
+};
+const financeChip = (f: RepClaim["finance"]): [string, string] =>
+  f === "booked" ? [chipSmSuccess, L("Booked in Finance", "Direkod di Kewangan")]
+    : f === "reversed" ? [chipSmDanger, L("Reversed in Finance", "Dibatalkan di Kewangan")]
+      : [chipSmWarn, L("Not in the cash book", "Tiada dalam buku tunai")];
+
+export function ClaimsReports({ month, months, onMonth, version, catOf, canSeeProof, openProof, onView }: {
   month: string;
   months: readonly string[];
   onMonth: (m: string) => void;
-  loaded: boolean;
-  showStaff: boolean;
-  noOf: (c: OvClaim) => string;
+  /** bumps when the panel reloads its claims, so the report follows a decision */
+  version: number;
   catOf: (k: string) => string;
-  itemsOf: (c: OvClaim) => Item[];
-  canSeeProof: (c: OvClaim) => boolean;
-  openProof: (c: OvClaim) => void;
-  onView: (c: OvClaim) => void;
+  canSeeProof: (c: { id: number; user_id: number }) => boolean;
+  openProof: (id: number) => void;
+  onView: (id: number) => void;
 }) {
-  const inMonth = scope.filter((c) => (c.claim_date ?? "").slice(0, 7) === month);
-  const submitted = inMonth;
-  const approved = inMonth.filter((c) => c.status === "approved");
-  const paid = approved.filter((c) => c.paid_at);
-  const due = approved.filter((c) => !c.paid_at);
-  const pending = inMonth.filter((c) => c.status === "pending");
-  const rejected = inMonth.filter((c) => c.status === "rejected");
-  /* salary advances recovered by THIS payroll month, whatever their date */
-  const advances = scope.filter((c) => c.claim_type === "salary_advance" && c.status !== "rejected" && c.payroll_month === month);
-  /* payments released this month, by the day they were paid */
-  const payments = scope.filter((c) => c.paid_at && c.paid_at.slice(0, 7) === month).sort((a, b) => (b.paid_at ?? "").localeCompare(a.paid_at ?? ""));
-  const byCat = new Map<string, { approved: number; paid: number }>();
-  for (const c of approved) for (const it of itemsOf(c)) {
-    const cur = byCat.get(it.category) ?? { approved: 0, paid: 0 };
-    cur.approved += it.amount_cents; if (c.paid_at) cur.paid += it.amount_cents;
-    byCat.set(it.category, cur);
-  }
+  const [basis, setBasis] = useState<"claim" | "bank">("claim");
+  const [rep, setRep] = useState<{ key: string; data: ClaimsReport | null; failed: boolean } | null>(null);
+  const key = `${month}#${version}`;
+  useEffect(() => {
+    let live = true;
+    void api<ClaimsReport>(`/claims/report?month=${month}`).then((r) => { if (live) setRep({ key, data: r.ok ? r.data ?? null : null, failed: !r.ok }); });
+    return () => { live = false; };
+  }, [month, key]);
+  const cur = rep && rep.key === key ? rep : null;
+  const loaded = cur !== null;
+  const d = cur?.data ?? null;
+  const showStaff = d?.reads_others ?? false;
+  const cd = d?.by_claim_date;
+  const pays = d?.by_payment_date.payments ?? [];
+  const list = basis === "claim" ? (cd?.claims ?? []) : pays;
   const csv = () => {
+    if (!d) return;
     const rows: (string | number)[][] = [
-      [`# ${L("Claims", "Tuntutan")} — ${monthName(month)} — ${L("by claim date", "ikut tarikh tuntutan")} — ${L("Generated", "Dijana")} ${csvStampMyt()}`],
-      [L("Claim no.", "No. tuntutan"), L("Claim date", "Tarikh tuntutan"), ...(showStaff ? [L("Staff", "Kakitangan")] : []), L("Type", "Jenis"), L("Category", "Kategori"), L("Description", "Keterangan"), L("Amount (RM)", "Amaun (RM)"), L("Approval", "Kelulusan"), L("Paid on", "Dibayar pada"), L("Payroll month", "Bulan gaji")],
+      [`# ${L("Claims", "Tuntutan")} — ${monthName(month)} — ${basis === "claim" ? L("by claim date", "ikut tarikh tuntutan") : L("by bank date (the day the money left)", "ikut tarikh bank (hari wang keluar)")} — ${L("Generated", "Dijana")} ${csvStampMyt()}`],
+      [L("Claim no.", "No. tuntutan"), L("Claim date", "Tarikh tuntutan"), L("Bank date", "Tarikh bank"), ...(showStaff ? [L("Staff", "Kakitangan")] : []), L("Type", "Jenis"), L("Category", "Kategori"), L("Amount (RM)", "Amaun (RM)"), L("Approval", "Kelulusan"), L("Finance", "Kewangan"), L("Payroll month", "Bulan gaji")],
     ];
-    for (const c of [...inMonth].sort((a, b) => a.claim_date.localeCompare(b.claim_date))) {
-      const its = itemsOf(c);
-      rows.push([noOf(c), c.claim_date, ...(showStaff ? [properName(c.claimant_full || c.claimant || "")] : []),
+    for (const c of list) {
+      rows.push([c.claim_no, c.claim_date, c.pay_day ?? "", ...(showStaff ? [properName(c.claimant ?? "")] : []),
         c.claim_type === "salary_advance" ? L("Salary advance", "Pendahuluan gaji") : L("Reimbursement", "Bayaran balik"),
-        its.length > 1 ? its.map((i) => catOf(i.category)).join(" / ") : catOf(c.category), c.description ?? "", (c.amount_cents / 100).toFixed(2),
-        c.status, c.paid_at ? c.paid_at.slice(0, 10) : "", c.payroll_month ?? ""]);
+        catOf(c.category), (c.amount_cents / 100).toFixed(2), c.status, c.finance ? financeChip(c.finance)[1] : "", c.payroll_month ?? ""]);
     }
-    rows.push([L("TOTAL", "JUMLAH"), "", ...(showStaff ? [""] : []), "", "", "", (sum(inMonth) / 100).toFixed(2), "", "", ""]);
-    downloadCsv(`claims-${month}`, rows);
+    rows.push([L("TOTAL", "JUMLAH"), "", "", ...(showStaff ? [""] : []), "", "", (list.reduce((a, c) => a + c.amount_cents, 0) / 100).toFixed(2), "", "", ""]);
+    downloadCsv(`claims-${month}-${basis === "claim" ? "claim-date" : "bank-date"}`, rows);
   };
-  const who = (c: OvClaim) => properName(c.claimant_full || c.claimant || "");
 
   return (
     <>
       <div className={css.toolbar}>
         <label className={css.monthPick}>
-          <span className={css.sub}>{L("Month (by claim date)", "Bulan (ikut tarikh tuntutan)")}</span>
+          <span className={css.sub}>{L("Month", "Bulan")}</span>
           <select className={selectClassSm} value={month} onChange={(e) => onMonth(e.target.value)}>
-            {months.map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+            {months.map((mm) => <option key={mm} value={mm}>{monthName(mm)}</option>)}
           </select>
         </label>
-        <button type="button" className={btnSm} disabled={!loaded || inMonth.length === 0} onClick={csv}><AppIcon name="download" />{L("CSV — this month", "CSV — bulan ini")}</button>
+        <div className="erp-segmented" role="group" aria-label={L("Report basis", "Asas laporan")}>
+          <button type="button" aria-pressed={basis === "claim"} onClick={() => setBasis("claim")}>{L("By claim date", "Ikut tarikh tuntutan")}</button>
+          <button type="button" aria-pressed={basis === "bank"} onClick={() => setBasis("bank")}>{L("By bank date", "Ikut tarikh bank")}</button>
+        </div>
+        <button type="button" className={btnSm} disabled={!loaded || list.length === 0} onClick={csv}><AppIcon name="download" />{L("CSV", "CSV")}</button>
       </div>
-      <KpiRow label={L("The month's claims", "Tuntutan bulan ini")}>
-        <KpiTile icon="documents" tone="navy" label={L("Submitted", "Dihantar")} value={fmtRM(sum(submitted))} busy={!loaded} sub={L(`${submitted.length} claims · ${pending.length} pending · ${rejected.length} rejected`, `${submitted.length} tuntutan · ${pending.length} menunggu · ${rejected.length} ditolak`)} />
-        <KpiTile icon="success" tone="green" label={L("Approved", "Diluluskan")} value={fmtRM(sum(approved))} busy={!loaded} sub={L(`${approved.length} claims`, `${approved.length} tuntutan`)} />
-        <KpiTile icon="paid" tone="blue" label={L("Paid", "Dibayar")} value={fmtRM(sum(paid))} busy={!loaded} sub={L(`${paid.length} of ${approved.length} approved`, `${paid.length} daripada ${approved.length} diluluskan`)}
-          bar={{ pct: sum(approved) > 0 ? (sum(paid) / sum(approved)) * 100 : 0, tone: "blue" }} />
-        <KpiTile icon="pending" tone="gold" label={L("Approved, Not Paid", "Diluluskan, Belum Dibayar")} value={fmtRM(sum(due))} busy={!loaded} sub={L(`${due.length} claim${due.length === 1 ? "" : "s"} to pay`, `${due.length} tuntutan untuk dibayar`)} />
-      </KpiRow>
+      {cur?.failed && <p className={css.empty}>{L("The report could not be loaded. Try again in a moment.", "Laporan tidak dapat dimuatkan. Cuba sebentar lagi.")}</p>}
+      {basis === "claim" ? (
+        <KpiRow label={L("The month's claims, by claim date", "Tuntutan bulan ini, ikut tarikh tuntutan")}>
+          <KpiTile icon="documents" tone="navy" label={L("Submitted", "Dihantar")} value={fmtRM(cd?.submitted.cents ?? 0)} busy={!loaded} sub={L(`${cd?.submitted.n ?? 0} claims · ${cd?.pending.n ?? 0} pending · ${cd?.rejected.n ?? 0} rejected`, `${cd?.submitted.n ?? 0} tuntutan · ${cd?.pending.n ?? 0} menunggu · ${cd?.rejected.n ?? 0} ditolak`)} />
+          <KpiTile icon="success" tone="green" label={L("Approved", "Diluluskan")} value={fmtRM(cd?.approved.cents ?? 0)} busy={!loaded} sub={L(`${cd?.approved.n ?? 0} claims`, `${cd?.approved.n ?? 0} tuntutan`)} />
+          <KpiTile icon="paid" tone="blue" label={L("Paid", "Dibayar")} value={fmtRM(cd?.paid.cents ?? 0)} busy={!loaded} sub={L(`${cd?.paid.n ?? 0} of ${cd?.approved.n ?? 0} approved`, `${cd?.paid.n ?? 0} daripada ${cd?.approved.n ?? 0} diluluskan`)}
+            bar={{ pct: (cd?.approved.cents ?? 0) > 0 ? ((cd?.paid.cents ?? 0) / (cd?.approved.cents ?? 1)) * 100 : 0, tone: "blue" }} />
+          <KpiTile icon="pending" tone="gold" label={L("Approved, Not Paid", "Diluluskan, Belum Dibayar")} value={fmtRM(cd?.due.cents ?? 0)} busy={!loaded} sub={L(`${cd?.due.n ?? 0} to pay`, `${cd?.due.n ?? 0} untuk dibayar`)} />
+        </KpiRow>
+      ) : (
+        <KpiRow label={L("The month's payments, by bank date", "Bayaran bulan ini, ikut tarikh bank")}>
+          <KpiTile icon="paid" tone="blue" label={L("Paid out", "Dibayar keluar")} value={fmtRM(d?.by_payment_date.paid.cents ?? 0)} busy={!loaded} sub={L(`${d?.by_payment_date.paid.n ?? 0} payments, by the day the money left`, `${d?.by_payment_date.paid.n ?? 0} bayaran, ikut hari wang keluar`)} />
+          <KpiTile icon="success" tone="green" label={L("Booked in Finance", "Direkod di Kewangan")} value={pays.filter((c) => c.finance === "booked").length} busy={!loaded} sub={L("with a live cash book row", "dengan baris buku tunai yang sah")} />
+          <KpiTile icon="warning" tone="red" label={L("Needs Finance", "Perlu Kewangan")} value={pays.filter((c) => c.finance !== "booked").length} busy={!loaded} sub={L("not booked, or reversed", "belum direkod, atau dibatalkan")} />
+        </KpiRow>
+      )}
 
       <div className={css.split2}>
-        <section className={card} aria-label={L("Approved against paid, by category", "Diluluskan berbanding dibayar, mengikut kategori")}>
-          <Head icon="chart" tone={css.gold} title={L("Approved vs Paid by Category", "Diluluskan vs Dibayar mengikut Kategori")} sub={L("Approved claim lines of the month.", "Baris tuntutan diluluskan bulan ini.")} />
-          <div className={css.tWrap}>
-            <table className={css.t}>
-              <thead><tr><th>{L("Category", "Kategori")}</th><th className={css.num}>{L("Approved", "Diluluskan")}</th><th className={css.num}>{L("Paid", "Dibayar")}</th><th className={css.num}>{L("Still due", "Belum dibayar")}</th></tr></thead>
-              <tbody>
-                {!loaded ? <tr><td colSpan={4}><SkelRows rows={3} /></td></tr>
-                  : byCat.size === 0 ? <tr><td colSpan={4} className={css.empty}>{L("No approved claims dated this month.", "Tiada tuntutan diluluskan bertarikh bulan ini.")}</td></tr>
-                  : [...byCat.entries()].sort((a, b) => b[1].approved - a[1].approved).map(([k, v]) => (
-                    <tr key={k}><td className={css.cap}>{catOf(k)}</td><td className={css.num}>{fmtRM(v.approved)}</td><td className={css.num}>{fmtRM(v.paid)}</td><td className={css.num}>{fmtRM(v.approved - v.paid)}</td></tr>
-                  ))}
-              </tbody>
-              {loaded && byCat.size > 0 && <tfoot><tr><td>{L("Total", "Jumlah")}</td><td className={css.num}>{fmtRM(sum(approved))}</td><td className={css.num}>{fmtRM(sum(paid))}</td><td className={css.num}>{fmtRM(sum(due))}</td></tr></tfoot>}
-            </table>
-          </div>
-        </section>
+        {basis === "claim" ? (
+          <section className={card} aria-label={L("Approved against paid, by category", "Diluluskan berbanding dibayar, mengikut kategori")}>
+            <Head icon="chart" tone={css.gold} title={L("Approved vs Paid by Category", "Diluluskan vs Dibayar mengikut Kategori")} sub={L("Approved claim lines dated this month.", "Baris tuntutan diluluskan bertarikh bulan ini.")} />
+            <div className={css.tWrap}>
+              <table className={css.t}>
+                <thead><tr><th>{L("Category", "Kategori")}</th><th className={css.num}>{L("Approved", "Diluluskan")}</th><th className={css.num}>{L("Paid", "Dibayar")}</th><th className={css.num}>{L("Still due", "Belum dibayar")}</th></tr></thead>
+                <tbody>
+                  {!loaded ? <tr><td colSpan={4}><SkelRows rows={3} /></td></tr>
+                    : (cd?.categories.length ?? 0) === 0 ? <tr><td colSpan={4} className={css.empty}>{L("No approved claims dated this month.", "Tiada tuntutan diluluskan bertarikh bulan ini.")}</td></tr>
+                    : cd!.categories.map((v) => (
+                      <tr key={v.category}><td className={css.cap}>{catOf(v.category)}</td><td className={css.num}>{fmtRM(v.approved_cents)}</td><td className={css.num}>{fmtRM(v.paid_cents)}</td><td className={css.num}>{fmtRM(v.approved_cents - v.paid_cents)}</td></tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : (
+          <section className={card} aria-label={L("How the payments are recorded", "Cara bayaran direkod")}>
+            <Head icon="info" tone={css.blue} title={L("Bank date", "Tarikh bank")} sub={L("A payment counts in the month the money left the bank - the date given with Mark paid, kept on the claim's one cash book row. A reversed row is shown as reversed, never as paid.", "Bayaran dikira pada bulan wang keluar dari bank - tarikh yang diberi dengan Tanda dibayar, disimpan pada satu baris buku tunai tuntutan. Baris yang dibatalkan ditunjuk sebagai dibatalkan, bukan dibayar.")} />
+          </section>
+        )}
 
         <section className={card} aria-label={L("Salary advances", "Pendahuluan gaji")}>
-          <Head icon="money" tone={css.purple} title={L("Salary Advances", "Pendahuluan Gaji")} sub={L(`Recovered from the ${monthName(month)} payslip - the payroll run deducts them.`, `Dipotong daripada slip gaji ${monthName(month)} - larian gaji memotongnya.`)} />
-          {!loaded ? <SkelRows rows={2} /> : advances.length === 0 ? (
+          <Head icon="money" tone={css.purple} title={L("Salary Advances", "Pendahuluan Gaji")} sub={L(`Recovered by Payroll from the ${monthName(month)} payslip.`, `Dipotong oleh Gaji daripada slip gaji ${monthName(month)}.`)} />
+          {!loaded ? <SkelRows rows={2} /> : (d?.advances.length ?? 0) === 0 ? (
             <p className={css.empty}>{L("No salary advance is recovered from this month's payroll.", "Tiada pendahuluan gaji dipotong daripada gaji bulan ini.")}</p>
           ) : (
             <ul className={css.rows}>
-              {advances.map((c) => {
+              {d!.advances.map((c) => {
                 const ap = approvalChip(c.status);
                 return (
                   <li key={c.id} className={css.row}>
-                    <span className={css.rowMain}><span className={css.name}>{showStaff ? who(c) : noOf(c)}</span><span className={css.sub}>{showStaff ? `${noOf(c)} · ` : ""}{L("asked", "dipohon")} {dmy(c.claim_date)}</span></span>
+                    <span className={css.rowMain}><span className={css.name}>{showStaff ? properName(c.claimant ?? "") : c.claim_no}</span><span className={css.sub}>{showStaff ? `${c.claim_no} · ` : ""}{L("asked", "dipohon")} {dmy(c.claim_date)}</span></span>
                     <span className={ap[0]}>{ap[1]}</span>
                     <span className={c.paid_at ? chipSmInfo : chipSmNeutral}>{c.paid_at ? L("Paid out", "Dibayar") : L("Not paid out", "Belum dibayar")}</span>
                     <span className={css.num}>{fmtRM(c.amount_cents)}</span>
@@ -336,29 +379,42 @@ export function ClaimsReports({ scope, month, months, onMonth, loaded, showStaff
         </section>
       </div>
 
-      <section className={card} aria-label={L("Payment records", "Rekod bayaran")}>
-        <Head icon="paid" tone={css.blue} title={L("Payment Records", "Rekod Bayaran")} sub={L(`Claims paid in ${monthName(month)}, by the day the payment was released.`, `Tuntutan dibayar pada ${monthName(month)}, ikut hari bayaran dilepaskan.`)} />
+      <section className={card} aria-label={basis === "claim" ? L("Claims of the month", "Tuntutan bulan ini") : L("Payment records", "Rekod bayaran")} data-testid="claims-report-list">
+        <Head icon="paid" tone={css.blue} title={basis === "claim" ? L("Claims of the Month", "Tuntutan Bulan Ini") : L("Payment Records", "Rekod Bayaran")}
+          sub={basis === "claim" ? L(`Claims dated ${monthName(month)}, with the bank date of any payment.`, `Tuntutan bertarikh ${monthName(month)}, dengan tarikh bank bagi sebarang bayaran.`) : L(`Payments whose money left the bank in ${monthName(month)}.`, `Bayaran yang wangnya keluar dari bank pada ${monthName(month)}.`)} />
         <div className={css.tWrap}>
           <table className={css.t}>
-            <thead><tr><th>{L("Paid on", "Dibayar pada")}</th><th>{L("Claim No.", "No. Tuntutan")}</th>{showStaff && <th>{L("Staff", "Kakitangan")}</th>}<th>{L("Claim date", "Tarikh tuntutan")}</th><th className={css.num}>{L("Amount", "Amaun")}</th><th>{L("Proof", "Bukti")}</th><th /></tr></thead>
+            <thead><tr>
+              {basis === "bank" && <th>{L("Bank date", "Tarikh bank")}</th>}
+              <th>{L("Claim No.", "No. Tuntutan")}</th>{showStaff && <th>{L("Staff", "Kakitangan")}</th>}<th>{L("Claim date", "Tarikh tuntutan")}</th>
+              <th className={css.num}>{L("Amount", "Amaun")}</th>{basis === "claim" && <th>{L("Approval", "Kelulusan")}</th>}{basis === "claim" && <th>{L("Bank date", "Tarikh bank")}</th>}
+              <th>{L("Finance", "Kewangan")}</th><th>{L("Proof", "Bukti")}</th><th />
+            </tr></thead>
             <tbody>
-              {!loaded ? <tr><td colSpan={7}><SkelRows rows={3} /></td></tr>
-                : payments.length === 0 ? <tr><td colSpan={7} className={css.empty}>{L("No claim payments released this month.", "Tiada bayaran tuntutan dilepaskan bulan ini.")}</td></tr>
-                : payments.map((c) => (
-                  <tr key={c.id}>
-                    <td className={css.muted}>{dmy((c.paid_at ?? "").slice(0, 10))}</td>
-                    <td className={css.mono}>{noOf(c)}</td>
-                    {showStaff && <td className={css.name}>{who(c) || "—"}</td>}
-                    <td className={css.muted}>{dmy(c.claim_date)}</td>
-                    <td className={css.num}>{fmtRM(c.amount_cents)}</td>
-                    <td>{c.payment_proof_key && canSeeProof(c)
-                      ? <button type="button" className={btnSm} onClick={() => openProof(c)}>{L("Payment proof", "Bukti bayaran")}</button>
-                      : <span className={c.payment_proof_key ? chipSmSuccess : chipSmWarn}>{c.payment_proof_key ? L("Attached", "Dilampirkan") : L("No proof yet", "Tiada bukti lagi")}</span>}</td>
-                    <td><button type="button" className={btnSm} onClick={() => onView(c)}>{L("View", "Lihat")}</button></td>
-                  </tr>
-                ))}
+              {!loaded ? <tr><td colSpan={9}><SkelRows rows={3} /></td></tr>
+                : list.length === 0 ? <tr><td colSpan={9} className={css.empty}>{basis === "claim" ? L("No claims dated this month.", "Tiada tuntutan bertarikh bulan ini.") : L("No claim payments left the bank this month.", "Tiada bayaran tuntutan keluar dari bank bulan ini.")}</td></tr>
+                : list.map((c) => {
+                  const ap = approvalChip(c.status);
+                  const fin = c.finance ? financeChip(c.finance) : null;
+                  return (
+                    <tr key={c.id}>
+                      {basis === "bank" && <td className={css.muted}>{c.pay_day ? dmy(c.pay_day) : "—"}</td>}
+                      <td className={css.mono}>{c.claim_no}</td>
+                      {showStaff && <td className={css.name}>{properName(c.claimant ?? "") || "—"}</td>}
+                      <td className={css.muted}>{dmy(c.claim_date)}</td>
+                      <td className={css.num}>{fmtRM(c.amount_cents)}</td>
+                      {basis === "claim" && <td><span className={ap[0]}>{c.status === "approved" && !c.paid_at ? L("Payment due", "Bayaran perlu dibuat") : ap[1]}</span></td>}
+                      {basis === "claim" && <td className={css.muted}>{c.pay_day ? dmy(c.pay_day) : "—"}</td>}
+                      <td>{fin ? <span className={fin[0]}>{fin[1]}</span> : <span className={css.muted}>—</span>}</td>
+                      <td>{c.proof && canSeeProof(c)
+                        ? <button type="button" className={btnSm} onClick={() => openProof(c.id)}>{L("Payment proof", "Bukti bayaran")}</button>
+                        : c.paid_at ? <span className={c.proof ? chipSmSuccess : chipSmWarn}>{c.proof ? L("Attached", "Dilampirkan") : L("No proof yet", "Tiada bukti lagi")}</span> : <span className={css.muted}>—</span>}</td>
+                      <td><button type="button" className={btnSm} onClick={() => onView(c.id)}>{L("View", "Lihat")}</button></td>
+                    </tr>
+                  );
+                })}
             </tbody>
-            {loaded && payments.length > 0 && <tfoot><tr><td colSpan={showStaff ? 4 : 3}>{L("Total paid", "Jumlah dibayar")}</td><td className={css.num}>{fmtRM(sum(payments))}</td><td colSpan={2} /></tr></tfoot>}
+            {loaded && list.length > 0 && <tfoot><tr><td colSpan={(basis === "bank" ? 2 : 1) + (showStaff ? 1 : 0) + 1}>{L("Total", "Jumlah")}</td><td className={css.num}>{fmtRM(list.reduce((a, c) => a + c.amount_cents, 0))}</td><td colSpan={basis === "claim" ? 5 : 3} /></tr></tfoot>}
           </table>
         </div>
       </section>

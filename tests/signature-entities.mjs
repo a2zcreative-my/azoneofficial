@@ -194,8 +194,11 @@ const a = grab(staff), b = grab(index);
 ok("staff.ts and index.ts resolve identically", !!a && a === b, `${a} vs ${b}`);
 
 /* ---- 6. the step-up gates the signature, not the click --------------- */
-ok("a claim APPROVAL asks for a live code",
-   /if \(action === "approve"\) \{\s*\n\s*const stepUp = await requireFreshTotp/.test(staff));
+/* v1.310.0 (Claims 4.0, C-3, approved 15-11-2026): the approval still asks
+   for a live code, and the rejection now does too - the gate is unconditional
+   in the decide route, after the decider and self checks */
+ok("a claim APPROVAL (and, since v1.310.0, a rejection) asks for a live code",
+   /a REJECTION too - both are the\s*\n\s*decision\. \*\/\s*\n\s*\{\s*\n\s*const stepUp = await requireFreshTotp\(env, user, body\?\.totp, err\);/.test(staff));
 ok("the final leave approval asks for a live code",
    /willBeFinal[\s\S]{0,120}requireFreshTotp/.test(staff));
 ok("only the approval that carries the chop is gated",
