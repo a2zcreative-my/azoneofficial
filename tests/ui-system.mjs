@@ -38,6 +38,11 @@ const FILES = {
   tasks: "components/portal/tasks.tsx", tasks5: "components/portal/tasks5.tsx",
   t2Css: "components/portal/tasks2.module.css", t5Css: "components/portal/tasks5.module.css",
   guards: "scripts/run-guards.mjs",
+  /* v1.324.0 - Phase D, group 1: Sales, Payroll, Finance */
+  sales: "components/portal/sales.tsx", salesShell: "components/portal/sales-shell.tsx", salesWs: "components/portal/sales-workspace.tsx",
+  salesEnq: "components/portal/sales-enquiries.tsx", payments: "components/portal/payments-panel.tsx", qa: "components/portal/quote-approval.tsx",
+  payroll: "components/portal/payroll-panel.tsx", finance: "components/portal/finance-panels.tsx", lineTabs: "components/ui/line-tabs.tsx",
+  dashCss: "components/portal/dashboard-overview.module.css",
 };
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 const block = (css, sel) => { const i = css.indexOf(`${sel} {`); return i < 0 ? "" : css.slice(i, css.indexOf("}", i) + 1); };
@@ -68,7 +73,7 @@ const scan = {
 };
 /* the ratchets: today's counts (16-11-2026, after the Phase C pilot). They may only fall:
    Phase D moves each screen onto LineTabs / PillSwitch and lowers them. */
-const BUDGET = { tablists: 18, switchRules: 49 };
+const BUDGET = { tablists: 15, switchRules: 45 }; // v1.324.0 - Phase D group 1 (Sales, Payroll, Finance): 18 -> 15, 49 -> 45
 
 function checks(src, sc) {
   const res = [];
@@ -114,6 +119,21 @@ function checks(src, sc) {
   ok("Tasks: the Overview's queue and the panel beside it each fill; the pager stays outside", /<FillPanel testid="overview-fill"><OverviewTable /.test(src.tasks) && /<FillPanel testid="overview-panel-body" className=\{t2\.railBody\}>/.test(src.tasks) && src.tasks.indexOf('testid="overview-fill"') < src.tasks.indexOf('<PaginationControls testid="overview-pages"'));
   ok("Desk: the inbox and Completed fill the panel; the pager stays outside it", (src.desk.match(/<FillPanel testid="(inbox|done)-panel">/g) ?? []).length === 2 && src.desk.indexOf('testid="inbox-panel"') < src.desk.indexOf("className={css.pager}"));
 
+  /* ---- Phase D, group 1 (v1.324.0): Sales, Payroll, Finance ---- */
+  const g1 = [src.sales, src.salesShell, src.salesWs, src.salesEnq, src.payments, src.payroll, src.finance].map(strip);
+  ok("group 1 draws no tab row by hand and no pressed-button switch of its own", g1.every((c) => !/role="tablist"/.test(c)) && ![src.salesWs, src.salesEnq, src.finance].some((c) => /role="group" aria-label=\{L\("(Period|Which enquiries|Kind)"/.test(c)));
+  ok("its sub-tabs are LineTabs, keeping their test ids", /<LineTabs label=\{L\("Documents", "Dokumen"\)\} testid="docs-tab"/.test(src.sales) && /<LineTabs label=\{L\("Customers and follow-ups"[^>]*testid="cust"/.test(src.salesShell) && /<LineTabs label=\{L\("Payments", "Bayaran"\)\} value=\{tab\} onChange=\{setTab\} testid="pay-tab"/.test(src.payments) && /data-testid=\{testid \? `\$\{testid\}-\$\{k\}` : undefined\}/.test(src.lineTabs));
+  ok("its view switches are PillSwitch (the closed-sales period, which enquiries, the kind of transaction with its reason when it cannot be chosen)", /<PillSwitch testid="closed-period"/.test(src.salesWs) && /<PillSwitch testid="enq-view"/.test(src.salesEnq) && /<PillSwitch testid="add-kind"[\s\S]{0,400}?disabled=\{banks\.length < 2 \?/.test(src.finance) && /disabled=\{disabled\?\.\[k\] != null\} title=\{disabled\?\.\[k\] \?\? undefined\}/.test(src.panel));
+  ok("its inline forms open in the drawer with the same fields and routes (the approval limit, the base salaries, Add Expense)",
+    /<SideDrawer open=\{open\}[\s\S]{0,200}?dirty="auto"/.test(src.qa) && /\/staff\/quotes\/approval\/limit`, \{ method: "PUT"/.test(src.qa)
+    && /<SideDrawer open=\{baseOpen\}[\s\S]{0,200}?dirty="auto"/.test(src.payroll) && /api\(`\/payroll\/base`, \{ method: "POST"/.test(src.payroll)
+    && /<SideDrawer open=\{openForm\}[\s\S]{0,200}?dirty="auto"/.test(src.finance) && /staffApi<[^>]*>\(`\/expenses`, \{ method: "POST"/.test(src.finance) && !/<details[^>]*data-testid="expense-form"/.test(src.finance));
+  ok("its long lists fill the screen on a desktop (documents, worklist, payroll grid and history, ledger, months)", /<FillPanel testid="docs-fill">/.test(src.sales) && (src.salesShell.match(/<FillPanel>/g) ?? []).length === 2
+    && /<FillPanel id="payroll-table" testid="payroll-fill" className=\{`erp-table-scroll/.test(src.payroll) && /<FillPanel testid="payroll-history-fill"/.test(src.payroll)
+    && /<FillPanel testid="tx-fill"/.test(src.finance) && /<FillPanel testid="report-months-fill"/.test(src.finance));
+  ok("Reconciliation's two figures are the one KPI strip", /<KpiRow label=\{L\("Reconciliation figures"[^>]*testid="recon-figures">/.test(src.finance) && !/bigTile|bigNum/.test(src.finance));
+  ok("the Dashboard's cards sit 12px apart on a desktop (the CEO: tighten so it fits)", /@media \(min-width: 1024px\) \{\s*\.page\.page,[^{]*\.page > \.grid \{\s*gap: var\(--space-3\);/.test(src.dashCss));
+
   /* ---- the house rules ---- */
   const mine = [src.kpiCss, src.panelCss, src.fillCss];
   ok("tokens only in the shared pieces", mine.every((c) => !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(c)));
@@ -158,6 +178,13 @@ const MUT = [
   ["the inbox no longer fills", "desk", '<FillPanel testid="inbox-panel">', "<div>"],
   ["a literal colour in the strip", "kpiCss", "background: var(--card);\n  border: 1px solid var(--border);", "background: #ffffff;\n  border: 1px solid var(--border);"],
   ["a breakpoint of its own", "kpiCss", "@media (max-width: 767px) {\n  .tile", "@media (max-width: 700px) {\n  .tile"],
+  ["a Payments tab row by hand again", "payments", '<LineTabs label={L("Payments", "Bayaran")} value={tab} onChange={setTab} testid="pay-tab"', '<div role="tablist" /><LineTabs label={L("Payments", "Bayaran")} value={tab} onChange={setTab} testid="pay-tab"'],
+  ["the period switch by hand again", "salesWs", '<PillSwitch testid="closed-period"', '<div role="group" aria-label={L("Period", "Tempoh")} /><PillSwitch testid="closed-period"'],
+  ["Add Expense back on the page", "finance", '<SideDrawer open={openForm}', '<SideDrawer open={true}'],
+  ["the base salaries drawer without its warning", "payroll", '<SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); }} dirty="auto"', '<SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); }}'],
+  ["the payroll grid no longer fills", "payroll", '<FillPanel id="payroll-table"', '<FillPanel data-x="1" id="payroll-table"'],
+  ["a disabled option with no reason", "panel", "title={disabled?.[k] ?? undefined}", ""],
+  ["the Dashboard's 16px gap back", "dashCss", "gap: var(--space-3);\n  }\n}", "gap: var(--space-4);\n  }\n}"],
   ["the page frame hides a spill", "globals", ".erp-workspace {", ".erp-workspace { overflow-x: hidden; } .erp-workspace {"],
 ];
 let caught = 0;

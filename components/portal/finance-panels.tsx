@@ -35,9 +35,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.324.0 - D-4
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { SideDrawer } from "@/components/ui/side-drawer";
+import { PillSwitch } from "@/components/ui/panel";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
@@ -665,7 +667,8 @@ function Transactions({ v, periodPick, period, onOpen, onAdd }: { v: CashbookVie
       <section className={card} aria-label={L("Transactions", "Transaksi")} data-testid="finance-transactions">
         {!v ? <SkelRows rows={6} /> : shown.length === 0 ? <p className={fx.empty}>{L("No money moved for these filters in this period.", "Tiada wang bergerak untuk penapis ini dalam tempoh ini.")}</p> : (
           <>
-            <div className={`${fx.tWrap} ${fx.deskOnly}`}>
+            {/* v1.324.0 (Global UI System D-4) - the ledger fills the screen on a desktop and scrolls inside, its header pinned */}
+            <FillPanel testid="tx-fill" className={`${fx.tWrap} ${fx.deskOnly} ${fx.pinHead}`}>
               <table className={fx.t}>
                 <thead><tr>
                   <th><button type="button" className={fx.sortBtn} onClick={() => setAsc((a) => !a)} aria-label={L("Sort by date", "Isih ikut tarikh")}>{L("Date", "Tarikh")} <span aria-hidden>{asc ? "↑" : "↓"}</span></button></th>
@@ -686,7 +689,7 @@ function Transactions({ v, periodPick, period, onOpen, onAdd }: { v: CashbookVie
                   </tr>
                 ))}</tbody>
               </table>
-            </div>
+            </FillPanel>
             <ul className={`${fx.cards} ${fx.phoneOnly}`} data-testid="tx-cards">{rows.map((i) => (
               <li key={i.key}><button type="button" className={fx.cardBtn} onClick={() => onOpen(i)}>
                 <span className={fx.cardTop}><span className={fx.num}>{dmy(i.date)}</span><strong className={i.type === "in" ? fx.pos : fx.neg}>{i.type === "in" ? L("In", "Masuk") : L("Out", "Keluar")} {fmtRM(i.amount_cents)}</strong></span>
@@ -846,10 +849,10 @@ function AddDrawer({ view, company, onClose, onSaved, onError }: { view: Cashboo
       subtitle={L("Only money the system cannot see: capital in, cash top-ups, transfers between one company's accounts. Sales, claims, payroll, commission and expenses book themselves.", "Hanya wang yang sistem tidak nampak: modal masuk, tambah nilai tunai, pindahan antara akaun satu syarikat. Jualan, tuntutan, gaji, komisen dan perbelanjaan direkod sendiri.")}
       footer={<div className={css.drawerFoot}><button type="button" className={btnClass} disabled={busy || !ready} onClick={() => void save()} data-testid="add-save">{confirmDup ? L("Save anyway", "Simpan juga") : L("Save", "Simpan")}</button></div>}>
       <div className={css.form}>
-        <div className={css.seg} role="group" aria-label={L("Kind", "Jenis")}>
-          <button type="button" aria-pressed={mode === "move"} onClick={() => setMode("move")}>{L("Money in or out", "Tunai masuk atau keluar")}</button>
-          <button type="button" aria-pressed={mode === "transfer"} onClick={() => setMode("transfer")} disabled={banks.length < 2} title={banks.length < 2 ? L("Needs two accounts of one company", "Perlu dua akaun satu syarikat") : undefined}>{L("Transfer between accounts", "Pindahan antara akaun")}</button>
-        </div>
+        {/* v1.324.0 (Global UI System D-2) - the one switch */}
+        <PillSwitch testid="add-kind" label={L("Kind", "Jenis")} value={mode} onChange={setMode}
+          options={[["move", L("Money in or out", "Tunai masuk atau keluar")], ["transfer", L("Transfer between accounts", "Pindahan antara akaun")]] as const}
+          disabled={banks.length < 2 ? { transfer: L("Needs two accounts of one company", "Perlu dua akaun satu syarikat") } : undefined} />
         <label><span className={fieldLabel}>{L("Company", "Syarikat")}</span>
           <select className={inputClass} value={d.company} onChange={(e) => setD((x) => ({ ...x, company: e.target.value, bank_id: "", from: "", to: "" }))} data-testid="add-company">
             <option value="">{L("Choose…", "Pilih…")}</option><option value="a2z">{COMPANY.a2z}</option><option value="azoo">{COMPANY.azoo}</option>
@@ -1142,8 +1145,9 @@ function AddExpense({ v, company, toast, onSaved }: { v: CashbookView | null; co
   if (seenCo !== company) { setSeenCo(company); setD((x) => ({ ...x, company: company === "all" ? x.company : company, bank_id: "" })); }
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  /* the form is open on a desktop; on a phone it is one tap away (the screen's one primary action) */
-  const [openForm, setOpenForm] = useState(() => typeof window === "undefined" || window.matchMedia("(min-width: 768px)").matches);
+  /* v1.324.0 (Global UI System, inline forms to drawers) - the form opens on demand in the drawer,
+     on a desktop and a phone alike; the fields, the checks and the POST are unchanged */
+  const [openForm, setOpenForm] = useState(false);
   const banks = (v?.banks ?? []).filter((b) => b.active && b.company === d.company);
   const ready = d.description.trim() && d.category && Number(d.amount) > 0 && d.expense_date && d.company;
   const save = async () => {
@@ -1154,12 +1158,16 @@ function AddExpense({ v, company, toast, onSaved }: { v: CashbookView | null; co
       if (!up?.ok) toast(L("Recorded - evidence not attached", "Direkod - bukti tidak dilampirkan"), L("Attach it at payment", "Lampirkan semasa bayaran"), "notice");
     }
     setBusy(false);
-    if (r.ok) { toast(L("Expense recorded", "Perbelanjaan direkod"), L("Awaiting approval - nothing is paid yet", "Menunggu kelulusan - belum dibayar")); setD(blank(company === "all" ? "" : company)); setFile(null); onSaved(); }
+    if (r.ok) { toast(L("Expense recorded", "Perbelanjaan direkod"), L("Awaiting approval - nothing is paid yet", "Menunggu kelulusan - belum dibayar")); setD(blank(company === "all" ? "" : company)); setFile(null); setOpenForm(false); onSaved(); }
     else toast(L("Not recorded", "Tidak direkod"), r.data?.error?.message ?? L("Check the fields", "Semak medan"), "notice");
   };
   return (
-    <details className={`${card} ${fx.formFold}`} aria-label={L("Add Expense", "Tambah Perbelanjaan")} data-testid="expense-form" open={openForm} onToggle={(e) => setOpenForm((e.currentTarget as HTMLDetailsElement).open)}>
-      <summary className={fx.formSummary}><CardHead icon="document" title={L("Add Expense", "Tambah Perbelanjaan")} aside={<span className={fx.phoneOnly}><AppIcon name={openForm ? "expand" : "add"} /></span>} /></summary>
+    <section className={card} aria-label={L("Add Expense", "Tambah Perbelanjaan")} data-testid="expense-form">
+      <CardHead icon="document" title={L("Add Expense", "Tambah Perbelanjaan")}
+        aside={<button type="button" className={btnSmPrimary} onClick={() => setOpenForm(true)} data-testid="expense-open"><AppIcon name="add" />{L("Add expense", "Tambah perbelanjaan")}</button>} />
+      <SideDrawer open={openForm} onClose={() => setOpenForm(false)} dirty="auto" wide title={L("Add Expense", "Tambah Perbelanjaan")}
+        subtitle={L("Recording never books cash: it waits for approval and payment.", "Merekod tidak membuku tunai: ia menunggu kelulusan dan bayaran.")}>
+      <div className={fx.drawerForm}>
       <div className={fx.formRow}>
         <label className={fx.f2}><span className={fieldLabel}>{L("Description", "Keterangan")} *</span><input className={inputClass} placeholder={L("e.g. Office rental, software", "cth. Sewa pejabat, perisian")} value={d.description} onChange={(e) => setD((x) => ({ ...x, description: e.target.value }))} data-testid="expense-description" /></label>
         <label><span className={fieldLabel}>{L("Category", "Kategori")} *</span>
@@ -1181,7 +1189,9 @@ function AddExpense({ v, company, toast, onSaved }: { v: CashbookView | null; co
           <button type="button" className={btnSmPrimary} disabled={busy || !ready} onClick={() => void save()} data-testid="expense-record">{L("Record Expense", "Rekod Perbelanjaan")}</button>
         </span>
       </div>
-    </details>
+      </div>
+      </SideDrawer>
+    </section>
   );
 }
 
@@ -1281,16 +1291,14 @@ function Reconciliation({ v, onReverse, onReview, onAccept, onBank, onBulk, onSe
   return (
     <div className={fx.stack} data-testid="finance-recon">
       <Banner tone="info">{L("Compares cash book entries with their source records and flags out-of-step records (mismatches) for your review and action. No bank statement is imported: this is not bank-statement reconciliation.", "Membandingkan catatan buku tunai dengan rekod sumbernya dan menanda rekod tidak sepadan untuk semakan dan tindakan anda. Tiada penyata bank diimport: ini bukan penyelarasan penyata bank.")}</Banner>
-      <div className={fx.split2}>
-        <section className={`${card} ${fx.bigTile}`} data-testid="recon-mismatch-count">
-          <span className={`${fx.bigIcon} ${fx.toneBad}`} aria-hidden><AppIcon name="warning" /></span>
-          <span className={fx.bigText}><small>{L("Out of Step (Mismatch)", "Tidak Sepadan")}</small><strong className={fx.bigNum}>{mism.length}</strong><small className={fx.muted}>{L("Cash book entries that do not match their source record.", "Catatan buku tunai yang tidak sepadan dengan rekod sumbernya.")}</small></span>
-        </section>
-        <section className={`${card} ${fx.bigTile}`} data-testid="recon-difference">
-          <span className={`${fx.bigIcon} ${fx.toneWarn}`} aria-hidden><AppIcon name="money" /></span>
-          <span className={fx.bigText}><small>{L("Total Difference", "Jumlah Perbezaan")}</small><strong className={`${fx.bigNum} ${v.totals.difference_cents < 0 ? fx.neg : v.totals.difference_cents > 0 ? fx.pos : ""}`} data-testid="recon-difference-value">{fmtSigned(v.totals.difference_cents)}</strong><small className={fx.muted}>{L("Source − cash book, over the amount mismatches. Negative: the cash book holds more.", "Sumber − buku tunai, bagi ketidaksepadanan amaun. Negatif: buku tunai memegang lebih.")}</small></span>
-        </section>
-      </div>
+      {/* v1.324.0 (Global UI System R-1) - the two figures are the one KPI strip */}
+      <KpiRow label={L("Reconciliation figures", "Angka penyelarasan")} testid="recon-figures">
+        <KpiTile testid="recon-mismatch-count" icon="warning" tone="red" label={L("Out of Step (Mismatch)", "Tidak Sepadan")} value={mism.length}
+          sub={L("Cash book entries that do not match their source record.", "Catatan buku tunai yang tidak sepadan dengan rekod sumbernya.")} />
+        <KpiTile testid="recon-difference" icon="money" tone={v.totals.difference_cents === 0 ? "green" : "gold"} label={L("Total Difference", "Jumlah Perbezaan")}
+          value={<span className={v.totals.difference_cents < 0 ? fx.neg : v.totals.difference_cents > 0 ? fx.pos : ""} data-testid="recon-difference-value">{fmtSigned(v.totals.difference_cents)}</span>}
+          sub={L("Source − cash book, over the amount mismatches. Negative: the cash book holds more.", "Sumber − buku tunai, bagi ketidaksepadanan amaun. Negatif: buku tunai memegang lebih.")} />
+      </KpiRow>
       <section className={card} aria-label={L("Out of Step Records", "Rekod Tidak Sepadan")} data-testid="recon-records">
         <CardHead icon="database" title={L(`Out of Step Records (${mism.length})`, `Rekod Tidak Sepadan (${mism.length})`)} aside={notBooked && v.can_correct ? <button type="button" className={btnSmPrimary} onClick={onBook}>{L("Book all missing", "Rekod semua yang tiada")}</button> : undefined} />
         {mism.length === 0 ? <p className={fx.empty}>{L("Nothing out of step. Every movement matches its record.", "Tiada yang tidak sepadan. Setiap pergerakan sepadan dengan rekodnya.")}</p> : (
@@ -1477,7 +1485,7 @@ function Reports({ v, period, periodPick }: { v: CashbookView | null; period: { 
           })}</ul>
         )}
         {kind === "monthly" && (
-          <div className={`${fx.tWrap} ${fx.deskOnly}`}>
+          <FillPanel testid="report-months-fill" className={`${fx.tWrap} ${fx.deskOnly} ${fx.pinHead}`}>
             <table className={fx.t}>
               <thead><tr><th>{L("Month", "Bulan")}</th><th className={fx.r}>{L("Money In", "Tunai Masuk")}</th><th className={fx.r}>{L("Money Out", "Tunai Keluar")}</th><th className={fx.r}>{L("Net Cash Movement", "Pergerakan Tunai Bersih")}</th></tr></thead>
               <tbody>{months.map((m) => {
@@ -1485,7 +1493,7 @@ function Reports({ v, period, periodPick }: { v: CashbookView | null; period: { 
                 return <tr key={m.month}><td>{monthWord(m.month)}</td><td className={`${fx.r} ${fx.num}`}>{fmtRM(m.in_cents)}</td><td className={`${fx.r} ${fx.num}`}>{fmtRM(m.out_cents)}</td><td className={fx.r}><span className={net > 0 ? fx.goodPill : net < 0 ? fx.badPill : fx.zeroPill}>{fmtSigned(net)}</span></td></tr>;
               })}</tbody>
             </table>
-          </div>
+          </FillPanel>
         )}
         {kind === "in_category" && catTable("in")}
         {kind === "out_category" && catTable("out")}

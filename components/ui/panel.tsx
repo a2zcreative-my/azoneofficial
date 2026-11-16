@@ -76,15 +76,18 @@ export function WorkspaceGrid({ main, rail, testid }: { main: ReactNode; rail: R
     quiet track, the chosen one raised white. Other records are a tab (LineTabs),
     never this. An option may carry an icon; `pressed: false` marks a jump (a
     button that opens another view instead of switching this one). */
-export function PillSwitch<T extends string>({ value, options, onChange, label, testid, counts }: {
+export function PillSwitch<T extends string>({ value, options, onChange, label, testid, counts, disabled }: {
   value: T; options: readonly (readonly [T, string] | readonly [T, string, AppIconName])[]; onChange: (v: T) => void; label: string; testid?: string;
   /** a figure beside an option (the Desk inbox's filters); null or missing shows none */
   counts?: Partial<Record<T, number | null>>;
+  /** v1.324.0 - an option that cannot be chosen now, with the reason (its title) */
+  disabled?: Partial<Record<T, string>>;
 }) {
   return (
     <span className={css.pills} role="group" aria-label={label} data-testid={testid}>
       {options.map(([k, text, icon]) => (
-        <button key={k} type="button" aria-pressed={k === value} onClick={() => onChange(k)} data-testid={testid ? `${testid}-${k}` : undefined}>{icon && <AppIcon name={icon} />}{text}{counts?.[k] != null && <span className={css.pillN}>{counts[k]}</span>}</button>
+        <button key={k} type="button" aria-pressed={k === value} onClick={() => onChange(k)} data-testid={testid ? `${testid}-${k}` : undefined}
+          disabled={disabled?.[k] != null} title={disabled?.[k] ?? undefined}>{icon && <AppIcon name={icon} />}{text}{counts?.[k] != null && <span className={css.pillN}>{counts[k]}</span>}</button>
       ))}
     </span>
   );

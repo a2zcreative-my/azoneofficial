@@ -85,82 +85,8 @@
   gap: 0.5rem;
 }
 
-/* ---- the four tabs: navy pills; a phone's segmented row ---- */
-.tabs {
-  display: flex;
-  gap: 0.375rem;
-  padding: 0.5rem;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 2.5rem;
-  padding: 0 1rem;
-  border: 0;
-  border-radius: var(--radius-full);
-  background: none;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.tab:hover {
-  background: var(--surface-hover);
-}
-.tab[aria-selected="true"] {
-  background: var(--brand-primary);
-  color: var(--primary-foreground);
-  font-weight: 600;
-}
-.tab:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-.tabN {
-  min-width: 1.25rem;
-  padding: 0 0.375rem;
-  border-radius: var(--radius-full);
-  background: var(--secondary);
-  color: var(--foreground);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  line-height: 1.25rem;
-  text-align: center;
-}
-.tab[aria-selected="true"] .tabN {
-  background: var(--card);
-  color: var(--brand-primary);
-}
-@media (max-width: 767px) {
-  .tabs {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.25rem;
-    padding: 0.25rem;
-    background: var(--secondary);
-  }
-  .tab {
-    min-height: 2.75rem;
-    padding: 0 0.25rem;
-    border-radius: var(--radius-control);
-    gap: 0.25rem;
-  }
-  .tab[aria-selected="true"] {
-    background: var(--card);
-    color: var(--foreground);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--brand-primary) 14%, transparent);
-  }
-  .tab[aria-selected="true"] .tabN {
-    background: var(--secondary);
-    color: var(--foreground);
-  }
-}
+/* v1.324.0 - the four tabs are the one tab row (components/ui/line-tabs.tsx) */
+
 
 /* ---- a section and its bar ---- */
 .sec {

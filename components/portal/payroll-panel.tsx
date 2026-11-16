@@ -1,5 +1,6 @@
 "use client";
 import { StageTimeline } from "@/components/ui/stage-timeline"; // v1.252.0 - one timeline for Payroll and Leave
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.324.0 - D-4
 import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openPrintPreview } from "@/components/ui/document-preview";
 
@@ -756,6 +757,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [base, setBase] = useState<Record<number, number>>({});
   const baseRef = useRef<Record<number, number>>({}); // v1.224.0 - read by the commission fetch, which may land before or after the month's rows
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
+  const [baseOpen, setBaseOpen] = useState(false); // v1.324.0 - the base salaries drawer
   /* v1.198.0 - the five tabs, the row being explained in the drawer, and
      what was loaded: the pristine snapshot as state (render reads it to say
      which rows are unsaved; pristineRef stays the one Save compares with)
@@ -1533,7 +1535,8 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         </select>
         {(prQ || prDept) && <span className={pp.sub}>{L(`Showing ${staff.filter(prMatch).length} of ${staff.length} — the TOTAL row is still the whole month`, `Memaparkan ${staff.filter(prMatch).length} daripada ${staff.length} — baris JUMLAH masih seluruh bulan`)}</span>}
       </div>
-      <div id="payroll-table" className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
+      {/* v1.324.0 (Global UI System D-4) - the grid IS the work: on a desktop it fills the screen and scrolls inside, its header and TOTAL row pinned */}
+      <FillPanel id="payroll-table" testid="payroll-fill" className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
         <table className="tbl-sticky tbl-sticky-lead w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className={pp.headRow}>
@@ -1889,7 +1892,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
             )}
           </tfoot>
         </table>
-      </div>
+      </FillPanel>
       <div className={pp.saveBar}>
         <button
           type="button"
@@ -2100,7 +2103,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         <section className={card} aria-label={L("Payroll history", "Sejarah gaji")}>
           {head("orders", pp.purpleWell, L("Payroll History", "Sejarah Gaji"), L("The last twelve months as saved: who was saved, the saved net, and whether the payslips are out. View opens that month.", "Dua belas bulan lepas seperti disimpan: siapa disimpan, bersih disimpan, dan sama ada slip gaji sudah dikeluarkan. Lihat membuka bulan itu."))}
           {history.loading || !histWanted ? <SkelRows rows={6} /> : (
-            <div className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
+            <FillPanel testid="payroll-history-fill" className={`erp-table-scroll erp-mt-3 ${pp.tableWrap}`}>
               <table className={pp.plain} aria-label={L("Payroll history", "Sejarah gaji")}>
                 <thead><tr>
                   <th>{L("Payroll month", "Bulan gaji")}</th><th className={pp.num}>{L("Staff saved", "Kakitangan disimpan")}</th>
@@ -2121,7 +2124,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                   ))}
                 </tbody>
               </table>
-            </div>
+            </FillPanel>
           )}
         </section>
 
@@ -2198,8 +2201,18 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       {/* ========================== SETTINGS & AUDIT ========================== */}
       <TabZone label={L("Settings and audit", "Tetapan dan audit")} className={view !== "settings" ? pp.off : ""}>
       {!readOnly && (
-        <div id="payroll-base" className={`${card} scroll-mt-36`}>
-          <p className="text-sm font-semibold">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
+        <div id="payroll-base" className={`${card} scroll-mt-36`} data-testid="payroll-base">
+          {/* v1.324.0 (Global UI System, inline forms to drawers) - the bases read as one list; the
+              fields open on demand in the drawer, with the same Save and the same carry-into-the-month rule */}
+          <div className={pp.baseHead}>
+            <p className="erp-heading">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
+            <button type="button" className={btnSm} onClick={() => { setBaseDraft({ ...base }); setBaseOpen(true); }} data-testid="payroll-base-edit"><AppIcon name="edit" />{L("Edit base salaries", "Sunting gaji asas")}</button>
+          </div>
+          <ul className={pp.baseList} aria-label={L("Base salaries", "Gaji asas")}>
+            {staff.map((u) => <li key={u.id}><span>{displayName(u)}</span><strong className="erp-num">{base[u.id] ? fmtRM(base[u.id]!) : "—"}</strong></li>)}
+          </ul>
+          <SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); }} dirty="auto" wide
+            title={L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
               "Every new month's Basic auto-fills from these figures — no retyping. When someone gets an increment, change it here and it applies from the next unsaved month onwards; months already saved stay as saved.",
@@ -2303,11 +2316,13 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       `Gaji pokok ${held.join(", ")} tidak dapat disimpan - tekan Simpan pada baris.`));
                 showToast(L("Saved", "Disimpan"), parts.join(" "), held.length ? "notice" : undefined);
               }
+              setBaseOpen(false);
               void load();
             }}
           >
             {L("Save base salaries", "Simpan gaji asas")}
           </button>
+          </SideDrawer>
         </div>
       )}
 

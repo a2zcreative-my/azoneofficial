@@ -127,7 +127,8 @@ with sync_playwright() as p:
     for w in [1024, 1280, 1440]:
         ctx, pg, errs = page(b, w, 1000)
         go(pg, CEO, tab="Dashboard", wait=3200)
-        g = pg.evaluate("""(() => { const k = document.querySelector('[data-view=overview] [class*=kpis4] > div'); if (!k) return null;
+        # v1.323.0 - the figures are the one KPI strip (data-kpi-strip): four connected cells, no gap
+        g = pg.evaluate("""(() => { const k = document.querySelector('[data-view=overview] [data-kpi-strip]'); if (!k) return null;
             const tiles = [...k.children].map(c => c.getBoundingClientRect()); const r = k.getBoundingClientRect();
             const page = document.querySelector('[data-view=overview]').getBoundingClientRect();
             const s = document.querySelector('[data-view=overview] > [class*=span2]'), d = document.querySelector('[data-view=overview] > [class*=sideCol]');
@@ -136,7 +137,9 @@ with sync_playwright() as p:
                      t2r: Math.round(tiles[1].right), sR: sr && Math.round(sr.right), dL: dr && Math.round(dr.left), t3l: Math.round(tiles[2].left), sH: sr && Math.round(sr.height), dH: dr && Math.round(dr.height) } })()""")
         ok = g and g["n"] == 4 and len(set(g["tops"])) == 1 and max(g["widths"]) - min(g["widths"]) <= 1 and abs(g["lastR"] - g["pageR"]) <= 1
         check(f"Dashboard {w}px: the four figures share one row, equal widths, filling it to the edge", ok, g)
-        al = g and abs(g["sR"] - g["t2r"]) <= 1 and abs(g["dL"] - g["t3l"]) <= 1 and abs(g["sH"] - g["dH"]) <= 1
+        # the strip has no gap between cells, the cards below keep the page's 12px gap: each card edge sits
+        # within half that gap of the cell edge above it (v1.323.0 / v1.324.0)
+        al = g and abs(g["sR"] - g["t2r"]) <= 7 and abs(g["dL"] - g["t3l"]) <= 7 and abs(g["sH"] - g["dH"]) <= 1
         check(f"Dashboard {w}px: Sales Performance under figures 1-2, Needs My Decision under 3-4, equal heights", al, g)
         check(f"Dashboard {w}px: no sideways page, no page errors", no_hscroll(pg) and not errs, errs)
         ctx.close()

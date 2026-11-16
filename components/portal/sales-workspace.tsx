@@ -400,11 +400,9 @@ export function ClosedSales({ docs, partPaid, monthKey, canFix, staff, onOpenDoc
           <PanelTitle icon="paid">{L("Closed sales", "Jualan ditutup")}</PanelTitle>
           <p className={css.meta}>{L("Invoices with money recorded. The closer is locked from the first payment; only the CEO can correct it, with a reason.", "Invois dengan bayaran direkodkan. Penutup dikunci dari bayaran pertama; hanya CEO boleh membetulkannya, dengan sebab.")}</p>
         </div>
-        <div className={css.periods} role="group" aria-label={L("Period", "Tempoh")}>
-          {([["month", L("This month", "Bulan ini")], ["last", L("Last month", "Bulan lepas")], ["all", L("All", "Semua")]] as const).map(([k, label]) => (
-            <button key={k} type="button" aria-pressed={period === k} onClick={() => { setPeriod(k); setPage(1); }}>{label}</button>
-          ))}
-        </div>
+        {/* v1.324.0 (Global UI System D-2) - the one view switch */}
+        <PillSwitch testid="closed-period" label={L("Period", "Tempoh")} value={period} onChange={(k) => { setPeriod(k); setPage(1); }}
+          options={[["month", L("This month", "Bulan ini")], ["last", L("Last month", "Bulan lepas")], ["all", L("All", "Semua")]] as const} />
       </div>
       {/* v1.292.0 - the period in one slim strip: the settlement, what is confirmed for commission, what still waits */}
       <MetricStrip label={L("Closed sales in this period", "Jualan ditutup dalam tempoh ini")} cells={[

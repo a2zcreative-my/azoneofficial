@@ -452,11 +452,9 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
+/* v1.324.0 - the filters are the one tab row (LineTabs), the scope switch at its end */
 .customerFilters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  min-width: 0;
 }
 .moreDocs {
   position: relative;

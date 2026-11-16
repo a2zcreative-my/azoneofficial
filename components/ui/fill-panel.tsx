@@ -26,7 +26,7 @@ const scrollerOf = (el: HTMLElement): HTMLElement => {
   return document.scrollingElement as HTMLElement;
 };
 
-export function FillPanel({ children, className = "", testid, label }: { children: ReactNode; className?: string; testid?: string; label?: string }) {
+export function FillPanel({ children, className = "", testid, label, id }: { children: ReactNode; className?: string; testid?: string; label?: string; id?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [h, setH] = useState<number | null>(null);
   useEffect(() => {
@@ -74,7 +74,7 @@ export function FillPanel({ children, className = "", testid, label }: { childre
     return () => { ro.disconnect(); wide.removeEventListener("change", measure); window.removeEventListener("resize", measure); };
   }, []);
   return (
-    <div ref={ref} className={`${css.fill} ${className}`} data-testid={testid} data-fill={h != null ? "on" : "off"}
+    <div ref={ref} id={id} className={`${css.fill} ${className}`} data-testid={testid} data-fill={h != null ? "on" : "off"}
       role={label ? "region" : undefined} aria-label={label} tabIndex={h != null && label ? 0 : undefined}
       style={h != null ? { maxHeight: `${h}px` } : undefined}>
       {children}

@@ -22,12 +22,13 @@
 import type { PipeKey } from "@/lib/sales-status";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { LineTabs, TabAside } from "@/components/ui/line-tabs";
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.324.0 - D-4
 import { ViewSwitch } from "@/components/portal/executive-cards";
 import { AppIcon } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { dmy, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, selectClassSm, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, selectClassSm } from "@/lib/ui-styles";
 import css from "./sales-shell.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -113,14 +114,9 @@ export function CustomerFilterBar({ value, onChange, counts, scopeSwitch }: { va
   const items: [CustFilter, string][] = [["action", L("Needs Action", "Perlu Tindakan")], ["enquiries", L("Enquiries", "Pertanyaan")], ["followups", L("Follow-ups", "Susulan")], ["all", L("All Customers", "Semua Pelanggan")], ["board", L("Board", "Papan")]];
   return (
     <div className={css.customerFilters}>
-      <div role="tablist" aria-label={L("Customers and follow-ups", "Pelanggan dan susulan")} className="erp-pill-row">
-        {items.map(([k, label]) => (
-          <button key={k} type="button" role="tab" aria-selected={value === k} className={value === k ? tabPillOn : tabPill} onClick={() => onChange(k)} data-testid={`cust-${k}`}>
-            {label}{counts && k !== "board" ? ` (${counts[k]})` : ""}
-          </button>
-        ))}
-      </div>
-      {scopeSwitch}
+      {/* v1.324.0 (Global UI System D-2) - the one tab row; the scope switch sits at its right end */}
+      <LineTabs label={L("Customers and follow-ups", "Pelanggan dan susulan")} value={value} onChange={onChange} testid="cust"
+        tabs={items.map(([k, label]) => [k, `${label}${counts && k !== "board" ? ` (${counts[k]})` : ""}`] as const)} aside={scopeSwitch} />
     </div>
   );
 }
@@ -252,7 +248,7 @@ export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText, pipe
           ? emptyText ?? L("Nothing is waiting: no payment to verify, no follow-up due, no invoice unpaid and no quotation without a follow-up.", "Tiada yang menunggu: tiada bayaran untuk disahkan, tiada susulan perlu, tiada invois belum dibayar dan tiada sebut harga tanpa susulan.")
           : pipe ? L("Nothing at this step needs anyone now.", "Tiada apa pada langkah ini yang perlu tindakan sekarang.") : L("Nothing matches these filters.", "Tiada yang sepadan dengan penapis ini.")}</p>
       ) : (
-        <div role="table" className={css.table} aria-label={L("Sales worklist", "Senarai kerja jualan")}>
+        <FillPanel><div role="table" className={css.table} aria-label={L("Sales worklist", "Senarai kerja jualan")}>
           <div role="row" className={`${css.row} ${css.headRow}`}>
             <span role="columnheader">{L("Customer / record", "Pelanggan / rekod")}</span>
             <span role="columnheader">{L("Type", "Jenis")}</span>
@@ -277,7 +273,7 @@ export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText, pipe
               </span>
             </div>
           ))}
-        </div>
+        </div></FillPanel>
       )}
       <p className={css.note}>{L("Each row is the record itself - it opens that quotation, invoice, payment, follow-up or enquiry. Nothing is copied into a second list.", "Setiap baris ialah rekod itu sendiri - ia membuka sebut harga, invois, bayaran, susulan atau pertanyaan tersebut. Tiada yang disalin ke senarai kedua.")}</p>
     </section>
@@ -336,7 +332,7 @@ export function CustomerNeeds({ rows, loaded }: { rows: CustomerNeed[]; loaded: 
       {!loaded ? <SkelRows rows={3} /> : shown.length === 0 ? (
         <p className={css.empty}><AppIcon name="success" />{rows.length === 0 ? L("Nobody is waiting: no enquiry to answer and no follow-up due.", "Tiada yang menunggu: tiada pertanyaan untuk dijawab dan tiada susulan perlu.") : L("Nothing matches the search.", "Tiada yang sepadan dengan carian.")}</p>
       ) : (
-        <div role="table" className={`${css.table} ${css.custTable}`} aria-label={L("Customers needing action", "Pelanggan yang perlu tindakan")}>
+        <FillPanel><div role="table" className={`${css.table} ${css.custTable}`} aria-label={L("Customers needing action", "Pelanggan yang perlu tindakan")}>
           <div role="row" className={`${css.row} ${css.headRow}`}>
             <span role="columnheader">{L("Customer", "Pelanggan")}</span>
             <span role="columnheader">{L("Linked sales activity", "Aktiviti jualan berkaitan")}</span>
@@ -355,7 +351,7 @@ export function CustomerNeeds({ rows, loaded }: { rows: CustomerNeed[]; loaded: 
               <span role="cell" className={`${css.act} ${css.cAct}`}><button type="button" className={r.action.primary ? btnSmPrimary : btnSm} onClick={r.action.on}>{r.action.label}</button></span>
             </div>
           ))}
-        </div>
+        </div></FillPanel>
       )}
     </section>
   );

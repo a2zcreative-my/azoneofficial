@@ -6,8 +6,9 @@ import { openDocumentPreview, openPrintPreview } from "@/components/ui/document-
    605 KB page split by domain). Nothing here was rewritten; only the imports
    at the top are new and the declarations are exported. */
 import { Sub } from "@/components/portal/leave";
-import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL, withStepUp } from "@/components/portal/page-shared";
-import { TabAction } from "@/components/ui/line-tabs";
+import { L, MANAGE_ROLES, User, ZoneLabel, payStatusL, withStepUp } from "@/components/portal/page-shared";
+import { LineTabs, TabAction } from "@/components/ui/line-tabs";
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.324.0 - D-4
 import { ClosedSales, FollowUps, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
 import { CustomerBoard, CustomerFilterBar, CustomerNeeds, DocsMore, ReportPicker, RowMenu, SalesViewBar, SalesWorklist, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
 import { useCachedApi } from "@/lib/cached-api";
@@ -36,7 +37,7 @@ import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
-import { btnClass, btnSm, card, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, chipSmSuccess, chipSmWarn, tabPill, tabPillOn } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
 import { ReactNode, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
@@ -1903,19 +1904,20 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 <AppIcon name="refresh" />{L("Refresh", "Muat semula")}
               </button>
             </div>
-            {/* v1.292.0 - three pills and More: the other five document views are one press away, unchanged */}
-            <div role="tablist" className={`erp-pill-row ${sc.pills}`}>
-              {([["all", L(`All Documents`, `Semua Dokumen`), null], ["QT", L("Quotations", "Sebut harga"), docs.filter((x) => x.doc_type === "QT").length], ["INV", L("Invoices", "Invois"), docs.filter((x) => x.doc_type === "INV").length]] as const).map(([v, label, count]) => (
-                <button key={v} type="button" role="tab" aria-selected={workTab === "documents" && docType === v} className={workTab === "documents" && docType === v ? tabPillOn : tabPill}
-                  onClick={() => { setWorkTab("documents"); setDocType(v); setDocPage(1); }}>{label}{loaded && count !== null ? ` (${count})` : ""}</button>
-              ))}
-              <DocsMore items={[
+            {/* v1.292.0 - three tabs and More: the other five document views are one press away, unchanged.
+                v1.324.0 (Global UI System D-2) - the one tab row; More sits at its end */}
+            <div className={sc.pills}>
+            <LineTabs label={L("Documents", "Dokumen")} testid="docs-tab" value={(workTab === "documents" && (docType === "all" || docType === "QT" || docType === "INV") ? docType : "none") as "all" | "QT" | "INV" | "none"}
+              onChange={(v) => { if (v === "none") return; setWorkTab("documents"); setDocType(v); setDocPage(1); }}
+              tabs={([["all", L(`All Documents`, `Semua Dokumen`), null], ["QT", L("Quotations", "Sebut harga"), docs.filter((x) => x.doc_type === "QT").length], ["INV", L("Invoices", "Invois"), docs.filter((x) => x.doc_type === "INV").length]] as const)
+                .map(([v, label, count]) => [v, `${label}${loaded && count !== null ? ` (${count})` : ""}`] as const)}
+              aside={<DocsMore items={[
                 { key: "DO", label: L("Delivery orders", "Pesanan penghantaran"), on: workTab === "documents" && docType === "DO", go: () => { setWorkTab("documents"); setDocType("DO"); setDocPage(1); } },
                 { key: "receipts", label: L("Receipts", "Resit"), on: workTab === "receipts" && money === "receipts", go: () => { setWorkTab("receipts"); setMoney("receipts"); } },
                 { key: "credit", label: L("Credit notes", "Nota kredit"), on: workTab === "receipts" && money === "credit", go: () => { setWorkTab("receipts"); setMoney("credit"); } },
                 { key: "outstanding", label: L("Outstanding", "Tertunggak"), on: workTab === "receipts" && money === "outstanding", go: () => { setWorkTab("receipts"); setMoney("outstanding"); } },
                 { key: "packages", label: L("Packages", "Pakej"), on: workTab === "packages", go: () => setWorkTab("packages") },
-              ]} />
+              ]} />} />
             </div>
           </div>
           {workTab === "packages" && <div className="mt-3"><PackagesPanel role={user.role} />{/* v1.317.0 (D-3) - one package list: the public page is set on the package itself */}</div>}
@@ -2803,7 +2805,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           </p>
         )}
         {/* v1.176.1 - the page scrolls this list, not a 384px window inside it. */}
-        <div className={sc.table} role="table">
+        {/* v1.324.0 (Global UI System D-4) - on a desktop the documents fill the panel and scroll inside it; the pager stays under it */}
+        <FillPanel testid="docs-fill"><div className={sc.table} role="table">
           {loaded && docRows.length > 0 && (
             <div className={`${sc.cells} ${sc.header}`} role="row">
               <span role="columnheader">{L("Document No.", "No. dokumen")}</span>
@@ -3425,7 +3428,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               )}
             </div>
           ))}
-        </div>
+        </div></FillPanel>
         {loaded && docRows.length > 0 && (
           <div className={sc.foot}>
             <span className="erp-meta">{L(`Showing ${(docPageSafe - 1) * DOC_PER + 1}–${Math.min(docPageSafe * DOC_PER, docRows.length)} of ${docRows.length} documents`, `Menunjukkan ${(docPageSafe - 1) * DOC_PER + 1}–${Math.min(docPageSafe * DOC_PER, docRows.length)} daripada ${docRows.length} dokumen`)}</span>
@@ -3595,7 +3598,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       <section id="sales-customers" className="erp-stack-tight erp-tab-zone scroll-mt-36" hidden={wsView !== "customers" || custFilter !== "all"}>
         <ZoneLabel>{L("Customers", "Pelanggan")}</ZoneLabel>
         <div className={card}>
-          <SectionTabs value={custTab} onChange={setCustTab} tabs={[
+          {/* v1.324.0 (Global UI System D-2) - the one tab row */}
+          <LineTabs label={L("Customers", "Pelanggan")} value={custTab} onChange={setCustTab} testid="cust-tab" tabs={[
             ["clients", L("Clients", "Pelanggan")],
             ["add", L("Add customer", "Tambah pelanggan")],
           ] as const} />

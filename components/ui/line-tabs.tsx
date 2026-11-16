@@ -12,7 +12,7 @@ import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import css from "./line-tabs.module.css";
 import { getLang } from "@/lib/i18n";
 
-export function LineTabs<T extends string>({ value, onChange, tabs, label, aside }: {
+export function LineTabs<T extends string>({ value, onChange, tabs, label, aside, testid }: {
   value: T;
   onChange: (v: T) => void;
   /** [key, label] or, v1.276.0 (A2Z OS 3.0), [key, label, count]: a count
@@ -23,6 +23,8 @@ export function LineTabs<T extends string>({ value, onChange, tabs, label, aside
   label: string;
   /** something that sits at the right end of the row (a filter, a period) */
   aside?: ReactNode;
+  /** v1.324.0 - each tab's test id is `${testid}-${key}` (a row moved onto LineTabs keeps its ids) */
+  testid?: string;
 }) {
   const uid = useId();
   return (
@@ -35,7 +37,7 @@ export function LineTabs<T extends string>({ value, onChange, tabs, label, aside
              description ("1 waiting"), read from the hidden badge */
           <button key={k} type="button" role="tab" aria-selected={value === k}
             aria-describedby={n ? `${uid}-${k}-n` : undefined}
-            className={css.tab} onClick={() => onChange(k)}>
+            className={css.tab} onClick={() => onChange(k)} data-testid={testid ? `${testid}-${k}` : undefined}>
             {/* v1.281.0 - a shorter word on a phone (Sales: "Documents") */}
             {short ? <><span className="erp-desktop-only">{text}</span><span className="erp-phone-only">{short}</span></> : text}
             {n ? <span className={css.count} id={`${uid}-${k}-n`} aria-hidden="true">{n}<span className="erp-sr-only"> {getLang() === "ms" ? "menunggu" : "waiting"}</span></span> : null}

@@ -164,6 +164,69 @@ with sync_playwright() as p:
     ctx, pg, errs = open_tab(b, "Tasks", 390, 844, True)
     check("Tasks 390: nothing scrolls inside the page - the page does", pg.get_by_test_id("overview-fill").get_attribute("data-fill") == "off" and pg.get_by_test_id("overview-panel-body").get_attribute("data-fill") == "off")
     ctx.close()
+    # ================= v1.324.0: the Dashboard fits; Phase D group 1 (Sales, Payroll, Finance) =================
+    ctx, pg, errs = open_tab(b, "Dashboard", 1440, 900, False)
+    fr = pg.evaluate("() => { const s = document.querySelector('[class*=app-shell_scroll]'); return [s.scrollHeight, s.clientHeight, !!document.querySelector('[data-testid=alert-band]')]; }")
+    check("Dashboard 1440 x 900: the Overview fits the screen, with the alert band showing (the CEO: tighten the space)", fr[2] and fr[0] <= fr[1] + 1, fr)
+    ctx.close()
+    # Payroll's views are chosen on the page (its address names only the tab), so the tab row is pressed
+    def to_view(pg, tab, view, label, phone):
+        pg.goto(f"http://127.0.0.1:4177/portal?tab={tab}&view={view}"); pg.wait_for_timeout(2800)
+        pg.add_style_tag(content="[data-testid=update-available]{display:none!important}"); pg.wait_for_timeout(300)
+        if not label:
+            return
+        t = pg.locator("main [role=tablist]").first.get_by_role("tab", name=re.compile("^" + re.escape(label))).first
+        if t.count() and t.is_visible():
+            t.click(); pg.wait_for_timeout(1200)
+        else:
+            pg.get_by_test_id("view-switch").first.click(); pg.wait_for_timeout(300)
+            pg.get_by_role("menuitemradio", name=re.compile(label)).click(); pg.wait_for_timeout(1200)
+    FILL = [("Sales", "documents", None, "docs-fill"), ("Payroll", "process", "Payroll Processing", "payroll-fill"), ("Finance", "transactions", None, "tx-fill")]
+    for tab, view, label, tid in FILL:
+        for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+            ctx, pg, errs = open_tab(b, tab, w, h, phone)
+            to_view(pg, tab, view, label, phone)
+            el = pg.get_by_test_id(tid)
+            st = el.get_attribute("data-fill") if el.count() else None
+            if phone:
+                check(f"{tab} 390: the list does not scroll inside the page - the page does", st in (None, "off"), st)
+            else:
+                info = pg.evaluate(f"() => {{ const p = document.querySelector('[data-testid={tid}]'); const r = p.getBoundingClientRect(); return {{ fill: p.dataset.fill, bottom: r.bottom, h: innerHeight, inner: p.scrollHeight > p.clientHeight + 1 }}; }}")
+                # a short list simply fits (the panel stays off); a long one fills and scrolls inside - either way its end is on the screen
+                check(f"{tab} 1440: the main list ends on the screen (it fills and scrolls inside, or it fits)", info["bottom"] > 0 and info["bottom"] <= info["h"] and (info["fill"] == "on" or not info["inner"]), info)
+            check(f"{tab} {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+            ctx.close()
+    # the inline forms open in the drawer (and close back to the page)
+    ctx, pg, errs = open_tab(b, "Finance", 1440, 900, False)
+    pg.goto("http://127.0.0.1:4177/portal?tab=Finance&view=expenses"); pg.wait_for_timeout(2800)
+    pg.add_style_tag(content="[data-testid=update-available]{display:none!important}")
+    shut = pg.get_by_test_id("expense-description").count() == 0
+    pg.get_by_test_id("expense-open").click(); pg.wait_for_timeout(500)
+    dlg = pg.get_by_role("dialog")
+    check("Finance: Add Expense is a button; its form opens in the drawer with the same fields", shut and dlg.count() == 1 and dlg.get_by_test_id("expense-description").count() == 1 and dlg.get_by_test_id("expense-record").count() == 1)
+    dlg.get_by_test_id("expense-description").fill("Printer paper"); pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    check("…typing then Escape asks before throwing the words away", pg.get_by_test_id("drawer-discard").count() == 1 and pg.get_by_test_id("expense-description").count() == 1)
+    ctx.close()
+    ctx, pg, errs = open_tab(b, "Payroll", 1440, 900, False)
+    to_view(pg, "Payroll", "settings", "Settings & Audit", False)
+    lst = pg.get_by_test_id("payroll-base")
+    check("Payroll: the base salaries read as a list, no field on the page", lst.count() == 1 and lst.locator("input").count() == 0 and "RM" in lst.inner_text())
+    pg.get_by_test_id("payroll-base-edit").click(); pg.wait_for_timeout(500)
+    check("…Edit base salaries opens the same fields and Save in the drawer", pg.get_by_role("dialog").locator("input[type=number]").count() >= 1 and pg.get_by_role("dialog").get_by_role("button", name="Save base salaries").count() == 1)
+    ctx.close()
+    ctx, pg, errs = open_tab(b, "Sales", 1440, 900, False)
+    pg.goto("http://127.0.0.1:4177/portal?tab=Sales&view=documents"); pg.wait_for_timeout(2800)
+    pg.add_style_tag(content="[data-testid=update-available]{display:none!important}")
+    qa = pg.get_by_test_id("qa-limit")
+    if qa.count():
+        shut = qa.locator("input").count() == 0
+        pg.get_by_test_id("qa-limit-open").click(); pg.wait_for_timeout(500)
+        check("Sales: the quotation approval limit reads as one line; its field opens in the drawer", shut and pg.get_by_role("dialog").locator("input").count() == 1)
+    else:
+        check("Sales: the quotation approval line is shown to the CEO", False, "no qa-limit")
+    tabs = [t.strip() for t in pg.get_by_role("tablist", name="Documents").get_by_role("tab").all_inner_texts()]
+    check("Sales: the Documents row is the one tab row (All, Quotations, Invoices) with More at its end", len(tabs) == 3 and tabs[0].startswith("All Documents") and pg.get_by_test_id("docs-more").count() == 1, tabs)
+    ctx.close()
     ctx, pg, errs = open_tab(b, "Desk", 390, 844, True)
     pg.goto("http://127.0.0.1:4177/portal?tab=Desk&view=inbox"); pg.wait_for_timeout(2600)
     check("Desk 390: the inbox does not scroll inside itself - the page does", pg.get_by_test_id("inbox-panel").get_attribute("data-fill") == "off")

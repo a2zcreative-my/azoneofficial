@@ -51,42 +51,7 @@
 
 /* Mine / Everyone and the period switch */
 .scope,
-.periods {
-  display: inline-flex;
-  gap: 0.125rem;
-  padding: 0.1875rem;
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  background: var(--card);
-}
-.scope button,
-.periods button {
-  min-height: 2.25rem;
-  padding: 0 0.875rem;
-  border: 0;
-  border-radius: 9999px;
-  background: none;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  cursor: pointer;
-}
-.scope button[aria-pressed="true"],
-.periods button[aria-pressed="true"] {
-  background: var(--brand-primary);
-  color: #fff;
-}
-.scope button:focus-visible,
-.periods button:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-/* v1.292.0 (Sales Workspace 4.0) - a phone's touch target is 44 px */
-@media (max-width: 767px) {
-  .scope button,
-  .periods button { min-height: 2.75rem; }
-}
+/* v1.324.0 - the period and the scope are the one view switch (PillSwitch) */
 
 /* the collected trend */
 .chart {

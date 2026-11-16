@@ -510,35 +510,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.625rem;
 }
-.seg {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.25rem;
-  padding: 0.25rem;
-  border-radius: 12px;
-  background: var(--secondary);
-}
-.seg button {
-  min-height: 2.5rem;
-  padding: 0 0.5rem;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--type-body-sm-size);
-  font-weight: 600;
-  cursor: pointer;
-}
-.seg button[aria-pressed="true"] {
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: var(--elev-subtle);
-}
-.seg button:disabled {
-  opacity: var(--disabled-opacity);
-  cursor: not-allowed;
-}
+/* v1.324.0 - the kind of transaction is the one view switch (PillSwitch) */
 .accEdit {
   display: grid;
   gap: 0.5rem;

@@ -23,6 +23,7 @@ import { dmyMYT } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import type { WsScope } from "@/components/portal/sales-workspace";
+import { PillSwitch } from "@/components/ui/panel";
 import css from "./sales-enquiries.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -92,11 +93,9 @@ export function SalesEnquiries({ scope, userId, onQuote }: { scope: WsScope; use
           <PanelTitle icon="chat">{L("Enquiries", "Pertanyaan")}</PanelTitle>
           <p className={css.meta}>{L("From the website and customer accounts. Take one, reply, then make the quotation.", "Daripada laman web dan akaun pelanggan. Ambil, balas, kemudian buat sebut harga.")}</p>
         </div>
-        <div className={css.views} role="group" aria-label={L("Which enquiries", "Pertanyaan mana")}>
-          {([["open", L("Open", "Terbuka")], ["new", L(`New (${nNew})`, `Baharu (${nNew})`)], ["closed", L("Closed", "Ditutup")]] as const).map(([k, label]) => (
-            <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)}>{label}</button>
-          ))}
-        </div>
+        {/* v1.324.0 (Global UI System D-2) - the one view switch */}
+        <PillSwitch testid="enq-view" label={L("Which enquiries", "Pertanyaan mana")} value={view} onChange={setView}
+          options={[["open", L("Open", "Terbuka")], ["new", L(`New (${nNew})`, `Baharu (${nNew})`)], ["closed", L("Closed", "Ditutup")]] as const} />
       </div>
       {msg && <p className="erp-note erp-note-warning" role="alert">{msg}</p>}
       {rows === null ? <SkelRows rows={3} />

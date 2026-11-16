@@ -40,6 +40,7 @@ import { getLang } from "@/lib/i18n";
 import { csvStampMyt, downloadCsv } from "@/lib/csv";
 import { A2Z_CREATIVE, AZ_ONE } from "@/lib/issuers";
 import { btnSm, btnSmDanger, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
+import { LineTabs } from "@/components/ui/line-tabs";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { AppIcon } from "@/components/ui/app-icon";
@@ -237,14 +238,9 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
           sub={L("Invoices with a verified part", "Invois dengan bahagian disahkan")} onClick={() => { setBal("partial"); setTab("balances"); }} />
       </KpiRow>
 
-      <div className={`${card} ${css.tabs}`} role="tablist" aria-label={L("Payments", "Bayaran")}>
-        {tabs.map(([k, word, short, n]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} data-testid={`pay-tab-${k}`} className={css.tab} onClick={() => setTab(k)}>
-            <span className="erp-desktop-only">{word}</span><span className="erp-phone-only">{short}</span>
-            {n ? <span className={css.tabN} aria-hidden="true">{n}</span> : null}
-          </button>
-        ))}
-      </div>
+      {/* v1.324.0 (Global UI System D-2) - the four records are the one tab row */}
+      <LineTabs label={L("Payments", "Bayaran")} value={tab} onChange={setTab} testid="pay-tab"
+        tabs={tabs.map(([k, word, short, n]) => [k, word, n, short] as const)} />
 
       {!data.ready && <p className="erp-note erp-note-warning">{L("Run migration 0181 (PUSH.bat) to start payment verification.", "Jalankan migrasi 0181 (PUSH.bat) untuk memulakan pengesahan bayaran.")}</p>}
 

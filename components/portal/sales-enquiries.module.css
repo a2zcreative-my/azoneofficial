@@ -12,31 +12,7 @@
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
-.views {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  border-radius: 999px;
-  background: var(--secondary);
-}
-.views button {
-  min-height: 36px;
-  padding: 0 0.875rem;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--type-body-sm-size);
-  font-weight: 600;
-  cursor: pointer;
-}
-.views button[aria-pressed="true"] {
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 12%, transparent);
-}
+/* v1.324.0 - which enquiries is the one view switch (PillSwitch) */
 .empty {
   margin: 0.75rem 0 0;
   font-size: var(--type-body-sm-size);

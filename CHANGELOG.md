@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.324.0] - 2026-11-16 - Global UI System, phase D group 1: Sales, Payroll, Finance; the Dashboard fits the screen - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 16-11-2026, after reviewing 1.323.0: "Dashboard with the alert band: tighten the space between cards so it fits the screen" and "Phase D order: confirm Sales / Payroll / Finance first, then HR / Staff / Leave / Claims, then the rest."
+
+- **Dashboard:** on a desktop the Overview's cards sit 12px apart (was 16) and Quick Actions is a little slimmer, so the whole Overview, with an alert band, fits a 1440 x 900 screen.
+- **Sales:** the Documents row (All Documents, Quotations, Invoices; More at its end), Customers & Follow-ups (Needs Action ... Board, the Everyone / Mine switch at its end), Clients / Add customer and the Payments tabs (Needs My Verification, Invoice Balances, Payment History, Audit Trail) are the one tab row (LineTabs); the Closed Sales period and the enquiry filter are the one view switch (PillSwitch). The quotation approval limit reads as one line, its field opens in a drawer with the same buttons and PUT. On a desktop the documents list, the Sales Worklist and Customers needing action fill the screen and scroll inside, the pager under them.
+- **Payroll:** the processing grid fills the screen on a desktop and scrolls inside, its header and TOTAL row pinned (the grid stays on the page: it is the work); Payroll History likewise. The base salaries read as a list; Edit base salaries opens the same fields and the same Save (with its carry-into-the-month rule) in a drawer that warns before discarding.
+- **Finance:** Add Expense is a button; its form opens in a drawer (same fields, checks, evidence upload and POST; recording still never books cash). Add transaction's Money in or out / Transfer is the one view switch, with the reason when Transfer cannot be chosen. Reconciliation's two big figures are the one KPI strip. The Transactions ledger and the monthly report fill the screen on a desktop with the column names pinned.
+- Shared: `LineTabs` takes `testid` (each tab keeps the id the row had); `PillSwitch` takes `disabled` (an option that cannot be chosen, with its reason); `FillPanel` takes `id`.
+- No route, rule, figure, permission or table changed. Removed private styles: the Payments pill tabs, the Closed Sales period and scope pills, the enquiry pills, Finance's segmented switch and big figure tiles, the folded expense form.
+- Guards: tests/ui-system.mjs 39 checks, 35 mutations (ratchets lowered: hand-made tab rows 18 -> 15, private switch styles 49 -> 45); tests/browser/ui-system.py adds the Dashboard fit, the three modules' lists, drawers and tab rows. tab-concept adapted (the Sales Documents row is LineTabs now).
+
 ## [1.323.0] - 2026-11-16 - Global UI System, phase B (the shared foundation) and phase C (the pilot: Tasks, Dashboard, Desk) - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 16-11-2026: the "A2Z OS - Complete Global UI System Restructuring" brief; the Phase A audit (claude/UI-SYSTEM-STAGE-0-AUDIT.md) approved "as per recommend" (D-1 to D-7). Stops here for the CEO's visual review before phase D.

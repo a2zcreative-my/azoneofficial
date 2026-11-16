@@ -555,6 +555,15 @@
 .page > .grid {
   gap: 1rem;
 }
+/* v1.324.0 - the CEO, 16-11-2026: "tighten the space between cards so it fits
+   the screen" - on a desktop the Overview's cards sit 12px apart, so the
+   whole Overview (with an alert band) fits a 1440 x 900 screen */
+@media (min-width: 1024px) {
+  .page.page, /* doubled: it beats the executive layout's own 16px gap whatever the sheet order */
+  .page > .grid {
+    gap: var(--space-3);
+  }
+}
 .moreBtn {
   display: none;
 }

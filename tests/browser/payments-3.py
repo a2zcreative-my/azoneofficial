@@ -154,7 +154,9 @@ with sync_playwright() as p:
             tag = f"{who} {w}"
             ctx, pg, errs = open_pay(b, port, w)
             check(f"{tag}: no policy Settings", pg.get_by_role("button", name="Settings").count() == 0)
-            check(f"{tag}: the tab is Waiting for review, not Needs My Verification", pg.get_by_test_id("pay-tab-needs").inner_text().split("\n")[0].strip() in ("Waiting for review", "Pending"))
+            # v1.324.0 - the tab row is LineTabs: the word, then its count badge on the same line ("Waiting for review 1 waiting")
+            word = pg.get_by_test_id("pay-tab-needs").inner_text().split("\n")[0].strip()
+            check(f"{tag}: the tab is Waiting for review, not Needs My Verification", word.startswith(("Waiting for review", "Pending")) and "Needs My Verification" not in word, word)
             own = pg.get_by_test_id("payment-row").filter(has_text="INV-AZOO-503")
             btn = own.get_by_role("button").first.inner_text().strip()
             check(f"{tag}: the CEO's report is read only (Review)", btn == "Review", btn)
