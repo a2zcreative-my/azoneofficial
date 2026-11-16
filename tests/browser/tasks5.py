@@ -49,7 +49,7 @@ with sync_playwright() as p:
 
     # ---------------- the six tabs and the address ----------------
     ctx, pg, errs = open_page(b, CEO)
-    tabs = [t.strip() for t in pg.get_by_role("tab").filter(visible=True).all_inner_texts()]
+    tabs = [t.strip() for t in pg.get_by_role("tablist", name="Tasks").get_by_role("tab").filter(visible=True).all_inner_texts()]  # v1.323.0 - the page's own tab row (the Overview panel has its own)
     check("exactly six tabs in the board's order", tabs == ["Overview", "My Tasks", "All Tasks", "Projects", "Calendar", "Reports & Archive"], tabs)
     check("Create Task is the tab row's action", pg.get_by_role("tablist", name="Tasks").locator("xpath=..").get_by_role("button", name=re.compile("Create Task")).filter(visible=True).count() == 1)
     names = {"mine": "My Tasks", "all": "All Tasks", "projects": "Projects", "calendar": "Calendar", "reports": "Reports & Archive"}
@@ -67,9 +67,9 @@ with sync_playwright() as p:
     check("Overview: the five figures - Total Tasks, Overdue, In Progress, Awaiting Review, Done", all(w in t for w in ["Total Tasks", "Overdue", "In Progress", "Awaiting Review", "Done"]), t[:300])
     # v1.321.0 - the Unified Workspace: one panel beside the queue, switched between three; every card still in it
     check("Overview: the queue, and beside it Staff Performance (management) with the week", all(vis(pg, k) for k in ["overview-list", "staff-performance", "weekly-summary"]))
-    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
+    pg.get_by_test_id("overview-panel-switch").get_by_role("tab", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
     check("…Activity: Recent Activity", vis(pg, "progress-overview"))
-    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
+    pg.get_by_test_id("overview-panel-switch").get_by_role("tab", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
     check("…Actions: Quick Links and the workflow", vis(pg, "quick-links") and vis(pg, "workflow-strip"))
     first = pg.get_by_test_id("overview-table").locator("tbody tr").first
     check("the list leads with the most pressing: overdue first (the urgent overdue task)", first.count() == 1 and "Approve the October content plan" in first.inner_text() and first.get_by_test_id("overdue-mark").count() == 1, first.inner_text() if first.count() else "")
@@ -123,7 +123,7 @@ with sync_playwright() as p:
     check("Edit opens the task with its edit form (title, dates, priority, assignee)", pg.get_by_role("button", name=re.compile("^Save")).filter(visible=True).count() >= 1)
     ctx.close()
     ctx, pg, errs2 = open_page(b, HOST)
-    tabs = [t.strip() for t in pg.get_by_role("tab").filter(visible=True).all_inner_texts()]
+    tabs = [t.strip() for t in pg.get_by_role("tablist", name="Tasks").get_by_role("tab").filter(visible=True).all_inner_texts()]  # v1.323.0 - the page's own tab row (the Overview panel has its own)
     check("a live host has no All Tasks tab (the server answers ?all=1 for management only)", "All Tasks" not in tabs, tabs)
     ctx.close()
     check("no page error (All Tasks)", not errs and not errs2, errs + errs2)
@@ -202,7 +202,7 @@ with sync_playwright() as p:
 
     # ---------------- the phone ----------------
     ctx, pg, errs = open_page(b, CEO, w=390)
-    check("phone: the view switch and Create Task, not the tab row", vis(pg, "tasks-view-bar") and pg.get_by_role("tab").filter(visible=True).count() == 0)
+    check("phone: the view switch and Create Task, not the tab row", vis(pg, "tasks-view-bar") and pg.get_by_role("tablist", name="Tasks").get_by_role("tab").filter(visible=True).count() == 0)
     pg.get_by_test_id("tasks-view-bar").get_by_test_id("view-switch").click(); pg.wait_for_timeout(300)
     pg.get_by_role("menuitemradio", name=re.compile("My Tasks")).click(); pg.wait_for_timeout(900)
     check("phone: the switch opens My Tasks and writes the address", view_of(pg) == "mine", pg.url)

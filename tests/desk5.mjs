@@ -63,9 +63,9 @@ function checks(src) {
   ok("K1 - no Quick Actions card", !/Quick actions|Tindakan pantas|css\.qa\b|qaGrid/.test(desk));
   ok("D1 - Introduce a lead and Report a problem stay, on the greeting line",
     /<IntroduceLeadAction trigger=\{\(open\) => linkBtn\(L\("Introduce a lead"/.test(desk) && /<ReportProblem tab="Desk" trigger=\{\(open\) => linkBtn\(L\("Report a problem"/.test(desk)
-    && desk.indexOf('data-testid="desk-greet"') < desk.indexOf("<IntroduceLeadAction") && desk.indexOf("<ReportProblem") < desk.indexOf('data-testid="desk-figures"'));
+    && desk.indexOf('data-testid="desk-greet"') < desk.indexOf("<IntroduceLeadAction") && desk.indexOf("<ReportProblem") < desk.indexOf('testid="desk-figures"'));
   ok("D2 - Active Alerts only for the roles that read the rules; three figures otherwise",
-    /\{p\.exec && figure\("alerts", "warning", "info"/.test(desk) && /data-figures=\{p\.exec \? 4 : 3\}/.test(desk) && /const exec = WATCHER_ROLES\.includes\(user\.role\);/.test(desk));
+    /\{p\.exec && figure\("alerts", "warning", "info"/.test(desk) && /* v1.323.0 - the one KPI strip counts its own cells (KpiRow data-cells), so the 4-or-3 is the conditional fourth cell itself */ /<KpiRow label=\{L\("Your work at a glance"[^>]*testid="desk-figures">/.test(desk) && /const exec = WATCHER_ROLES\.includes\(user\.role\);/.test(desk));
   ok("D3 - Overdue Actions counts decisions and responses, never my tasks twice",
     /const work = \[\.\.\.decide, \.\.\.attention\]\.sort\(byPriority\);/.test(desk) && /const overdueN = work\.filter\(\(i\) => i\.overdue\)\.length;/.test(desk)
     && /figure\("overdue", "time", "bad", p\.known \? p\.overdueN : null/.test(desk));

@@ -479,6 +479,35 @@ span.rowMain {
   color: var(--brand-primary);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--gold-solid) 35%, transparent);
 }
+/* v1.323.0 - on a desktop the actions are one compact row (icon beside the
+   words, the master's 44px control height), so the Overview fits one screen */
+@media (min-width: 1024px) {
+  .quick {
+    padding: 0.75rem 1.25rem;
+  }
+  .quickTile {
+    min-height: 2.75rem;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--radius-control);
+    text-align: left;
+  }
+  .quickPlus {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: none;
+    box-shadow: none;
+  }
+  .quickGlyph :global(.erp-icon) {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  .quickList {
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+}
 @media (max-width: 1023px) {
   .quick {
     flex-direction: column;
@@ -740,7 +769,7 @@ span.rowMain {
   display: flex;
   align-items: flex-start;
   gap: 0.625rem;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 1rem; /* v1.323.0 - one compact line, as the master's notices */
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   border-radius: var(--radius-card-v2);
   background: var(--danger-soft);
@@ -804,6 +833,15 @@ span.rowMain {
   display: inline-grid;
   justify-items: end;
   gap: 0.25rem;
+}
+/* v1.323.0 - on a desktop the state and Review sit side by side, so a
+   decision is one line high and the Overview fits one screen */
+@media (min-width: 1024px) {
+  .chipStack {
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
 }
 .actWord {
   display: inline-flex;
@@ -1166,18 +1204,9 @@ span.rowMain {
     grid-column: 1 / -1;
   }
 }
-/* the four figures: four across from 1024px, two by two below.
-   v1.311.0 (the CEO, 15-11-2026: "make the dashboard card much better width
-   and aligned") - `div.kpis4 > div` outranks the Overview's own five-column
-   rule from 1280px (dashboard-overview.module.css .kpis > div), which left a
-   fifth, empty column: the four tiles now fill the row at every width */
-div.kpis4 > div {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
+/* the four figures are the one KPI strip (v1.323.0): it lays its own four
+   segments out at every width, so no rule here re-lays them */
 @media (min-width: 1024px) {
-  div.kpis4 > div {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
   /* the management Overview sits on the SAME four columns as its figures:
      Sales Performance and Needs My Decision take two tiles each, so their
      edges line up with the tiles above, and they end level */

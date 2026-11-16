@@ -41,6 +41,13 @@
    softer corner reads as a surface rather than a box. */
 .erp-workspace {
   --surface-radius: 18px;
+  /* v1.323.0 (D-1) - the card radius family resolved INSIDE the workspace: a
+     custom property is computed where it is declared, so the :root
+     fallbacks (16px / 12px / 14px) never saw this 18px - the strip, the
+     panels and the cards now read one value */
+  --radius-card: var(--surface-radius);
+  --radius-panel: var(--surface-radius);
+  --radius-card-v2: var(--surface-radius);
 }
 /* v1.174.1 - while the portal workspace is on screen the document behind it
    is the workspace grey, not the page white: a short tab no longer shows a
@@ -518,7 +525,7 @@ body:has(.erp-workspace) {
   --page-pad-x: var(--space-6);
   --card-pad: var(--space-4);
   --grid-gap: var(--space-4);
-  --type-kpi-tile-size: 1.375rem; /* 22px - the KPI tile figure, every tab   */
+  --type-kpi-tile-size: 1.125rem; /* 18px - the KPI strip figure, every tab (v1.323.0: the Tasks master) */
 
   /* ---- §3 SEMANTIC SURFACE, TEXT AND BORDER --------------------------
      Aliases onto the V1 palette. Two names for one colour is deliberate:
@@ -554,8 +561,14 @@ body:has(.erp-workspace) {
      rounded weight is what this fixes: a chip is a pill, a card is not. */
   --radius-xs: 4px;        /* a swatch, a progress bar                      */
   --radius-sm: 8px;        /* a tag, a small inset                          */
-  --radius-control: 10px;  /* input, select, button                         */
-  --radius-card-v2: 14px;  /* card, panel - matches --surface-radius        */
+  /* v1.323.0 - ONE RADIUS FAMILY (the CEO's Global UI System brief, D-1,
+     approved 16-11-2026): a card is one radius everywhere - the strip, the
+     panels and the cards of the Tasks master were 14px and 18px side by side.
+     --radius-card-v2 is the card radius (18px in the workspace), and the
+     control radius is the one the .erp-* controls already drew (12px); the
+     erp-v3 names (--erp-radius-card / -control) read these. */
+  --radius-control: 12px;  /* input, select, button                         */
+  --radius-card-v2: var(--radius-card);  /* card, panel = --surface-radius   */
   --radius-overlay: 18px;  /* sheet, modal, menu - one step above the card  */
   --radius-full: 9999px;   /* ONLY: status chip, filter chip, segmented,
                               avatar, icon button. Not cards. Not inputs.   */

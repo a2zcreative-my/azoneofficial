@@ -13,6 +13,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { L, type Task, priorityL } from "@/components/portal/page-shared";
 import { stamp } from "@/components/portal/task-progress";
+import { PillSwitch } from "@/components/ui/panel"; // v1.323.0 - the one view switch
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
@@ -331,8 +332,9 @@ export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, o
               <button type="button" className={btnSm} onClick={() => { setMonth(today.slice(0, 7)); setPicked(today); }}>{L("Today", "Hari ini")}</button>
               <button type="button" className={btnSm} aria-label={mode === "week" ? L("Next week", "Minggu seterusnya") : L("Next month", "Bulan seterusnya")} onClick={() => (mode === "week" ? shiftWeek(1) : shift(1))}><AppIcon name="next" /></button>
             </span>
-            <span className={`${t5.seg} ${t5.deskOnly}`} role="group" aria-label={L("Calendar view", "Paparan kalendar")}>
-              {(["month", "week", "list"] as const).map((k) => <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)} data-testid={`cal-mode-${k}`}>{k === "month" ? L("Month", "Bulan") : k === "week" ? L("Week", "Minggu") : L("List", "Senarai")}</button>)}
+            <span className={t5.deskOnly}>
+              <PillSwitch testid="cal-mode" label={L("Calendar view", "Paparan kalendar")} value={mode} onChange={setMode}
+                options={[["month", L("Month", "Bulan")], ["week", L("Week", "Minggu")], ["list", L("List", "Senarai")]] as const} />
             </span>
           </div>
           {/* desktop: the grid (month or week) or the list; a phone always reads the agenda (directive s8) */}

@@ -1,19 +1,19 @@
 "use client";
 
 /* v1.321.0 - THE COMPACT SUMMARY STRIP, shared (the CEO's "Tasks Module
-   Unified Workspace Redesign", 16-11-2026: "Replace large KPI cards with
-   compact summary strips"). One row of figures, never a second row of
-   cards: a small tinted well, the label, the figure, one short line.
+   Unified Workspace Redesign", 16-11-2026). Moved from sales-shell (v1.292.0);
+   sales-shell.tsx re-exports it unchanged.
 
-   Moved here from components/portal/sales-shell.tsx (Sales Workspace 4.0,
-   v1.292.0), where it was born, so Sales and Tasks draw the same strip -
-   sales-shell.tsx re-exports it unchanged. A cell with `onClick` is a
-   button and may be `pressed` (a strip cell that is also the list's filter).
-   It fetches nothing and invents nothing. */
+   v1.323.0 - ONE STRIP (the CEO's Global UI System brief, approved
+   16-11-2026; claude/UI-SYSTEM-STAGE-0-AUDIT.md R-2): MetricStrip is the same
+   strip as KpiRow / KpiTile (components/ui/kpi-tile.tsx), fed a list instead
+   of children - one stylesheet, one segment, one look on every page. Its
+   tones are the strip's own tints under the names Sales and Tasks use. It
+   fetches nothing and invents nothing. */
 
 import type { ReactNode } from "react";
-import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
-import css from "./metric-strip.module.css";
+import type { AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 
 export type StripTone = "gold" | "ok" | "bad" | "info" | "neutral";
 export interface StripCell {
@@ -22,25 +22,15 @@ export interface StripCell {
   /** v1.321.0 - the cell is the filter in force */
   pressed?: boolean;
 }
+const TONE: Record<StripTone, KpiTone> = { gold: "gold", ok: "green", bad: "red", info: "blue", neutral: "navy" };
 
 export function MetricStrip({ cells, label, testid = "metric-strip" }: { cells: StripCell[]; label: string; testid?: string }) {
   return (
-    <div className={css.strip} role="group" aria-label={label} data-testid={testid} data-cells={cells.length}>
-      {cells.map((c) => {
-        const body = (
-          <>
-            <span className={`${css.well} ${css[`w_${c.tone}`]}`} aria-hidden><AppIcon name={c.icon} /></span>
-            <span className={css.cellText}>
-              <span className={css.cellLabel}>{c.label}</span>
-              <strong className={css.cellValue} aria-busy={c.busy || undefined}>{c.busy ? "···" : c.value}</strong>
-              {c.sub && !c.busy && <span className={css.cellSub}>{c.sub}</span>}
-            </span>
-          </>
-        );
-        return c.onClick
-          ? <button key={c.key} type="button" className={css.cell} onClick={c.onClick} title={c.title} aria-pressed={c.pressed ?? undefined} data-cell={c.key}>{body}</button>
-          : <div key={c.key} className={css.cell} title={c.title} data-cell={c.key}>{body}</div>;
-      })}
-    </div>
+    <KpiRow label={label} testid={testid}>
+      {cells.map((c) => (
+        <KpiTile key={c.key} cell={c.key} icon={c.icon} tone={TONE[c.tone]} label={c.label} value={c.value} sub={c.sub} busy={c.busy}
+          onClick={c.onClick} title={c.title} pressed={c.pressed} />
+      ))}
+    </KpiRow>
   );
 }

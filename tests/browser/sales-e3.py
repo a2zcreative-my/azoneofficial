@@ -108,8 +108,10 @@ with sync_playwright() as p:
     ctx, pg, errs = page(b, 4262, 390, 844, "reports")
     xs = {round(t.bounding_box()["x"]) for t in pg.locator("[aria-label='Sales this month'] > *").all()}
     check("...the month figures two across (Reports)", len(xs) == 2, xs)
+    # v1.323.0 - the Tasks master's phone segment: the words take the whole segment, the icon well steps aside (none of the five figures goes)
     wells = pg.evaluate("() => [...document.querySelectorAll('[aria-label=\"Sales this month\"] [class*=kpi-tile_well]')].filter(e => e.offsetParent).length")
-    check("...each with its icon well, as the photo", wells == 5, wells)
+    figs = pg.evaluate("() => [...document.querySelectorAll('[aria-label=\"Sales this month\"] [class*=kpi-tile_value]')].filter(e => e.offsetParent).length")
+    check("...all five figures shown, the master's phone segment (no icon well)", wells == 0 and figs == 5, [wells, figs])
     check("no page errors (CEO phone)", not errs, errs)
     ctx.close()
 

@@ -70,14 +70,21 @@ export function WorkspaceGrid({ main, rail, testid }: { main: ReactNode; rail: R
   );
 }
 
-/** a pill switch inside a panel's head ("This Week · This Month · YTD", "Everyone · Mine") */
-export function PillSwitch<T extends string>({ value, options, onChange, label, testid }: {
-  value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; label: string; testid?: string;
+/** THE VIEW SWITCH (v1.323.0, the CEO's Global UI brief D-2): the one control for
+    "the same records, shown another way" - Table · Board, List · Board · Calendar,
+    This Week · This Month, Everyone · Mine. The Tasks master's segmented look: a
+    quiet track, the chosen one raised white. Other records are a tab (LineTabs),
+    never this. An option may carry an icon; `pressed: false` marks a jump (a
+    button that opens another view instead of switching this one). */
+export function PillSwitch<T extends string>({ value, options, onChange, label, testid, counts }: {
+  value: T; options: readonly (readonly [T, string] | readonly [T, string, AppIconName])[]; onChange: (v: T) => void; label: string; testid?: string;
+  /** a figure beside an option (the Desk inbox's filters); null or missing shows none */
+  counts?: Partial<Record<T, number | null>>;
 }) {
   return (
     <span className={css.pills} role="group" aria-label={label} data-testid={testid}>
-      {options.map(([k, text]) => (
-        <button key={k} type="button" aria-pressed={k === value} onClick={() => onChange(k)}>{text}</button>
+      {options.map(([k, text, icon]) => (
+        <button key={k} type="button" aria-pressed={k === value} onClick={() => onChange(k)} data-testid={testid ? `${testid}-${k}` : undefined}>{icon && <AppIcon name={icon} />}{text}{counts?.[k] != null && <span className={css.pillN}>{counts[k]}</span>}</button>
       ))}
     </span>
   );

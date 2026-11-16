@@ -88,7 +88,7 @@ with sync_playwright() as p:
     of.select_option("blocked"); pg.wait_for_timeout(400)
     check("Overview: Blocked leaves the task in review out", TITLE not in ol.inner_text(), ol.inner_text()[:200])
     of.select_option(""); pg.wait_for_timeout(300)
-    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Activity", exact=True).click(); pg.wait_for_timeout(400)  # v1.321.0 - Recent Activity is one face of the one panel
+    pg.get_by_test_id("overview-panel-switch").get_by_role("tab", name="Activity", exact=True).click(); pg.wait_for_timeout(400)  # v1.321.0 - Recent Activity is one face of the one panel
     check("Overview: the newest progress report is listed with its task", TITLE in ov.inner_text() and "Submitted to the bank" in ov.inner_text(), ov.inner_text()[:300])
     pg.get_by_role("tab", name="All Tasks", exact=True).click(); pg.wait_for_timeout(1000)
     row = pg.locator(f"tr:has-text('{TITLE}')").first

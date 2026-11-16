@@ -69,7 +69,9 @@ with sync_playwright() as p:
     check("Outstanding is the route's figure", "RM 11,100.00" in fig.locator("[class*=kpi-tile_tile]").nth(2).inner_text())
     well = pg.evaluate("() => document.querySelector('[data-row=figures] [class*=kpi-tile_well]').getBoundingClientRect()")
     tile = pg.evaluate("() => document.querySelector('[data-row=figures] [class*=kpi-tile_tile]').getBoundingClientRect()")
-    check("the tile is the photo's: the well beside the words, not above them", abs(well["top"] - tile["top"]) < 30 and well["width"] >= 43, {"well": well, "tile": tile})
+    label = pg.evaluate("() => document.querySelector('[data-row=figures] [class*=kpi-tile_label]').getBoundingClientRect()")
+    # v1.323.0 - the Tasks master's segment (D-1/D-5): a 36px well beside the words, centred on them
+    check("the tile is the master's: the well beside the words, not above them", label["left"] >= well["right"] and abs((well["top"] + well["height"] / 2) - (tile["top"] + tile["height"] / 2)) < 4 and well["width"] >= 34, {"well": well, "tile": tile, "label": label})
     summ = pg.get_by_test_id("sales-summary")
     check("Sales Performance says the same figure as the Company sales tile - one engine", "RM 4,000.00" in summ.inner_text() and "RM 4,000.00" in col)
     check("...and the week's required pace (the engine's gap over the days left)", "Needed per working day" in summ.inner_text() and "RM 11,000.00" in summ.inner_text(), summ.inner_text()[:300])

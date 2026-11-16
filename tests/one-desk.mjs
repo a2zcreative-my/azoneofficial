@@ -207,9 +207,12 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
        !/erp-tiles-3/.test(deskSrc) && /erp-tiles-2/.test(deskSrc)
        /* v1.190.0 - the Desk's three figure cards: one column on a phone, three across
           from 768px, never 2 + 1. v1.293.0 - four figures (management) are 2 + 2, then four across */
-       && /\.figures\[data-figures="3"\] \{\s*grid-template-columns: minmax\(0, 1fr\);/.test(read("components/portal/desk-page.module.css"))
-       && /@media \(min-width: 768px\) \{\s*\.figures\[data-figures="3"\] \{\s*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/.test(read("components/portal/desk-page.module.css"))
-       && /\.figures \{\s*display: grid;\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/.test(read("components/portal/desk-page.module.css")),
+       /* v1.323.0 - the Desk's figures are the one KPI strip (D-5, approved 16-11-2026):
+          two a row below 1024px with an odd last one ACROSS the row, so a third never
+          sits alone at half width; the Desk keeps no figure grid of its own */
+       && /<KpiRow label=\{L\("Your work at a glance"/.test(read("components/portal/desk-page.tsx"))
+       && !/\.figures\b/.test(read("components/portal/desk-page.module.css"))
+       && /@media \(max-width: 1023px\) \{[^}]*--cells: 2;[^@]*\.row > :last-child:nth-child\(odd\) \{ grid-column: 1 \/ -1; \}/.test(read("components/ui/kpi-tile.module.css")),
        "three tiles wrap to 2 + 1 at 390px; the third sat alone at half width");
     ok("a zone caption and the card title inside it are never the same words",
        /bare\?: boolean;/.test(deskSrc) && /\{!bare && <PanelTitle icon="orders">/.test(deskSrc)

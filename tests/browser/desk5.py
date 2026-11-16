@@ -189,12 +189,16 @@ with sync_playwright() as p:
         labels = [t.split("\n")[0].strip() for t in figs.all_inner_texts()]
         check(f"Sales {w}: three figures, no Active Alerts (D2)", labels == ["Pending My Decisions", "Overdue Actions", "My Open Tasks"], labels)
         check(f"Sales {w}: no Alerts card", pg.get_by_test_id("alert-summary").count() == 0)
-        if w >= 768:
+        if w >= 1024:
             ys = {round(f.bounding_box()["y"]) for f in figs.all()}
             check(f"Sales {w}: the three figures in one row", len(ys) == 1, ys)
         else:
-            xs = {round(f.bounding_box()["x"]) for f in figs.all()}
-            check(f"Sales {w}: the three figures one column, never 2 + 1", len(xs) == 1, xs)
+            # v1.323.0 (D-5, approved 16-11-2026) - the one strip: two a row, the odd
+            # third ACROSS the row - never stranded at half width
+            bx = [f.bounding_box() for f in figs.all()]
+            strip_w = pg.get_by_test_id("desk-figures").bounding_box()["width"]
+            check(f"Sales {w}: two figures a row, the third across the row (never alone at half width)",
+                  len(bx) == 3 and round(bx[0]["y"]) == round(bx[1]["y"]) and bx[2]["y"] > bx[0]["y"] and bx[2]["width"] >= strip_w - 4, [(round(b["x"]), round(b["y"]), round(b["width"])) for b in bx] + [strip_w])
         go(pg, 4182, "tab=Desk&view=inbox")
         check(f"Sales {w}: no Alerts filter in the inbox", pg.get_by_test_id("inbox-alerts").count() == 0 and pg.get_by_test_id("inbox-done").count() == 1)
         ctx.close()

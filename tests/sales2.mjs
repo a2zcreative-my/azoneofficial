@@ -100,7 +100,9 @@ async function checks(src) {
   }
   ok("the flow strip shows a count only when it is handed one - never an invented zero", /\{compact && s\.count != null && /.test(src.flow) && /\{!compact && s\.count != null && /.test(src.flow));
   ok("the flow strip scrolls inside itself on a phone, never the page", /\.scroll \{[^}]*overflow-x: auto/.test(src.flowCss));
-  ok("KpiRow keeps a fixed count of figures only from 1280px", /@media \(min-width: 1280px\) \{\s*\.cols4[^}]*\}\s*\.cols5[^}]*\}\s*\.cols6/.test(src.kpiCss) && /cols\?: 4 \| 5 \| 6/.test(src.kpi));
+  /* v1.323.0 - the one strip counts its own cells: every figure on one row only
+     from 1280px, three below that, two below 1024px (D-5) */
+  ok("KpiRow keeps every figure on one row only from 1280px", /data-cells=\{n\}/.test(src.kpi) && /@media \(max-width: 1279px\) \{\s*\.row\[data-cells="5"\][^}]*--cells: 3;/.test(src.kpiCss) && /@media \(max-width: 1023px\) \{\s*\.row, \.row\[data-cells\] \{ --cells: 2; \}/.test(src.kpiCss) && /cols\?: 4 \| 5 \| 6/.test(src.kpi));
 
   /* ---- the Overview ---- */
   const { sales, views, s2, shell } = src;

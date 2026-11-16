@@ -99,8 +99,9 @@ with sync_playwright() as p:
     well = pg.evaluate("() => { const w = document.querySelector('[class*=kpi-tile_well]'); return w ? w.getBoundingClientRect().width : 0; }")
     fig = pg.evaluate("() => Math.max(...[...document.querySelectorAll('[class*=kpi-tile_value]')].map(e => parseFloat(getComputedStyle(e).fontSize)))")
     # v1.281.0 - Sales is five across now (the photo's Sales Overview): a tile that narrow keeps its well beside the words at 44px
-    check("the KPI tile's well is the photo's: 52px with room, 44px in a row of five, never the old 40px", 43.5 <= well <= 53, well)
-    check("...and no figure is above 22px", 0 < fig <= 22.01, fig)
+    # v1.323.0 - the Tasks master's segment (Global UI System D-1/D-5, approved 16-11-2026): a 36px well, 32px in a narrow segment
+    check("the KPI tile's well is the master's: 36px, 32px in a narrow segment", 31.5 <= well <= 36.5, well)
+    check("...and no figure is above the master's 18px", 0 < fig <= 18.01, fig)
     check("no sideways page (desktop)", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
     check("no page errors (CEO desktop)", not errs, errs)
     ctx.close()

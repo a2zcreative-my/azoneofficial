@@ -52,7 +52,8 @@
        the shadow moved; every surface reads them, so nothing was rewritten. */
     --erp-radius-card: 18px;
     --erp-radius-panel: 14px;
-    --erp-radius-control: 12px;
+    /* v1.323.0 - one control radius: the module controls (--radius-control) read the same 12px */
+    --erp-radius-control: var(--radius-control, 12px);
     /* v1.177.0 - light mode has no deck of its own: these three exist so a
        rule can name them unconditionally and get something sensible on both
        themes. On light, "raised" is simply the card. */

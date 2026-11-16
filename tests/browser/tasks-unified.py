@@ -50,7 +50,7 @@ with sync_playwright() as p:
     # ================= Overview =================
     ctx, pg, errs = open_page(b, CEO, view="overview")
     st = pg.get_by_test_id("overview-strip")
-    labels = [x.strip() for x in st.locator("[class*=cellLabel]").all_inner_texts()]
+    labels = [x.strip() for x in st.locator("[class*=kpi-tile_label]").all_inner_texts()]
     check("Overview: ONE compact strip of five, no large figure cards", labels == ["Total Tasks", "Overdue", "In Progress", "Awaiting Review", "Done"] and pg.locator("section.erp-tab-zone:visible .erp-kpi-label, section.erp-tab-zone:visible [data-kpi-label]").count() == 0, labels)
     found = lambda: int(re.match(r"^(\d+)", pg.get_by_test_id("overview-found").inner_text()).group(1))
     total = found()
@@ -70,9 +70,9 @@ with sync_playwright() as p:
     panel = pg.get_by_test_id("overview-panel")
     shown = lambda: sorted(t for t in ["staff-performance", "weekly-summary", "progress-overview", "quick-links", "workflow-strip"] if panel.get_by_test_id(t).count())
     a = shown()
-    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
+    pg.get_by_test_id("overview-panel-switch").get_by_role("tab", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
     bb = shown()
-    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
+    pg.get_by_test_id("overview-panel-switch").get_by_role("tab", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
     c = shown()
     check("ONE panel, three faces - Staff (performance, the week), Activity, Actions (links, workflow) - one at a time", a == ["staff-performance", "weekly-summary"] and bb == ["progress-overview"] and c == ["quick-links", "workflow-strip"], f"{a} {bb} {c}")
     check("no sideways page (Overview)", no_hscroll(pg))
@@ -82,7 +82,7 @@ with sync_playwright() as p:
     # ================= All Tasks =================
     reset(CEO)
     ctx, pg, errs = open_page(b, CEO, view="all")
-    labels = [x.strip() for x in pg.get_by_test_id("all-strip").locator("[class*=cellLabel]").all_inner_texts()]
+    labels = [x.strip() for x in pg.get_by_test_id("all-strip").locator("[class*=kpi-tile_label]").all_inner_texts()]
     check("All Tasks: ONE compact strip of five", labels == ["Open Tasks", "In Progress", "Waiting Review", "Overdue", "Closed This Week"], labels)
     heads = [h.strip() for h in pg.get_by_test_id("task-table").locator("thead th").all_inner_texts()]
     check("ONE compact table: Task, Status, Priority, Due, Assignee, Department, Progress (Subtasks hidden to start), the commands", heads[:7] == ["Task & Context", "Status", "Priority", "Due Date", "Assignee", "Department", "Progress"] and "Subtasks" not in heads, heads)

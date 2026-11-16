@@ -119,8 +119,10 @@ const salesCode = strip(sales);
         (Minimal Executive Workspace, approved 11-11-2026): a mid tile shrinks
         the well and scales the figure; only a narrow tile (a phone's two
         across) puts the icon above the words */
-     && /@container \(max-width: 15rem\) \{[\s\S]{0,400}?8\.5cqi/.test(kt)
-     && /@container \(max-width: 10rem\) \{[\s\S]{0,300}?\.body \{\s*grid-column: 1 \/ -1;[\s\S]{0,200}?12\.5cqi/.test(kt));
+     /* v1.323.0 - the master strip (D-1/D-5): a narrow segment shrinks its well,
+        and on a phone the well steps aside so the words have the whole segment */
+     && /@container \(max-width: 12rem\) \{[\s\S]{0,300}?\.well \{\s*width: 2rem;/.test(kt)
+     && /@media \(max-width: 767px\) \{\s*\.tile \{\s*grid-template-columns: minmax\(0, 1fr\);[\s\S]{0,200}?\.well \{\s*display: none;/.test(kt));
   ok("no page pins the tile figure to a fixed size again",
      !/span:nth-child\(2\) > span:first-child \{[^}]*font-size/.test(read("components/portal/sales-docs.module.css") + read("components/portal/ecommerce-panel.module.css")));
 }

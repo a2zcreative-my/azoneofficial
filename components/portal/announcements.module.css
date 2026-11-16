@@ -427,22 +427,6 @@
   font-weight: 600;
   color: var(--danger);
 }
-/* the four figures on a phone: two across, the icon well folded away (the
-   Sales and Ecommerce rule) */
-@media (max-width: 639px) {
-  .kpis [role="group"] {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.5rem;
-  }
-  .kpis [role="group"] > * {
-    padding: 0.75rem;
-    gap: 0.5rem;
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .kpis [role="group"] > * > span:first-child {
-    display: none;
-  }
-}
 
 /* ==================================================================
    v1.295.0 - News v2.0, release N1 (the CEO's photo, 12-11-2026): one

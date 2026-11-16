@@ -35,7 +35,7 @@ const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
 const FILES = {
   tasks: "components/portal/tasks.tsx", ws: "components/portal/task-workspace.tsx", wsCss: "components/portal/task-workspace.module.css",
   tp: "components/portal/task-progress.tsx", table: "components/portal/task-table.tsx", tableCss: "components/portal/task-table.module.css",
-  t2Css: "components/portal/tasks2.module.css", strip: "components/ui/metric-strip.tsx", stripCss: "components/ui/metric-strip.module.css",
+  t2Css: "components/portal/tasks2.module.css", strip: "components/ui/metric-strip.tsx", stripCss: "components/ui/kpi-tile.module.css" /* v1.323.0 - MetricStrip draws through the one KPI strip */,
   pager: "components/ui/pagination-controls.tsx", pagerCss: "components/ui/pagination-controls.module.css",
   filt: "components/ui/filter-popover.tsx", filtCss: "components/ui/filter-popover.module.css", shell: "components/portal/sales-shell.tsx",
   flow: "lib/task-flow.ts", guards: "scripts/run-guards.mjs",
@@ -52,6 +52,7 @@ function checks(src) {
   const all = between(tasks, '<MetricStrip testid="all-strip"', '{view === "calendar"');
 
   /* ---- the shared pieces ---- */
+  ok("v1.323.0 - the compact strip IS the one KPI strip: MetricStrip draws KpiRow + KpiTile and keeps no stylesheet of its own", /<KpiRow label=\{label\} testid=\{testid\}>/.test(strip(src.strip)) && /<KpiTile /.test(strip(src.strip)) && !/metric-strip\.module\.css/.test(src.strip));
   ok("one compact strip, shared: Sales re-exports the ui strip and draws none of its own", /export function MetricStrip\(/.test(src.strip) && /export \{ MetricStrip, type StripCell \} from "@\/components\/ui\/metric-strip";/.test(src.shell) && !/function MetricStrip/.test(src.shell) && !/^\.strip\b/m.test(read("components/portal/sales-shell.module.css")));
   ok("one pagination: 10, 15, 25 or 50 rows", /export const PAGE_SIZES = \[10, 15, 25, 50\] as const;/.test(src.pager));
   ok("the filter panel lies in the page (a region), never a dialog", /role="region"/.test(src.filt) && !/role="dialog"|aria-modal/.test(src.filt) && /e\.key === "Escape"/.test(src.filt));
@@ -61,7 +62,7 @@ function checks(src) {
   /* ---- Overview ---- */
   ok("Overview: the compact strip, no large figure cards", /<MetricStrip testid="overview-strip"/.test(overview) && !/<KpiRow|<KpiTile/.test(overview));
   ok("Overview: the priority queue, a page at a time (10 to start)", /<OverviewTable rows=\{ovRows\.slice\(/.test(overview) && /<PaginationControls testid="overview-pages"/.test(overview) && /const \[ovSize, setOvSize\] = useState<PageSize>\(10\);/.test(tasks));
-  ok("Overview: ONE secondary panel, switched between three", /<PillSwitch testid="overview-panel-switch"/.test(overview) && /\["people",[^\]]*\],\s*\["activity",[^\]]*\],\s*\["actions",[^\]]*\],/.test(overview) && (overview.match(/ovPanel === "/g) ?? []).length === 3);
+  ok("Overview: ONE secondary panel, switched between three", /* v1.323.0 (D-2) - three contents are three tabs: the one LineTabs row */ /<div data-testid="overview-panel-switch">\s*(?:\{\}\s*)?<LineTabs [^>]*value=\{ovPanel\}/.test(overview) && /\["people",[^\]]*\],\s*\["activity",[^\]]*\],\s*\["actions",[^\]]*\],/.test(overview) && (overview.match(/ovPanel === "/g) ?? []).length === 3);
   ok("Overview: nothing dropped - performance (managers) or my day, the week's closures, activity, quick links and the workflow are all in the panel", ["<StaffPerformance ", "<MyToday ", "<WeeklySummary ", "<ActivityFeed ", "<QuickLinks ", "<WorkflowStrip />"].every((x) => overview.includes(x)) && /\{canManage\s*\? <StaffPerformance/.test(overview));
   ok("Overview: the extra filters (project, department, staff) behind Filters; status stays in reach", /<FilterPopover testid="overview-more"/.test(overview) && /value=\{ovAbout\}/.test(overview) && /value=\{ovDept\}/.test(overview) && /value=\{ovWho\}/.test(overview) && /aria-label=\{L\("Status", "Status"\)\} value=\{ovStatus\}/.test(overview));
 

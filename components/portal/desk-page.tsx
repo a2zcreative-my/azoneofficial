@@ -43,8 +43,11 @@ import { usePortal } from "@/components/portal/portal-provider";
 import { revealAnchor } from "@/components/portal/page-shared";
 import { ReportProblem } from "@/components/portal/support-card";
 import { IntroduceLeadAction } from "@/components/portal/week-target-card";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // v1.323.0 - the one KPI strip
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { LineTabs } from "@/components/ui/line-tabs";
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.323.0 - D-4
+import { PillSwitch } from "@/components/ui/panel"; // v1.323.0 - D-2
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { SkelRows } from "@/components/ui/skeleton";
 import type { TabName } from "@/lib/portal-tabs";
@@ -250,15 +253,11 @@ function Overview(p: {
   const hello = hour < 12 ? L("Good morning", "Selamat pagi") : hour < 18 ? L("Good afternoon", "Selamat petang") : L("Good evening", "Selamat malam");
   const first = (p.user.name ?? "").trim().split(/\s+/)[0] ?? "";
   const today = myt.toLocaleDateString(getLang() === "ms" ? "ms-MY" : "en-GB", { weekday: "long", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  /* v1.323.0 - the four figures are segments of the one KPI strip (components/ui/kpi-tile.tsx),
+     the Tasks master's connected card - never four cards of their own (the CEO's Global UI brief, R-2) */
+  const TONE = { gold: "gold", bad: "red", info: "blue", ok: "green" } as const;
   const figure = (key: string, icon: AppIconName, tone: "gold" | "bad" | "info" | "ok", value: number | null, label: string, line: string, onClick: () => void) => (
-    <button key={key} type="button" className={`${card} ${css.figure}`} onClick={onClick} data-testid={`desk-fig-${key}`}>
-      <span className={`${css.well} ${css[`w_${tone}`]}`}><AppIcon name={icon} /></span>
-      <span className={css.figBody}>
-        <span className={css.figLabel}>{label}</span>
-        <span className={css.figValue} aria-busy={value == null}>{value == null ? "···" : value}</span>
-        <span className={css.figLine}>{line}</span>
-      </span>
-    </button>
+    <KpiTile key={key} cell={key} testid={`desk-fig-${key}`} icon={icon} tone={TONE[tone]} label={label} value={value ?? 0} busy={value == null} sub={line} onClick={onClick} />
   );
   const linkBtn = (label: string, onClick: () => void) => <button type="button" className={css.textLink} onClick={onClick}>{label}</button>;
   return (
@@ -278,7 +277,7 @@ function Overview(p: {
       </div>
 
       <TabZone label={L("At a glance", "Sepintas lalu")}>
-      <div className={css.figures} data-figures={p.exec ? 4 : 3} data-testid="desk-figures">
+      <KpiRow label={L("Your work at a glance", "Kerja anda sepintas lalu")} testid="desk-figures">
         {figure("decide", "orders", "gold", p.known ? p.decide.length : null, L("Pending My Decisions", "Keputusan Saya Menunggu"),
           p.decide.length === 0 ? L("Nothing waits on your decision", "Tiada keputusan menunggu anda") : L(`Oldest waiting ${p.oldestDecision}`, `Terlama menunggu ${p.oldestDecision}`), () => p.toInbox("decide"))}
         {figure("overdue", "time", "bad", p.known ? p.overdueN : null, L("Overdue Actions", "Tindakan Lewat"),
@@ -288,7 +287,7 @@ function Overview(p: {
           p.findings === 0 ? L("No rule finds anything", "Tiada peraturan menemui apa-apa") : L(`${p.rulesN} rule${p.rulesN === 1 ? "" : "s"} · oldest ${p.oldestAlert}`, `${p.rulesN} peraturan · terlama ${p.oldestAlert}`), () => p.toInbox("alerts"))}
         {figure("tasks", "success", "ok", p.known ? p.myTasks.length : null, L("My Open Tasks", "Tugasan Terbuka Saya"),
           p.myTasks.length === 0 ? L("Nothing assigned to you", "Tiada tugasan untuk anda") : p.tasksOverdue ? L(`${p.tasksOverdue} overdue`, `${p.tasksOverdue} lewat`) : L("None overdue", "Tiada yang lewat"), () => p.go("Tasks"))}
-      </div>
+      </KpiRow>
       </TabZone>
 
       <div className={css.grid}>
@@ -423,16 +422,8 @@ function Inbox({ rows, known, exec, filter, setFilter, go, openRecord }: {
 
   return (
     <section className={`${card} ${css.inbox}`} aria-label={L("Action Inbox", "Peti Tindakan")} data-testid="action-inbox" data-filter={filter}>
-      <div className={css.pills} role="group" aria-label={L("Show", "Tunjuk")}>
-        {pills.map(([k, label]) => {
-          const n = count(k);
-          return (
-            <button key={k} type="button" aria-pressed={filter === k} data-testid={`inbox-${k}`} onClick={() => { setFilter(k); setPage(1); setMod(""); }}>
-              {label}{n != null && known && <span className={css.pillN}>{n}</span>}
-            </button>
-          );
-        })}
-      </div>
+      <PillSwitch testid="inbox" label={L("Show", "Tunjuk")} value={filter} options={pills} onChange={(k) => { setFilter(k); setPage(1); setMod(""); }}
+        counts={known ? Object.fromEntries(pills.map(([k]) => [k, count(k)])) as Partial<Record<InboxFilter, number | null>> : undefined} />
       <div className={css.tools}>
         <label className={css.search}>
           <AppIcon name="search" />
@@ -458,7 +449,7 @@ function Inbox({ rows, known, exec, filter, setFilter, go, openRecord }: {
         ) : doneList.length === 0 ? (
           <p className={css.quiet} role="status"><AppIcon name="success" />{L("You have decided nothing in the last 30 days.", "Anda tidak memutuskan apa-apa dalam 30 hari lepas.")}</p>
         ) : (
-          <div className={`${css.table} ${css.doneTable}`} role="table" aria-label={L("Completed", "Selesai")}>
+          <FillPanel testid="done-panel"><div className={`${css.table} ${css.doneTable}`} role="table" aria-label={L("Completed", "Selesai")}>
             <div className={`${css.trow} ${css.thead}`} role="row">
               <span role="columnheader">{L("Request", "Permohonan")}</span><span role="columnheader">{L("Module", "Modul")}</span>
               <span role="columnheader">{L("Requester", "Pemohon")}</span><span role="columnheader">{L("Your decision", "Keputusan anda")}</span>
@@ -477,12 +468,12 @@ function Inbox({ rows, known, exec, filter, setFilter, go, openRecord }: {
                 </div>
               );
             })}
-          </div>
+          </div></FillPanel>
         )
       ) : !known ? <SkelRows rows={5} /> : list.length === 0 ? (
         <p className={css.quiet} role="status"><AppIcon name="success" />{rows.length === 0 ? L("Nothing is waiting on you.", "Tiada apa yang menunggu anda.") : L("Nothing matches.", "Tiada yang sepadan.")}</p>
       ) : (
-        <div className={css.table} role="table" aria-label={L("Action Inbox", "Peti Tindakan")}>
+        <FillPanel testid="inbox-panel"><div className={css.table} role="table" aria-label={L("Action Inbox", "Peti Tindakan")}>
           <div className={`${css.trow} ${css.thead}`} role="row">
             <span role="columnheader">{L("Request", "Permohonan")}</span><span role="columnheader">{L("Module", "Modul")}</span>
             <span role="columnheader">{L("Requester / owner", "Pemohon / pemilik")}</span><span role="columnheader">{L("Submitted", "Dihantar")}</span>
@@ -499,12 +490,12 @@ function Inbox({ rows, known, exec, filter, setFilter, go, openRecord }: {
               <span role="cell" className={css.cPri}>{chip(r.priority)}</span>
               <span role="cell" className={css.cStatus} title={r.status}>{r.status}</span>
               <span role="cell" className={css.act}>
-                {r.next && <small className={css.next}>{r.next}</small>}
+                {r.next && <small className={css.next} title={r.next}>{r.next}</small>}
                 <button type="button" className={btnSm} onClick={r.open}>{L("Open", "Buka")}</button>
               </span>
             </div>
           ))}
-        </div>
+        </div></FillPanel>
       )}
       {pages > 1 && (
         <nav className={css.pager} aria-label={L("Pages", "Halaman")}>

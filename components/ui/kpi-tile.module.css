@@ -1,78 +1,93 @@
-/* v1.191.0 - the reference figure tile (kpi-tile.tsx). Tokens only; the
-   tints are the existing gold-solid, success, danger, info, plan and navy. */
+/* v1.323.0 - THE ONE KPI STRIP (the CEO's Global UI System brief, 16-11-2026,
+   approved "as per recommend": claude/UI-SYSTEM-STAGE-0-AUDIT.md, R-1, D-1, D-5).
+   The master is the Tasks Overview strip of v1.321.0: ONE white card holding
+   connected segments - a small tinted well, the label, the figure, one line -
+   with a thin divider between them and no gap. The row is the card; a tile is
+   a segment of it, never a card of its own (v1.191.0 - v1.322.0 drew every
+   figure as its own floating card: 178 of them on 42 views).
+
+   The card is the workspace card (D-1): the same border, radius and shadow as
+   .erp-card. Dividers are each segment's own right and bottom hairline, so any
+   count wraps cleanly (an empty slot at the end of a row stays plain card).
+   Columns: every figure on one row from 1280px (a seventh or eighth wraps at
+   four); three a row from 1024px; two a row below that - on a phone too, with
+   an odd last one across the row (D-5: no figure hidden behind a "More").
+   Tokens only; the tints are the existing gold-solid, success, danger, info,
+   plan and navy; the house breakpoints only. */
 .row {
+  --cells: 4;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(var(--cells), minmax(0, 1fr));
+  min-width: 0;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--erp-radius-card, var(--radius-card));
+  box-shadow: var(--erp-shadow-card, none);
 }
-@media (min-width: 768px) {
-  .row {
-    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-    gap: 1rem;
-  }
+.row[data-cells="1"] { --cells: 1; }
+.row[data-cells="2"] { --cells: 2; }
+.row[data-cells="3"] { --cells: 3; }
+.row[data-cells="5"] { --cells: 5; }
+.row[data-cells="6"] { --cells: 6; }
+.row[data-cells="7"], .row[data-cells="8"] { --cells: 4; }
+/* the fixed counts KpiRow `cols` asked for (v1.320.0) now follow the count itself */
+.cols4, .cols5, .cols6 { min-width: 0; }
+@media (max-width: 1279px) {
+  .row[data-cells="5"], .row[data-cells="6"], .row[data-cells="7"], .row[data-cells="8"] { --cells: 3; }
 }
-/* v1.320.0 - a fixed count from 1280px (KpiRow cols); 768-1279 stays automatic */
-@media (min-width: 1280px) {
-  .cols4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .cols5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .cols6 { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+@media (max-width: 1023px) {
+  .row, .row[data-cells] { --cells: 2; }
+  .row[data-cells="1"] { --cells: 1; }
+  .row > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
-/* v1.276.0 - A2Z OS 3.0: two tiles a row on every phone (Tasks and Users
-   fell to one tall tile a row), an odd last tile across the row */
-@media (max-width: 639px) {
-  .row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-2);
-  }
-  .row > :last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-  }
-}
+
+/* ---------- a segment ---------- */
 .tile {
   container-type: inline-size;
+  position: relative;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  /* v1.247.1 - in a row the tiles stretch to the tallest; the spare height
-     stays at the bottom, so every label and figure lines up across the row
-     (a two-line sub used to push one tile's words above its neighbours') */
-  align-content: start;
-  gap: 0.875rem;
+  align-items: center;
+  align-content: center;
+  gap: 0.75rem;
   min-width: 0;
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--card);
   color: inherit;
   font: inherit;
   text-align: left;
+  box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border);
 }
 .press {
   width: 100%;
   cursor: pointer;
-  transition: border-color 0.15s ease;
 }
 .press:hover {
-  border-color: var(--gold-solid);
+  background: var(--secondary);
 }
 .press:focus-visible {
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
-/* v1.276.0 - A2Z OS 3.0: one tile size on every tab - a 40px well and a
-   22px figure (--type-kpi-tile-size), never the 48px well and 30px hero
-   that made Sales and Tasks tiles twice the Dashboard's */
-/* v1.279.0 - MINIMAL EXECUTIVE WORKSPACE (the photo, approved 11-11-2026):
-   a 52px tinted well with a 28px line icon, a 13px label, the 22px bold
-   figure, a 9px progress bar and the change as a small pill - one tile on
-   every tab still. */
+/* a segment that is the list's filter in force: the master's gold wash and underline */
+.press[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--gold-solid) 10%, var(--card));
+  box-shadow: inset 0 -2px 0 var(--gold-solid), 1px 0 0 var(--border), 0 1px 0 var(--border);
+}
 .well {
   display: grid;
   place-items: center;
-  width: 3.25rem;
-  height: 3.25rem;
+  width: 2.25rem;
+  height: 2.25rem;
   flex: none;
-  border-radius: var(--radius-card-v2);
+  border-radius: var(--radius-sm);
 }
 .well :global(.erp-icon) {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 .gold {
   background: color-mix(in srgb, var(--gold-solid) 16%, transparent);
@@ -101,7 +116,7 @@
 .body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.25rem;
+  gap: 0.0625rem;
   min-width: 0;
 }
 .top {
@@ -109,50 +124,45 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
+  min-width: 0;
 }
 .label {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  line-height: 1.25rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  line-height: 1.3;
 }
 .mid {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
   min-width: 0;
 }
-/* v1.214.1 - THE FIGURE FITS ITS TILE (the owner, 28-10-2026: "why the
-   figure overflow from the card"). The value was a fixed 1.875rem that
-   could not wrap, beside a 3rem icon well: in a row of five tiles beside
-   the sidebar the text column is about 7rem wide and "RM 12,700.00" needs
-   about 12, so it ran out of the card. Now the tile is a size container:
-   the figure scales with the tile's own width (never above the token,
-   never below 1.125rem), a narrow tile puts its icon above the words so
-   the figure gets the whole width, and as a last resort the figure may
-   break at its space rather than spill. */
+/* the figure: the master's 18px / 700 (--type-kpi-tile-size), smaller only
+   when its segment is too narrow for it, and as a last resort it breaks at
+   its space rather than spill (v1.214.1) */
 .value {
   min-width: 0;
   font-size: clamp(1.125rem, 9cqi, var(--type-kpi-tile-size));
   font-weight: 700;
-  line-height: var(--type-kpi-lg-lh);
-  letter-spacing: var(--type-kpi-lg-tracking);
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .spark {
   display: flex;
   align-items: flex-end;
-  gap: 3px;
-  height: 2.25rem;
-  flex: 0 1 6rem;
-  min-width: 3rem;
+  gap: 2px;
+  height: 1.5rem;
+  flex: 0 1 4.5rem;
+  min-width: 2.5rem;
 }
 .sparkBar,
 .sparkLast {
   flex: 1 1 0;
-  min-width: 3px;
-  border-radius: 2px;
+  min-width: 2px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--gold-solid) 35%, transparent);
 }
 .sparkLast {
@@ -171,7 +181,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.125rem;
-  padding: 0.0625rem 0.5rem;
+  padding: 0 0.375rem;
   border-radius: var(--radius-full);
   font-size: var(--type-caption-size);
   font-weight: 600;
@@ -185,23 +195,27 @@
   background: var(--danger-soft);
   color: var(--danger);
 }
+/* the one line under the figure: the master keeps it to one line */
 .sub {
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-lh);
+  overflow: hidden;
   color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bar {
   display: block;
-  height: 0.5625rem;
+  height: 0.375rem;
   margin-top: 0.25rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   background: var(--secondary);
   overflow: hidden;
 }
 .fill {
   display: block;
   height: 100%;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
 }
 .fill_green {
   background: var(--success);
@@ -230,39 +244,31 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-
-/* a narrow tile (a row of five beside the sidebar, two across on a phone):
-   the icon above the words, the words the tile's full width */
-/* v1.279.0 - the photo keeps the well beside the words in a row of five;
-   a mid-width tile only shrinks the well and lets the figure scale.
-   v1.280.0 - measured on the tile's CONTENT box (the five-across Dashboard
-   row at 1440px leaves about 11rem): the well stays beside the words down to
-   10rem, which only a phone's two-across reaches */
-@container (max-width: 15rem) {
+/* a narrow segment (three a row beside the sidebar, two a row on a phone):
+   the well a little smaller */
+@container (max-width: 12rem) {
   .tile {
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
   .well {
-    width: 2.75rem;
-    height: 2.75rem;
+    width: 2rem;
+    height: 2rem;
   }
   .well :global(.erp-icon) {
-    width: 1.5rem;
-    height: 1.5rem;
-  }
-  .value {
-    font-size: clamp(1rem, 8.5cqi, var(--type-kpi-tile-size));
+    width: 1.125rem;
+    height: 1.125rem;
   }
 }
-@container (max-width: 10rem) {
+@media (max-width: 767px) {
+  .tile {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 2.75rem;
+    padding: 0.625rem 0.75rem;
+  }
   .well {
-    width: 2.625rem;
-    height: 2.625rem;
+    display: none;
   }
-  .body {
-    grid-column: 1 / -1;
-  }
-  .value {
-    font-size: clamp(1.125rem, 12.5cqi, var(--type-kpi-tile-size));
+  .sub {
+    white-space: normal;
   }
 }

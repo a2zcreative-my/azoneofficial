@@ -41,7 +41,7 @@ const readSide = () => window.matchMedia(SIDE_QUERY).matches;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function SideDrawer({
-  open, onClose, title, subtitle, children, footer, wide = false, full = false, dirty = false,
+  open, onClose, title, subtitle, children, footer, wide = false, full = false, dirty: dirtyIn = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -59,6 +59,13 @@ export function SideDrawer({
       (the X, Escape, the backdrop) first asks "Discard your changes?" in the
       drawer itself, so a slip of the hand never loses the work. */
   dirty?: boolean;
+} | {
+  open: boolean; onClose: () => void; title: ReactNode; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean; full?: boolean;
+  /** v1.323.0 (the CEO's Global UI brief: "warn before discarding unsaved
+      changes") - "auto": the drawer itself notices typing in its fields (not a
+      search box, a checkbox or a radio) and asks before closing; a fresh open
+      starts clean. A form that knows its own state still passes a boolean. */
+  dirty: "auto";
 }) {
   const reduceMotion = useReducedMotion();
   const fromSide = useSyncExternalStore(subscribeSide, readSide, () => true);
@@ -67,12 +74,21 @@ export function SideDrawer({
   const opener = useRef<Element | null>(null);
   const titleId = useId();
   const [asking, setAsking] = useState(false);
+  const [typed, setTyped] = useState(false);
+  const dirty = dirtyIn === "auto" ? typed : dirtyIn;
   /* a fresh open, or the form saved (no longer dirty), drops the question */
   const [seen, setSeen] = useState({ open, dirty });
   if (seen.open !== open || seen.dirty !== dirty) {
     setSeen({ open, dirty });
     if (!open || !dirty) setAsking(false);
+    if (seen.open !== open) setTyped(false);
   }
+  /* "auto": typing in a field of the form marks the drawer dirty */
+  const noticeTyping = (e: { target: EventTarget }) => {
+    if (dirtyIn !== "auto" || typed) return;
+    const t = e.target as HTMLInputElement;
+    if (t.tagName === "TEXTAREA" || t.tagName === "SELECT" || (t.tagName === "INPUT" && !["search", "checkbox", "radio", "hidden", "button", "submit"].includes(t.type))) setTyped(true);
+  };
   const requestClose = () => { if (dirty) setAsking(true); else onClose(); };
 
   /* Focus in on open, back out on close; lock the page's scroll meanwhile. */
@@ -132,6 +148,7 @@ export function SideDrawer({
             exit={reduceMotion ? undefined : offscreen}
             transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.8 }}
             className={`erp-drawer ${wide ? "erp-drawer-wide" : ""} ${full ? "erp-drawer-full" : ""}`}
+            onInputCapture={noticeTyping}
           >
             {/* v1.172.1 (Interface System V3): the panel, head, body and foot
                 are named classes in styles/erp-v3.css. v1.172.2: so are the

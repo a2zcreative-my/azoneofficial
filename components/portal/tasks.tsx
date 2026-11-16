@@ -46,6 +46,7 @@ import { MetricStrip } from "@/components/ui/metric-strip";
 import { FilterField, FilterPopover } from "@/components/ui/filter-popover";
 import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
 import { PillSwitch } from "@/components/ui/panel";
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.323.0 - D-4
 import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
 import { closedThisWeek } from "@/lib/task-flow";
 import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards"; // v1.307.0 - Attendance 4.0 (A-3): the operational roster's home
@@ -1076,10 +1077,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             <Head2 icon="orders" title={L("Priority Queue", "Barisan Keutamaan")}
               sub={L("Overdue and blocked first, then the soonest due.", "Lewat dan terhalang dahulu, kemudian yang paling hampir.")} aside={
               <>
-                <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="overview-mode">
-                  <button type="button" aria-pressed={ovMode === "table"} onClick={() => setOvMode("table")}><AppIcon name="orders" />{L("Table", "Jadual")}</button>
-                  <button type="button" aria-pressed={ovMode === "board"} onClick={() => setOvMode("board")}><AppIcon name="chart" />{L("Board", "Kanban")}</button>
-                </div>
+                <PillSwitch testid="overview-mode" label={L("View", "Paparan")} value={ovMode} onChange={setOvMode}
+                  options={[["table", L("Table", "Jadual"), "orders"], ["board", L("Board", "Kanban"), "chart"]] as const} />
                 <button type="button" className={btnSm} onClick={() => go("calendar")} aria-label={L("Open the calendar", "Buka kalendar")} title={L("Calendar", "Kalendar")}><AppIcon name="date" /></button>
               </>
             } />
@@ -1129,7 +1128,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             {!loaded ? <SkelRows rows={5} /> : ovRows.length === 0 ? (
               <p className={tk.empty}><AppIcon name={ovScope.length ? "search" : "success"} />{ovScope.length ? L("No task matches these filters.", "Tiada tugasan sepadan dengan penapis ini.") : L("No tasks yet. Create Task starts the first one.", "Belum ada tugasan. Cipta Tugas memulakan yang pertama.")}</p>
             ) : ovMode === "table" ? (<>
-              <OverviewTable rows={ovRows.slice((Math.min(ovPage, Math.ceil(ovRows.length / ovSize)) - 1) * ovSize, Math.min(ovPage, Math.ceil(ovRows.length / ovSize)) * ovSize)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} label={L("Priority queue", "Barisan keutamaan")} />
+              <FillPanel testid="overview-fill"><OverviewTable rows={ovRows.slice((Math.min(ovPage, Math.ceil(ovRows.length / ovSize)) - 1) * ovSize, Math.min(ovPage, Math.ceil(ovRows.length / ovSize)) * ovSize)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} label={L("Priority queue", "Barisan keutamaan")} /></FillPanel>
               <PaginationControls testid="overview-pages" page={ovPage} total={ovRows.length} size={ovSize} onPage={setOvPage} onSize={(n) => { setOvSize(n); setOvPage(1); }} label={L("Priority queue pages", "Halaman barisan keutamaan")} />
             </>) : (<>
               <FlowBoard rows={ovRows} today={todayISO} showWho={canManage} limit={3} onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} />
@@ -1141,11 +1140,16 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           </section>
           {/* ONE secondary panel: the person picks what sits beside the queue */}
           <div className={t2.rail} data-testid="overview-panel" data-panel={ovPanel}>
-            <PillSwitch testid="overview-panel-switch" label={L("Beside the queue", "Di sebelah barisan")} value={ovPanel} onChange={setOvPanel} options={[
-              ["people", canManage ? L("Staff", "Staf") : L("My Today", "Hari Ini")],
-              ["activity", L("Activity", "Aktiviti")],
-              ["actions", L("Actions", "Tindakan")],
-            ] as const} />
+            <div data-testid="overview-panel-switch">
+              {/* v1.323.0 (D-2) - three different contents, so three tabs: the one tab row, never a pill */}
+              <LineTabs label={L("Beside the queue", "Di sebelah barisan")} value={ovPanel} onChange={setOvPanel} tabs={[
+                ["people", canManage ? L("Staff", "Staf") : L("My Today", "Hari Ini")],
+                ["activity", L("Activity", "Aktiviti")],
+                ["actions", L("Actions", "Tindakan")],
+              ] as const} />
+            </div>
+            {/* v1.323.0 (D-4) - the queue and its panel fill the screen side by side; each scrolls inside */}
+            <FillPanel testid="overview-panel-body" className={t2.railBody}>
             {ovPanel === "people" && (<>
               {canManage
                 ? <StaffPerformance tasks={tasks} today={todayISO} onPick={(id) => { clearFilters(); setWhoF(id); setStatusF("any"); go("all"); }} />
@@ -1162,6 +1166,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
               ]} />
               <WorkflowStrip />
             </>)}
+            </FillPanel>
           </div>
         </div>
           </>);
@@ -1189,11 +1194,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       {view === "mine" && (() => {
         /* Board · List, and the Calendar tab one press away */
         const modeRow = (
-          <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="mine-mode">
-            <button type="button" aria-pressed={mineMode === "list"} onClick={() => setMineMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
-            <button type="button" aria-pressed={mineMode === "board"} onClick={() => { if (openHow === "beside") closeDetail(); setMineMode("board"); }}><AppIcon name="chart" />{L("Board", "Papan")}</button>
-            <button type="button" aria-pressed={false} onClick={() => go("calendar")}><AppIcon name="date" />{L("Calendar", "Kalendar")}</button>
-          </div>
+          <PillSwitch testid="mine-mode" label={L("View", "Paparan")} value={mineMode}
+            onChange={(k: "list" | "board" | "calendar") => { if (k === "calendar") go("calendar"); else { if (k === "board" && openHow === "beside") closeDetail(); setMineMode(k); } }}
+            options={[["list", L("List", "Senarai"), "orders"], ["board", L("Board", "Papan"), "chart"], ["calendar", L("Calendar", "Kalendar"), "date"]] as const} />
         );
         const subMine = L("Tasks assigned to you. Update progress, manage subtasks, and request closure.", "Tugasan yang diberikan kepada anda. Kemas kini kemajuan, urus subtugasan, dan mohon penutupan.");
         const noMatch = statusF === "active" && !needle && !prioF ? caughtUp : <p className={tk.empty}><AppIcon name="search" />{L("No task matches — clear the search or a filter.", "Tiada tugasan sepadan — kosongkan carian atau penapis.")}</p>;
@@ -1267,10 +1270,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           <section className={`${card} ${t2.listCard}`} aria-label={L("All Tasks", "Semua Tugasan")} data-testid="all-register">
             <Head2 icon="orders" title={<>{L("All Tasks", "Semua Tugasan")}<span className={t2.count}>{loaded ? rows.length : ""}</span></>} sub={subAll} aside={
               <>
-                <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="all-mode">
-                  <button type="button" aria-pressed={allMode === "list"} onClick={() => setAllMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
-                  <button type="button" aria-pressed={allMode === "board"} onClick={() => setAllMode("board")}><AppIcon name="chart" />{L("Board", "Papan")}</button>
-                </div>
+                <PillSwitch testid="all-mode" label={L("View", "Paparan")} value={allMode} onChange={setAllMode}
+                  options={[["list", L("List", "Senarai"), "orders"], ["board", L("Board", "Papan"), "chart"]] as const} />
                 <button type="button" className={btnSm} aria-pressed={insights} onClick={() => setInsights((v) => !v)} data-testid="insights-btn"><AppIcon name="chart" />{L("Insights", "Wawasan")}</button>
               </>
             } />

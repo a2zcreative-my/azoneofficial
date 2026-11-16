@@ -842,7 +842,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
       <div className={`${ov.page} ${x.page}`} data-layout="executive" data-view="overview">
         {alerts.length > 0 && <div className={x.span3} style={o(0)}><AlertBand alerts={alerts} /></div>}
         <div className={`${x.span3} erp-desktop-only`} data-row="figures">
-          <div className={`${ov.kpis} ${x.kpis4}`}>
+          <div className={ov.kpis}>
             <KpiRow label={L("The week at a glance", "Minggu ini sepintas lalu")}>
               <KpiTile icon="target" tone="gold" label={L("Weekly target", "Sasaran mingguan")} value={c.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(c.target_cents)}
                 sub={c.pct === null ? `${dmy(wk.week.from)} – ${dmy(wk.week.to)}` : L(`${c.pct}% achieved · ${dmy(wk.week.from)} – ${dmy(wk.week.to)}`, `${c.pct}% dicapai · ${dmy(wk.week.from)} – ${dmy(wk.week.to)}`)}

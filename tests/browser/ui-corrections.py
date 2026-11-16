@@ -42,17 +42,25 @@ with sync_playwright() as p:
     pg.get_by_role("tab", name="All Tasks", exact=True).first.click(); pg.wait_for_timeout(1200)
     over = pg.evaluate("""() => [...document.querySelectorAll('td [class*="tasks-page_who"]')].filter(w => { const td = w.closest('td'); return w.getBoundingClientRect().right > td.getBoundingClientRect().right + 1 }).length""")
     check("All Tasks: no assignee name runs into the next column", over == 0, f"{over} overflowing")
-    status = [o.inner_text().strip() for o in pg.locator("tbody select").first.locator("option").all()]
-    check("All Tasks: in_progress reads In progress (the project table's word), not Pending", "In progress" in status and "Pending" not in status, str(status))
+    # v1.321.0 - All Tasks is the compact register: the status is the state chip (the change is Update in the task)
+    status = [c.strip() for c in pg.locator("[data-testid=state-chip]:visible").all_inner_texts()]
+    check("All Tasks: in_progress reads In progress (the project table's word), not Pending", any(x.lower().startswith("in progress") for x in status) and not any("Pending" in x for x in status), str(status))
     check("no page errors (Tasks)", not errs, str(errs)[:200])
     ctx.close()
     # a project task, seen by the editor helping on it (the CEO fixture list has none)
     ctx, pg, errs = page(b, 4215)
     pg.goto("http://127.0.0.1:4215/portal"); pg.wait_for_timeout(2500)
     tab(pg, "Tasks"); pg.wait_for_timeout(1200)
-    chip = pg.locator('button[title="Open the project"]').first
-    ct = chip.inner_text() if chip.count() else ""
-    check("All Tasks: a project task names its project, not 'Project #n'", chip.count() >= 1 and not re.match(r"^Project #\d+$", ct.strip()) and len(ct.strip()) > 3, ct)
+    # v1.321.0 - the Overview is a queue; the project chip lives on the register's row (All Tasks, or My Tasks for staff)
+    reg = pg.get_by_role("tablist", name="Tasks").get_by_role("tab", name="All Tasks", exact=True)
+    (reg if reg.count() else pg.get_by_role("tablist", name="Tasks").get_by_role("tab", name="My Tasks", exact=True)).click(); pg.wait_for_timeout(1200)
+    chip = pg.locator('button[title="Open the project"]:visible').first
+    if chip.count():
+        ct = chip.inner_text()
+    else:  # My Tasks' cards (v1.313.0) carry the project as a line, "Project: <name>"
+        m = re.search(r"Project: ([^\n]+)", pg.get_by_test_id("my-cards").inner_text() if pg.get_by_test_id("my-cards").count() else "")
+        ct = m.group(1) if m else ""
+    check("All Tasks: a project task names its project, not 'Project #n'", ct.strip() != "" and not re.match(r"^Project #\d+$", ct.strip()) and len(ct.strip()) > 3, ct)
     check("no page errors (Tasks, editor)", not errs, str(errs)[:200])
     ctx.close()
     # ---- a project's facts ----

@@ -90,14 +90,15 @@ with sync_playwright() as p:
     pg.get_by_test_id("overview-mode").get_by_role("button", name="Table").click(); pg.wait_for_timeout(400)
     # the ONE panel beside the queue (v1.321.0): Staff / Activity / Actions
     sw = pg.get_by_test_id("overview-panel-switch")
-    check("one panel beside the queue, switched between three", [x.strip() for x in sw.locator("button").all_inner_texts()] == ["Staff", "Activity", "Actions"] and sw.locator("button[aria-pressed=true]").inner_text().strip() == "Staff")
+    # v1.323.0 (D-2) - three contents, so the one tab row (LineTabs), not a pill
+    check("one panel beside the queue, switched between three", [x.strip() for x in sw.get_by_role("tab").all_inner_texts()] == ["Staff", "Activity", "Actions"] and sw.locator("[role=tab][aria-selected=true]").inner_text().strip() == "Staff")
     sp = pg.get_by_test_id("staff-performance")
     check("Staff Performance (management): ranked people, each closed / held with the share, and the rule said in words", sp.count() == 1 and "Closed this week ÷ tasks held this week" in pg.get_by_test_id("perf-rule").inner_text() and (sp.locator("ol li").count() == 0 or re.search(r"\d+ / \d+ \(\d+%\)", sp.inner_text()) is not None))
     wk = pg.get_by_test_id("weekly-summary")
     check("Weekly Summary (with the people): seven days, Monday first", [x.strip() for x in wk.locator("ol li small").all_inner_texts()] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
-    sw.get_by_role("button", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
+    sw.get_by_role("tab", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
     check("Activity: the latest progress reports, and only that card", vis(pg, "progress-overview") and not vis(pg, "staff-performance") and not vis(pg, "quick-links"))
-    sw.get_by_role("button", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
+    sw.get_by_role("tab", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
     ql = [x.strip() for x in pg.get_by_test_id("quick-links").locator("button").all_inner_texts()]
     check("Quick Links: Create Task, Projects, Staff Tasks, Reports", ql == ["Create Task", "Projects", "Staff Tasks", "Reports"], ql)
     wf = [li.get_attribute("data-flow") for li in pg.get_by_test_id("workflow-strip").locator("li").all()]
@@ -108,7 +109,7 @@ with sync_playwright() as p:
     pg.get_by_test_id("ql-create").click(); pg.wait_for_timeout(700)
     check("Quick Links: Create Task opens the one create form", pg.get_by_role("dialog").filter(has_text=re.compile("Create / assign a task|Create a task")).count() == 1)
     pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
-    sw.get_by_role("button", name="Staff", exact=True).click(); pg.wait_for_timeout(300)
+    sw.get_by_role("tab", name="Staff", exact=True).click(); pg.wait_for_timeout(300)
     check("no sideways page (Overview, 1440)", no_hscroll(pg))
     pg.screenshot(path="/home/claude/out/shots/tasks2-overview-1440.png", full_page=True)
 

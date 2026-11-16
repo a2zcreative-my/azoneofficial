@@ -6,21 +6,39 @@
    under it - a delta with its arrow, or a plain sentence - and, where the
    photo draws one, a share bar or a small bar run. One component so the three
    pages cannot drift apart. Everything it shows is handed in: it fetches
-   nothing and invents nothing. */
+   nothing and invents nothing.
 
-import type { ReactNode } from "react";
+   v1.323.0 - THE ONE KPI STRIP (the CEO's Global UI System brief, approved
+   16-11-2026; claude/UI-SYSTEM-STAGE-0-AUDIT.md R-1): KpiRow IS the strip -
+   one connected card - and KpiTile is a segment of it, never a card of its
+   own. Every page that draws figures draws them here (MetricStrip in
+   metric-strip.tsx is this same strip, fed a list); the props are unchanged,
+   so every page took the new strip without being edited. */
+
+import { Children, Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import css from "./kpi-tile.module.css";
 
 export type KpiTone = "gold" | "green" | "red" | "blue" | "navy" | "purple";
 
-/** v1.320.0 (the 2.0 foundation) - `cols`: the pictures' rows of five or six
-    figures stay one row from 1280px (the automatic row wraps a sixth tile) */
-export function KpiRow({ children, label, cols }: { children: ReactNode; label?: string; cols?: 4 | 5 | 6 }) {
-  return <div className={`${css.row} ${cols ? css[`cols${cols}`] : ""}`} role={label ? "group" : undefined} aria-label={label} data-cols={cols}>{children}</div>;
+/** how many segments the strip lays out: a fragment's own children count, not the fragment */
+function segments(children: ReactNode): number {
+  return Children.toArray(children).reduce<number>((n, c) => n + (!isValidElement(c) ? 0 : c.type === Fragment ? segments((c as ReactElement<{ children?: ReactNode }>).props.children) : 1), 0);
 }
 
-export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title, pressed }: {
+/** the strip: one card; its segments connected, `data-cells` the count it lays out.
+    `cols` (v1.320.0) is kept for the pages that pass it - the count decides now. */
+export function KpiRow({ children, label, cols, testid }: { children: ReactNode; label?: string; cols?: 4 | 5 | 6; testid?: string }) {
+  const n = segments(children);
+  return (
+    <div className={`${css.row} ${cols ? css[`cols${cols}`] : ""}`} role={label ? "group" : undefined} aria-label={label}
+      data-cols={cols} data-cells={n} data-testid={testid} data-kpi-strip="">
+      {children}
+    </div>
+  );
+}
+
+export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title, pressed, cell, testid }: {
   icon: AppIconName;
   tone: KpiTone;
   label: ReactNode;
@@ -45,6 +63,10 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
   title?: string;
   /** v1.307.0 - a pressable tile that is also a filter says whether it is on */
   pressed?: boolean;
+  /** v1.323.0 - the segment's own name (MetricStrip's cell key), for tests and links */
+  cell?: string;
+  /** v1.323.0 - a page's own test id for this segment (the Desk's desk-fig-*) */
+  testid?: string;
 }) {
   const max = spark && spark.length > 0 ? Math.max(1, ...spark) : 1;
   const body = (
@@ -70,7 +92,7 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
             {delta.vs && <span>{delta.vs}</span>}
           </span>
         )}
-        {sub && <span className={css.sub}>{sub}</span>}
+        {sub && <span className={css.sub} title={typeof sub === "string" ? sub : undefined}>{sub}</span>}
         {bar && !busy && (
           <span className={css.bar} role="img" aria-label={`${Math.round(bar.pct)}%`}>
             <span className={`${css.fill} ${css[`fill_${bar.tone}`]}`} style={{ width: `${Math.max(0, Math.min(100, bar.pct))}%` }} />
@@ -83,6 +105,6 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
     </>
   );
   return onClick
-    ? <button type="button" className={`erp-card ${css.tile} ${css.press}`} onClick={onClick} title={title} aria-pressed={pressed}>{body}</button>
-    : <div className={`erp-card ${css.tile}`} title={title}>{body}</div>;
+    ? <button type="button" className={`${css.tile} ${css.press}`} onClick={onClick} title={title} aria-pressed={pressed} data-cell={cell} data-testid={testid}>{body}</button>
+    : <div className={css.tile} title={title} data-cell={cell} data-testid={testid}>{body}</div>;
 }

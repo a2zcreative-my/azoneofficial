@@ -1,0 +1,15 @@
+/* v1.323.0 - the primary panel fills the screen (fill-panel.tsx). Tokens only. */
+.fill {
+  min-width: 0;
+  min-height: 0;
+}
+.fill[data-fill="on"] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* a thin bar: the panel's own columns keep their width */
+  scrollbar-width: thin;
+}
+.fill[data-fill="on"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}

@@ -13,7 +13,7 @@ tests/portal-experience.mjs. Here, in a browser:
   tab cannot fold; the icon-only rail still lists every tab;
   the phone bar is Dashboard, Desk, On Shift, Tasks, More for a CEO, a
   salesperson and a live host;
-  a KPI figure is never larger than the one tile size (22 px) on Sales,
+  a KPI figure is never larger than the one tile size (18 px since v1.323.0, the Tasks master) on Sales,
   Tasks and the Dashboard; no sideways page; no page errors.
 
 Servers (servers.txt): 4177 ceo, 4182 sales_marketing, 4180 live_host.
@@ -68,11 +68,12 @@ with sync_playwright() as p:
         # v1.292.0 (Sales Workspace 4.0) - Sales' KPI tiles are Reports -> Sales Performance; the Overview's strip is held to the same ceiling
         pg.goto(f"http://127.0.0.1:4177/portal?tab={tab}" + ("&view=reports" if tab == "Sales" else "")); pg.wait_for_timeout(2600)
         size = pg.evaluate(MAX_KPI_JS)
-        check(f"{tab}: no KPI figure above the one tile size (22 px)", 0 < size <= 22.01, size)
+        check(f"{tab}: no KPI figure above the one tile size (18 px, v1.323.0 the master's)", 0 < size <= 18.01, size)
         check(f"{tab}: no sideways page", pg.evaluate("document.scrollingElement.scrollWidth <= innerWidth + 1"))
     pg.goto("http://127.0.0.1:4177/portal?tab=Sales&view=overview"); pg.wait_for_timeout(2600)
-    strip = pg.evaluate("() => Math.max(0, ...[...document.querySelectorAll('[data-testid=metric-strip] [class*=cellValue]')].map(e => parseFloat(getComputedStyle(e).fontSize)))")
-    check("Sales Overview: the strip's figures stay under the one tile size (22 px)", 0 < strip <= 22.01, strip)
+    # v1.323.0 - MetricStrip draws through the one KPI strip
+    strip = pg.evaluate("() => Math.max(0, ...[...document.querySelectorAll('[data-kpi-strip] [class*=kpi-tile_value]')].map(e => parseFloat(getComputedStyle(e).fontSize)))")
+    check("Sales Overview: the strip's figures stay under the one tile size (18 px)", 0 < strip <= 18.01, strip)
     check("no page errors (desktop)", not errs, errs)
     ctx.close()
 

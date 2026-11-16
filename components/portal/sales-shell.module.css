@@ -1,6 +1,6 @@
 /* v1.292.0 - SALES WORKSPACE 4.0 (sales-shell.tsx). Tokens only. */
 
-/* the slim strip lives in components/ui/metric-strip.module.css (v1.321.0) */
+/* the slim strip is the one KPI strip: components/ui/kpi-tile.tsx (v1.323.0) */
 .openBtn:focus-visible,
 .menuBtn:focus-visible,
 .boardCard:focus-visible {

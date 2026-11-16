@@ -87,7 +87,10 @@ ok("the page title is the photo's 27px / 700", /--type-page-size: 1\.6875rem;\s*
 
 /* ---- the KPI tile ---- */
 const kt = read("components/ui/kpi-tile.module.css");
-ok("the KPI tile is the photo's: 52px well, 28px icon, 13px label, 9px bar", /\.well \{[^}]*width: 3\.25rem;[^}]*height: 3\.25rem;/.test(kt) && /\.well :global\(\.erp-icon\) \{\s*width: 1\.75rem;/.test(kt) && /\.label \{\s*font-size: 0\.8125rem;/.test(kt) && /\.bar \{[^}]*height: 0\.5625rem;/.test(kt));
+/* v1.323.0 - the Tasks master replaced the photo's tile (Global UI System, D-1/D-5,
+   approved 16-11-2026): a 36px well, a 20px icon, the caption-size label, a 6px bar,
+   inside ONE connected strip card */
+ok("the KPI tile is the master's: 36px well, 20px icon, caption label, 6px bar", /\.well \{[^}]*width: 2\.25rem;[^}]*height: 2\.25rem;/.test(kt) && /\.well :global\(\.erp-icon\) \{\s*width: 1\.25rem;/.test(kt) && /\.label \{[^}]*font-size: var\(--type-caption-size\);/.test(kt) && /\.bar \{[^}]*height: 0\.375rem;/.test(kt));
 const tile = read("components/ui/kpi-tile.tsx");
 ok("the change is a pill with the comparison beside it", /<span className=\{delta\.pct >= 0 \? css\.up : css\.down\}>/.test(tile) && /\{delta\.vs && <span>\{delta\.vs\}<\/span>\}/.test(tile) && /\.up \{\s*background: var\(--success-soft\);/.test(kt));
 ok("a change is still never drawn without a comparison (null pct = nothing)", /delta && delta\.pct != null && !busy/.test(tile));

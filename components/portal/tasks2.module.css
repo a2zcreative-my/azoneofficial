@@ -30,24 +30,22 @@
 /* ---- the page's two shapes ---- */
 .ovGrid, .ovFoot, .mine { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; min-width: 0; }
 .rail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-content: start; min-width: 0; }
+/* v1.323.0 (D-4) - the panel's cards, which fill the screen beside the queue */
+.railBody { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-content: start; }
 .listCard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-content: start; min-width: 0; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
 .filters > select { flex: 1 1 9rem; min-width: 0; max-width: 14rem; }
 .found { margin-left: auto; color: var(--muted-foreground); font-size: var(--type-caption-size); white-space: nowrap; }
-.toggle { display: inline-flex; padding: 0.1875rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--muted); }
-.toggle button { display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted-foreground); font: inherit; font-size: var(--type-body-sm-size); font-weight: 600; cursor: pointer; }
-.toggle button[aria-pressed="true"] { background: var(--card); color: var(--foreground); box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 10%, transparent); }
-.toggle button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.toggle svg { width: 1rem; height: 1rem; }
+/* v1.323.0 - the List / Board switch is the one view switch (components/ui/panel.tsx PillSwitch) */
 .more { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
 
 /* ---- the Overview table ---- */
 .tableWrap { min-width: 0; }
 .table { width: 100%; border-collapse: collapse; font-size: var(--type-body-sm-size); }
-.table th { padding: 0.625rem 0.4375rem; background: var(--muted); color: var(--muted-foreground); font-size: var(--type-caption-size); font-weight: 600; text-align: left; white-space: nowrap; }
+.table th { padding: 0.625rem 0.375rem; background: var(--muted); color: var(--muted-foreground); font-size: var(--type-caption-size); font-weight: 600; text-align: left; white-space: nowrap; }
 .table th:first-child { border-radius: var(--radius-control) 0 0 var(--radius-control); }
 .table th:last-child { border-radius: 0 var(--radius-control) var(--radius-control) 0; }
-.table td { padding: 0.625rem 0.4375rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.table td { padding: 0.625rem 0.375rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 /* the title keeps a readable measure; the table scrolls inside its card before a word is broken */
 .table td:first-child { min-width: 10rem; }
 .table td:nth-child(2) { max-width: 8rem; }

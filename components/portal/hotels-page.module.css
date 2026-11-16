@@ -658,11 +658,6 @@
 .kpis {
   /* v1.276.0 - A2Z OS 3.0: the shared tile figure size (--type-kpi-tile-size), one size on every tab */
 }
-@media (min-width: 1280px) {
-  .kpis > div {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
 
 /* ---- pagination ---- */
 .pager {

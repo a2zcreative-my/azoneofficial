@@ -9,11 +9,6 @@
 .kpis {
   /* v1.276.0 - A2Z OS 3.0: the shared tile figure size (--type-kpi-tile-size), one size on every tab */
 }
-@media (min-width: 1440px) {
-  .kpis6 > div {
-    grid-template-columns: repeat(6, minmax(0, 1fr)); /* v1.303.0 - six status figures; the cost moved beside the donut */
-  }
-}
 
 /* ---- card heads ---- */
 .head {
