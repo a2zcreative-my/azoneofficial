@@ -50,6 +50,9 @@ const FILES = {
   tasks2: "components/portal/tasks2.tsx", taskTable: "components/portal/task-table.tsx", taskTableCss: "components/portal/task-table.module.css",
   ws: "components/portal/task-workspace.tsx", wsCss: "components/portal/task-workspace.module.css", progress: "components/portal/task-progress.tsx",
   steps: "components/ui/form-steps.tsx", claims4: "components/portal/claims4.tsx",
+  /* v1.326.0 - a link lands on the SECTION it names (the CEO: "it doesnt directing to the section that I should go") */
+  split: "components/ui/workspace-split.tsx", splitCss: "components/ui/workspace-split.module.css", cust: "components/portal/customers-agents.tsx", sec: "components/portal/security-sessions.tsx", audit: "components/admin/audit-panel.tsx",
+  dashOv: "components/portal/dashboard-overview.tsx", portalPage: "app/portal/page.tsx", users: "components/portal/users-panel.tsx", adminPage: "app/admin/page.tsx",
 };
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 const block = (css, sel) => { const i = css.indexOf(`${sel} {`); return i < 0 ? "" : css.slice(i, css.indexOf("}", i) + 1); };
@@ -163,6 +166,18 @@ function checks(src, sc) {
   ok("Apply Leave is the form drawer: its steps, the fields beside Balance Impact and the Approval Route, Cancel / Review pinned; Cancel asks before discarding", /<SideDrawer open=\{applyOpen\}[\s\S]{0,200}?form icon="date"/.test(src.leave) && /<DrawerSteps steps=\{STEPS\} current=\{step\}/.test(src.leave4) && /<DrawerForm testid="apply-form" aside=\{<>\{impact\}\{route\}<\/>\}>/.test(src.leave4) && (src.leave4.match(/<DrawerFoot testid="apply-actions">/g) ?? []).length === 2 && /onClick=\{closeDrawer \?\? reset\}/.test(src.leave4) && /<RouteList route=\{quote\.route\} withYou \/>/.test(src.leave4));
   ok("Submit Claim reuses it: the same steps row, the aside, the pinned Back / Next / Submit", /<SideDrawer open=\{submitOpen\}[\s\S]{0,120}?form icon="receipt"/.test(src.claims) && /<DrawerForm testid="claim-drawer" aside=\{<ClaimSubmitAside/.test(src.claims) && /<DrawerFoot testid="claim-actions">/.test(src.claims) && /<DrawerSteps steps=\{STEP_NAMES\(\)/.test(src.claims4));
 
+  /* ---- v1.326.0: a link lands on the section it names ---- */
+  ok("the Dashboard's System health alert opens Security & Sessions AT the card (openAt takes an anchor; the card has the id in both homes)", /openAt\("Users", "health", "system-health"\)/.test(src.dashOv) && /const startOfView = \(v\?: string\): UsersView => \(v === "health" \? "security"/.test(src.users) && /openAt=\{\(t, view, anchor\) => \{ setTabStart\(\{ tab: t, view \}\); setTab\(t\); if \(anchor\) revealAnchor\(anchor\); \}\}/.test(src.portalPage) && /<div id="system-health"><SystemHealthCard \/><\/div>/.test(src.users) && /<div id="system-health"><SystemHealthCard \/><\/div>/.test(src.adminPage));
+  ok("an error row opens where it was recorded (a page's own tab, a job's module), only where the person may go", /export function errorWhere\(source: string, message: string\)/.test(src.health) && /\/ tab=\(\.\+\?\) axis=\//.test(src.health) && /const mayGo = where && \(!portal \|\| portal\.canOpen\(where\.tab\)\);/.test(src.health) && (src.health.match(/data-testid="err-open"/g) ?? []).length === 2);
+  ok("fixed history (an older version's report) stays in the log but raises no Dashboard alert", /&& liveError\(e\.message\)\)\.length : 0;/.test(src.dashOv) && /export const liveError = \(message: string\) => reportedBy\(message\) === null;/.test(src.health));
+  ok("the Business Summary opens the section each figure counts", /addSum\("pending_claims"[^\n]*\{ anchor: "claims-pending" \}\);/.test(src.dashOv) && /addSum\("pending_ot"[^\n]*\{ anchor: "ot-approvals" \}\);/.test(src.dashOv) && /addSum\("outstanding_invoices"[^\n]*\{ view: "payments" \}\);/.test(src.dashOv) && /addSum\("lives_today", [^\n]*"Roster & Scheduling", 9999, \{ view: "today" \}\);/.test(src.dashOv) && /onClick=\{\(\) => openSum\(r\)\}/.test(src.dashOv));
+
+  /* ---- v1.327.0: Users & Security - three tabs, each its own working layout on the shared two-pane workspace ---- */
+  ok("the two-pane workspace is shared: held to the screen exactly (FillPanel exact), one flex line, panes share the height only while held", /<FillPanel exact className=/.test(src.split) && /\.split \{ display: flex; align-items: stretch; \}/.test(src.splitCss) && /\.split\[data-fill="on"\] \.body \{/.test(src.splitCss));
+  ok("Customers & Agents: the directory beside the chosen account, the strip, Grant AND Revoke Agent Access on the existing role door", /<CustomersAgents accounts=\{allCustomers\}/.test(src.users) && /canGrant=\{canEdit && \(owner \|\| superAdmin\)\}/.test(src.users) && /JSON\.stringify\(\{ role: "customer", reason: why\.value\.trim\(\)/.test(src.users) && /<KpiRow label=\{L\("Customer and agent figures"/.test(src.cust) && /<WorkspaceSplit testid="customers-split"/.test(src.cust));
+  ok("Security & Sessions: the strip, Authentication Controls (2FA required - never a switch), Security Attention, the Sign-in Log; recovery and passkeys are the existing panels", /<SecuritySessions staff=\{allStaff\}/.test(src.users) && /<RecoveryPanel \/>/.test(src.sec) && /<PasskeysPanel /.test(src.sec) && !/type="checkbox"|role="switch"/.test(src.sec) && /testid="security-attention"/.test(src.sec));
+  ok("Audit History: the strip, the register (search, type, actor, dates, pages) and the chosen event, read-only, a secret field never drawn", /<WorkspaceSplit testid="audit-split">/.test(src.audit) && /const SECRET = /.test(src.audit) && /SECRET\.test\(k\) \? L\("\(hidden\)"/.test(src.audit) && !/method: "(POST|PATCH|DELETE|PUT)"/.test(src.audit));
+
   /* ---- the house rules ---- */
   const mine = [src.kpiCss, src.panelCss, src.fillCss, src.taskTableCss, src.wsCss];
   ok("tokens only in the shared pieces", mine.every((c) => !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(c)));
@@ -229,6 +244,14 @@ const MUT = [
   ["Cancel throws the typing away without asking", "leave4", "onClick={closeDrawer ?? reset}", "onClick={reset}"],
   ["the claim drawer leaves the structure", "claims", '<DrawerForm testid="claim-drawer" aside={<ClaimSubmitAside', '<div data-testid="claim-drawer" data-aside={<ClaimSubmitAside'],
   ["the step row no longer pinned", "drawer", '<div className="erp-drawer-steps" ref={setStepsEl} />', ""],
+  ["the alert lands on the tab's top again", "dashOv", 'openAt("Users", "health", "system-health")', 'openAt("Users", "security")'],
+  ["an error row with nowhere to go", "health", 'data-testid="err-open"', 'data-testid="err-x"'],
+  ["fixed history raises the alert again", "dashOv", "&& liveError(e.message)).length : 0;", ").length : 0;"],
+  ["a figure opens the tab's top again", "dashOv", "onClick={() => openSum(r)}", "onClick={() => go(r.tab)}"],
+  ["a Revoke that is not the role door", "users", 'JSON.stringify({ role: "customer", reason: why.value.trim()', 'JSON.stringify({ role: "agent", reason: why.value.trim()'],
+  ["a 2FA switch drawn", "sec", '<span className={no2fa.length ? chipSmWarn : chipSmSuccess}>', '<input type="checkbox" /><span className={no2fa.length ? chipSmWarn : chipSmSuccess}>'],
+  ["a secret drawn in the event panel", "audit", 'SECRET.test(k) ? L("(hidden)"', 'false ? L("(hidden)"'],
+  ["the workspace no longer held exactly", "split", "<FillPanel exact className=", "<FillPanel className="],
   ["the page frame hides a spill", "globals", ".erp-workspace {", ".erp-workspace { overflow-x: hidden; } .erp-workspace {"],
 ];
 let caught = 0;

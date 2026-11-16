@@ -32,7 +32,7 @@ export type TableCol<T> = {
   cmds?: boolean;
 };
 
-export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, loading, empty, hidden, sort, dir, onSort, onOpen, rowClass, page, size, onPage, onSize, testid = "task-table", picked, dense = false, fill = false }: {
+export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, loading, empty, hidden, sort, dir, onSort, onOpen, rowClass, page, size, onPage, onSize, testid = "task-table", picked, dense = false, fill = false, record = "task" }: {
   rows: T[]; cols: TableCol<T>[]; label: string; loading?: boolean; empty?: ReactNode;
   hidden?: ReadonlySet<string>;
   sort?: string; dir?: SortDir; onSort?: (key: string) => void;
@@ -46,6 +46,8 @@ export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, 
   /** v1.326.0 - the table takes the height its column is given (My Tasks beside its task, held to the screen by
       the split's FillPanel): the rows scroll inside under the pinned header, the pager stays under them */
   fill?: boolean;
+  /** v1.327.0 - what a row is (data-record, data-testid): the register is shared beyond tasks (the audit trail, accounts) */
+  record?: string;
 }) {
   const shown = cols.filter((c) => !hidden?.has(c.key));
   const paged = page != null && size != null;
@@ -72,8 +74,8 @@ export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, 
           </thead>
           <tbody>
             {slice.map((r) => (
-              <tr key={r.id} data-record={`task:${r.id}`} className={rowClass?.(r) ?? ""} onClick={() => onOpen(r.id)}
-                tabIndex={-1} data-testid="task-row" aria-current={picked != null && picked === r.id ? "true" : undefined}>
+              <tr key={r.id} data-record={`${record}:${r.id}`} className={rowClass?.(r) ?? ""} onClick={() => onOpen(r.id)}
+                tabIndex={-1} data-testid={`${record}-row`} aria-current={picked != null && picked === r.id ? "true" : undefined}>
                 {shown.map((c) => (
                   <td key={c.key} data-label={c.label} className={c.main ? tt.main : c.cmds ? tt.cmds : ""} onClick={c.cmds ? (e) => e.stopPropagation() : undefined}>{c.cell(r)}</td>
                 ))}

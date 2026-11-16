@@ -13,7 +13,7 @@ Servers (from servers.txt):
     4177 ceo · 4180 live_host
 """
 from playwright.sync_api import sync_playwright
-import re, json, urllib.request
+import re, json, urllib.request, urllib.parse
 
 res = []
 def check(n, c, x=""):
@@ -25,12 +25,12 @@ VIEWS = ["overview", "mine", "all", "projects", "calendar", "reports"]
 WIDTHS = [320, 360, 390, 430, 768, 1024, 1280, 1440]
 no_hscroll = lambda pg: pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
-def open_page(b, port, w=1440, h=1000, view=None):
+def open_page(b, port, w=1440, h=1000, view=None, tab="Tasks"):
     phone = w < 500
     ctx = b.new_context(viewport={"width": w, "height": h}, reduced_motion="reduce", is_mobile=phone, has_touch=phone)
     pg = ctx.new_page(); errs = []
     pg.on("pageerror", lambda e: errs.append(str(e)))
-    pg.goto(f"http://127.0.0.1:{port}/portal?tab=Tasks" + (f"&view={view}" if view else "")); pg.wait_for_timeout(3200)
+    pg.goto(f"http://127.0.0.1:{port}/portal?tab={urllib.parse.quote(tab)}" + (f"&view={view}" if view else "")); pg.wait_for_timeout(3200)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
     return ctx, pg, errs
 
@@ -149,16 +149,21 @@ with sync_playwright() as p:
     dows = [d.strip() for d in pg.locator('[data-testid="cal-grid"] [role=columnheader]').all_inner_texts()]
     check("the month starts on Sunday, as the board", dows[:2] == ["Sun", "Mon"], dows)
     chips = [c.strip() for c in pg.get_by_test_id("cal-filters").locator("button[aria-pressed]").all_inner_texts()]
-    check("type filters Tasks, Deadlines, Reviews, Live Sessions, Milestones - no Client Meetings (nothing records one)", chips == ["Tasks", "Deadlines", "Reviews", "Live Sessions", "Milestones"] and "Client Meetings" not in t, chips)
+    # v1.328.0 - R-2: the lives left with the roster; task blocks stay as Booked work, off by default
+    check("type filters Booked work (off), Deadlines, Reviews, Milestones - no live, no Client Meetings", chips == ["Booked work", "Deadlines", "Reviews", "Milestones"] and "Client Meetings" not in t
+          and pg.get_by_test_id("cal-type-task").get_attribute("aria-pressed") == "false", chips)
     check("Month, Week and List", all(vis(pg, f"cal-mode-{k}") for k in ["month", "week", "list"]))
     panel = pg.get_by_test_id("cal-day-panel").inner_text()
-    check("the day panel: today's schedule with the task block and the live", "09:30" in panel and "14:00" in panel, panel[:300])
+    check("the day panel: no booked work until it is turned on, and never the live (it is the roster's)", "09:30" not in panel and "14:00" not in panel, panel[:300])
+    pg.get_by_test_id("cal-type-task").click(); pg.wait_for_timeout(300)
+    panel = pg.get_by_test_id("cal-day-panel").inner_text()
+    check("...Booked work turned on shows today's task block", "09:30" in panel and "14:00" not in panel, panel[:300])
     check("Overdue Carry-Overs lists the overdue work", "Overdue Carry-Overs" in panel and pg.locator('[data-testid="cal-overdue"] li').count() >= 1)
-    pg.get_by_test_id("cal-type-live").click(); pg.wait_for_timeout(300)
-    check("a type turns off", "14:00" not in pg.get_by_test_id("cal-day-panel").inner_text())
+    pg.get_by_test_id("cal-type-task").click(); pg.wait_for_timeout(300)
+    check("a type turns off", "09:30" not in pg.get_by_test_id("cal-day-panel").inner_text())
     pg.get_by_test_id("cal-mode-week").click(); pg.wait_for_timeout(600)
     check("Week shows seven days", pg.locator('[data-testid="cal-grid"] [role=gridcell]').count() == 7)
-    check("the roster board stays on Calendar (A-3)", pg.locator("#roster-board").count() == 1)
+    check("the roster board left the Calendar for Roster & Scheduling (R-1); one line points there", pg.locator("#roster-board").count() == 0 and vis(pg, "cal-roster-link"))
     ctx.close()
     ctx, pg, errs2 = open_page(b, CEO, w=390, view="calendar")
     check("phone: a date agenda, not the shrunk grid", vis(pg, "cal-agenda") and not vis(pg, "cal-grid"))
@@ -168,8 +173,15 @@ with sync_playwright() as p:
     # ---------------- 06 Reports & Archive (image 5) ----------------
     ctx, pg, errs = open_page(b, CEO, view="reports")
     t = " ".join(zone_text(pg))
-    check("Reports: Reports Submitted, Awaiting Review, Archived, Live Host Sessions", all(w in t for w in ["Reports Submitted", "Awaiting Review", "Archived", "Live Host Sessions"]) and "Gate 4" not in t, t[:300])
-    check("the operational reports beside the Live Host card", vis(pg, "task-reports") and vis(pg, "live-host-card"))
+    check("Reports: Reports Submitted, Awaiting Review, Archived - the Live Host figure left with its card", all(w in t for w in ["Reports Submitted", "Awaiting Review", "Archived"]) and "Live Host Sessions" not in t and "Gate 4" not in t, t[:300])
+    check("the operational reports; the Live Host card is not here (R-4)", vis(pg, "task-reports") and pg.get_by_test_id("live-host-card").count() == 0)
+    rep = pg.get_by_test_id("task-reports")
+    check("Gate 4: an operational report shows its status and management can mark it reviewed", "Reviewed" in rep.inner_text() and "Submitted" in rep.inner_text() and rep.get_by_test_id("report-review").count() >= 1)
+    check("the archive of closed tasks is kept", pg.locator("#task-archive").count() == 1)
+    ctx.close()
+    # v1.328.0 - R-4: the Live Host Report is Roster & Scheduling > Live Reports
+    ctx, pg, errs = open_page(b, CEO, view="reports", tab="Roster & Scheduling")
+    check("the Live Host card is in Roster & Scheduling > Live Reports", vis(pg, "live-host-card"))
     lh = pg.get_by_test_id("live-host-card").inner_text()
     check("Gate 4: the Live Host card says reported GMV is never sales, cash, commission or payroll", "never verified sales, cash" in lh, lh[:300])
     check("Gate 4: the reviewer has the reports to review", vis(pg, "lh-review-list") and "Farid Zul" in pg.get_by_test_id("lh-review-list").inner_text())
@@ -182,12 +194,9 @@ with sync_playwright() as p:
     check("…Accept sends the one review to that report", any(x["p"] == "/staff/live-reports/11/review" and '"accept"' in str(x["body"]) for x in posts), posts)
     pg.get_by_test_id("lh-history-btn").first.click(); pg.wait_for_timeout(300)
     check("…View History shows the submitted version", "Version 1 submitted" in pg.get_by_test_id("lh-history").inner_text())
-    rep = pg.get_by_test_id("task-reports")
-    check("Gate 4: an operational report shows its status and management can mark it reviewed", "Reviewed" in rep.inner_text() and "Submitted" in rep.inner_text() and rep.get_by_test_id("report-review").count() >= 1)
-    check("the archive of closed tasks is kept", pg.locator("#task-archive").count() == 1)
     ctx.close()
     # ---- the host (a live host on a phone): report a live with a screenshot ----
-    ctx, pg, errs3 = open_page(b, HOST, w=390, view="reports")
+    ctx, pg, errs3 = open_page(b, HOST, w=390, view="reports", tab="Roster & Scheduling")
     lhc = pg.get_by_test_id("live-host-card")
     check("host: a returned report says what to correct", vis(pg, "lh-mine"))
     pg.get_by_test_id("lh-mine").locator("button").first.click(); pg.wait_for_timeout(1200)

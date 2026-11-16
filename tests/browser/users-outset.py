@@ -22,7 +22,11 @@ MEASURE = r"""() => {
   const view = [...document.querySelectorAll('div[hidden]')].length >= 0 ? [...document.querySelectorAll('[class*=users-panel_body]')].find(d => !d.hidden) : null;
   const root = view || document.body;
   const nested = [...root.querySelectorAll('*')].filter(e => { const s = getComputedStyle(e); return /(auto|scroll)/.test(s.overflowY) && e.scrollHeight > e.clientHeight + 1; }).length;
-  const outside = [...root.querySelectorAll('button, a, [class*=chip]')].filter(e => e.offsetParent !== null).filter(e => { const r = e.getBoundingClientRect(); return r.width && (r.right > vw + 0.5 || r.left < -0.5); }).length;
+  /* v1.327.0 - a control inside a strip made to slide sideways (the one view switch on a phone) is not "off screen", as overflow-sweep.py counts it */
+  const slides = (e) => { for (let x = e.parentElement; x && x !== root; x = x.parentElement) { const o = getComputedStyle(x).overflowX; if (o === 'auto' || o === 'scroll') return true; } return false; };
+  const outside = [...root.querySelectorAll('button, a, [class*=chip]')].filter(e => e.offsetParent !== null && !slides(e)).filter(e => { const r = e.getBoundingClientRect(); return r.width && (r.right > vw + 0.5 || r.left < -0.5); }).length;
+  const tr = [...root.querySelectorAll('[data-testid=customers-table] tbody tr')].filter(r => r.offsetParent !== null).map(r => Math.round(r.getBoundingClientRect().height));
+  const held = root.querySelector('[data-testid=customers-split]')?.dataset.fill ?? null;
   const rows = [...root.querySelectorAll('li[class*=users-panel_row]')].filter(li => li.offsetParent !== null);
   const spill = Math.max(0, ...rows.map(r => { const rr = r.getBoundingClientRect(); return Math.max(0, ...[...r.querySelectorAll('button, [class*=chip]')].map(b => b.getBoundingClientRect().right - rr.right)); }));
   const actLines = rows.map(r => { const a = r.querySelector('[class*=users-panel_act]'); return a ? new Set([...a.children].map(c => Math.round(c.getBoundingClientRect().top))).size : 1; });
@@ -37,7 +41,7 @@ MEASURE = r"""() => {
     if (act) dx.push(Math.abs(Math.round(act.getBoundingClientRect().right) - Math.round(hs[hs.length - 1].right)));
   }
   const nameCut = rows.map(r => { const n = r.querySelector('[class*=users-panel_email]'); return n ? n.scrollWidth - n.clientWidth : 0; });
-  return { overflow: document.documentElement.scrollWidth - vw, nested, outside, spill: Math.round(spill), actLines: Math.max(1, ...actLines), hmax: Math.max(...heights), dx, emailCut: Math.max(0, ...nameCut), rows: rows.length };
+  return { overflow: document.documentElement.scrollWidth - vw, nested, outside, spill: Math.round(spill), actLines: Math.max(1, ...actLines), hmax: Math.max(...heights), dx, emailCut: Math.max(0, ...nameCut), rows: rows.length, tr, held };
 }"""
 
 with sync_playwright() as p:
@@ -52,16 +56,24 @@ with sync_playwright() as p:
             m = pg.evaluate(MEASURE)
             k = f"{tag} {name}"
             check(f"{k}: no sideways page, nothing off screen, nothing past its row", m["overflow"] <= 0 and m["outside"] == 0 and m["spill"] <= 0, m)
+            if name == "Customers & Agents":
+                # v1.327.0 (the CEO's Users & Security brief: the master style - a register beside the chosen account,
+                # viewport-aware, scrolling inside on a desk). Below 1024px the page owns the one scroll, as before.
+                if w >= 1024:
+                    check(f"{k}: the directory and the account fit the screen - held, each pane scrolls inside", m["held"] == "on", m)
+                    check(f"{k}: a directory row stays one compact line (under 90px)", m["tr"] and max(m["tr"]) < 90, m)
+                else:
+                    check(f"{k}: one scroll - nothing scrolls inside the page on a phone or tablet", m["nested"] == 0 and m["held"] != "on", m)
+                pg.get_by_test_id("customers-table").locator("tr", has_text="Narida").first.click(); pg.wait_for_timeout(400)
+                g = pg.get_by_test_id("account-detail").locator("[data-testid^='grant-agent-']")
+                check(f"{k}: Grant Agent Access is in the chosen customer's Agent access block, beside what it changes", g.count() == 1 and g.is_visible() and "Agent access" in g.locator("xpath=../..").inner_text())
+                continue
             check(f"{k}: one scroll - no list scrolls inside the page", m["nested"] == 0, m)
             check(f"{k}: the Manage icons sit side by side", m["actLines"] == 1, m)
             if w >= 1024:
                 check(f"{k}: rows stay one compact line (under 90px) and the column heads line up within 2px", m["hmax"] < 90 and all(d <= 2 for d in m["dx"]) and len(m["dx"]) >= 4, m)
             else:
                 check(f"{k}: an account is a card whose email is never cut (the first line is the identity's)", m["emailCut"] <= 0 and m["dx"] == [] and m["hmax"] <= 160, m)
-            if name == "Customers & Agents":
-                g = pg.locator("[data-testid^='grant-agent-']").filter(visible=True).first
-                acc = g.locator("xpath=..")
-                check(f"{k}: Grant Agent Access sits beside No staff access, not in Manage", g.count() == 1 and "No staff access" in acc.inner_text() and pg.locator("[class*=users-panel_act] [data-testid^='grant-agent-']").count() == 0)
         check(f"{tag}: no page errors", not errs, errs)
         ctx.close()
 
@@ -95,9 +107,12 @@ with sync_playwright() as p:
         check(f"{w}px ...Show more brings the other 12 and goes away", vis() == 37 and pg.get_by_role("button", name="Show more").filter(visible=True).count() == 0, vis())
         check(f"{w}px ...still one scroll and no sideways page", pg.evaluate(MEASURE)["nested"] == 0 and pg.evaluate(MEASURE)["overflow"] <= 0)
         pg.get_by_role("tab", name="Customers & Agents", exact=True).first.click(); pg.wait_for_timeout(800)
-        check(f"{w}px long customer list: 25, then Show more (7)", vis() == 25 and "(7)" in pg.get_by_role("button", name="Show more").filter(visible=True).first.inner_text())
-        pg.get_by_placeholder("Find by name, email or role").filter(visible=True).first.fill("Test Customer 2"); pg.wait_for_timeout(500)
-        check(f"{w}px ...a search narrows it and starts again", vis() == 9, vis())  # 2 and 20-27
+        # v1.327.0 - the directory pages its rows (10 a page, the shared pager) in place of 25 + Show more
+        trs = lambda: pg.get_by_test_id("customers-table").locator("tbody tr").count()
+        cnt = pg.get_by_test_id("customers-table").get_by_test_id("page-count").inner_text() if pg.get_by_test_id("customers-table").get_by_test_id("page-count").count() else ""
+        check(f"{w}px long customer list: 10 a page, the pager counts every account", trs() == 10 and "of 32" in cnt, [trs(), cnt])
+        pg.get_by_test_id("customers-search").fill("Test Customer 2"); pg.wait_for_timeout(500)
+        check(f"{w}px ...a search narrows it and starts again", trs() == 9, trs())  # 2 and 20-27
         ctx.close()
     b.close()
 

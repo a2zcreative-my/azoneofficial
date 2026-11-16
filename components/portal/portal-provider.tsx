@@ -156,6 +156,12 @@ export function usePortal(): PortalContextValue {
   return ctx;
 }
 
+/** v1.326.0 - the portal when there is one (a card drawn in the portal AND in /admin asks
+    which it is in: inside, it switches tabs; outside, it links to /portal). */
+export function useOptionalPortal(): PortalContextValue | null {
+  return useContext(PortalCtx);
+}
+
 export function PortalProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
@@ -285,7 +291,9 @@ export function PortalProvider({ children }: { children: ReactNode }) {
            word handed to the tab as its start view, never a record or a person.
            The tab decides what the word means; an unknown word changes nothing. */
         const startAt = new URL(window.location.href).searchParams.get("view");
-        if (startAt && /^[a-z_]{1,24}$/.test(startAt)) setTabStart({ tab: wanted as TabName, view: startAt });
+        /* v1.328.0 - an old link to Attendance's Shift Roster opens it where it lives now */
+        if (wanted === "Attendance" && startAt === "roster") { setTabState("Roster & Scheduling"); setTabStart({ tab: "Roster & Scheduling", view: "shifts" }); }
+        else if (startAt && /^[a-z_]{1,24}$/.test(startAt)) setTabStart({ tab: wanted as TabName, view: startAt });
         const clean = new URL(window.location.href);
         clean.searchParams.delete("tab");
         clean.searchParams.delete("task");

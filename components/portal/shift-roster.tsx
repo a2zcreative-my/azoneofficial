@@ -38,7 +38,9 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 const mondayOf = (day: string) => { const d = new Date(`${day}T00:00:00Z`); const w = (d.getUTCDay() + 6) % 7; return addDays(day, -w); };
 const dm = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]}`;
 
-export function ShiftRoster({ canTemplates, role, openPerson }: { canTemplates: boolean; role: string; openPerson?: (id: number, day: string) => void }) {
+export function ShiftRoster({ canTemplates, role, openPerson, onTemplates }: { canTemplates: boolean; role: string; openPerson?: (id: number, day: string) => void;
+  /** v1.328.0 - Roster & Scheduling draws Shift Templates as a view of its own: the button opens it instead of the drawer */
+  onTemplates?: () => void }) {
   const today = mytToday();
   const [mode, setMode] = useState<"week" | "month">("week");
   const [anchor, setAnchor] = useState(() => mondayOf(today));
@@ -81,7 +83,7 @@ export function ShiftRoster({ canTemplates, role, openPerson }: { canTemplates: 
             <p className={css.sub}>{L("The expected working schedule: each person's working-hour pattern with approved leave and holidays laid over it.", "Jadual kerja yang dijangka: corak waktu kerja setiap orang dengan cuti diluluskan dan cuti umum.")}</p>
           </div>
           <span className={css.introRight}>
-            {canTemplates && <button type="button" className={btnSm} onClick={() => setTpl(true)} data-testid="roster-templates"><AppIcon name="document" />{L("Shift Templates", "Templat Syif")}</button>}
+            {canTemplates && <button type="button" className={btnSm} onClick={() => (onTemplates ? onTemplates() : setTpl(true))} data-testid="roster-templates"><AppIcon name="document" />{L("Shift Templates", "Templat Syif")}</button>}
             <button type="button" className={btnSm} onClick={exportCsv} data-testid="roster-export"><AppIcon name="download" />{L("Export", "Eksport")}</button>
           </span>
         </div>
@@ -138,9 +140,9 @@ export function ShiftRoster({ canTemplates, role, openPerson }: { canTemplates: 
           <span><span className={`${css.swatch} ${css.cellRest}`} />{L("Off / rest day", "Cuti / hari rehat")}</span>
           <strong className={css.legendTotal}>{L(`Total scheduled hours: ${hm(totalAll)}`, `Jumlah jam dijadualkan: ${hm(totalAll)}`)}</strong>
         </div>
-        <p className={css.boundary}>{L("Change a person's hours in Shift Templates (from a date, so a month already measured never moves). Live sessions and task blocks are scheduled in Tasks → Calendar; leave in Leave; holidays in HR → Calendar & Holidays.", "Tukar waktu seseorang dalam Templat Syif (dari satu tarikh, supaya bulan yang telah diukur tidak berubah). Sesi live dan blok tugasan dijadualkan dalam Tugasan → Kalendar; cuti dalam Cuti; cuti umum dalam HR → Kalendar & Cuti Umum.")}</p>
+        <p className={css.boundary}>{L("Change a person's hours in Shift Templates (from a date, so a month already measured never moves). Live sessions and task blocks are scheduled on the Roster Board; leave in Leave; holidays in HR → Calendar & Holidays.", "Tukar waktu seseorang dalam Templat Syif (dari satu tarikh, supaya bulan yang telah diukur tidak berubah). Sesi live dan blok tugasan dijadualkan di Papan Roster; cuti dalam Cuti; cuti umum dalam HR → Kalendar & Cuti Umum.")}</p>
       </section>
-      {canTemplates && (
+      {canTemplates && !onTemplates && (
         <SideDrawer open={tpl} onClose={() => setTpl(false)} wide title={L("Shift Templates", "Templat Syif")} subtitle={L("Working-hour patterns and who works which, from a date", "Corak waktu kerja dan siapa bekerja mengikut corak mana, dari satu tarikh")}>
           {tpl && <AttendanceAdminPanel role={role} areas={["hours"]} showPending={false} bare />}
         </SideDrawer>

@@ -307,6 +307,116 @@ with sync_playwright() as p:
         check(f"Submit Claim {w}: the same structure - the steps row, Next pinned in the foot, the rules {'beside' if w >= 1024 else 'under'} the form", q["stepsOut"] and q["actsFoot"] and q["actsOn"] and (q["beside"] if w >= 1024 else q["below"]) and dlg.get_by_role("button", name="Next").count() == 1, q)
         check(f"Submit Claim {w}: nothing past the drawer's edge, no page error", q["side"] == 0 and not errs, (q["side"], errs))
         ctx.close()
+    # ================= v1.326.0: a link lands on the section it names (System health, an error's own page) =================
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Dashboard", w, h, phone)
+        band = pg.get_by_test_id("alert-band").filter(visible=True)
+        txt = band.inner_text() if band.count() else ""
+        check(f"Dashboard {w}: an older version's report (fixed history) raises no error alert; the backup alert still shows", "error(s) logged" not in txt and "backup" in txt, txt[:200])
+        band.get_by_role("button", name="Open System health").first.click(); pg.wait_for_timeout(3000)
+        at = pg.evaluate("() => { const e = document.getElementById('system-health'); if (!e) return null; const r = e.getBoundingClientRect(); return { top: Math.round(r.top), h: innerHeight, vis: r.height > 0 } }")
+        check(f"Dashboard {w}: Open System health lands ON the System health card, not the top of Users", at is not None and at["vis"] and 0 <= at["top"] <= at["h"] * 0.6, at)
+        rows = pg.locator("#system-health [data-testid=err-row]")
+        ovf = rows.filter(has_text="ui_overflow"); cron = rows.filter(has_text="TikTok sync timed out")
+        check(f"System health {w}: the page's own report offers its page (Open Tasks); a source with no module offers nothing", ovf.get_by_test_id("err-open").count() == 1 and "Open Tasks" in ovf.get_by_test_id("err-open").inner_text() and cron.get_by_test_id("err-open").count() == 0)
+        ovf.get_by_test_id("err-open").click(); pg.wait_for_timeout(2000)
+        check(f"System health {w}: Open Tasks opens the Tasks tab", "tab=Tasks" in pg.url or pg.locator("[data-testid=tasks-views]").count() == 1, pg.url)
+        check(f"Dashboard {w}: no page error", not errs, errs)
+        ctx.close()
+    # ================= v1.327.0: Users & Security - Customers & Agents, Security & Sessions, Audit History =================
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Users", w, h, phone)
+        def users_view(v):
+            pg.goto(f"http://127.0.0.1:4177/portal?tab=Users&view={v}"); pg.wait_for_timeout(2800)
+        users_view("customers")
+        strip = [t.strip() for t in pg.locator("[data-testid=customers-strip] [data-kpi-label], [data-testid=customers-strip] .erp-kpi-label").all_inner_texts()]
+        txt = pg.get_by_test_id("customers-strip").inner_text() if pg.get_by_test_id("customers-strip").count() else ""
+        check(f"Customers & Agents {w}: the strip - Customers, Agents, Active, Suspended", all(x in txt for x in ["Customers", "Agents", "Active", "Suspended"]), txt[:200])
+        tbl = pg.get_by_test_id("customers-table")
+        check(f"Customers & Agents {w}: the directory holds the customers and the agent, never staff", tbl.count() == 1 and "Narida" in tbl.inner_text() and "Rashid" in tbl.inner_text() and "Nur Aisyah" not in tbl.inner_text(), tbl.inner_text()[:200] if tbl.count() else "")
+        pg.get_by_test_id("customers-table").locator("tr", has_text="Rashid").first.click(); pg.wait_for_timeout(500)
+        det = pg.get_by_test_id("account-detail")
+        check(f"Customers & Agents {w}: the chosen agent - its portal access, and Revoke (never Grant) where Grant is offered on a customer", det.count() == 1 and "Agent workspace" in det.get_by_test_id("portal-access").inner_text() and det.locator("[data-testid^=grant-agent]").count() == 0, det.inner_text()[:200] if det.count() else "")
+        users_view("security")
+        if pg.get_by_test_id("sec-part-overview").count():  # v1.327.0 - the parts row: Company owner opens first while no owner is verified
+            pg.get_by_test_id("sec-part-overview").click(); pg.wait_for_timeout(600)
+        sec = pg.get_by_test_id("security-sessions")
+        check(f"Security & Sessions {w}: the strip, Authentication Controls (2FA required, passkeys, recovery panel, sensitive changes), Attention, the Sign-in Log", sec.count() == 1 and all(pg.get_by_test_id(t).count() == 1 for t in ["security-strip", "control-2fa", "control-passkeys", "control-recovery", "control-sensitive", "security-attention", "signin-table"]) and pg.get_by_test_id("control-2fa").locator("input[type=checkbox]").count() == 0)
+        check(f"Security & Sessions {w}: an active account without 2FA is named under Attention", "without 2FA" in pg.get_by_test_id("security-attention").inner_text(), pg.get_by_test_id("security-attention").inner_text()[:200])
+        hp = pg.get_by_test_id("sec-part-health")
+        if hp.count(): hp.click(); pg.wait_for_timeout(600)
+        check(f"Security & Sessions {w}: the owner card, the geofence and System health stay in their own parts", hp.count() == 1 and pg.locator("#system-health").count() == 1 and pg.get_by_test_id("security-sessions").count() == 0)
+        users_view("audit")
+        reg = pg.get_by_test_id("audit-table")
+        check(f"Audit History {w}: the strip (Audit Events, User Changes, Sign-in Events, Flagged Events) and the register", reg.count() == 1 and all(x in pg.get_by_test_id("audit-strip").inner_text() for x in ["Audit Events", "User Changes", "Sign-in Events", "Flagged Events"]))
+        reg.locator("tr", has_text="security.denied").first.click(); pg.wait_for_timeout(500)
+        det = pg.get_by_test_id("audit-detail")
+        check(f"Audit History {w}: the chosen event in full - actor, action, target, Warning, and a token field never drawn", det.count() == 1 and "security.denied" in det.inner_text() and "Warning" in det.inner_text() and "abc" not in det.inner_text() and "(hidden)" in det.inner_text(), det.inner_text()[:300] if det.count() else "")
+        pg.get_by_test_id("audit-search").fill("permissions"); pg.wait_for_timeout(400)
+        rows = pg.get_by_test_id("audit-table").locator("tbody tr")
+        check(f"Audit History {w}: the search narrows the register", rows.count() == 1 and "permissions.change" in rows.first.inner_text(), rows.count())
+        if not phone:
+            fit = pg.evaluate("() => { const sc = document.querySelector('[class*=app-shell_scroll]'); const s = document.querySelector('[data-testid=audit-split]'); return { page: sc.scrollHeight - sc.clientHeight, fill: s && s.dataset.fill } }")
+            check(f"Audit History {w}: the register and the event fit the screen (each scrolls inside)", fit["page"] <= 1 and fit["fill"] == "on", fit)
+        check(f"Users & Security {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        ctx.close()
+    # ================= v1.328.0: People > Roster & Scheduling (R-1...R-6); On Shift in five cards =================
+    RS = "http://127.0.0.1:4177/portal?tab=" + urllib.parse.quote("Roster & Scheduling")
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Roster & Scheduling", w, h, phone)
+        check(f"Roster & Scheduling {w}: opens on Today - the figures, today's assignments, who works today", pg.get_by_test_id("roster-today").count() == 1 and pg.get_by_test_id("today-people").count() == 1
+              and "Assignments today" in pg.get_by_test_id("roster-today").inner_text() and "Scheduled Today" in pg.get_by_test_id("roster-today").inner_text(), pg.locator("main").inner_text()[:300])
+        for v, sel in [("board", "#roster-board"), ("shifts", "[data-testid=roster]"), ("templates", "[data-testid=roster-templates-view]"), ("reports", "[data-testid=live-host-card]")]:
+            pg.goto(f"{RS}&view={v}"); pg.wait_for_timeout(2800)
+            check(f"Roster & Scheduling {w}: the {v} view draws its card", pg.locator(sel).count() >= 1 and pg.locator(sel).first.is_visible(), v)
+        pg.goto(f"{RS}&view=shifts"); pg.wait_for_timeout(2800)
+        pg.get_by_test_id("roster-templates").first.click(); pg.wait_for_timeout(900)
+        check(f"Roster & Scheduling {w}: Shift Templates in Shift Roster opens the Templates view (no drawer)", pg.get_by_test_id("roster-templates-view").is_visible() and pg.locator("[role=dialog]").count() == 0)
+        check(f"Roster & Scheduling {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        # the old Attendance roster link lands on Shift Roster
+        pg.goto("http://127.0.0.1:4177/portal?tab=Attendance&view=roster"); pg.wait_for_timeout(3200)
+        check(f"Attendance {w}: an old ?view=roster link opens Roster & Scheduling > Shift Roster", pg.locator("[data-testid=roster]").count() == 1 and pg.locator("[data-testid=roster]").first.is_visible())
+        # Tasks > Calendar keeps the tasks and points to the roster
+        pg.goto("http://127.0.0.1:4177/portal?tab=Tasks&view=calendar"); pg.wait_for_timeout(3000)
+        check(f"Tasks {w}: the calendar has no roster board, no live kind, and one line to Roster & Scheduling", pg.locator("#roster-board").count() == 0 and pg.get_by_test_id("cal-type-live").count() == 0
+              and pg.get_by_test_id("cal-roster-link").count() == 1 and pg.get_by_test_id("cal-type-task").get_attribute("aria-pressed") == "false")
+        pg.get_by_test_id("cal-roster-link").get_by_role("button").click(); pg.wait_for_timeout(2400)
+        check(f"Tasks {w}: ...which opens it", pg.get_by_test_id("roster-today").count() == 1)
+        ctx.close()
+    # On Shift: five cards; the punch in My Shift; the location card on demand; the team as one line
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "On Shift", w, h, phone)
+        cards = pg.evaluate("() => document.querySelectorAll('[data-zone=shift] > section, [data-zone=shift] > div > section').length")
+        check(f"On Shift {w}: at most five cards (My Shift, Today, My days, the team line)", cards <= 5, cards)
+        check(f"On Shift {w}: the punch is inside My Shift", pg.locator("section[aria-label='My shift'] [data-testid=shift-actions]").count() == 1)
+        check(f"On Shift {w}: the location card is not on the page until asked for", pg.get_by_test_id("location-card").count() == 0)
+        pg.get_by_test_id("location-open").click(); pg.wait_for_timeout(800)
+        check(f"On Shift {w}: Location details opens the verification card", pg.locator("[role=dialog] [data-testid=location-card]").count() == 1)
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+        check(f"On Shift {w}: the team is one line with a link to Attendance", pg.get_by_test_id("team-line").count() == 1 and pg.get_by_test_id("team-on-shift").count() == 0)
+        pg.get_by_test_id("days-tab-recent").click(); pg.wait_for_timeout(400)
+        check(f"On Shift {w}: This week and Recent share one card behind a tab row", pg.get_by_test_id("recent-attendance").is_visible() and not pg.get_by_test_id("week-summary").is_visible())
+        check(f"On Shift {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        ctx.close()
+    # ================= v1.329.0: the one feedback modal (F-1...F-5) - the Attendance pilot =================
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Attendance", w, h, phone)
+        pg.goto("http://127.0.0.1:4177/portal?tab=Attendance&view=exceptions"); pg.wait_for_timeout(3000)
+        pg.get_by_test_id("exc-ot").click(); pg.wait_for_timeout(400)
+        pg.get_by_test_id("exc-open").first.click(); pg.wait_for_timeout(700)
+        pg.get_by_test_id("exc-approve").first.click(); pg.wait_for_timeout(500)
+        pg.get_by_role("button", name="Approve OT").click(); pg.wait_for_timeout(1200)
+        fb = pg.get_by_test_id("decision-feedback")
+        t = fb.inner_text() if fb.count() else ""
+        check(f"Feedback {w}: an overtime decision says WHICH decision, for whom, the day, the hours and the duration", fb.count() == 1 and "Overtime approved" in t and "Goes to the payroll" in t
+              and all(x in t for x in ["Day", "Overtime", "Duration"]) and "Decided" not in t, t[:300])
+        check(f"Feedback {w}: it waits for OK - a dialog with focus on OK", fb.get_attribute("role") == "dialog" and pg.evaluate("document.activeElement?.dataset?.testid") == "feedback-ok")
+        box = pg.evaluate("(() => { const r = document.querySelector('[data-testid=decision-feedback]').getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: innerWidth, h: innerHeight }; })()")
+        check(f"Feedback {w}: a compact card centred in the viewport (at most 360 px)", box["r"] - box["l"] <= 361 and abs((box["t"] + box["b"]) / 2 - box["h"] / 2) < 3 and box["l"] >= 8 and box["r"] <= box["w"] - 8, box)
+        pg.get_by_test_id("feedback-ok").click(); pg.wait_for_timeout(400)
+        check(f"Feedback {w}: OK closes it", pg.get_by_test_id("decision-feedback").count() == 0)
+        check(f"Feedback {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        ctx.close()
     ctx, pg, errs = open_tab(b, "Desk", 390, 844, True)
     pg.goto("http://127.0.0.1:4177/portal?tab=Desk&view=inbox"); pg.wait_for_timeout(2600)
     check("Desk 390: the inbox does not scroll inside itself - the page does", pg.get_by_test_id("inbox-panel").get_attribute("data-fill") == "off")

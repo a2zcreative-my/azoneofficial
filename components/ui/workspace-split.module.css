@@ -1,0 +1,30 @@
+/* v1.327.0 - the two-pane workspace (workspace-split.tsx). Tokens and the
+   house breakpoints only. */
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.pane { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-content: start; min-width: 0; }
+.head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.5rem 0.75rem; min-width: 0; }
+.headText { display: grid; gap: 0.125rem; flex: 1 1 12rem; min-width: 0; }
+.title { margin: 0; color: var(--foreground); font-size: var(--type-section-size); line-height: var(--type-section-lh); font-weight: 700; }
+.sub { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-content: start; min-width: 0; }
+.column { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-content: start; min-width: 0; }
+.foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+
+@media (min-width: 1024px) {
+  /* one flex line: when FillPanel holds the split to the screen, both panes take that height */
+  .split { display: flex; align-items: stretch; }
+  .split > * { flex: 60 1 0; min-width: 0; min-height: 0; }
+  .split > * + * { flex-grow: 40; }
+  .r55_45 > * { flex-grow: 55; }
+  .r55_45 > * + * { flex-grow: 45; }
+  .r50_50 > *, .r50_50 > * + * { flex-grow: 50; }
+  /* a pane is a column: its head, toolbar and foot keep their height */
+  .pane { display: flex; flex-direction: column; }
+  .column { display: flex; flex-direction: column; gap: var(--space-4); }
+  /* only when the split is HELD to the screen (FillPanel on) do the panes share its height and their
+     bodies scroll inside; otherwise each is its own height and the page scrolls (a short window, 200% text) */
+  .split[data-fill="on"] .column > * { flex: 1 1 0; min-height: 0; }
+  .split[data-fill="on"] .body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+}

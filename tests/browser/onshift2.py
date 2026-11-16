@@ -43,6 +43,15 @@ def top(pg, sel):
     bb = loc.bounding_box()
     return bb
 
+def openloc(pg):
+    """v1.328.0 - the location card opens from My Shift's GPS line (a drawer)"""
+    if pg.get_by_test_id("location-card").count() == 0 and pg.get_by_test_id("location-open").count():
+        pg.get_by_test_id("location-open").click(); pg.wait_for_timeout(900)
+
+def closeloc(pg):
+    if pg.locator("[role=dialog] [data-testid=location-card]").count():
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+
 def main_text(pg):
     return pg.locator("main").inner_text()
 
@@ -56,18 +65,18 @@ with sync_playwright() as p:
     errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     hosts = set(); pg.on("request", lambda r: hosts.add(re.sub(r"^https?://([^/]+).*$", r"\1", r.url)))
     go(pg, 4177)
-    shift = top(pg, "section[aria-label='My shift']"); locc = top(pg, "[data-testid=location-card]")
-    sched = top(pg, "section[aria-label=\"Today's schedule\"]"); punch = top(pg, "[data-testid=punch-details]"); quick = top(pg, "[data-testid=shift-actions]")
-    week = top(pg, "[data-testid=week-summary]"); team = top(pg, "[data-testid=team-on-shift]"); recent = top(pg, "[data-testid=recent-attendance]")
-    check("every card of the page is drawn", all([shift, locc, sched, punch, quick, week, team, recent]))
-    if all([shift, locc, sched, punch, quick, week, team, recent]):
-        check("row 1: My Shift beside Location Verification (location on the right)", abs(shift["y"] - locc["y"]) < 4 and locc["x"] > shift["x"] + shift["width"] - 4, (shift, locc))
-        check("row 2: Schedule, Punch Details, Quick Actions side by side, under row 1",
-              abs(sched["y"] - punch["y"]) < 4 and abs(punch["y"] - quick["y"]) < 4 and sched["x"] < punch["x"] < quick["x"] and sched["y"] > shift["y"] + 100)
-        check("row 3: the week across the page", week["y"] > sched["y"] + 100 and week["width"] > 1000)
-        check("row 4: Team On Shift beside Recent Attendance", abs(team["y"] - recent["y"]) < 4 and recent["x"] > team["x"] and team["width"] > recent["width"], (team, recent))
+    # v1.328.0 - R-3 (the CEO, 16-11-2026): five cards - My Shift (with the punch), Today, the team line, My days
+    shift = top(pg, "section[aria-label='My shift']"); today = top(pg, "[data-testid=today-card]"); quick = top(pg, "[data-testid=shift-actions]")
+    days = top(pg, "[data-testid=my-days]"); team = top(pg, "[data-testid=team-line]")
+    check("every card of the page is drawn", all([shift, today, quick, days, team]))
+    if all([shift, today, quick, days, team]):
+        check("row 1: My Shift beside Today", abs(shift["y"] - today["y"]) < 4 and today["x"] > shift["x"] + shift["width"] - 4, (shift, today))
+        check("the punch is inside My Shift", shift["y"] < quick["y"] < shift["y"] + shift["height"], (shift, quick))
+        check("row 2: the team line across the page, then My days", team["y"] > shift["y"] + 100 and days["y"] > team["y"] and team["width"] > 1000 and days["width"] > 1000, (team, days))
+    check("the location card is not on the page until asked for", pg.get_by_test_id("location-card").count() == 0)
     check("no sideways page at 1440", no_hscroll(pg))
-    # the location card
+    # the location card (v1.328.0: opened from the GPS line)
+    openloc(pg)
     st = pg.get_by_test_id("location-status").inner_text() if pg.get_by_test_id("location-status").count() else ""
     check("the location card states the latest punch's verification", "geofence" in st.lower() or "pending" in st.lower(), st)
     lt = pg.get_by_test_id("location-card").inner_text()
@@ -84,6 +93,7 @@ with sync_playwright() as p:
     r2 = pg.evaluate("document.querySelector('[data-testid=fence-diagram] svg[role=img] circle').getAttribute('r')")
     check("zoom in enlarges the fence, and fit restores it", float(r1) > float(r0) and abs(float(r2) - float(r0)) < 0.01, (r0, r1, r2))
     check("the existing Check my location control lives in the card", pg.get_by_test_id("location-card").get_by_role("button", name="Check my location").count() == 1)
+    closeloc(pg)
     # My Shift facts and the schedule
     ft = pg.get_by_test_id("shift-facts").inner_text()
     check("My Shift: status, break, overtime, work location and GPS status", all(w in ft.upper() for w in ["STATUS", "BREAK", "OVERTIME", "WORK LOCATION", "GPS STATUS"]) and "60 min" in ft, ft[:200])
@@ -92,9 +102,10 @@ with sync_playwright() as p:
     check("Today's Schedule: location, expected work, the late rule and overtime eligibility", all(w in sf.upper() for w in ["WORK LOCATION", "EXPECTED WORK", "LATE AND HALF DAY", "OVERTIME"]) and "13:00" in sf, sf[:200])
     # punch details
     pd = pg.get_by_test_id("punch-details").inner_text()
-    check("Punch Details: the clock-in with its location and the clock-out still pending", "Clock In" in pd and "Within geofence" in pd and "Not yet recorded" in pd, pd[:200])
-    check("one Clock Out button, in Quick Actions", pg.get_by_role("button", name=re.compile("^Clock Out")).count() == 1 and pg.get_by_test_id("shift-actions").get_by_role("button", name=re.compile("Clock Out")).count() == 1)
-    # the week
+    # the fixture's punches are outside the geofence on the 3rd, 10th, 17th and 24th: either way the location word is said
+    check("Punch Details: the clock-in with its location and the clock-out still pending", "Clock In" in pd and ("Within geofence" in pd or "Outside geofence" in pd) and "Not yet recorded" in pd, pd[:200])
+    check("one Clock Out button, in My Shift", pg.get_by_role("button", name=re.compile("^Clock Out")).count() == 1 and pg.get_by_test_id("shift-actions").get_by_role("button", name=re.compile("Clock Out")).count() == 1)
+    # the week (v1.328.0: My days, This week first)
     figs = {k: pg.get_by_test_id(f"week-{k}").inner_text() for k in ["scheduled", "attended", "completed", "late", "missing", "leave", "pending"]}
     check("the week: seven counts", all(v.strip().isdigit() for v in figs.values()), figs)
     days = pg.get_by_test_id("week-day")
@@ -103,35 +114,22 @@ with sync_playwright() as p:
     check("picking a day opens its detail", pg.get_by_test_id("week-detail").count() == 1 and "Status" in pg.get_by_test_id("week-detail").inner_text())
     days.nth(0).click(); pg.wait_for_timeout(300)
     check("...and picking it again closes it", pg.get_by_test_id("week-detail").count() == 0)
-    # recent
+    # recent (v1.328.0: the second tab of My days)
+    pg.get_by_test_id("days-tab-recent").click(); pg.wait_for_timeout(400)
+    check("This week and Recent share one card: Recent shows, the week hides", pg.get_by_test_id("recent-attendance").is_visible() and not pg.get_by_test_id("week-summary").is_visible())
     rows = pg.get_by_test_id("recent-row")
     check("Recent Attendance: five rows at most, each with a location word", 0 < rows.count() <= 5 and all(rows.nth(i).locator("[data-loc]").count() == 1 or "—" in rows.nth(i).inner_text() for i in range(rows.count())), rows.count())
-    check("the outside day is said as recorded for the CEO (exempt), never red", "Recorded · 132 m" in pg.get_by_test_id("recent-attendance").inner_text())
-    # team
-    tr = pg.get_by_test_id("team-row")
-    n = tr.count()
-    fig = lambda k: int(pg.get_by_test_id(f"team-fig-{k}").inner_text())
-    states = [tr.nth(i).inner_text() for i in range(n)]
-    check("Team: On shift now equals the rows that say On Shift", fig("on") == sum("On Shift" in s for s in states), (fig("on"), states))
-    check("Team: Clocked out equals the rows that say Clocked Out", fig("out") == sum("Clocked Out" in s for s in states))
-    check("Team: scheduled headcount is not the on-shift headcount", fig("scheduled") >= fig("on"))
-    pg.get_by_test_id("team-location").select_option("outside"); pg.wait_for_timeout(300)
-    out_rows = pg.get_by_test_id("team-row").count()
-    check("Team: the Outside filter keeps only the outside punches", out_rows >= 1 and all("Outside" in pg.get_by_test_id("team-row").nth(i).inner_text() or "Recorded" in pg.get_by_test_id("team-row").nth(i).inner_text() for i in range(out_rows)), out_rows)
-    pg.get_by_test_id("team-location").select_option(""); pg.wait_for_timeout(200)
-    pg.get_by_test_id("team-sort").select_option("name"); pg.wait_for_timeout(200)
-    names = [pg.get_by_test_id("team-row").nth(i).locator("strong").first.inner_text() for i in range(pg.get_by_test_id("team-row").count())]
-    check("Team: sort by name", names == sorted(names), names)
-    pg.get_by_role("searchbox", name="Search staff on shift").fill("zzzz-nobody"); pg.wait_for_timeout(200)
-    check("Team: a search with no match says so", "Nobody matches." in pg.get_by_test_id("team-on-shift").inner_text())
-    pg.get_by_role("searchbox", name="Search staff on shift").fill(""); pg.wait_for_timeout(200)
-    pg.get_by_test_id("team-row").first.click(); pg.wait_for_timeout(700)
-    det = pg.get_by_test_id("team-detail")
-    dt = det.inner_text() if det.count() else ""
-    check("Team: a row opens the detail drawer with the attendance timeline", det.count() == 1 and "attendance timeline" in dt.lower() and "location exceptions" in dt.lower(), dt[:200])
-    check("Team: the drawer shows distances only, never a position", not COORD.search(dt) and "exact positions are not shown" in dt)
-    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
-    check("Team: Escape closes the drawer", pg.get_by_test_id("team-detail").count() == 0)
+    rt = pg.get_by_test_id("recent-attendance").inner_text()
+    # the fixture's outside days are fixed dates (the 3rd, 10th, 17th, 24th), so one is in the last five days only on some dates
+    check("an outside day is said as recorded for the CEO (exempt), never red", ("Recorded · 132 m" in rt) or ("132 m" not in rt and "Outside" not in rt), rt[:300])
+    # team (v1.328.0 - R-3: one line; the full register is Attendance > Overview)
+    tl = pg.get_by_test_id("team-line").inner_text()
+    check("Team: one line - on shift, not yet clocked in, clocked out, of the scheduled", all(w in tl for w in ["on shift", "not yet clocked in", "clocked out", "scheduled"]) and pg.get_by_test_id("team-on-shift").count() == 0, tl)
+    on_n = int(pg.get_by_test_id("team-line-on").inner_text().split()[0])
+    check("Team: the on-shift count is a number the monitor holds", on_n >= 0, on_n)
+    pg.get_by_test_id("team-line-open").click(); pg.wait_for_timeout(1500)
+    check("Team: View in Attendance opens Attendance", "Attendance" in pg.locator("main").inner_text()[:400] or pg.get_by_test_id("att-overview").count() == 1)
+    go(pg, 4177)
     check("no coordinates anywhere on the page", not COORD.search(main_text(pg)))
     # v1.297.0 - the CEO asked for a real map: OpenStreetMap's tile host is the one other host, and only for map images
     check("no request to any other host but the map's tiles", all(h.startswith("127.0.0.1") or h.startswith("localhost") or h == "tile.openstreetmap.org" for h in hosts), hosts)
@@ -148,7 +146,7 @@ with sync_playwright() as p:
     c = ctx_for(b, 1440, 1000)
     tiles = []
     c.route("https://tile.openstreetmap.org/**", lambda r: (tiles.append(r.request.url), r.fulfill(status=200, content_type="image/png", body=tile)))
-    pg = c.new_page(); go(pg, 4177)
+    pg = c.new_page(); go(pg, 4177); openloc(pg)
     check("map: the location card draws the real map for the person's own day", pg.get_by_test_id("punch-map").count() == 1 and pg.get_by_test_id("fence-diagram").count() == 0)
     check("map: its tiles are OpenStreetMap's, and it says so", len(tiles) > 0 and all(t.startswith("https://tile.openstreetmap.org/") for t in tiles) and "© OpenStreetMap" in pg.get_by_test_id("punch-map").inner_text())
     lab = pg.get_by_test_id("punch-map").get_by_role("img").first.get_attribute("aria-label") or ""
@@ -161,7 +159,7 @@ with sync_playwright() as p:
     c.close()
     c = ctx_for(b, 1440, 1000)
     c.route("https://tile.openstreetmap.org/**", lambda r: r.abort())
-    pg = c.new_page(); go(pg, 4177, 5000)
+    pg = c.new_page(); go(pg, 4177, 5000); openloc(pg); pg.wait_for_timeout(1500)
     check("map: when the tiles cannot load, the distance diagram is shown and it says why",
           pg.get_by_test_id("fence-diagram").count() == 1 and "The map could not load" in pg.get_by_test_id("location-card").inner_text())
     c.close()
@@ -180,21 +178,23 @@ with sync_playwright() as p:
     c.route("https://tile.openstreetmap.org/**", lambda r: r.fulfill(status=200, content_type="image/png", body=tile))
     pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     go(pg, 4180)
-    s = top(pg, "section[aria-label='My shift']"); q = top(pg, "[data-testid=shift-actions]"); l = top(pg, "[data-testid=location-card]")
-    check("phone: My Shift, then the punch, then the location", s and q and l and s["y"] < q["y"] < l["y"], (s, q, l))
+    s = top(pg, "section[aria-label='My shift']"); q = top(pg, "[data-testid=shift-actions]"); t = top(pg, "[data-testid=today-card]")
+    check("phone: My Shift with the punch inside it, then Today", s and q and t and s["y"] < q["y"] < t["y"] and q["y"] < s["y"] + s["height"], (s, q, t))
+    openloc(pg)
     check("phone: the map is folded behind its button", not pg.get_by_test_id("punch-map").is_visible())
     pg.get_by_role("button", name="Show the map").click(); pg.wait_for_timeout(500)
     check("phone: ...and opens on a tap", pg.get_by_test_id("punch-map").is_visible())
     zb = pg.get_by_role("button", name="Zoom in").bounding_box()
     check("phone: the zoom buttons are 44 px targets", zb and zb["height"] >= 43.5 and zb["width"] >= 43.5, zb)
-    check("phone: a host has no Team On Shift", pg.get_by_test_id("team-on-shift").count() == 0)
+    closeloc(pg)
+    check("phone: a host has no team line", pg.get_by_test_id("team-line").count() == 0 and pg.get_by_test_id("team-on-shift").count() == 0)
     check("phone: no page error", not errs, errs[:2])
     c.close()
 
     # ---- the COO reads the team; sales staff do not ----
     for port, who, team_expected in [(4179, "coo", True), (4182, "sales", False)]:
         c = ctx_for(b, 1280); pg = c.new_page(); go(pg, port)
-        check(f"{who}: Team On Shift {'shown' if team_expected else 'not shown'}", (pg.get_by_test_id("team-on-shift").count() == 1) == team_expected)
+        check(f"{who}: the team line {'shown' if team_expected else 'not shown'}", (pg.get_by_test_id("team-line").count() == 1) == team_expected)
         c.close()
     b.close()
 

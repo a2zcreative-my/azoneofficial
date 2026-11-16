@@ -11,6 +11,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DetailGrid } from "@/components/ui/record-row";
 import { rowBtn, rowBtnDanger, rowBtnPrimary } from "@/components/ui/row-button";
 import { useSaveToast } from "@/components/ui/save-toast";
+import { useFeedback } from "@/components/ui/feedback-modal";
 import { SkelTable } from "@/components/ui/skeleton";
 import { SubR } from "@/components/ui/sub-label";
 import { useLiveRefresh } from "@/hooks/use-live-refresh";
@@ -1004,6 +1005,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
   /* v1.127.0 — the step-up dialog for a final approval (withStepUp). */
   const { prompt, node: stepUpNode } = usePrompt();
   const { show: showLeaveToast, node: leaveToastNode } = useSaveToast();
+  const { show: leaveFeedback, node: leaveFeedbackNode } = useFeedback(); // v1.329.0 - the decisions' results (F-3)
   /* v1.83.0 (CEO: "leave application and history I want to view and to edit
      if necessary or to remove if require. filter by month") — the decided
      list was five lines of plain text with no way to reach any of them. */
@@ -1113,22 +1115,37 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       }),
       prompt,
     );
+    /* v1.329.0 - the feedback pilot (F-3, Leave): a refusal is an error and
+       waits for OK; a decision says what it did, for whom and which days, and
+       waits for OK. "Approved - passed on" is PENDING, never approved: the
+       chip says the server's stage, nothing more. */
     if (!res.ok) {
-      showLeaveToast(L("Not changed", "Tidak diubah"),
-        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+      leaveFeedback({ variant: "error", title: L("Not changed", "Tidak diubah"), testid: "leave-feedback",
+        description: res.data?.error?.message ?? L("The server refused that. Nothing was changed - check the application and press the button again.", "Pelayan menolaknya. Tiada yang diubah - semak permohonan dan tekan butang sekali lagi.") });
       return;
     }
-    showLeaveToast(
-      action === "reject" ? L("Rejected", "Ditolak")
-      : action === "cancel" ? L("Cancelled", "Dibatalkan")
-      : action === "return" ? L("Returned for information", "Dikembalikan untuk maklumat")
-      : action === "resubmit" ? L("Resubmitted", "Dihantar semula")
-      : res.data?.stage === "approved" ? L("Approved", "Diluluskan") : L("Approved - passed on", "Diluluskan - dihantar ke peringkat seterusnya"),
-      action === "cancel"
-        ? L("Your application has been withdrawn.", "Permohonan anda telah ditarik balik.")
+    const row = [...all, ...mine].find((x) => x.id === id);
+    const final = res.data?.stage === "approved";
+    leaveFeedback({
+      variant: action === "reject" ? "warning" : "success", acknowledge: true, testid: "leave-feedback",
+      title: action === "reject" ? L("Leave rejected", "Cuti ditolak")
+        : action === "cancel" ? L("Application withdrawn", "Permohonan ditarik balik")
+        : action === "return" ? L("Returned for information", "Dikembalikan untuk maklumat")
+        : action === "resubmit" ? L("Resubmitted", "Dihantar semula")
+        : final ? L("Leave approved", "Cuti diluluskan") : L("Approved at your step", "Diluluskan di peringkat anda"),
+      description: action === "cancel" ? L("Your application has been withdrawn.", "Permohonan anda telah ditarik balik.")
         : action === "resubmit" ? L("It is back with the approver who asked.", "Ia kembali kepada pelulus yang bertanya.")
-        : L("The staff member has been notified.", "Kakitangan telah dimaklumkan."),
-    );
+        : `${row?.user_name ? `${properName(row.user_name)} · ` : ""}${L("The staff member has been notified.", "Kakitangan telah dimaklumkan.")}`,
+      chip: action === "reject" ? { label: L("Rejected", "Ditolak"), tone: "danger" }
+        : action === "return" || action === "resubmit" ? { label: L("Waiting for an answer", "Menunggu jawapan"), tone: "warning" }
+        : action === "cancel" ? { label: L("Withdrawn", "Ditarik balik"), tone: "neutral" }
+        : final ? { label: L("Approved - final", "Diluluskan - muktamad"), tone: "success" } : { label: L("Pending the next approval", "Menunggu kelulusan seterusnya"), tone: "warning" },
+      facts: row ? [
+        { icon: "holiday", label: L("Type", "Jenis"), value: leaveTypeL(row.type) },
+        { icon: "date", label: L("Dates", "Tarikh"), value: row.start_date === row.end_date ? dmy(row.start_date) : `${dmy(row.start_date)} – ${dmy(row.end_date)}` },
+        { icon: "time", label: L("Days", "Hari"), value: String(row.days) },
+      ] : undefined,
+    });
     void load();
   };
   const saveAmend = async () => {
@@ -1292,7 +1309,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       {overrideConfirmNode}
       {stepUpNode}
       {removeLeaveNode}
-      {leaveToastNode}
+      {leaveToastNode}{leaveFeedbackNode}
       <div className="erp-desktop-only">
         <LineTabs value={shown} onChange={(k) => openView(k)} label={L("Leave", "Cuti")} tabs={VIEW_TABS.map(([k, t]) => [k, t] as const)}
           aside={

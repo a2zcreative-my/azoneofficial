@@ -106,6 +106,13 @@ export const ALL_TABS = [
   "Staff Details",
   "Attendance",
   "On Shift",
+  /* v1.328.0 - ROSTER & SCHEDULING (the CEO, 16-11-2026, R-1 ... R-6 of
+     claude/ROSTER-SCHEDULING-STAGE-0-AUDIT.md): one workspace over the two
+     scheduling engines that already exist - the operational roster (lives,
+     task blocks, sales duty) and the expected working schedule. No TAB_ROLES
+     entry: every staff member, as Tasks and Attendance (R-5); each view keeps
+     the gate its card had. */
+  "Roster & Scheduling",
   "Leave",
   "Claims",
   "Payroll",
@@ -176,7 +183,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { id: "workspace", title: "Workspace", tabs: ["Dashboard", "Desk", "Announcements"] },
   { id: "revenue", title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents", "Financial Advisory"] },
   { id: "operations", title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
-  { id: "people", title: "People", tabs: ["HR", "Staff Details", "Attendance", "On Shift", "Leave", "Claims", "Payroll"] },
+  { id: "people", title: "People", tabs: ["HR", "Staff Details", "Attendance", "On Shift", "Roster & Scheduling", "Leave", "Claims", "Payroll"] },
   { id: "finance", title: "Finance", tabs: ["Finance", "Accounting", "Commission"] },
   { id: "elfia", title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
   { id: "system", title: "System", tabs: ["Companies", "Users", "Automation & Rules"] },
@@ -456,7 +463,8 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
     Tabs whose name says it all are absent rather than padded. */
 export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Companies: { en: "ownership review - CEO; document & signing", ms: "semakan pemilikan - CEO; dokumen & tandatangan" },
-  Attendance: { en: "punches + roster", ms: "rekod kehadiran + roster" },
+  Attendance: { en: "punches + records", ms: "rekod kehadiran" }, // v1.328.0 - the roster moved to Roster & Scheduling
+  "Roster & Scheduling": { en: "lives, shifts + templates", ms: "live, syif + templat" },
   Ecommerce: { en: "TikTok + map", ms: "TikTok + peta" },
   "ELFIA Store": { en: "store catalogue", ms: "katalog kedai" },
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
@@ -651,6 +659,7 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   HR: { slug: "hr" },
   Attendance: { slug: "attendance" },
   "On Shift": { slug: "on-shift" },
+  "Roster & Scheduling": { slug: "roster" }, // v1.328.0
   Tasks: { slug: "tasks", record: "task", context: "detail" },
   Announcements: { slug: "news" },
   "Staff Details": { slug: "staff", record: "staff", context: "detail" },

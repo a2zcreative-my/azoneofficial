@@ -4,10 +4,12 @@
    and the sheet that says "this was recorded" (first used by On Shift's
    clock-in / clock-out confirmation, punch-receipt.tsx).
 
-   A bottom sheet on a phone - full width, the home-indicator inset under its
-   last control, scrolling inside itself at any height - and a centred card
-   from 640px. Escape, the backdrop and the X close it; the page behind does
-   not scroll under it. What goes inside is the caller's. It lives here, with
+   v1.328.0 (the CEO, 16-11-2026): a compact CENTRED modal on every screen -
+   never a bottom sheet or a full-screen page. Fixed, centred in the viewport
+   inside the iPhone safe areas, 90% wide up to 360px, its own height, never
+   taller than the screen (it scrolls inside itself then), on the house modal
+   surface (.erp-modal). Escape, the backdrop and the X close it; the page
+   behind does not scroll under it. What goes inside is the caller's. It lives here, with
    the other dialogs, so no screen hand-makes a dialog of its own
    (tests/design-tokens.mjs). */
 
@@ -50,7 +52,7 @@ export function ResultSheet({ titleId, head, onClose, children, testid, kind }: 
   }, [onClose]);
   return (
     <div className={css.layer} data-testid={testid} data-kind={kind} onClick={onClose}>
-      <div className={css.sheet} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
+      <div className={`erp-modal ${css.sheet}`} role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(e) => e.stopPropagation()}>
         <div className={css.top}>
           {head ?? <span />}
           <button type="button" className={css.close} onClick={onClose} aria-label={L("Close", "Tutup")}><span aria-hidden>✕</span></button>

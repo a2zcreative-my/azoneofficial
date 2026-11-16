@@ -53,7 +53,9 @@ function checks(src) {
     && (t5.match(/useCachedApi<[^>]*>\(([^,]+),/g) ?? []).every((x) => /\/staff\/roster\?week=|"\/staff\/live-sessions"/.test(x)));
 
   const cal = t5.slice(t5.indexOf("export function WorkCalendar("), t5.indexOf("export function LiveHostCard("));
-  ok("the calendar's kinds are the records there are - no Client Meetings (TK-10)", /const KIND_WORD: Record<EvKind, \[string, string\]> = \{ task: \["Tasks", "Tugasan"\], due: \["Deadlines", "Tarikh akhir"\], review: \["Reviews", "Semakan"\], live: \["Live Sessions", "Sesi Live"\], mile: \["Milestones", "Pencapaian"\] \};/.test(t5) && !/Client Meeting|Mesyuarat Pelanggan/.test(t5));
+  ok("the calendar's kinds are the records there are - no Client Meetings (TK-10)", /const KIND_WORD: Record<EvKind, \[string, string\]> = \{ task: \["Booked work", "Kerja dijadualkan"\], due: \["Deadlines", "Tarikh akhir"\], review: \["Reviews", "Semakan"\], mile: \["Milestones", "Pencapaian"\] \};/.test(t5)
+    /* v1.328.0 - R-2: the lives left with the roster; booked work stays, off by default */
+    && /const CAL_ON: Record<EvKind, boolean> = \{ task: false, due: true, review: true, mile: true \};/.test(t5) && !/kind: "live"/.test(t5) && !/Client Meeting|Mesyuarat Pelanggan/.test(t5));
   ok("Sunday first, as the board", /const lead = new Date\(`\$\{first\}T00:00:00Z`\)\.getUTCDay\(\);/.test(cal) && /\[\["Sun", "Ahd"\], \["Mon", "Isn"\]/.test(cal));
   ok("a phone reads the agenda, never the shrunk grid", /<div className=\{t5\.deskOnly\}>/.test(cal) && /className=\{mode === "list" \? "" : t5\.phoneOnly\} data-testid="cal-agenda"/.test(cal));
 
@@ -61,7 +63,8 @@ function checks(src) {
   ok("the Live Host card says reported GMV is never sales, cash, commission or payroll", /Reported GMV is the host's figure - it is never verified sales, cash, an invoice paid, commission or payroll\./.test(lh));
   ok("…takes screenshots as images, from the camera on a phone", /accept="image\/jpeg,image\/png,image\/webp" capture="environment"/.test(lh));
   ok("…a return or a reopen asks the reviewer for the words", /required: true, confirmLabel: action === "return"/.test(lh));
-  ok("…and the Reports figure counts the reports, not a promise", /label=\{L\("Live Host Sessions", "Sesi Hos Live"\)\} value=\{liveRows\.data \? liveThisMonth : ""\}/.test(t));
+  /* v1.328.0 - R-4: the Live Host Report and its figure moved to Roster & Scheduling > Live Reports */
+  ok("…and it lives beside the live it reports, in Roster & Scheduling, not in Tasks > Reports", /<LiveHostCard today=\{mytToday\(\)\} \/>/.test(read("components/portal/roster-scheduling.tsx")) && !/LiveHostCard|Live Host Sessions/.test(strip(t)));
 
   ok("At Risk is the written rule (TK-8): an overdue task, past due, or due in 7 days under 50%", /if \(\(r\.late \?\? 0\) > 0\) return \{ word: L\("At Risk"/.test(src.pw) && /if \(r\.due_date && r\.due_date < today\) return \{ word: L\("At Risk"/.test(src.pw) && /r\.due_date <= week && r\.progress < 50\) return \{ word: L\("At Risk"/.test(src.pw));
   ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /k === "review" \? L\("Review", "Semakan"\)/.test(src.progress));

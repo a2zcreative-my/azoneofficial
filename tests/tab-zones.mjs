@@ -268,19 +268,27 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      on first open and kept (hidden, never unmounted); the operational
      roster board moved to Tasks > Calendar, the anchors to Exceptions. */
   ok("the Attendance block hands the tab to its panel", /\{activeTab === "Attendance" && \([\s\S]{0,400}?<AttendancePanel user=\{user\} go=\{setTab\} startView=\{startOf\("Attendance"\)\} \/>/.test(page));
-  ok("Attendance: overview, the records, the roster, the exceptions, then the reports - in that order",
-    ordered(attendance, ['<AttendanceOverview', '<AttendanceRecords', '<Attendance user={user} view="team"', '<Attendance user={user} view="mine"', '<ShiftRoster', '<AttendanceExceptions', '<AttendanceReports'])
-    && !/<RosterBoard|<VerificationCard|<OtApprovalsCard/.test(attendance));
+  /* v1.328.0 - R-1 (the CEO, 16-11-2026): the roster - board, shift roster,
+     templates, today's assignments, live reports - is People > Roster & Scheduling */
+  ok("Attendance: overview, the records, the exceptions, then the reports - in that order; no roster",
+    ordered(attendance, ['<AttendanceOverview', '<AttendanceRecords', '<Attendance user={user} view="team"', '<Attendance user={user} view="mine"', '<AttendanceExceptions', '<AttendanceReports'])
+    && !/<RosterBoard|<ShiftRoster|<VerificationCard|<OtApprovalsCard/.test(attendance));
+  const rsSrc = read("components/portal/roster-scheduling.tsx");
+  ok("Roster & Scheduling: Today, the Roster Board, the Shift Roster, Shift Templates, Live Reports - in that order, each view mounted on first open and kept hidden",
+    ordered(rsSrc, ['<RosterToday', '<RosterBoard', '<ShiftRoster', '<AttendanceAdminPanel', '<LiveHostCard'])
+    && ['"today"', '"board"', '"shifts"', '"templates"', '"reports"'].every((v) => rsSrc.includes(`hidden={view !== ${v}}`))
+    && /useTabViewAddress\(ROSTER_TAB, view, setView, isView\);/.test(rsSrc) && /<LineTabs value=\{view\}/.test(rsSrc) && /<ViewSwitch value=\{view\}/.test(rsSrc)
+    && /\{activeTab === "Roster & Scheduling" && <RosterScheduling user=\{user\} go=\{setTab\} startView=\{startOf\("Roster & Scheduling"\)\} \/>\}/.test(page));
   ok("the five views are the shared underline tabs (a view switch on a phone), in the address, and a seen view stays mounted (hidden, never unmounted)",
     /<LineTabs value=\{view\} onChange=\{\(k\) => setView\(k\)\}/.test(attendance)
     && /<ViewSwitch value=\{view\}/.test(attendance)
     && /useTabViewAddress\("Attendance", view, setView, isView\);/.test(attendance)
-    && ['"overview"', '"records"', '"roster"', '"exceptions"', '"reports"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
+    && ['"overview"', '"records"', '"exceptions"', '"reports"'].every((v) => attendance.includes(`hidden={view !== ${v}}`)));
   const tasksSrc = read("components/portal/tasks.tsx");
-  ok("the assignments card's Open roster scrolls to the board, now in Tasks > Calendar; the Desk's anchors open Exceptions",
-    /<div id="roster-board" className=\{tk\.rosterAnchor\}>\s*<RosterBoard/.test(tasksSrc)
-    && /\.rosterAnchor \{\s*scroll-margin-top: 4rem;/.test(read("components/portal/tasks-page.module.css"))
-    && /onOpenRoster=\{\(\) => revealAnchor\("roster-board"\)\}/.test(tasksSrc)
+  ok("the board is Roster & Scheduling's (an anchor opens its view), the assignments card's Open roster opens it; Tasks keeps one line to it; the Desk's anchors open Exceptions",
+    /<div id="roster-board" className=\{rs\.anchor\}>\s*<RosterBoard/.test(rsSrc)
+    && /"roster-board": "board"/.test(rsSrc) && /<TodayAssignmentsCard canManage=\{canEdit\} onOpenRoster=\{openBoard\} \/>/.test(rsSrc)
+    && !/<RosterBoard|<TodayAssignmentsCard|<LiveHostCard/.test(tasksSrc) && /data-testid="cal-roster-link"/.test(tasksSrc)
     && /window\.dispatchEvent\(new CustomEvent\("azone:reveal", \{ detail: id \}\)\)/.test(read("components/portal/page-shared.tsx"))
     && /"ot-approvals": "exceptions", "pending-punches": "exceptions"/.test(attendance));
   /* v1.189.0 - the Users page is its own tabbed panel (users-panel.tsx):
@@ -292,7 +300,8 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Users: overview, staff, customers, the matrix, then the log and the access cards - in that order",
     /* v1.234.0 - Roles & Permissions: what roles do, what they see, the exceptions; Security & Settings: the log, then the geofence (the owner kept it here) */
     /* v1.251.0 - Customers & Agents; the tab rows fold under the one matrix; Audit History follows Security & Sessions */
-    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customers & agents", "Pelanggan & ejen")}>', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', 'L("Sign-in log"', '<GeofenceCard', '<AuditPanel person=']));
+    /* v1.327.0 - Customers & Agents is the directory beside the account (CustomersAgents); the sign-in log lives in Security & Sessions' workspace (SecuritySessions) */
+    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customers & agents", "Pelanggan & ejen")}>', '<CustomersAgents', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', '<SecuritySessions', '<GeofenceCard', '<AuditPanel person=']));
   /* the owner's reference draws these five as underline tabs (a gold rule
      under the open one) - this page's own, everything else keeps the pill */
   ok("the five Users tabs are the reference's underline tabs, and every body stays mounted (hidden, never unmounted)",
@@ -302,7 +311,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
     && /const geofence = holdsCap\("geofence_admin", \["super_admin", "ceo", "coo"\]\.includes\(role\)\)/.test(usersPanel)
     && /const superAdmin = role === "super_admin";\s*const canEdit = superAdmin \|\| owner;/.test(usersPanel) /* v1.236.0 - the verified company owner changes roles too (the owner, 30-10-2026) */
-    && /<ExceptionsCard review=\{review\} canEdit=\{holds\}/.test(usersPanel) && /\{geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel)
+    && /<ExceptionsCard review=\{review\} canEdit=\{holds\}/.test(usersPanel) && /\{secPart === "location" && geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel) /* v1.327.0 - Security & Sessions' Office location part */
     && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));
 }
 

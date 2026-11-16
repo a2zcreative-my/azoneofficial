@@ -1033,17 +1033,25 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 995, action: "user.suspend", entity: "users", entity_id: q.get("target"), detail: "{\"reason\":\"Away on long leave\"}", created_at: "2026-10-30 02:00:00", user_name: "Fixture Person" },
     { id: 994, action: "staff.role_change", entity: "users", entity_id: q.get("target"), detail: "{\"from\":\"marketing\",\"to\":\"sales_marketing\"}", created_at: "2026-09-02 03:00:00", user_name: "Fixture Person" },
   ] };
-  else if (p === "/audit" && !q.get("action")) data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
+  /* v1.327.0 - the Audit History register: ?action= narrows by prefix as the worker does (asset. keeps its own list below) */
+  else if (p === "/audit" && (q.get("action") ?? "") !== "asset.") data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
     { id: 990, action: "auth.login", entity: "users", entity_id: "9001", detail: null, created_at: "2026-09-18 01:58:00", user_name: "Fixture Person" },
     { id: 989, action: "hotel.update", entity: "hotels", entity_id: "1", detail: "{\"hotel_name\":\"Casa del Rio\",\"state\":\"MELAKA\"}", created_at: "2026-09-18 01:50:00", user_name: "Nur Aisyah" },
     { id: 988, action: "leave.approve", entity: "leave_requests", entity_id: "7", detail: "{\"name\":\"Tan Mei Ling\"}", created_at: "2026-09-18 00:55:00", user_name: "Fixture Person" },
     { id: 987, action: "task.complete", entity: "tasks", entity_id: "4", detail: "{\"title\":\"Renew studio insurance\"}", created_at: "2026-09-17 23:40:00", user_name: "Fixture Person" },
     { id: 986, action: "asset.create", entity: "assets", entity_id: "11", detail: "{\"asset_tag\":\"AZOA-011\",\"name\":\"Company car\"}", created_at: "2026-09-17 21:00:00", user_name: "Tan Mei Ling" },
     { id: 985, action: "staff.responsibilities_update", entity: "users", entity_id: "9002", detail: "{\"name\":\"Nur Aisyah\"}", created_at: "2026-09-17 08:00:00", user_name: "Fixture Person" },
-  ] };
+    { id: 984, action: "permissions.change", entity: "role_permissions", entity_id: "sales_marketing", detail: "{\"reason\":\"Sales may export the month\",\"cells\":2}", created_at: "2026-09-16 09:00:00", user_name: "Fixture Person" },
+    { id: 983, action: "auth.google_refused", entity: "users", entity_id: null, detail: "{\"why\":\"not_invited\"}", created_at: "2026-09-16 08:10:00", user_name: null },
+    { id: 982, action: "security.denied", entity: "staff", entity_id: null, detail: "{\"path\":\"/staff/payroll\",\"role\":\"live_host\",\"session_token\":\"abc\"}", created_at: "2026-09-16 07:00:00", user_name: "Dini Live" },
+    { id: 981, action: "user.update", entity: "users", entity_id: "9003", detail: "{\"field\":\"role\",\"to\":\"marketing\"}", created_at: "2026-09-15 06:00:00", user_name: "Fixture Person" },
+  ].filter((e) => !q.get("action") || e.action.startsWith(q.get("action"))) };
   /* v1.203.0 - what /system/health says (CEO and admin): a backup last night, nothing pending, one error today */
   if (p === "/system/health") data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin or CEO required" } } : {
-    errors: [{ id: 41, created_at: "2026-09-18 00:12:00", source: "cron", message: "TikTok sync timed out once" }],
+    errors: [{ id: 41, created_at: "2026-09-18 00:12:00", source: "cron", message: "TikTok sync timed out once" },
+      /* v1.326.0 - a page's own report from an OLDER version, two hours ago (the CEO's 16-11-2026 screenshot): it names its tab,
+         and, being fixed history, it raises no Dashboard alert */
+      { id: 42, created_at: new Date(Date.now() - 2 * 3600000).toISOString().slice(0, 19).replace("T", " "), source: "ui_overflow", message: "v1.319.0 user=4 tab=Tasks axis=x viewport=402 document=402 :: LI.|R432 | SPAN.tasks2-module__perfNum|R428", path: "/portal" }],
     last_backup: { key: "backups/2026-09-17.sql.gz", size: 412000, uploaded: "2026-09-17T19:20:00.000Z" }, last_offsite: "2026-09-10", migrations_pending: [] };
   if (p === "/audit" && (q.get("action") ?? "") === "asset." && !["super_admin", "admin", "ceo"].includes(ROLE)) data = { error: { code: "forbidden", message: "Admin required" } };
   else if (p === "/audit" && (q.get("action") ?? "") === "asset.") data = { entries: [

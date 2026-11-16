@@ -22,7 +22,7 @@
  */
 
 import {
-  AtSign, BadgePercent, Handshake, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
+  AtSign, BadgePercent, CalendarRange, Handshake, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, Landmark, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
   Receipt, ScrollText, Settings2, ShieldCheck, SlidersHorizontal,
@@ -40,6 +40,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   "Staff Details": IdCard,
   Attendance: Timer,
   "On Shift": CalendarClock,
+  "Roster & Scheduling": CalendarRange, // v1.328.0 - a span of days planned; unused on every rail
   Leave: Palmtree,
   Tasks: ListChecks,
   /* v1.175.0 — not a tab: the phone bar's "Desk" stop, which is the Dashboard

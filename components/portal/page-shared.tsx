@@ -93,6 +93,19 @@ export function revealAnchor(id: string | undefined): void {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
       el.classList.add("erp-reveal");
       window.setTimeout(() => el.classList.remove("erp-reveal"), 2200);
+      /* v1.326.0 (the CEO: "it doesnt directing to the section that I should go") - the cards
+         ABOVE the anchor are still arriving (each tab loads its zones lazily), so the first
+         scroll lands and is then pushed down the page. Look again as they settle, and bring
+         the section back to the top if it has moved off it. */
+      let moved = false; // the person scrolling themselves always wins
+      const stop = () => { moved = true; };
+      for (const ev of ["wheel", "touchstart", "keydown"]) window.addEventListener(ev, stop, { once: true, passive: true });
+      window.setTimeout(() => { for (const ev of ["wheel", "touchstart", "keydown"]) window.removeEventListener(ev, stop); }, 2100);
+      for (const ms of [500, 1100, 2000]) window.setTimeout(() => {
+        if (moved || !el.isConnected) return;
+        const top = el.getBoundingClientRect().top;
+        if (top < 0 || top > window.innerHeight * 0.35) el.scrollIntoView({ behavior: "auto", block: "start" });
+      }, ms);
       return;
     }
     if (tries++ < 40) window.setTimeout(tick, 100);

@@ -51,6 +51,7 @@ import { SkelRows } from "@/components/ui/skeleton";
 import { deskAnchor, deskBucketWord, splitDesk, useDeskData } from "@/components/portal/one-desk";
 import type { Announcement, LeaveReq, Task, User } from "@/components/portal/page-shared";
 import { MANAGE_ROLES, annCatL, leaveTypeL, priorityL, revealAnchor } from "@/components/portal/page-shared";
+import { liveError } from "@/components/admin/system-health"; // v1.326.0 - fixed history does not raise the alert
 import type { DashSummary, RevenueData } from "@/components/portal/dashboard";
 import { useCachedApi } from "@/lib/cached-api";
 import { api } from "@/lib/api";
@@ -152,7 +153,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   canOpen?: (t: string) => boolean;
   lang: Lang;
   onCreateQuotation?: () => void;
-  openAt?: (t: TabName, view: string) => void;
+  openAt?: (t: TabName, view: string, anchor?: string) => void; // v1.326.0 - anchor: the section to bring into view
   onOpenDay: () => void;
   /** v1.229.0 - where a shift shortcut goes: On Shift, which owns the punch */
   onOpenShift?: () => void;
@@ -447,7 +448,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
   const upcomingLives = (sessions ?? []).filter((s) => s.status === "scheduled" && s.session_date >= today).slice(0, 4);
   const livesCard = (
     <section className={`${card} ${ov.card}`} aria-label={L("Live sessions", "Sesi live")}>
-      {head(L("Live Sessions", "Sesi Live"), can("Tasks") ? viewAll(() => { setTabStart({ tab: "Tasks", view: "calendar" }); go("Tasks"); }) : undefined, /* v1.307.0 (A-3) - the roster board lives in Tasks > Calendar */
+      {head(L("Live Sessions", "Sesi Live"), can("Roster & Scheduling") ? viewAll(() => { setTabStart({ tab: "Roster & Scheduling", view: "board" }); go("Roster & Scheduling"); revealAnchor("roster-board"); }) : undefined, /* v1.328.0 (R-1) - the roster board lives in People > Roster & Scheduling */
         manage ? L("Upcoming lives on the roster.", "Live akan datang dalam roster.") : L("Your upcoming lives.", "Live anda akan datang."))}
       {sessions === null ? <SkelRows rows={3} /> : upcomingLives.length === 0 ? empty("live", L("No live session is scheduled.", "Tiada sesi live dijadualkan.")) : (
         <ul className={ov.rows}>
@@ -565,17 +566,23 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
 
   /* ---- E2. the business summary (in place of "module usage", which the
      portal does not measure): the counts the worker gives this person ---- */
-  const sumRows: { key: string; label: string; n: number; tab: TabName; warn: boolean }[] = [];
-  const addSum = (key: keyof DashSummary, label: string, tab: TabName, warnFrom = 1) => {
+  const sumRows: { key: string; label: string; n: number; tab: TabName; warn: boolean; at?: { view?: string; anchor?: string } }[] = [];
+  /* v1.326.0 (the CEO: "it doesnt directing to the section that I should go") - a figure opens the
+     SECTION it counts (a view and/or an anchor the tab already has), not the top of the tab */
+  const addSum = (key: keyof DashSummary, label: string, tab: TabName, warnFrom = 1, at?: { view?: string; anchor?: string }) => {
     const v = sum?.[key];
-    if (typeof v === "number" && can(tab)) sumRows.push({ key, label, n: v, tab, warn: v >= warnFrom });
+    if (typeof v === "number" && can(tab)) sumRows.push({ key, label, n: v, tab, warn: v >= warnFrom, at });
+  };
+  const openSum = (r: (typeof sumRows)[number]) => {
+    if (r.at?.view) { if (openAt) openAt(r.tab, r.at.view, r.at.anchor); else { setTabStart({ tab: r.tab, view: r.at.view }); go(r.tab); if (r.at.anchor) revealAnchor(r.at.anchor); } return; }
+    go(r.tab); if (r.at?.anchor) revealAnchor(r.at.anchor);
   };
   addSum("pending_leave", L("Leave waiting for a decision", "Cuti menunggu keputusan"), "Leave");
-  addSum("pending_claims", L("Claims waiting for a decision", "Tuntutan menunggu keputusan"), "Claims");
-  addSum("pending_ot", L("Overtime to approve", "OT untuk diluluskan"), "Attendance");
-  addSum("outstanding_invoices", L("Unpaid invoices", "Invois belum dibayar"), "Sales");
+  addSum("pending_claims", L("Claims waiting for a decision", "Tuntutan menunggu keputusan"), "Claims", 1, { anchor: "claims-pending" });
+  addSum("pending_ot", L("Overtime to approve", "OT untuk diluluskan"), "Attendance", 1, { anchor: "ot-approvals" });
+  addSum("outstanding_invoices", L("Unpaid invoices", "Invois belum dibayar"), "Sales", 1, { view: "payments" });
   addSum("low_stock", L("Items low or out of stock", "Item stok rendah atau habis"), "Inventory");
-  addSum("lives_today", L("Live sessions today", "Sesi live hari ini"), "Tasks", 9999); // v1.307.0 (A-3) - the roster board is in Tasks
+  addSum("lives_today", L("Live sessions today", "Sesi live hari ini"), "Roster & Scheduling", 9999, { view: "today" }); // v1.328.0 (R-1) - today's assignments are Roster & Scheduling > Today
   addSum("clients", L("Clients on file", "Pelanggan dalam rekod"), "Sales", 999999);
   const maxSum = Math.max(1, ...sumRows.map((r) => r.n));
   const summaryCard = (
@@ -585,7 +592,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         <ul className={ov.bars}>
           {sumRows.map((r) => (
             <li key={r.key}>
-              <button type="button" onClick={() => go(r.tab)}>
+              <button type="button" onClick={() => openSum(r)}>
                 <span>{r.label}</span>
                 <span className={ov.track}><span className={`${ov.fill} ${r.warn ? ov.fillWarn : ""}`} style={{ width: `${Math.max(r.n ? 4 : 0, (r.n / maxSum) * 100)}%` }} /></span>
                 <strong>{r.n}</strong>
@@ -599,7 +606,9 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
 
   /* ---- E3. system status: what the worker can actually say (CEO, admin) ---- */
   const backupAge = health && health !== "denied" && health.last_backup ? Math.floor((nowMs - new Date(health.last_backup.uploaded).getTime()) / 86_400_000) : null;
-  const errors24 = health && health !== "denied" ? health.errors.filter((e) => nowMs - new Date(e.created_at.replace(" ", "T") + "Z").getTime() < 86_400_000).length : 0;
+  /* v1.326.0 - an error a page of an OLDER version reported is fixed history (System health marks it
+     "From v… - this portal is v…"): it stays in the log, but it no longer raises the alert */
+  const errors24 = health && health !== "denied" ? health.errors.filter((e) => nowMs - new Date(e.created_at.replace(" ", "T") + "Z").getTime() < 86_400_000 && liveError(e.message)).length : 0;
   const statusRow = (label: string, ok: boolean | null, chip: string, detail: string) => (
     <li className={ov.statusRow}>
       <span className={`${ov.statusDot} ${ok === null ? ov.dotGrey : ok ? ov.dotGreen : ov.dotAmber}`} aria-hidden />
@@ -818,7 +827,8 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     /* ---------------- OVERVIEW: the company ---------------- */
     const alerts: AlertLine[] = [];
     if (health && health !== "denied") {
-      const toHealth = () => (openAt ? openAt("Users", "security") : go("Users"));
+      /* v1.326.0 (the CEO: "it doesnt directing to the section that I should go") - Security & Sessions AT the System health card, not its top */
+      const toHealth = () => { if (openAt) openAt("Users", "health", "system-health"); else { setTabStart({ tab: "Users", view: "health" }); go("Users"); revealAnchor("system-health"); } };
       const action = L("Open System health", "Buka Kesihatan sistem");
       if (!health.last_backup) alerts.push({ key: "backup", text: L("No backup is recorded yet.", "Belum ada sandaran direkodkan."), action, on: toHealth });
       else if ((backupAge ?? 0) > 7) alerts.push({ key: "backup", text: L(`The last backup is ${backupAge} days old.`, `Sandaran terakhir berusia ${backupAge} hari.`), action, on: toHealth });

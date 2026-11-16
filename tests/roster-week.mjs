@@ -228,8 +228,8 @@ const pkg = JSON.parse(read("package.json"));
   ok("...and it asks first, because that one is not reversible",
      /const ok = await confirm\(\{[\s\S]{0,900}?variant: "danger",/.test(board)
      && /\{confirmNode\}/.test(board));
-  ok("Tasks > Calendar hands the board the same tier as task_delete",
-     /canDeleteTask=\{holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)\}/.test(read("components/portal/tasks.tsx")) // v1.307.0 - Attendance 4.0 (A-3): the board's home
+  ok("Roster & Scheduling hands the board the same tier as task_delete",
+     /canDeleteTask=\{holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)\}/.test(read("components/portal/roster-scheduling.tsx")) // v1.328.0 - R-1: the board's home (was Tasks > Calendar, A-3)
      && /task_delete: \["super_admin", "ceo"\]/.test(read("worker/src/permissions.ts")));
   ok("Unschedule still means unschedule - the two are different buttons",
      /\{L\("Unschedule", "Nyahjadual"\)\}/.test(board) && /\{L\("Delete task", "Padam tugasan"\)\}/.test(board)

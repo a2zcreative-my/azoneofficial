@@ -1881,7 +1881,7 @@ async function gateGeofence(
     still opens the Dashboard. */
 const PUSH_TAB: Record<string, string> = {
   task: "Tasks", leave: "Leave", attendance: "Attendance", ot: "Attendance",
-  claim: "Claims", live: "Attendance", stock: "Inventory", event: "Dashboard",
+  claim: "Claims", live: "Roster & Scheduling", /* v1.328.0 - a live is planned on the Roster Board */ stock: "Inventory", event: "Dashboard",
   content: "Content", announcement: "Announcements",
   watch: "Dashboard", brief: "Dashboard", // v1.108.0 - the Watchers card and the desk are on the Dashboard
   /* v1.183.0 - "enquiry" and "hankeis" left with their tabs: a push of either
@@ -9695,7 +9695,7 @@ async function handleStaffRoutes(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users", "Automation & Rules"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Roster & Scheduling", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users", "Automation & Rules"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
   /* v1.234.0 - what the SERVER lets a role read behind a tab, where one rule
      decides it (the same checks the routes make). A tab absent here has no

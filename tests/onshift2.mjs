@@ -92,10 +92,19 @@ function checks(f) {
 
   /* D - the layout */
   const css = f.oncss;
-  ok("D the photo's grid: My Shift beside the location; schedule, punches, actions; the week; team beside recent",
-    /"shift shift shift shift shift loc loc loc loc loc loc loc"\s*"sched sched sched sched punch punch punch punch quick quick quick quick"\s*"week week week week week week week week week week week week"\s*"team team team team team team team team recent recent recent recent";/.test(css));
-  ok("D on a phone the punch follows My Shift directly", /\.aShift \{ order: 1; \}\s*\.aQuick \{ order: 2; \}\s*\.aLoc \{ order: 3; \}/.test(css));
-  ok("D every card of the page is drawn", ["aShift", "aQuick", "aLoc", "aSched", "aPunch", "aRecent", "aWeek"].every((k) => dash.includes(`shiftCss.${k}`)));
+  /* v1.328.0 - R-3 (the CEO, 16-11-2026): five cards from eight. The punch is
+     inside My Shift (one status, one action), the schedule and the punches
+     are one Today card, This week / Recent share one card, the team is a
+     line, and the location card opens from the GPS line. */
+  ok("D the grid: My Shift beside Today; the team line; My days",
+    /"shift shift shift shift shift shift shift today today today today today"\s*"days days days days days days days days days days days days";/.test(css)
+    && /"shift shift shift shift shift shift shift today today today today today"\s*"team team team team team team team team team team team team"\s*"days days days days days days days days days days days days";/.test(css));
+  ok("D on a phone: My Shift (with the punch), Today, the team, My days", /\.aShift \{ order: 1; \}\s*\.aToday \{ order: 2; \}\s*\.wide \{ order: 3; \}\s*\.aDays \{ order: 4; \}/.test(css));
+  ok("D the punch lives in My Shift; every part of the page is drawn; the location card opens from the GPS line",
+    ["aShift", "aToday", "aDays", "wide"].every((k) => dash.includes(`shiftCss.${k}`)) && !["aQuick", "aLoc", "aSched", "aPunch", "aRecent", "aWeek"].some((k) => dash.includes(`shiftCss.${k}`))
+    && /data-testid="shift-actions"/.test(dash) && dash.indexOf('data-testid="shift-actions"') < dash.indexOf('data-testid="today-card"')
+    && /<SideDrawer open=\{locOpen\}[\s\S]{0,400}?<LocationCard /.test(dash) && /onClick=\{\(\) => setLocOpen\(true\)\} data-testid="location-open"/.test(dash)
+    && /<LineTabs value=\{daysTab\}/.test(dash) && /<TeamOnShiftLine rows=\{monitor\}/.test(dash) && !/<TeamOnShift /.test(dash));
 
   /* E - Team On Shift */
   const team = between(on, "export function TeamOnShift(", "\nfunction TeamDetail(");
@@ -168,8 +177,9 @@ const MUT = [
   ["the site's point to anyone", "staff", "...(own ? { lat: fenceA.lat, lng: fenceA.lng } : {})", "lat: fenceA.lat, lng: fenceA.lng"],
   ["another person's positions", "staff", "...(own ? { pos: punchPos(r.gps) } : {}),", "pos: punchPos(r.gps),"],
   ["the direction claimed", "sl", "The direction of the punch is not shown", "The punch is shown where it was"],
-  ["the punch after the location on a phone", "oncss", ".aQuick { order: 2; }", ".aQuick { order: 4; }"],
-  ["team beside recent dropped", "oncss", '"team team team team team team team team recent recent recent recent";', '"team team team team team team team team team team team team";'],
+  ["Today before My Shift on a phone", "oncss", ".aToday { order: 2; }", ".aToday { order: 0; }"],
+  ["the full team register back on On Shift", "dash", "<TeamOnShiftLine rows={monitor}", "<TeamOnShift rows={monitor}"],
+  ["the location card drawn on the page again", "dash", "<SideDrawer open={locOpen}", "<div data-open={locOpen}"],
   ["scheduled counted as on shift", "on", "if (sched) c.scheduled++;", "if (st === \"on\") c.scheduled++;"],
   ["no paging", "on", "const PAGE = 10;", "const PAGE = 1000;"],
   ["a position in the team", "on", "const job = (m: TeamRow) =>", "const pos = (m: TeamRow) => (m as unknown as { in_gps?: string }).in_gps;\n  const job = (m: TeamRow) =>"],

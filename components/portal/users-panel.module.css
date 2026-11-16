@@ -947,3 +947,6 @@
 }
 .seesEditor[open] > summary { margin-bottom: 0.75rem; }
 .seesEditor > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* v1.327.0 - the role editor inside Customers & Agents' account panel (the phone keeps its bottom sheet) */
+.detailEditor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }

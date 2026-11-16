@@ -1,0 +1,12 @@
+/* v1.328.0 - Roster & Scheduling (roster-scheduling.tsx). The views reuse
+   attendance4.module.css (the Attendance workspace's lists and heads); this
+   sheet holds only what is the workspace's own. Tokens only. */
+.anchor { scroll-margin-top: 5rem; min-width: 0; }
+.people > li:has(> .personBtn) { padding: 0; }
+.personBtn {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
+  width: 100%; min-width: 0; min-height: 2.75rem; padding: 0.75rem 0;
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.personBtn:hover { background: color-mix(in srgb, var(--secondary) 60%, transparent); }
+.personBtn:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }

@@ -10,8 +10,9 @@
      Attendance Records     the day register and one person's day
                             (attendance-records.tsx); a member of staff sees
                             their own month here
-     Shift Roster           the computed roster and Shift Templates
-                            (shift-roster.tsx); staff see their own row
+     Shift Roster           v1.328.0: moved to People > Roster & Scheduling
+                            (roster-scheduling.tsx) with Shift Templates;
+                            a "roster" link or quick action is sent there
      Exceptions & Approvals forgotten punches and overtime - the Desk's own
                             decisions (attendance-exceptions.tsx), and the
                             correction card moved from Settings
@@ -36,7 +37,7 @@ import { AttendanceReports } from "@/components/portal/attendance-reports";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 import { ViewSwitch } from "@/components/portal/executive-cards";
 import { L, MANAGE_ROLES, type User } from "@/components/portal/page-shared";
-import { ShiftRoster } from "@/components/portal/shift-roster";
+import { usePortal } from "@/components/portal/portal-provider";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -47,11 +48,16 @@ import css from "./attendance4.module.css";
 
 /* which view holds which anchor the Desk and the bell reveal */
 const ANCHOR_VIEW: Record<string, AttView> = { "ot-approvals": "exceptions", "pending-punches": "exceptions" };
-const ALL: readonly AttView[] = ["overview", "records", "roster", "exceptions", "reports"];
-const STAFF_VIEWS: readonly AttView[] = ["records", "roster"];
+/* v1.328.0 - Shift Roster moved to People > Roster & Scheduling (R-1); a link
+   or a quick action that still names "roster" is sent there */
+const ALL: readonly AttView[] = ["overview", "records", "exceptions", "reports"];
+const STAFF_VIEWS: readonly AttView[] = ["records"];
 
 export function AttendancePanel({ user, go, startView }: { user: User; go: (t: TabName) => void; startView?: string }) {
   const manage = MANAGE_ROLES.includes(user.role);
+  const { setTabStart } = usePortal();
+  const toRoster = useCallback(() => { setTabStart({ tab: "Roster & Scheduling", view: "shifts" }); go("Roster & Scheduling"); }, [go, setTabStart]);
+  useEffect(() => { if (startView === "roster") toRoster(); }, [startView, toRoster]);
   const views: readonly AttView[] = manage ? ALL : STAFF_VIEWS;
   const isView = useCallback((v: string | null): v is AttView => !!v && (views as readonly string[]).includes(v), [views]);
   const [view, setView] = useState<AttView>(() => (isView(startView ?? null) ? startView as AttView : manage ? "overview" : "records"));
@@ -84,7 +90,6 @@ export function AttendancePanel({ user, go, startView }: { user: User; go: (t: T
   };
   const openPerson = (id: number, day: string) => setPerson({ id, day });
   const canExport = holds("payroll_export", ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"].includes(user.role));
-  const canTemplates = ["ceo", "super_admin", "admin", "hr_admin"].includes(user.role);
   const hmOf = (ms: number) => `${Math.floor(ms / 3600000)}h ${String(Math.round((ms % 3600000) / 60000)).padStart(2, "0")}m`;
   const mineBusy = !mine || !mine.loaded;
 
@@ -99,7 +104,7 @@ export function AttendancePanel({ user, go, startView }: { user: User; go: (t: T
 
       {manage && on("overview") && (
         <div hidden={view !== "overview"} className={css.body} data-testid="att-overview">
-          <AttendanceOverview user={user} open={setView} openPerson={openPerson} />
+          <AttendanceOverview user={user} open={(v) => (v === "roster" ? toRoster() : setView(v))} openPerson={openPerson} />
         </div>
       )}
 
@@ -129,12 +134,6 @@ export function AttendancePanel({ user, go, startView }: { user: User; go: (t: T
               </TabZone>
             </>
           )}
-        </div>
-      )}
-
-      {on("roster") && (
-        <div hidden={view !== "roster"} className={css.body}>
-          <ShiftRoster canTemplates={canTemplates} role={user.role} openPerson={manage ? openPerson : undefined} />
         </div>
       )}
 

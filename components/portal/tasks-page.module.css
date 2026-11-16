@@ -1100,9 +1100,9 @@ td .who > span:first-child { flex-shrink: 0; }
 .statusCell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.5rem; min-width: 0; }
 
 /* v1.307.0 - Attendance 4.0 (A-3): the roster board moved here; the Dashboard assignments card scrolls to it */
-.rosterAnchor {
-  scroll-margin-top: 4rem;
-}
+/* v1.328.0 - the calendar's one line to Roster & Scheduling */
+.rosterLink { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--secondary); color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.rosterLink > svg { flex-shrink: 0; }
 
 /* v1.313.0 - Tasks Workspace 5.0 (images 1 and 3): the chosen row on My
    Tasks wears the gold edge of the board; the description and the latest

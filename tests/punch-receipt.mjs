@@ -11,8 +11,9 @@
        own record; total hours are the day's sessions; tagging is the one
        rule (locFlagged); the shift is the server's answer;
      - the company's own logo, one component, on both cards;
-     - a PWA sheet: the home-indicator inset, 44px targets, the house
-       breakpoints only, reduced motion respected; Escape and Done close it;
+     - a PWA modal (v1.328.0): centred in the viewport inside the safe
+       areas, 90% up to 360px, its own height; 44px targets; one layout
+       at every width; reduced motion respected; Escape and Done close it;
        the sheet is the shared one (components/ui/result-sheet.tsx), never hand-made;
      - it writes nothing.
    Each rule is also proven to catch its own breakage (the mutation pass).
@@ -45,8 +46,19 @@ function checks(src) {
   ok("the company's own logo heads both cards, through one component", (pr.match(/<BrandLogo label=\{L\("Attendance", "Kehadiran"\)\} \/>/g) ?? []).length === 2 && /<img src="\/logo\.png" alt="A2Z Creative Marketing" className="erp-brand-logo"/.test(src.logo) && /\.erp-brand-logo \{/.test(src.v3) && !/A2Z OS<|>A2Z OS/.test(pr));
   ok("a dialog, and the shared one: labelled, modal, Escape and the backdrop close it, focus on Done", /<ResultSheet titleId="punch-receipt-title"[\s\S]{0,160}?onClose=\{onDone\}/.test(pr) && !/role="dialog"/.test(pr)
     && /role="dialog" aria-modal="true" aria-labelledby=\{titleId\}/.test(sh) && /if \(e\.key === "Escape"\) onClose\(\);/.test(sh) && /data-kind=\{kind\} onClick=\{onClose\}>/.test(sh) && /done\.current\?\.focus\(\);/.test(pr));
-  ok("PWA: the home-indicator inset under Done, a sheet that scrolls inside itself, 44px targets", /padding: 1rem 1rem calc\(1rem \+ env\(safe-area-inset-bottom, 0px\)\);/.test(shc) && /max-height: 100dvh; overflow-y: auto;/.test(shc) && /\.close \{[^}]*width: 2\.75rem; height: 2\.75rem;/.test(shc) && /\.done \{[^}]*min-height: 3rem;/.test(css));
-  ok("the house breakpoints only, and reduced motion respected", ((css + shc).match(/@media \(([^)]+)\)/g) ?? []).every((m) => /min-width: 640px|prefers-reduced-motion: reduce/.test(m)) && /@media \(min-width: 640px\)/.test(shc) && /@media \(prefers-reduced-motion: reduce\)/.test(css) && /@media \(prefers-reduced-motion: reduce\)/.test(shc));
+  /* v1.328.0 (the CEO, 16-11-2026: "This must be a centered modal, NOT a bottom sheet or full-screen page") */
+  ok("PWA: a compact modal centred in the viewport, inside all four safe areas, 90% up to 360px, its own height, scrolling inside itself only when the screen is shorter",
+    /\.layer \{[^}]*position: fixed; inset: 0;[^}]*align-items: center; justify-content: center;/.test(shc)
+    && ["top", "right", "bottom", "left"].every((e) => shc.includes(`max(1rem, env(safe-area-inset-${e}, 0px))`))
+    && /\.sheet\.sheet \{[^}]*width: 90%; max-width: 22\.5rem; height: auto; max-height: 100%;[^}]*overflow-x: hidden; overflow-y: auto;/.test(shc)
+    && !/align-items: flex-end|translateY|0 0;\s*\n?\s*box-shadow: 0 -12px/.test(shc)
+    && /className=\{`erp-modal \$\{css\.sheet\}`\} role="dialog"/.test(sh));
+  ok("44px targets: Done is 2.75rem tall; the 2rem X carries a 44px tap ring", /\.close \{[^}]*width: 2rem; height: 2rem;/.test(shc) && /\.close::after \{ content: ""; position: absolute; inset: -0\.375rem;/.test(shc) && /\.done \{[^}]*min-height: 2\.75rem;/.test(css));
+  ok("one layout at every width (no breakpoint), and reduced motion respected", ((css + shc).match(/@media \(([^)]+)\)/g) ?? []).every((m) => /prefers-reduced-motion: reduce/.test(m)) && /@media \(prefers-reduced-motion: reduce\)/.test(css) && /@media \(prefers-reduced-motion: reduce\)/.test(shc));
+  ok("recorded is not verified: only a punch inside the geofence is green; outside is always the warning band, with Not GPS verified",
+    /const sub = st === "verified" \? L\("Location verified", "Lokasi disahkan"\) : `\$\{L\("Not GPS verified", "Tidak disahkan GPS"\)\} · \$\{what\}`;/.test(pr)
+    && /tone: st === "verified" \? "ok" : tagged \|\| st === "outside" \? "warn" : "plain"/.test(pr) && /\.place\[data-tone="warn"\] \{/.test(css));
+  ok("clock-in green, clock-out the approved gold with navy ink", /\.body\[data-kind="out"\] \.tick, \.body\[data-kind="out"\] \.done \{ background: var\(--gold-solid\); \}/.test(css) && /\.body\[data-kind="out"\] \.done, \.body\[data-kind="out"\] \.tick \{ color: var\(--brand-primary\); \}/.test(css) && /\.tick \{[^}]*background: var\(--success\);/.test(css));
   ok("colours are tokens (no literal colour in either module)", !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(css + shc));
   ok("it writes nothing", !/api<|fetch\(|method:/.test(pr + sh));
   return res;
@@ -65,8 +77,12 @@ const MUT = [
   ["the CEO tagged for being outside", "pr", "const tagged = locFlagged(loc, exempt);", "const tagged = locFlagged(loc, false);"],
   ["a late clock-in loses its verdict", "dash", 'note: flag === "ok" || flag === "completed" ? null : (label[flag] ?? flag)', "note: null"],
   ["a drawn mark instead of the company's logo", "logo", '<img src="/logo.png" alt="A2Z Creative Marketing" className="erp-brand-logo"', '<img src="/icon-192.png" alt="A2Z OS" className="erp-brand-logo"'],
-  ["the home-indicator inset dropped", "sheetCss", "padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));", "padding: 1rem;"],
-  ["a breakpoint outside the house set", "sheetCss", "@media (min-width: 640px) {", "@media (min-width: 600px) {"],
+  ["the bottom safe area dropped", "sheetCss", "max(1rem, env(safe-area-inset-bottom, 0px))", "1rem"],
+  ["a bottom sheet again", "sheetCss", "display: flex; align-items: center; justify-content: center;\n  padding:", "display: flex; align-items: flex-end; justify-content: center;\n  padding:"],
+  ["wider than 360px", "sheetCss", "width: 90%; max-width: 22.5rem; height: auto;", "width: 100%; max-width: 27rem; height: auto;"],
+  ["a breakpoint that changes the layout", "sheetCss", "@media (prefers-reduced-motion: reduce) {", "@media (max-width: 639px) { .sheet { width: 100%; } }\n@media (prefers-reduced-motion: reduce) {"],
+  ["outside the geofence drawn as verified", "pr", 'tone: st === "verified" ? "ok" : tagged || st === "outside" ? "warn" : "plain"', 'tone: st === "verified" || st === "outside" ? "ok" : "plain"'],
+  ["recorded worded as verified", "pr", 'const sub = st === "verified" ? L("Location verified", "Lokasi disahkan") : `${L("Not GPS verified", "Tidak disahkan GPS")} · ${what}`;', 'const sub = what;'],
   ["Escape no longer closes it", "sheet", 'if (e.key === "Escape") onClose();', ""],
   ["a hand-made dialog again", "pr", '<ResultSheet titleId="punch-receipt-title"', '<div role="dialog" data-x="punch-receipt-title"'],
 ];

@@ -11,7 +11,7 @@ invented people:
   corrections, audit); the Shift Roster week and month, rest days and the
   holiday, and Shift Templates; Exceptions & Approvals with the forgotten
   punches and the overtime; Reports with the figures as filters, the trend
-  and the dates; the roster board in Tasks > Calendar; unpaid days in Leave;
+  and the dates; the roster board in Roster & Scheduling (v1.328.0); unpaid days in Leave;
   the policy card in Automation & Rules; Team On Shift reads the verdict;
   the COO sees no raw coordinates; a phone gets the view switch, never a
   cut-off tab row, at eight widths with no sideways page.
@@ -45,8 +45,9 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     go(pg, CEO)
-    names = ["Overview", "Attendance Records", "Shift Roster", "Exceptions & Approvals", "Reports"]
-    check("five views, in the reference's order", all(pg.get_by_role("tab", name=n, exact=True).count() == 1 for n in names), [pg.get_by_role("tab").all_inner_texts()])
+    # v1.328.0 - R-1: Shift Roster moved to People > Roster & Scheduling
+    names = ["Overview", "Attendance Records", "Exceptions & Approvals", "Reports"]
+    check("four views, in the reference's order; no Shift Roster", pg.get_by_role("tab", name="Shift Roster", exact=True).count() == 0 and all(pg.get_by_role("tab", name=n, exact=True).count() == 1 for n in names), [pg.get_by_role("tab").all_inner_texts()])
     check("no On Shift and no Settings tab", pg.get_by_role("tab", name="On Shift", exact=True).count() == 0 and pg.get_by_role("tab", name="Settings", exact=True).count() == 0)
     check("the Overview opens and its view is in the address", view_of(pg) == "overview", pg.url)
     ov = pg.get_by_test_id("att-overview").inner_text()
@@ -80,18 +81,21 @@ with sync_playwright() as p:
     check("the drawer's audit: that person's attendance events", au.count() == 1 and "Punch amended" in au.inner_text() and "Forgotten punch approved" in au.inner_text(), au.inner_text()[:300] if au.count() else "")
     pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
 
-    # the roster
-    pg.get_by_role("tab", name="Shift Roster", exact=True).click(); pg.wait_for_timeout(1400)
+    # the roster (v1.328.0: Roster & Scheduling > Shift Roster; the old address still reaches it)
+    go(pg, CEO, "&view=roster", 3200)
     ro = pg.get_by_test_id("roster")
-    check("Shift Roster is in the address, a week by default", view_of(pg) == "roster" and pg.get_by_test_id("roster-table").count() == 1, pg.url)
+    check("the old Attendance roster address opens Roster & Scheduling > Shift Roster, a week by default", view_of(pg) == "shifts" and pg.get_by_test_id("roster-table").count() == 1, pg.url)
     rt = pg.get_by_test_id("roster-table").inner_text()
+    if "Public holiday" not in rt:  # the fixture's holiday is 09-11-2026: from 16-11 it is in the week before
+        ro.get_by_role("button", name="Previous").click(); pg.wait_for_timeout(1400)
+        rt = pg.get_by_test_id("roster-table").inner_text()
     check("the roster says the weekend as days off and the 09-11 holiday as a holiday, never a missed shift", rt.count("Off") >= 14 and "Public holiday" in rt, rt[:400])
     pg.get_by_test_id("roster-month").click(); pg.wait_for_timeout(1200)
     check("the month view draws the whole month", pg.get_by_test_id("roster-table").count() == 1 and pg.get_by_test_id("roster-row").count() >= 7)
-    check("the roster has no live sessions, task blocks or sales duty (A-3)", not any(s in pg.get_by_test_id("roster-table").inner_text() for s in ["Live session", "Task block", "Sales duty"]) and "scheduled in Tasks → Calendar" in ro.inner_text())
+    check("the roster has no live sessions, task blocks or sales duty (A-3)", not any(s in pg.get_by_test_id("roster-table").inner_text() for s in ["Live session", "Task block", "Sales duty"]) and "scheduled on the Roster Board" in ro.inner_text())
     pg.get_by_test_id("roster-templates").click(); pg.wait_for_timeout(1500)
-    check("Shift Templates opens the working-hours editor (moved from Settings)", "Working hours" in visible_text(pg) or "working hours" in visible_text(pg).lower(), visible_text(pg)[:300])
-    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    check("Shift Templates opens the working-hours editor (its own view now)", view_of(pg) == "templates" and ("working hours" in visible_text(pg).lower()), visible_text(pg)[:300])
+    go(pg, CEO, "&view=overview", 2600)
 
     # exceptions
     pg.get_by_role("tab", name="Exceptions & Approvals", exact=True).click(); pg.wait_for_timeout(1500)
@@ -118,9 +122,11 @@ with sync_playwright() as p:
     check("the exceptions address opens Exceptions & Approvals", view_of(pg) == "exceptions" and pg.get_by_test_id("att-exceptions").count() == 1, pg.url)
     pg.go_back(); pg.wait_for_timeout(500)
 
-    # the roster board lives in Tasks > Calendar (A-3)
-    go(pg, CEO, "&view=calendar", 3600, tab="Tasks")
-    check("Tasks > Calendar holds the roster board and today's assignments", pg.locator("#roster-board").count() == 1 and "Roster board" in visible_text(pg), visible_text(pg)[:300])
+    # the roster board lives in Roster & Scheduling (v1.328.0, R-1)
+    go(pg, CEO, "&view=board", 3600, tab="Roster%20%26%20Scheduling")
+    check("Roster & Scheduling > Roster Board holds the roster board", pg.locator("#roster-board").count() == 1 and "Roster board" in visible_text(pg), visible_text(pg)[:300])
+    go(pg, CEO, "&view=today", 3200, tab="Roster%20%26%20Scheduling")
+    check("...and Today holds today's assignments", "Assignments today" in visible_text(pg), visible_text(pg)[:300])
     # unpaid days in Leave (CEO)
     go(pg, CEO, "&view=manage", 3200, tab="Leave")
     check("Leave > The company holds the unpaid-day card (moved from Attendance Settings)", "Unpaid leave days" in visible_text(pg), visible_text(pg)[:300])
@@ -142,7 +148,7 @@ with sync_playwright() as p:
         c = ctx_for(b, w, 900); pg = c.new_page(); perrs = []; pg.on("pageerror", lambda e: perrs.append(str(e)))
         go(pg, CEO, "", 2400)
         bad = []
-        for v in ["overview", "records", "roster", "exceptions", "reports"]:
+        for v in ["overview", "records", "exceptions", "reports"]:
             pg.goto(f"http://127.0.0.1:{CEO}/portal?tab=Attendance&view={v}"); pg.wait_for_timeout(1600)
             if not no_hscroll(pg): bad.append(v)
         phone = w < 768

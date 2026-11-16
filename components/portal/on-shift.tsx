@@ -459,6 +459,40 @@ export function TeamOnShift({ rows, onOpenAttendance, site = null }: {
   );
 }
 
+/* v1.328.0 - R-3 (the CEO, 16-11-2026): On Shift carries the team as ONE
+   summary line for the managing roles, counted by the same stateOf() the
+   register uses, with one link to Attendance > Overview, where the full team
+   register (search, filters, each person's day) already lives. TeamOnShift
+   above is kept, not drawn, for one release. */
+export function TeamOnShiftLine({ rows, onOpenAttendance }: { rows: TeamRow[] | null; onOpenAttendance?: () => void }) {
+  const c = { on: 0, notIn: 0, out: 0, flagged: 0, scheduled: 0 };
+  for (const m of rows ?? []) {
+    const st = stateOf(m);
+    if (st === "on") c.on++; else if (st === "none") c.notIn++; else if (st === "out") c.out++;
+    if (st !== "leave" && st !== "off" && (!m.shift || (m.shift.scheduled && !m.on_leave))) c.scheduled++;
+    if (flaggedToday(m)) c.flagged++;
+  }
+  return (
+    <section className={`erp-card ${css.teamLine}`} aria-label={L("Team on shift", "Pasukan sedang syif")} data-testid="team-line">
+      <span className={css.teamLineIcon} aria-hidden><AppIcon name="users" /></span>
+      {rows === null ? <Skel className={css.teamLineSkel} /> : (
+        <p className={css.teamLineText}>
+          <strong data-testid="team-line-on">{L(`${c.on} on shift`, `${c.on} sedang syif`)}</strong>
+          <span>{L(`${c.notIn} not yet clocked in`, `${c.notIn} belum daftar masuk`)}</span>
+          <span>{L(`${c.out} clocked out`, `${c.out} daftar keluar`)}</span>
+          {c.flagged > 0 && <span className={css.teamLineWarn}>{L(`${c.flagged} location exception${c.flagged === 1 ? "" : "s"}`, `${c.flagged} pengecualian lokasi`)}</span>}
+          <span className={css.muted}>{L(`of ${c.scheduled} scheduled`, `daripada ${c.scheduled} berjadual`)}</span>
+        </p>
+      )}
+      {onOpenAttendance && (
+        <button type="button" className="erp-button erp-button-ghost erp-button-compact" onClick={onOpenAttendance} data-testid="team-line-open">
+          {L("View in Attendance", "Lihat di Kehadiran")}<AppIcon name="next" />
+        </button>
+      )}
+    </section>
+  );
+}
+
 function TeamDetail({ m, site }: { m: TeamRow; site: string | null }) {
   const st = stateOf(m);
   const punches = m.punches ?? [];

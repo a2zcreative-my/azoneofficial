@@ -47,9 +47,10 @@ with sync_playwright() as p:
     ctx, pg, errs = open_page(b, 4183, "/portal?tab=Users")
     pg.get_by_role("tab", name="Security & Sessions", exact=True).first.click(); pg.wait_for_timeout(1200)
     sec = pg.locator("div:not([hidden])").filter(has=pg.get_by_test_id("owner-zone")).last
-    check("portal: the security view is titled Security & Sessions, like its tab", pg.get_by_role("heading", name="Security & Sessions").count() >= 1 and pg.get_by_role("heading", name="Security & Settings").count() == 0)
-    oz = pg.get_by_test_id("owner-zone"); log = pg.get_by_text("User log", exact=False).first
-    check("portal: with no owner yet, Company owner is the first card in Security & Sessions", oz.is_visible() and oz.bounding_box()["y"] < log.bounding_box()["y"], [oz.bounding_box(), log.bounding_box()])
+    # v1.327.0 - the open tab names the view (no second title over it); its parts are one row, the owner part first while no owner is verified
+    check("portal: the security view is Security & Sessions, like its tab (never Security & Settings)", pg.get_by_role("tab", name="Security & Sessions", exact=True).first.get_attribute("aria-selected") == "true" and pg.get_by_text("Security & Settings").count() == 0)
+    oz = pg.get_by_test_id("owner-zone"); parts = [t.strip() for t in pg.locator("[data-testid^=sec-part-]").all_inner_texts()]
+    check("portal: with no owner yet, Company owner is the first part of Security & Sessions, open", oz.is_visible() and parts[:1] == ["Company owner"] and pg.get_by_test_id("sec-part-owner").get_attribute("aria-selected") == "true", parts)
     check("portal: no page errors (super admin)", not errs, errs)
     ctx.close()
 
@@ -60,8 +61,8 @@ with sync_playwright() as p:
 
     ctx, pg, errs = open_page(b, 4191, "/portal?tab=Users")
     pg.get_by_role("tab", name="Security & Sessions", exact=True).first.click(); pg.wait_for_timeout(1200)
-    oz = pg.get_by_test_id("owner-zone"); log = pg.get_by_text("User log", exact=False).first
-    check("verified owner: Company owner goes back below the sign-in log", oz.count() == 1 and oz.bounding_box()["y"] > log.bounding_box()["y"])
+    parts = [t.strip() for t in pg.locator("[data-testid^=sec-part-]").all_inner_texts()]
+    check("verified owner: the workspace opens first; Company owner is a part after it", parts[:2] == ["Overview", "Company owner"] and pg.get_by_test_id("security-sessions").is_visible() and pg.get_by_test_id("owner-zone").count() == 0, parts)
     check("verified owner: no designate form for the CEO (super admin only)", pg.get_by_role("button", name="Name as company owner").count() == 0)
     ctx.close()
     b.close()

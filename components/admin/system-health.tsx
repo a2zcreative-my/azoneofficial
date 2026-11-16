@@ -13,20 +13,47 @@ import { useCallback, useEffect, useState } from "react";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
-import { btnClass, btnGhost, card } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnSm, card } from "@/lib/ui-styles";
 import { AppIcon } from "@/components/ui/app-icon";
 import { APP_VERSION } from "@/lib/version";
-import { newerVersion } from "@/components/portal/portal-provider";
+import { newerVersion, useOptionalPortal } from "@/components/portal/portal-provider";
+import { ALL_TABS, type TabName } from "@/lib/portal-tabs";
 
 /* v1.324.0 - the CEO, 16-11-2026: "fix this error too" (a ui_overflow from
    v1.319.0 on Tasks at 402px, fixed in 1.321.0 and tested at 402px since).
    An error row keeps what was recorded - the log is never edited - but one
    that a page of an OLDER version reported now says so beside it, so a
    fixed fault is not read as a live one. */
-const reportedBy = (message: string): string | null => {
+export const reportedBy = (message: string): string | null => {
   const m = /^v(\d+\.\d+\.\d+)\b/.exec(message);
   return m && newerVersion(APP_VERSION, m[1]!) ? m[1]! : null;
 };
+
+/* v1.326.0 - the CEO, 16-11-2026: "when I click on the error, it doesnt directing to the section
+   that I should go". Each error names WHERE it is looked into: a page's own report names its tab
+   (ui_overflow: "tab=Tasks"), a job names the module whose records it works on. Only sources whose
+   module is certain are mapped; the rest (backups, migrations, the API itself) are this card. */
+const SOURCE_TAB: Record<string, TabName> = {
+  elfia_orders_poll: "ELFIA Store", elfia_order_rejected: "ELFIA Store", bridge_movements: "ELFIA Store",
+  elfia_traffic_poll: "ELFIA Traffic", elfia_cash_booking: "Finance", cashbook: "Finance",
+  tiktok_cron: "Ecommerce", tiktok_location: "Ecommerce", tiktok_live_analytics: "Ecommerce", tiktok_token_refresh: "Ecommerce",
+  threads_connect: "Threads", threads_cron: "Threads", threads_purge: "Threads", threads_refresh: "Threads", threads_route: "Threads", threads_search: "Threads",
+  payroll_recompute: "Payroll", expenses_payroll_paid: "Payroll",
+  ot_derive: "Attendance", shift_reminders: "Attendance", shift_reminders_push: "Attendance", replacement_credit: "Attendance",
+  leave_escalation: "Leave", expenses_claims: "Claims", claim_insert_refused: "Claims",
+  task_mail: "Tasks", task_mail_sweep: "Tasks", task_digest: "Tasks",
+  lowstock_cron: "Inventory", stock_race: "Inventory", asset_ack_sweep: "Assets", asset_repair_sweep: "Assets", watchers: "Desk",
+};
+export function errorWhere(source: string, message: string): { tab: TabName; view?: string } | null {
+  if (source === "ui_overflow") {
+    const t = / tab=(.+?) axis=/.exec(message)?.[1]?.trim();
+    const v = / view=([a-z_]{1,24})\b/.exec(message)?.[1];
+    return t && (ALL_TABS as readonly string[]).includes(t) ? { tab: t as TabName, ...(v ? { view: v } : {}) } : null;
+  }
+  return SOURCE_TAB[source] ? { tab: SOURCE_TAB[source]! } : null;
+}
+/** an error a page of an OLDER version reported is fixed history, not a live fault (the Dashboard's alert counts only live ones) */
+export const liveError = (message: string) => reportedBy(message) === null;
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1";
@@ -45,6 +72,14 @@ function myt(iso: string): string {
 
 export function SystemHealthCard() {
   const { show: showToast, node: toastNode } = useSaveToast();
+  /* v1.326.0 - inside the portal an error's link switches to its tab (and view); in /admin it opens the portal there */
+  const portal = useOptionalPortal();
+  const goWhere = (w: { tab: TabName; view?: string }) => {
+    if (!portal) return;
+    if (w.view) portal.setTabStart({ tab: w.tab, view: w.view });
+    portal.setTab(w.tab);
+  };
+  const hrefOf = (w: { tab: TabName; view?: string }) => `/portal?tab=${encodeURIComponent(w.tab)}${w.view ? `&view=${w.view}` : ""}`;
   const [health, setHealth] = useState<Health | null>(null);
   /* v1.77.0 — first fetch settled (ok or not). `health` stays null on a failed
      request, so the skeleton keys off this flag rather than the data. */
@@ -214,15 +249,25 @@ export function SystemHealthCard() {
                     case "message": return dir * a.message.localeCompare(b.message);
                     default: return 0;
                   }
-                }).map((e) => (
-                  <tr key={e.id} className="border-border border-b align-top last:border-0">
+                }).map((e) => {
+                  const where = errorWhere(e.source, e.message);
+                  const mayGo = where && (!portal || portal.canOpen(where.tab));
+                  return (
+                  <tr key={e.id} className="border-border border-b align-top last:border-0" data-testid="err-row">
                     <td className="text-muted-foreground px-3 py-1.5 whitespace-nowrap">{myt(e.created_at)}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{e.source}{e.path ? <span className="text-muted-foreground block">{e.path}</span> : null}</td>
+                    <td className="px-3 py-1.5 font-mono text-xs">{e.source}{e.path ? <span className="text-muted-foreground block">{e.path}</span> : null}
+                      {mayGo && (portal
+                        ? <button type="button" className={`${btnSm} erp-mt-1`} data-testid="err-open" onClick={() => goWhere(where)}
+                            aria-label={L(`Open ${where.tab}, where this was recorded`, `Buka ${where.tab}, tempat ini direkodkan`)}>{L(`Open ${where.tab}`, `Buka ${where.tab}`)}<AppIcon name="next" /></button>
+                        : <a className={`${btnSm} erp-mt-1`} data-testid="err-open" href={hrefOf(where)}
+                            aria-label={L(`Open ${where.tab}, where this was recorded`, `Buka ${where.tab}, tempat ini direkodkan`)}>{L(`Open ${where.tab}`, `Buka ${where.tab}`)}<AppIcon name="next" /></a>)}
+                    </td>
                     <td className="px-3 py-1.5 text-xs break-all">{e.message}
                       {reportedBy(e.message) && <span className="erp-chip erp-chip-neutral erp-mt-1" data-testid="err-older">{L(`From v${reportedBy(e.message)} - this portal is v${APP_VERSION}`, `Daripada v${reportedBy(e.message)} - portal ini v${APP_VERSION}`)}</span>}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -89,7 +89,9 @@ const rp = read("components/portal/role-panels.tsx");
 {
   const decide = live.slice(live.indexOf("const decideOt = async ("), live.indexOf("const decideOt = async (") + 2500);
   ok("deciding overtime asks first - approve, replacement and reject alike", /if \(!\(await confirm\(\{ title: `\$\{properName\(o\.name\)\} · \$\{dmy\(o\.d\)\}`, message: msg,/.test(decide) && decide.indexOf("await confirm(") < decide.indexOf('"/staff/attendance/ot/decide"'));
-  ok("and still toasts after", /toast\(L\("Decided", "Diputuskan"\), properName\(o\.name\)\)/.test(decide) && /toast\(L\("Not decided", "Tidak diputuskan"\)/.test(decide));
+  /* v1.329.0 - the feedback pilot: the result says WHICH decision (the one feedback modal), and a refusal is "Not decided" */
+  ok("and still reports after - which decision, for whom", /feedback\(\{ variant: "success", acknowledge: true, testid: "decision-feedback",\s*title: decision === "approved" \? L\("Overtime approved"/.test(decide) && /description: properName\(o\.name\)/.test(decide)
+    && /if \(!r\.ok\) \{ notDecided\(r\); return; \}/.test(decide) && /title: L\("Not decided", "Tidak diputuskan"\)/.test(live));
   ok("the dialog says it is a payroll figure", /Approved overtime goes to the payroll\. The staff member is told\./.test(decide));
   ok("there is one overtime decision screen: the Dashboard card opens Attendance, it draws no copy", !/OtApprovalsCard|live-cards/.test(read("components/portal/trading-desk.tsx")) && /const LINKED = new Set\(\["Clients", "Lives today", "Cash flow \(mo\)", "OT pending"\]\);/.test(read("components/portal/trading-desk.tsx")));
 }

@@ -196,13 +196,18 @@ function sourceChecks(read) {
   const out = [];
   const ok = (c, m, why = "") => out.push([!!c, why && !c ? `${m} - ${why}` : m]);
   const panel = strip(read("components/portal/attendance-panel.tsx"));
-  ok(/const ALL: readonly AttView\[\] = \["overview", "records", "roster", "exceptions", "reports"\];/.test(panel) && /const STAFF_VIEWS: readonly AttView\[\] = \["records", "roster"\];/.test(panel), "five views for the managing roles, the records and the roster for staff (A-0)");
+  /* v1.328.0 - R-1 (the CEO, 16-11-2026): Shift Roster moved to People > Roster & Scheduling; a "roster" link is sent there */
+  ok(/const ALL: readonly AttView\[\] = \["overview", "records", "exceptions", "reports"\];/.test(panel) && /const STAFF_VIEWS: readonly AttView\[\] = \["records"\];/.test(panel)
+    && /useEffect\(\(\) => \{ if \(startView === "roster"\) toRoster\(\); \}, \[startView, toRoster\]\);/.test(panel) && /open=\{\(v\) => \(v === "roster" \? toRoster\(\) : setView\(v\)\)\}/.test(panel)
+    && /<ShiftRoster canTemplates=\{canTemplates\}/.test(strip(read("components/portal/roster-scheduling.tsx"))), "four views for the managing roles, the records for staff; the roster is Roster & Scheduling's and old links reach it (A-0, R-1)");
   ok(!/"onshift"|"settings"|<RosterBoard|<OtApprovalsCard|<VerificationCard|<TodayAssignmentsCard/.test(panel), "no On Shift or Settings tab, no roster board, no second OT card, no retired report");
   ok(/"ot-approvals": "exceptions", "pending-punches": "exceptions"/.test(panel) && /<span id="pending-punches" \/>/.test(read("components/portal/attendance-exceptions.tsx")) && /<span id="ot-approvals" \/>/.test(read("components/portal/attendance-exceptions.tsx")), "the Desk's anchors open Exceptions & Approvals, where they are");
   const ex = strip(read("components/portal/attendance-exceptions.tsx"));
   ok(/\/staff\/attendance\/pending\/decide/.test(ex) && /\/staff\/attendance\/ot\/decide/.test(ex) && !/\/staff\/attendance\/(approve|exceptions)\b/.test(ex), "the decisions are the existing ones - no second approval workflow (A-6)");
   const tasks = strip(read("components/portal/tasks.tsx"));
-  ok(/<RosterBoard\s+canManage=/.test(tasks) && /canDeleteTask=\{holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)\}/.test(tasks), "the operational roster board is in Tasks > Calendar, with the same gates (A-3)");
+  const rs = strip(read("components/portal/roster-scheduling.tsx"));
+  ok(!/<RosterBoard/.test(tasks) && /<RosterBoard\s+canManage=\{ROSTER_MANAGE\.includes\(user\.role\)\}\s+canEdit=\{ROSTER_EDIT\.includes\(user\.role\)\}/.test(rs) && /canDeleteTask=\{holds\("task_delete", \["ceo", "super_admin"\]\.includes\(user\.role\)\)\}/.test(rs)
+    && /const ROSTER_MANAGE = \["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"\];/.test(rs) && /const ROSTER_EDIT = \["ceo", "coo", "cco", "super_admin", "admin"\];/.test(rs), "the operational roster board is in Roster & Scheduling, with the same gates it had on Tasks (A-3, R-1)");
   const os = strip(read("components/portal/on-shift.tsx"));
   ok(/: m\.status && VERDICT_STATE\[m\.status\] \? VERDICT_STATE\[m\.status\]!/.test(os) && /rest_day: "off", holiday: "off"/.test(os) && /not_due: "due"/.test(os), "Team On Shift takes the monitor's verdict: a rest day or holiday is not scheduled, before the start is 'shift not started' (A-9)");
   ok(/const stillIn = s\.status !== undefined \? s\.status === "missing_out"/.test(strip(read("components/portal/users-overview.tsx"))), "the Users overview's missing clock-out is the verdict, not a fixed 18:00");
@@ -244,7 +249,8 @@ const MUT = [
   [S, "the register without its gate", [["  if (path === \"/attendance/day\") {\n    if (!team) return err(\"forbidden\", \"HR access required\", 403);", "  if (path === \"/attendance/day\") {"]]],
   ["worker/src/permissions.ts", "HR given the raw coordinates", [["attendance_location_raw: [\"ceo\"],", "attendance_location_raw: [\"ceo\", \"hr_admin\"],"]]],
   ["components/portal/on-shift.tsx", "Team On Shift decides 'not clocked in' itself", [["    : m.status && VERDICT_STATE[m.status] ? VERDICT_STATE[m.status]!\n", ""]]],
-  ["components/portal/attendance-panel.tsx", "the Settings tab back", [["const STAFF_VIEWS: readonly AttView[] = [\"records\", \"roster\"];", "const STAFF_VIEWS: readonly AttView[] = [\"records\", \"roster\"]; const _s = \"settings\";"]]],
+  ["components/portal/attendance-panel.tsx", "the Settings tab back", [["const STAFF_VIEWS: readonly AttView[] = [\"records\"];", "const STAFF_VIEWS: readonly AttView[] = [\"records\"]; const _s = \"settings\";"]]],
+  ["components/portal/roster-scheduling.tsx", "the board's edit gate widened", [["const ROSTER_EDIT = [\"ceo\", \"coo\", \"cco\", \"super_admin\", \"admin\"];", "const ROSTER_EDIT = [\"ceo\", \"coo\", \"cco\", \"super_admin\", \"admin\", \"hr_admin\"];"]]],
 ];
 for (const [file, name, reps] of NOMUT ? [] : MUT) {
   n++;

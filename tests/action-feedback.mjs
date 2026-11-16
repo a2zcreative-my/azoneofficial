@@ -62,7 +62,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 /* Anything the person actually sees: a toast, a banner, an inline message, or
    being taken somewhere else. */
 const FEEDBACK =
-  /show\w*Toast|\w*[Tt]oast\(|set\w*Msg|set\w*Message|set\w*Status|set\w*Error|set\w*Notice|set\w*Banner|set\w*Result|set\w*Feedback|alert\(|window\.location|router\.(push|replace)/;
+  /* v1.329.0 - the one feedback modal: feedback({...}), leaveFeedback({...}) */
+  /show\w*Toast|\w*[Tt]oast\(|\w*[Ff]eedback\(|set\w*Msg|set\w*Message|set\w*Status|set\w*Error|set\w*Notice|set\w*Banner|set\w*Result|set\w*Feedback|alert\(|window\.location|router\.(push|replace)/;
 const MUTATION = /method:\s*"(POST|PATCH|PUT|DELETE)"/;
 const CONFIRM = /await (confirm|ask\w+|\w*[Cc]onfirm)\(\{/;
 
@@ -232,7 +233,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
   for (const [what, src, re] of [
     ["deleting a task", page, /showTaskToast\(L\("Task deleted"/],
     ["a task delete that failed", page, /showTaskToast\(L\("Not deleted"/],
-    ["deciding leave", page, /showLeaveToast\(\s*\n?\s*action === "reject"/],
+    ["deciding leave", page, /leaveFeedback\(\{\s*\n?\s*variant: action === "reject" \? "warning" : "success", acknowledge: true/], // v1.329.0 - the feedback pilot
     /* v1.90.2 — the apply button used to `return` in silence on a blank end
        date; a staff member pressed Submit and nothing happened. */
     /* v1.105.0 — the same toast now says "Kept — no signal" when the request
@@ -249,7 +250,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     ["a leave request with no date says so instead of doing nothing", readFileSync(path.join(root, "components/portal/leave4.tsx"), "utf8"), /const missing = !f\.start \? L\("Choose the dates"[\s\S]{0,16000}?\{step === 1 && missing && <span className="erp-meta" data-testid="apply-missing">\{missing\}/], // v1.326.0 - the line sits in the pinned foot (DrawerFoot), beside Cancel / Review
     ["the CEO leave override", page, /showLeaveToast\(\s*\n?\s*action === "approve" \? L\("Approved by you"/],
     /* v1.317.0 (the duplicate-function audit, D-2) - the one overtime decision screen is Attendance > Exceptions & Approvals */
-    ["an overtime decision", readFileSync(path.join(root, "components/portal/attendance-exceptions.tsx"), "utf8"), /if \(!r\.ok\) \{ toast\(L\("Not decided", "Tidak diputuskan"\)[\s\S]{0,200}?toast\(L\("Decided", "Diputuskan"\), properName\(o\.name\)\)/],
+    ["an overtime decision", readFileSync(path.join(root, "components/portal/attendance-exceptions.tsx"), "utf8"), /if \(!r\.ok\) \{ notDecided\(r\); return; \}\s*feedback\(\{ variant: "success", acknowledge: true, testid: "decision-feedback",\s*title: decision === "approved" \? L\("Overtime approved"/], // v1.329.0 - says which decision
     ["crediting a supplier return", panels, /invToast\(res\.ok \? L\("Credit recorded"/],
     ["recording a replacement", panels, /invToast\(res\.ok \? L\("Replacement recorded"/],
     ["deleting a staff document", dir, /L\("Document deleted", "Dokumen dipadam"\)/],

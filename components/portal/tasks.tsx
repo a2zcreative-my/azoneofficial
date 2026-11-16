@@ -49,13 +49,11 @@ import { PillSwitch } from "@/components/ui/panel";
 import { FillPanel } from "@/components/ui/fill-panel"; // v1.323.0 - D-4
 import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyTaskTable, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
 import { closedThisWeek } from "@/lib/task-flow";
-import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards"; // v1.307.0 - Attendance 4.0 (A-3): the operational roster's home
-import { RosterBoard } from "@/components/portal/lazy-panels";
+import { usePortal } from "@/components/portal/portal-provider"; // v1.328.0 - the calendar's one line to Roster & Scheduling
 import { revealAnchor } from "@/components/portal/page-shared";
 import tk from "./tasks-page.module.css";
 import t2 from "./tasks2.module.css"; // v1.319.0 - kept after the page's own sheet (tests/kept-lines.mjs reads the first module import)
-import t5 from "./tasks5.module.css"; // v1.313.0 - Tasks Workspace 5.0
-import { DepartmentCard, Head5, LiveHostCard, MyDayCards, QuickApprovals, WorkCalendar, WorkloadCard, mondayOf, prioWord } from "@/components/portal/tasks5";
+import { DepartmentCard, Head5, MyDayCards, QuickApprovals, WorkCalendar, WorkloadCard, mondayOf, prioWord } from "@/components/portal/tasks5";
 
 /* v1.209.0 - Create left the tab row for a drawer from the + button (the
    owner's Tasks brief, 25-10-2026); Calendar joined it, drawn from the
@@ -93,6 +91,7 @@ function useTier(bp: "md" | "lg" | "xl"): boolean {
 /* ================= Tasks ================= */
 
 export function Tasks({ user, progress, initialView, focus }: { user: User; progress?: ReactNode; initialView?: string; focus?: RecordFocus | null }) {
+  const { setTab: openTab } = usePortal();
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -184,7 +183,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
        action already did (v1.77.0 / v1.79.0) */
     if (!r.ok) {
       const why = (r.data as { error?: { message?: string } } | undefined)?.error?.message;
-      showTaskToast(L("Not created", "Tidak dibuat"), why ?? L("The task did not reach the server — try again", "Tugasan itu tidak sampai ke pelayan — cuba lagi"), "notice");
+      showTaskToast(L("Not created", "Tidak dibuat"), why ?? L("The task did not reach the server — try again", "Tugasan itu tidak sampai ke pelayan — cuba lagi"), "error"); // v1.329.0 - a refusal waits for OK
       return;
     }
     showTaskToast(r.queued ? L("Kept — no signal", "Disimpan — tiada isyarat") : L("Task created", "Tugasan dibuat"),
@@ -233,7 +232,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       showTaskToast(
         L("Not saved", "Tidak disimpan"),
         L("That tick did not reach the server — try again", "Tanda itu tidak sampai ke pelayan — cuba lagi"),
-        "notice",
+        "error", // v1.329.0 - a refusal waits for OK
       );
     }
   };
@@ -269,7 +268,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       showTaskToast(
         L("Not saved", "Tidak disimpan"),
         r.data?.error?.message ?? L("That change did not reach the server — try again", "Perubahan itu tidak sampai ke pelayan — cuba lagi"),
-        "notice",
+        "error", // v1.329.0 - a refusal waits for OK
       );
     }
     void load();
@@ -303,7 +302,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
        as easily be a filter. Both outcomes are now spoken. */
     if (!res.ok) {
       showTaskToast(L("Not deleted", "Tidak dipadam"),
-        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "notice");
+        res.data?.error?.message ?? L("The server refused that", "Pelayan menolaknya"), "error"); // v1.329.0 - a refusal waits for OK
       return;
     }
     showTaskToast(L("Task deleted", "Tugasan dipadam"),
@@ -387,7 +386,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     void load();
   };
   const itemFail = (r: { data?: unknown }, fallback: string) =>
-    showTaskToast(L("Not saved", "Tidak disimpan"), (r.data as { error?: { message?: string } } | undefined)?.error?.message ?? fallback, "notice");
+    showTaskToast(L("Not saved", "Tidak disimpan"), (r.data as { error?: { message?: string } } | undefined)?.error?.message ?? fallback, "error"); // v1.329.0 - a refusal waits for OK
   const addItem = async (t: Task) => {
     const title = newItem.trim();
     if (title.length < 2) return;
@@ -903,8 +902,6 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      department (from the staff list - the person's own record) */
   const plusMonth = (k: number) => { const [yy, mm] = todayISO.slice(0, 7).split("-").map(Number); return new Date(Date.UTC(yy!, mm! - 1 + k, 1)).toISOString().slice(0, 7); };
   /* v1.315.0 (Gate 4) - the Live Host Reports submitted for this month's lives */
-  const liveRows = useCachedApi<{ reports: { session_date: string; state: string }[] }>("/staff/live-reports", view === "reports", ["live_reports"]);
-  const liveThisMonth = (liveRows.data?.reports ?? []).filter((r) => r.session_date.startsWith(todayISO.slice(0, 7)) && r.state !== "draft").length;
   const reportRows = useCachedApi<{ reports: { report_date: string }[] }>("/staff/task-reports", canTaskReports && view === "reports", ["task_reports"]);
   const reportsThisMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(todayISO.slice(0, 7))).length;
   const reportsLastMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(plusMonth(-1))).length;
@@ -1360,32 +1357,15 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         ))}
       </TabZone>
 
-      {/* v1.307.0 - ATTENDANCE 4.0 (A-3, the CEO 14-11-2026): the operational
-          roster - lives, task blocks, sales duty - left Attendance (whose Shift
-          Roster is now the expected working schedule only) and lives here
-          beside the deadlines it plans. The same board, the same gates as on
-          Attendance: canManage, canEdit, and task_delete (the CEO alone). */}
+      {/* v1.328.0 - R-1 (the CEO, 16-11-2026): the operational roster - Today's
+          assignments and the Roster Board - moved whole to People > Roster &
+          Scheduling, with the same gates. The calendar keeps tasks, deadlines,
+          reviews and project milestones; one line points to the roster. */}
       {view === "calendar" && (
-        <>
-          {canManage && (
-            <TabZone label={L("Today's assignments", "Tugasan hari ini")}>
-              <TodayAssignmentsCard canManage={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)}
-                onOpenRoster={() => revealAnchor("roster-board")} />
-            </TabZone>
-          )}
-          <TabZone label={L("Roster board", "Papan roster")} hint={L("Lives, task blocks and sales duty by week; the board the Dashboard's assignments open.", "Live, blok tugasan dan tugas jualan mengikut minggu; papan yang dibuka oleh tugasan di Dashboard.")}>
-            <div id="roster-board" className={tk.rosterAnchor}>
-              <RosterBoard
-                canManage={["ceo", "coo", "cco", "hr_admin", "super_admin", "admin"].includes(user.role)}
-                canEdit={["ceo", "coo", "cco", "super_admin", "admin"].includes(user.role)}
-                /* v1.171.0 (CEO, 20-09-2026: "on the attendance, the Task
-                   should be able to delete!") - mirrors task_delete in
-                   worker/src/permissions.ts, which is the CEO alone. */
-                canDeleteTask={holds("task_delete", ["ceo", "super_admin"].includes(user.role))}
-              />
-            </div>
-          </TabZone>
-        </>
+        <p className={tk.rosterLink} data-testid="cal-roster-link">
+          <AppIcon name="date" />{L("Lives, shifts and sales duty are planned on Roster & Scheduling.", "Live, syif dan tugas jualan dirancang di Roster & Penjadualan.")}
+          <button type="button" className={btnSm} onClick={() => openTab("Roster & Scheduling")}>{L("Open Roster & Scheduling", "Buka Roster & Penjadualan")}</button>
+        </p>
       )}
 
       {/* ============================== PROJECTS ============================== */}
@@ -1408,17 +1388,15 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             sub={L("Tasks waiting for management review", "Tugasan menunggu semakan pengurusan")} onClick={() => { clearFilters(); setStatusF("review"); go(canManage ? "all" : "mine"); }} />
           <KpiTile icon="folder" tone="green" label={L("Archived", "Diarkibkan")} value={closed.length} busy={!loaded}
             sub={L("Closed tasks on the board", "Tugasan ditutup pada papan")} onClick={() => revealAnchor("task-archive")} />
-          <KpiTile icon="live" tone="red" label={L("Live Host Sessions", "Sesi Hos Live")} value={liveRows.data ? liveThisMonth : ""} busy={view === "reports" && !liveRows.data}
-            sub={L("Reported this month, with GMV and evidence", "Dilaporkan bulan ini, dengan GMV dan bukti")} onClick={() => revealAnchor("live-host-card")} />
         </KpiRow>
-        <div className={t5.split}>
+        <>
           {canTaskReports && reportsSeen ? (
             <div id="task-reports" data-testid="task-reports">
               <TaskReports />
             </div>
           ) : <section className={card} aria-label={L("Operational reports", "Laporan operasi")}><Head5 icon="documents" title={L("Operational Reports", "Laporan Operasi")} sub={L("Daily, weekly and monthly reports are written and read by management.", "Laporan harian, mingguan dan bulanan ditulis dan dibaca oleh pengurusan.")} /></section>}
-          {view === "reports" && <div id="live-host-card"><LiveHostCard today={todayISO} /></div>}
-        </div>
+          {/* v1.328.0 - R-4: the Live Host Report is Roster & Scheduling > Live Reports, beside the live it reports */}
+        </>
         {/* the company-wide card (management roles), as before */}
         {progress}
         {/* v1.247.0 - task emails: settings, preview, delivery log (CEO, COO, CCO; the server decides) */}

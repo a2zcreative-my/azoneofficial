@@ -44,7 +44,10 @@ def security(pg, port):
     pg.goto(f"http://localhost:{port}/portal?tab=Profile"); pg.wait_for_timeout(2800)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
     if pg.get_by_role("tab", name="Security & Account").count() == 0 and pg.get_by_role("button", name="Security & Account").count() == 0:
-        pg.get_by_role("button", name="Profile").first.click(); pg.wait_for_timeout(1500)  # an agent reaches Profile from their menu
+        # an agent reaches Profile from their menu; since v1.279.0 Profile sits in the name card's account menu
+        if pg.get_by_role("button", name="Profile").count() == 0:
+            pg.locator("[aria-controls=rail-account-menu]").first.click(); pg.wait_for_timeout(400)
+        pg.get_by_role("button", name="Profile").first.click(); pg.wait_for_timeout(1500)
     t = pg.get_by_role("tab", name="Security & Account")
     (t if t.count() else pg.get_by_role("button", name="Security & Account")).first.click(); pg.wait_for_timeout(900)
 def card(pg): return pg.locator("section[aria-label='Passkeys']")

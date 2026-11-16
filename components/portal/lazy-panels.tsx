@@ -103,6 +103,7 @@ export const InventoryPanel = lazy(() => import("@/components/portal/role-panels
 export const ClaimsPanel = lazy(() => import("@/components/portal/role-panels").then((m) => m.ClaimsPanel));
 export const EcommercePanel = lazy(() => import("@/components/portal/ecommerce-panel").then((m) => m.EcommercePanel)); // v1.185.0 - the Ecommerce page (TikTokOrdersCard's logic lives in tiktok-orders.tsx inside it)
 export const RosterBoard = lazy(() => import("@/components/portal/roster-board").then((m) => m.RosterBoard));
+export const RosterScheduling = lazy(() => import("@/components/portal/roster-scheduling").then((m) => m.RosterScheduling)); // v1.328.0 - People > Roster & Scheduling (R-1)
 export const StokisPanel = lazy(() => import("@/components/portal/stokis-panel").then((m) => m.StokisPanel));
 export const TabAccessCard = lazy(() => import("@/components/portal/tab-access-card").then((m) => m.TabAccessCard));
 export const ThreadsPanel = lazy(() => import("@/components/portal/threads-panel").then((m) => m.ThreadsPanel));

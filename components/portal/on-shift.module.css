@@ -11,60 +11,56 @@
   gap: 1rem;
   min-width: 0;
 }
-/* v1.294.0 - On Shift v2.0: the photo's layout. One column on a phone, in
-   the order it is used (My Shift, the punch, the location, the schedule,
-   the punches, the recent days, the week, the team); twelve columns from
-   1024px: My Shift beside Location Verification, then Schedule / Punch
-   Details / Quick Actions, the week, then Team On Shift beside Recent
-   Attendance. Cards in one row share its height. */
+/* v1.328.0 - On Shift, five cards from eight (the CEO, 16-11-2026, R-3).
+   One column on a phone in the order it is used: My Shift (with the one
+   punch), Today (schedule + punches), My days (This week · Recent), the team
+   line. From 1024px: My Shift beside Today, the team line, then My days. */
 .aShift { order: 1; }
-.aQuick { order: 2; }
-.aLoc { order: 3; }
-.aSched { order: 4; }
-.aPunch { order: 5; }
-.aRecent { order: 6; }
-.aWeek { order: 7; }
-.wide { order: 8; }
-.aLoc,
-.aRecent,
-.aWeek,
+.aToday { order: 2; }
+.wide { order: 3; }
+.aDays { order: 4; }
+.aDays,
 .wide {
   display: grid;
+  gap: 0.75rem;
   min-width: 0;
 }
+.aDays > [hidden] { display: none; }
 @media (min-width: 1024px) {
   .page {
     grid-template-columns: repeat(12, minmax(0, 1fr));
     grid-template-areas:
-      "shift shift shift shift shift loc loc loc loc loc loc loc"
-      "sched sched sched sched punch punch punch punch quick quick quick quick"
-      "week week week week week week week recent recent recent recent recent";
-    align-items: stretch;
+      "shift shift shift shift shift shift shift today today today today today"
+      "days days days days days days days days days days days days";
+    align-items: start;
   }
   .page[data-team] {
     grid-template-areas:
-      "shift shift shift shift shift loc loc loc loc loc loc loc"
-      "sched sched sched sched punch punch punch punch quick quick quick quick"
-      "week week week week week week week week week week week week"
-      "team team team team team team team team recent recent recent recent";
+      "shift shift shift shift shift shift shift today today today today today"
+      "team team team team team team team team team team team team"
+      "days days days days days days days days days days days days";
   }
   .page > * { order: 0; }
   .page section {
     align-content: start;
   }
   .aShift { grid-area: shift; }
-  .aLoc { grid-area: loc; }
-  .aSched { grid-area: sched; }
-  .aPunch { grid-area: punch; }
-  .aQuick { grid-area: quick; align-content: start; }
-  .aWeek { grid-area: week; }
-  .aRecent { grid-area: recent; }
+  .aToday { grid-area: today; }
+  .aDays { grid-area: days; }
   .wide { grid-area: team; }
-  .aRecent > section,
-  .wide > section {
-    align-content: start;
-  }
 }
+/* the punch and what follows a press, inside My Shift */
+.actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; min-width: 0; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+/* Today: the schedule, then the punches against it */
+.todayPart { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; min-width: 0; }
+.todayPart + .todayPart { padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.partHead { display: flex; align-items: center; gap: 0.375rem; margin: 0; font-size: var(--type-caption-size); font-weight: 700; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
+.partHead svg { width: 0.875rem; height: 0.875rem; }
+/* the GPS line and its Location details link */
+.gpsLine { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.75rem; }
+.locLink { display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2.75rem; padding: 0 0.25rem; border: 0; background: none; color: var(--info); font: inherit; font-size: var(--type-caption-size); font-weight: 600; cursor: pointer; }
+.locLink svg { width: 0.875rem; height: 0.875rem; }
+.locLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 
 /* ---- cards ---- */
 .card {
@@ -1182,3 +1178,10 @@ button.teamFig:focus-visible {
   font-size: 0.875rem;
   color: var(--primary);
 }
+
+/* v1.328.0 - R-3: the team as one line (TeamOnShiftLine) */
+.teamLine { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; min-width: 0; }
+.teamLineIcon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2rem; height: 2rem; border-radius: var(--radius-full); background: var(--secondary); color: var(--muted-foreground); }
+.teamLineText { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; flex: 1 1 16rem; min-width: 0; margin: 0; font-size: var(--type-body-sm-size); }
+.teamLineWarn { color: var(--warning); font-weight: 600; }
+.teamLineSkel { flex: 1 1 16rem; height: 1rem; }

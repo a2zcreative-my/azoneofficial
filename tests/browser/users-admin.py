@@ -75,8 +75,12 @@ with sync_playwright() as p:
     tab(pg, "Customers & Agents")
     cust_txt = pg.inner_text("main")
     check("Customers & Agents lists the agent with an Agent chip", "Rashid Danial" in cust_txt and "Agent" in cust_txt)
-    check("...the agent's account can be managed; Grant Agent Access stays on customers only",
-          pg.get_by_test_id("manage-9105").count() == 1 and pg.get_by_test_id("grant-agent-9105").count() == 0 and pg.get_by_test_id("grant-agent-9101").count() == 1)
+    # v1.327.0 - the directory beside the chosen account: its actions are in the Account & Access panel
+    pg.get_by_test_id("customers-table").locator("tr", has_text="Rashid Danial").first.click(); pg.wait_for_timeout(400)
+    agent_ok = pg.get_by_test_id("manage-9105").count() == 1 and pg.get_by_test_id("grant-agent-9105").count() == 0 and pg.get_by_test_id("revoke-agent-9105").count() == 1
+    pg.get_by_test_id("customers-table").locator("tr", has_text="Narida").first.click(); pg.wait_for_timeout(400)
+    check("...the agent's account can be managed and its Agent access revoked; Grant Agent Access stays on customers only",
+          agent_ok and pg.get_by_test_id("grant-agent-9101").count() == 1 and pg.get_by_test_id("revoke-agent-9101").count() == 0)
 
     # Add User
     tab(pg, "Staff Accounts")

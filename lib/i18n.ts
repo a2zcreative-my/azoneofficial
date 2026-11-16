@@ -81,6 +81,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Today": { en: "Today", ms: "Hari ini" },
   "On shift": { en: "On shift", ms: "Sedang bertugas" },
   "On Shift": { en: "On Shift", ms: "Syif Saya" },
+  "Roster & Scheduling": { en: "Roster & Scheduling", ms: "Roster & Penjadualan" }, // v1.328.0
   "Preferences": { en: "Preferences", ms: "Tetapan" },
   "Next event": { en: "Next event", ms: "Acara akan datang" },
   "Public holiday": { en: "Public holiday", ms: "Cuti umum" },

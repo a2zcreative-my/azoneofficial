@@ -1,0 +1,32 @@
+/* v1.327.0 - Users & Security → Customers & Agents (customers-agents.tsx).
+   Tokens, --type-* roles and the house breakpoints only. */
+.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.muted { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.search { display: flex; align-items: center; gap: 0.375rem; flex: 1 1 14rem; min-width: 0; min-height: 2.5rem; padding: 0 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--muted-foreground); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--foreground); font: inherit; font-size: var(--type-body-sm-size); }
+.search:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
+.who { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.whoText { display: grid; gap: 0.125rem; min-width: 0; }
+.whoText strong { font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
+.whoText small { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: anywhere; }
+.whoText .big { font-size: var(--type-section-size); line-height: var(--type-section-lh); }
+
+.detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; min-width: 0; }
+.detailHead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; min-width: 0; }
+.detailHead > .whoText { flex: 1 1 12rem; }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 0.375rem; }
+.facts { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.facts > div { display: grid; gap: 0.125rem; padding: 0.5rem 0.75rem; min-width: 0; }
+.facts > div + div { border-top: 1px solid var(--border); }
+.facts dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.facts dd { margin: 0; font-size: var(--type-body-sm-size); font-weight: 600; overflow-wrap: anywhere; }
+.block { display: grid; gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); min-width: 0; }
+.label { margin: 0; font-size: var(--type-body-sm-size); font-weight: 700; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+
+@media (min-width: 640px) {
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts > div + div { border-top: 0; }
+  .facts > div:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .facts > div:nth-child(even) { border-left: 1px solid var(--border); }
+}

@@ -45,7 +45,7 @@ import {
   HotelsPanel, AgentsPanel, FinancialAdvisoryPanel, SalesMap, PayrollPanel, MyPayslip, AccountingPanel, CommissionPanel,
   AttendancePanel, HrPage, InventoryPanel, ClaimsPanel, EcommercePanel,
   StokisPanel, ThreadsPanel,
-  StaffDirectory,
+  StaffDirectory, RosterScheduling,
 } from "@/components/portal/lazy-panels";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { Announcements } from "@/components/portal/announcements";
@@ -53,7 +53,7 @@ import { Dashboard } from "@/components/portal/dashboard";
 import { DeskPage } from "@/components/portal/desk-page";
 import { AutomationRulesPage } from "@/components/portal/automation-rules"; // v1.293.0
 import { Leave } from "@/components/portal/leave";
-import { L, MANAGE_ROLES } from "@/components/portal/page-shared";
+import { L, MANAGE_ROLES, revealAnchor } from "@/components/portal/page-shared";
 import { Profile } from "@/components/portal/profile";
 import { ClientsCard, LiveEconomicsCard, Sales } from "@/components/portal/sales";
 import { Tasks } from "@/components/portal/tasks";
@@ -99,7 +99,7 @@ export default function PortalPage() {
                   components/ui/mini-calendar.tsx were deleted with it. */}
               <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang}
                 onCreateQuotation={() => { setSalesStart("create"); setSalesCreateRequest((n) => n + 1); setTab("Sales"); }}
-                openAt={(t, view) => { setTabStart({ tab: t, view }); setTab(t); }} />
+                openAt={(t, view, anchor) => { setTabStart({ tab: t, view }); setTab(t); if (anchor) revealAnchor(anchor); }} />
             </>
           )}
           {activeTab === "Claims" && (
@@ -112,6 +112,10 @@ export default function PortalPage() {
                handed in unchanged and drawn on their own tab. */
             <FinancePage startView={startOf("Finance")} /> /* v1.312.0 - Finance 5.0: five views at their own address; the P&L (accrual) is Accounting's */
           )}
+          {/* v1.328.0 - People > Roster & Scheduling (R-1): Today, Roster Board,
+              Shift Roster, Shift Templates, Live Reports - the existing cards,
+              moved whole from Tasks > Calendar, Attendance and Tasks > Reports */}
+          {activeTab === "Roster & Scheduling" && <RosterScheduling user={user} go={setTab} startView={startOf("Roster & Scheduling")} />}
           {activeTab === "Attendance" && (
             /* v1.188.0 - the page is its own tabbed panel (attendance-panel.tsx):
                Overview · My Attendance · Team Attendance · Schedule & Roster ·

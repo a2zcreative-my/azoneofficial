@@ -55,7 +55,15 @@ const shared = read("components/portal/users-shared.ts");
 const mod = read("components/portal/users-panel.module.css");
 /* Comments describe the OLD look on purpose — this file's header quotes the
    classes it replaced. Strip them, or the guard fails on its own history. */
-const src = raw.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
+const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/^\s*\/\/.*$/gm, "");
+const src = strip(raw);
+/* v1.327.0 - the CEO's Users & Security brief (16-11-2026): Customers & Agents
+   and Security & Sessions are panels of their own beside the staff list, so
+   the vocabulary rules read the Users tab's files together, and the list
+   rules read the panel that now draws each list. */
+const cust = strip(read("components/portal/customers-agents.tsx"));
+const sec = strip(read("components/portal/security-sessions.tsx"));
+const tabSrc = [src, cust, sec].join("\n");
 
 /* ---- 1. the new names exist, are documented, and are used ------------- */
 const NEW = ["selectClass", "chipSm", "listBox", "iconBtn"];
@@ -91,29 +99,35 @@ ok("no hand-rolled select or input", !/border-input/.test(src),
    "twelve select spellings across six files is why selectClass exists");
 ok("no retyped field label", !/text-\[11px\] font-medium">\s*\{L\("Role"/.test(src) && /className=\{fieldLabel\}/.test(src));
 ok("no hand-rolled primary button", !/bg-primary text-primary-foreground/.test(src) && /\$\{btnClass\}/.test(src));
-ok("no hand-rolled bordered list", !/divide-y[^"]*rounded-lg border"/.test(src) && /\$\{listBox\}/.test(src));
+ok("no hand-rolled bordered list", !/divide-y[^"]*rounded-lg border"/.test(tabSrc) && /\$\{listBox\}/.test(tabSrc));
 ok("the vocabulary is imported, not approximated",
    /from "@\/lib\/ui-styles"/.test(src)
    && ["btnClass", "card", "chipSmDanger", "chipSmNeutral", "chipSmWarn", "fieldLabel", "iconBtn", "inputClassSm", "listBox", "selectClass", "sheetCard"]
-        .every((n) => new RegExp(`\\b${n}\\b`).test(src)));
+        .every((n) => new RegExp(`\\b${n}\\b`).test(tabSrc)));
 
 /* ---- 3. one list, both renderings ------------------------------------ */
-ok("the find box filters BOTH lists",
-   /const staffRows = allStaff\.filter\(match\)\.filter\(statusOk\);/.test(src) && /const customerRows = allCustomers\.filter\(match\);/.test(src),
-   "a search that only narrows the list you happen to be looking at is a trap");
+/* v1.327.0 - each list is its own tab with its own find box: the staff list
+   (match + status) and the Customer & Agent Directory (name or email, then type) */
+ok("each list has its find box, over every row of that list",
+   /const staffRows = allStaff\.filter\(match\)\.filter\(statusOk\);/.test(src)
+   && /accounts\.filter\(\(u\) => \(!needle \|\| \[u\.email, u\.full_name \?\? "", u\.name\]\.some/.test(cust)
+   && /<CustomersAgents accounts=\{allCustomers\}/.test(src),
+   "a search that only narrows part of a list is a trap");
 ok("...over name, email and role", /u\.email\.toLowerCase\(\)\.includes\(needle\)[\s\S]{0,200}?u\.role\.replace/.test(src));
 ok("each list is its own tab, both mounted and hidden - never two lists stacked inside the page scroll",
    /hidden=\{view !== "staff"\}/.test(src) && /hidden=\{view !== "customers"\}/.test(src)
    && !/SectionTabs className="lg:hidden"/.test(src),
    "two lists of their own height stacked inside the page scroll was two scroll traps before the log");
-ok("both headings carry a count, and say 'shown of all' while a search is on",
+ok("both lists carry a count, and say 'shown of all' while a search is on",
    /const countOf = \(shown, all\) =>|countOf = \(shown: number, all: number\)/.test(src)
-   && (src.match(/countOf\(/g) ?? []).length >= 4,
+   && (src.match(/countOf\(/g) ?? []).length >= 2
+   && /<CompactTaskTable rows=\{rows\}[\s\S]{0,400}?page=\{page\}/.test(cust),
    "a heading that only ever says 3 cannot be told from a list that lost nine rows");
 ok("each list tells 'none yet' from 'none matching'",
    /allStaff\.length === 0[\s\S]{0,200}?No staff account matches that/.test(src)
-   && /allCustomers\.length === 0[\s\S]{0,200}?No customer account matches that/.test(src));
-ok("one row function draws both lists", (src.match(/accountRow\(u, "/g) ?? []).length === 2
+   && /accounts\.length === 0 \? L\("No customer accounts yet\."[\s\S]{0,120}?No account matches that/.test(cust));
+/* v1.327.0 - the customers are the directory's register now (CustomersAgents) */
+ok("one row function draws the staff list", (src.match(/accountRow\(u, "staff"\)/g) ?? []).length === 1
    && /const accountRow = \(u: Account, kind: "staff" \| "customer"\)/.test(src));
 
 /* ---- 4. the row, on a phone ------------------------------------------ */
@@ -133,7 +147,8 @@ ok("a role reads as its own name — CEO, not Ceo; HR Admin, not Hr Admin",
 
 /* ---- 5. one editor at a time, and it cannot be pressed twice ---------- */
 ok("the desk panel and the phone sheet are the SAME fields",
-   (src.match(/roleFields\(/g) ?? []).length === 2 && /const roleFields = \(u: Account\)/.test(src),
+   /* v1.327.0 - and the customer's detail pane draws the same fields (3 uses, 1 declaration) */
+   (src.match(/roleFields\(/g) ?? []).length === 3 && (src.match(/const roleFields = /g) ?? []).length === 1 && /const roleFields = \(u: Account\)/.test(src),
    "declared once, rendered twice - they cannot offer different choices");
 ok("exactly one of them is ever displayed",
    /mt-2 hidden w-full grid-cols-2 items-end gap-2 rounded-lg p-2 md:grid/.test(src)
@@ -150,7 +165,8 @@ ok("Save cannot be pressed twice",
 ok("a failed load reads as a failure", /className="text-destructive mt-2 text-xs font-medium"/.test(src),
    "it was text-warning; every other panel calls a failed load destructive");
 ok("the activity skeleton is the shape of what arrives",
-   /\{!eventsLoaded && <SkelRows rows=\{5\} \/>\}/.test(src) && !/SkelTable/.test(src),
+   /* v1.327.0 - the events are the Sign-in Log's register (security-sessions.tsx): row skeletons */
+   /loading=\{!eventsLoaded\}/.test(sec) && !/SkelTable/.test(src + sec),
    "SkelTable drew three columns that never appeared - these are divided rows");
 ok("the 2FA nudge counts in words a person would say",
    /active account without 2FA[\s\S]{0,200}?active accounts without 2FA/.test(src));
@@ -177,9 +193,10 @@ ok("the find box searches BOTH names and the role as it is written on screen",
 ok("one scroll: no account list scrolls inside the page",
    !/\.scroll\s*\{/.test(mod) && !/css\.scroll/.test(src) && !/overflow-y: auto/.test(mod.slice(mod.indexOf("the accounts table"), mod.indexOf("the overview"))),
    "a list that scrolls inside a scrolling page is the trap the owner asked to remove");
-ok("long lists show 25, then Show more",
-   /const PAGE = 25;/.test(src) && /staffRows\.slice\(0, staffShown\)/.test(src) && /customerRows\.slice\(0, custShown\)/.test(src)
-   && (src.match(/Show more \(\$\{/g) ?? []).length === 2);
+ok("long lists show 25, then Show more (the directory: 10 a page)",
+   /* v1.327.0 - the staff list keeps 25 + Show more; the directory pages 10 at a time */
+   /const PAGE = 25;/.test(src) && /staffRows\.slice\(0, staffShown\)/.test(src)
+   && (src.match(/Show more \(\$\{/g) ?? []).length === 1 && /useState<PageSize>\(10\)/.test(cust));
 ok("Grant Agent Access sits beside the access it changes; Manage holds icons, one width on both tabs",
    /No staff access[\s\S]{0,600}?data-testid=\{`grant-agent-\$\{u\.id\}`\}/.test(src)
    && (mod.match(/ 6\.5rem;/g) ?? []).length === 2);

@@ -1290,7 +1290,7 @@ export default function AdminPage() {
         )}
         {tabNow === "Audit" && ["super_admin", "admin"].includes(user.role) && (
           <div className="space-y-4 md:space-y-6">
-            <SystemHealthCard />
+            <div id="system-health"><SystemHealthCard /></div>
             <AuditPanel />
           </div>
         )}

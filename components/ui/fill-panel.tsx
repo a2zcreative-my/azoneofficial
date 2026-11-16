@@ -26,7 +26,9 @@ const scrollerOf = (el: HTMLElement): HTMLElement => {
   return document.scrollingElement as HTMLElement;
 };
 
-export function FillPanel({ children, className = "", testid, label, id }: { children: ReactNode; className?: string; testid?: string; label?: string; id?: string }) {
+export function FillPanel({ children, className = "", testid, label, id, exact = false }: { children: ReactNode; className?: string; testid?: string; label?: string; id?: string;
+  /** v1.327.0 - take the room exactly (height, not max-height): a two-pane workspace whose panes share it (workspace-split.tsx) */
+  exact?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [h, setH] = useState<number | null>(null);
   useEffect(() => {
@@ -76,7 +78,7 @@ export function FillPanel({ children, className = "", testid, label, id }: { chi
   return (
     <div ref={ref} id={id} className={`${css.fill} ${className}`} data-testid={testid} data-fill={h != null ? "on" : "off"}
       role={label ? "region" : undefined} aria-label={label} tabIndex={h != null && label ? 0 : undefined}
-      style={h != null ? { maxHeight: `${h}px` } : undefined}>
+      style={h != null ? (exact ? { height: `${h}px` } : { maxHeight: `${h}px` }) : undefined}>
       {children}
     </div>
   );

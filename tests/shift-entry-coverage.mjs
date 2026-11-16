@@ -81,6 +81,16 @@ try {
       async first() { return run("get") ?? null; }, async all() { return { results: run("all") }; },
       async run() { const r = run("run"); return { success: true, meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) } }; } };
   } };
+  /* v1.328.0 - the fixture's day is 17-09-2026, and the worker refuses a leave
+     that starts more than 60 days ago: from 17-11-2026 (MYT) this run failed on
+     the calendar, not the code. The clock is pinned to the week the fixture
+     describes (20-09-2026), so every check below still runs against it. */
+  const RealDate = Date;
+  const PINNED = RealDate.parse("2026-09-20T04:00:00Z");
+  globalThis.Date = class extends RealDate {
+    constructor(...a) { super(...(a.length ? a : [PINNED])); }
+    static now() { return PINNED; }
+  };
   const { handleStaff } = await bundle("worker/src/staff.ts", "staff");
   const env = { DB, MEDIA: { get: async () => null } };
   const user = { id: 9001, email: 'test@example.test', name: 'Employee', role: 'editor' };

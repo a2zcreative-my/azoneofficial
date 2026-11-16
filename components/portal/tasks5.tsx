@@ -208,13 +208,16 @@ export function QuickApprovals({ tasks, onOpen, onAll }: { tasks: Task[]; onOpen
 
 /* ---------------- Calendar (image 2): one calendar over the work records ---------------- */
 type CalProject = { id: number; title: string; company: string | null; due_date: string | null; status: string };
-type EvKind = "task" | "due" | "review" | "live" | "mile";
+/* v1.328.0 - R-2: the lives left with the roster (People > Roster & Scheduling);
+   task blocks stay as "Booked work" - time booked FOR a task - off by default */
+type EvKind = "task" | "due" | "review" | "mile";
 type Ev = { key: string; kind: EvKind; day: string; title: string; sub: string; at?: string; late?: boolean; open: null | (() => void); who?: number };
-const KIND_WORD: Record<EvKind, [string, string]> = { task: ["Tasks", "Tugasan"], due: ["Deadlines", "Tarikh akhir"], review: ["Reviews", "Semakan"], live: ["Live Sessions", "Sesi Live"], mile: ["Milestones", "Pencapaian"] };
-const KIND_SUB: Record<EvKind, [string, string]> = { task: ["Booked work blocks", "Blok kerja dijadualkan"], due: ["Due date", "Tarikh akhir"], review: ["Waiting for review", "Menunggu semakan"], live: ["Live sessions on the roster", "Sesi live dalam roster"], mile: ["Project due dates", "Tarikh akhir projek"] };
-const EV_CLS: Record<EvKind, string> = { task: t5.evTask ?? "", due: t5.evDue ?? "", review: t5.evReview ?? "", live: t5.evLive ?? "", mile: t5.evMile ?? "" };
-const SW_CLS: Record<EvKind, string> = { task: t5.swTask ?? "", due: t5.swDue ?? "", review: t5.swReview ?? "", live: t5.swLive ?? "", mile: t5.swMile ?? "" };
-const EV_ICON: Record<EvKind, AppIconName> = { task: "orders", due: "warning", review: "search", live: "live", mile: "folder" };
+const KIND_WORD: Record<EvKind, [string, string]> = { task: ["Booked work", "Kerja dijadualkan"], due: ["Deadlines", "Tarikh akhir"], review: ["Reviews", "Semakan"], mile: ["Milestones", "Pencapaian"] };
+const KIND_SUB: Record<EvKind, [string, string]> = { task: ["Booked work blocks", "Blok kerja dijadualkan"], due: ["Due date", "Tarikh akhir"], review: ["Waiting for review", "Menunggu semakan"], mile: ["Project due dates", "Tarikh akhir projek"] };
+const EV_CLS: Record<EvKind, string> = { task: t5.evTask ?? "", due: t5.evDue ?? "", review: t5.evReview ?? "", mile: t5.evMile ?? "" };
+const SW_CLS: Record<EvKind, string> = { task: t5.swTask ?? "", due: t5.swDue ?? "", review: t5.swReview ?? "", mile: t5.swMile ?? "" };
+const CAL_ON: Record<EvKind, boolean> = { task: false, due: true, review: true, mile: true };
+const EV_ICON: Record<EvKind, AppIconName> = { task: "orders", due: "warning", review: "search", mile: "folder" };
 
 export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, onOpenTask, onOpenProject }: {
   tasks: Task[]; projects: CalProject[] | null; today: string; month: string; setMonth: (m: string) => void;
@@ -224,7 +227,7 @@ export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, o
   const [picked, setPicked] = useState(today);
   const [who, setWho] = useState(0);
   const [proj, setProj] = useState("");
-  const [on, setOn] = useState<Record<EvKind, boolean>>({ task: true, due: true, review: true, live: true, mile: true });
+  const [on, setOn] = useState<Record<EvKind, boolean>>(CAL_ON);
   const [y, m] = month.split("-").map(Number) as [number, number];
   const first = `${month}-01`;
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -248,16 +251,12 @@ export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, o
       if ((who && b.user_id !== who) || (proj && t?.link_label !== proj)) continue;
       out.push({ key: `b${b.id}`, kind: "task", day: b.block_date, at: b.start_time, title: b.title, sub: `${b.start_time.slice(0, 5)}${b.end_time ? ` – ${b.end_time.slice(0, 5)}` : ""}`, open: () => onOpenTask(b.task_id), who: b.user_id });
     }
-    if (!proj) for (const s of roster.sessions) {
-      if (s.status === "cancelled" || (who && s.host_user_id !== who)) continue;
-      out.push({ key: `s${s.id}`, kind: "live", day: s.session_date, at: s.start_time, title: L(`Live - ${s.platform}`, `Live - ${s.platform}`), sub: `${s.start_time.slice(0, 5)}${s.end_time ? ` – ${s.end_time.slice(0, 5)}` : ""}${s.host_name ? ` · ${s.host_name}` : ""}`, open: null, who: s.host_user_id });
-    }
     if (!who) for (const p of projects ?? []) {
       if (!p.due_date || p.status === "cancelled" || (proj && !proj.startsWith(p.title))) continue;
       out.push({ key: `p${p.id}`, kind: "mile", day: p.due_date.slice(0, 10), title: p.title, sub: p.company ?? L("Project due", "Projek perlu siap"), late: p.status !== "completed" && p.due_date < today, open: () => onOpenProject(p.id) });
     }
     return out.filter((e) => on[e.kind]).sort((a, b) => a.day.localeCompare(b.day) || (a.at ?? "99").localeCompare(b.at ?? "99"));
-  }, [tasks, roster.blocks, roster.sessions, projects, who, proj, on, today, onOpenTask, onOpenProject]);
+  }, [tasks, roster.blocks, projects, who, proj, on, today, onOpenTask, onOpenProject]);
 
   const byDay = useMemo(() => { const mp = new Map<string, Ev[]>(); for (const e of events) mp.set(e.day, [...(mp.get(e.day) ?? []), e]); return mp; }, [events]);
   const dayEvents = byDay.get(picked) ?? [];
@@ -295,7 +294,7 @@ export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, o
   return (
     <div className={t5.stack} data-testid="work-calendar">
       <KpiRow label={L("Calendar figures", "Angka kalendar")}>
-        <KpiTile icon="date" tone="blue" label={L("Events Today", "Acara Hari Ini")} value={todayCount} busy={roster.loading} sub={L("Due dates, task blocks, reviews and lives", "Tarikh akhir, blok tugasan, semakan dan live")} />
+        <KpiTile icon="date" tone="blue" label={L("Events Today", "Acara Hari Ini")} value={todayCount} busy={roster.loading} sub={L("Due dates, reviews, milestones and booked work shown", "Tarikh akhir, semakan, pencapaian dan kerja dijadualkan yang dipaparkan")} />
         <KpiTile icon="time" tone="gold" label={L("Due This Week", "Perlu Siap Minggu Ini")} value={dueWeek} sub={L(`Tasks due by ${dmy(sunday)}`, `Tugasan perlu siap sebelum ${dmy(sunday)}`)} />
         <KpiTile icon="search" tone="red" label={L("Reviews", "Semakan")} value={reviews} sub={L("Tasks awaiting review", "Tugasan menunggu semakan")} />
         <KpiTile icon="folder" tone="green" label={L("Milestones This Month", "Pencapaian Bulan Ini")} value={projects ? miles : ""} busy={projects === null} sub={L("Project due dates in the month", "Tarikh akhir projek dalam bulan")} />
@@ -320,7 +319,7 @@ export function WorkCalendar({ tasks, projects, today, month, setMonth, staff, o
               <span className={`${t5.sw} ${SW_CLS[k]}`} aria-hidden />{L(KIND_WORD[k][0], KIND_WORD[k][1])}
             </button>
           ))}
-          {(who || proj || Object.values(on).some((x) => !x)) ? <button type="button" className={btnSm} onClick={() => { setWho(0); setProj(""); setOn({ task: true, due: true, review: true, live: true, mile: true }); }}><AppIcon name="refresh" />{L("Clear Filters", "Kosongkan Penapis")}</button> : null}
+          {(who || proj || (Object.keys(CAL_ON) as EvKind[]).some((k) => on[k] !== CAL_ON[k])) ? <button type="button" className={btnSm} onClick={() => { setWho(0); setProj(""); setOn(CAL_ON); }}><AppIcon name="refresh" />{L("Clear Filters", "Kosongkan Penapis")}</button> : null}
         </div>
       </section>
       <div className={t5.splitWide}>

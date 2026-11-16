@@ -7,8 +7,10 @@ On Shift's one punch: while it is on its way a card says "Recording
 attendance..."; when the server has recorded it, a sheet says what was
 recorded - the time (Malaysia time), the hours or the shift, where it was by
 the record's own outcome, who - and Done closes it. The company's own logo
-(public/logo.png) heads both. A phone gets a bottom sheet with no sideways
-page at 320-430 px and 44 px targets; a desk a centred card.
+(public/logo.png) heads both. v1.328.0: one compact modal centred in the
+viewport at every width (90% up to 360 px, inside the safe areas), no
+sideways page at 320-430 px, 44 px targets; outside the geofence is the
+warning band and says Not GPS verified.
 
 The fixture answers a clean punch as the worker does (/__punch?status=201):
 outside the geofence by 17.4 km, 1h15 of overtime on a clock-out, a late
@@ -69,14 +71,20 @@ def run(b, port, who, w, exempt):
     place = pg.get_by_test_id("punch-place").inner_text()
     check(f"{tag}: the place is the record's own outcome - Outside Geofence (17.4 km), {'not tagged' if exempt else 'tagged for HR'}",
           "Outside Geofence (17.4 km)" in place and (("Recorded, not tagged" in place) if exempt else ("Recorded and tagged for HR" in place)), place)
+    # v1.328.0 - recorded is not verified: outside is the warning band for everyone (the CEO is only never tagged)
+    check(f"{tag}: outside the geofence is the warning band and says Not GPS verified - never green, never 'verified'",
+          pg.get_by_test_id("punch-place").get_attribute("data-tone") == "warn" and "Not GPS verified" in place and "Location verified" not in place, place)
     check(f"{tag}: the overtime the clock-out measured is said on the same sheet", pg.get_by_test_id("punch-ot").count() == 1 and "1h15 overtime sent for approval" in pg.get_by_test_id("punch-ot").inner_text())
     check(f"{tag}: who recorded it, and when", re.search(r"Recorded by \S+", st) is not None)
     box = pg.evaluate("(() => { const s = document.querySelector('[data-testid=punch-receipt] [role=dialog]').getBoundingClientRect(); const d = document.querySelector('[data-testid=punch-done]').getBoundingClientRect(); const c = document.querySelector('[data-testid=punch-receipt] button[aria-label=Close]').getBoundingClientRect(); return { l: s.left, r: s.right, b: s.bottom, t: s.top, w: innerWidth, h: innerHeight, dh: d.height, ch: c.height, cw: c.width, db: d.bottom }; })()")
-    if w < 640:
-        check(f"{tag}: a bottom sheet - full width, at the foot of the screen, inside it", abs(box["l"]) < 1 and abs(box["r"] - box["w"]) < 1 and abs(box["b"] - box["h"]) < 1 and box["t"] >= 0, box)
-    else:
-        check(f"{tag}: a centred card, inside the screen", box["l"] > 20 and box["r"] < box["w"] - 20 and box["t"] >= 0 and box["b"] <= box["h"] and abs((box["l"] + box["r"]) / 2 - box["w"] / 2) < 12, box)  # the page's scrollbar gutter
-    check(f"{tag}: Done and Close are 44 px targets, and Done is on screen", box["dh"] >= 44 and box["ch"] >= 44 and box["cw"] >= 44 and box["db"] <= box["h"] + 1, box)
+    # v1.328.0 (the CEO, 16-11-2026): a compact centred modal at EVERY width - never a bottom sheet or a full screen
+    sw = box["r"] - box["l"]
+    check(f"{tag}: a compact modal centred in the viewport - at most 360 px and 90% wide, floating off every edge",
+          sw <= 361 and sw <= box["w"] * 0.9 + 1 and box["l"] >= 8 and box["r"] <= box["w"] - 8 and box["t"] >= 8 and box["b"] <= box["h"] - 8
+          and abs((box["l"] + box["r"]) / 2 - box["w"] / 2) < 12 and abs((box["t"] + box["b"]) / 2 - box["h"] / 2) < 3, box)  # 12: the page's scrollbar gutter
+    check(f"{tag}: it is as tall as what it holds (no full-height sheet)", box["b"] - box["t"] < box["h"] * 0.8, box)
+    tap = pg.evaluate("(() => { const c = document.querySelector('[data-testid=punch-receipt] button[aria-label=Close]'); const a = getComputedStyle(c, '::after'); const r = c.getBoundingClientRect(); const i = parseFloat(a.top); return { w: r.width - 2 * i, h: r.height - 2 * i }; })()")
+    check(f"{tag}: Done is a 44 px target and on screen; the X's tap ring is 44 px", box["dh"] >= 44 and tap["w"] >= 44 and tap["h"] >= 44 and box["db"] <= box["h"] + 1, (box, tap))
     check(f"{tag}: no sideways page", no_hscroll(pg))
     check(f"{tag}: focus is on Done", pg.evaluate("document.activeElement?.dataset?.testid") == "punch-done")
     pg.get_by_test_id("punch-done").click(); pg.wait_for_timeout(400)
@@ -116,7 +124,7 @@ with sync_playwright() as p:
         if press(pg, "Clock Out"):
             pg.wait_for_timeout(3000)
             fit = pg.evaluate("(() => { const s = document.querySelector('[data-testid=punch-receipt] [role=dialog]'); if (!s) return null; const r = s.getBoundingClientRect(); const over = [...s.querySelectorAll('*')].filter(e => { const x = e.getBoundingClientRect(); return x.width > 0 && (x.right > innerWidth + 1 || x.left < -1); }).length; return { top: r.top, bottom: r.bottom, h: innerHeight, over, scrolls: s.scrollHeight > s.clientHeight }; })()")
-            check(f"{w}x640: the sheet is inside the screen, nothing runs off the side, and it scrolls inside itself if it is taller", fit is not None and fit["top"] >= 0 and fit["bottom"] <= fit["h"] + 1 and fit["over"] == 0 and no_hscroll(pg), fit)
+            check(f"{w}x640: the modal is inside the screen and centred, nothing runs off the side, and it scrolls inside itself if it is taller", fit is not None and fit["top"] >= 8 and fit["bottom"] <= fit["h"] - 8 and fit["over"] == 0 and no_hscroll(pg) and abs((fit["top"] + fit["bottom"]) / 2 - fit["h"] / 2) < 3, fit)
         else:
             check(f"{w}x640: Clock Out is there to press", False)
         ctx.close()

@@ -294,7 +294,7 @@ type Submitted = { id?: number; stage?: string; route?: string; approver?: strin
 export function ApplyLeave4({ types, onSubmitted, toast, submit }: {
   types: readonly string[];
   onSubmitted: () => void;
-  toast: (title: string, sub?: string, v?: "success" | "notice") => void;
+  toast: (title: string, sub?: string, v?: "success" | "notice" | "error") => void;
   /** POST /staff/leave through the page's own sender (the step-up for an Executive Leave Record, the offline queue) */
   submit: (body: Record<string, unknown>) => Promise<{ ok: boolean; queued?: boolean; data: (Submitted & { error?: { message?: string } }) | null }>;
 }) {
@@ -350,7 +350,7 @@ export function ApplyLeave4({ types, onSubmitted, toast, submit }: {
     setBusy(true);
     try {
       const r = await submit({ type: f.type, start_date: f.start, end_date: end, day_part: half || "full", reason: f.reason.trim(), ...(file ? { mc_media_id: file.media_id } : {}) });
-      if (!r.ok && !r.queued) { toast(L("Not sent", "Tidak dihantar"), r.data?.error?.message ?? L("The server refused the request", "Pelayan menolak permohonan"), "notice"); return; }
+      if (!r.ok && !r.queued) { toast(L("Not sent", "Tidak dihantar"), r.data?.error?.message ?? L("The server refused the request", "Pelayan menolak permohonan"), "error"); return; } /* v1.329.0 - a refusal waits for OK */
       setDone({ ...(r.data ?? {}), queued: r.queued, days: r.data?.days ?? quote.days });
       setStep(3);
       onSubmitted();

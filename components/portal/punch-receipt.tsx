@@ -27,10 +27,16 @@
    CEO, kept on the phone with no signal, or refused never reaches this
    sheet: those keep the words they have always had (PunchToast).
 
-   PWA: the shared result sheet (components/ui/result-sheet.tsx) - a bottom
-   sheet on a phone (full width, the home-indicator inset under Done, 44px
-   targets, scrolls inside itself at any height), a centred card from 640px.
-   Escape, the backdrop and the X close it; focus lands on Done. */
+   PWA: the shared result sheet (components/ui/result-sheet.tsx) - v1.328.0
+   (the CEO, 16-11-2026: "a compact, perfectly centered floating modal"): one
+   centred card on every screen, 90% wide up to 360px, inside the iPhone safe
+   areas, scrolling inside itself only if the screen is shorter than it.
+   Escape, the backdrop and the X close it; focus lands on Done.
+
+   v1.328.0 - RECORDED IS NOT VERIFIED. Only a punch inside the geofence says
+   "Location verified". Outside the geofence is always the warning band (also
+   for the CEO, COO and CCO, who are only never TAGGED for HR), and every other
+   outcome says "Not GPS verified" before what happened to it. */
 
 import { useEffect, useRef } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -80,7 +86,7 @@ const hours = (min: number) => `${Math.floor(min / 60)}h ${String(Math.round(min
 /** The place band: the record's own outcome. Whether it is tagged for HR is the
     one rule the register and On Shift use (locFlagged, shift-location.tsx) -
     outside or no location, and never for the CEO, COO or CCO. */
-export function placeOf(loc: LocOutcome | null | undefined, exempt: boolean): { title: string; sub: string; tone: "ok" | "warn" | "plain" } | null {
+export function placeOf(loc: LocOutcome | null | undefined, exempt: boolean): { title: string; sub: string; tone: "ok" | "warn" | "plain"; status: string } | null {
   if (loc === undefined) return null;
   const tagged = locFlagged(loc, exempt);
   const d = dist(loc?.distance_m ?? null), at = d ? ` (${d})` : "";
@@ -89,12 +95,12 @@ export function placeOf(loc: LocOutcome | null | undefined, exempt: boolean): { 
     : st === "outside" ? L(`Outside Geofence${at}`, `Luar Geofence${at}`)
     : st === "low_accuracy" || st === "recorded" ? L(`Location recorded${at}`, `Lokasi direkodkan${at}`)
     : L("No location", "Tiada lokasi");
-  const sub = tagged ? L("Recorded and tagged for HR", "Direkodkan dan ditanda untuk HR")
-    : st === "verified" ? L("Location verified", "Lokasi disahkan")
+  const what = tagged ? L("Recorded and tagged for HR", "Direkodkan dan ditanda untuk HR")
     : st === "low_accuracy" ? L("Low GPS accuracy", "Ketepatan GPS rendah")
     : st === "recorded" ? L("No office geofence is set", "Tiada geofence pejabat ditetapkan")
     : L("Recorded, not tagged", "Direkodkan, tidak ditanda");
-  return { title, sub, tone: tagged ? "warn" : st === "verified" ? "ok" : "plain" };
+  const sub = st === "verified" ? L("Location verified", "Lokasi disahkan") : `${L("Not GPS verified", "Tidak disahkan GPS")} · ${what}`;
+  return { title, sub, tone: st === "verified" ? "ok" : tagged || st === "outside" ? "warn" : "plain", status: st };
 }
 
 /* ------------------------------ recording ------------------------------ */
@@ -129,7 +135,7 @@ export function PunchReceipt({ data, who, onDone }: {
     <ResultSheet titleId="punch-receipt-title" head={<BrandLogo label={L("Attendance", "Kehadiran")} />} onClose={onDone} testid="punch-receipt" kind={isIn ? "in" : "out"}>
       <div className={css.body} data-kind={isIn ? "in" : "out"}>
         <span className={css.tick} aria-hidden>
-          <svg viewBox="0 0 48 48" width="48" height="48"><path d="M13 25.5l7.5 7.5L35.5 17" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <svg viewBox="0 0 48 48" width="28" height="28"><path d="M13 25.5l7.5 7.5L35.5 17" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </span>
         <h2 id="punch-receipt-title" className={css.title}>{isIn ? L("Clock-In Recorded!", "Daftar Masuk Direkodkan!") : L("Clock-Out Recorded!", "Daftar Keluar Direkodkan!")}</h2>
         <p className={css.lead}>{isIn ? L("You have clocked in for today.", "Anda telah daftar masuk untuk hari ini.") : L("You have clocked out for today.", "Anda telah daftar keluar untuk hari ini.")}</p>
@@ -144,15 +150,15 @@ export function PunchReceipt({ data, who, onDone }: {
         </dl>
 
         {place && (
-          <p className={css.place} data-tone={place.tone} data-testid="punch-place">
-            <span className={css.pin} aria-hidden><AppIcon name="place" /></span>
+          <p className={css.place} data-tone={place.tone} data-status={place.status} data-testid="punch-place" role={place.tone === "warn" ? "alert" : undefined}>
+            <span className={css.pin} aria-hidden><AppIcon name={place.tone === "warn" ? "warning" : "place"} /></span>
             <span className={css.pair}><strong>{place.title}</strong><span>{place.sub}</span></span>
           </p>
         )}
         {data.ot && <p className={css.ot} data-testid="punch-ot"><AppIcon name="info" />{data.ot}</p>}
 
         <p className={css.by}>
-          <Avatar name={who.name} photoKey={who.photoKey} size="lg" />
+          <Avatar name={who.name} photoKey={who.photoKey} size="md" />
           <span className={css.pair}><strong>{L(`Recorded by ${who.name}`, `Direkodkan oleh ${who.name}`)}</strong><span>{t.date}, {t.time} MYT</span></span>
         </p>
 

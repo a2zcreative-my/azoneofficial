@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { PortalProvider } from "@/components/portal/portal-provider";
 import { PortalShell } from "@/components/portal/portal-shell";
+import { FeedbackProvider } from "@/components/ui/feedback-modal";
 
 /* v1.27.0 — the root layout's title template is `%s — ${SITE_CONFIG.name}`
    and SITE_CONFIG.name is now A2Z CREATIVE MARKETING, so this segment must
@@ -32,7 +33,10 @@ export const metadata: Metadata = {
 export default function PortalLayout({ children }: { children: ReactNode }) {
   return (
     <PortalProvider>
-      <PortalShell>{children}</PortalShell>
+      {/* v1.329.0 - the one feedback modal, mounted once: two results never stack (F-1) */}
+      <FeedbackProvider>
+        <PortalShell>{children}</PortalShell>
+      </FeedbackProvider>
     </PortalProvider>
   );
 }

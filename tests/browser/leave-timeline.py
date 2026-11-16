@@ -50,6 +50,14 @@ def patches(reqs, lid):
 
 FITS = "() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
 # v1.254.2 - measured inside the drawer too: a fixed panel's overflow never shows on the page scroll width
+
+def ack(pg):
+    """v1.329.0 - a decision's result waits for OK (the one feedback modal, F-2): read it, then press OK"""
+    fb = pg.get_by_test_id("leave-feedback")
+    t = fb.inner_text() if fb.count() else ""
+    if pg.get_by_test_id("feedback-ok").count(): pg.get_by_test_id("feedback-ok").click(); pg.wait_for_timeout(400)
+    return t
+
 INSIDE = "(w) => { const d = [...document.querySelectorAll('[role=dialog]')].filter((x) => x.offsetParent !== null).pop(); return d ? [...d.querySelectorAll('*')].filter((e) => !e.closest('[class*=line-tabs_tabs]')).filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > w + 1; }).length : -1; }"
 
 with sync_playwright() as p:
@@ -81,12 +89,15 @@ with sync_playwright() as p:
     ask.get_by_role("button").filter(has_text="OK").or_(ask.get_by_role("button").filter(has_text="Confirm")).or_(ask.get_by_role("button").filter(has_text="Save")).first.click(); pg.wait_for_timeout(1000)
     sent = patches(reqs, 1)
     check("...and sends it with the decision", len(sent) >= 1 and sent[-1].get("action") == "reject" and sent[-1].get("comment") == "Clashes with the stock count", sent)
+    rt = ack(pg)
+    check("...and the result says it was rejected, and waited for OK (v1.329.0)", "Leave rejected" in rt and "Rejected" in rt, rt[:200])
     reqs.clear(); dlg.get_by_role("button", name="Return for info").click(); pg.wait_for_timeout(600)
     ask = pg.get_by_role("dialog").filter(has_text="question")
     ask.locator("input, textarea").first.fill("Who covers your clients on those days?")
     ask.get_by_role("button").filter(has_text="OK").or_(ask.get_by_role("button").filter(has_text="Confirm")).or_(ask.get_by_role("button").filter(has_text="Save")).first.click(); pg.wait_for_timeout(1000)
     sent = patches(reqs, 1)
     check("Return for info asks a question and sends it", len(sent) >= 1 and sent[-1].get("action") == "return" and sent[-1].get("comment", "").startswith("Who covers"), sent)
+    ack(pg)
     tab(pg, "Comments", dlg)
     ct = pg.get_by_test_id("leave-comments").inner_text()
     check("management reads the thread with the internal note marked Internal, and may choose who sees a comment", "Balance checked" in ct and "Internal" in ct and pg.get_by_role("radio", name="Internal - management only").count() == 1, ct[:300])
@@ -116,6 +127,7 @@ with sync_playwright() as p:
     check("the applicant has no Approve or Reject", dlg.get_by_role("button", name="Reject").count() == 0 and dlg.get_by_role("button", name="Approve now").count() == 0)
     box.locator("textarea").fill("The Kasih Rabiah meeting moves to Friday")
     reqs.clear(); box.get_by_role("button", name="Resubmit").click(); pg.wait_for_timeout(1200)
+    ack(pg)
     sent = patches(reqs, 4)
     check("Resubmit sends the answer (dates unchanged are not sent)", len(sent) >= 1 and sent[-1].get("action") == "resubmit" and sent[-1].get("comment", "").startswith("The Kasih") and "start_date" not in sent[-1], sent)
     tab(pg, "Comments", dlg)

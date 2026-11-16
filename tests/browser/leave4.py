@@ -42,6 +42,14 @@ def posts(port):
 def visible_text(pg):
     return pg.evaluate("""() => [...document.querySelectorAll('main *')].filter(e => e.offsetParent !== null && e.children.length === 0).map(e => e.textContent).join(' | ')""")
 
+
+def ack(pg):
+    """v1.329.0 - a decision's result waits for OK (the one feedback modal, F-2): read it, then press OK"""
+    fb = pg.get_by_test_id("leave-feedback")
+    t = fb.inner_text() if fb.count() else ""
+    if pg.get_by_test_id("feedback-ok").count(): pg.get_by_test_id("feedback-ok").click(); pg.wait_for_timeout(400)
+    return t
+
 with sync_playwright() as p:
     b = p.chromium.launch()
     c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
@@ -150,12 +158,15 @@ with sync_playwright() as p:
     q.get_by_test_id("queue-approve").first.click(); pg.wait_for_timeout(900)
     pa = [x for x in posts(CEO) if x["method"] == "PATCH"]
     check("Approve in the queue sends the decision to the one route", pa and pa[-1]["p"] == "/staff/leave/9" and pa[-1]["body"].get("action") == "approve", pa[-1:] if pa else pa)
+    at = ack(pg)
+    check("...and the result says approved (final) or approved at your step (pending) - never a bare 'Approved' (v1.329.0)", "approved" in at.lower() and ("Approved - final" in at or "Pending the next approval" in at), at[:200])
     q.get_by_test_id("queue-return").first.click(); pg.wait_for_timeout(500)
     dlg = pg.get_by_role("dialog")
     dlg.locator("textarea, input").first.fill("Please attach the clinic's letter."); pg.wait_for_timeout(200)
     dlg.get_by_role("button").filter(has_text=re.compile("OK|Confirm|Send|Return|Save", re.I)).last.click(); pg.wait_for_timeout(900)
     pa = [x for x in posts(CEO) if x["method"] == "PATCH"]
     check("Send back asks the question and sends a return", pa and pa[-1]["body"].get("action") == "return" and "clinic" in pa[-1]["body"].get("comment", ""), pa[-1:] if pa else pa)
+    ack(pg)
     # the drawer: the attachment, and the override for the owner only
     q.get_by_role("button", name="View").first.click(); pg.wait_for_timeout(900)
     check("the drawer opens the attachment through its gated route", pg.get_by_test_id("leave-attachment").get_attribute("href") == "/api/v1/staff/leave/9/attachment")

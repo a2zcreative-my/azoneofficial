@@ -113,6 +113,7 @@ const BODY = {
   "ELFIA Traffic": ["components/portal/elfia-traffic-panel.tsx"],
   "HR": ["components/portal/hr-page.tsx"], // v1.192.0 - the page is its own tabbed panel
   "Attendance": ["components/portal/attendance-panel.tsx"], // v1.188.0 - the page is its own tabbed panel
+  "Roster & Scheduling": ["components/portal/roster-scheduling.tsx"], // v1.328.0 - R-1: the roster workspace
   "Tasks": ["components/portal/tasks.tsx"],
   "Announcements": ["components/portal/announcements.tsx#Announcements", "components/portal/news-parts.tsx#NewsStats"], // v1.295.0 - News N1: the shared stat strip lives with the News parts
   "Staff Details": ["components/staff/staff-directory.tsx#StaffDirectory"],

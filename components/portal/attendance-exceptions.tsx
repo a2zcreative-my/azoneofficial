@@ -28,7 +28,7 @@ import { TabZone } from "@/components/portal/tab-concept";
 import { AppIcon } from "@/components/ui/app-icon";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
-import { useSaveToast } from "@/components/ui/save-toast";
+import { useFeedback } from "@/components/ui/feedback-modal";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
@@ -56,7 +56,12 @@ export function AttendanceExceptions({ user }: { user: User }) {
   const punches = useCachedApi<{ pending?: Punch[] }>(canCorrect ? "/staff/attendance/pending" : null, true, ["attendance"]);
   const ots = useCachedApi<{ pending?: Ot[]; can_replace?: boolean }>(canOt ? "/staff/attendance/ot/pending" : null, true, ["attendance"]);
   const decided = useCachedApi<{ decided_today: number }>("/staff/attendance/decided-today", true, ["attendance"]);
-  const { show: toast, node: toastNode } = useSaveToast();
+  /* v1.329.0 - the feedback pilot (F-P4, the CEO's reference): a decision says WHICH
+     decision, for whom, which day and how long, and waits for OK; a refusal is
+     an error and waits for OK. The words come from the row and the server. */
+  const { show: feedback, node: toastNode } = useFeedback();
+  const notDecided = (r: { data?: { error?: { message?: string } } | null }) => feedback({ variant: "error", title: L("Not decided", "Tidak diputuskan"),
+    description: r.data?.error?.message ?? L("The server did not record the decision. Check the request and press the button again.", "Pelayan tidak merekod keputusan. Semak permintaan dan tekan butang sekali lagi."), testid: "decision-feedback" });
   const { confirm, node: confirmNode } = useConfirm();
   const [kind, setKind] = useState<"all" | "punch" | "ot">("all");
   const [q, setQ] = useState("");
@@ -82,8 +87,18 @@ export function AttendanceExceptions({ user }: { user: User }) {
     setBusy(true);
     const r = await api<{ error?: { message?: string } }>("/staff/attendance/pending/decide", { method: "POST", body: JSON.stringify(action === "approve" ? { id: p.id, action, myt: (fix || utcToMyt(p.created_at)).replace("T", " ") } : { id: p.id, action }) });
     setBusy(false);
-    if (!r.ok) { toast(L("Not decided", "Tidak diputuskan"), r.data?.error?.message ?? L("Please try again", "Sila cuba lagi"), "notice"); return; }
-    toast(action === "approve" ? L("Approved — it now counts", "Diluluskan — kini dikira") : L("Rejected", "Ditolak"), properName(p.name)); setOpenKey(null); refresh();
+    if (!r.ok) { notDecided(r); return; }
+    const at = (action === "approve" ? (fix || utcToMyt(p.created_at)) : utcToMyt(p.created_at)).replace("T", " ");
+    feedback({ variant: "success", acknowledge: true, testid: "decision-feedback",
+      title: action === "approve" ? L("Forgotten punch approved", "Ketukan terlupa diluluskan") : L("Forgotten punch rejected", "Ketukan terlupa ditolak"),
+      description: properName(p.name),
+      chip: action === "approve" ? { label: L("It now counts", "Kini dikira"), tone: "success" } : { label: L("Removed from the day", "Dibuang daripada hari itu"), tone: "danger" },
+      facts: [
+        { icon: "date", label: L("Day", "Hari"), value: dmy(at.slice(0, 10)) },
+        { icon: "time", label: p.type === "clock_in" ? L("Clock-in", "Masuk") : L("Clock-out", "Keluar"), value: at.slice(11, 16) },
+        { icon: "verify", label: L("Status", "Status"), value: action === "approve" ? L("Approved", "Diluluskan") : L("Rejected", "Ditolak") },
+      ] });
+    setOpenKey(null); refresh();
   };
   const decideOt = async (decision: "approved" | "replacement" | "rejected", days?: 0.5 | 1) => {
     const o = open?.ot; if (!o) return;
@@ -94,8 +109,19 @@ export function AttendanceExceptions({ user }: { user: User }) {
     setBusy(true);
     const r = await api<{ error?: { message?: string } }>("/staff/attendance/ot/decide", { method: "POST", body: JSON.stringify({ user_id: o.user_id, date: o.d, decision, ...(decision === "replacement" ? { replacement_days: days } : {}), note: note || undefined }) });
     setBusy(false);
-    if (!r.ok) { toast(L("Not decided", "Tidak diputuskan"), r.data?.error?.message ?? L("Please try again", "Sila cuba lagi"), "notice"); return; }
-    toast(L("Decided", "Diputuskan"), properName(o.name)); setOpenKey(null); setNote(""); refresh();
+    if (!r.ok) { notDecided(r); return; }
+    feedback({ variant: "success", acknowledge: true, testid: "decision-feedback",
+      title: decision === "approved" ? L("Overtime approved", "OT diluluskan") : decision === "replacement" ? L("Replacement leave credited", "Cuti gantian dikreditkan") : L("Overtime rejected", "OT ditolak"),
+      description: properName(o.name),
+      chip: decision === "approved" ? { label: L("Goes to the payroll", "Masuk ke gaji"), tone: "success" }
+        : decision === "replacement" ? { label: days === 1 ? L("Replacement leave · 1 day", "Cuti gantian · 1 hari") : L("Replacement leave · ½ day", "Cuti gantian · ½ hari"), tone: "info" }
+        : { label: L("Not paid", "Tidak dibayar"), tone: "danger" },
+      facts: [
+        { icon: "date", label: L("Day", "Hari"), value: dmy(o.d) },
+        { icon: "time", label: L("Overtime", "OT"), value: `${o.ot_in ?? "?"}–${o.ot_out ?? "?"}` },
+        { icon: "pending", label: L("Duration", "Tempoh"), value: dur(o.minutes) },
+      ] });
+    setOpenKey(null); setNote(""); refresh();
   };
 
   const own = open ? open.user_id === user.id : false;

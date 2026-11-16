@@ -11,6 +11,8 @@ import { Announcement, type AttRecord, DASH_ANNS, DASH_ATT, DASH_LEAVE, DASH_TAS
 /* v1.203.0 - the overview (the owner's A2Z OS 2.0 reference) and the tab row */
 import { DashboardOverview, ExecHeader, WelcomeHeader, type MonitorRow, type Session } from "@/components/portal/dashboard-overview";
 import { LineTabs } from "@/components/ui/line-tabs";
+import { SideDrawer } from "@/components/ui/side-drawer";
+import { useFeedback } from "@/components/ui/feedback-modal";
 import { SalesDoc } from "@/components/portal/sales";
 import { TradingDesk } from "@/components/portal/trading-desk";
 import { WATCHER_ROLES } from "@/components/portal/watchers-card";
@@ -49,7 +51,7 @@ export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = 
   shift: ["day", "desk", "month", "company", "around"],
 };
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { btnHero, btnHeroPrimary, card, chipSmNeutral, chipSuccess, toastCard } from "@/lib/ui-styles";
+import { btnHero, btnHeroPrimary, card, chipSmNeutral, chipSuccess } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { PunchIcon } from "@/components/ui/punch-icon";
@@ -58,7 +60,7 @@ import shiftCss from "./on-shift.module.css";
 import { daysOf, hoursLabel, sessionMinutes } from "@/lib/clock-sessions";
 import { PunchReceipt, PunchRecording } from "@/components/portal/punch-receipt"; // v1.318.0 - the clock-in / clock-out confirmation
 import { LocationCard, LocChip } from "@/components/portal/shift-location"; // v1.294.0 - On Shift v2.0
-import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShift, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
+import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShiftLine, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 import { WeekTargetStrip, useWeekDash } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0; useWeekDash v1.291.0
 import { QuickActionsStrip, type QuickAction } from "@/components/portal/executive-cards"; // v1.291.0
@@ -241,83 +243,9 @@ export function MonthAttendanceCard({ days, month, lang, daysPresent, hours }: {
 
 /** ISO "YYYY-MM-DD…" → "DD-MM-YYYY" (+ " HH:MM" when time is present). */
 
-export function PunchToast({
-  title,
-  sub,
-  variant = "success",
-}: {
-  title: string;
-  sub: string;
-  /* v1.177.1 - "danger" is a punch that did NOT happen: the device could not
-     keep it and there was no signal to send it. It is not a notice. */
-  variant?: "success" | "notice" | "danger";
-}) {
-  /* v1.124.0 — see SaveToast: the ring follows the theme now. */
-  const colour = variant === "success" ? "var(--primary)" : variant === "danger" ? "var(--danger)" : "var(--warning)";
-  return (
-    <div className={css.toastLayer}>
-      <style>{`
-        @keyframes punch-pop { 0% { opacity: 0; transform: scale(.82) translateY(8px); } 60% { opacity: 1; transform: scale(1.03); } 100% { transform: scale(1); } }
-        @keyframes punch-ring { from { stroke-dashoffset: 151; } to { stroke-dashoffset: 0; } }
-        @keyframes punch-check { from { stroke-dashoffset: 36; } to { stroke-dashoffset: 0; } }
-        @keyframes punch-fade { to { opacity: 0; } }
-      `}</style>
-      <div
-        className={toastCard}
-        style={{
-          animation:
-            "punch-pop .45s cubic-bezier(.2,.9,.3,1.2) both, punch-fade .4s ease .2s forwards",
-          animationDelay: "0s, 2.2s",
-        }}
-        role="status"
-        aria-live="polite"
-      >
-        <svg
-          viewBox="0 0 52 52"
-          className={css.toastRing}
-          aria-hidden="true"
-        >
-          <circle
-            cx="26"
-            cy="26"
-            r="24"
-            fill="none"
-            stroke={colour}
-            strokeWidth="2.5"
-            strokeDasharray="151"
-            style={{ animation: "punch-ring .6s ease-out .1s both" }}
-          />
-          {variant === "success" ? (
-            <path
-              d="M15 27l7.5 7.5L37 20"
-              fill="none"
-              stroke={colour}
-              strokeWidth="3.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeDasharray="36"
-              style={{ animation: "punch-check .35s ease-out .55s both" }}
-            />
-          ) : (
-            <g style={{ animation: "punch-check .35s ease-out .55s both" }}>
-              <path
-                d="M26 14v16"
-                fill="none"
-                stroke={colour}
-                strokeWidth="3.5"
-                strokeLinecap="round"
-                strokeDasharray="16"
-              />
-              <circle cx="26" cy="37" r="2.2" fill={colour} />
-            </g>
-          )}
-        </svg>
-        <p className={css.toastTitle}>{title}</p>
-        <p className={css.toastSub}>{sub}</p>
-      </div>
-    </div>
-  );
-}
+/* v1.329.0 - PunchToast, the private copy of the save toast, is gone: the
+   clock's messages are the one feedback modal (components/ui/feedback-modal.tsx,
+   F-1). A punch that did NOT happen ("danger") waits for OK. */
 
 export function Dashboard({
   user,
@@ -332,7 +260,7 @@ export function Dashboard({
   go: (t: TabName) => void;
   onCreateQuotation?: () => void;
   /** v1.203.0 - open a tab on one of its own views (a quick action's form) */
-  openAt?: (t: TabName, view: string) => void;
+  openAt?: (t: TabName, view: string, anchor?: string) => void; // v1.326.0 - anchor: the section to bring into view
   /* v1.159.9 - whether this account's tab strip shows a tab (the page's own
      filter, overrides included). Absent = fall back to the role default. */
   canOpen?: (t: string) => boolean;
@@ -552,12 +480,19 @@ export function Dashboard({
   }, []);
   
 
-  const [punchToast, setPunchToast] = useState<{
-    title: string;
-    sub: string;
-    variant?: "success" | "notice" | "danger";
-  } | null>(null);
+  /* v1.329.0 - the clock's messages go through the one feedback modal (F-1):
+     the same words; a routine one closes itself, a punch that did NOT happen
+     ("danger") waits for OK. setPunchToast(null) is a no-op - the card keeps
+     its own time, so a later timer never closes a newer card. */
+  const { show: showFeedback } = useFeedback();
+  const setPunchToast = useCallback((t: { title: string; sub: string; variant?: "success" | "notice" | "danger" } | null) => {
+    if (!t) return;
+    showFeedback({ variant: t.variant === "danger" ? "error" : t.variant === "notice" ? "warning" : "success", title: t.title, description: t.sub || undefined, testid: "punch-toast" });
+  }, [showFeedback]);
   const [punchError, setPunchError] = useState("");
+  /* v1.328.0 - On Shift, five cards: the location details open on demand; This week / Recent share one card */
+  const [locOpen, setLocOpen] = useState(false);
+  const [daysTab, setDaysTab] = useState<"week" | "recent">("week");
   /* v1.318.0 - THE CONFIRMATION (the CEO's picture, 15-11-2026). A punch the
      server RECORDED CLEAN opens it; what it shows is read back from that
      record (its time, its location outcome) once the day has been re-read.
@@ -1231,13 +1166,6 @@ export function Dashboard({
             {punchError}
           </p>
         )}
-        {punchToast && (
-          <PunchToast
-            title={punchToast.title}
-            sub={punchToast.sub}
-            variant={punchToast.variant}
-          />
-        )}
     </>
   );
   const clockOutNote = clockOutDue && (
@@ -1688,6 +1616,19 @@ export function Dashboard({
   const weekDays = monthDays ? [...(prevMonth.data?.days ?? []), ...monthDays] : null;
   const weekRecs = [...monthRecs, ...(prevMonth.data?.records ?? [])];
   const manager = MANAGE_ROLES.includes(user.role);
+  /* v1.328.0 - ON SHIFT, FIVE CARDS FROM EIGHT (the CEO, 16-11-2026, R-3 of
+     claude/ROSTER-SCHEDULING-STAGE-0-AUDIT.md; layout only - the punch, the
+     geofence, early clock-in, overtime, the outbox and the day verdict are
+     untouched):
+       1. My Shift     status, timer, figures, facts, the ONE Clock In / Out and
+                       everything that follows a press (waiting punches, the
+                       answer, overtime, the confirmation); GPS status is one
+                       line whose Location details open the verification card
+                       (map, distance, Check my location) on demand
+       2. Today        the schedule and the punches against it, one card
+       3. My days      This week · Recent behind one tab row
+       4. Team         one summary line for the managing roles (R-3)
+     No roster component is added: the roster is People > Roster & Scheduling. */
   const zoneShift = (
     <div className={shiftCss.page} data-zone="shift" data-team={manager ? "" : undefined}>
       <section className={`erp-card ${shiftCss.card} ${shiftCss.shift} ${shiftCss.aShift}`} aria-label={L("My shift", "Syif saya")}>
@@ -1759,14 +1700,11 @@ export function Dashboard({
             <div><dt>{L("Break", "Rehat")}</dt><dd>{schedSlots.length === 0 ? "—" : breakMin > 0 ? L(`${breakMin} min, unpaid`, `${breakMin} min, tidak berbayar`) : L("None scheduled", "Tiada dijadualkan")}</dd></div>
             <div><dt>{L("Overtime", "Lebih masa")}</dt><dd>{otWord}</dd></div>
             <div><dt>{L("Work location", "Lokasi kerja")}</dt><dd>{site ?? (fence ? L("No geofence set", "Tiada geofence") : "—")}</dd></div>
-            <div className={shiftCss.factWide}><dt>{L("GPS status", "Status GPS")}</dt><dd><LocChip loc={latestLoc?.loc ?? null} exempt={locExempt} pending={waitingPunches.length > 0} small long /></dd></div>
+            <div className={shiftCss.factWide}><dt>{L("GPS status", "Status GPS")}</dt><dd className={shiftCss.gpsLine}><LocChip loc={latestLoc?.loc ?? null} exempt={locExempt} pending={waitingPunches.length > 0} small long />
+              <button type="button" className={shiftCss.locLink} onClick={() => setLocOpen(true)} data-testid="location-open" aria-haspopup="dialog">{L("Location details", "Butiran lokasi")}<AppIcon name="next" /></button></dd></div>
           </dl>
         )}
-      </section>
-      <section className={`erp-card ${shiftCss.card} ${shiftCss.aQuick}`} aria-label={L("Quick actions", "Tindakan pantas")} data-testid="shift-actions">
-        <div className={shiftCss.cardHead}>
-          <h3 className={shiftCss.cardTitle}><AppIcon name="fast" className="erp-icon" />{L("Quick Actions", "Tindakan Pantas")}</h3>
-        </div>
+        <div className={shiftCss.actions} data-testid="shift-actions">
         {!attKnown ? <SkelRows rows={2} /> : (
           <div className={shiftCss.punchRow}>
             {openNow ? (
@@ -1806,22 +1744,14 @@ export function Dashboard({
           <button type="button" className={`erp-button erp-button-secondary ${shiftCss.actionBtn}`} onClick={() => go("Leave")}><AppIcon name="date" />{tr("Apply leave", lang)}</button>
           {canAtt && <button type="button" className={`erp-button erp-button-primary ${shiftCss.actionBtn}`} onClick={() => go("Attendance")}><AppIcon name="document" />{L("My attendance", "Kehadiran saya")}<AppIcon name="next" /></button>}
         </div>
+        </div>
       </section>
-      <div className={shiftCss.aLoc}>
-        <LocationCard fence={fenceFailed ? null : fence} fenceFailed={fenceFailed} latest={latestLoc} exempt={locExempt}
-          waiting={waitingPunches.length} known={attKnown} mapSite={mapSite}>
-          {fenceStrip && (
-            <div className={css.fenceCard}>
-              {fenceStrip}
-            </div>
-          )}
-        </LocationCard>
-      </div>
-      <section className={`erp-card ${shiftCss.card} ${shiftCss.aSched}`} aria-label={L("Today's schedule", "Jadual hari ini")}>
+      <section className={`erp-card ${shiftCss.card} ${shiftCss.aToday}`} aria-label={L("Today", "Hari ini")} data-testid="today-card">
         <div className={shiftCss.cardHead}>
-          <h3 className={shiftCss.cardTitle}><AppIcon name="date" className="erp-icon" />{L("Today's Schedule", "Jadual Hari Ini")}</h3>
+          <h3 className={shiftCss.cardTitle}><AppIcon name="date" className="erp-icon" />{L("Today", "Hari Ini")}</h3>
           {attKnown && todayShift?.pattern && schedSlots.length > 0 && <span className={chipSmNeutral}>{todayShift.pattern}</span>}
         </div>
+        <div className={shiftCss.todayPart} aria-label={L("Today's schedule", "Jadual hari ini")} role="group">
         {attKnown && schedSlots.length > 0 && (
           <>
             <p className={shiftCss.schedBig}>{schedLabel}</p>
@@ -1835,27 +1765,43 @@ export function Dashboard({
         )}
         <ScheduleSlots slots={todayShift?.slots ?? (attKnown ? [] : null)} known={attKnown} nowMinute={mytMinuteNow} />
         {shiftRule}
-      </section>
-      <section className={`erp-card ${shiftCss.card} ${shiftCss.aPunch}`} aria-label={L("Punch details", "Butiran punch")} data-testid="punch-details">
-        <div className={shiftCss.cardHead}>
-          <h3 className={shiftCss.cardTitle}><AppIcon name="verify" className="erp-icon" />{L("Punch Details", "Butiran Punch")}</h3>
         </div>
+        <div className={shiftCss.todayPart} data-testid="punch-details" aria-label={L("Punch details", "Butiran punch")} role="group">
+          <p className={shiftCss.partHead}><AppIcon name="verify" />{L("Punches", "Punch")}</p>
         <SessionRows sessions={sessionsNow} known={attKnown} punches={today} site={site} exempt={locExempt} />
         {todayOt.length > 0 && (
           <p className={shiftCss.muted}>
             {[...todayOt].reverse().map((r) => `${r.type === "ot_in" ? L("OT in", "OT masuk") : L("OT out", "OT keluar")} ${mytHm(r.created_at)}`).join(" · ")}
           </p>
         )}
+        </div>
       </section>
-      <div className={shiftCss.aRecent}><RecentDays records={monthRecs} days={monthDays} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)}
-        onOpenAttendance={canAtt ? () => go("Attendance") : undefined} exempt={locExempt} /></div>
-      <div className={shiftCss.aWeek}><WeekSchedule userId={user.id} onOpenRoster={canAtt ? () => go("Attendance") : undefined}
+      <div className={shiftCss.aDays} data-testid="my-days">
+        <LineTabs value={daysTab} onChange={setDaysTab} label={L("My days", "Hari saya")} testid="days-tab"
+          tabs={[["week", L("This week", "Minggu ini")], ["recent", L("Recent", "Terkini")]] as const} />
+        <div hidden={daysTab !== "week"}><WeekSchedule userId={user.id} onOpenRoster={() => go("Roster & Scheduling")}
         days={weekDays} records={weekRecs} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} /></div>
+        <div hidden={daysTab !== "recent"}><RecentDays records={monthRecs} days={monthDays} known={attKnown} statusLabel={(st) => dayStatusL(st, lang)}
+        onOpenAttendance={canAtt ? () => go("Attendance") : undefined} exempt={locExempt} /></div>
+      </div>
       {MANAGE_ROLES.includes(user.role) && (
         <div className={shiftCss.wide}>
-          <TeamOnShift rows={monitor} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} site={site} />
+          <TeamOnShiftLine rows={monitor} onOpenAttendance={canAtt ? () => go("Attendance") : undefined} />
         </div>
       )}
+      <SideDrawer open={locOpen} onClose={() => setLocOpen(false)} title={L("Location verification", "Pengesahan lokasi")}
+        subtitle={L("Work location, punch location and geofence status", "Lokasi kerja, lokasi punch dan status geofence")}>
+        {locOpen && (
+        <LocationCard fence={fenceFailed ? null : fence} fenceFailed={fenceFailed} latest={latestLoc} exempt={locExempt}
+          waiting={waitingPunches.length} known={attKnown} mapSite={mapSite}>
+          {fenceStrip && (
+            <div className={css.fenceCard}>
+              {fenceStrip}
+            </div>
+          )}
+        </LocationCard>
+        )}
+      </SideDrawer>
     </div>
   );
 
