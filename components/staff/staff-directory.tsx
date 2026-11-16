@@ -94,6 +94,8 @@ import type { TabName } from "@/lib/portal-tabs";
 import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import { leaveTypeL } from "@/components/portal/page-shared";
 import { OffboardSheet, type OffboardPerson } from "@/components/staff/offboard-sheet";
+/* v1.322.0 - the positions list (the CEO, 16-11-2026): the picker on the record, the card on Departments & Roles */
+import { POSITIONS_DATALIST, PositionHint, PositionsCard, PositionsDatalist, usePositions } from "@/components/staff/positions";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1/staff";
@@ -673,6 +675,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   const [selectMode, setSelectMode] = useState(false);
   const todayS = todayIso();
   const { show: showToast, node: toastNode } = useSaveToast();
+  const { data: posData, reload: reloadPositions } = usePositions(); // v1.322.0 - everyone on staff reads the list
   const { prompt, node: promptNode } = usePrompt();
   /* v1.238.0 - the Offboard sheet: what they hold, the handover, the last
      day, and the authenticator code for an executive or Admin account */
@@ -1296,7 +1299,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
        record survives a trip to another tab. */
     <>
       {/* outside every zone: a hidden tab must not hide a toast, a question or a drawer */}
-      {toastNode}{promptNode}
+      {toastNode}{promptNode}<PositionsDatalist list={posData?.positions} />
       <OffboardSheet person={offboard} onClose={() => setOffboard(null)}
         colleagues={offboard ? staff.filter((x) => x.id !== offboard.id && x.is_active && x.role !== "customer" && x.role !== "super_admin" && !["resigned", "terminated"].includes(x.employment_status ?? "")).map((x) => ({ id: x.id, name: displayName(x) })) : []}
         onDone={(m) => { showToast(L("Offboarded", "Khidmat ditamatkan"), m); void load(); }} />
@@ -1734,6 +1737,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             </span>
           </div>
         </section>
+        {/* v1.322.0 - the positions list: the CEO and the Super Admin keep it (the server decides who) */}
+        {posData?.can_manage && <PositionsCard onChanged={reloadPositions} />}
         <div className={sp.rolesBar}>
           <span className={sp.pills} role="group" aria-label={L("Which staff to show", "Kakitangan mana untuk dipaparkan")}>
             <button type="button" aria-pressed={rolesF === "all"} onClick={() => setRolesF("all")}>{L(`Everyone (${activeCount})`, `Semua (${activeCount})`)}</button>
@@ -1912,12 +1917,14 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                   ))}
                 </select>
               ) : (
-                <input className={input} value={masked ? maskIc(base.ic_number ?? "") : valueOf(key)} disabled={lockedF(key)}
+                <><input className={input} value={masked ? maskIc(base.ic_number ?? "") : valueOf(key)} disabled={lockedF(key)}
+                  list={key === "position" ? POSITIONS_DATALIST : undefined /* v1.322.0 - the positions list as suggestions; another title may still be typed */}
                   placeholder={editing && FIELD_PLACEHOLDERS[key] ? L(FIELD_PLACEHOLDERS[key]!, FIELD_PLACEHOLDERS_MS[key] ?? FIELD_PLACEHOLDERS[key]!) : undefined}
                   title={editing && lockedF(key)
                     ? L("Locked — amendments are made by the CEO or an admin", "Dikunci — pindaan dibuat oleh CEO atau admin")
                     : (FIELD_TITLES[key] ? L(FIELD_TITLES[key]!, FIELD_TITLES_MS[key] ?? FIELD_TITLES[key]!) : undefined)}
                   onChange={(e) => set(u.id, key, e.target.value)} />
+                {key === "position" && editing && <PositionHint value={valueOf(key)} role={u.role} list={posData?.positions} onRole={() => setRecSection("role")} />}</>
               )}
             </label>
           );
@@ -2211,8 +2218,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
               onChange={(e) => setNewStaff((d) => ({ ...d, employee_id: e.target.value }))} />
           </Sub>
           <Sub t={L("Position (optional)", "Jawatan (pilihan)")}>
-            <input className={input} placeholder={L("e.g. Marketing Executive", "cth. Eksekutif Pemasaran")} value={newStaff.position}
+            <input className={input} placeholder={L("e.g. Marketing Executive", "cth. Eksekutif Pemasaran")} value={newStaff.position} list={POSITIONS_DATALIST}
               onChange={(e) => setNewStaff((d) => ({ ...d, position: e.target.value }))} />
+            <PositionHint value={newStaff.position} role={newStaff.role} list={posData?.positions} />
           </Sub>
           <Sub t={L("Department (optional)", "Jabatan (pilihan)")}>
             <input className={input} placeholder={L("e.g. Management", "cth. Pengurusan")} value={newStaff.department}

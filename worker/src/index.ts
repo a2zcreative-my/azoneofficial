@@ -302,7 +302,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0203_journal_append_only";
+const LATEST_MIGRATION = "0204_staff_positions";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5680,6 +5680,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0200 (tasks 5.0: the operational report type and its review)", `SELECT kind, status, reviewed_by, reviewed_at, review_note FROM task_reports LIMIT 0`],
       ["0201 (tasks 5.0: the Live Host Report - versions, screenshots, reviews)", `SELECT r.state, v.gmv_cents, f.r2_key, w.action FROM live_reports r, live_report_versions v, live_report_files f, live_report_reviews w LIMIT 0`],
       ["0202 (tasks 5.0: project deliverables to tick and the client acceptance)", `SELECT d.done_at, d.removed_at, a.accepted_on, a.client_name FROM project_deliverables d, project_acceptances a LIMIT 0`],
+      ["0204 (staff: the positions list and its kept changes)", `SELECT p.name, p.access_role, p.retired_at, c.action FROM staff_positions p, staff_position_changes c LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -5907,6 +5908,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0201_live_reports",
       "0202_project_deliverables",
       "0203_journal_append_only",
+      "0204_staff_positions",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

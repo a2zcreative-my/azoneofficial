@@ -166,7 +166,7 @@ function sourceChecks(read) {
   const perms = read("worker/src/permissions.ts");
   ok(['hr_manage: ["super_admin", "admin", "hr_admin", "ceo"]', 'exec_view: ["super_admin", "admin", "ceo", "coo", "cco"]', 'org_assign: ["ceo", "coo", "cco"]', 'responsibilities_edit: ["super_admin", "admin", "hr_admin", "ceo"]', 'role_assign: ["ceo", "coo"]', 'payroll_process: ["super_admin", "admin", "ceo", "coo"]'].every((x) => perms.includes(x))
     && read("lib/portal-tabs.ts").includes('"Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],'), "no permission and no tab access changed");
-  /* v1.311.0 - 0196 is Commission 5.0's (K-2), not this module's */ ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only)";/.test(read("worker/src/index.ts")), "no migration (S-13 is later)");
+  /* v1.311.0 - 0196 is Commission 5.0's (K-2), not this module's */ ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only|0204_staff_positions)";/.test(read("worker/src/index.ts")), "no migration (S-13 is later)");
   ok(/import \{ reportingLine, type OrgPerson \} from "\.\.\/\.\.\/lib\/org-tree";/.test(read("worker/src/leave-chain.ts")), "leave keeps routing on the reporting line (S-7, unchanged)");
   return out;
 }

@@ -10,6 +10,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.322.0] - 2026-11-16 - The positions list: the CEO and the Super Admin keep it, each position linked to an access level - BUILT, NOT DEPLOYED (MIGRATION 0204, ADDITIVE)
+
+The CEO, 16-11-2026: "for the position, I want to add my ownself for the roles which is can be linked with Super Admin for CEO"; his choice "Position list (Recommended)" (claude/POSITIONS-STAGE-0-AUDIT.md, P-1 to P-7).
+
+- **Migration 0204 (additive):** staff_positions (name unique whatever its case, its access level, department, order, retired) and staff_position_changes (every add, rename, re-link, retire and restore - kept as written). Triggers refuse a deleted position and an edited or deleted change. users is not altered.
+- **worker/src/positions.ts:** GET /staff/positions (every staff member; the titles typed on records but not on the list for the keepers only), POST (add), PATCH /:id (rename, re-link, department; `rename_holders` carries the people holding the old name across, each audited as staff.hr_update), POST /:id/retire and /:id/restore, GET /:id/changes, POST /seed ("Start from current positions" - each linked to the level its holders have now). New permission positions_manage = the CEO and the Super Admin (on the permission matrix).
+- **A position never changes anybody's role.** Nothing in positions.ts writes users.role; re-linking says how many holders now differ and moves nobody. The role still changes only through the role door (POST /staff/users/:id/role) with its own rules.
+- **Screens:** the Positions card on Staff > Departments & Roles (the CEO and the Super Admin); the staff record's Position and the Create form offer the list as suggestions and still take any title, with a hint when the title is not on the list or its level differs from the person's role (Review the role opens Role & Access; nothing is sent).
+- New guards: tests/positions.mjs (the whole worker against SQLite with every migration, by direct request), tests/browser/positions.py. hr4, staff4, attendance4 accept 0204 as the newest migration.
+
 ## [1.321.0] - 2026-11-16 - Tasks Unified Workspace (phase A): Overview, My Tasks, All Tasks, one task pane - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 16-11-2026: "follow this prompt for Tasks" - the A2Z OS Tasks Module Unified Workspace Redesign. Phase A of two (phase B: Projects, Calendar, Reports & Archive).

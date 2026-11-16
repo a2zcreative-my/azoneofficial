@@ -149,7 +149,8 @@ async function runtime(workerBundle) {
     const n0 = n(`SELECT COUNT(*) AS n FROM notifications`);
     const rq = await call(`/fa/criteria/${dr.j.id}/request-verification`, 15, "POST", {});
     ok(rq.status === 200 && rq.j?.notified >= 2 && n(`SELECT COUNT(*) AS n FROM notifications`) - n0 === rq.j.notified, "Sales asks management to verify: the CEO and COO are told", rq.text);
-    ok(!/58|Lia/.test(JSON.stringify(db.prepare(`SELECT * FROM notifications ORDER BY id DESC LIMIT 2`).all())), "the notification carries no figure and no name");
+    /* v1.322.0 - read without the row's own timestamps: a created_at of 10:58 matched "58" (a flake, not a figure) */
+    ok(!/58|Lia/.test(JSON.stringify(db.prepare(`SELECT * FROM notifications ORDER BY id DESC LIMIT 2`).all().map(({ created_at, ...r }) => r))), "the notification carries no figure and no name");
     ok((await call(`/fa/criteria/${off.j.id}/request-verification`, 15, "POST", {})).status === 409, "a verified rule is not sent for verification again");
 
     /* ---- archive, versions, roles ---- */

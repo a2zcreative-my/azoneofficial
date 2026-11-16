@@ -26,6 +26,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   team_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   task_rename: ["ceo", "coo", "cco"], // v1.315.0 (Tasks 5.0 TK-4) - rename a task given to someone else, with the reason
   live_report_review: ["ceo", "coo", "cco"], // v1.315.0 (TK-14, L3) - review a Live Host Report, never the host of the session
+  positions_manage: ["super_admin", "ceo"], // v1.322.0 (the CEO, 16-11-2026) - keep the positions list; a position never changes anybody's role
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"],
   claims_decide: ["ceo"], // v1.310.0 (Claims 4.0, C-2) - the Super Admin no longer approves or pays claims
@@ -597,6 +598,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Staff Details", key: "hr_manage", en: "Manage staff records", ms: "Urus rekod kakitangan", cap: "hr_manage" },
   { module: "Staff Details", key: "org_assign", en: "Set reporting lines", ms: "Tetapkan garis pelaporan", cap: "org_assign", na: ["super_admin", "admin"] },
   { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },
+  { module: "Staff Details", key: "positions_manage", en: "Keep the positions list (add, rename, link to an access level, retire)", ms: "Urus senarai jawatan (tambah, namakan semula, pautkan ke tahap akses, bersarakan)", cap: "positions_manage", note_en: "A position never changes anybody's role", note_ms: "Jawatan tidak sekali-kali menukar peranan sesiapa" },
   { module: "Staff Details", key: "responsibilities", en: "Write roles and responsibilities", ms: "Tulis peranan dan tanggungjawab", cap: "responsibilities_edit" },
   { module: "Inventory", key: "inventory", en: "Manage inventory", ms: "Urus inventori", cap: "inventory" },
   { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },

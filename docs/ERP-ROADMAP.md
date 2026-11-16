@@ -514,3 +514,8 @@ sales, payment, cash, journal, payroll or commission row.
 `0203_journal_append_only` (additive: four triggers that refuse an UPDATE or
 DELETE on a posted journal entry or line - no table, column or row changed).
 Only the CEO and COO post or reverse; only the CEO closes a month.
+1.322.0 (the positions list, the CEO 16-11-2026) adds `0204_staff_positions`
+(additive: staff_positions and staff_position_changes, a unique name index and
+triggers that refuse a deleted position or a rewritten change - users is not
+altered). A position is linked to an access level as a suggestion only; it
+never changes anybody's role, which still changes through the role door.

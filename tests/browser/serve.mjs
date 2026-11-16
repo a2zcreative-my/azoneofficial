@@ -103,6 +103,16 @@ const payInit = () => ({
   events: [{ id: 1, invoice_id: 501, report_id: 1, event: "reported", amount_cents: 60000, detail: null, created_at: "2026-11-04 02:00:00", actor: "Aina Seller" }, { id: 2, invoice_id: 501, report_id: 1, event: "proof_uploaded", amount_cents: null, detail: null, created_at: "2026-11-04 02:01:00", actor: "Aina Seller" }],
 });
 let pay = payInit();
+/* v1.322.0 - the positions list: two on it (one with two holders), and three titles typed on records */
+const posInit = () => ({
+  list: [
+    { id: 1, name: "Sales Executive", access_role: "sales_marketing", department: "Sales", sort_order: 0, created_at: "2026-11-16 08:00:00", updated_at: null, retired_at: null, holders: 2 },
+    { id: 2, name: "Live Host", access_role: "live_host", department: "Live", sort_order: 0, created_at: "2026-11-16 08:00:00", updated_at: null, retired_at: null, holders: 1 },
+  ],
+  off: [{ name: "HR Executive", n: 1 }, { name: "Graphic Designer", n: 1 }],
+  posts: [],
+});
+let posState = posInit();
 let signedIn = !process.env.LOGIN_FIRST; // LOGIN_FIRST=1: nobody is signed in until /auth/2fa/verify succeeds
 const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
@@ -116,12 +126,14 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__passkeys") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pk)); return; }
   if (url.pathname === "/__leave") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: leavePosts })); return; }
   if (url.pathname === "/__sales") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: salesPosts })); return; }
+  if (url.pathname === "/__positions") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(posState)); return; }
   if (url.pathname === "/__tasks") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ posts: taskPosts })); return; }
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
     resetFa(); // v1.284.0
     signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
     pay = payInit(); // v1.272.0
+    posState = posInit(); // v1.322.0
     punchStatus = 200; punched.length = 0; punchFresh = false; punchLog.length = 0; manualPaid = null; mediaBk = null; voided.clear(); converted.clear(); projectMade = false; projectPosts.length = 0; taskPosts.length = 0; pk.creds = []; pk.posts = []; pk.issued = [];
     res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
   }
@@ -219,6 +231,39 @@ const server = http.createServer((req, res) => {
         const b = jb();
         pay.posts.push({ path: p, method: "PATCH", body: b });
         if (b.payment_status === "paid") return send(409, { error: { code: "payment_verification_on", message: "INV-AZO050926-3 becomes paid when the CEO verifies its payments. Report the payment in Sales -> Payments." } });
+      }
+      /* v1.322.0 - the positions list (positions.ts in small): the CEO and the Super Admin keep it, everyone reads it; invented */
+      if (p === "/staff/positions" || p.startsWith("/staff/positions/")) {
+        const role = process.env.ROLE ?? "ceo", keep = ["ceo", "super_admin"].includes(role);
+        const LEVELS = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "coo", "cco", "agent", "admin", "ceo"];
+        if (req.method !== "GET") posState.posts.push({ path: p, method: req.method, body: jb() });
+        if (req.method === "GET" && p === "/staff/positions") {
+          const all = keep && url.searchParams.get("all") === "1";
+          return send(200, { positions: posState.list.filter((x) => all || !x.retired_at), not_on_list: keep ? posState.off : [], can_manage: keep, access_roles: LEVELS });
+        }
+        if (!keep) return send(403, { error: { code: "forbidden", message: "Only the CEO or the Super Admin keeps the positions list" } });
+        const b = jb();
+        if (req.method === "POST" && p === "/staff/positions") {
+          if (!b.name || String(b.name).trim().length < 2 || !LEVELS.includes(b.access_role)) return send(400, { error: { code: "invalid_input", message: "Name the position and link it to one access level" } });
+          if (posState.list.some((x) => x.name.toLowerCase() === String(b.name).trim().toLowerCase())) return send(409, { error: { code: "duplicate", message: `"${b.name}" is already on the list` } });
+          const id = posState.list.length + 1;
+          posState.list.push({ id, name: String(b.name).trim(), access_role: b.access_role, department: b.department || null, sort_order: 0, created_at: "2026-11-16 08:00:00", updated_at: null, retired_at: null, holders: 0 });
+          posState.off = posState.off.filter((o) => o.name.toLowerCase() !== String(b.name).trim().toLowerCase());
+          return send(201, { ok: true, id });
+        }
+        const m = /^\/staff\/positions\/(\d+)(?:\/(retire|restore|changes))?$/.exec(p);
+        const it = m ? posState.list.find((x) => x.id === Number(m[1])) : null;
+        if (!it) return send(404, { error: { code: "not_found", message: "No such position" } });
+        if (m[2] === "changes") return send(200, { position: it, changes: [{ id: 1, action: "create", old_name: null, new_name: it.name, old_access_role: null, new_access_role: it.access_role, note: null, actor: "Fixture Person", created_at: "2026-11-16 08:00:00" }] });
+        if (m[2] === "retire") { it.retired_at = "2026-11-16 09:00:00"; return send(200, { ok: true }); }
+        if (m[2] === "restore") { it.retired_at = null; return send(200, { ok: true }); }
+        if (req.method === "PATCH") {
+          const renamed = b.name && b.name !== it.name, holders = it.holders;
+          if (b.name) it.name = String(b.name).trim();
+          if (b.access_role) it.access_role = b.access_role;
+          if ("department" in b) it.department = b.department || null;
+          return send(200, { ok: true, moved: renamed && b.rename_holders ? holders : 0, holders_with_other_access: it.name === "Sales Executive" && it.access_role !== "sales_marketing" ? 1 : 0 });
+        }
       }
       /* v1.284.0 - Financial Advisory (FA=1), invented fixture data (fa-fixture.mjs) */
       if (process.env.FA && p.startsWith("/staff/fa/")) { const r = faRoute(p, req.method, jb()); if (r) return send(r[0], r[1]); }

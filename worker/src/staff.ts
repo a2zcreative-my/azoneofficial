@@ -19,6 +19,7 @@ import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
+import { handlePositions } from "./positions"; // v1.322.0 - the positions list
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
@@ -3101,6 +3102,11 @@ async function handleStaffRoutes(
   /* ---- v1.245.0 Project Workspace (projects.ts): one brief per
      quotation, append-only progress, private files. View: every staff role;
      editing: the Project Owner and CEO / COO / CCO, decided per project. ---- */
+  /* ---- v1.322.0 the positions list (positions.ts): the CEO and the Super Admin keep it, everyone on staff reads it ---- */
+  if (path === "/positions" || path.startsWith("/positions/")) {
+    const ps = await handlePositions(env, path, method, body, user, new URL(request.url).searchParams);
+    if (ps) return ps;
+  }
   /* ---- v1.315.0 Tasks 5.0 Gate 4: the Live Host Report (live-reports.ts) ---- */
   if (path === "/live-reports" || path.startsWith("/live-reports/")) {
     const lr = await handleLiveReports(env, path, method, body, user, new URL(request.url).searchParams, request);
