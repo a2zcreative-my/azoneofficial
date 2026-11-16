@@ -4,16 +4,19 @@
    ink, the blue of a step in hand, gold for the main action. Tokens only;
    chips, buttons and inputs are the shared classes. Breakpoints:
    640 / 768 / 1024 / 1280. */
-.ws { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; min-width: 0; align-content: start; }
-.ws[data-layout="pane"] { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-card-v2); background: var(--card); }
+.ws { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; min-width: 0; align-content: start; container: taskpane / inline-size; }
+.ws[data-layout="pane"] { display: flex; flex-direction: column; min-height: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-card-v2); background: var(--card); }
+/* v1.326.0 - the pane's own scroller (beside the register, from 1024px): the padding is inside it, so its bar
+   runs along the card's edge; it scrolls only when the split is held to the screen and the task is longer */
+.paneFill { flex: 1 1 auto; min-width: 0; min-height: 0; padding: 0.875rem 1rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.paneStack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; align-content: start; min-width: 0; }
+.ws[data-layout="pane"][data-state] { padding: 0.875rem 1rem; }
 .muted { color: var(--muted-foreground); font-weight: 400; }
 .note { margin: 0; color: var(--muted-foreground); font-size: var(--type-caption-size); }
 .late { color: var(--danger); }
 
 /* the head: the icon, the title bar, the status and the commands */
 .head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.75rem; min-width: 0; }
-.headIcon { display: grid; place-items: center; flex: 0 0 auto; width: 2.75rem; height: 2.75rem; border-radius: var(--radius-control); background: var(--info-soft); color: var(--info); }
-.headIcon svg { width: 1.375rem; height: 1.375rem; }
 .headText { display: grid; gap: 0.25rem; flex: 1 1 14rem; min-width: 0; }
 .headSub { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
 .headSub span { display: inline-flex; align-items: center; gap: 0.375rem; min-width: 0; }
@@ -29,8 +32,8 @@
 .headText > [data-testid="task-title-bar"] > [data-testid="task-title"] { order: -1; margin: 0; font-size: var(--type-card-size); line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
 
 /* the four steps */
-.flow { list-style: none; margin: 0; padding: 0.25rem 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; min-width: 0; }
-.flow > li { position: relative; display: grid; justify-items: center; gap: 0.25rem; min-width: 0; text-align: center; }
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; min-width: 0; }
+.flow > li { position: relative; display: grid; justify-items: center; gap: 0.125rem; min-width: 0; text-align: center; }
 .flow > li + li::before { content: ""; position: absolute; top: 0.8125rem; right: 50%; width: 100%; height: 2px; background: var(--border); }
 .flow > li[data-state="done"] + li::before { background: var(--success); }
 .flow > li[data-state="done"] + li[data-state="now"]::before { background: linear-gradient(to right, var(--success), var(--info)); }
@@ -38,7 +41,7 @@
 .flowDot svg { width: 1rem; height: 1rem; }
 .flow > li[data-state="done"] .flowDot { border-color: var(--success); background: var(--success); color: var(--card); }
 .flow > li[data-state="now"] .flowDot { border-color: var(--info); background: var(--info); color: var(--card); box-shadow: 0 0 0 4px var(--info-soft); }
-.flowText { display: grid; justify-items: center; gap: 0.125rem; min-width: 0; padding: 0 0.25rem; }
+.flowText { display: grid; justify-items: center; gap: 0; min-width: 0; padding: 0 0.25rem; }
 .flowText strong { font-size: var(--type-body-sm-size); font-weight: 600; overflow-wrap: anywhere; }
 .flow > li[data-state="todo"] .flowText strong { color: var(--muted-foreground); font-weight: 500; }
 .flowText small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
@@ -48,14 +51,15 @@
 
 /* the facts in one line: priority, due, owner, progress */
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 0; border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; }
-.facts > div { display: grid; gap: 0.25rem; align-content: start; min-width: 0; padding: 0.5rem 0.75rem; border-left: 1px solid var(--border); }
+.facts > div { display: grid; gap: 0.125rem; align-content: start; min-width: 0; padding: 0.375rem 0.75rem; border-left: 1px solid var(--border); }
 .facts > div:nth-child(odd) { border-left: 0; }
 .facts > div:nth-child(n + 3) { border-top: 1px solid var(--border); }
 .facts dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
 .facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; margin: 0; min-width: 0; font-weight: 600; font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
 .facts dd small { color: var(--muted-foreground); font-weight: 400; font-size: var(--type-caption-size); }
 .who { display: flex; align-items: center; gap: 0.5rem; }
-.prog { flex-wrap: nowrap; }
+.prog { flex-wrap: wrap; }
+.prog > small { flex: 1 0 100%; }
 .prog strong { font-variant-numeric: tabular-nums; }
 .track { display: block; flex: 1 1 5rem; min-width: 4rem; height: 0.375rem; border-radius: var(--radius-full); background: color-mix(in srgb, var(--info) 14%, var(--muted)); overflow: hidden; }
 .track > span { display: block; height: 100%; border-radius: inherit; background: var(--info); }
@@ -64,12 +68,15 @@
 /* the five sections */
 .body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; scroll-margin: 5rem; }
 .sec { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; }
+.ws[data-layout="pane"] .body { gap: 0.5rem; }
 /* the Tasks tab's own sections (a bordered panel elsewhere) lie flat here */
 .flat > section { padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .flat { display: grid; gap: 0.75rem; min-width: 0; }
 .foot { display: flex; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 
-@media (min-width: 1024px) {
+/* v1.326.0 - four facts in one line when the PANE is wide enough (the drawer, the pane beside the
+   register at 1440), two by two when it is not - the pane's own width, never the screen's */
+@container taskpane (min-width: 42rem) {
   .facts { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(0, 1.2fr); }
   .facts > div, .facts > div:nth-child(odd) { border-left: 1px solid var(--border); }
   .facts > div:nth-child(n + 3) { border-top: 0; }

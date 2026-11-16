@@ -67,8 +67,9 @@ function checks(src) {
   ok("Overview: the extra filters (project, department, staff) behind Filters; status stays in reach", /<FilterPopover testid="overview-more"/.test(overview) && /value=\{ovAbout\}/.test(overview) && /value=\{ovDept\}/.test(overview) && /value=\{ovWho\}/.test(overview) && /aria-label=\{L\("Status", "Status"\)\} value=\{ovStatus\}/.test(overview));
 
   /* ---- My Tasks ---- */
-  ok("My Tasks: the list and the task side by side from 1024px", /const besideOk = view === "mine" && mineMode === "list" && isLg;/.test(tasks) && /@media \(min-width: 1024px\) \{[^@]*\.mine \{ grid-template-columns: minmax\(0, 35fr\) minmax\(0, 65fr\); \}/.test(src.t2Css));
-  ok("My Tasks: below 1024px the full list; a task opens on its own (the drawer)", /if \(!besideOk\) return list;/.test(mine) && /onPick=\{\(id\) => void openChecklist\(id, besideOk \? "beside" : "open"\)\}/.test(mine));
+  /* v1.326.0 (the CEO's "Improve Tasks → My Tasks") - the register (40%) and the task (60%), one flex line held to the screen */
+  ok("My Tasks: the list and the task side by side from 1024px", /const besideOk = view === "mine" && mineMode === "list" && isLg;/.test(tasks) && /@media \(min-width: 1024px\) \{[^@]*\.mine \{ display: flex; align-items: stretch; \}[^@]*\.mine > \* \{ flex: 40 1 0;[^@]*\.mine > \* \+ \* \{ flex-grow: 60; \}/.test(src.t2Css) && /<FillPanel className=\{t2\.mine\} testid="mine-split">/.test(mine));
+  ok("My Tasks: from 1024px the register beside the task; below it the full card list and a task opens on its own (the drawer)", /if \(!besideOk\) return list;/.test(mine) && /\? <MyTaskTable rows=\{mineRows\} picked=\{present === "beside" \? openTask : null\} onPick=\{\(id\) => void openChecklist\(id, "beside"\)\}/.test(mine) && /: <MyTaskCards rows=\{mineRows\} picked=\{null\} onPick=\{\(id\) => void openChecklist\(id, "open"\)\}/.test(mine));
   ok("My Tasks: My Day kept whole, folded under the list", /<details className=\{t2\.disclose\} data-testid="my-day">[\s\S]*<MyDayCards /.test(mine));
 
   /* ---- All Tasks ---- */

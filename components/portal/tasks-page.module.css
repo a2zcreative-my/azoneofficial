@@ -146,6 +146,10 @@
     flex: 0 0 auto;
   }
 }
+/* v1.326.0 - the brief toolbar beside a task (My Tasks): the search and the status on one line */
+.toolbarBrief { margin-top: 0; }
+.toolbarBrief .search { flex-basis: 10rem; min-width: 0; }
+.toolbarBrief select { flex: 0 0 auto; }
 .search {
   display: flex;
   align-items: center;

@@ -144,17 +144,17 @@ with sync_playwright() as p:
     ctx.close()
     check("no page error (Overview and the drawer)", not errs, errs)
 
-    # ================= My Tasks: 35% list, 65% task (v1.321.0) =================
+    # ================= My Tasks: the register (40%) and the task (60%) (v1.326.0; v1.321.0 drew cards 35 / 65) =================
     reset(CEO)
     ctx, pg, errs = open_page(b, CEO, view="mine")
-    cards = pg.get_by_test_id("my-cards").locator("li button")
+    cards = pg.get_by_test_id("mine-table").locator("tbody tr")
     ws = pg.locator(WS)
-    check("1440px: the card list on the left, the first task beside it", cards.count() >= 2 and ws.count() == 1 and ws.get_attribute("data-layout") == "pane" and cards.first.get_attribute("aria-pressed") == "true")
+    check("1440px: the register on the left, the first task beside it and marked", cards.count() >= 2 and ws.count() == 1 and ws.get_attribute("data-layout") == "pane" and cards.first.get_attribute("aria-current") == "true")
     lb = pg.get_by_test_id("mine-split").locator("> *").first.bounding_box(); wb = ws.bounding_box()
     share = lb["width"] / (lb["width"] + wb["width"])
-    check("the list about a third, the task about two thirds", lb["x"] < wb["x"] and 0.3 <= share <= 0.4, f"{lb['width']} / {wb['width']}")
+    check("the register about two fifths, the task about three fifths", lb["x"] < wb["x"] and 0.37 <= share <= 0.43, f"{lb['width']} / {wb['width']}")
     c0 = cards.first
-    check("a card: the title, the status word, the due date and the progress", c0.locator("strong").count() >= 1 and c0.get_by_test_id("state-chip").count() == 1 and ("Due:" in c0.inner_text() or "No due date" in c0.inner_text()) and c0.locator("[role=progressbar]").count() == 1, c0.inner_text()[:150])
+    check("a row: the title, the status word, the due date and the progress", c0.locator("td button").count() >= 1 and c0.get_by_test_id("state-chip").count() == 1 and any(w in c0.inner_text() for w in ["Due:", "Overdue:", "Due soon:", "No due date"]) and c0.locator("[role=progressbar]").count() == 1, c0.inner_text()[:150])
     for tid, what in [("ws-info", "Task Information (Details first)"), ("ws-decide", "the decisions"), ("ws-facts", "the facts"), ("flow-steps", "the stepper")]:
         check(f"beside the list: {what}", ws.get_by_test_id(tid).first.is_visible())
     check("the decisions name the one next step", ws.get_by_test_id("ws-decide").get_by_test_id("next-step").count() == 1, ws.get_by_test_id("ws-decide").inner_text()[:200])
@@ -179,9 +179,9 @@ with sync_playwright() as p:
         pg.locator(WS).get_by_test_id("post-done").click(); pg.wait_for_timeout(700)
         f2 = pg.locator(WS).get_by_test_id("update-sheet")
         check("Mark Done asks for the completion summary first - nothing is closed by one press", f2.get_by_label("Status", exact=True).input_value() == "closed" and ("Write the completion summary" in f2.inner_text() or "Tick the open deliverables first" in f2.inner_text()) and not [x for x in get(CEO, "/__tasks")["posts"] if x["p"].endswith("/close")])
-    t1 = cards.nth(1).locator("strong").first.inner_text()
-    cards.nth(1).click(); pg.wait_for_timeout(1500)
-    check("choosing another card shows that task; one card is pressed", t1 in pg.locator(WS).get_by_test_id("task-title").inner_text() and pg.get_by_test_id("my-cards").locator("li button[aria-pressed=true]").count() == 1, t1)
+    t1 = cards.nth(1).locator("td button").first.inner_text()
+    cards.nth(1).locator("td button").first.click(); pg.wait_for_timeout(1500)
+    check("choosing another row shows that task; one row is marked", t1 in pg.locator(WS).get_by_test_id("task-title").inner_text() and pg.get_by_test_id("mine-table").locator("tbody tr[aria-current=true]").count() == 1, t1)
     check("no full page any more: the pane is the one view (no Open the full page)", pg.get_by_test_id("ws-full").count() == 0 and pg.get_by_test_id("ws-back").count() == 0)
     check("My Day is kept, folded under the list", pg.get_by_test_id("my-day").count() == 1 and pg.get_by_test_id("my-day").get_attribute("open") is None)
     check("no sideways page (My Tasks, 1440)", no_hscroll(pg) and pg.evaluate(OVER, "[data-testid=mine-split]") == [], pg.evaluate(OVER, "[data-testid=mine-split]"))

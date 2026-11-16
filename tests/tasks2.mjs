@@ -156,7 +156,7 @@ const MUT = [
   ["the task's id written into the address", "tasks", "const closeDetail = () => { setOpenTask(null);", 'const closeDetail = () => { window.history.pushState({}, "", "?task=1"); setOpenTask(null);'],
   ["a second set of parts for the pane", "tasks", '<TaskWorkspace key={detail.t.id} layout="pane" taskId={detail.t.id} info={detail.info}', '<TaskWorkspace key={detail.t.id} layout="pane" taskId={detail.t.id} info={null}'],
   ["a literal colour in the new screens", "t2Css", "color: var(--danger); }", "color: #c00; }"],
-  ["a breakpoint of its own", "wsCss", "@media (min-width: 1024px)", "@media (min-width: 1100px)"],
+  ["a breakpoint of its own", "wsCss", "@media (max-width: 639px)", "@media (max-width: 600px)"], // v1.326.0 - the facts' 1024px rule became a container query (the pane's width)
 ];
 let caught = 0;
 if (process.env.NOMUT !== "1") {

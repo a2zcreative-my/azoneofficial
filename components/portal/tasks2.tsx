@@ -20,6 +20,8 @@ import { PriorityChip } from "@/components/portal/task-workspace";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { SkelRows } from "@/components/ui/skeleton";
+import { type PageSize } from "@/components/ui/pagination-controls";
+import { CompactTaskTable, TaskRowSub, TaskRowTitle, type SortDir, type TableCol } from "@/components/portal/task-table";
 import { btnSm, chipSmDanger, chipSmWarn } from "@/lib/ui-styles";
 import { mondayOf2, mytDay, rowFacts, staffPerformance, weeklyDone, byUrgency2 } from "@/lib/task-flow";
 import t2 from "./tasks2.module.css";
@@ -47,10 +49,10 @@ function Bar({ pct, done }: { pct: number; done?: boolean }) {
 function Marker({ m }: { m: RowModel }) {
   return m.overdue ? <span className={chipSmDanger} data-testid="overdue-mark">{L("Overdue", "Lewat")}</span> : m.soon ? <span className={chipSmWarn} data-testid="soon-mark">{L("Due soon", "Hampir Tamat")}</span> : null;
 }
-export function Head2({ icon, title, sub, aside }: { icon: AppIconName; title: ReactNode; sub?: ReactNode; aside?: ReactNode }) {
+export function Head2({ icon, title, sub, aside }: { /** v1.326.0 - none beside the task (the narrow register): the title and the switch share one line */ icon?: AppIconName; title: ReactNode; sub?: ReactNode; aside?: ReactNode }) {
   return (
-    <header className={t2.head}>
-      <span className={t2.headIcon}><AppIcon name={icon} /></span>
+    <header className={t2.head} data-bare={icon ? undefined : ""}>
+      {icon && <span className={t2.headIcon}><AppIcon name={icon} /></span>}
       <span className={t2.headText}><strong>{title}</strong>{sub && <small>{sub}</small>}</span>
       {aside && <span className={t2.headAside}>{aside}</span>}
     </header>
@@ -83,6 +85,40 @@ export function MyTaskCards({ rows, picked, onPick, today, loaded, empty }: { ro
         );
       })}
     </ul>
+  );
+}
+
+/* ---------------- v1.326.0 - My Tasks from 1024px: the register beside the task ----------------
+   The CEO's "Improve Tasks → My Tasks" (16-11-2026, the Project Register
+   pictures): the list on the left is the one compact task table - the task
+   and its project and due day, its state, its progress - with the task on
+   show marked gold, pages of rows, and the rows filling the screen. Same
+   rows, same order, same filters as the cards it replaces at this width
+   (MyTaskCards stays the list below 1024px, where a task opens full screen). */
+export function MyTaskTable({ rows, picked, onPick, today, loaded, empty, sort, dir, onSort, page, size, onPage, onSize }: {
+  rows: Task[]; picked: number | null; onPick: (id: number) => void; today: string; loaded: boolean; empty: ReactNode;
+  sort?: string; dir?: SortDir; onSort?: (key: string) => void;
+  page: number; size: number; onPage: (p: number) => void; onSize: (s: PageSize) => void;
+}) {
+  const cols: TableCol<Task>[] = [
+    { key: "task", label: L("Task", "Tugasan"), sort: "title", main: true, cell: (t) => {
+      const m = rowOf(t, today);
+      return (<>
+        <TaskRowTitle title={t.title} onOpen={() => onPick(t.id)} />
+        <TaskRowSub>
+          {m.project && <span>{L("Project", "Projek")}: {m.project}</span>}
+          {/* the due day says itself whether it is late or close - one line, no second chip */}
+          <span data-late={m.overdue || undefined} data-testid="due-line">{!m.due ? L("No due date", "Tiada tarikh akhir") : `${m.overdue ? L("Overdue", "Lewat") : m.soon ? L("Due soon", "Hampir tamat") : L("Due", "Akhir")}: ${m.due}`}</span>
+        </TaskRowSub>
+      </>);
+    } },
+    { key: "status", label: L("Status", "Status"), sort: "status", cell: (t) => <StateChip status={t.status} stage={t.stage ?? null} /> },
+    { key: "progress", label: L("Progress", "Kemajuan"), sort: "progress", cell: (t) => { const m = rowOf(t, today); return <span className={t2.myPct}><Bar pct={m.pct} done={m.done} /><b>{m.pct}%</b></span>; } },
+  ];
+  return (
+    <CompactTaskTable rows={rows} cols={cols} label={L("My Tasks", "Tugasan Saya")} loading={!loaded} empty={empty} testid="mine-table"
+      sort={sort} dir={dir} onSort={onSort} onOpen={onPick} picked={picked} dense fill
+      page={page} size={size} onPage={onPage} onSize={onSize} />
   );
 }
 

@@ -89,7 +89,7 @@ with sync_playwright() as p:
         # ---- the board: no dropdown, the state and Update ----
         view(pg, "My Tasks")
         body = pg.locator("main").inner_text() if pg.locator("main").count() else pg.inner_text("body")
-        check(f"{w}px: the board has no status dropdown - the state and one Update action", pg.locator("select[aria-label^='Status — ']").count() == 0 and pg.get_by_test_id("my-cards").locator(f"li:has-text('{READY}')").count() == 1)  # v1.321.0 - the card list at every width
+        check(f"{w}px: the board has no status dropdown - the state and one Update action", pg.locator("select[aria-label^='Status — ']").count() == 0 and pg.locator(f"[data-testid=my-cards] li:has-text('{READY}'), [data-testid=mine-table] tbody tr:has-text('{READY}')").filter(visible=True).count() == 1)  # v1.326.0 - the register from 1024px, the card list below it
         # ---- a task at 100%: what is left, Close task ----
         dr = open_task(pg, READY)
         nxt = dr.get_by_test_id("next-step")

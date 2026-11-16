@@ -70,7 +70,8 @@ with sync_playwright() as p:
     # ---------- Apply ----------
     go(pg, CEO, "apply")
     nxt = pg.get_by_test_id("apply-next")
-    check("Apply: three steps - Leave Details, Review, Submitted", all(s in pg.get_by_test_id("apply4").inner_text() for s in ["Leave Details", "Review", "Submitted"]))
+    # v1.326.0 - the steps sit in the drawer's step row (DrawerSteps), above the form
+    check("Apply: three steps - Leave Details, Review, Submitted", all(s in pg.get_by_test_id("apply-steps").inner_text() for s in ["Leave Details", "Review", "Submitted"]))
     check("Review is not offered before the dates and the reason", nxt.is_disabled() and "Choose the dates" in pg.get_by_test_id("apply-missing").inner_text())
     check("there is no days box to type into", pg.locator("[data-testid=apply4] input[type=number]").count() == 0)
     pg.get_by_test_id("apply-start").fill("2026-09-14"); pg.get_by_test_id("apply-end").fill("2026-09-18"); pg.wait_for_timeout(900)

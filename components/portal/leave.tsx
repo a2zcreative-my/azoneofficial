@@ -1313,10 +1313,11 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       </TabZone>
 
       {/* v1.325.0 (D-3) - the same three steps, the same checks and the same submit, in the drawer;
-          it asks before discarding a half-written application, and not once it is submitted */}
+          it asks before discarding a half-written application, and not once it is submitted.
+          v1.326.0 - the form drawer (the CEO's Apply Leave reference): its icon, the steps under the title, Cancel / Review pinned */}
       {!hourly && (
-      <SideDrawer open={applyOpen} onClose={() => { setApplyOpen(false); setApplyDone(false); }} dirty={applyDone ? false : "auto"} wide
-        title={L("Apply Leave", "Mohon Cuti")} subtitle={L("A new request, checked as you type", "Permohonan baharu, disemak semasa ditaip")}>
+      <SideDrawer open={applyOpen} onClose={() => { setApplyOpen(false); setApplyDone(false); }} dirty={applyDone ? false : "auto"} form icon="date"
+        title={L("Apply Leave", "Mohon Cuti")} subtitle={L("Submit a new leave request for approval", "Hantar permohonan cuti baharu untuk kelulusan")}>
         <ApplyLeave4 types={LEAVE_TYPES} toast={showLeaveToast} submit={submitLeave} onSubmitted={() => { setApplyDone(true); void load(); }} />
       </SideDrawer>
       )}

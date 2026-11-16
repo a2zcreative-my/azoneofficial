@@ -45,7 +45,7 @@ import { sharePdfFile } from "@/lib/doc-pdf";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 /* v1.78.0 — the attendance card's control rows were hand-rolled widths and
    bare literals; they now use the same tokens as the rest of the portal. */
-import { card, inputClass, inputClassSm, btnClass, btnSm, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm } from "@/lib/ui-styles";
+import { card, inputClass, inputClassSm, btnClass, btnGhost, btnSm, chipNeutral, chipSuccess, chipWarn, chipSmWarn, fieldRow, th, td, tdOneLine, thR2, tdR2, selectClass, selectClassSm, chipSmNeutral, chipInfo, chipSmSuccess, chipSmInfo, chip, chipSm } from "@/lib/ui-styles";
 import { MiniBar, accentRowDanger, accentCellDanger } from "@/components/ui/stat-card";
 import { dmy, dmyMYT, fmtRM, rm as rmBare, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -69,7 +69,7 @@ import { ClaimsOverview, ClaimsReports, monthName, type ClaimsView, type OvClaim
 import { ClaimReview, ClaimSteps, ClaimSubmitAside, MyClaims4, isClaimsView, needsReceipt, type ClaimStep4 } from "@/components/portal/claims4"; // v1.310.0 - Claims Workspace 4.0
 import c4 from "./claims4.module.css"; // v1.310.0
 import { ViewSwitch } from "@/components/portal/executive-cards";
-import { SideDrawer } from "@/components/ui/side-drawer"; // v1.325.0 - D-3
+import { DrawerFoot, DrawerForm, SideDrawer } from "@/components/ui/side-drawer"; // v1.325.0 - D-3; v1.326.0 - the form drawer
 import { PillSwitch } from "@/components/ui/panel"; // v1.325.0 - D-2 // v1.310.0 - the phone view switch
 import { useTabViewAddress } from "@/lib/tab-view"; // v1.310.0 - the view in the address
 import cov from "./claims-overview.module.css"; // v1.194.0 - the Claims page's tabs
@@ -5124,16 +5124,20 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
 
       {/* v1.325.0 (D-3) - the same three-step form, the same checks and the same POST, in the drawer.
           The draft is the panel's own state, so closing the drawer keeps it for the next open. */}
-      <SideDrawer open={submitOpen} onClose={() => setSubmitOpen(false)} wide full
-        title={editingClaim ? `${L("Editing", "Menyunting")} ${editingClaim.no}` : claimType === "salary_advance" ? L("Request a salary advance", "Mohon pendahuluan gaji") : L("Submit Claim", "Hantar Tuntutan")}>
-      <div className={c4.submitGrid} data-testid="claim-drawer">
-      <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
-        <p className="erp-heading">
-          {editingClaim
-            ? <>{L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setStep(1); setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button></>
-            : claimType === "salary_advance" ? L("Request a salary advance", "Mohon pendahuluan gaji") : L("Submit a claim", "Hantar tuntutan")}
-        </p>
-        <p className="erp-meta erp-mt-half">
+      {/* v1.326.0 - the form drawer (the Apply Leave structure, reused): the icon, the steps under the
+          title, the fields beside the rules (DrawerForm), Back / Next / Submit pinned (DrawerFoot).
+          The drawer's title names the form once; editing keeps its line and its cancel. */}
+      <SideDrawer open={submitOpen} onClose={() => setSubmitOpen(false)} form icon="receipt"
+        title={editingClaim ? `${L("Editing", "Menyunting")} ${editingClaim.no}` : claimType === "salary_advance" ? L("Request a salary advance", "Mohon pendahuluan gaji") : L("Submit Claim", "Hantar Tuntutan")}
+        subtitle={L("A reimbursement or a salary advance, sent for approval", "Bayaran balik atau pendahuluan gaji, dihantar untuk kelulusan")}>
+      <DrawerForm testid="claim-drawer" aside={<ClaimSubmitAside advance={claimType === "salary_advance"} rateCents={rateCents} mileageOnly={mileageOnlyNow} recoverMonthLabel={payMonthLabel(recoverMonth)} />}>
+      <div id="claim-form" className={cl.anchorForm}>
+        {editingClaim && (
+          <p className="erp-heading">
+            {L("Editing", "Menyunting")} {editingClaim.no}{editingClaim.wasRejected ? L(" (rejected — will resubmit)", " (ditolak — akan dihantar semula)") : ""} <button type="button" className={cl.formTitleLink} onClick={() => { setEditingClaim(null); setStep(1); setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); }}>{L("cancel", "batal")}</button>
+          </p>
+        )}
+        <p className="erp-meta">
           {L("Submit a reimbursement or request a salary advance. Every request follows the approval chain; a paid advance is recovered automatically from the selected payroll month.", "Hantar bayaran balik atau mohon pendahuluan gaji. Setiap permohonan melalui rantaian kelulusan; pendahuluan yang dibayar dipotong automatik daripada bulan gaji dipilih.")}
         </p>
         {/* v1.310.0 - three steps (reference 2): the details, the
@@ -5327,17 +5331,16 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
             total={totalNow} receiptName={receipt?.name ?? null} hasReceipt={editingHasReceipt} payee={payeeName}
             recoverMonthLabel={payMonthLabel(recoverMonth)} catOf={catLabel} />
         )}
-        <div className={c4.stepNav}>
-          {step > 1 ? <button type="button" className={btnSm} onClick={() => goStep((step - 1) as ClaimStep4)}>{L("Back", "Kembali")}</button> : <span />}
+        <DrawerFoot testid="claim-actions">
+          {step > 1 ? <button type="button" className={btnGhost} onClick={() => goStep((step - 1) as ClaimStep4)}>{L("Back", "Kembali")}</button> : <button type="button" className={btnGhost} onClick={() => setSubmitOpen(false)}>{L("Close", "Tutup")}</button>}
           {step < 3
             ? <button type="button" className={btnClass} onClick={() => goStep((step + 1) as ClaimStep4)}>{L("Next", "Seterusnya")}</button>
             : <button type="button" disabled={submitting} className={btnClass}
                 onClick={() => void submit()}>{submitting ? L("Submitting…", "Menghantar…") : editingClaim ? (editingClaim.wasRejected ? L("Resubmit for approval", "Hantar semula untuk kelulusan") : L("Update claim", "Kemas kini tuntutan")) : claimType === "salary_advance" ? L("Request advance", "Mohon pendahuluan") : L("Submit claim", "Hantar tuntutan")}</button>}
-        </div>
+        </DrawerFoot>
         {msg && <p className={cl.formMsg}>{msg}</p>}
       </div>
-      <ClaimSubmitAside advance={claimType === "salary_advance"} rateCents={rateCents} mileageOnly={mileageOnlyNow} recoverMonthLabel={payMonthLabel(recoverMonth)} />
-      </div>
+      </DrawerForm>
       </SideDrawer>
 
       {/* v1.310.0 (C-4) - MY CLAIMS: this person's own claims and the claims

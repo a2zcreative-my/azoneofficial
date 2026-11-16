@@ -35,12 +35,12 @@ import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
-import { SideDrawer } from "@/components/ui/side-drawer";
+import { DrawerFoot, DrawerForm, DrawerPanel, DrawerSteps, SideDrawer, useDrawerClose } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { api, csrfFetch } from "@/lib/api";
 import { dmy, mytToday } from "@/lib/format";
 import { properName } from "@/lib/names";
-import { btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClass, textareaClass } from "@/lib/ui-styles";
 import css from "./leave-page.module.css";
 import l4 from "./leave4.module.css";
 
@@ -104,12 +104,18 @@ function Head({ icon, tone, title, sub, action }: { icon: AppIconName; tone?: st
 }
 
 /* ---------- the route, drawn as the server answers it (never a generic picture) ---------- */
-export function RouteList({ route, compact = false }: { route: RouteInfo; compact?: boolean }) {
+export function RouteList({ route, compact = false, withYou = false }: { route: RouteInfo; compact?: boolean; /** v1.326.0 - the Apply Leave drawer: the route starts with you, submitting */ withYou?: boolean }) {
   if (!route) return <p className={css.empty}>{L("The route could not be worked out - your request is still checked when you submit.", "Laluan tidak dapat ditentukan - permohonan anda tetap disemak semasa dihantar.")}</p>;
   if (route.kind === "executive_record") return <p className={l4.routeNote} data-testid="route-exec">{L("Executive Leave Record - you are at the top of the organisation: your leave is recorded with your authenticator code, nobody approves it. The COO, the CCO and HR are told.", "Rekod Cuti Eksekutif - anda di puncak organisasi: cuti anda direkod dengan kod pengesah anda, tiada sesiapa meluluskannya. COO, CCO dan HR dimaklumkan.")}</p>;
   if (route.kind === "routing_required") return <p className={l4.routeNote} data-testid="route-config">{L("Your reporting line is not set on the Organisation chart yet. You can still submit: HR or the CEO sets the line and routes the request - nobody approves it before then.", "Garis pelaporan anda belum ditetapkan pada carta Organisasi. Anda masih boleh menghantar: HR atau CEO menetapkannya dan menghalakan permohonan - tiada sesiapa meluluskannya sebelum itu.")}</p>;
   return (
-    <ol className={`${l4.route} ${compact ? l4.routeCompact : ""}`} data-testid="route-steps">
+    <ol className={`${l4.route} ${compact ? l4.routeCompact : ""} ${withYou ? l4.routeFlat : ""}`} data-testid="route-steps">
+      {withYou && (
+        <li className={l4.routeYou} data-testid="route-you">
+          <span className={l4.routeDot} aria-hidden="true"><AppIcon name="success" /></span>
+          <span className={l4.routeText}><strong>{L("You", "Anda")}</strong><span>{L("Submit the request", "Hantar permohonan")}</span></span>
+        </li>
+      )}
       {route.steps.map((s) => (
         <li key={s.n}>
           <span className={l4.routeDot} aria-hidden="true">{s.n}</span>
@@ -292,6 +298,7 @@ export function ApplyLeave4({ types, onSubmitted, toast, submit }: {
   /** POST /staff/leave through the page's own sender (the step-up for an Executive Leave Record, the offline queue) */
   submit: (body: Record<string, unknown>) => Promise<{ ok: boolean; queued?: boolean; data: (Submitted & { error?: { message?: string } }) | null }>;
 }) {
+  const closeDrawer = useDrawerClose(); // v1.326.0 - Cancel closes the drawer (and asks first if anything was typed)
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [f, setF] = useState({ type: "annual", start: "", end: "", half: "" as "" | "first_half" | "second_half", reason: "" });
   const [file, setFile] = useState<{ media_id: number; name: string; size: number } | null>(null);
@@ -353,19 +360,37 @@ export function ApplyLeave4({ types, onSubmitted, toast, submit }: {
   const linesNote = quote ? quote.lines.filter((x) => x.kind !== "work").map((x) => x.kind === "holiday" ? `${dmy(x.d)} ${x.holiday ?? ""}`.trim() : L(`${dmy(x.d)} rest day`, `${dmy(x.d)} hari rehat`)) : [];
   const STEPS = [L("Leave Details", "Butiran Cuti"), L("Review", "Semak"), L("Submitted", "Dihantar")];
 
-  return (
-    <div className={l4.applyGrid} data-testid="apply4">
-      <section className={card} aria-label={L("Apply leave", "Mohon cuti")}>
-        <Head icon="edit" title={L("Apply Leave", "Mohon Cuti")} sub={L("Submit a new leave request. Fill in the details below and send for approval.", "Hantar permohonan cuti baharu. Isi butiran di bawah dan hantar untuk kelulusan.")} />
-        <ol className={l4.stepper} aria-label={L("Steps", "Langkah")}>
-          {STEPS.map((s, i) => (
-            <li key={s} data-state={i + 1 < step ? "done" : i + 1 === step ? "now" : "todo"} aria-current={i + 1 === step ? "step" : undefined}>
-              <span className={l4.stepNum}>{i + 1 < step ? <AppIcon name="success" /> : i + 1}</span><span>{s}</span>
-            </li>
-          ))}
-        </ol>
+  /* v1.326.0 (the CEO's "Improve Leave → Apply Leave", 16-11-2026) - the form drawer:
+     the steps in the drawer's step row, the fields beside the live balance impact
+     and the approval route (DrawerForm), Cancel / Review pinned at the foot
+     (DrawerFoot). The same state, the same checks, the same quote and the same
+     POST as before; nothing here decides a figure or a route - the server's
+     preview (GET /staff/leave/quote) does. */
+  const fmtDays = (n: number) => `${n} ${n === 1 ? L("day", "hari") : L("days", "hari")}`;
+  const impact = (
+    <DrawerPanel icon="balance" title={L("Leave Balance Impact", "Kesan Baki Cuti")} sub={L("How this request changes your balance.", "Bagaimana permohonan ini mengubah baki anda.")} label={L("Leave balance impact", "Kesan baki cuti")} testid="apply-impact">
+      {quoting ? <SkelRows rows={3} /> : !quote ? <p className={css.empty}>{L("Choose the type and the dates to see the effect.", "Pilih jenis dan tarikh untuk melihat kesannya.")}</p>
+        : quote.balance ? (
+          <ul className={l4.impact}>
+            <li><span>{typeName(f.type)} {L("balance (before)", "baki (sebelum)")}</span><strong>{fmtDays(quote.balance.before)}</strong></li>
+            <li className={l4.minus}><span>{L("This request", "Permohonan ini")}</span><strong>− {fmtDays(quote.problem ? 0 : quote.days)}</strong></li>
+            <li className={`${l4.after} ${(quote.problem ? quote.balance.before : quote.balance.after) < 0 ? l4.neg : ""}`}><span>{typeName(f.type)} {L("balance (after)", "baki (selepas)")}</span><strong data-testid="impact-after">{fmtDays(quote.problem ? quote.balance.before : quote.balance.after)}</strong></li>
+            {quote.balance.pending > 0 && <li className={css.sub}><span>{L(`Includes ${quote.balance.pending} day(s) already pending`, `Termasuk ${quote.balance.pending} hari yang sedang menunggu`)}</span><span /></li>}
+          </ul>
+        ) : <p className={css.sub} data-testid="impact-unpaid">{quote.unpaid ? L("Unpaid leave - no balance to use up. Each day is deducted at 1/26 of the monthly wage.", "Cuti tanpa gaji - tiada baki digunakan. Setiap hari dipotong 1/26 daripada gaji bulanan.") : L("This type has no yearly ceiling.", "Jenis ini tiada had tahunan.")}</p>}
+    </DrawerPanel>
+  );
+  const route = (
+    <DrawerPanel icon="users" title={L("Approval Route", "Laluan Kelulusan")} sub={L("Who decides this request, in order.", "Siapa memutuskan permohonan ini, mengikut urutan.")} label={L("Approval route", "Laluan kelulusan")} testid="apply-route">
+      {quoting ? <SkelRows rows={2} /> : quote ? <RouteList route={quote.route} withYou /> : <p className={css.empty}>{L("Choose the dates to see who approves it.", "Pilih tarikh untuk melihat siapa yang meluluskannya.")}</p>}
+    </DrawerPanel>
+  );
 
-        {step === 3 && done ? (
+  return (
+    <div data-testid="apply4">
+      <DrawerSteps steps={STEPS} current={step} label={L("Steps", "Langkah")} testid="apply-steps" />
+      {step === 3 && done ? (
+        <>
           <div className={l4.doneBox} data-testid="apply-done" role="status">
             <AppIcon name={done.queued ? "pending" : "success"} />
             <p className={css.title}>{done.queued ? L("Kept on this phone - no signal", "Disimpan pada telefon ini - tiada isyarat") : L("Leave request submitted", "Permohonan cuti dihantar")}</p>
@@ -373,105 +398,87 @@ export function ApplyLeave4({ types, onSubmitted, toast, submit }: {
               {done.queued ? L("It is sent the moment you are back online; nothing is requested yet.", "Ia dihantar sebaik sahaja anda kembali dalam talian; belum dimohon lagi.")
                 : `${typeName(f.type)} · ${period(f.start, end)} · ${done.days ?? ""} ${L("day(s)", "hari")} · ${done.route === "executive_record" ? L("recorded (Executive Leave Record)", "direkod (Rekod Cuti Eksekutif)") : done.route === "routing_required" ? L("HR or the CEO routes it to your manager", "HR atau CEO menghalakannya kepada pengurus anda") : L(`waiting for ${properName(done.approver ?? "")}`, `menunggu ${properName(done.approver ?? "")}`)}`}
             </p>
-            <span className={l4.actions}>
-              <button type="button" className={btnSmPrimary} onClick={reset}>{L("Apply for another", "Mohon yang lain")}</button>
-            </span>
           </div>
-        ) : (
-          <div className={l4.form}>
-            <label className={l4.field}>
-              <span>{L("Leave Type", "Jenis Cuti")} <b aria-hidden="true">*</b></span>
-              <select className={inputClassSm} value={f.type} disabled={step === 2} onChange={(e) => setF({ ...f, type: e.target.value })} data-testid="apply-type">
-                {types.map((t) => <option key={t} value={t}>{typeName(t)}{["unpaid", "emergency"].includes(t) ? L(" — unpaid", " — tanpa gaji") : ""}</option>)}
-              </select>
-            </label>
-            <div className={l4.dates}>
-              <label className={l4.field}>
-                <span>{L("Date Range", "Julat Tarikh")} <b aria-hidden="true">*</b></span>
-                <span className={l4.range}>
-                  <input type="date" className={inputClassSm} value={f.start} disabled={step === 2} aria-label={L("First day", "Hari pertama")} data-testid="apply-start"
-                    onChange={(e) => setF({ ...f, start: e.target.value, end: !f.end || f.end < e.target.value ? e.target.value : f.end })} />
-                  <span className={l4.to}>{L("to", "hingga")}</span>
-                  <input type="date" className={inputClassSm} value={f.end} min={f.start || undefined} disabled={step === 2} aria-label={L("Last day", "Hari terakhir")} data-testid="apply-end"
-                    onChange={(e) => setF({ ...f, end: e.target.value })} />
-                </span>
+          <DrawerFoot testid="apply-actions">
+            {closeDrawer && <button type="button" className={btnGhost} onClick={closeDrawer} data-testid="apply-close">{L("Close", "Tutup")}</button>}
+            <button type="button" className={btnClass} onClick={reset}>{L("Apply for another", "Mohon yang lain")}</button>
+          </DrawerFoot>
+        </>
+      ) : (
+        <DrawerForm testid="apply-form" aside={<>{impact}{route}</>}>
+          <label className="erp-field">
+            <span className="erp-label" data-required="">{L("Leave Type", "Jenis Cuti")}</span>
+            <select className={selectClass} value={f.type} disabled={step === 2} onChange={(e) => setF({ ...f, type: e.target.value })} data-testid="apply-type">
+              {types.map((t) => <option key={t} value={t}>{typeName(t)}{["unpaid", "emergency"].includes(t) ? L(" — unpaid", " — tanpa gaji") : ""}</option>)}
+            </select>
+          </label>
+          <div className={l4.dates}>
+            <fieldset className={`erp-field ${l4.rangeSet}`}>
+              <legend className="erp-label" data-required="">{L("Date Range", "Julat Tarikh")}</legend>
+              <span className={l4.range}>
+                <input type="date" className={inputClass} value={f.start} disabled={step === 2} aria-label={L("First day", "Hari pertama")} data-testid="apply-start"
+                  onChange={(e) => setF({ ...f, start: e.target.value, end: !f.end || f.end < e.target.value ? e.target.value : f.end })} />
+                <span className={l4.to} aria-hidden="true">–</span>
+                <input type="date" className={inputClass} value={f.end} min={f.start || undefined} disabled={step === 2} aria-label={L("Last day", "Hari terakhir")} data-testid="apply-end"
+                  onChange={(e) => setF({ ...f, end: e.target.value })} />
+              </span>
+            </fieldset>
+            <div className="erp-field">
+              <span className="erp-label">{L("Working Days", "Hari Bekerja")}</span>
+              <span className={l4.days} data-testid="apply-days" aria-live="polite">
+                <AppIcon name="date" />
+                <strong>{quoting ? "…" : quote && !quote.problem ? fmtDays(quote.days) : "—"}</strong>
+              </span>
+            </div>
+          </div>
+          {halfOk && (
+            /* v1.325.0 (Global UI System D-2) - the one switch; on the review step it is read only */
+            <div className={l4.halfRow}><PillSwitch testid="apply-half" label={L("Half day", "Separuh hari")} value={f.half || "full"}
+              onChange={(k) => setF({ ...f, half: k === "full" ? "" : k })}
+              options={[["full", L("Full day", "Sehari penuh")], ["first_half", L("First half", "Separuh pertama")], ["second_half", L("Second half", "Separuh kedua")]] as const}
+              disabled={step === 2 ? { full: L("Back to change it", "Kembali untuk mengubahnya"), first_half: L("Back to change it", "Kembali untuk mengubahnya"), second_half: L("Back to change it", "Kembali untuk mengubahnya") } : undefined} /></div>
+          )}
+          {quote && !quote.problem && linesNote.length > 0 && <p className="erp-help" data-testid="apply-excluded">{L("Not counted: ", "Tidak dikira: ")}{linesNote.join(" · ")}</p>}
+          {quote?.problem && <p className={l4.problem} role="alert" data-testid="apply-problem">{quote.problem.message}</p>}
+          <label className="erp-field">
+            <span className="erp-label" data-required="">{L("Reason", "Sebab")}</span>
+            <textarea className={textareaClass} rows={4} maxLength={500} value={f.reason} disabled={step === 2} onChange={(e) => setF({ ...f, reason: e.target.value })} data-testid="apply-reason"
+              placeholder={L("State the reason for your leave - your approver reads it", "Nyatakan sebab cuti anda - pelulus anda membacanya")} />
+            <span className={l4.counter}>{f.reason.length} / 500</span>
+          </label>
+          <div className="erp-field">
+            <span className="erp-label" data-required={needFile ? "" : undefined}>{L("Attachment", "Lampiran")} {!needFile && <em>{L("(Optional)", "(Pilihan)")}</em>}</span>
+            {!file ? (
+              <label className="erp-dropzone">
+                <span className="erp-dropzone-icon"><AppIcon name="upload" /></span>
+                <span className="erp-dropzone-text"><strong>{uploading ? L("Uploading…", "Memuat naik…") : L("Upload file", "Muat naik fail")}</strong><small>{needFile ? L("Medical certificate - ", "Sijil perubatan - ") : ""}PDF, JPG {L("or", "atau")} PNG · {L("Max 10 MB", "Maks 10 MB")}</small></span>
+                <span className={`${btnSm} erp-dropzone-btn`}>{L("Choose file", "Pilih fail")}</span>
+                <input type="file" accept="application/pdf,image/jpeg,image/png" className={css.srOnly} disabled={uploading || step === 2} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} data-testid="apply-file" />
               </label>
-              <div className={l4.field}>
-                <span>{L("Working Days", "Hari Bekerja")}</span>
-                <span className={l4.days} data-testid="apply-days" aria-live="polite">
-                  <AppIcon name="date" />
-                  <strong>{quoting ? "…" : quote && !quote.problem ? `${quote.days} ${quote.days === 1 ? L("day", "hari") : L("days", "hari")}` : "—"}</strong>
-                </span>
+            ) : (
+              <div className="erp-file-chip" data-testid="apply-file-chip">
+                <AppIcon name="document" />
+                <span><strong>{file.name}</strong><small>{Math.max(1, Math.round(file.size / 1024))} KB</small></span>
+                {step === 1 && <button type="button" className={btnSm} aria-label={L("Remove the attachment", "Buang lampiran")} onClick={() => setFile(null)}><AppIcon name="error" /></button>}
               </div>
-            </div>
-            {halfOk && (
-              /* v1.325.0 (Global UI System D-2) - the one switch; on the review step it is read only */
-              <div className={l4.halfRow}><PillSwitch testid="apply-half" label={L("Half day", "Separuh hari")} value={f.half || "full"}
-                onChange={(k) => setF({ ...f, half: k === "full" ? "" : k })}
-                options={[["full", L("Full day", "Sehari penuh")], ["first_half", L("First half", "Separuh pertama")], ["second_half", L("Second half", "Separuh kedua")]] as const}
-                disabled={step === 2 ? { full: L("Back to change it", "Kembali untuk mengubahnya"), first_half: L("Back to change it", "Kembali untuk mengubahnya"), second_half: L("Back to change it", "Kembali untuk mengubahnya") } : undefined} /></div>
             )}
-            {quote && !quote.problem && linesNote.length > 0 && <p className={css.sub} data-testid="apply-excluded">{L("Not counted: ", "Tidak dikira: ")}{linesNote.join(" · ")}</p>}
-            {quote?.problem && <p className={l4.problem} role="alert" data-testid="apply-problem">{quote.problem.message}</p>}
-            <label className={l4.field}>
-              <span>{L("Reason", "Sebab")} <b aria-hidden="true">*</b></span>
-              <textarea className={l4.textarea} rows={3} maxLength={500} value={f.reason} disabled={step === 2} onChange={(e) => setF({ ...f, reason: e.target.value })} data-testid="apply-reason"
-                placeholder={L("What the leave is for - your approver reads it", "Tujuan cuti - pelulus anda membacanya")} />
-              <span className={l4.counter}>{f.reason.length} / 500</span>
-            </label>
-            <div className={l4.field}>
-              <span>{L("Attachment", "Lampiran")} {needFile ? <b aria-hidden="true">*</b> : <em>{L("(Optional)", "(Pilihan)")}</em>}</span>
-              {!file ? (
-                <label className={l4.drop}>
-                  <AppIcon name="upload" />
-                  <span><strong>{uploading ? L("Uploading…", "Memuat naik…") : L("Upload file", "Muat naik fail")}</strong><span className={css.sub}>{needFile ? L("Medical certificate - ", "Sijil perubatan - ") : ""}PDF, JPG {L("or", "atau")} PNG · {L("Max 10 MB", "Maks 10 MB")}</span></span>
-                  <span className={btnSm}>{L("Choose file", "Pilih fail")}</span>
-                  <input type="file" accept="application/pdf,image/jpeg,image/png" className={css.srOnly} disabled={uploading || step === 2} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} data-testid="apply-file" />
-                </label>
-              ) : (
-                <div className={l4.fileRow} data-testid="apply-file-chip">
-                  <AppIcon name="document" />
-                  <span><strong>{file.name}</strong><span className={css.sub}>{Math.max(1, Math.round(file.size / 1024))} KB</span></span>
-                  {step === 1 && <button type="button" className={btnSm} aria-label={L("Remove the attachment", "Buang lampiran")} onClick={() => setFile(null)}><AppIcon name="error" /></button>}
-                </div>
-              )}
-            </div>
-            {step === 1 && missing && <p className={css.sub} data-testid="apply-missing">{missing}</p>}
-            <span className={l4.actions}>
-              {step === 1 ? (
-                <>
-                  <button type="button" className={btnSm} onClick={reset}>{L("Cancel", "Batal")}</button>
-                  <button type="button" className={btnSmPrimary} disabled={!ready} onClick={() => setStep(2)} data-testid="apply-next">{L("Review", "Semak")} <AppIcon name="next" /></button>
-                </>
-              ) : (
-                <>
-                  <button type="button" className={btnSm} onClick={() => setStep(1)} data-testid="apply-back"><AppIcon name="previous" /> {L("Back", "Kembali")}</button>
-                  <button type="button" className={btnSmPrimary} disabled={!ready || busy} onClick={() => void send()} data-testid="apply-submit">{busy ? L("Sending…", "Menghantar…") : L("Submit request", "Hantar permohonan")}</button>
-                </>
-              )}
-            </span>
           </div>
-        )}
-      </section>
-
-      <div className={l4.side}>
-        <section className={card} aria-label={L("Leave balance impact", "Kesan baki cuti")} data-testid="apply-impact">
-          <Head icon="balance" title={L("Leave Balance Impact", "Kesan Baki Cuti")} sub={L("How this request will affect your leave balance.", "Bagaimana permohonan ini menjejaskan baki cuti anda.")} />
-          {quoting ? <SkelRows rows={3} /> : !quote ? <p className={css.empty}>{L("Choose the type and the dates to see the effect.", "Pilih jenis dan tarikh untuk melihat kesannya.")}</p>
-            : quote.balance ? (
-              <ul className={l4.impact}>
-                <li><span>{typeName(f.type)} {L("balance (before)", "baki (sebelum)")}</span><strong>{quote.balance.before} {L("days", "hari")}</strong></li>
-                <li className={l4.minus}><span>{L("This request", "Permohonan ini")}</span><strong>− {quote.problem ? 0 : quote.days} {L("days", "hari")}</strong></li>
-                <li className={(quote.problem ? quote.balance.before : quote.balance.after) < 0 ? l4.neg : ""}><span>{typeName(f.type)} {L("balance (after)", "baki (selepas)")}</span><strong data-testid="impact-after">{quote.problem ? quote.balance.before : quote.balance.after} {L("days", "hari")}</strong></li>
-                {quote.balance.pending > 0 && <li className={css.sub}><span>{L(`Includes ${quote.balance.pending} day(s) already pending`, `Termasuk ${quote.balance.pending} hari yang sedang menunggu`)}</span><span /></li>}
-              </ul>
-            ) : <p className={css.sub} data-testid="impact-unpaid">{quote.unpaid ? L("Unpaid leave - no balance to use up. Each day is deducted at 1/26 of the monthly wage.", "Cuti tanpa gaji - tiada baki digunakan. Setiap hari dipotong 1/26 daripada gaji bulanan.") : L("This type has no yearly ceiling.", "Jenis ini tiada had tahunan.")}</p>}
-        </section>
-        <section className={card} aria-label={L("Approval route", "Laluan kelulusan")} data-testid="apply-route">
-          <Head icon="users" title={L("Approval Route", "Laluan Kelulusan")} sub={L("This request will follow the approval route below.", "Permohonan ini akan mengikut laluan kelulusan di bawah.")} />
-          {quoting ? <SkelRows rows={2} /> : quote ? <RouteList route={quote.route} /> : <p className={css.empty}>{L("Choose the dates to see who approves it.", "Pilih tarikh untuk melihat siapa yang meluluskannya.")}</p>}
-        </section>
-      </div>
+          <DrawerFoot testid="apply-actions">
+            {step === 1 && missing && <span className="erp-meta" data-testid="apply-missing">{missing}</span>}
+            {step === 1 ? (
+              <>
+                <button type="button" className={btnGhost} onClick={closeDrawer ?? reset} data-testid="apply-cancel">{L("Cancel", "Batal")}</button>
+                <button type="button" className={btnClass} disabled={!ready} onClick={() => setStep(2)} data-testid="apply-next">{L("Review", "Semak")} <AppIcon name="next" /></button>
+              </>
+            ) : (
+              <>
+                <button type="button" className={btnGhost} onClick={() => setStep(1)} data-testid="apply-back"><AppIcon name="previous" /> {L("Back", "Kembali")}</button>
+                <button type="button" className={btnClass} disabled={!ready || busy} onClick={() => void send()} data-testid="apply-submit">{busy ? L("Sending…", "Menghantar…") : L("Submit request", "Hantar permohonan")}</button>
+              </>
+            )}
+          </DrawerFoot>
+        </DrawerForm>
+      )}
     </div>
   );
 }

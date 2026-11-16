@@ -32,13 +32,20 @@ export type TableCol<T> = {
   cmds?: boolean;
 };
 
-export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, loading, empty, hidden, sort, dir, onSort, onOpen, rowClass, page, size, onPage, onSize, testid = "task-table" }: {
+export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, loading, empty, hidden, sort, dir, onSort, onOpen, rowClass, page, size, onPage, onSize, testid = "task-table", picked, dense = false, fill = false }: {
   rows: T[]; cols: TableCol<T>[]; label: string; loading?: boolean; empty?: ReactNode;
   hidden?: ReadonlySet<string>;
   sort?: string; dir?: SortDir; onSort?: (key: string) => void;
   onOpen: (id: number) => void; rowClass?: (row: T) => string;
   page?: number; size?: number; onPage?: (p: number) => void; onSize?: (s: PageSize) => void;
   testid?: string;
+  /** v1.326.0 - a pick list (My Tasks beside its task): the row on show is marked, as the Project Register marks its row */
+  picked?: number | null;
+  /** v1.326.0 - the narrow list beside a task: tighter cells, no wide first column */
+  dense?: boolean;
+  /** v1.326.0 - the table takes the height its column is given (My Tasks beside its task, held to the screen by
+      the split's FillPanel): the rows scroll inside under the pinned header, the pager stays under them */
+  fill?: boolean;
 }) {
   const shown = cols.filter((c) => !hidden?.has(c.key));
   const paged = page != null && size != null;
@@ -47,7 +54,7 @@ export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, 
   if (loading) return <SkelRows rows={6} />;
   if (rows.length === 0) return <>{empty ?? <p className={tt.empty}><AppIcon name="success" />{L("No tasks.", "Tiada tugasan.")}</p>}</>;
   return (
-    <div className={tt.wrap} data-testid={testid}>
+    <div className={`${tt.wrap} ${dense ? tt.dense : ""} ${fill ? tt.fill : ""}`} data-testid={testid}>
       <div className={tt.scroll}>
         <table className={tt.table} aria-label={label}>
           <thead>
@@ -66,7 +73,7 @@ export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, 
           <tbody>
             {slice.map((r) => (
               <tr key={r.id} data-record={`task:${r.id}`} className={rowClass?.(r) ?? ""} onClick={() => onOpen(r.id)}
-                tabIndex={-1} data-testid="task-row">
+                tabIndex={-1} data-testid="task-row" aria-current={picked != null && picked === r.id ? "true" : undefined}>
                 {shown.map((c) => (
                   <td key={c.key} data-label={c.label} className={c.main ? tt.main : c.cmds ? tt.cmds : ""} onClick={c.cmds ? (e) => e.stopPropagation() : undefined}>{c.cell(r)}</td>
                 ))}
@@ -79,6 +86,14 @@ export function CompactTaskTable<T extends { id: number }>({ rows, cols, label, 
     </div>
   );
 }
+
+/** v1.326.0 - a row's name as a button: the keyboard opens the row the way a click on it does */
+export function TaskRowTitle({ title, onOpen, late = false }: { title: string; onOpen: () => void; late?: boolean }) {
+  return <button type="button" className={tt.rowTitle} data-late={late || undefined} onClick={(e) => { e.stopPropagation(); onOpen(); }}>{title}</button>;
+}
+
+/** the line under a row's name: its project, its due day */
+export function TaskRowSub({ children }: { children: ReactNode }) { return <span className={tt.sub}>{children}</span>; }
 
 /** Columns: which optional columns the table shows */
 export function ColumnPicker({ cols, hidden, onToggle }: { cols: { key: string; label: string; optional?: boolean }[]; hidden: ReadonlySet<string>; onToggle: (key: string) => void }) {

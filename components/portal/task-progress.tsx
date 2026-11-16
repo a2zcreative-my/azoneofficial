@@ -378,8 +378,9 @@ export function ReviewBar({ d, onChanged, onUpdate, onClose, bare = false }: { d
       {!bare && stages.length > 0 && <StageTimeline stages={stages} label={L("Task progress", "Kemajuan tugasan")} testId="task-stages" />}
       <div className={tp.bar}>
         <span className={tp.barText}>
-          <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span>
-            {t.progress_source === "checklist" && t.reported && <span className={tp.barSub} data-testid="reported-line"> · {L(`last reported ${t.reported.value}% by ${t.reported.by ?? "—"}`, `terakhir dilaporkan ${t.reported.value}% oleh ${t.reported.by ?? "—"}`)}</span>}</span>
+          {/* v1.326.0 - bare (the task pane): the state, the figure and its source are the pane's own facts - not said twice */}
+          {!bare && <span><StateChip status={t.status} stage={t.stage} /> · {t.progress}% <span className={tp.barSub}>{t.progress_source === "checklist" ? L(`from the checklist (${t.items.filter((i) => i.done).length}/${t.items.length})`, `daripada senarai semak (${t.items.filter((i) => i.done).length}/${t.items.length})`) : L("reported in updates", "dilaporkan dalam kemas kini")}</span>
+            {t.progress_source === "checklist" && t.reported && <span className={tp.barSub} data-testid="reported-line"> · {L(`last reported ${t.reported.value}% by ${t.reported.by ?? "—"}`, `terakhir dilaporkan ${t.reported.value}% oleh ${t.reported.by ?? "—"}`)}</span>}</span>}
           <span className={tp.barSub} data-testid="next-step">{nextLine(d)}</span>
         </span>
         <span className={tp.barCmds}>

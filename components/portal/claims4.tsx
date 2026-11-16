@@ -26,6 +26,7 @@ import { dmy, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { properName } from "@/lib/names";
 import { card, chipSmInfo, chipSmNeutral, chipSmSuccess } from "@/lib/ui-styles";
+import { DrawerPanel, DrawerSteps } from "@/components/ui/side-drawer";
 import css from "./claims4.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -45,17 +46,9 @@ export const needsReceipt = (type: string | undefined, lines: readonly { km?: nu
 export type ClaimStep4 = 1 | 2 | 3;
 const STEP_NAMES = (): [ClaimStep4, string][] => [[1, L("Claim Details", "Butiran Tuntutan")], [2, L("Attachments", "Lampiran")], [3, L("Review & Submit", "Semak & Hantar")]];
 
+/** v1.326.0 - the one form stepper (FormSteps), in the drawer's step row (DrawerSteps) - the Apply Leave structure */
 export function ClaimSteps({ step }: { step: ClaimStep4 }) {
-  return (
-    <ol className={css.stepper} aria-label={L("Steps", "Langkah")} data-testid="claim-steps">
-      {STEP_NAMES().map(([n, name]) => (
-        <li key={n} data-state={n < step ? "done" : n === step ? "now" : "todo"} aria-current={n === step ? "step" : undefined}>
-          <span className={css.stepNum}>{n < step ? <AppIcon name="success" /> : n}</span>
-          <span>{name}</span>
-        </li>
-      ))}
-    </ol>
-  );
+  return <DrawerSteps steps={STEP_NAMES().map(([, name]) => name)} current={step} label={L("Steps", "Langkah")} testid="claim-steps" />;
 }
 
 /** The right-hand panel of reference 2: the rules in force, read from the
@@ -67,9 +60,8 @@ export function ClaimSubmitAside({ advance, rateCents, mileageOnly, recoverMonth
   recoverMonthLabel: string;
 }) {
   return (
-    <aside className={css.aside} aria-label={L("Claim information", "Maklumat tuntutan")}>
-      <section className={card} data-testid="claim-info">
-        <p className={css.asideTitle}><AppIcon name="info" />{L("My Claim Info", "Maklumat Tuntutan Saya")}</p>
+    <>
+      <DrawerPanel icon="info" title={L("My Claim Info", "Maklumat Tuntutan Saya")} label={L("Claim information", "Maklumat tuntutan")} testid="claim-info">
         <ul className={css.facts}>
           {advance ? (
             <>
@@ -87,9 +79,8 @@ export function ClaimSubmitAside({ advance, rateCents, mileageOnly, recoverMonth
           <li><span>{L("Approval", "Kelulusan")}</span><strong>{L("The chain for your role; never yourself", "Rantaian peranan anda; bukan diri sendiri")}</strong></li>
           <li><span>{L("Payment", "Bayaran")}</span><strong>{L("Approved is not paid: Paid shows the bank date", "Diluluskan bukan dibayar: Dibayar menunjukkan tarikh bank")}</strong></li>
         </ul>
-      </section>
-      <section className={card} data-testid="claim-documents-required">
-        <p className={css.asideTitle}><AppIcon name="attach" />{L("Required Documents", "Dokumen Diperlukan")}</p>
+      </DrawerPanel>
+      <DrawerPanel icon="attach" title={L("Required Documents", "Dokumen Diperlukan")} testid="claim-documents-required">
         <ul className={css.docs}>
           {advance ? (
             <li data-need="none"><AppIcon name="success" /><span><strong>{L("No receipt", "Tiada resit")}</strong><em>{L("The signed request authorises the payroll deduction.", "Permohonan bertandatangan membenarkan potongan gaji.")}</em></span></li>
@@ -100,8 +91,8 @@ export function ClaimSubmitAside({ advance, rateCents, mileageOnly, recoverMonth
           )}
           <li data-need="info"><AppIcon name="print" /><span><strong>{L("Printed claim form", "Borang tuntutan bercetak")}</strong><em>{L("From the claim once submitted, for signatures in ink.", "Daripada tuntutan selepas dihantar, untuk tandatangan dakwat.")}</em></span></li>
         </ul>
-      </section>
-    </aside>
+      </DrawerPanel>
+    </>
   );
 }
 

@@ -46,6 +46,10 @@ const FILES = {
   /* v1.325.0 - Phase D, group 2: HR, Staff, Leave, Claims */
   leave: "components/portal/leave.tsx", leave4: "components/portal/leave4.tsx", claims: "components/portal/role-panels.tsx", claimsOv: "components/portal/claims-overview.tsx",
   staffDir: "components/staff/staff-directory.tsx", people: "components/portal/people-panel.tsx", drawer: "components/ui/side-drawer.tsx", health: "components/admin/system-health.tsx",
+  /* v1.326.0 - My Tasks (the register beside the task) and the form drawer (Apply Leave, reused by Submit Claim) */
+  tasks2: "components/portal/tasks2.tsx", taskTable: "components/portal/task-table.tsx", taskTableCss: "components/portal/task-table.module.css",
+  ws: "components/portal/task-workspace.tsx", wsCss: "components/portal/task-workspace.module.css", progress: "components/portal/task-progress.tsx",
+  steps: "components/ui/form-steps.tsx", claims4: "components/portal/claims4.tsx",
 };
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 const block = (css, sel) => { const i = css.indexOf(`${sel} {`); return i < 0 ? "" : css.slice(i, css.indexOf("}", i) + 1); };
@@ -148,8 +152,19 @@ function checks(src, sc) {
   ok("the drawer takes dirty as one value (auto until saved)", /dirty\?: boolean \| "auto";/.test(src.drawer));
   ok("System health marks an error a page of an OLDER version reported, never editing the record", /const reportedBy = \(message: string\)/.test(src.health) && /newerVersion\(APP_VERSION, m\[1\]!\)/.test(src.health) && /data-testid="err-older"/.test(src.health));
 
+  /* ---- v1.326.0: My Tasks - the register on the left, the task on the right, held to the screen ---- */
+  ok("My Tasks from 1024px: the one compact task table (CompactTaskTable), the row on show marked, paged, filling its column", /<MyTaskTable rows=\{mineRows\} picked=\{present === "beside" \? openTask : null\}/.test(src.tasks) && /<CompactTaskTable rows=\{rows\} cols=\{cols\} label=\{L\("My Tasks", "Tugasan Saya"\)\}[\s\S]{0,200}?picked=\{picked\} dense fill/.test(src.tasks2) && /aria-current=\{picked != null && picked === r\.id \? "true" : undefined\}/.test(src.taskTable) && /tr\[aria-current="true"\] > td \{ background: color-mix\(in srgb, var\(--gold-solid\) 9%, transparent\); \}/.test(src.taskTableCss) && /page=\{minePage\} size=\{mineSize\}/.test(src.tasks));
+  ok("My Tasks: the split is ONE flex line held to the screen (FillPanel) - both columns end on one line and scroll inside", /<FillPanel className=\{t2\.mine\} testid="mine-split">/.test(src.tasks) && /\.mine \{ display: flex; align-items: stretch; \}/.test(src.t2Css) && /\.fill > \.scroll \{ min-height: 0; overflow: auto;/.test(src.taskTableCss) && /\.paneFill \{[^}]*overflow-y: auto;/.test(src.wsCss));
+  ok("the task pane says the state and the progress once: no icon well, no Now chip without a tag, the review bar bare of the chip", !/className=\{ws\.headIcon\}/.test(src.ws) && /state === "now" && tag && <em/.test(src.ws) && /\{!bare && <span><StateChip status=\{t\.status\} stage=\{t\.stage\} \/>/.test(src.progress) && /data-testid="progress-source"/.test(src.ws));
+  ok("the facts lay out by the PANE's width (a container), never the screen's", /container: taskpane \/ inline-size;/.test(src.wsCss) && /@container taskpane \(min-width: 42rem\) \{\n  \.facts \{ grid-template-columns:/.test(src.wsCss));
+  /* ---- v1.326.0: the form drawer - one structure, reused ---- */
+  ok("the form drawer: steps and buttons in the drawer's own rows (portals), the fields beside the aside, one stepper", /export function DrawerFoot\(/.test(src.drawer) && /export function DrawerSteps\(/.test(src.drawer) && /export function DrawerForm\(/.test(src.drawer) && /<div className="erp-drawer-steps" ref=\{setStepsEl\} \/>/.test(src.drawer) && /<div className="erp-drawer-foot erp-drawer-slot" ref=\{setFootEl\} hidden=\{asking\} \/>/.test(src.drawer) && /className="erp-steps"/.test(src.steps));
+  ok("the form drawer's two columns follow the DRAWER's width; the footer clears the inset", /\.erp-drawer-layout \{ container: drawerform \/ inline-size;/.test(src.v3) && /@container drawerform \(min-width: 46rem\)/.test(src.v3) && /\.erp-drawer-slot:empty \{ display: none; \}|\.erp-drawer-steps:empty, \.erp-drawer-slot:empty \{ display: none; \}/.test(src.v3));
+  ok("Apply Leave is the form drawer: its steps, the fields beside Balance Impact and the Approval Route, Cancel / Review pinned; Cancel asks before discarding", /<SideDrawer open=\{applyOpen\}[\s\S]{0,200}?form icon="date"/.test(src.leave) && /<DrawerSteps steps=\{STEPS\} current=\{step\}/.test(src.leave4) && /<DrawerForm testid="apply-form" aside=\{<>\{impact\}\{route\}<\/>\}>/.test(src.leave4) && (src.leave4.match(/<DrawerFoot testid="apply-actions">/g) ?? []).length === 2 && /onClick=\{closeDrawer \?\? reset\}/.test(src.leave4) && /<RouteList route=\{quote\.route\} withYou \/>/.test(src.leave4));
+  ok("Submit Claim reuses it: the same steps row, the aside, the pinned Back / Next / Submit", /<SideDrawer open=\{submitOpen\}[\s\S]{0,120}?form icon="receipt"/.test(src.claims) && /<DrawerForm testid="claim-drawer" aside=\{<ClaimSubmitAside/.test(src.claims) && /<DrawerFoot testid="claim-actions">/.test(src.claims) && /<DrawerSteps steps=\{STEP_NAMES\(\)/.test(src.claims4));
+
   /* ---- the house rules ---- */
-  const mine = [src.kpiCss, src.panelCss, src.fillCss];
+  const mine = [src.kpiCss, src.panelCss, src.fillCss, src.taskTableCss, src.wsCss];
   ok("tokens only in the shared pieces", mine.every((c) => !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(c)));
   ok("the house breakpoints only", mine.every((c) => (c.match(/@media \((?:min|max)-width: (\d+)px\)/g) ?? []).every((m) => /: (640|768|1024|1280|639|767|1023|1279)px\)/.test(m))));
   ok("no hand-made dialog in the shared pieces", ![src.kpi, src.strip, src.fill, src.panel].some((s) => /role="dialog"/.test(s)));
@@ -205,6 +220,15 @@ const MUT = [
   ["a submitted claim leaves the drawer open", "claims", 'setView("mine"); setSubmitOpen(false); // v1.310.0', 'setView("mine"); // v1.310.0'],
   ["the claim type by hand again", "claims", '<PillSwitch testid="claim-type"', '<div className="erp-segmented" /><PillSwitch testid="claim-type"'],
   ["an old error read as live", "health", 'newerVersion(APP_VERSION, m[1]!)', 'false'],
+  ["My Tasks back to the card list beside the task", "tasks", "? <MyTaskTable rows={mineRows}", "? <MyTaskCards rows={mineRows}"],
+  ["the row on show no longer marked", "taskTable", 'aria-current={picked != null && picked === r.id ? "true" : undefined}', ""],
+  ["the split no longer held to the screen", "tasks", '<FillPanel className={t2.mine} testid="mine-split">', '<div className={t2.mine} data-testid="mine-split">'],
+  ["the review bar repeats the state again", "progress", "{!bare && <span><StateChip", "{<span><StateChip"],
+  ["the facts by the screen's width again", "wsCss", "@container taskpane (min-width: 42rem) {", "@media (min-width: 1024px) {"],
+  ["the Apply Leave buttons back in the scroll", "leave4", '<DrawerFoot testid="apply-actions">', '<div data-testid="apply-actions">'],
+  ["Cancel throws the typing away without asking", "leave4", "onClick={closeDrawer ?? reset}", "onClick={reset}"],
+  ["the claim drawer leaves the structure", "claims", '<DrawerForm testid="claim-drawer" aside={<ClaimSubmitAside', '<div data-testid="claim-drawer" data-aside={<ClaimSubmitAside'],
+  ["the step row no longer pinned", "drawer", '<div className="erp-drawer-steps" ref={setStepsEl} />', ""],
   ["the page frame hides a spill", "globals", ".erp-workspace {", ".erp-workspace { overflow-x: hidden; } .erp-workspace {"],
 ];
 let caught = 0;

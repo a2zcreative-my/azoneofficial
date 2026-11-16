@@ -57,8 +57,9 @@ with sync_playwright() as p:
     chip = pg.locator('button[title="Open the project"]:visible').first
     if chip.count():
         ct = chip.inner_text()
-    else:  # My Tasks' cards (v1.313.0) carry the project as a line, "Project: <name>"
-        m = re.search(r"Project: ([^\n]+)", pg.get_by_test_id("my-cards").inner_text() if pg.get_by_test_id("my-cards").count() else "")
+    else:  # My Tasks carries the project as a line, "Project: <name>" - the cards (v1.313.0), the register's row from 1024px (v1.326.0)
+        lst = pg.locator("[data-testid=my-cards], [data-testid=mine-table]").first
+        m = re.search(r"Project: ([^\n]+?)(?:\s+(?:Overdue|Due soon|Due|No due date)\b|\n|$)", lst.inner_text() if lst.count() else "")
         ct = m.group(1) if m else ""
     check("All Tasks: a project task names its project, not 'Project #n'", ct.strip() != "" and not re.match(r"^Project #\d+$", ct.strip()) and len(ct.strip()) > 3, ct)
     check("no page errors (Tasks, editor)", not errs, str(errs)[:200])

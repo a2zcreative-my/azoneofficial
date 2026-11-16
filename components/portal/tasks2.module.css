@@ -19,6 +19,8 @@
 .headText { display: grid; gap: 0.125rem; flex: 1 1 9rem; min-width: 0; }
 .headText strong { font-size: var(--type-section-size); line-height: var(--type-section-lh); }
 .headText small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+/* v1.326.0 - without the icon well (beside a task) the title takes only its own width, so the switch stays on its line */
+.head[data-bare] .headText { flex-basis: auto; }
 .headAside { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
 .period { padding: 0.25rem 0.625rem; border: 1px solid var(--border); border-radius: var(--radius-control); font-size: var(--type-caption-size); font-weight: 600; }
 
@@ -186,8 +188,14 @@
 }
 @media (min-width: 1024px) {
   .ovFoot { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
-  /* v1.321.0 - My Tasks: the list 35%, the chosen task 65% */
-  .mine { grid-template-columns: minmax(0, 35fr) minmax(0, 65fr); }
+  /* v1.326.0 - My Tasks: the register 40%, the chosen task 60% (v1.321.0: 35 / 65, a card list) */
+  /* one flex line, not a grid: a single flex line is held to the split's max-height (FillPanel), so
+     when the split is held to the screen both columns take exactly that height and scroll inside;
+     a grid's rows would grow past it. 40 : 60, the gap as before. */
+  .mine { display: flex; align-items: stretch; }
+  .mine > * { flex: 40 1 0; min-width: 0; min-height: 0; }
+  .mine > * + * { flex-grow: 60; }
+  .mine > .listCard { display: flex; flex-direction: column; }
   .board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (min-width: 1280px) {

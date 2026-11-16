@@ -117,7 +117,8 @@ with sync_playwright() as p:
     check("the four steps - To Do, In Progress, Review, Done - and the task stands on Review", [li.get_attribute("data-step") for li in fs.locator("li[data-step]").all()] == ["todo", "in_progress", "review", "done"] and fs.get_attribute("data-now") == "review", fs.inner_text()[:120])
     bar = dr.get_by_test_id("review-bar")
     sl = dr.get_by_test_id("summary-latest")  # v1.258.0 - the latest report moved from the bar's one line into the status summary, in full
-    check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "Review" in bar.inner_text() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text())
+    # v1.326.0 - in the task pane the bar no longer repeats the state chip (the facts and the steps carry it): its next step names the review
+    check("Details: the review bar says it waits for review, the status summary carries the latest report", bar.count() == 1 and "review" in bar.inner_text().lower() and sl.count() == 1 and "Submitted to the bank" in sl.inner_text(), bar.inner_text()[:200])
     check("Details: the reviewer has Approve and Return", bar.get_by_role("button", name="Approve").count() == 1 and bar.get_by_role("button", name="Return").count() == 1)
     det = dr.inner_text()
     part(pg, dr, re.compile("^Checklist"))

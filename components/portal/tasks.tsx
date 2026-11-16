@@ -47,7 +47,7 @@ import { FilterField, FilterPopover } from "@/components/ui/filter-popover";
 import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
 import { PillSwitch } from "@/components/ui/panel";
 import { FillPanel } from "@/components/ui/fill-panel"; // v1.323.0 - D-4
-import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
+import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyTaskTable, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
 import { closedThisWeek } from "@/lib/task-flow";
 import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards"; // v1.307.0 - Attendance 4.0 (A-3): the operational roster's home
 import { RosterBoard } from "@/components/portal/lazy-panels";
@@ -491,6 +491,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [mineMode, setMineMode] = useState<"list" | "board">("list");
   const [allMode, setAllMode] = useState<"list" | "board">("list");
   const [allPage, setAllPage] = useState(1);
+  /* v1.326.0 - My Tasks from 1024px: the register's page and rows per page */
+  const [minePage, setMinePage] = useState(1);
+  const [mineSize, setMineSize] = useState<PageSize>(10);
   /* v1.321.0 (the Unified Workspace brief) - All Tasks: rows per page, the
      column sort turned round, the hidden columns, Insights, and the filters
      behind Filters (department, due-date range) */
@@ -569,6 +572,10 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       })();
       return sortRev ? -n : n;
     });
+  /* a filter or a sort starts the My Tasks register again at its first page (set during render, not in an effect) */
+  const mineKey = `${needle}|${statusF}|${prioF}|${aboutF}|${sortK}|${sortRev}`;
+  const [mineKeySeen, setMineKeySeen] = useState(mineKey);
+  if (mineKey !== mineKeySeen) { setMineKeySeen(mineKey); setMinePage(1); }
   const filtering = !!(needle || prioF || whoF || aboutF || deptF || dueFrom || dueTo || statusF !== "active");
   const clearFilters = () => { setQ(""); setPrioF(""); setWhoF(0); setAboutF(""); setDeptF(""); setDueFrom(""); setDueTo(""); setStatusF("active"); setSortK("newest"); setSortRev(false); setAllPage(1); };
   /** a column header: the first press sorts that way, the next turns it round */
@@ -593,7 +600,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   );
   /* v1.319.0 - `brief` (the narrow list beside the task, picture 2): the search and the status only */
   const toolbar = (withWho: boolean, withStatus = true, brief = false) => (
-    <div className={tk.toolbar} role="search">
+    <div className={`${tk.toolbar} ${brief ? tk.toolbarBrief : ""}`} role="search">
       <label className={tk.search}>
         <AppIcon name="search" />
         <input type="search" value={q} aria-label={L("Search tasks", "Cari tugasan")}
@@ -1209,16 +1216,21 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         );
         const list = (
           <section className={`${card} ${t2.listCard}`} aria-label={L("My Tasks", "Tugasan Saya")} data-testid="mine-list">
-            <Head2 icon="orders" title={<>{L("My Tasks", "Tugasan Saya")}<span className={t2.count}>{mineRows.length}</span></>} sub={besideOk ? undefined : subMine} aside={modeRow} />
+            <Head2 icon={besideOk ? undefined : "orders"} title={<>{L("My Tasks", "Tugasan Saya")}<span className={t2.count}>{mineRows.length}</span></>} sub={besideOk ? undefined : subMine} aside={modeRow} />
             {toolbar(false, true, true)}
-            <MyTaskCards rows={mineRows} picked={present === "beside" ? openTask : null} onPick={(id) => void openChecklist(id, besideOk ? "beside" : "open")} today={todayISO} loaded={loaded} empty={noMatch} />
+            {besideOk
+              ? <MyTaskTable rows={mineRows} picked={present === "beside" ? openTask : null} onPick={(id) => void openChecklist(id, "beside")} today={todayISO} loaded={loaded} empty={noMatch}
+                  sort={sortK} dir={sortDirOf(sortK, sortRev)} onSort={(k) => sortBy(k as SortK)}
+                  page={minePage} size={mineSize} onPage={setMinePage} onSize={(n) => { setMineSize(n); setMinePage(1); }} />
+              : <MyTaskCards rows={mineRows} picked={null} onPick={(id) => void openChecklist(id, "open")} today={todayISO} loaded={loaded} empty={noMatch} />}
           </section>
         );
         /* below 1024px: the full-width list; a task opens full screen in the drawer */
         if (!besideOk) return list;
-        /* from 1024px: the list (35%) and the chosen task (65%) */
+        /* from 1024px: the register (40%) and the chosen task (60%), together held to the
+           screen (FillPanel): each column scrolls inside, both end on one line (v1.326.0) */
         return (
-          <div className={t2.mine} data-testid="mine-split">
+          <FillPanel className={t2.mine} testid="mine-split">
             {list}
             {present === "beside" && detail ? (
               <TaskWorkspace key={detail.t.id} layout="pane" taskId={detail.t.id} info={detail.info} checklist={detail.check} foot={detail.foot}
@@ -1226,7 +1238,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             ) : (
               <section className={card} data-testid="mine-none">{!loaded ? <SkelRows rows={6} /> : <p className={tk.empty}><AppIcon name="info" />{mineRows.length ? L("Choose a task on the left to see it here.", "Pilih tugasan di kiri untuk melihatnya di sini.") : L("No task to show.", "Tiada tugasan untuk dipaparkan.")}</p>}</section>
             )}
-          </div>
+          </FillPanel>
         );
       })()}
       {/* My Day (your focus, today's agenda, what is due in seven days, the latest

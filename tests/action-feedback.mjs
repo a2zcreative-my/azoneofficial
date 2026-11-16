@@ -246,7 +246,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
     ["a task update the server refused", roster, /const saveUnsched = async[\s\S]{0,1200}?if \(!r\.ok\) \{\s*\n?\s*showToast\(L\("Not saved"/],
     /* v1.309.0 - Leave 4.0: the Apply form (leave4.tsx) reports a refusal, and says what is missing before it can go on */
     ["a leave request the server refused", readFileSync(path.join(root, "components/portal/leave4.tsx"), "utf8"), /if \(!r\.ok && !r\.queued\) \{ toast\(L\("Not sent"/],
-    ["a leave request with no date says so instead of doing nothing", readFileSync(path.join(root, "components/portal/leave4.tsx"), "utf8"), /const missing = !f\.start \? L\("Choose the dates"[\s\S]{0,12000}?\{step === 1 && missing && <p className=\{css\.sub\} data-testid="apply-missing">\{missing\}/],
+    ["a leave request with no date says so instead of doing nothing", readFileSync(path.join(root, "components/portal/leave4.tsx"), "utf8"), /const missing = !f\.start \? L\("Choose the dates"[\s\S]{0,16000}?\{step === 1 && missing && <span className="erp-meta" data-testid="apply-missing">\{missing\}/], // v1.326.0 - the line sits in the pinned foot (DrawerFoot), beside Cancel / Review
     ["the CEO leave override", page, /showLeaveToast\(\s*\n?\s*action === "approve" \? L\("Approved by you"/],
     /* v1.317.0 (the duplicate-function audit, D-2) - the one overtime decision screen is Attendance > Exceptions & Approvals */
     ["an overtime decision", readFileSync(path.join(root, "components/portal/attendance-exceptions.tsx"), "utf8"), /if \(!r\.ok\) \{ toast\(L\("Not decided", "Tidak diputuskan"\)[\s\S]{0,200}?toast\(L\("Decided", "Diputuskan"\), properName\(o\.name\)\)/],

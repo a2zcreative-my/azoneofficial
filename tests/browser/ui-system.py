@@ -259,6 +259,54 @@ with sync_playwright() as p:
     pg.goto("http://127.0.0.1:4177/portal?tab=Claims&view=submit"); pg.wait_for_timeout(2800)
     check("Claims: an old ?view=submit link opens the drawer", pg.get_by_role("dialog").get_by_test_id("claim-drawer").count() == 1)
     ctx.close()
+    # ================= v1.326.0: My Tasks - the register beside the task, held to the screen =================
+    for w, h in [(1440, 900), (1366, 768), (1024, 768)]:
+        ctx, pg, errs = open_tab(b, "Tasks", w, h, False)
+        pg.goto("http://127.0.0.1:4177/portal?tab=Tasks&view=mine"); pg.wait_for_timeout(3200)
+        m = pg.evaluate("""() => { const sc = document.querySelector('[class*=app-shell_scroll]'); const s = document.querySelector('[data-testid=mine-split]');
+            const l = s && s.children[0].getBoundingClientRect(), r = s && s.children[1].getBoundingClientRect(); const t = document.querySelector('[data-testid=mine-table] table');
+            return { page: sc.scrollHeight - sc.clientHeight, fill: s && s.dataset.fill, lb: l && Math.round(l.bottom), rb: r && Math.round(r.bottom),
+                     side: t ? t.parentElement.scrollWidth - t.parentElement.clientWidth : -1, marked: document.querySelectorAll('[data-testid=mine-table] tr[aria-current=true]').length,
+                     pane: !!document.querySelector('[data-testid=task-workspace][data-layout=pane] [data-testid=ws-fill]') } }""")
+        check(f"My Tasks {w}x{h}: the register and the task fit the screen - the page does not scroll", m["page"] <= 1 and m["fill"] == "on", m)
+        check(f"My Tasks {w}x{h}: both columns end on one line; the register has no sideways scroll; the task on show is marked", m["lb"] == m["rb"] and m["side"] <= 1 and m["marked"] == 1 and m["pane"], m)
+        check(f"My Tasks {w}x{h}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        ctx.close()
+    ctx, pg, errs = open_tab(b, "Tasks", 390, 844, True)
+    pg.goto("http://127.0.0.1:4177/portal?tab=Tasks&view=mine"); pg.wait_for_timeout(3000)
+    check("My Tasks 390: the card list, no table and no task beside it; nothing scrolls inside the page", pg.get_by_test_id("my-cards").count() == 1 and pg.get_by_test_id("mine-table").count() == 0 and pg.locator("[data-testid=task-workspace]").count() == 0 and not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1"))
+    ctx.close()
+    # ================= v1.326.0: the form drawer - Apply Leave, and Submit Claim reusing it =================
+    POS = """() => { const d = document.querySelector('.erp-drawer'); const r = (s) => { const e = d.querySelector(s); return e && e.getBoundingClientRect(); };
+        const steps = d.querySelector('[data-testid=%s]'), acts = d.querySelector('[data-testid=%s]'), main = r('.erp-drawer-main'), aside = r('.erp-drawer-aside');
+        return { w: Math.round(d.getBoundingClientRect().width), h: Math.round(d.getBoundingClientRect().height),
+                 stepsOut: !!steps && !steps.closest('.erp-drawer-body') && !!steps.closest('.erp-drawer-steps'), actsFoot: !!acts && !!acts.closest('.erp-drawer-foot'),
+                 actsOn: !!acts && acts.getBoundingClientRect().bottom <= innerHeight + 1, beside: !!main && !!aside && aside.left >= main.right - 1, below: !!main && !!aside && aside.top >= main.bottom - 1,
+                 side: [...d.querySelectorAll('*')].filter(e => { const b = e.getBoundingClientRect(); return b.width && b.right > d.getBoundingClientRect().right + 1; }).length } }"""
+    for w, h, phone in [(1440, 900, False), (1024, 768, False), (390, 844, True), (320, 640, True)]:
+        ctx, pg, errs = open_tab(b, "Leave", w, h, phone)
+        pg.goto("http://127.0.0.1:4310/portal?tab=Leave&view=apply"); pg.wait_for_timeout(2800)
+        dlg = pg.get_by_role("dialog")
+        dlg.get_by_test_id("apply-start").fill("2026-11-23"); dlg.get_by_test_id("apply-end").fill("2026-11-25"); dlg.get_by_test_id("apply-reason").fill("Family matters at home"); pg.wait_for_timeout(1400)
+        dlg.locator(".erp-drawer-body").evaluate("e => e.scrollTo(0, e.scrollHeight)"); pg.wait_for_timeout(300)
+        q = pg.evaluate(POS % ("apply-steps", "apply-actions"))
+        steps = [x.strip() for x in dlg.get_by_test_id("apply-steps").locator("li").all_inner_texts()]
+        check(f"Apply Leave {w}: the three steps in the drawer's step row, Leave Details in hand", steps == ["1\nLeave Details", "2\nReview", "3\nSubmitted"] and q["stepsOut"] and dlg.get_by_test_id("apply-steps").locator("li[aria-current=step]").count() == 1, (steps, q))
+        check(f"Apply Leave {w}: Cancel and Review pinned in the drawer's foot, on the screen after the form scrolls", q["actsFoot"] and q["actsOn"] and dlg.get_by_test_id("apply-cancel").count() == 1 and dlg.get_by_test_id("apply-next").is_enabled(), q)
+        if w >= 1024: check(f"Apply Leave {w}: the wide form drawer, Balance Impact and the Approval Route beside the fields", q["w"] >= min(1000, int(w * 0.9)) and q["beside"] and dlg.get_by_test_id("impact-after").count() == 1, q)
+        else: check(f"Apply Leave {w}: full screen, one column - the balance and the route under the fields", q["w"] >= w - 1 and q["h"] >= h - 1 and q["below"], q)
+        check(f"Apply Leave {w}: nothing in the drawer past its edge, no page error", q["side"] == 0 and not errs, (q["side"], errs))
+        dlg.get_by_test_id("apply-cancel").click(); pg.wait_for_timeout(400)
+        check(f"Apply Leave {w}: Cancel with typing asks before it is thrown away (the drawer's own question)", pg.get_by_test_id("drawer-discard").count() == 1 and dlg.get_by_test_id("apply-actions").is_hidden())
+        ctx.close()
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Claims", w, h, phone)
+        pg.goto("http://127.0.0.1:4177/portal?tab=Claims&view=submit"); pg.wait_for_timeout(2800)
+        q = pg.evaluate(POS % ("claim-steps", "claim-actions"))
+        dlg = pg.get_by_role("dialog")
+        check(f"Submit Claim {w}: the same structure - the steps row, Next pinned in the foot, the rules {'beside' if w >= 1024 else 'under'} the form", q["stepsOut"] and q["actsFoot"] and q["actsOn"] and (q["beside"] if w >= 1024 else q["below"]) and dlg.get_by_role("button", name="Next").count() == 1, q)
+        check(f"Submit Claim {w}: nothing past the drawer's edge, no page error", q["side"] == 0 and not errs, (q["side"], errs))
+        ctx.close()
     ctx, pg, errs = open_tab(b, "Desk", 390, 844, True)
     pg.goto("http://127.0.0.1:4177/portal?tab=Desk&view=inbox"); pg.wait_for_timeout(2600)
     check("Desk 390: the inbox does not scroll inside itself - the page does", pg.get_by_test_id("inbox-panel").get_attribute("data-fill") == "off")

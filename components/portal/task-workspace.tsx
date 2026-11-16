@@ -6,6 +6,11 @@
      - beside the My Tasks list (35% list, 65% task) from 1024px;
      - in the task drawer (TaskDetailDrawer) everywhere else, full screen on a phone.
 
+   v1.326.0 (the CEO's "Improve Tasks → My Tasks", 16-11-2026): beside the
+   register the pane is compact - no icon well, the facts and the steps say
+   the state and the progress ONCE (the review bar no longer repeats them),
+   and beside the register the pane takes the split's height and scrolls inside (PaneFill).
+
    Top to bottom: the title bar, the facts (status, priority, due, owner), the
    compact horizontal StatusStepper, the decisions this person may take (the
    review bar - always visible, never behind a tab), then five sections -
@@ -27,7 +32,7 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, selectClass } from "@/lib/ui-styles";
+import { chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, selectClass } from "@/lib/ui-styles";
 import {
   ActivityPanel, ExtraFacts, FLOW, FilesPanel, Problem, ReviewBar, StateChip, StatusSummary, TitleBar, UpdateSheet, UpdatesComments,
   day, flowOf, flowWord, stamp, tagOf, useTaskDetail, type FlowKey, type TaskDetail,
@@ -67,7 +72,8 @@ export function StatusStepper({ d }: { d: TaskDetail }) {
             <span className={ws.flowText}>
               <strong>{flowWord(k)}</strong>
               <small>{at ? (k === "todo" ? stamp(at) : day(at)) : "—"}</small>
-              {state === "now" && <em className={tag ? tag.cls : chipSmInfo}>{tag ? tag.label : L("Now", "Kini")}</em>}
+              {/* v1.326.0 - the blue dot is the step in hand; a chip only when a tag says more (Blocked, Waiting) */}
+              {state === "now" && tag && <em className={tag.cls}>{tag.label}</em>}
             </span>
           </li>
         );
@@ -136,7 +142,8 @@ export function TaskWorkspace({ taskId, layout, info, checklist, foot, focusForm
   const toForm = (start?: Move) => {
     if (start === "comment") { setSec("updates"); setSheet((k) => ({ open: false, n: k.n + 1 })); }
     else { setSec("updates"); setSheet((k) => ({ open: true, n: k.n + 1, start })); }
-    window.setTimeout(() => { bodyRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); bodyRef.current?.querySelector<HTMLElement>("[data-testid=task-composer] textarea")?.focus({ preventScroll: true }); }, 80);
+    /* v1.326.0 - the composer itself is brought into view (beside the register the pane scrolls inside, so its buttons must be on the screen) */
+    window.setTimeout(() => { (bodyRef.current?.querySelector<HTMLElement>("[data-testid=task-composer]") ?? bodyRef.current)?.scrollIntoView({ block: "nearest", behavior: "smooth" }); bodyRef.current?.querySelector<HTMLElement>("[data-testid=task-composer] textarea")?.focus({ preventScroll: true }); }, 80);
   };
   const ready = Boolean(d);
   useEffect(() => {
@@ -167,8 +174,8 @@ export function TaskWorkspace({ taskId, layout, info, checklist, foot, focusForm
     <>
     {toastNode /* a fixed layer of its own: never inside the panel it speaks for */}
     <div className={ws.ws} data-testid="task-workspace" data-layout={layout} data-record={`task:${t.id}`}>
+      <PaneFill on={layout === "pane"}>
       <header className={ws.head}>
-        <span className={ws.headIcon}><AppIcon name="orders" /></span>
         <div className={ws.headText}>
           <TitleBar d={d} onChanged={changed} />
           {(project || t.link?.customer) && (
@@ -188,6 +195,9 @@ export function TaskWorkspace({ taskId, layout, info, checklist, foot, focusForm
         <div><dt>{L("Progress", "Kemajuan")}</dt><dd className={ws.prog}>
           <span className={ws.track} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={t.progress} aria-label={L("Progress", "Kemajuan")}><span style={{ width: `${t.progress}%` }} data-done={t.status === "completed" || undefined} /></span>
           <strong>{t.progress}%</strong>
+          {/* v1.326.0 - where the figure comes from, said once (it was repeated in the review bar) */}
+          <small data-testid="progress-source">{t.progress_source === "checklist" ? L(`checklist ${done}/${t.items.length}`, `senarai semak ${done}/${t.items.length}`) : L("reported in updates", "dilaporkan dalam kemas kini")}</small>
+          {t.progress_source === "checklist" && t.reported && <small data-testid="reported-line">{L(`last reported ${t.reported.value}% by ${t.reported.by ?? "—"}`, `terakhir dilaporkan ${t.reported.value}% oleh ${t.reported.by ?? "—"}`)}</small>}
         </dd></div>
       </dl>
       <StatusStepper d={d} />
@@ -214,9 +224,20 @@ export function TaskWorkspace({ taskId, layout, info, checklist, foot, focusForm
           {sec === "activity" && <ActivityPanel taskId={t.id} tick={tick} />}
         </div>
       </div>
+      </PaneFill>
     </div>
     </>
   );
+}
+
+/** v1.326.0 - beside the My Tasks register the pane takes the height the split
+    gives it (the split is held to the screen from 1024px) and scrolls inside, so
+    the list and the task end on one line and the page stays where it is. The
+    scroller is block flow and the stack inside it a grid: a grid held to a
+    height would squeeze its rows (the facts strip to nothing) instead of
+    scrolling. In the drawer it is the plain stack (the drawer scrolls). */
+function PaneFill({ on, children }: { on: boolean; children: ReactNode }) {
+  return on ? <div className={ws.paneFill} data-testid="ws-fill"><div className={ws.paneStack}>{children}</div></div> : <>{children}</>;
 }
 
 /** v1.321.0 - TaskDetailDrawer: the same pane in the side drawer - every tab
