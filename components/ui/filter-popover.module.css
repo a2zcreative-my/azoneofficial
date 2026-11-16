@@ -1,0 +1,18 @@
+/* v1.321.0 - filters behind one button (filter-popover.tsx). Tokens only. */
+.btn { display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.5rem; padding: 0 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font: inherit; font-size: var(--type-body-sm-size); font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn svg { width: 1rem; height: 1rem; }
+.btn[aria-expanded="true"], .btn[data-on] { border-color: var(--gold-solid); }
+.btn:focus-visible, .link:focus-visible, .done:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.badge { display: inline-grid; place-items: center; min-width: 1.25rem; height: 1.25rem; padding: 0 0.25rem; border-radius: var(--radius-full); background: var(--gold-solid); color: var(--brand-primary); font-size: var(--type-caption-size); }
+.panel { order: 99; flex: 1 0 100%; display: grid; gap: 0.75rem; padding: 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-card-v2); background: var(--secondary); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 0.75rem; }
+.field { display: grid; gap: 0.25rem; min-width: 0; color: var(--muted-foreground); font-size: var(--type-caption-size); font-weight: 600; }
+.field > select, .field > input { width: 100%; min-width: 0; }
+.foot { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.link { min-height: 2.5rem; padding: 0 0.75rem; border: 0; background: transparent; color: var(--info); font: inherit; font-size: var(--type-body-sm-size); font-weight: 600; cursor: pointer; }
+.link:disabled { color: var(--muted-foreground); cursor: default; }
+.done { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: var(--radius-control); background: var(--brand-primary); color: var(--card); font: inherit; font-size: var(--type-body-sm-size); font-weight: 600; cursor: pointer; }
+@media (max-width: 639px) {
+  .btn, .link, .done { min-height: 2.75rem; }
+  .fields { grid-template-columns: minmax(0, 1fr); }
+}

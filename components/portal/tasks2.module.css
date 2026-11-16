@@ -130,6 +130,14 @@
 .perfBar > span { min-width: 0; }
 .perfNum { flex: 0 0 auto; font-size: var(--type-caption-size); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .perfNum em { font-style: normal; font-weight: 400; color: var(--muted-foreground); }
+/* v1.321.0 (the CEO's overflow report, 16-11-2026: 402px, the share ran past the edge) - on a phone
+   the row is two lines: rank, face, name and the count; the bar under the name */
+@media (max-width: 639px) {
+  .perf button { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; column-gap: 0.5rem; row-gap: 0.25rem; }
+  .perfBar { grid-column: 3 / -1; grid-row: 2; }
+  .perfBar > span { flex: 1 1 auto; min-width: 0; }
+  .perfNum { display: grid; justify-items: end; line-height: 1.2; }
+}
 .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; text-align: center; }
 .three > div { display: grid; gap: 0.125rem; padding: 0 0.25rem; border-left: 1px solid var(--border); }
 .three > div:first-child { border-left: 0; }
@@ -180,12 +188,26 @@
 }
 @media (min-width: 1024px) {
   .ovFoot { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+  /* v1.321.0 - My Tasks: the list 35%, the chosen task 65% */
+  .mine { grid-template-columns: minmax(0, 35fr) minmax(0, 65fr); }
   .board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (min-width: 1280px) {
   .ovGrid { grid-template-columns: minmax(0, 1fr) minmax(17.5rem, 0.36fr); }
-  .mine { grid-template-columns: minmax(18rem, 0.72fr) minmax(0, 1.9fr); }
   .rail .links { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* v1.321.0 - My Day folded under the list; Insights above the register */
+.disclose { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-card-v2); background: var(--card); }
+.disclose > summary { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0.5rem 1rem; color: var(--foreground); font-size: var(--type-body-sm-size); font-weight: 600; cursor: pointer; list-style: none; }
+.disclose > summary::-webkit-details-marker { display: none; }
+.disclose > summary::after { content: "+"; margin-left: auto; color: var(--muted-foreground); font-weight: 700; }
+.disclose[open] > summary::after { content: "−"; }
+.disclose > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-radius: var(--radius-card-v2); }
+.disclose[open] > summary { border-bottom: 1px solid var(--border); }
+.disclose > :not(summary) { margin: 1rem; }
+.insights { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; min-width: 0; padding: 1rem; border-radius: var(--radius-card-v2); background: var(--secondary); }
+@media (min-width: 1024px) {
+  .insights { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 /* a phone: the table's rows become cards (the house pattern: data-label) */
 @media (max-width: 767px) {

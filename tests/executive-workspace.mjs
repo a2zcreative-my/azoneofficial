@@ -137,7 +137,8 @@ const tpCode = strip(tp);
 const pp = read("components/portal/payments-panel.tsx");
 const ppCode = strip(pp);
 const lt = read("components/ui/line-tabs.tsx");
-ok("the task sheet opens full screen on a phone", /<SideDrawer open onClose=\{closeDetail\} wide full title=\{detail\.t\.title\}/.test(read("components/portal/tasks.tsx")));
+/* v1.321.0 - the Tasks tab opens a task in TaskDetailDrawer, the side drawer drawn full screen on a phone */
+ok("the task sheet opens full screen on a phone", /<TaskDetailDrawer taskId=\{detail\.t\.id\} title=\{detail\.t\.title\}[^>]*onClose=\{closeDetail\}/.test(read("components/portal/tasks.tsx")) && /<SideDrawer open onClose=\{onClose\} wide full title=\{title\}/.test(read("components/portal/task-workspace.tsx")));
 ok("Details leads with the latest update, then the stages and the decisions (all kept)", /\{tab === "details" && <StatusSummary d=\{d\} tick=\{tick\} onSeeAll=\{\(\) => setTab\("updates"\)\} \/>\}\s*<ReviewBar /.test(tpCode) && /<StageTimeline stages=\{stages\} label=\{L\("Task progress"/.test(tpCode) && /acknowledged: \["Acknowledged"/.test(tp));
 ok("the gold Add update opens the update sheet and nothing else", /onClick=\{\(\) => setSheet\(true\)\} data-testid="add-update"><AppIcon name="chat" className="erp-icon" \/>\{L\("Add update"/.test(tpCode));
 ok("the payment sheet's foot carries the first waiting payment's decision; that payment loses its inline copies", /const lead = pic && data\.can\.verify \? pic\.reports\.find\(\(r\) => isPending\(r\)\) \?\? null : null;/.test(ppCode) && /footer=\{act \? undefined : lead \? \(/.test(ppCode) && (ppCode.match(/r\.id !== lead\?\.id/g) ?? []).length === 3);

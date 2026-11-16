@@ -65,15 +65,20 @@ with sync_playwright() as p:
     ctx, pg, errs = open_page(b, CEO, view="overview")
     t = " ".join(zone_text(pg))
     check("Overview: the five figures - Total Tasks, Overdue, In Progress, Awaiting Review, Done", all(w in t for w in ["Total Tasks", "Overdue", "In Progress", "Awaiting Review", "Done"]), t[:300])
-    check("Overview: the list, Staff Performance (management), Quick Links, Recent Activity, the workflow and the week", all(vis(pg, k) for k in ["overview-list", "staff-performance", "quick-links", "progress-overview", "workflow-strip", "weekly-summary"]))
+    # v1.321.0 - the Unified Workspace: one panel beside the queue, switched between three; every card still in it
+    check("Overview: the queue, and beside it Staff Performance (management) with the week", all(vis(pg, k) for k in ["overview-list", "staff-performance", "weekly-summary"]))
+    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Activity", exact=True).click(); pg.wait_for_timeout(300)
+    check("…Activity: Recent Activity", vis(pg, "progress-overview"))
+    pg.get_by_test_id("overview-panel-switch").get_by_role("button", name="Actions", exact=True).click(); pg.wait_for_timeout(300)
+    check("…Actions: Quick Links and the workflow", vis(pg, "quick-links") and vis(pg, "workflow-strip"))
     first = pg.get_by_test_id("overview-table").locator("tbody tr").first
     check("the list leads with the most pressing: overdue first (the urgent overdue task)", first.count() == 1 and "Approve the October content plan" in first.inner_text() and first.get_by_test_id("overdue-mark").count() == 1, first.inner_text() if first.count() else "")
     check("Overview repeats nothing: no status donut, no recently-closed list, no team table", "Recently Closed Tasks" not in t and "Task Progress — Company Wide" not in t)
     first.get_by_role("button").first.click(); pg.wait_for_timeout(1500)
-    check("a row opens the task itself, as a full page", pg.locator("[data-testid=task-workspace][data-layout=page]:visible").count() == 1 and pg.get_by_role("dialog").count() == 0)
+    check("a row opens the task itself, in the task drawer", pg.locator("[data-testid=task-workspace][data-layout=drawer]:visible").count() == 1 and pg.get_by_role("dialog").count() >= 1)
     ctx.close()
     ctx, pg, errs2 = open_page(b, HOST, view="overview")
-    check("a live host sees no Staff Performance; My Tasks (Today) takes its place", not vis(pg, "staff-performance") and vis(pg, "my-today") and vis(pg, "progress-overview"))
+    check("a live host sees no Staff Performance; My Tasks (Today) takes its place", not vis(pg, "staff-performance") and vis(pg, "my-today"))
     ctx.close()
     check("no page error (Overview)", not errs and not errs2, errs + errs2)
 
@@ -82,19 +87,23 @@ with sync_playwright() as p:
     t = " ".join(zone_text(pg))
     check("My Tasks: Assigned Tasks, In Progress, Due Soon, Done This Week", all(w in t for w in ["Assigned Tasks", "In Progress", "Due Soon", "Done This Week"]), t[:300])
     cards = pg.get_by_test_id("my-cards").locator("li button")
-    check("1440px: the list is cards on the left, the first task shown beside it", cards.count() >= 2 and cards.first.get_attribute("aria-pressed") == "true" and pg.locator("[data-testid=task-workspace][data-layout=beside]:visible").count() == 1)
+    check("1440px: the list is cards on the left, the first task shown beside it", cards.count() >= 2 and cards.first.get_attribute("aria-pressed") == "true" and pg.locator("[data-testid=task-workspace][data-layout=pane]:visible").count() == 1)
     pc = pg.get_by_test_id("task-workspace").get_by_test_id("prio-chip").first
     check("priority reads High / Medium / Low (T2-10; an urgent task is High with its flag)", pc.count() == 1 and re.match(r"^(High|Medium|Low)( · Urgent)?$", pc.inner_text().strip()) is not None, pc.inner_text() if pc.count() else "")
     title = cards.nth(1).locator("strong").first.inner_text()
     cards.nth(1).click(); pg.wait_for_timeout(1500)
     ws = pg.get_by_test_id("task-workspace")
     check("choosing a card shows that task beside the list", title in ws.get_by_test_id("task-title").inner_text() and cards.nth(1).get_attribute("aria-pressed") == "true", title)
-    check("the four cards under it: My Focus, Today's Agenda, Upcoming Deadlines, Recent Updates", all(vis(pg, k) for k in ["my-focus", "my-agenda", "my-deadlines", "my-recent"]))
+    pg.get_by_test_id("my-day").locator("summary").click(); pg.wait_for_timeout(400)
+    check("My Day, folded under the list, opens on the four cards: My Focus, Today's Agenda, Upcoming Deadlines, Recent Updates", all(vis(pg, k) for k in ["my-focus", "my-agenda", "my-deadlines", "my-recent"]))
     check("Today's Agenda reads today's task block from the roster", "09:30" in pg.get_by_test_id("my-agenda").inner_text() and "Sign the hotel partnership letter" in pg.get_by_test_id("my-agenda").inner_text(), pg.get_by_test_id("my-agenda").inner_text())
     ctx.close()
     ctx, pg, errs2 = open_page(b, CEO, w=1024, view="mine")
-    heads = [h.strip() for h in pg.locator("table:visible").first.locator("thead th").all_inner_texts()]
-    check("1024px: no room beside - the list has the width, as a table with the board's columns", heads[:8] == ["Task & Context", "Status", "Priority", "Due Date", "Assignee", "Progress", "Subtasks", "Actions"] and pg.locator("[data-testid=task-workspace]:visible").count() == 0 and no_hscroll(pg), heads)
+    check("1024px: the list (about a third) and the task beside it (about two thirds)", pg.locator("[data-testid=task-workspace][data-layout=pane]:visible").count() == 1 and 0.3 <= pg.get_by_test_id("mine-list").bounding_box()["width"] / pg.get_by_test_id("mine-split").bounding_box()["width"] <= 0.4)
+    ctx.close()
+    ctx, pg, errs3 = open_page(b, CEO, w=900, view="mine")
+    check("below 1024px: the list has the width, no task beside it", vis(pg, "mine-list") and pg.locator("[data-testid=task-workspace]:visible").count() == 0)
+    errs2 = errs2 + errs3
     ctx.close()
     check("no page error (My Tasks)", not errs and not errs2, errs + errs2)
 
@@ -105,7 +114,9 @@ with sync_playwright() as p:
     heads = [h.strip() for h in pg.locator("table:visible").first.locator("thead th").all_inner_texts()]
     check("the register has the Department column", "Department" in heads, heads)
     check("a department is read from the person's record", "Sales" in pg.locator("table:visible").first.inner_text())
-    check("the side column: Workload Balance, Department Breakdown, Quick Approvals", all(vis(pg, k) for k in ["workload-card", "department-card", "quick-approvals"]))
+    check("Insights is closed to start; the register has the width", not vis(pg, "workload-card") and not vis(pg, "all-insights"))
+    pg.get_by_test_id("insights-btn").click(); pg.wait_for_timeout(400)
+    check("Insights: Workload Balance, Department Breakdown, Quick Approvals", all(vis(pg, k) for k in ["workload-card", "department-card", "quick-approvals"]))
     edit = pg.locator('[data-testid="row-edit"]:visible').first
     check("Edit on each open row", edit.count() == 1)
     edit.click(); pg.wait_for_timeout(1200)

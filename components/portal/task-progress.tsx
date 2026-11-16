@@ -575,7 +575,13 @@ export function DefaultDetails({ d, onChanged }: { d: TaskDetail; onChanged: (t?
 
 /* ---------------- Updates & Comments (picture 02) ---------------- */
 const STATUS_KINDS = ["blocker", "waiting_client", "review_request", "review_approved", "review_returned", "cancel", "closed", "closed_with_exception", "reopened"];
-export function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void; onUpdate: () => void }) {
+/* v1.321.0 (the CEO's Tasks Unified Workspace brief: "Consolidate Update
+   Task and Quick Update into one update composer") - given a `composer`,
+   this box IS the task's one composer: a comment, a progress note, or the
+   full status update (the drawer's own Add Status Update form, drawn
+   inline). Without one it is the quick box it always was. */
+export function UpdatesComments({ d, tick, onChanged, onUpdate, composer }: { d: TaskDetail; tick: number; onChanged: (t?: string, s?: string) => void; onUpdate: () => void;
+  composer?: { open: boolean; setOpen: (v: boolean) => void; sheet: ReactNode } }) {
   const t = d.task;
   const [data, setData] = useState<{ updates: TUpdate[]; comments: TComment[] } | null>(null);
   const [show, setShow] = useState<"all" | "updates" | "comments" | "progress" | "status">("all");
@@ -652,20 +658,29 @@ export function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetai
     onChanged(L("Update withdrawn", "Kemas kini ditarik balik"), L("Who withdrew it and why is on the timeline.", "Siapa dan sebabnya ada pada garis masa."));
   });
   const canWrite = (d.can.comment || d.can.update) && t.status !== "completed";
+  const full = composer?.open ?? false;
+  const segs = ([
+    ["comment", L("Comment", "Komen"), d.can.comment],
+    ["progress", L("Progress note", "Nota kemajuan"), d.can.update],
+    ["status", L("Status update", "Kemas kini status"), Boolean(composer)],
+  ] as const).filter((x) => x[2]);
   return (
     <>
       {promptNode}
-      {canWrite && (
-        <div className={tp.quick} data-testid="quick-update">
+      {(canWrite || composer) && (
+        <div className={tp.quick} data-testid={composer ? "task-composer" : "quick-update"} data-mode={full ? "status" : mode}>
           <div className={tp.quickHead}>
-            <p className={tp.quickTitle}>{L("Quick Update", "Kemas Kini Pantas")}</p>
-            {d.can.comment && d.can.update && (
-              <span className={tp.seg} role="group" aria-label={L("Post as", "Hantar sebagai")}>
-                <button type="button" aria-pressed={mode === "comment"} onClick={() => setMode("comment")}>{L("Comment", "Komen")}</button>
-                <button type="button" aria-pressed={mode === "progress"} onClick={() => setMode("progress")}>{L("Progress update", "Kemas kini kemajuan")}</button>
+            <p className={tp.quickTitle}>{composer ? L("Update Task", "Kemas Kini Tugasan") : L("Quick Update", "Kemas Kini Pantas")}</p>
+            {(composer ? segs.length > 1 : d.can.comment && d.can.update) && (
+              <span className={tp.seg} role="group" aria-label={L("Post as", "Hantar sebagai")} data-testid="composer-mode">
+                {(composer ? segs : segs.filter((x) => x[0] !== "status")).map(([k, word]) => (
+                  <button key={k} type="button" aria-pressed={k === "status" ? full : !full && mode === k}
+                    onClick={() => { if (k === "status") composer?.setOpen(true); else { composer?.setOpen(false); setMode(k); } }}>{word}</button>
+                ))}
               </span>
             )}
           </div>
+          {full ? composer!.sheet : (<>
           <textarea className={textareaClass} rows={2} maxLength={mode === "comment" ? 2000 : 500} value={text} onChange={(e) => setText(e.target.value)}
             aria-label={mode === "comment" ? L("Comment", "Komen") : L("Progress update", "Kemas kini kemajuan")}
             placeholder={mode === "comment" ? L("Ask, answer or note something for the team… (@name mentions)", "Tanya, jawab atau catat untuk pasukan… (@nama)") : L("What was done, what is next…", "Apa yang siap, apa seterusnya…")} />
@@ -674,11 +689,12 @@ export function UpdatesComments({ d, tick, onChanged, onUpdate }: { d: TaskDetai
               <input type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp,.doc,.docx" onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 5))} />
             </label>
             <span className={tp.barCmds}>
-              {d.can.update && <button type="button" className={btnSm} onClick={onUpdate}>{L("Full status update", "Kemas kini status penuh")}</button>}
-              <button type="button" className={btnSmPrimary} disabled={busy} aria-busy={busy || undefined} onClick={() => void post()}>{busy ? L("Posting…", "Menghantar…") : L("Post Update", "Hantar")}</button>
+              {d.can.update && !composer && <button type="button" className={btnSm} onClick={onUpdate}>{L("Full status update", "Kemas kini status penuh")}</button>}
+              <button type="button" className={btnSmPrimary} disabled={busy} aria-busy={busy || undefined} onClick={() => void post()} data-testid="composer-post">{busy ? L("Posting…", "Menghantar…") : mode === "comment" ? L("Post Comment", "Hantar Komen") : L("Post Update", "Hantar")}</button>
             </span>
           </div>
           <Problem text={problem} />
+          </>)}
         </div>
       )}
       {d.can.assist && <AssistOffer taskId={t.id} onChanged={onChanged} />}

@@ -23,7 +23,7 @@ import type { PipeKey } from "@/lib/sales-status";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { LineTabs, TabAside } from "@/components/ui/line-tabs";
 import { ViewSwitch } from "@/components/portal/executive-cards";
-import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { AppIcon } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { dmy, fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -147,29 +147,9 @@ export function useSalesViewHistory(view: SalesView, setView: (v: SalesView) => 
 /* ------------------------------------------------------------------ */
 /* the slim strip                                                      */
 /* ------------------------------------------------------------------ */
-type Tone = "gold" | "ok" | "bad" | "info" | "neutral";
-export interface StripCell { key: string; icon: AppIconName; tone: Tone; label: string; value: ReactNode; sub?: ReactNode; busy?: boolean; onClick?: () => void; title?: string }
-export function MetricStrip({ cells, label }: { cells: StripCell[]; label: string }) {
-  return (
-    <div className={css.strip} role="group" aria-label={label} data-testid="metric-strip" data-cells={cells.length}>
-      {cells.map((c) => {
-        const body = (
-          <>
-            <span className={`${css.well} ${css[`w_${c.tone}`]}`} aria-hidden><AppIcon name={c.icon} /></span>
-            <span className={css.cellText}>
-              <span className={css.cellLabel}>{c.label}</span>
-              <strong className={css.cellValue} aria-busy={c.busy || undefined}>{c.busy ? "···" : c.value}</strong>
-              {c.sub && !c.busy && <span className={css.cellSub}>{c.sub}</span>}
-            </span>
-          </>
-        );
-        return c.onClick
-          ? <button key={c.key} type="button" className={css.cell} onClick={c.onClick} title={c.title}>{body}</button>
-          : <div key={c.key} className={css.cell} title={c.title}>{body}</div>;
-      })}
-    </div>
-  );
-}
+/* v1.321.0 - moved to components/ui/metric-strip.tsx so Sales and Tasks draw
+   the same strip; re-exported here unchanged for every Sales screen */
+export { MetricStrip, type StripCell } from "@/components/ui/metric-strip";
 
 /* ------------------------------------------------------------------ */
 /* More, on a row                                                      */

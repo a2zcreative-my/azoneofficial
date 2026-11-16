@@ -125,7 +125,8 @@ const staff = read("worker/src/staff.ts");
 
 /* ---- 8. a link opens the drawer ---- */
 ok("a search hit, a notification or a Desk item opens the task's drawer", /useRecordFocus\(focus, loaded, \(f\) => \{[\s\S]{0,500}?setOpenTask\(t\.id\)/.test(code));
-ok("the drawer is the record (data-record) and closes cleanly", /<div className=\{tk\.detail\} data-record=\{`task:\$\{detail\.t\.id\}`\}>/.test(code) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\); setSheetFor\(null\); setOpenHow\("open"\); \};/.test(code));
+/* v1.321.0 (the Unified Workspace) - the drawer draws the task pane, and the pane is the record */
+ok("the drawer is the record (data-record) and closes cleanly", /<TaskDetailDrawer taskId=\{detail\.t\.id\}[^>]*onClose=\{closeDetail\}/.test(code) && /data-testid="task-workspace" data-layout=\{layout\} data-record=\{`task:\$\{t\.id\}`\}/.test(read("components/portal/task-workspace.tsx")) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\); setSheetFor\(null\); setOpenHow\("open"\); \};/.test(code));
 
 ok("no sample data from the reference", !/Nur Dini Farhana|Nursyazwani|Zul Hisyam|Mohamad Izzudin|Zolkefli|Draft rundown structure|Website product update|TikTok content series/.test(src));
 ok("the guard is registered", /\["tasks-module", "/.test(read("scripts/run-guards.mjs")));

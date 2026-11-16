@@ -198,3 +198,7 @@ a.fileChip:hover { border-color: var(--muted-foreground); }
 .sheetInline [hidden] { display: none; }
 .inlineBtns { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .inlineBtns > button { min-height: 2.75rem; }
+/* v1.321.0 - in the task pane on a phone the form's buttons stay in reach at the foot of the screen */
+@media (max-width: 767px) {
+  .inlineBtns { position: sticky; bottom: 0; z-index: 1; padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom, 0px)); background: var(--card); box-shadow: 0 -1px 0 var(--border); }
+}

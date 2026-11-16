@@ -66,9 +66,11 @@ function checks(src) {
   ok("At Risk is the written rule (TK-8): an overdue task, past due, or due in 7 days under 50%", /if \(\(r\.late \?\? 0\) > 0\) return \{ word: L\("At Risk"/.test(src.pw) && /if \(r\.due_date && r\.due_date < today\) return \{ word: L\("At Risk"/.test(src.pw) && /r\.due_date <= week && r\.progress < 50\) return \{ word: L\("At Risk"/.test(src.pw));
   ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /k === "review" \? L\("Review", "Semakan"\)/.test(src.progress));
   ok("nothing claims a recurring series (TK-6)", !/Recurring task|Tugasan berulang/.test(t5 + strip(t) + strip(src.t2) + strip(src.ws)));
-  ok("Edit is the existing edit, offered on open tasks to the assignee or management", /const editable = \(isMine\(t\) \|\| canManage\) && t\.status !== "completed";/.test(t) && /\{opts\.edit && editable && \(/.test(t));
+  /* v1.321.0 - All Tasks draws its rows through CompactTaskTable (allCols): every row that offers Edit keeps the one rule */
+  const editables = (t.match(/const editable = [^;]*;/g) ?? []).filter((x) => x.includes("isMine(t)"));
+  ok("Edit is the existing edit, offered on open tasks to the assignee or management", editables.length >= 1 && editables.every((x) => x === 'const editable = (isMine(t) || canManage) && t.status !== "completed";') && /\{editable && \(\s*<button[^>]*data-testid="row-edit"/.test(t));
   /* v1.319.0 (Tasks 2.0 Stage 1) - the preview became the task itself beside the list: a card only chooses it */
-  ok("a checklist is never closure: a card in the list only chooses the task shown beside it", /<MyTaskCards rows=\{mineRows\} picked=\{present === "beside" \? openTask : null\} onPick=\{\(id\) => void openChecklist\(id, "beside"\)\}/.test(t));
+  ok("a checklist is never closure: a card in the list only chooses the task shown beside it", /<MyTaskCards rows=\{mineRows\} picked=\{present === "beside" \? openTask : null\} onPick=\{\(id\) => void openChecklist\(id, besideOk \? "beside" : "open"\)\}/.test(t));
 
   ok("the staff picker adds the department and still no phone, IC, bank or salary", /u\.role, u\.position, u\.department, u\.employment_status FROM users u\s+WHERE u\.is_active = 1/.test(src.staff) && !/u\.(phone|ic_number|bank_account|salary)[^\n]*FROM users u\s+WHERE u\.is_active = 1 AND \$\{currentStaffSql/.test(src.staff));
   ok("the project list counts overdue project tasks for At Risk, a read only", /AND t\.status != 'completed' AND t\.deadline < date\('now', '\+8 hours'\)\) AS late,/.test(src.projects));

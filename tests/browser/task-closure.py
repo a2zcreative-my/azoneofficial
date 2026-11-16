@@ -44,9 +44,9 @@ def tab(pg, name):
     if btn.count(): btn.first.click(); pg.wait_for_timeout(1800); return True
     return False
 
-# v1.319.0 (Tasks 2.0 Stage 1, T2-4) - WHERE A TASK OPENS: beside the My Tasks
-# list from 1280px (picture 2), as a full page from 768px (picture 4), in the
-# drawer on a phone. The same pieces in each, so the same checks hold.
+# v1.321.0 (the Tasks Unified Workspace) - WHERE A TASK OPENS: beside the My
+# Tasks list from 1024px, in the task drawer everywhere else (full screen on a
+# phone). One pane in both, so the same checks hold.
 PANEL = "[data-testid=task-workspace]:visible, [role=dialog]:visible"
 def panel(pg, title):
     return pg.locator(PANEL).filter(has_text=title).first
@@ -89,19 +89,19 @@ with sync_playwright() as p:
         # ---- the board: no dropdown, the state and Update ----
         view(pg, "My Tasks")
         body = pg.locator("main").inner_text() if pg.locator("main").count() else pg.inner_text("body")
-        check(f"{w}px: the board has no status dropdown - the state and one Update action", pg.locator("select[aria-label^='Status — ']").count() == 0 and (pg.get_by_test_id("my-cards").locator(f"li:has-text('{READY}')").count() == 1 if w >= 1280 else pg.get_by_role("button", name=f"Update status — {READY}").filter(visible=True).count() >= 1))
+        check(f"{w}px: the board has no status dropdown - the state and one Update action", pg.locator("select[aria-label^='Status — ']").count() == 0 and pg.get_by_test_id("my-cards").locator(f"li:has-text('{READY}')").count() == 1)  # v1.321.0 - the card list at every width
         # ---- a task at 100%: what is left, Close task ----
         dr = open_task(pg, READY)
         nxt = dr.get_by_test_id("next-step")
         check(f"{w}px: at 100% the task says what is left - close it with a summary; nothing closes it by itself", nxt.count() == 1 and "Close the task with a short completion summary" in nxt.inner_text(), nxt.inner_text() if nxt.count() else "")
         states = stages(dr)
-        # the drawer (a phone): Created done, In progress now, Closed to come. The page: the four steps, the task on exactly one, Done to come
-        check(f"{w}px: the stages: where the task stands now, and the last still to come", (states.count("now") == 1 and states[-1] == "todo") if w >= 768 else (states[:1] == ["done"] and "now" in states and states[-1] == "todo"), str(states))
+        # v1.321.0 - the one pane everywhere: the four steps, the task on exactly one, Done to come
+        check(f"{w}px: the stages: where the task stands now, and the last still to come", states.count("now") == 1 and states[-1] == "todo", str(states))
         check(f"{w}px: the drawer is not wider than the screen", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))
         dr.get_by_test_id("close-task").click(); pg.wait_for_timeout(700)
         sh = dr.get_by_test_id("update-sheet")
         opts = [o.inner_text().strip() for o in sh.get_by_label("Status", exact=True).locator("option").all()] if sh.count() else []
-        check(f"{w}px: Close task opens Add Status Update INSIDE the task drawer (one layer), on Closed", sh.count() == 1 and pg.get_by_role("dialog").count() == (0 if w >= 768 else 1) and sh.get_by_label("Status", exact=True).input_value() == "closed", str(opts))
+        check(f"{w}px: Close task opens Add Status Update INSIDE the task drawer (one layer), on Closed", sh.count() == 1 and pg.get_by_role("dialog").count() == (0 if w >= 1024 else 1) and sh.get_by_label("Status", exact=True).input_value() == "closed", str(opts))
         check(f"{w}px: the statuses: In Progress, Waiting for Client, On Hold / Blocked, Done (a self-set task has no reviewer)", opts == ["In Progress", "Waiting for Client", "On Hold / Blocked", "Done"], str(opts))
         check(f"{w}px: closing asks for a completion summary and explains Closed", "Completion summary *" in sh.inner_text() and "marks the task complete and final" in sh.inner_text())
         check(f"{w}px: the form is not wider than the screen", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))
@@ -118,7 +118,7 @@ with sync_playwright() as p:
         # ---- a closed task: who, when, summary, late; Reopen with a reason ----
         view(pg, "All Tasks")
         pg.get_by_label("Status", exact=True).filter(visible=True).first.select_option("any"); pg.wait_for_timeout(600)
-        pg.get_by_role("button", name=CLOSED).filter(visible=True).first.click(); pg.wait_for_timeout(2000)
+        pg.locator(f"[data-testid=task-row]:visible:has-text('{CLOSED}')").first.locator("td").first.click(); pg.wait_for_timeout(2000)  # v1.321.0 - a row opens its task
         dr = panel(pg, CLOSED)
         cz = dr.get_by_test_id("closure")
         ct = cz.inner_text() if cz.count() else ""
@@ -196,8 +196,8 @@ with sync_playwright() as p:
         pd.get_by_role("button", name="Withdraw", exact=True).click(); pg.wait_for_timeout(1500)
         pw = [x for x in get(PORT, "/__tasks")["posts"] if x["p"].endswith("/withdraw")]
         check(f"{w}px: one POST /withdraw with the reason", len(pw) == 1 and json.loads(pw[0]["body"]).get("reason") == "Posted on the wrong task", str(pw))
-        part(pg, dr, "Details")
-        if dr.get_by_test_id("add-update").count(): dr.get_by_test_id("add-update").click(); pg.wait_for_timeout(700)
+        part(pg, dr, re.compile("^Updates"))
+        if dr.get_by_test_id("update-sheet").count() == 0: dr.get_by_test_id("composer-mode").get_by_role("button", name="Status update").click(); pg.wait_for_timeout(700)
         rp = dr.get_by_test_id("reported-progress")
         check(f"{w}px: on a checklist task the form offers a reported %, the checklist staying official", rp.count() == 1 and "official progress stays the checklist" in dr.get_by_test_id("update-sheet").inner_text())
         check(f"{w}px: the edit and withdraw views are not wider than the screen", dr.evaluate(INSIDE) == 0 and pg.evaluate(FITS), dr.evaluate(INSIDE))

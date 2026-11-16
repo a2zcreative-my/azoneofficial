@@ -1,0 +1,15 @@
+/* v1.321.0 - pagination (pagination-controls.tsx). Tokens only. */
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; padding-top: 0.5rem; }
+.count { color: var(--muted-foreground); font-size: var(--type-caption-size); font-variant-numeric: tabular-nums; }
+.pages { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.btn { display: inline-grid; place-items: center; min-width: 2.25rem; height: 2.25rem; padding: 0 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font: inherit; font-size: var(--type-caption-size); font-weight: 600; cursor: pointer; font-variant-numeric: tabular-nums; }
+.btn svg { width: 1rem; height: 1rem; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn[aria-current="page"] { border-color: var(--gold-solid); background: var(--gold-solid); color: var(--brand-primary); }
+.btn:focus-visible, .size select:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.gap { padding: 0 0.25rem; color: var(--muted-foreground); }
+.size { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.size select { height: 2.25rem; padding: 0 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font: inherit; font-size: var(--type-caption-size); }
+@media (max-width: 639px) {
+  .btn, .size select { min-width: 2.75rem; height: 2.75rem; }
+}

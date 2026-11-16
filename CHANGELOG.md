@@ -10,6 +10,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.321.0] - 2026-11-16 - Tasks Unified Workspace (phase A): Overview, My Tasks, All Tasks, one task pane - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 16-11-2026: "follow this prompt for Tasks" - the A2Z OS Tasks Module Unified Workspace Redesign. Phase A of two (phase B: Projects, Calendar, Reports & Archive).
+
+- **Shared pieces (components/ui and components/portal):** MetricStrip (the compact strip, moved from sales-shell, which re-exports it), PaginationControls (10 / 15 / 25 / 50), FilterPopover (a panel in the page, never a dialog), CompactTaskTable + TaskToolbar + ColumnPicker (task-table.tsx), TaskDetailDrawer and StatusStepper (task-workspace.tsx).
+- **One task pane:** the title, the facts in one line, the compact stepper, the decisions (review bar, always visible), then Details / Checklist / Updates / Files / Activity. Update Task and Quick Update are ONE composer in Updates: Comment, Progress note or Status update (the drawer's own form, inline). Drawn beside My Tasks from 1024px and in the task drawer everywhere else (full screen on a phone). The v1.319.0 full page and its history step are retired.
+- **Overview:** the compact strip (a cell is the queue's filter), the priority queue a page at a time (10 to start), project / department / staff behind Filters, and ONE panel beside it switched between Staff (Staff Performance or My Today, with the Weekly Summary), Activity and Actions (Quick Links, the workflow).
+- **My Tasks:** the strip; the list 35% and the task 65% from 1024px (was 1280px); below that the full-width card list, a task opening full screen; My Day (focus, agenda, due this week, recent updates) kept whole, folded under the list.
+- **All Tasks:** the strip; one register - search, status, Filters (department, assignee, project, priority, due from / until), Columns, sortable headers that turn round on a second press, 15 rows a page (10 / 25 / 50), a row opens the drawer, Edit / Update / Delete kept on the row; Workload, Departments and Quick Approvals behind Insights.
+- No worker change, no migration, no permission change; every route, ID and audit record as before. New guards: tests/tasks-unified.mjs (35 checks, 23 mutations), tests/browser/tasks-unified.py. Adapted to the brief, intent kept: tests/tasks2.mjs, tests/tasks5.mjs, tests/tasks-module.mjs, tests/tab-zones.mjs, tests/executive-workspace.mjs, tests/browser/tasks2.py, tests/browser/tasks5.py, tests/browser/task-progress.py, tests/browser/task-closure.py.
+
 ## [1.320.0] - 2026-11-15 - Sales 2.0, Stages 1 and 2: the shared 2.0 pieces, and the new Overview - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 15-11-2026: "Proceed the recommend" on claude/SALES-2.0-STAGE-0-AUDIT.md, then "Continue as approve with recommend".

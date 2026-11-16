@@ -107,7 +107,8 @@ async function checks(src) {
   ok("the status chip is the word and, beside it, the tag", /\{flow && <span className=\{FLOW_CHIP\[flow\]\}>\{flowWord\(flow\)\}<\/span>\}\s*\{tag && <span className=\{tag\.cls\} data-testid="state-tag">/.test(tp));
   ok("the words are To Do, In Progress, Review, Done", /k === "done" \? L\("Done", "Selesai"\) : k === "review" \? L\("Review", "Semakan"\) : k === "in_progress" \? L\("In Progress", "Sedang Berjalan"\) : L\("To Do", "Belum Mula"\)/.test(tp));
   ok("the workspace is built from the drawer's own pieces (no second task engine)", /import \{[^}]*ActivityPanel[^}]*FilesPanel[^}]*ReviewBar[^}]*UpdateSheet[^}]*UpdatesComments[^}]*useTaskDetail[^}]*\} from "@\/components\/portal\/task-progress";/s.test(ws));
-  ok("one update form: the page draws the drawer's UpdateSheet, inline", /<UpdateSheet key=\{`\$\{t\.id\}:\$\{formKey\.n\}`\} inline d=\{d\} start=\{formKey\.start\}/.test(ws) && (ws.match(/<UpdateSheet/g) ?? []).length === 1);
+  /* v1.321.0 - ONE composer: the drawer's UpdateSheet, inline, carried inside the Updates box (no second Update Task card) */
+  ok("one update form: the pane draws the drawer's UpdateSheet, inline, inside the one composer", /<UpdateSheet key=\{`\$\{t\.id\}:\$\{sheet\.n\}`\} inline d=\{d\}/.test(ws) && (ws.match(/<UpdateSheet/g) ?? []).length === 1 && /composer=\{composerSheet \? \{ open: sheet\.open,/.test(ws) && !/ws-update/.test(ws));
   const inl = tp.slice(tp.indexOf('data-testid="inline-actions"'), tp.indexOf("<div className={tp.sticky}>", tp.indexOf('data-testid="inline-actions"')));
   ok("its three buttons post through the form's one submit - never a route of their own", (inl.match(/void submit\(/g) ?? []).length === 3 && !/api</.test(inl) && /onClick=\{\(\) => void submit\("review"\)\}/.test(inl) && /onClick=\{\(\) => void submit\("closed"\)\}/.test(inl));
   ok("each button is drawn only when the server lets this person", /\{d\.can\.request_review && state !== "review" && <button/.test(inl) && /\{d\.can\.close && !closing && <button/.test(inl) && /\{\(d\.can\.update \|\| \(closing && d\.can\.close\)\) && <button/.test(inl));
@@ -115,9 +116,10 @@ async function checks(src) {
   const menu = ws.slice(ws.indexOf("function movesOf("), ws.indexOf("function Card("));
   ok("the status menu offers only the moves the server allows (T2-7)", /\["in_progress", [^\]]*d\.can\.update\]/.test(menu) && /\["review", [^\]]*d\.can\.request_review\]/.test(menu) && /\["closed", [^\]]*!!d\.can\.close\]/.test(menu) && /\.filter\(\(m\) => m\[2\]\)/.test(menu) && /if \(d\.task\.status === "completed"\) return \[\];/.test(menu));
   ok("choosing a move opens the form on it - the menu itself changes nothing", /onChange=\{\(e\) => \{ if \(e\.target\.value\) onPick\(e\.target\.value as Move\); \}\}/.test(menu) && !/api</.test(menu));
-  ok("ONE open task, drawn three ways: the drawer on a phone, beside My Tasks, the full page", /const present: "drawer" \| "beside" \| "page" \| null = !detail \? null : openHow === "beside" \? \(besideOk \? "beside" : null\) : isMd \? "page" : "drawer";/.test(tasks));
-  ok("…from one set of parts (information, checklist, foot)", /return \{ t, subtitle, foot, info, check \};/.test(tasks) && (tasks.match(/info=\{detail\.info\} checklist=\{detail\.check\} foot=\{detail\.foot\}/g) ?? []).length === 2 && /details=\{<>\{detail\.info\}\{detail\.check\}<\/>\}/.test(tasks));
-  ok("the page writes no record into the address", /window\.history\.pushState\(\{ taskPage: true \}, ""\);/.test(tasks) && !/pushState\([^)]*task[=:]\$\{/.test(tasks) && !/searchParams\.set\("(task|id)"/.test(tasks));
+  /* v1.321.0 (the Unified Workspace) - one pane in two places: beside My Tasks from 1024px, the drawer everywhere else */
+  ok("ONE open task, drawn two ways: beside My Tasks (from 1024px), the task drawer everywhere else", /const besideOk = view === "mine" && mineMode === "list" && isLg;/.test(tasks) && /const present: "drawer" \| "beside" \| null = !detail \? null : openHow === "beside" \? \(besideOk \? "beside" : null\) : "drawer";/.test(tasks));
+  ok("…from one set of parts (information, checklist, foot)", /return \{ t, subtitle, foot, info, check \};/.test(tasks) && (tasks.match(/info=\{detail\.info\} checklist=\{detail\.check\} foot=\{detail\.foot\}/g) ?? []).length === 2 && !/TaskProgressTabs/.test(tasks));
+  ok("the task writes no record into the address", !/pushState/.test(tasks) && !/searchParams\.set\("(task|id)"/.test(tasks));
   ok("Staff Performance is drawn for management only (T2-14)", /\{canManage\s*\? <StaffPerformance tasks=\{tasks\}/.test(tasks) && /: <MyToday mine=\{myTasks\}/.test(tasks));
   ok("the Overview counts its own scope: the team for management, your own otherwise", /const ovScope = canManage \? tasks : myTasks;/.test(tasks));
   ok("the board has four columns, the four steps", /\{FLOW\.map\(\(k\) => \{\s*const all = rows\.filter\(\(t\) => flowOf\(t\.status, t\.stage \?\? null\) === k\);/.test(t2));
@@ -146,15 +148,15 @@ const MUT = [
   ["last week's closures counted as held", "flow", 'if (t.status === "completed" && (!closedDay || closedDay < mon)) continue;', ""],
   ["the week counted on the UTC day", "flow", "new Date(ms + 8 * 3600000)", "new Date(ms)"],
   ["priority put before the due date", "flow", "x[0] - y[0] || x[1] - y[1] || x[2] - y[2] || x[3] - y[3]", "x[0] - y[0] || x[3] - y[3] || x[1] - y[1] || x[2] - y[2]"],
-  ["a second update form on the page", "ws", "<Card icon=\"chat\"", "<UpdateSheet inline d={d} onClose={() => undefined} onDone={() => undefined} /><Card icon=\"chat\""],
+  ["a second update form in the pane", "ws", "<StatusStepper d={d} />", "<UpdateSheet inline d={d} onClose={() => undefined} onDone={() => undefined} /><StatusStepper d={d} />"],
   ["Mark Done shown to someone the server refuses", "tp", "{d.can.close && !closing && <button", "{!closing && <button"],
   ["Mark Done without the summary check", "tp", "if (!approving && text.trim().length < 10)", "if (false)"],
   ["a status menu that offers every move", "ws", ".filter((m) => m[2])", ""],
-  ["Staff Performance shown to everyone", "tasks", "{canManage\n              ? <StaffPerformance", "{true\n              ? <StaffPerformance"],
-  ["the task's id written into the address", "tasks", 'window.history.pushState({ taskPage: true }, "");', 'window.history.pushState({ taskPage: true }, "", `?task=${detail?.t.id}`);'],
-  ["a second set of parts for the page", "tasks", "info={detail.info} checklist={detail.check} foot={detail.foot}\n          focusForm", "info={null} checklist={detail.check} foot={detail.foot}\n          focusForm"],
+  ["Staff Performance shown to everyone", "tasks", "{canManage\n                ? <StaffPerformance", "{true\n                ? <StaffPerformance"],
+  ["the task's id written into the address", "tasks", "const closeDetail = () => { setOpenTask(null);", 'const closeDetail = () => { window.history.pushState({}, "", "?task=1"); setOpenTask(null);'],
+  ["a second set of parts for the pane", "tasks", '<TaskWorkspace key={detail.t.id} layout="pane" taskId={detail.t.id} info={detail.info}', '<TaskWorkspace key={detail.t.id} layout="pane" taskId={detail.t.id} info={null}'],
   ["a literal colour in the new screens", "t2Css", "color: var(--danger); }", "color: #c00; }"],
-  ["a breakpoint of its own", "wsCss", "@media (min-width: 1280px)", "@media (min-width: 1100px)"],
+  ["a breakpoint of its own", "wsCss", "@media (min-width: 1024px)", "@media (min-width: 1100px)"],
 ];
 let caught = 0;
 if (process.env.NOMUT !== "1") {

@@ -30,7 +30,7 @@ import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
 import { TaskMailPanel } from "@/components/portal/task-mail-panel"; // v1.247.0
 import { TaskReports } from "@/components/portal/task-reports"; // v1.306.0 - HR 4.0 (H-1): the written reports' one home
-import { StateChip, TaskProgressTabs, day, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
+import { StateChip, day, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Avatar } from "@/components/ui/avatar";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
@@ -40,7 +40,12 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.313.0 - the phone view switch
 import { useTabViewAddress } from "@/lib/tab-view";
 import { atLeast, onBreakpoint, type Breakpoint } from "@/lib/breakpoints";
-import { PriorityChip, TaskWorkspace } from "@/components/portal/task-workspace"; // v1.319.0 - Tasks 2.0 Stage 1
+import { PriorityChip, TaskDetailDrawer, TaskWorkspace } from "@/components/portal/task-workspace"; // v1.319.0 - Tasks 2.0 Stage 1; v1.321.0 - one pane, beside the list or in the drawer
+import { ColumnPicker, CompactTaskTable, TaskToolbar, type SortDir, type TableCol } from "@/components/portal/task-table"; // v1.321.0 - the Unified Workspace
+import { MetricStrip } from "@/components/ui/metric-strip";
+import { FilterField, FilterPopover } from "@/components/ui/filter-popover";
+import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
+import { PillSwitch } from "@/components/ui/panel";
 import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
 import { closedThisWeek } from "@/lib/task-flow";
 import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards"; // v1.307.0 - Attendance 4.0 (A-3): the operational roster's home
@@ -59,10 +64,13 @@ type TaskView = "overview" | "mine" | "all" | "projects" | "calendar" | "reports
 const TASK_VIEWS: readonly TaskView[] = ["overview", "mine", "all", "projects", "calendar", "reports"];
 const isTaskView = (v: string | null): v is TaskView => TASK_VIEWS.includes(v as TaskView);
 type StatusF = "active" | "open" | "in_progress" | "completed" | "any" | "review" | "blocked" | "waiting_client" | "overdue" | "stale" | "assisting" | "set_by_me";
-type SortK = "newest" | "deadline" | "priority" | "title" | "progress";
+type SortK = "newest" | "deadline" | "priority" | "title" | "progress" | "status" | "assignee";
 type OvStatus = "" | "todo" | "in_progress" | "review" | "done" | "overdue" | "blocked" | "waiting_client" | "stale" | "unacked";
-/** rows the Overview's table shows before "View all" */
-const OV_ROWS = 8;
+/* v1.321.0 - the way each column sorts first (a second press turns it round) */
+const SORT_FIRST: Record<SortK, SortDir> = { newest: "desc", deadline: "asc", priority: "desc", title: "asc", progress: "desc", status: "asc", assignee: "asc" };
+const sortDirOf = (k: SortK, rev: boolean): SortDir => (SORT_FIRST[k] === "asc") !== rev ? "asc" : "desc";
+/** the step a task is at, for the Status column's sort: To Do, In Progress, Review, Done */
+const statusRank = (t: Task) => t.status === "completed" ? 3 : t.stage === "review" ? 2 : t.status === "in_progress" ? 1 : 0;
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 /* v1.247.2 - "Madam Jariah - QT-1 · Madam Jariah": the company is said once when
    the project's title already names it */
@@ -76,8 +84,8 @@ const PER = 15;
 const shortDate = (iso: string) => { const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`); const y = new Date(Date.now() + 8 * 3600 * 1000).getUTCFullYear(); return d.toLocaleDateString("en-MY", { day: "numeric", month: "short", ...(d.getUTCFullYear() !== y ? { year: "numeric" } : {}), timeZone: "UTC" }); };
 /** does the screen meet this tier now (lib/breakpoints.ts - never a typed number) */
 const subTier = (bp: Breakpoint) => (cb: () => void) => onBreakpoint(bp, cb);
-const SUBS = { md: subTier("md"), xl: subTier("xl") } as const;
-function useTier(bp: "md" | "xl"): boolean {
+const SUBS = { md: subTier("md"), lg: subTier("lg"), xl: subTier("xl") } as const;
+function useTier(bp: "md" | "lg" | "xl"): boolean {
   return useSyncExternalStore(SUBS[bp], () => atLeast(bp), () => false);
 }
 
@@ -482,12 +490,25 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [mineMode, setMineMode] = useState<"list" | "board">("list");
   const [allMode, setAllMode] = useState<"list" | "board">("list");
   const [allPage, setAllPage] = useState(1);
+  /* v1.321.0 (the Unified Workspace brief) - All Tasks: rows per page, the
+     column sort turned round, the hidden columns, Insights, and the filters
+     behind Filters (department, due-date range) */
+  const [allSize, setAllSize] = useState<PageSize>(15);
+  const [sortRev, setSortRev] = useState(false);
+  const [hiddenCols, setHiddenCols] = useState<ReadonlySet<string>>(() => new Set(["subtasks"]));
+  const [insights, setInsights] = useState(false);
+  const [deptF, setDeptF] = useState("");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
+  /* the Overview: the queue's page and the one panel beside it */
+  const [ovPage, setOvPage] = useState(1);
+  const [ovSize, setOvSize] = useState<PageSize>(10);
+  const [ovPanel, setOvPanel] = useState<"people" | "activity" | "actions">("people");
   /* v1.319.0 (Tasks 2.0 Stage 1, T2-4) - HOW THE OPEN TASK IS SHOWN. There is
      ONE open task (openTask). "beside": chosen in the My Tasks list, shown
      beside it (picture 2, from 1280px). "open": opened on its own - the full
      page from 768px (picture 4), the drawer on a phone (as before). */
-  const isMd = useTier("md");
-  const isXl = useTier("xl");
+  const isLg = useTier("lg");
   const [openHow, setOpenHow] = useState<"beside" | "open">("open");
   /* the Overview's own filters (never the My / All Tasks toolbar's) */
   const [ovMode, setOvMode] = useState<"table" | "board">("table");
@@ -515,7 +536,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const [olderNext, setOlderNext] = useState<number | null>(null); // null = not asked yet, 0 = no more
   const [olderBusy, setOlderBusy] = useState(false);
   const needle = q.trim().toLowerCase();
-  const sift = (rows: Task[], opts: { status?: boolean; who?: boolean } = {}) => rows
+  const sift = (rows: Task[], opts: { status?: boolean; who?: boolean; more?: boolean } = {}) => rows
     .filter((t) => !opts.status ? true
       : statusF === "any" ? true : statusF === "active" ? t.status !== "completed"
       /* v1.246.0 - the stage filters, the overdue and quiet ones, and the
@@ -529,19 +550,46 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     .filter((t) => !aboutF || t.link_label === aboutF)
     .filter((t) => !prioF || t.priority === prioF)
     .filter((t) => !opts.who || !whoF || t.assigned_to === whoF)
+    .filter((t) => !opts.more || !deptF || deptOf(t.assigned_to) === deptF)
+    .filter((t) => !opts.more || !dueFrom || (!!t.deadline && t.deadline >= dueFrom))
+    .filter((t) => !opts.more || !dueTo || (!!t.deadline && t.deadline <= dueTo))
     .filter((t) => !needle || [t.title, t.description ?? "", t.assignee ?? ""].some((x) => x.toLowerCase().includes(needle)))
     .sort((a, b) => {
-      switch (sortK) {
-        case "deadline": return (a.deadline || "9999").localeCompare(b.deadline || "9999");
-        case "priority": return (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
-        case "title": return a.title.localeCompare(b.title);
-        case "progress": return b.progress - a.progress;
-        default: return 0; // the server's order: newest first
-      }
+      const n = (() => {
+        switch (sortK) {
+          case "deadline": return (a.deadline || "9999").localeCompare(b.deadline || "9999");
+          case "priority": return (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9);
+          case "title": return a.title.localeCompare(b.title);
+          case "progress": return b.progress - a.progress;
+          case "status": return statusRank(a) - statusRank(b);
+          case "assignee": return (a.assignee ?? "~").localeCompare(b.assignee ?? "~");
+          default: return 0; // the server's order: newest first
+        }
+      })();
+      return sortRev ? -n : n;
     });
-  const filtering = !!(needle || prioF || whoF || aboutF || statusF !== "active");
-  const clearFilters = () => { setQ(""); setPrioF(""); setWhoF(0); setAboutF(""); setStatusF("active"); setSortK("newest"); setAllPage(1); };
+  const filtering = !!(needle || prioF || whoF || aboutF || deptF || dueFrom || dueTo || statusF !== "active");
+  const clearFilters = () => { setQ(""); setPrioF(""); setWhoF(0); setAboutF(""); setDeptF(""); setDueFrom(""); setDueTo(""); setStatusF("active"); setSortK("newest"); setSortRev(false); setAllPage(1); };
+  /** a column header: the first press sorts that way, the next turns it round */
+  const sortBy = (k: SortK) => { if (k === sortK) setSortRev((v) => !v); else { setSortK(k); setSortRev(false); } setAllPage(1); };
   const abouts = useMemo(() => [...new Set(tasks.map((t) => t.link_label).filter((x): x is string => !!x))].sort(), [tasks]);
+  /* the status filter: the toolbar's first choice, everywhere it is drawn */
+  const statusFilter = (
+    <select className={inputClassSm} aria-label={L("Status", "Status")} value={statusF} onChange={(e) => { setStatusF(e.target.value as StatusF); setAllPage(1); }}>
+      <option value="active">{L("Active (open + in progress)", "Aktif (terbuka + sedang dibuat)")}</option>
+      <option value="open">{L("To Do", "Belum Mula")}</option>
+      <option value="in_progress">{L("In Progress", "Sedang Berjalan")}</option>
+      <option value="completed">{L("Done", "Selesai")}</option>
+      <option value="review">{L("Waiting for review", "Menunggu semakan")}</option>
+      <option value="blocked">{L("Blocked", "Terhalang")}</option>
+      <option value="waiting_client">{L("Waiting for client", "Menunggu pelanggan")}</option>
+      <option value="overdue">{L("Overdue", "Lewat")}</option>
+      <option value="stale">{L("No recent update", "Tiada kemas kini terkini")}</option>
+      <option value="assisting">{L("I am helping on", "Saya membantu")}</option>
+      <option value="set_by_me">{L("Set by me", "Ditetapkan oleh saya")}</option>
+      <option value="any">{L("All statuses", "Semua status")}</option>
+    </select>
+  );
   /* v1.319.0 - `brief` (the narrow list beside the task, picture 2): the search and the status only */
   const toolbar = (withWho: boolean, withStatus = true, brief = false) => (
     <div className={tk.toolbar} role="search">
@@ -551,22 +599,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           placeholder={withWho ? L("Search title, description or staff…", "Cari tajuk, keterangan atau kakitangan…") : L("Search title or description…", "Cari tajuk atau keterangan…")}
           onChange={(e) => { setQ(e.target.value); setAllPage(1); }} />
       </label>
-      {withStatus && (
-        <select className={inputClassSm} aria-label={L("Status", "Status")} value={statusF} onChange={(e) => { setStatusF(e.target.value as StatusF); setAllPage(1); }}>
-          <option value="active">{L("Active (open + in progress)", "Aktif (terbuka + sedang dibuat)")}</option>
-          <option value="open">{L("To Do", "Belum Mula")}</option>
-          <option value="in_progress">{L("In Progress", "Sedang Berjalan")}</option>
-          <option value="completed">{L("Done", "Selesai")}</option>
-          <option value="review">{L("Waiting for review", "Menunggu semakan")}</option>
-          <option value="blocked">{L("Blocked", "Terhalang")}</option>
-          <option value="waiting_client">{L("Waiting for client", "Menunggu pelanggan")}</option>
-          <option value="overdue">{L("Overdue", "Lewat")}</option>
-          <option value="stale">{L("No recent update", "Tiada kemas kini terkini")}</option>
-          <option value="assisting">{L("I am helping on", "Saya membantu")}</option>
-          <option value="set_by_me">{L("Set by me", "Ditetapkan oleh saya")}</option>
-          <option value="any">{L("All statuses", "Semua status")}</option>
-        </select>
-      )}
+      {withStatus && statusFilter}
       {!brief && abouts.length > 0 && (
         <select className={inputClassSm} aria-label={L("Project or customer", "Projek atau pelanggan")} value={aboutF} onChange={(e) => { setAboutF(e.target.value); setAllPage(1); }}>
           <option value="">{L("All projects and customers", "Semua projek dan pelanggan")}</option>
@@ -717,10 +750,57 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   /* v1.203.0 - the four figures come from lib/task-figures.ts, which the
      Dashboard's Task Overview reads too */
   const { openTasks, overdueCount, pendingCount } = taskFigures(tasks, todayISO);
+  /* v1.321.0 - THE ALL TASKS COLUMNS (CompactTaskTable). The row is the
+     register's row as it was - the name with its description, stage, link,
+     acknowledgement and latest update; status; priority; due; the person;
+     the department; progress; subtasks - and its commands (Edit, Update,
+     Delete). A row opens its task; the commands do not. */
+  const allCols = (): TableCol<Task>[] => [
+    { key: "task", label: L("Task & Context", "Tugasan & Konteks"), sort: "title", main: true, cell: (t) => {
+      const overdue = isOverdue(t);
+      return (<>
+        <span className={`${tk.taskTitle} ${overdue ? tk.danger : ""}`}>{t.title}</span>
+        {t.description && <p className={`${tk.descLine} whitespace-pre-line`}>{t.description}</p>}
+        <span className={tk.badges} onClick={(e) => { if ((e.target as HTMLElement).closest("button, a")) e.stopPropagation(); /* Acknowledge is its own command; the chips open the row */ }}>{stageChip(t)}{linkChip(t)}{ackControl(t)}</span>
+        <span className={tk.latestLine}>{latestCell(t)}</span>
+      </>);
+    } },
+    { key: "status", label: L("Status", "Status"), sort: "status", cell: (t) => <><StateChip status={t.status} stage={t.stage ?? null} />{t.status === "completed" && t.closed_at ? <span className={tk.muted}> {day(t.closed_at)}</span> : null}</> },
+    { key: "priority", label: L("Priority", "Keutamaan"), sort: "priority", cell: (t) => <span className={PRIO_CHIP_5[t.priority] ?? chipNeutral}>{prioWord(t.priority)}</span> },
+    { key: "due", label: L("Due Date", "Tarikh Akhir"), sort: "deadline", cell: (t) => {
+      const overdue = isOverdue(t);
+      return (
+        <div className={tk.dates} title={t.start_date ? L(`From ${dmy(t.start_date)}`, `Dari ${dmy(t.start_date)}`) : undefined}>
+          {t.deadline ? <span className={overdue ? tk.danger : ""}>{shortDate(t.deadline)}</span> : <span className={tk.muted}>—</span>}
+          {overdue && <span className={`${tk.danger} ${tk.small}`}>{L("Overdue", "Lewat")}</span>}
+        </div>
+      );
+    } },
+    { key: "assignee", label: L("Assignee", "Penerima"), sort: "assignee", optional: true, cell: (t) => t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}</span></span> : <span className={tk.muted}>—</span> },
+    { key: "dept", label: L("Department", "Jabatan"), optional: true, cell: (t) => deptOf(t.assigned_to) ? <span className={`${chipNeutral} ${tk.cap}`}>{deptOf(t.assigned_to)}</span> : <span className={tk.muted}>—</span> },
+    { key: "progress", label: L("Progress", "Kemajuan"), sort: "progress", optional: true, cell: (t) => progressBar(t) },
+    { key: "subtasks", label: L("Subtasks", "Subtugasan"), optional: true, cell: (t) => (t.item_count ?? 0) > 0 ? scopeChip(t) : <span className={tk.muted}>—</span> },
+    { key: "actions", label: L("Actions", "Tindakan"), cmds: true, cell: (t) => {
+      const editable = (isMine(t) || canManage) && t.status !== "completed";
+      return (
+        <span className={tk.rowActs}>
+          {editable && (
+            <button type="button" className={btnSm} aria-label={`${L("Edit", "Sunting")} — ${t.title}`} data-testid="row-edit"
+              onClick={() => { void openChecklist(t.id); setEditing({ title: t.title, description: t.description ?? "", priority: t.priority, start_date: t.start_date ?? "", deadline: t.deadline ?? "", assigned_to: t.assigned_to ?? 0 }); }}>
+              <AppIcon name="edit" />{L("Edit", "Sunting")}
+            </button>
+          )}
+          {t.status !== "completed" && <button type="button" className={btnSm} aria-label={`${L("Update status", "Kemas kini status")} — ${t.title}`} data-testid="row-update" onClick={() => { setSheetFor(t.id); void openChecklist(t.id); }}>{L("Update", "Kemas kini")}</button>}
+          {deleteBtn(t)}
+        </span>
+      );
+    } },
+  ];
 
   /* v1.246.0 - My Tasks: what I do, and what I help on (an assistant never
      replaces the person responsible - the row still names them) */
   const deptOf = (id?: number) => team.find((s) => s.id === id)?.department ?? "";
+  const allDepts = [...new Set(tasks.map((t) => deptOf(t.assigned_to)).filter(Boolean))].sort();
   const myTasks = tasks.filter((t) => isMine(t) || (t.assistants ?? []).some((a) => a.id === user.id));
   const myActive = myTasks.filter((t) => t.status !== "completed");
   /* v1.319.0 - the My Tasks list as filtered, and the Overview's own scope and rows */
@@ -926,25 +1006,12 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     </>);
     return { t, subtitle, foot, info, check };
   })();
-  /* v1.319.0 - which of the three the open task is drawn as (see openHow) */
-  const besideOk = view === "mine" && mineMode === "list" && isXl;
-  const present: "drawer" | "beside" | "page" | null = !detail ? null : openHow === "beside" ? (besideOk ? "beside" : null) : isMd ? "page" : "drawer";
-  const backFromPage = () => {
-    /* back to the list it came from: on My Tasks at desk width the same task stays, beside the list */
-    if (detail && besideOk && myTasks.some((t) => t.id === detail.t.id)) { setEditing(null); setSheetFor(null); setOpenHow("beside"); }
-    else closeDetail();
-  };
-  const pageOn = present === "page";
-  /* the browser's Back closes the page (no record is ever written in the address - lib/tab-view.ts) */
-  useEffect(() => {
-    if (!pageOn) return;
-    window.history.pushState({ taskPage: true }, "");
-    let popped = false;
-    const onPop = () => { popped = true; backFromPage(); };
-    window.addEventListener("popstate", onPop);
-    return () => { window.removeEventListener("popstate", onPop); if (!popped && (window.history.state as { taskPage?: boolean } | null)?.taskPage) window.history.back(); };
-  }, [pageOn]); // eslint-disable-line react-hooks/exhaustive-deps -- the page's own open and close; the functions it calls are this render's
-  /* My Tasks at desk width always shows a task beside the list: the first of the list until one is chosen */
+  /* v1.321.0 - the open task is drawn in one of two places: beside the My
+     Tasks list from 1024px (35% list, 65% task), or the task drawer -
+     every other list, and every list on a phone, where it is full screen */
+  const besideOk = view === "mine" && mineMode === "list" && isLg;
+  const present: "drawer" | "beside" | null = !detail ? null : openHow === "beside" ? (besideOk ? "beside" : null) : "drawer";
+  /* My Tasks from 1024px always shows a task beside the list: the first of the list until one is chosen */
   const besideFirst = besideOk && loaded && (openTask == null || (openHow === "beside" && !mineRows.some((t) => t.id === openTask))) ? mineRows[0]?.id ?? null : null;
   useEffect(() => { if (besideFirst != null) void openChecklist(besideFirst, "beside"); }, [besideFirst]);
   /* a task chosen beside the list does not follow the person to a narrower screen, the board or another view */
@@ -955,14 +1022,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     <TabPage>
       {deleteConfirmNode}
       {taskToastNode}
-      {/* v1.319.0 (picture 4) - THE TASK AS A FULL PAGE: it takes the tab's
-          place (the tab row and the views wait behind it); Back to the list,
-          the crumb or the browser's Back returns to where it was opened */}
-      {pageOn && detail && (
-        <TaskWorkspace key={detail.t.id} layout="page" taskId={detail.t.id} info={detail.info} checklist={detail.check} foot={detail.foot}
-          focusForm={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} onBack={() => window.history.back()} />
-      )}
-      <div className={pageOn ? tk.off : "erp-stack"} data-testid="tasks-views">
+      <div className="erp-stack" data-testid="tasks-views">
       {/* v1.313.0 - TASKS 5.0: six tabs, one list for the tab row (desktop) and
           the view switch with Create Task (phone), as Finance and Commission */}
       <div className="erp-desktop-only">
@@ -990,25 +1050,31 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             for those who manage the team, Quick Links, Recent Activity), and
             under them the workflow as it really runs and the week's closures.
             Every figure is counted from the rows this tab loaded. */}
-        {view === "overview" && (<>
-        <KpiRow label={L("Task figures", "Angka tugasan")}>
-          <KpiTile icon="orders" tone="blue" label={L("Total Tasks", "Jumlah Tugas")} value={ovScope.length} busy={!loaded}
-            sub={L(`${ovOpen.length} open · ${ovDone.length} done`, `${ovOpen.length} terbuka · ${ovDone.length} selesai`)} onClick={() => { setOvStatus(""); }} />
-          <KpiTile icon="warning" tone="red" label={L("Overdue", "Tertunggak")} value={ovOpen.filter(isOverdue).length} busy={!loaded}
-            sub={L("Past due and still open", "Lepas tarikh dan masih terbuka")} onClick={() => setOvStatus("overdue")} pressed={ovStatus === "overdue"} />
-          <KpiTile icon="refresh" tone="blue" label={L("In Progress", "Dalam Pelaksanaan")} value={ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length} busy={!loaded}
-            sub={ovOpen.length ? L(`${Math.round((ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length / ovOpen.length) * 100)}% of open tasks`, `${Math.round((ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length / ovOpen.length) * 100)}% daripada tugasan terbuka`) : L("Being worked on", "Sedang dilaksanakan")}
-            onClick={() => setOvStatus("in_progress")} pressed={ovStatus === "in_progress"} />
-          <KpiTile icon="pending" tone="gold" label={L("Awaiting Review", "Menunggu Semakan")} value={ovOpen.filter((t) => t.stage === "review").length} busy={!loaded}
-            sub={canManage ? L("Submitted for review, in your scope", "Dihantar untuk semakan, dalam skop anda") : L("Yours, waiting for the reviewer", "Milik anda, menunggu penyemak")}
-            onClick={() => setOvStatus("review")} pressed={ovStatus === "review"} />
-          <KpiTile icon="success" tone="green" label={L("Done", "Selesai")} value={ovDone.length} busy={!loaded}
-            sub={L(`${closedThisWeek(ovDone, todayISO)} closed this week`, `${closedThisWeek(ovDone, todayISO)} ditutup minggu ini`)}
-            onClick={() => setOvStatus("done")} pressed={ovStatus === "done"} />
-        </KpiRow>
+        {view === "overview" && (() => {
+          /* v1.321.0 (the Unified Workspace brief) - a compact strip, the priority
+             queue as the workspace, and ONE secondary panel the person switches.
+             Every figure is still counted from the rows this tab loaded. */
+          const inProg = ovOpen.filter((t) => t.status === "in_progress" && t.stage !== "review").length;
+          const ovFilterN = (ovAbout ? 1 : 0) + (ovDept ? 1 : 0) + (ovWho ? 1 : 0);
+          return (<>
+        <MetricStrip testid="overview-strip" label={L("Task figures", "Angka tugasan")} cells={[
+          { key: "total", icon: "orders", tone: "info", label: L("Total Tasks", "Jumlah Tugas"), value: ovScope.length, busy: !loaded,
+            sub: L(`${ovOpen.length} open · ${ovDone.length} done`, `${ovOpen.length} terbuka · ${ovDone.length} selesai`), onClick: () => { setOvStatus(""); setOvPage(1); }, pressed: ovStatus === "" },
+          { key: "overdue", icon: "warning", tone: "bad", label: L("Overdue", "Tertunggak"), value: ovOpen.filter(isOverdue).length, busy: !loaded,
+            sub: L("Past due and still open", "Lepas tarikh dan masih terbuka"), onClick: () => { setOvStatus("overdue"); setOvPage(1); }, pressed: ovStatus === "overdue" },
+          { key: "progress", icon: "refresh", tone: "info", label: L("In Progress", "Dalam Pelaksanaan"), value: inProg, busy: !loaded,
+            sub: ovOpen.length ? L(`${Math.round((inProg / ovOpen.length) * 100)}% of open tasks`, `${Math.round((inProg / ovOpen.length) * 100)}% daripada tugasan terbuka`) : L("Being worked on", "Sedang dilaksanakan"),
+            onClick: () => { setOvStatus("in_progress"); setOvPage(1); }, pressed: ovStatus === "in_progress" },
+          { key: "review", icon: "pending", tone: "gold", label: L("Awaiting Review", "Menunggu Semakan"), value: ovOpen.filter((t) => t.stage === "review").length, busy: !loaded,
+            sub: canManage ? L("Submitted for review, in your scope", "Dihantar untuk semakan, dalam skop anda") : L("Yours, waiting for the reviewer", "Milik anda, menunggu penyemak"),
+            onClick: () => { setOvStatus("review"); setOvPage(1); }, pressed: ovStatus === "review" },
+          { key: "done", icon: "success", tone: "ok", label: L("Done", "Selesai"), value: ovDone.length, busy: !loaded,
+            sub: L(`${closedThisWeek(ovDone, todayISO)} closed this week`, `${closedThisWeek(ovDone, todayISO)} ditutup minggu ini`), onClick: () => { setOvStatus("done"); setOvPage(1); }, pressed: ovStatus === "done" },
+        ]} />
         <div className={t2.ovGrid}>
-          <section className={`${card} ${t2.listCard}`} aria-label={L("Task list and workflow", "Senarai tugas dan aliran kerja")} data-testid="overview-list">
-            <Head2 icon="orders" title={L("Task List & Workflow", "Senarai Tugas & Aliran Kerja")} aside={
+          <section className={`${card} ${t2.listCard}`} aria-label={L("Priority queue", "Barisan keutamaan")} data-testid="overview-list">
+            <Head2 icon="orders" title={L("Priority Queue", "Barisan Keutamaan")}
+              sub={L("Overdue and blocked first, then the soonest due.", "Lewat dan terhalang dahulu, kemudian yang paling hampir.")} aside={
               <>
                 <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="overview-mode">
                   <button type="button" aria-pressed={ovMode === "table"} onClick={() => setOvMode("table")}><AppIcon name="orders" />{L("Table", "Jadual")}</button>
@@ -1018,25 +1084,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
               </>
             } />
             <div className={t2.filters} role="search" data-testid="overview-filters">
-              {abouts.length > 0 && (
-                <select className={inputClassSm} aria-label={L("Project or customer", "Projek atau pelanggan")} value={ovAbout} onChange={(e) => setOvAbout(e.target.value)}>
-                  <option value="">{L("All projects", "Semua Projek")}</option>
-                  {abouts.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-              )}
-              {canManage && ovDepts.length > 0 && (
-                <select className={inputClassSm} aria-label={L("Department", "Jabatan")} value={ovDept} onChange={(e) => setOvDept(e.target.value)}>
-                  <option value="">{L("All departments", "Semua Jabatan")}</option>
-                  {ovDepts.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              )}
-              {canManage && (
-                <select className={inputClassSm} aria-label={L("Staff", "Staf")} value={ovWho} onChange={(e) => setOvWho(Number(e.target.value))}>
-                  <option value={0}>{L("All staff", "Semua Staf")}</option>
-                  {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              )}
-              <select className={inputClassSm} aria-label={L("Status", "Status")} value={ovStatus} onChange={(e) => setOvStatus(e.target.value as OvStatus)}>
+              <select className={inputClassSm} aria-label={L("Status", "Status")} value={ovStatus} onChange={(e) => { setOvStatus(e.target.value as OvStatus); setOvPage(1); }}>
                 <option value="">{L("All status", "Semua Status")}</option>
                 <option value="todo">{L("To Do", "Belum Mula")}</option>
                 <option value="in_progress">{L("In Progress", "Sedang Berjalan")}</option>
@@ -1048,40 +1096,76 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                 <option value="stale">{L("No recent update", "Tiada kemas kini terkini")}</option>
                 <option value="unacked">{L("Not acknowledged", "Belum diakui")}</option>
               </select>
+              {(abouts.length > 0 || canManage) && (
+                <FilterPopover testid="overview-more" count={ovFilterN} onClear={() => { setOvAbout(""); setOvDept(""); setOvWho(0); setOvPage(1); }}>
+                  {abouts.length > 0 && (
+                    <FilterField label={L("Project or customer", "Projek atau pelanggan")}>
+                      <select className={inputClassSm} value={ovAbout} onChange={(e) => { setOvAbout(e.target.value); setOvPage(1); }}>
+                        <option value="">{L("All projects", "Semua Projek")}</option>
+                        {abouts.map((a) => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </FilterField>
+                  )}
+                  {canManage && ovDepts.length > 0 && (
+                    <FilterField label={L("Department", "Jabatan")}>
+                      <select className={inputClassSm} value={ovDept} onChange={(e) => { setOvDept(e.target.value); setOvPage(1); }}>
+                        <option value="">{L("All departments", "Semua Jabatan")}</option>
+                        {ovDepts.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </FilterField>
+                  )}
+                  {canManage && (
+                    <FilterField label={L("Staff", "Staf")}>
+                      <select className={inputClassSm} value={ovWho} onChange={(e) => { setOvWho(Number(e.target.value)); setOvPage(1); }}>
+                        <option value={0}>{L("All staff", "Semua Staf")}</option>
+                        {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                    </FilterField>
+                  )}
+                </FilterPopover>
+              )}
               <span className={t2.found} data-testid="overview-found">{loaded ? L(`${ovRows.length} task(s) found`, `${ovRows.length} tugasan dijumpai`) : ""}</span>
             </div>
             {!loaded ? <SkelRows rows={5} /> : ovRows.length === 0 ? (
               <p className={tk.empty}><AppIcon name={ovScope.length ? "search" : "success"} />{ovScope.length ? L("No task matches these filters.", "Tiada tugasan sepadan dengan penapis ini.") : L("No tasks yet. Create Task starts the first one.", "Belum ada tugasan. Cipta Tugas memulakan yang pertama.")}</p>
-            ) : ovMode === "table" ? (
-              <OverviewTable rows={ovRows.slice(0, OV_ROWS)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} label={L("Task list", "Senarai tugas")} />
-            ) : (
+            ) : ovMode === "table" ? (<>
+              <OverviewTable rows={ovRows.slice((Math.min(ovPage, Math.ceil(ovRows.length / ovSize)) - 1) * ovSize, Math.min(ovPage, Math.ceil(ovRows.length / ovSize)) * ovSize)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} label={L("Priority queue", "Barisan keutamaan")} />
+              <PaginationControls testid="overview-pages" page={ovPage} total={ovRows.length} size={ovSize} onPage={setOvPage} onSize={(n) => { setOvSize(n); setOvPage(1); }} label={L("Priority queue pages", "Halaman barisan keutamaan")} />
+            </>) : (<>
               <FlowBoard rows={ovRows} today={todayISO} showWho={canManage} limit={3} onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} />
-            )}
-            {loaded && ovRows.length > 0 && (
               <div className={t2.more}>
-                <span className={t2.note}>{ovMode === "table" ? L(`Showing ${Math.min(OV_ROWS, ovRows.length)} of ${ovRows.length} - the most pressing first`, `Menunjukkan ${Math.min(OV_ROWS, ovRows.length)} daripada ${ovRows.length} - paling mendesak dahulu`) : L("Up to three per column - the most pressing first", "Sehingga tiga setiap lajur - paling mendesak dahulu")}</span>
+                <span className={t2.note}>{L("Up to three per column - the most pressing first", "Sehingga tiga setiap lajur - paling mendesak dahulu")}</span>
                 <button type="button" className={btnSm} onClick={() => { clearFilters(); go(canManage ? "all" : "mine"); }}>{L("View all", "Lihat semua")}<AppIcon name="next" /></button>
               </div>
-            )}
+            </>)}
           </section>
-          <div className={t2.rail}>
-            {canManage
-              ? <StaffPerformance tasks={tasks} today={todayISO} onPick={(id) => { clearFilters(); setWhoF(id); setStatusF("any"); go("all"); }} />
-              : <MyToday mine={myTasks} today={todayISO} onAll={() => { clearFilters(); go("mine"); }} />}
-            <QuickLinks items={[
-              { icon: "add", label: L("Create Task", "Cipta Tugas"), onClick: () => setCreateOpen(true), testid: "ql-create" },
-              ...(canProjects ? [{ icon: "folder" as const, label: L("Projects", "Projek"), onClick: () => go("projects") }] : []),
-              canManage ? { icon: "users" as const, label: L("Staff Tasks", "Tugasan Staf"), onClick: () => { clearFilters(); go("all"); } } : { icon: "assignment" as const, label: L("My Tasks", "Tugasan Saya"), onClick: () => { clearFilters(); go("mine"); } },
-              { icon: "chart", label: L("Reports", "Laporan"), onClick: () => go("reports") },
-            ]} />
-            <ActivityFeed rows={ovScope} onOpen={(id) => void openChecklist(id)} />
+          {/* ONE secondary panel: the person picks what sits beside the queue */}
+          <div className={t2.rail} data-testid="overview-panel" data-panel={ovPanel}>
+            <PillSwitch testid="overview-panel-switch" label={L("Beside the queue", "Di sebelah barisan")} value={ovPanel} onChange={setOvPanel} options={[
+              ["people", canManage ? L("Staff", "Staf") : L("My Today", "Hari Ini")],
+              ["activity", L("Activity", "Aktiviti")],
+              ["actions", L("Actions", "Tindakan")],
+            ] as const} />
+            {ovPanel === "people" && (<>
+              {canManage
+                ? <StaffPerformance tasks={tasks} today={todayISO} onPick={(id) => { clearFilters(); setWhoF(id); setStatusF("any"); go("all"); }} />
+                : <MyToday mine={myTasks} today={todayISO} onAll={() => { clearFilters(); go("mine"); }} />}
+              <WeeklySummary tasks={ovScope} today={todayISO} />
+            </>)}
+            {ovPanel === "activity" && <ActivityFeed rows={ovScope} onOpen={(id) => void openChecklist(id)} />}
+            {ovPanel === "actions" && (<>
+              <QuickLinks items={[
+                { icon: "add", label: L("Create Task", "Cipta Tugas"), onClick: () => setCreateOpen(true), testid: "ql-create" },
+                ...(canProjects ? [{ icon: "folder" as const, label: L("Projects", "Projek"), onClick: () => go("projects") }] : []),
+                canManage ? { icon: "users" as const, label: L("Staff Tasks", "Tugasan Staf"), onClick: () => { clearFilters(); go("all"); } } : { icon: "assignment" as const, label: L("My Tasks", "Tugasan Saya"), onClick: () => { clearFilters(); go("mine"); } },
+                { icon: "chart", label: L("Reports", "Laporan"), onClick: () => go("reports") },
+              ]} />
+              <WorkflowStrip />
+            </>)}
           </div>
         </div>
-        <div className={t2.ovFoot}>
-          <WorkflowStrip />
-          <WeeklySummary tasks={ovScope} today={todayISO} />
-        </div>
-        </>)}
+          </>);
+        })()}
       </TabZone>
 
       {/* ============================== MY TASKS ============================== */}
@@ -1090,20 +1174,20 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           1280px, and the four cards under it - your focus, today's agenda
           from the roster, what is due in seven days, the latest updates */}
       <TabZone label={L("My work", "Kerja saya")} className={view !== "mine" ? tk.off : ""}>
-      <KpiRow label={L("My task figures", "Angka tugasan saya")}>
-        {/* v1.319.0 (picture 2) - four figures of your own work */}
-        <KpiTile icon="orders" tone="blue" label={L("Assigned Tasks", "Tugasan Ditetapkan")} value={myActive.length} busy={!loaded}
-          sub={L("Open tasks that are yours", "Jumlah tugasan untuk saya")} onClick={() => { clearFilters(); }} />
-        <KpiTile icon="next" tone="green" label={L("In Progress", "Dalam Proses")} value={myActive.filter((t) => t.status === "in_progress").length} busy={!loaded}
-          sub={L("Being worked on", "Sedang dilaksanakan")} onClick={() => { clearFilters(); setStatusF("in_progress"); }} />
-        <KpiTile icon="warning" tone="gold" label={L("Due Soon", "Hampir Tarikh Akhir")} value={myActive.filter((t) => t.deadline && t.deadline >= todayISO && t.deadline <= plusDays(3)).length} busy={!loaded}
-          sub={myActive.some(isOverdue) ? L(`Due in 3 days · ${myActive.filter(isOverdue).length} overdue`, `Dalam 3 hari · ${myActive.filter(isOverdue).length} lewat`) : L("Due in the next 3 days", "Perlu siap dalam 3 hari")}
-          onClick={() => { clearFilters(); setSortK("deadline"); }} />
-        <KpiTile icon="success" tone="purple" label={L("Done This Week", "Selesai Minggu Ini")} value={myTasks.filter((t) => t.status === "completed" && t.stage !== "cancelled" && (t.closed_at ?? "").slice(0, 10) >= mondayOf(todayISO)).length} busy={!loaded}
-          sub={L("Tasks you closed (Mon - Sun)", "Tugasan anda tutup (Isn - Ahd)")} onClick={() => go("reports", "task-archive")} />
-      </KpiRow>
+      {/* v1.321.0 (the Unified Workspace brief) - four figures in one compact strip */}
+      <MetricStrip testid="mine-strip" label={L("My task figures", "Angka tugasan saya")} cells={[
+        { key: "assigned", icon: "orders", tone: "info", label: L("Assigned Tasks", "Tugasan Ditetapkan"), value: myActive.length, busy: !loaded,
+          sub: L("Open tasks that are yours", "Jumlah tugasan untuk saya"), onClick: () => { clearFilters(); } },
+        { key: "progress", icon: "next", tone: "ok", label: L("In Progress", "Dalam Proses"), value: myActive.filter((t) => t.status === "in_progress").length, busy: !loaded,
+          sub: L("Being worked on", "Sedang dilaksanakan"), onClick: () => { clearFilters(); setStatusF("in_progress"); }, pressed: statusF === "in_progress" },
+        { key: "soon", icon: "warning", tone: myActive.some(isOverdue) ? "bad" : "gold", label: L("Due Soon", "Hampir Tarikh Akhir"), value: myActive.filter((t) => t.deadline && t.deadline >= todayISO && t.deadline <= plusDays(3)).length, busy: !loaded,
+          sub: myActive.some(isOverdue) ? L(`Due in 3 days · ${myActive.filter(isOverdue).length} overdue`, `Dalam 3 hari · ${myActive.filter(isOverdue).length} lewat`) : L("Due in the next 3 days", "Perlu siap dalam 3 hari"),
+          onClick: () => { clearFilters(); setSortK("deadline"); }, pressed: sortK === "deadline" && statusF === "active" },
+        { key: "week", icon: "success", tone: "neutral", label: L("Done This Week", "Selesai Minggu Ini"), value: myTasks.filter((t) => t.status === "completed" && t.stage !== "cancelled" && (t.closed_at ?? "").slice(0, 10) >= mondayOf(todayISO)).length, busy: !loaded,
+          sub: L("Tasks you closed (Mon - Sun)", "Tugasan anda tutup (Isn - Ahd)"), onClick: () => go("reports", "task-archive") },
+      ]} />
       {view === "mine" && (() => {
-        /* picture 3's switch: Board · List, and the Calendar tab one press away */
+        /* Board · List, and the Calendar tab one press away */
         const modeRow = (
           <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="mine-mode">
             <button type="button" aria-pressed={mineMode === "list"} onClick={() => setMineMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
@@ -1120,26 +1204,36 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             {!loaded ? <SkelRows rows={4} /> : <FlowBoard rows={sift(myTasks)} today={todayISO} showWho={canManage} onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} foot={(t) => <>{ackControl(t)}{deleteBtn(t)}</>} />}
           </div>
         );
-        /* below 1280px there is no room for the task beside the list: the list as it was, a task opens on its own */
-        if (!isXl) return renderTasks(mineRows, L("My Tasks", "Tugasan Saya"), !loaded, { sub: subMine, empty: noMatch, tools: <><div className={tk.modeRow}>{modeRow}</div>{toolbar(false)}</> });
-        /* picture 2: the list on the left, the chosen task on the right */
+        const list = (
+          <section className={`${card} ${t2.listCard}`} aria-label={L("My Tasks", "Tugasan Saya")} data-testid="mine-list">
+            <Head2 icon="orders" title={<>{L("My Tasks", "Tugasan Saya")}<span className={t2.count}>{mineRows.length}</span></>} sub={besideOk ? undefined : subMine} aside={modeRow} />
+            {toolbar(false, true, true)}
+            <MyTaskCards rows={mineRows} picked={present === "beside" ? openTask : null} onPick={(id) => void openChecklist(id, besideOk ? "beside" : "open")} today={todayISO} loaded={loaded} empty={noMatch} />
+          </section>
+        );
+        /* below 1024px: the full-width list; a task opens full screen in the drawer */
+        if (!besideOk) return list;
+        /* from 1024px: the list (35%) and the chosen task (65%) */
         return (
           <div className={t2.mine} data-testid="mine-split">
-            <section className={`${card} ${t2.listCard}`} aria-label={L("My Tasks", "Tugasan Saya")}>
-              <Head2 icon="orders" title={<>{L("My Tasks", "Tugasan Saya")}<span className={t2.count}>{mineRows.length}</span></>} aside={modeRow} />
-              {toolbar(false, true, true)}
-              <MyTaskCards rows={mineRows} picked={present === "beside" ? openTask : null} onPick={(id) => void openChecklist(id, "beside")} today={todayISO} loaded={loaded} empty={noMatch} />
-            </section>
+            {list}
             {present === "beside" && detail ? (
-              <TaskWorkspace key={detail.t.id} layout="beside" taskId={detail.t.id} info={detail.info} checklist={detail.check} foot={detail.foot}
-                focusForm={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} onFull={() => setOpenHow("open")} />
+              <TaskWorkspace key={detail.t.id} layout="pane" taskId={detail.t.id} info={detail.info} checklist={detail.check} foot={detail.foot}
+                focusForm={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} />
             ) : (
               <section className={card} data-testid="mine-none">{!loaded ? <SkelRows rows={6} /> : <p className={tk.empty}><AppIcon name="info" />{mineRows.length ? L("Choose a task on the left to see it here.", "Pilih tugasan di kiri untuk melihatnya di sini.") : L("No task to show.", "Tiada tugasan untuk dipaparkan.")}</p>}</section>
             )}
           </div>
         );
       })()}
-      {view === "mine" && <MyDayCards mine={myTasks} today={todayISO} userId={user.id} onOpen={(id) => void openChecklist(id)} onArchive={() => go("reports", "task-archive")} />}
+      {/* My Day (your focus, today's agenda, what is due in seven days, the latest
+          updates) - kept whole, folded under the list so the list leads */}
+      {view === "mine" && (
+        <details className={t2.disclose} data-testid="my-day">
+          <summary><AppIcon name="date" />{L("My Day — focus, agenda, due this week, latest updates", "Hari Saya — fokus, agenda, perlu siap minggu ini, kemas kini terkini")}</summary>
+          <MyDayCards mine={myTasks} today={todayISO} userId={user.id} onOpen={(id) => void openChecklist(id)} onArchive={() => go("reports", "task-archive")} />
+        </details>
+      )}
       </TabZone>
 
       {/* ============================== ALL TASKS ============================== */}
@@ -1149,59 +1243,93 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
           departments and the tasks waiting for review */}
       {canManage && (
       <TabZone label={L("The work", "Kerja")} className={view !== "all" ? tk.off : ""}>
-      <KpiRow label={L("Task register figures", "Angka daftar tugasan")}>
-        <KpiTile icon="orders" tone="blue" label={L("Open Tasks", "Tugasan Terbuka")} value={openTasks.length} busy={!loaded}
-          sub={L("All active and unclosed tasks", "Semua tugasan aktif dan belum ditutup")} onClick={() => { clearFilters(); setStatusF("active"); }} />
-        <KpiTile icon="pending" tone="gold" label={L("In Progress", "Sedang Berjalan")} value={pendingCount} busy={!loaded}
-          sub={L("Currently being worked on", "Sedang diusahakan")} onClick={() => { clearFilters(); setStatusF("in_progress"); }} />
-        <KpiTile icon="time" tone="purple" label={L("Waiting Review", "Menunggu Semakan")} value={openTasks.filter((t) => t.stage === "review").length} busy={!loaded}
-          sub={L("Submitted, awaiting approval", "Dihantar, menunggu kelulusan")} onClick={() => { clearFilters(); setStatusF("review"); }} />
-        <KpiTile icon="warning" tone="red" label={L("Overdue", "Lewat")} value={overdueCount} busy={!loaded}
-          sub={L("Past due and require attention", "Lepas tarikh dan perlu perhatian")} onClick={() => { clearFilters(); setStatusF("overdue"); }} />
-        <KpiTile icon="success" tone="green" label={L("Closed This Week", "Ditutup Minggu Ini")} value={tasks.filter((t) => t.status === "completed" && t.stage !== "cancelled" && (t.closed_at ?? "").slice(0, 10) >= mondayOf(todayISO)).length} busy={!loaded}
-          sub={L("Closed Mon - Sun", "Ditutup Isn - Ahd")} onClick={() => go("reports", "task-archive")} />
-      </KpiRow>
-      <div className={t5.splitWide}>
+      {/* v1.321.0 (the Unified Workspace brief) - five figures in one strip, ONE
+          register (a compact table with the toolbar above it), and the
+          workforce analytics behind Insights. Every row command is kept. */}
+      <MetricStrip testid="all-strip" label={L("Task register figures", "Angka daftar tugasan")} cells={[
+        { key: "open", icon: "orders", tone: "info", label: L("Open Tasks", "Tugasan Terbuka"), value: openTasks.length, busy: !loaded,
+          sub: L("All active and unclosed tasks", "Semua tugasan aktif dan belum ditutup"), onClick: () => { clearFilters(); setStatusF("active"); }, pressed: statusF === "active" && !filtering },
+        { key: "progress", icon: "pending", tone: "gold", label: L("In Progress", "Sedang Berjalan"), value: pendingCount, busy: !loaded,
+          sub: L("Currently being worked on", "Sedang diusahakan"), onClick: () => { clearFilters(); setStatusF("in_progress"); }, pressed: statusF === "in_progress" },
+        { key: "review", icon: "time", tone: "neutral", label: L("Waiting Review", "Menunggu Semakan"), value: openTasks.filter((t) => t.stage === "review").length, busy: !loaded,
+          sub: L("Submitted, awaiting approval", "Dihantar, menunggu kelulusan"), onClick: () => { clearFilters(); setStatusF("review"); }, pressed: statusF === "review" },
+        { key: "overdue", icon: "warning", tone: "bad", label: L("Overdue", "Lewat"), value: overdueCount, busy: !loaded,
+          sub: L("Past due and require attention", "Lepas tarikh dan perlu perhatian"), onClick: () => { clearFilters(); setStatusF("overdue"); }, pressed: statusF === "overdue" },
+        { key: "week", icon: "success", tone: "ok", label: L("Closed This Week", "Ditutup Minggu Ini"), value: tasks.filter((t) => t.status === "completed" && t.stage !== "cancelled" && (t.closed_at ?? "").slice(0, 10) >= mondayOf(todayISO)).length, busy: !loaded,
+          sub: L("Closed Mon - Sun", "Ditutup Isn - Ahd"), onClick: () => go("reports", "task-archive") },
+      ]} />
       {(() => {
-        /* v1.209.0 - the same rows as a list (paged) or as a board */
-        const allModeRow = (
-          <div className={tk.modeRow}>
-            <div role="group" aria-label={L("View", "Paparan")} className={tk.mode}>
-              <button type="button" aria-pressed={allMode === "list"} onClick={() => setAllMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
-              <button type="button" aria-pressed={allMode === "board"} onClick={() => setAllMode("board")}><AppIcon name="chart" />{L("Board", "Papan")}</button>
-            </div>
-          </div>
-        );
+        const rows = sift(tasks, { status: true, who: true, more: true });
         const subAll = L("Company-wide task register, scoped to your role. Manage, update, and track progress across all tasks.", "Daftar tugasan seluruh syarikat, mengikut peranan anda. Urus, kemas kini dan jejak kemajuan semua tugasan.");
-        return allMode === "list" ? renderTasks(sift(tasks, { status: true, who: true }), L("All Tasks", "Semua Tugasan"), !loaded, {
-          who: true,
-          dept: true,
-          edit: true,
-          sub: subAll,
-          empty: <p className={tk.empty}><AppIcon name="search" />{L("No task matches — clear the search or a filter.", "Tiada tugasan sepadan — kosongkan carian atau penapis.")}</p>,
-          tools: <>{allModeRow}{toolbar(true)}</>,
-          pager: { page: allPage, set: setAllPage },
-        }) : (
-          <div className={card}>
-            <div className={tk.head}>
-              <div className={tk.headText}>
-                <p className={tk.title}>{L("All Tasks", "Semua Tugasan")}</p>
-                <p className={tk.sub}>{subAll}</p>
+        const cols = allCols();
+        const moreN = (aboutF ? 1 : 0) + (prioF ? 1 : 0) + (whoF ? 1 : 0) + (deptF ? 1 : 0) + (dueFrom ? 1 : 0) + (dueTo ? 1 : 0);
+        return (
+          <section className={`${card} ${t2.listCard}`} aria-label={L("All Tasks", "Semua Tugasan")} data-testid="all-register">
+            <Head2 icon="orders" title={<>{L("All Tasks", "Semua Tugasan")}<span className={t2.count}>{loaded ? rows.length : ""}</span></>} sub={subAll} aside={
+              <>
+                <div className={t2.toggle} role="group" aria-label={L("View", "Paparan")} data-testid="all-mode">
+                  <button type="button" aria-pressed={allMode === "list"} onClick={() => setAllMode("list")}><AppIcon name="orders" />{L("List", "Senarai")}</button>
+                  <button type="button" aria-pressed={allMode === "board"} onClick={() => setAllMode("board")}><AppIcon name="chart" />{L("Board", "Papan")}</button>
+                </div>
+                <button type="button" className={btnSm} aria-pressed={insights} onClick={() => setInsights((v) => !v)} data-testid="insights-btn"><AppIcon name="chart" />{L("Insights", "Wawasan")}</button>
+              </>
+            } />
+            <TaskToolbar q={q} onQ={(v) => { setQ(v); setAllPage(1); }} placeholder={L("Search title, description or staff…", "Cari tajuk, keterangan atau kakitangan…")}
+              aside={<>
+                <FilterPopover testid="all-filters" count={moreN} onClear={() => { setAboutF(""); setPrioF(""); setWhoF(0); setDeptF(""); setDueFrom(""); setDueTo(""); setAllPage(1); }}>
+                  <FilterField label={L("Department", "Jabatan")}>
+                    <select className={inputClassSm} value={deptF} onChange={(e) => { setDeptF(e.target.value); setAllPage(1); }}>
+                      <option value="">{L("All departments", "Semua jabatan")}</option>
+                      {allDepts.map((d) => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </FilterField>
+                  <FilterField label={L("Assigned to", "Diberikan kepada")}>
+                    <select className={inputClassSm} value={whoF} onChange={(e) => { setWhoF(Number(e.target.value)); setAllPage(1); }}>
+                      <option value={0}>{L("Everyone", "Semua orang")}</option>
+                      {assignees.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    </select>
+                  </FilterField>
+                  {abouts.length > 0 && (
+                    <FilterField label={L("Project or customer", "Projek atau pelanggan")}>
+                      <select className={inputClassSm} value={aboutF} onChange={(e) => { setAboutF(e.target.value); setAllPage(1); }}>
+                        <option value="">{L("All projects and customers", "Semua projek dan pelanggan")}</option>
+                        {abouts.map((x) => <option key={x} value={x}>{x}</option>)}
+                      </select>
+                    </FilterField>
+                  )}
+                  <FilterField label={L("Priority", "Keutamaan")}>
+                    <select className={inputClassSm} value={prioF} onChange={(e) => { setPrioF(e.target.value); setAllPage(1); }}>
+                      <option value="">{L("All priorities", "Semua keutamaan")}</option>
+                      {["urgent", "high", "normal", "low"].map((x) => <option key={x} value={x}>{priorityL(x)}</option>)}
+                    </select>
+                  </FilterField>
+                  <FilterField label={L("Due from", "Tarikh akhir dari")}><input type="date" className={inputClassSm} value={dueFrom} max={dueTo || undefined} onChange={(e) => { setDueFrom(e.target.value); setAllPage(1); }} data-testid="due-from" /></FilterField>
+                  <FilterField label={L("Due until", "Tarikh akhir hingga")}><input type="date" className={inputClassSm} value={dueTo} min={dueFrom || undefined} onChange={(e) => { setDueTo(e.target.value); setAllPage(1); }} data-testid="due-to" /></FilterField>
+                </FilterPopover>
+                {allMode === "list" && <ColumnPicker cols={cols} hidden={hiddenCols} onToggle={(k) => setHiddenCols((h) => { const n = new Set(h); if (n.has(k)) n.delete(k); else n.add(k); return n; })} />}
+                {filtering && <button type="button" className={btnSm} onClick={clearFilters}>{L("Clear", "Kosongkan")}</button>}
+              </>}>
+              {statusFilter}
+            </TaskToolbar>
+            {insights && (
+              <div className={t2.insights} data-testid="all-insights">
+                <WorkloadCard tasks={tasks} onPick={(id) => { clearFilters(); setWhoF(id); }} />
+                <DepartmentCard tasks={tasks} deptOf={deptOf} />
+                <QuickApprovals tasks={tasks} onOpen={(id) => void openChecklist(id)} onAll={() => { clearFilters(); setStatusF("review"); }} />
               </div>
-              <span className={tk.count}>{sift(tasks, { who: true }).length}</span>
-            </div>
-            {allModeRow}
-            {toolbar(true, false)}
-            {!loaded ? <SkelRows rows={4} /> : <FlowBoard rows={sift(tasks, { who: true })} today={todayISO} showWho onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} foot={(t) => <>{ackControl(t)}{deleteBtn(t)}</>} />}
-          </div>
+            )}
+            {allMode === "list" ? (
+              <CompactTaskTable rows={rows} cols={cols} label={L("All Tasks", "Semua Tugasan")} loading={!loaded} hidden={hiddenCols}
+                sort={sortK} dir={sortDirOf(sortK, sortRev)} onSort={(k) => sortBy(k as SortK)} onOpen={(id) => void openChecklist(id)}
+                rowClass={(t) => (isOverdue(t) ? tk.rowOverdue ?? "" : "")}
+                page={allPage} size={allSize} onPage={setAllPage} onSize={(n) => { setAllSize(n); setAllPage(1); }}
+                empty={<p className={tk.empty}><AppIcon name="search" />{L("No task matches — clear the search or a filter.", "Tiada tugasan sepadan — kosongkan carian atau penapis.")}</p>} />
+            ) : (
+              !loaded ? <SkelRows rows={4} /> : <FlowBoard rows={rows} today={todayISO} showWho onOpen={(id) => void openChecklist(id)} onAdd={() => setCreateOpen(true)} onAllDone={() => go("reports", "task-archive")} foot={(t) => <>{ackControl(t)}{deleteBtn(t)}</>} />
+            )}
+          </section>
         );
       })()}
-      <div className={t5.side}>
-        <WorkloadCard tasks={tasks} onPick={(id) => { clearFilters(); setWhoF(id); }} />
-        <DepartmentCard tasks={tasks} deptOf={deptOf} />
-        <QuickApprovals tasks={tasks} onOpen={(id) => void openChecklist(id)} onAll={() => { clearFilters(); setStatusF("review"); }} />
-      </div>
-      </div>
       </TabZone>
       )}
 
@@ -1486,16 +1614,12 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       </SideDrawer>
 
       {/* ============================== THE TASK DRAWER ============================== */}
+      {/* v1.321.0 - TaskDetailDrawer: the same task pane as beside My Tasks
+          (Details, Checklist, Updates, Files, Activity and the one composer),
+          full screen on a phone */}
       {detail && present === "drawer" && (
-          <SideDrawer open onClose={closeDetail} wide full title={detail.t.title} subtitle={detail.subtitle} footer={detail.foot}>
-            <div className={tk.detail} data-record={`task:${detail.t.id}`}>
-              {/* v1.246.0 - Details (the task information and checklist, as
-                  before) · Updates & Comments · Files · Activity, the review
-                  bar and the helpers: task-progress.tsx, the same pieces the
-                  project rows and the phone open */}
-              <TaskProgressTabs key={`${detail.t.id}:${sheetFor === detail.t.id ? "s" : "d"}`} taskId={detail.t.id} startSheet={sheetFor === detail.t.id} onChanged={() => { setSheetFor(null); void load(); }} details={<>{detail.info}{detail.check}</>} />
-            </div>
-          </SideDrawer>
+        <TaskDetailDrawer taskId={detail.t.id} title={detail.t.title} subtitle={detail.subtitle} info={detail.info} checklist={detail.check} foot={detail.foot}
+          focusForm={sheetFor === detail.t.id} onClose={closeDetail} onChanged={() => { setSheetFor(null); void load(); }} />
       )}
     </TabPage>
   );
