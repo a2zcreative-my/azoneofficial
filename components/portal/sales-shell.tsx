@@ -19,6 +19,7 @@
      CustomerBoard   the same records as a read-only board (decision S3):
                      no stage is stored, nothing is dragged */
 
+import type { PipeKey } from "@/lib/sales-status";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { LineTabs, TabAside } from "@/components/ui/line-tabs";
 import { ViewSwitch } from "@/components/portal/executive-cards";
@@ -213,6 +214,8 @@ export interface WorkRow {
   rank: string;
   action: { label: string; primary?: boolean; on: () => void };
   open: () => void;
+  /** v1.320.0 (Sales 2.0, S2-5) - the pipeline step this record stands on (lib/sales-status.ts) */
+  pipe?: PipeKey;
 }
 const KIND: Record<WorkKind, [string, string, string]> = {
   payment: ["Payment", "Bayaran", chipSmWarn], quotation: ["Quotation", "Sebut harga", chipSmWarn], invoice: ["Invoice", "Invois", chipSmInfo],
@@ -220,8 +223,10 @@ const KIND: Record<WorkKind, [string, string, string]> = {
 };
 const TONE = { bad: chipSmDanger, warn: chipSmWarn, info: chipSmInfo, ok: chipSmSuccess, neutral: chipSmNeutral } as const;
 
-export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText }: {
+export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText, pipe = null, pipeLabel }: {
   rows: WorkRow[]; loaded: boolean;
+  /** v1.320.0 - the pipeline step pressed on the Overview: only its records */
+  pipe?: PipeKey | null; pipeLabel?: string;
   /** the heading says whose list it is */
   mine: boolean;
   /** Mine / Everyone - the page's own switch, drawn in the filter row */
@@ -233,6 +238,7 @@ export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText }: {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
   const shown = rows
+    .filter((r) => !pipe || r.pipe === pipe)
     .filter((r) => kind === "all" || r.kind === kind)
     .filter((r) => when === "all" || r.overdue)
     .filter((r) => !needle || `${r.customer} ${r.ref} ${r.owner ?? ""}`.toLowerCase().includes(needle))
@@ -242,7 +248,8 @@ export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText }: {
     <section className={`${card} ${css.work}`} aria-label={L("Sales worklist", "Senarai kerja jualan")} data-testid="sales-worklist">
       <div className={css.workHead}>
         <h3 className={css.workTitle}><AppIcon name="orders" />{mine ? L("My Sales Worklist", "Senarai Kerja Jualan Saya") : L("Sales Worklist", "Senarai Kerja Jualan")}
-          {loaded && <span className={css.count}>({shown.length})</span>}</h3>
+          {loaded && <span className={css.count}>({shown.length})</span>}
+          {pipe && pipeLabel && <span className={chipSmInfo} data-testid="worklist-pipe">{pipeLabel}</span>}</h3>
         <div className={css.filters}>
           <select className={`${inputClass} ${css.pick}`} aria-label={L("Type", "Jenis")} value={kind} onChange={(e) => setKind(e.target.value as WorkKind | "all")}>
             <option value="all">{L("All types", "Semua jenis")}</option>
@@ -263,7 +270,7 @@ export function SalesWorklist({ rows, loaded, mine, scopeSwitch, emptyText }: {
       {!loaded ? <SkelRows rows={4} /> : shown.length === 0 ? (
         <p className={css.empty} data-testid="worklist-empty"><AppIcon name="success" />{rows.length === 0
           ? emptyText ?? L("Nothing is waiting: no payment to verify, no follow-up due, no invoice unpaid and no quotation without a follow-up.", "Tiada yang menunggu: tiada bayaran untuk disahkan, tiada susulan perlu, tiada invois belum dibayar dan tiada sebut harga tanpa susulan.")
-          : L("Nothing matches these filters.", "Tiada yang sepadan dengan penapis ini.")}</p>
+          : pipe ? L("Nothing at this step needs anyone now.", "Tiada apa pada langkah ini yang perlu tindakan sekarang.") : L("Nothing matches these filters.", "Tiada yang sepadan dengan penapis ini.")}</p>
       ) : (
         <div role="table" className={css.table} aria-label={L("Sales worklist", "Senarai kerja jualan")}>
           <div role="row" className={`${css.row} ${css.headRow}`}>

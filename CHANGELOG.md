@@ -10,6 +10,15 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.320.0] - 2026-11-15 - Sales 2.0, Stages 1 and 2: the shared 2.0 pieces, and the new Overview - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 15-11-2026: "Proceed the recommend" on claude/SALES-2.0-STAGE-0-AUDIT.md, then "Continue as approve with recommend".
+
+- **Stage 1, the design foundation:** components/ui/panel.tsx (Panel, WorkspaceGrid, PillSwitch), components/ui/flow-strip.tsx (FlowStrip), KpiRow `cols` (five or six figures in one row from 1280px), and lib/sales-status.ts - one status map for quotations (Open, Follow-up, Accepted, Partially invoiced, Invoiced) and invoices (Unpaid, Partially paid, Paid, Void, Overdue as a tag), worked out from the records; nothing stored.
+- **Stage 2, the Overview (picture 01):** six figures; the Sales Pipeline with a count per step, pressing a step narrows the one worklist; the rail - Important Follow-Ups, Recent Payment Activity, Team Sales Performance (management, this week).
+- **Not drawn:** "+22% vs last week" (no stored last week), Mark paid (S2-1), Month / YTD team figures (no per-person month figure yet).
+- No worker change, no migration, no permission change. New guards: tests/sales2.mjs (33 checks, 14 mutations) and tests/browser/sales2.py (44/44). Adapted: tests/sales4.mjs, tests/browser/sales4.py.
+
 ## [1.319.0] - 2026-11-15 - Tasks 2.0, Stage 1: the new Overview, My Tasks with the task beside the list, the task as a full page, four status words - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 15-11-2026: "Proceed the recommend" on claude/TASKS-2.0-STAGE-0-AUDIT.md (T2-1 to T2-21 as recommended), with seven pictures. Stage 1 of the audit's plan: screens only.

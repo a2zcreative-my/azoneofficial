@@ -160,7 +160,7 @@ for (const tab of allTabs) {
 const SUMMARY = ["Ecommerce", "Sales", "Inventory", "Assets", "Hotels", "ELFIA Traffic", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Finance", "Accounting", "Stokis", "Content"];
 for (const tab of SUMMARY) {
   const body = bodyOf(tab);
-  ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / MetricStrip / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|<KpiRow|<MetricStrip |erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
+  ok(`${tab}: figures before records (SummaryStrip / StatStrip / StatTile / MetricStrip / tiles)`, /<SummaryStrip|<StatStrip|<StatTile|<KpiRow|<MetricStrip |<SalesOverview2 figures=|erp-tiles|css\.kpis|LEAVE_TYPES\.map|grid-cols-3 gap-2|<InventoryStatusCard|statusCard/.test(body));
 }
 /* v1.183.0 - the Enquiries "figure is a door" check left with the panel;
    Claims below carries the same rule */

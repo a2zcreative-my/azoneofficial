@@ -22,6 +22,7 @@
    closer is the invoice's salesperson. No commission figure appears: there
    is no approved policy yet, and a rate is never invented. */
 
+import { PillSwitch } from "@/components/ui/panel";
 import { useMemo, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { SideDrawer } from "@/components/ui/side-drawer";
@@ -125,13 +126,8 @@ function payState(d: WsDoc, partPaid: Record<number, number>): { label: string; 
 
 /** Mine / Everyone - the screen's filter over records every sales role may already read. */
 export function ScopeSwitch({ scope, onChange }: { scope: WsScope; onChange: (s: WsScope) => void }) {
-  return (
-    <div className={css.scope} role="group" aria-label={L("Whose sales", "Jualan siapa")}>
-      {([["mine", L("Mine", "Saya")], ["all", L("Everyone", "Semua")]] as const).map(([k, label]) => (
-        <button key={k} type="button" aria-pressed={scope === k} onClick={() => onChange(k)}>{label}</button>
-      ))}
-    </div>
-  );
+  /* v1.320.0 (Sales 2.0 foundation) - the shared pill switch (components/ui/panel.tsx), Everyone first as the pictures */
+  return <PillSwitch value={scope} onChange={onChange} label={L("Whose sales", "Jualan siapa")} options={[["all", L("Everyone", "Semua")], ["mine", L("Mine", "Saya")]] as const} />;
 }
 
 /* the month's money in, day by day, as a running total */

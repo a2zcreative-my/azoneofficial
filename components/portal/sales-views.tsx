@@ -12,6 +12,7 @@
        new enquiries - each row opens the ORIGINAL record;
      - the board: the same records in the column their own state puts them in. */
 
+import { quoteStatus } from "@/lib/sales-status";
 import type { ReactNode } from "react";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import sc from "@/components/portal/sales-docs.module.css";
@@ -24,7 +25,8 @@ import type { Enquiry } from "@/components/portal/sales-enquiries";
 import type { SalesSummary, WsDoc, WsFollowUp, WsScope } from "@/components/portal/sales-workspace";
 import { ScopeSwitch, SalesReportPart } from "@/components/portal/sales-workspace";
 import { SalesPerformanceCard } from "@/components/portal/executive-cards";
-import { shortDmy, type BoardColumn, type CustomerNeed, type ReportDef, type StripCell, type WorkRow } from "@/components/portal/sales-shell";
+import { shortDmy, type BoardColumn, type CustomerNeed, type ReportDef, type WorkRow } from "@/components/portal/sales-shell";
+import type { OverviewFigures } from "@/components/portal/sales2";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
@@ -42,34 +44,27 @@ export interface SalesViewInput<D extends Doc = Doc> {
   setCustFilter: (f: "followups" | "enquiries") => void;
   openOutstanding: () => void;
 }
-export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { stripCells: StripCell[]; workRows: WorkRow[]; custNeeds: CustomerNeed[]; boardColumns: BoardColumn[] } {
-  const { unpaidInv, sDocs, overdueInv, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport, weekDash, sm, scope, loaded, today, monthKey,
-    toPayment, openDocRow, openDocById, followCustomer, toEnquiries, setWsView, setCustFilter } = p;
-    /* ---- the strip: four figures, each the module's own ---- */
+export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { figures: OverviewFigures; workRows: WorkRow[]; custNeeds: CustomerNeed[]; boardColumns: BoardColumn[] } {
+  const { unpaidInv, sDocs, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport, weekDash, sm, scope, today, monthKey,
+    toPayment, openDocRow, openDocById, followCustomer, toEnquiries, setCustFilter } = p;
+    /* ---- v1.320.0 (Sales 2.0 Stage 2, picture 01) - the six figures, each the
+       module's own (the four the 4.0 strip carried, word for word, and Due
+       Follow-Ups and Open Quotations, which it showed only in turn) ---- */
     const wkMe = weekDash?.me ?? null;
-    const pending = pv?.on && pv.pend ? pv.pend : null;
-    const stripCells: StripCell[] = [
-      weekDash?.outlook && scope === "all"
-        ? { key: "week", icon: "money", tone: "ok", label: L("Sales (this week)", "Jualan (minggu ini)"), value: fmtRM(weekDash.company.basis_cents),
-            sub: weekDash.company.basis_kind === "all_channels" ? L("all channels · sales, not cash received", "semua saluran · jualan, bukan tunai diterima") : L("invoices paid in full", "invois dibayar penuh"), onClick: () => setWsView("reports") }
-        : { key: "week", icon: "money", tone: "ok", label: L("My sales (this week)", "Jualan saya (minggu ini)"), busy: !weekDash, value: wkMe ? fmtRM(wkMe.basis_cents) : "—",
-            sub: L("my invoices paid in full", "invois saya dibayar penuh"), onClick: () => setWsView("reports") },
-      weekDash?.outlook && scope === "all"
-        ? { key: "target", icon: "target", tone: "gold", label: L("Weekly target", "Sasaran mingguan"), value: weekDash.company.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(weekDash.company.target_cents),
-            sub: weekDash.company.pct === null ? undefined : L(`${weekDash.company.pct}% achieved · ${weekDash.outlook.days_left} working day(s) left`, `${weekDash.company.pct}% dicapai · ${weekDash.outlook.days_left} hari bekerja lagi`), onClick: () => setWsView("reports") }
-        : { key: "target", icon: "target", tone: "gold", label: L("My weekly target", "Sasaran mingguan saya"), busy: !weekDash, value: wkMe?.target_cents != null ? fmtRM(wkMe.target_cents) : L("Not set", "Belum ditetapkan"),
-            sub: wkMe?.pct != null ? L(`${wkMe.pct}% achieved`, `${wkMe.pct}% dicapai`) : undefined, onClick: () => setWsView("reports") },
-      { key: "owed", icon: "pending", tone: "bad", label: pv?.on ? L("Verified outstanding", "Tertunggak disahkan") : L("Outstanding", "Tertunggak"), busy: !loaded,
-        value: fmtRM(sm ? sm.outstanding.balance_cents : unpaidInv.reduce((x, d) => x + d.total_cents, 0)),
-        sub: pv?.on ? L(`${sm ? sm.outstanding.n : unpaidInv.length} invoice(s) · less verified payments`, `${sm ? sm.outstanding.n : unpaidInv.length} invois · tolak bayaran disahkan`)
-          : L(`${sm ? sm.outstanding.n : unpaidInv.length} invoice(s) · ${overdueInv.length} overdue`, `${sm ? sm.outstanding.n : unpaidInv.length} invois · ${overdueInv.length} lewat`),
-        onClick: p.openOutstanding, title: L("Open the outstanding report", "Buka laporan tertunggak") },
-      pending
-        ? { key: "pending", icon: "verify", tone: "info", label: L("Pending payment verification", "Bayaran menunggu pengesahan"), value: fmtRM(pending.cents),
-            sub: L(`${pending.n} payment(s) wait for the CEO · not money yet`, `${pending.n} bayaran menunggu CEO · belum wang`), onClick: () => setWsView("payments") }
-        : { key: "followups", icon: "date", tone: "info", label: L("Follow-ups due", "Susulan perlu dibuat"), busy: !loaded, value: dueFollow.length,
-            sub: L(`today or earlier · ${sFollowups.filter((f) => f.due_on < today).length} overdue`, `hari ini atau lebih awal · ${sFollowups.filter((f) => f.due_on < today).length} lewat`), onClick: () => { setCustFilter("followups"); setWsView("customers"); } },
-    ];
+    const company = weekDash?.outlook && scope === "all" ? weekDash.company : null;
+    const figures: OverviewFigures = {
+      mine: !company,
+      week: !weekDash ? null : company
+        ? { cents: company.basis_cents, sub: company.basis_kind === "all_channels" ? L("all channels · sales, not cash received", "semua saluran · jualan, bukan tunai diterima") : L("invoices paid in full", "invois dibayar penuh") }
+        : { cents: wkMe ? wkMe.basis_cents : null, sub: L("my invoices paid in full", "invois saya dibayar penuh") },
+      target: !weekDash ? null : company
+        ? { cents: company.target_cents, pct: company.pct, left_cents: company.gap_cents }
+        : { cents: wkMe?.target_cents ?? null, pct: wkMe?.pct ?? null, left_cents: wkMe?.gap_cents ?? null },
+      outstanding: { cents: sm ? sm.outstanding.balance_cents : unpaidInv.reduce((x, d) => x + d.total_cents, 0), n: sm ? sm.outstanding.n : unpaidInv.length, verified: !!pv?.on },
+      pending: pv?.on && pv.pend ? pv.pend : null,
+      followups: { n: dueFollow.length, customers: new Set(dueFollow.map((f) => f.customer_id)).size, overdue: sFollowups.filter((f) => f.due_on < today).length },
+      quotes: { n: opps.length, cents: opps.reduce((x, o) => x + o.total_cents, 0) },
+    };
 
     /* ---- the worklist: what needs someone, each row the record itself ---- */
     const invRows = unpaidInv.filter((d) => d.payment_status !== "void").map((d): WorkRow => {
@@ -78,7 +73,7 @@ export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { stripCel
       if (pv?.on && v && v.pending_cents > 0) {
         /* a payment reported and not yet verified: the owner reviews it, everyone else may look */
         const mineToVerify = payWho === "owner";
-        return { key: `pay-${d.id}`, kind: "payment", customer: d.company, ref: `${d.doc_number} · ${L("payment reported", "bayaran dilaporkan")}`, cents: v.pending_cents, ...who,
+        return { key: `pay-${d.id}`, kind: "payment", pipe: "reported", customer: d.company, ref: `${d.doc_number} · ${L("payment reported", "bayaran dilaporkan")}`, cents: v.pending_cents, ...who,
           status: { label: mineToVerify ? L("Verify (CEO)", "Sahkan (CEO)") : L("Pending CEO verification", "Menunggu pengesahan CEO"), tone: "warn" }, overdue: false, rank: `1${d.created_at}`,
           action: { label: mineToVerify ? L("Review", "Semak") : L("View", "Lihat"), primary: mineToVerify, on: () => toPayment(d.id, false) }, open: () => toPayment(d.id, false) };
       }
@@ -86,7 +81,7 @@ export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { stripCel
       const late = d.payment_status === "overdue";
       /* the invoice's one action is the payment engine's own (actionFor): report it only where the server says so */
       const a = v && pv?.on && paysByReport ? actionFor({ total_cents: d.total_cents, verified_cents: v.verified_cents, pending_cents: v.pending_cents, can_report: v.can_report === true }, false, payWho) : null;
-      return { key: `inv-${d.id}`, kind: "invoice", customer: d.company, ref: `${d.doc_number} · ${L(`raised ${shortDmy(d.created_at)}`, `dikeluarkan ${shortDmy(d.created_at)}`)}`, cents: Math.max(0, d.total_cents - paidSoFar), ...who,
+      return { key: `inv-${d.id}`, kind: "invoice", pipe: "invoice", customer: d.company, ref: `${d.doc_number} · ${L(`raised ${shortDmy(d.created_at)}`, `dikeluarkan ${shortDmy(d.created_at)}`)}`, cents: Math.max(0, d.total_cents - paidSoFar), ...who,
         status: late ? { label: L("Overdue", "Lewat"), tone: "bad" } : paidSoFar > 0 ? { label: L("Partially paid", "Dibayar separa"), tone: "warn" } : { label: L("Unpaid", "Belum dibayar"), tone: "neutral" },
         overdue: late, rank: `${late ? "0" : "3"}${d.created_at}`,
         action: a && (a.kind === "report" || a.kind === "report_remaining") ? { label: a.label, on: () => toPayment(d.id, true) } : { label: L("Open", "Buka"), on: () => openDocRow(d) },
@@ -95,7 +90,7 @@ export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { stripCel
     /* an open quotation needs someone when it is accepted (invoice it), its follow-up is due, or nothing is booked */
     const qtRows = opps.filter((o) => !!o.acceptance?.current || !o.next || o.next.due_on <= today).map((o): WorkRow => {
       const late = !!o.next && o.next.due_on < today, accepted = !!o.acceptance?.current;
-      return { key: `qt-${o.id}`, kind: "quotation", customer: o.company ?? o.doc_number, ref: `${o.doc_number} · ${L(`${o.age_days} day(s) open`, `${o.age_days} hari terbuka`)}`, cents: o.total_cents,
+      return { key: `qt-${o.id}`, kind: "quotation", pipe: quoteStatus(o) === "open" ? "quotation" : "follow_up", customer: o.company ?? o.doc_number, ref: `${o.doc_number} · ${L(`${o.age_days} day(s) open`, `${o.age_days} hari terbuka`)}`, cents: o.total_cents,
         owner: o.owner.name, ownerId: o.owner.id, status: { label: oppStatus(o, today)[0], tone: accepted ? "ok" : late ? "bad" : "warn" }, overdue: late,
         rank: late ? `0${o.next!.due_on}` : accepted || o.next ? "1" : `2${String(100000 - Math.min(99999, o.age_days))}`,
         action: accepted ? { label: L("Open", "Buka"), on: () => openDocById(o.id) } : { label: L("Follow up", "Susuli"), on: () => followCustomer(o.customer_id, o.company ?? o.doc_number) },
@@ -105,12 +100,12 @@ export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { stripCel
     /* a follow-up booked on a listed quotation is said once, on that quotation's row */
     const fuRows = dueFollow.filter((f) => !linkedFollow.has(f.id)).map((f): WorkRow => {
       const late = f.due_on < today;
-      return { key: `fu-${f.id}`, kind: "followup", customer: f.company, ref: f.note ?? L("Follow-up", "Susulan"), cents: null, owner: f.owner_name, ownerId: f.owner_id,
+      return { key: `fu-${f.id}`, kind: "followup", pipe: "follow_up", customer: f.company, ref: f.note ?? L("Follow-up", "Susulan"), cents: null, owner: f.owner_name, ownerId: f.owner_id,
         status: late ? { label: L("Follow-up overdue", "Susulan lewat"), tone: "bad" } : { label: L("Follow-up today", "Susulan hari ini"), tone: "warn" }, overdue: late, rank: `${late ? "0" : "1"}${f.due_on}`,
         action: { label: L("Follow up", "Susuli"), on: () => followCustomer(f.customer_id, f.company) }, open: () => followCustomer(f.customer_id, f.company) };
     });
     /* contacted and qualified enquiries are being worked; the new ones wait */
-    const enqRows = enquiries.filter((e) => e.status === "new").map((e): WorkRow => ({ key: `enq-${e.id}`, kind: "enquiry", customer: (e.company ?? "").trim() || e.name, ref: e.message.length > 70 ? `${e.message.slice(0, 70)}…` : e.message, cents: null,
+    const enqRows = enquiries.filter((e) => e.status === "new").map((e): WorkRow => ({ key: `enq-${e.id}`, kind: "enquiry", pipe: "enquiry", customer: (e.company ?? "").trim() || e.name, ref: e.message.length > 70 ? `${e.message.slice(0, 70)}…` : e.message, cents: null,
       owner: e.assigned_name, ownerId: e.assigned_to, status: e.overdue ? { label: L(`Waiting ${e.hours_waiting ?? 0} h`, `Menunggu ${e.hours_waiting ?? 0} j`), tone: "bad" } : { label: L("New", "Baharu"), tone: "info" },
       overdue: !!e.overdue, rank: `${e.overdue ? "0" : "2"}${e.created_at}`, action: { label: e.assigned_to === null ? L("Take it", "Ambil") : L("Open", "Buka"), on: toEnquiries }, open: toEnquiries }));
     const workRows: WorkRow[] = [...invRows, ...qtRows, ...fuRows, ...enqRows];
@@ -140,7 +135,7 @@ export function buildSalesViews<D extends Doc>(p: SalesViewInput<D>): { stripCel
       { key: "accepted", cards: opps.filter((o) => !!o.acceptance?.current).map(oppCard) },
       { key: "closed", cards: paidThisMonthDocs.map((d) => ({ key: `c-${d.id}`, title: d.company, cents: d.total_cents, sub: `${d.doc_number} · ${L("paid", "dibayar")} ${shortDmy(d.paid_at ?? d.created_at)}`, open: () => openDocRow(d) })) },
     ];
-  return { stripCells, workRows, custNeeds, boardColumns };
+  return { figures, workRows, custNeeds, boardColumns };
 }
 
 /** v1.292.0 - Reports -> Sales Performance: the month's figures the Overview

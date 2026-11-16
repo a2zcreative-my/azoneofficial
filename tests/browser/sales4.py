@@ -5,7 +5,7 @@ source rules are held by tests/sales4.mjs; here, the screens:
   the six views, each reached from the address (?tab=Sales&view=...), at the
   directive's eight widths, with no sideways page and no page error; tabs on a
   wide screen, one selector on a phone; Back and Forward move between views;
-  the Overview is one strip of four and one worklist; the strip's words follow
+  the Overview is picture 01 (v1.320.0: six figures, the pipeline, the worklist and its rail); the figures' words follow
   Payment Verification (Verified outstanding and Pending payment verification
   only while it is on); a reported payment is Review for the owner account
   and View for the COO; a document row has one action and the rest under its
@@ -100,14 +100,15 @@ with sync_playwright() as p:
             want = {"overview": 1, "documents": 1, "payments": 1, "customers": 1, "closed": 0, "reports": 0}[key]
             check(f"{tag}: {want} gold action for the view", gold.count() == want, gold.all_inner_texts())
             if key == "overview":
-                strip = pg.get_by_test_id("metric-strip").filter(visible=True)
+                # v1.320.0 (Sales 2.0 Stage 2, picture 01, approved) - six figures; with verification off the figure says so and shows no amount
+                strip = pg.get_by_role("group", name="Sales at a glance").filter(visible=True)
                 txt = strip.first.inner_text() if strip.count() else ""
-                check(f"{tag}: one strip of four: the week's sales, the weekly target, Outstanding, Follow-ups due (verification is off)",
-                      strip.count() == 1 and strip.first.get_attribute("data-cells") == "4" and "Sales (this week)" in txt and "Weekly target" in txt
-                      and "Outstanding" in txt and "Verified" not in txt and "Pending payment verification" not in txt and "Follow-ups due" in txt, txt[:300])
+                check(f"{tag}: six figures: the week's sales, the weekly target, Outstanding, Pending CEO Verification (off), Due Follow-Ups, Open Quotations",
+                      strip.count() == 1 and strip.first.get_attribute("data-cols") == "6" and "Sales This Week" in txt and "Weekly Target" in txt
+                      and "Outstanding" in txt and "Verified" not in txt and "Payment verification is off" in txt and "Due Follow-Ups" in txt and "Open Quotations" in txt, txt[:300])
                 wl = pg.get_by_test_id("sales-worklist").filter(visible=True)
-                check(f"{tag}: then the one worklist, and nothing else (no chart, no team table, no advice)",
-                      wl.count() == 1 and pg.get_by_test_id("sales-reports").count() == 0 and pg.locator("main svg[aria-label*='Sales performance' i]").count() == 0
+                check(f"{tag}: then the pipeline, the one worklist and the rail - and nothing else (no chart, no report, no advice)",
+                      wl.count() == 1 and vis(pg, "sales-pipeline") and vis(pg, "important-followups") and pg.get_by_test_id("sales-reports").count() == 0 and pg.locator("main svg[aria-label*='Sales performance' i]").count() == 0
                       and "Weekly sales" not in pg.locator("main").inner_text(), pg.locator("main").inner_text()[:200])
                 if phone:
                     small = small_targets(pg, "sales-worklist")
@@ -249,9 +250,9 @@ with sync_playwright() as p:
         ctx = ctx_for(b, w); pg = ctx.new_page(); errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))
         go(pg, port, "overview", 3200)
-        txt = pg.get_by_test_id("metric-strip").filter(visible=True).first.inner_text()
-        check(f"PAYV {who} {w}: the strip says Verified outstanding and Pending payment verification, not money yet",
-              "Verified outstanding" in txt and "Pending payment verification" in txt and "not money yet" in txt, txt[:300])
+        txt = pg.get_by_role("group", name="Sales at a glance").filter(visible=True).first.inner_text()
+        check(f"PAYV {who} {w}: the figures say Verified Outstanding and Pending CEO Verification, waiting for the CEO",
+              "Verified Outstanding" in txt and "Pending CEO Verification" in txt and "waiting for the CEO" in txt and "verification is off" not in txt, txt[:300])
         wl = pg.get_by_test_id("sales-worklist").filter(visible=True).first
         rows = wl.locator("[role=row]").filter(has_text="payment reported")
         rt = rows.first.inner_text() if rows.count() else ""
@@ -269,8 +270,8 @@ with sync_playwright() as p:
     # ================= roles =================
     ctx = ctx_for(b, 1440); pg = ctx.new_page()
     go(pg, 4182, "overview")
-    txt = pg.get_by_test_id("metric-strip").filter(visible=True).first.inner_text()
-    check("Sales consultant: the strip is theirs: My sales, My weekly target", "My sales" in txt and "My weekly target" in txt, txt[:200])
+    txt = pg.get_by_role("group", name="Sales at a glance").filter(visible=True).first.inner_text()
+    check("Sales consultant: the figures are theirs: My Sales This Week, My Weekly Target; no team panel", "My Sales This Week" in txt and "My Weekly Target" in txt and pg.get_by_test_id("team-sales").count() == 0, txt[:200])
     go(pg, 4179, "reports")
     check("COO: Reports opens from the address", pg.get_by_test_id("report-type").count() == 1 and view_of(pg) == "reports")
     go(pg, 4180, "payments")

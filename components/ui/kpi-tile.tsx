@@ -14,8 +14,10 @@ import css from "./kpi-tile.module.css";
 
 export type KpiTone = "gold" | "green" | "red" | "blue" | "navy" | "purple";
 
-export function KpiRow({ children, label }: { children: ReactNode; label?: string }) {
-  return <div className={css.row} role={label ? "group" : undefined} aria-label={label}>{children}</div>;
+/** v1.320.0 (the 2.0 foundation) - `cols`: the pictures' rows of five or six
+    figures stay one row from 1280px (the automatic row wraps a sixth tile) */
+export function KpiRow({ children, label, cols }: { children: ReactNode; label?: string; cols?: 4 | 5 | 6 }) {
+  return <div className={`${css.row} ${cols ? css[`cols${cols}`] : ""}`} role={label ? "group" : undefined} aria-label={label} data-cols={cols}>{children}</div>;
 }
 
 export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title, pressed }: {

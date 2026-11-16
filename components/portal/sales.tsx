@@ -9,7 +9,7 @@ import { Sub } from "@/components/portal/leave";
 import { L, MANAGE_ROLES, SectionTabs, User, ZoneLabel, payStatusL, withStepUp } from "@/components/portal/page-shared";
 import { TabAction } from "@/components/ui/line-tabs";
 import { ClosedSales, FollowUps, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
-import { CustomerBoard, CustomerFilterBar, CustomerNeeds, DocsMore, MetricStrip, ReportPicker, RowMenu, SalesViewBar, SalesWorklist, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
+import { CustomerBoard, CustomerFilterBar, CustomerNeeds, DocsMore, ReportPicker, RowMenu, SalesViewBar, SalesWorklist, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
 import { useCachedApi } from "@/lib/cached-api";
 import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-views"; // v1.292.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
@@ -54,6 +54,8 @@ import bizCss from "@/components/portal/business.module.css"; // v1.181.16
 import sc from "@/components/portal/sales-docs.module.css"; // v1.186.0 - the documents table
 import { QuoteApprovalLimit, type QuoteApproval } from "@/components/portal/quote-approval"; // v1.181.17
 import { QuotationPage } from "@/components/portal/quotation-page"; // v1.245.0 - the quotation page (P-4)
+import { SalesOverview2, pipeWord } from "@/components/portal/sales2"; // v1.320.0 - Sales 2.0, Stages 1 and 2
+import { pipelineCounts, type PipeKey } from "@/lib/sales-status";
 
 /* ================= Sales (CRM + documents) ================= */
 
@@ -1787,7 +1789,13 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   /* the customer file refreshes Sales when it closes: a tick the loader watches, so no render-time code touches a ref */
   const followCustomer = (customerId: number, company: string) => openCustomerFile(customerId, company, () => setFileTick((t) => t + 1));
 
-  const { stripCells, workRows, custNeeds, boardColumns } = buildSalesViews({ unpaidInv, sDocs, overdueInv, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport,
+  /* v1.320.0 (Sales 2.0, S2-5) - the pipeline: a count per step from each record's own table; a step pressed narrows the worklist.
+     CEO Verified and Closed Sale have no work waiting - they open Closed Sales, where those invoices are */
+  const [pipe, setPipe] = useState<PipeKey | null>(null);
+  const addDaysIso = (d: string, k: number) => new Date(Date.parse(`${d}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
+  const pickPipe = (k: PipeKey) => { if (k === "verified" || k === "closed") { setPipe(null); setWsView("closed"); return; } setPipe((cur) => (cur === k ? null : k)); };
+  const pipeline = pipelineCounts({ enquiries, quotes: opps, invoices: sDocs.filter((d) => d.doc_type === "INV"), pay: pv?.on ? pv.inv : null, month: monthKey });
+  const { figures, workRows, custNeeds, boardColumns } = buildSalesViews({ unpaidInv, sDocs, overdueInv, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport,
     weekDash, sm, scope, loaded, today, monthKey, toPayment, openDocRow, openDocById, followCustomer, toEnquiries, setWsView, setCustFilter: (f) => setCustFilter(f),
     openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
 
@@ -1817,9 +1825,18 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         )} />
       {wsView === "overview" && (
         <>
-          {/* v1.292.0 - SALES WORKSPACE 4.0: one slim strip, then the one worklist */}
-          <MetricStrip label={L("Sales at a glance", "Jualan sepintas lalu")} cells={stripCells} />
-          <SalesWorklist rows={workRows} loaded={loaded} mine={scope === "mine"} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />} />
+          {/* v1.320.0 - SALES 2.0 (picture 01): six figures, the pipeline, the one worklist and its rail (sales2.tsx) */}
+          <SalesOverview2 figures={figures} loaded={loaded} today={today}
+            pipeline={pipeline} picked={pipe} onPick={pickPipe}
+            worklist={<SalesWorklist rows={workRows} loaded={loaded} mine={scope === "mine"} pipe={pipe} pipeLabel={pipe ? pipeWord(pipe) : undefined} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />} />}
+            followups={[...sFollowups].filter((f) => f.due_on <= addDaysIso(today, 7)).sort((a, b) => a.due_on.localeCompare(b.due_on))
+              .map((f) => ({ id: f.id, company: f.company, note: f.note, due_on: f.due_on, open: () => followCustomer(f.customer_id, f.company) }))}
+            invoices={sDocs.filter((d) => d.doc_type === "INV" && d.payment_status !== "void").sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id).slice(0, 4)
+              .map((d) => ({ id: d.id, doc_number: d.doc_number, company: d.company, total_cents: d.total_cents, inv: d, pay: pv?.inv[d.id] ?? (partPaid[d.id] ? { verified_cents: partPaid[d.id]!, pending_cents: 0 } : null), open: () => openDocRow(d) }))}
+            team={scope === "all" && weekDash?.all ? { total_cents: weekDash.company.basis_cents, rows: [...weekDash.all.rows].filter((r) => r.basis_cents > 0).sort((a, b) => b.basis_cents - a.basis_cents).map((r) => ({ id: r.user_id, name: r.name, cents: r.basis_cents })) } : null}
+            onAllFollowups={() => { setCustFilter("followups"); setWsView("customers"); }}
+            onAllInvoices={() => { setWsView("documents"); setWorkTab("documents"); setDocType("INV"); setDocStatus("all"); setDocQuery(""); setDocPage(1); }}
+            toPayments={() => setWsView("payments")} toReports={() => setWsView("reports")} />
         </>
       )}
       {wsView === "closed" && (

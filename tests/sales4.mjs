@@ -6,7 +6,8 @@
        (tab and view only, never a record) so Back and Forward move between them;
      - tabs on a wide screen, one selector on a phone; one gold action per view
        and none on Closed Sales and Reports;
-     - the Overview is one strip and one worklist - nothing else;
+     - the Overview is picture 01 (v1.320.0): its figures, the pipeline, the one
+       worklist and its rail - nothing else;
      - the strip says "Verified outstanding" and "Pending payment verification"
        only while the CEO verifies payments; the pending figure is the
        Payments queue's own;
@@ -35,6 +36,7 @@ const FILES = {
   ws: "components/portal/sales-workspace.tsx",
   provider: "components/portal/portal-provider.tsx",
   page: "app/portal/page.tsx",
+  sales2: "components/portal/sales2.tsx", // v1.320.0 - Sales 2.0: the Overview of picture 01
 };
 
 const between = (s, a, b) => { const i = s.indexOf(a); if (i < 0) return ""; const j = s.indexOf(b, i + a.length); return s.slice(i, j < 0 ? s.length : j); };
@@ -42,7 +44,7 @@ const between = (s, a, b) => { const i = s.indexOf(a); if (i < 0) return ""; con
 function checks(src) {
   const res = [];
   const ok = (name, cond, detail = "") => res.push([name, Boolean(cond), detail]);
-  const shell = strip(src.shell), views = strip(src.views), sales = strip(src.sales), ws = strip(src.ws), provider = strip(src.provider), page = strip(src.page);
+  const shell = strip(src.shell), views = strip(src.views), sales = strip(src.sales), ws = strip(src.ws), provider = strip(src.provider), page = strip(src.page), sales2 = strip(src.sales2);
 
   /* ---- the shell ---- */
   ok("S - the six written views, in the written order",
@@ -70,14 +72,15 @@ function checks(src) {
 
   /* ---- the Overview ---- */
   const ov = between(sales, "{wsView === \"overview\" && (", "{wsView === \"closed\" && (");
-  ok("the Overview is one strip and one worklist - nothing else",
-    /<MetricStrip label=\{L\("Sales at a glance", "Jualan sepintas lalu"\)\} cells=\{stripCells\} \/>/.test(ov) && /<SalesWorklist rows=\{workRows\}/.test(ov)
-    && (ov.match(/<[A-Z][A-Za-z]+/g) ?? []).filter((t) => !["<MetricStrip", "<SalesWorklist", "<ScopeSwitch"].includes(t)).length === 0);
-  ok("S4 - the strip says Verified outstanding only while the CEO verifies payments",
-    /label: pv\?\.on \? L\("Verified outstanding", "Tertunggak disahkan"\) : L\("Outstanding", "Tertunggak"\)/.test(views));
-  ok("S4 - Pending payment verification is the Payments queue's own figure, and only while verification is on",
-    /const pending = pv\?\.on && pv\.pend \? pv\.pend : null;/.test(views) && /label: L\("Pending payment verification", "Bayaran menunggu pengesahan"\), value: fmtRM\(pending\.cents\)/.test(views)
-    && /not money yet/.test(views));
+  /* v1.320.0 (Sales 2.0 Stage 2, picture 01, approved) - the Overview is the picture's: its figures, the
+     pipeline, the ONE worklist and the rail, all in SalesOverview2; still nothing else (no chart, no advice) */
+  ok("the Overview is picture 01 - the figures, the pipeline, the one worklist and its rail - and nothing else",
+    /<SalesOverview2 figures=\{figures\}/.test(ov) && /worklist=\{<SalesWorklist rows=\{workRows\}/.test(ov)
+    && (ov.match(/<[A-Z][A-Za-z0-9]+/g) ?? []).filter((t) => !["<SalesOverview2", "<SalesWorklist", "<ScopeSwitch"].includes(t)).length === 0);
+  ok("S4 - the figure says Verified outstanding only while the CEO verifies payments",
+    /outstanding: \{[^}]*verified: !!pv\?\.on \}/.test(views) && /label=\{f\.outstanding\?\.verified \? L\("Verified Outstanding", "Tertunggak Disahkan"\) : L\("Outstanding", "Tertunggak"\)\}/.test(sales2));
+  ok("S4 - Pending CEO Verification is the Payments queue's own figure, and only while verification is on",
+    /pending: pv\?\.on && pv\.pend \? pv\.pend : null,/.test(views) && /value=\{fmtRM\(f\.pending\.cents\)\}/.test(sales2) && /Payment verification is off/.test(sales2));
   ok("only the verified owner account reviews a reported payment; everyone else sees View",
     /const mineToVerify = payWho === "owner";/.test(views) && /label: mineToVerify \? L\("Review", "Semak"\) : L\("View", "Lihat"\)/.test(views));
   ok("an invoice's report action is the payment engine's own (actionFor), offered only where the server says can_report",
@@ -87,9 +90,9 @@ function checks(src) {
 
   /* ---- what the new pieces may not do ---- */
   ok("the new pieces only draw: no request is written from them",
-    !/\bapi\s*[(<]/.test(shell + views) && !/method:\s*"(POST|PATCH|PUT|DELETE)"/.test(shell + views));
+    !/\bapi\s*[(<]/.test(shell + views + sales2) && !/method:\s*"(POST|PATCH|PUT|DELETE)"/.test(shell + views + sales2));
   ok("no invented figures or records in the new pieces (no amounts or companies typed in)",
-    !/fmtRM\(\s*\d/.test(shell + views) && !/Sdn Bhd|Enterprise"|Boutique|_cents: \d/.test(shell + views));
+    !/fmtRM\(\s*\d/.test(shell + views + sales2) && !/Sdn Bhd|Enterprise"|Boutique|_cents: \d/.test(shell + views + sales2));
   ok("S7 - no row checkboxes (no bulk action exists)", !/type="checkbox"/.test(shell + views));
   ok("S3 - the Board is read-only: nothing is dragged, no stage is stored, no Proposal column",
     !/draggable|onDrag|onDrop/.test(shell) && !/Proposal/.test(shell + views)
@@ -140,13 +143,13 @@ const MUT = [
   ["a deep link read again on every re-run", "provider", "if (wanted && !linkTaken.current && (ALL_TABS as readonly string[]).includes(wanted)) {", "if (wanted && (ALL_TABS as readonly string[]).includes(wanted)) {"],
   ["the phone loses its selector", "shell", "<ViewSwitch value={view} onChange={onView}", "<LineTabs value={view} onChange={onView}"],
   ["a gold action on Reports", "sales", 'wsView === "closed" || wsView === "reports" ? null : (', 'wsView === "closed" ? null : ('],
-  ["a chart back on the Overview", "sales", '<MetricStrip label={L("Sales at a glance", "Jualan sepintas lalu")} cells={stripCells} />', '<MetricStrip label={L("Sales at a glance", "Jualan sepintas lalu")} cells={stripCells} /><SalesPerformanceCard />'],
-  ["Verified claimed always", "views", 'label: pv?.on ? L("Verified outstanding", "Tertunggak disahkan") : L("Outstanding", "Tertunggak")', 'label: L("Verified outstanding", "Tertunggak disahkan")'],
-  ["pending shown while verification is off", "views", "const pending = pv?.on && pv.pend ? pv.pend : null;", "const pending = pv?.pend ?? null;"],
+  ["a chart back on the Overview", "sales", "<SalesOverview2 figures={figures}", "<SalesPerformanceCard /><SalesOverview2 figures={figures}"],
+  ["Verified claimed always", "views", "verified: !!pv?.on }", "verified: true }"],
+  ["pending shown while verification is off", "views", "pending: pv?.on && pv.pend ? pv.pend : null,", "pending: pv?.pend ?? null,"],
   ["a COO offered Review", "views", 'const mineToVerify = payWho === "owner";', 'const mineToVerify = payWho !== "staff";'],
   ["report offered without the server's can_report", "views", "can_report: v.can_report === true }", "can_report: true }"],
   ["a write from the worklist", "views", "const workRows: WorkRow[] = [...invRows, ...qtRows, ...fuRows, ...enqRows];", 'const workRows: WorkRow[] = [...invRows, ...qtRows, ...fuRows, ...enqRows];\n    void api("/staff/sales/x", { method: "POST" });'],
-  ["a made-up figure", "views", 'value: fmtRM(pending.cents)', 'value: fmtRM(125000)'],
+  ["a made-up figure", "sales2", "value={fmtRM(f.pending.cents)}", "value={fmtRM(125000)}"],
   ["row checkboxes", "shell", 'data-testid="row-more"', 'data-testid="row-more" type="checkbox"'],
   ["a draggable board card", "shell", "<button type=\"button\" className={css.boardCard} onClick={x.open}>", "<button type=\"button\" draggable className={css.boardCard} onClick={x.open}>"],
   ["every report mounted at once", "shell", "<div key={cur.key} className={css.reportBody}>{cur.node}</div>", "{reports.map((r) => <div key={r.key}>{r.node}</div>)}"],

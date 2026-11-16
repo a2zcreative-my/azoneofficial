@@ -11,6 +11,12 @@
     gap: 1rem;
   }
 }
+/* v1.320.0 - a fixed count from 1280px (KpiRow cols); 768-1279 stays automatic */
+@media (min-width: 1280px) {
+  .cols4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cols5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .cols6 { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+}
 /* v1.276.0 - A2Z OS 3.0: two tiles a row on every phone (Tasks and Users
    fell to one tall tile a row), an odd last tile across the row */
 @media (max-width: 639px) {

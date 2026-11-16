@@ -1,0 +1,33 @@
+/* v1.320.0 - the 2.0 panel, its head, the main + rail page shape and the pill
+   switch (panel.tsx). Tokens only; the house breakpoints only. */
+.panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; align-content: start; min-width: 0; }
+.flush { padding-bottom: 0.5rem; }
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.625rem 0.75rem; min-width: 0; }
+.well { display: grid; place-items: center; flex: 0 0 auto; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-control); }
+.well svg { width: 1.25rem; height: 1.25rem; }
+.blue { background: var(--info-soft); color: var(--info); }
+.gold { background: color-mix(in srgb, var(--gold-solid) 16%, transparent); color: color-mix(in srgb, var(--gold-solid) 70%, var(--foreground)); }
+.green { background: var(--success-soft); color: var(--success); }
+.red { background: var(--danger-soft); color: var(--danger); }
+.purple { background: color-mix(in srgb, var(--plan, var(--info)) 14%, transparent); color: var(--plan, var(--info)); }
+.navy { background: var(--muted); color: var(--foreground); }
+.text { display: grid; gap: 0.125rem; flex: 1 1 8rem; min-width: 0; }
+.title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.375rem; margin: 0; font-size: var(--type-section-size); line-height: var(--type-section-lh); font-weight: 700; color: var(--foreground); }
+.count { color: color-mix(in srgb, var(--gold-solid) 70%, var(--foreground)); font-variant-numeric: tabular-nums; }
+.sub { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.aside { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; flex: 0 1 auto; min-width: 0; margin-left: auto; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; min-width: 0; }
+.main, .rail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-content: start; min-width: 0; }
+
+.pills { display: inline-flex; flex-wrap: wrap; padding: 0.1875rem; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--muted); }
+.pills button { min-height: 2.25rem; padding: 0 0.875rem; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--muted-foreground); font: inherit; font-size: var(--type-caption-size); font-weight: 600; cursor: pointer; white-space: nowrap; }
+.pills button[aria-pressed="true"] { background: var(--brand-primary); color: var(--card); }
+.pills button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+@media (min-width: 1280px) {
+  .grid { grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.58fr); }
+}
+@media (max-width: 639px) {
+  .pills button { min-height: 2.75rem; }
+}
