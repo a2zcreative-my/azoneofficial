@@ -327,8 +327,9 @@ ok("the attendance panel is actually given the role",
   ok("apply-to-all skips hourly hosts", /\.filter\(\(p\) => !p\.hourly\);/.test(staff));
   /* v1.309.0 - Leave 4.0: the Apply and My Leave views are not offered to an hourly host; the Overview says why */
   ok("the Leave tab hides the form and the balance from an hourly host and says why",
-     /\{!hourly && \(\s*<TabZone label=\{L\("Apply", "Mohon"\)\}/.test(page) && /\{!hourly && \(\s*<TabZone label=\{L\("My balance", "Baki saya"\)\}/.test(page)
-       && /\.\.\.\(!hourly \? \(\[\["apply"/.test(page) && /\{hourly && <p className=\{css\.note\}>\{L\("You are a part-time host, paid by the hour/.test(read("components/portal/leave4.tsx")));
+     /* v1.325.0 (D-3) - Apply Leave is a drawer, its button and the drawer both gated on !hourly; My Leave still a tab not offered */
+     /\{!hourly && \(\s*<SideDrawer open=\{applyOpen\}/.test(page) && /\{!hourly && <TabAction icon="add" onClick=\{\(\) => openView\("apply"\)\}>/.test(page) && /\{!hourly && \(\s*<TabZone label=\{L\("My balance", "Baki saya"\)\}/.test(page)
+       && /\.\.\.\(!hourly \? \(\[\["mine"/.test(page) && /\{hourly && <p className=\{css\.note\}>\{L\("You are a part-time host, paid by the hour/.test(read("components/portal/leave4.tsx")));
      /* v1.173.0 (tab concept): the Apply card is the APPLY zone's one card; still gated on !hourly.
         v1.196.0: the zone is the Apply Leave tab, and that tab is not offered to an hourly host. */
   ok("the entitlement table shows one quiet cell for an hourly row instead of boxes",

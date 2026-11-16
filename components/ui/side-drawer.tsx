@@ -57,15 +57,13 @@ export function SideDrawer({
   full?: boolean;
   /** v1.276.0 (A2Z OS 3.0) - the form inside holds unsaved typing: closing
       (the X, Escape, the backdrop) first asks "Discard your changes?" in the
-      drawer itself, so a slip of the hand never loses the work. */
-  dirty?: boolean;
-} | {
-  open: boolean; onClose: () => void; title: ReactNode; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean; full?: boolean;
-  /** v1.323.0 (the CEO's Global UI brief: "warn before discarding unsaved
+      drawer itself, so a slip of the hand never loses the work.
+      v1.323.0 (the CEO's Global UI brief: "warn before discarding unsaved
       changes") - "auto": the drawer itself notices typing in its fields (not a
       search box, a checkbox or a radio) and asks before closing; a fresh open
-      starts clean. A form that knows its own state still passes a boolean. */
-  dirty: "auto";
+      starts clean. A form that knows its own state passes a boolean
+      (v1.325.0: either, from one expression - "auto" until it is saved). */
+  dirty?: boolean | "auto";
 }) {
   const reduceMotion = useReducedMotion();
   const fromSide = useSyncExternalStore(subscribeSide, readSide, () => true);

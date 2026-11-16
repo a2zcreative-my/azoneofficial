@@ -168,9 +168,10 @@ with sync_playwright() as p:
     check("no page errors (routed)", not errs, errs)
     pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
     # v1.309.0 (L-1) - the route is shown on Apply, before submitting; nobody holds a switch any more
-    tab(pg, "Apply Leave")
+    # v1.325.0 (D-3) - Apply Leave is the row's button; the form opens in the drawer
+    pg.get_by_role("button", name="Apply Leave").filter(visible=True).first.click(); pg.wait_for_timeout(900)
     pg.get_by_test_id("apply-start").fill("2026-09-21"); pg.wait_for_timeout(900)
-    check("Your approval route, on Apply: the CEO's is an Executive Leave Record - and there is no switch", pg.get_by_test_id("route-exec").count() == 1 and "Switch back to the previous rules" not in pg.locator("main").inner_text(), pg.get_by_test_id("apply-route").inner_text()[:300])
+    check("Your approval route, on Apply: the CEO's is an Executive Leave Record - and there is no switch", pg.get_by_test_id("route-exec").count() == 1 and "Switch back to the previous rules" not in pg.get_by_role("dialog").inner_text(), pg.get_by_test_id("apply-route").inner_text()[:300])
     ctx.close()
     ctx = b.new_context(viewport={"width": 1440, "height": 1000})
     pg = ctx.new_page(); errs = []

@@ -29,6 +29,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { PillSwitch } from "@/components/ui/panel"; // v1.325.0 - D-2
 import { L, type LeaveReq, leaveTypeL } from "@/components/portal/page-shared";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
@@ -404,11 +405,11 @@ export function ApplyLeave4({ types, onSubmitted, toast, submit }: {
               </div>
             </div>
             {halfOk && (
-              <div className={l4.halfRow} role="group" aria-label={L("Half day", "Separuh hari")}>
-                {([["", L("Full day", "Sehari penuh")], ["first_half", L("First half", "Separuh pertama")], ["second_half", L("Second half", "Separuh kedua")]] as const).map(([v, t]) => (
-                  <button key={v || "full"} type="button" aria-pressed={f.half === v} disabled={step === 2} onClick={() => setF({ ...f, half: v })} data-testid={`apply-half-${v || "full"}`}>{t}</button>
-                ))}
-              </div>
+              /* v1.325.0 (Global UI System D-2) - the one switch; on the review step it is read only */
+              <div className={l4.halfRow}><PillSwitch testid="apply-half" label={L("Half day", "Separuh hari")} value={f.half || "full"}
+                onChange={(k) => setF({ ...f, half: k === "full" ? "" : k })}
+                options={[["full", L("Full day", "Sehari penuh")], ["first_half", L("First half", "Separuh pertama")], ["second_half", L("Second half", "Separuh kedua")]] as const}
+                disabled={step === 2 ? { full: L("Back to change it", "Kembali untuk mengubahnya"), first_half: L("Back to change it", "Kembali untuk mengubahnya"), second_half: L("Back to change it", "Kembali untuk mengubahnya") } : undefined} /></div>
             )}
             {quote && !quote.problem && linesNote.length > 0 && <p className={css.sub} data-testid="apply-excluded">{L("Not counted: ", "Tidak dikira: ")}{linesNote.join(" · ")}</p>}
             {quote?.problem && <p className={l4.problem} role="alert" data-testid="apply-problem">{quote.problem.message}</p>}

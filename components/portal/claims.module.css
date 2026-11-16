@@ -127,6 +127,7 @@
 }
 .anchorForm {
   scroll-margin-top: 9rem;
+  container: claimform / inline-size;
 }
 .formTitleLink {
   margin-left: 0.25rem;
@@ -258,7 +259,10 @@
   font-size: 11px;
   color: var(--muted-foreground);
 }
-@media (min-width: 640px) {
+/* v1.325.0 (D-3) - the form lives in the drawer now: its lines take the one-row
+   layout by the form's own width, not the screen's, so a Description column is
+   never squeezed to one letter in a narrower panel */
+@container claimform (min-width: 40rem) {
   .gridHead {
     margin-top: 0.5rem;
     display: grid;

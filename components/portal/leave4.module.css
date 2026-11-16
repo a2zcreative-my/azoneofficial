@@ -52,9 +52,8 @@
 .days { display: flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 0.875rem; border-radius: var(--radius-control); background: color-mix(in srgb, var(--gold-solid) 18%, var(--card)); }
 .days svg { width: 1.125rem; height: 1.125rem; color: color-mix(in srgb, var(--gold-solid) 70%, var(--foreground)); }
 .days strong { font-size: 1.05rem; }
+/* v1.325.0 - the half day and the calendar view are the one switch (PillSwitch) */
 .halfRow { display: flex; flex-wrap: wrap; gap: 0.375rem; }
-.halfRow button { min-height: 2.75rem; padding: 0 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--card); color: inherit; font: inherit; font-size: var(--type-caption-size); cursor: pointer; }
-.halfRow button[aria-pressed="true"] { border-color: var(--gold-solid); background: color-mix(in srgb, var(--gold-solid) 14%, var(--card)); font-weight: 600; }
 .problem { margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-control); background: var(--danger-soft); color: var(--danger); font-size: var(--type-body-sm-size); }
 .textarea { width: 100%; min-height: 5.5rem; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); font: inherit; font-weight: 400; font-size: var(--type-body-sm-size); resize: vertical; }
 .textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -91,8 +90,6 @@
 .deptHead svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
 .calLayout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 .calTools { display: flex; flex-wrap: wrap; gap: 0.375rem; }
-.calTools button { min-height: 2.75rem; padding: 0 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--card); color: inherit; font: inherit; font-size: var(--type-caption-size); cursor: pointer; }
-.calTools button[aria-pressed="true"] { border-color: var(--gold-solid); background: color-mix(in srgb, var(--gold-solid) 14%, var(--card)); font-weight: 600; }
 
 /* approvals */
 .mgmtHead { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }

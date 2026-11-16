@@ -227,6 +227,38 @@ with sync_playwright() as p:
     tabs = [t.strip() for t in pg.get_by_role("tablist", name="Documents").get_by_role("tab").all_inner_texts()]
     check("Sales: the Documents row is the one tab row (All, Quotations, Invoices) with More at its end", len(tabs) == 3 and tabs[0].startswith("All Documents") and pg.get_by_test_id("docs-more").count() == 1, tabs)
     ctx.close()
+    # ================= v1.325.0: Phase D group 2 - D-3, Apply Leave and Submit Claim open in the drawer =================
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Leave", w, h, phone)
+        tabs = [t.strip() for t in pg.get_by_role("tab").filter(visible=True).all_inner_texts()]
+        check(f"Leave {w}: Apply Leave is not a tab any more", not any(t.startswith("Apply") for t in tabs), tabs)
+        pg.get_by_role("button", name=re.compile("^Apply")).filter(visible=True).first.click(); pg.wait_for_timeout(700)
+        dlg = pg.get_by_role("dialog")
+        check(f"Leave {w}: the Apply button opens the same three steps in the drawer", dlg.count() == 1 and dlg.get_by_test_id("apply4").count() == 1 and all(x in dlg.inner_text() for x in ["Leave Details", "Review", "Submitted"]))
+        dlg.get_by_test_id("apply-reason").fill("Family matters"); pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+        check(f"Leave {w}: a half-written application asks before it is thrown away", pg.get_by_test_id("drawer-discard").count() == 1)
+        check(f"Leave {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        ctx.close()
+    ctx, pg, errs = open_tab(b, "Leave", 1440, 900, False)
+    pg.goto("http://127.0.0.1:4310/portal?tab=Leave&view=apply"); pg.wait_for_timeout(2800)
+    check("Leave: an old ?view=apply link (the Dashboard's Apply Leave) opens the drawer over the Overview", pg.get_by_role("dialog").get_by_test_id("apply4").count() == 1, pg.url)
+    ctx.close()
+    for w, h, phone in [(1440, 900, False), (390, 844, True)]:
+        ctx, pg, errs = open_tab(b, "Claims", w, h, phone)
+        tabs = [t.strip() for t in pg.get_by_role("tab").filter(visible=True).all_inner_texts()]
+        check(f"Claims {w}: Submit Claim is not a tab any more", not any(t.startswith("Submit") for t in tabs), tabs)
+        pg.get_by_role("button", name=re.compile("^Submit")).filter(visible=True).first.click(); pg.wait_for_timeout(700)
+        dlg = pg.get_by_role("dialog")
+        check(f"Claims {w}: the Submit button opens the same form in the drawer (type switch, the steps)", dlg.count() == 1 and dlg.get_by_test_id("claim-drawer").count() == 1 and dlg.get_by_test_id("claim-type-reimbursement").count() == 1)
+        # the lines lay out by the form's own width: no field and no column heading squeezed to a sliver
+        thin = pg.evaluate("""() => [...document.querySelectorAll('[role=dialog] input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]), [role=dialog] select, [role=dialog] [class*=gridHead] > span')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden' && (r.width < 56 && e.tagName !== 'SPAN' || (e.tagName === 'SPAN' && e.textContent.trim().length > 3 && r.height > 40)); }).map(e => (e.getAttribute('placeholder') || e.textContent || e.tagName).slice(0, 20))""")
+        check(f"Claims {w}: in the drawer no field is squeezed and no heading breaks letter by letter", not thin, thin)
+        check(f"Claims {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
+        ctx.close()
+    ctx, pg, errs = open_tab(b, "Claims", 1440, 900, False)
+    pg.goto("http://127.0.0.1:4177/portal?tab=Claims&view=submit"); pg.wait_for_timeout(2800)
+    check("Claims: an old ?view=submit link opens the drawer", pg.get_by_role("dialog").get_by_test_id("claim-drawer").count() == 1)
+    ctx.close()
     ctx, pg, errs = open_tab(b, "Desk", 390, 844, True)
     pg.goto("http://127.0.0.1:4177/portal?tab=Desk&view=inbox"); pg.wait_for_timeout(2600)
     check("Desk 390: the inbox does not scroll inside itself - the page does", pg.get_by_test_id("inbox-panel").get_attribute("data-fill") == "off")

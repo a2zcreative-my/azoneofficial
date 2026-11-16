@@ -63,8 +63,9 @@ with sync_playwright() as p:
     # ---------- the CEO: Overview ----------
     ctx, pg, errs, reqs = page(b)
     go(pg, CEO)
-    names = ["Overview", "Submit Claim", "My Claims", "Approvals", "Reports & Payments"]
-    check("C-0: five views, in the references' order", [t.strip() for t in pg.get_by_role("tab").all_inner_texts()][:5] == names, pg.get_by_role("tab").all_inner_texts())
+    # v1.325.0 (Global UI System D-3, the CEO's approval) - Submit Claim is a button that opens the drawer, not a view
+    names = ["Overview", "My Claims", "Approvals", "Reports & Payments"]
+    check("C-0: four views in the references' order, and Submit claim as the row's button", [t.strip() for t in pg.get_by_role("tab").all_inner_texts()][:4] == names and pg.get_by_role("button", name=re.compile("^Submit claim")).filter(visible=True).count() == 1, pg.get_by_role("tab").all_inner_texts())
     check("the Overview is in the address", view_of(pg) == "overview", pg.url)
     kpi = pg.locator("main").inner_text()
     check("ref 1: Total Claims, Pending Approval, Approved, Paid, Rejected", all(s in kpi for s in ["Total Claims", "Pending Approval", "Approved", "Paid", "Rejected"]))

@@ -81,6 +81,8 @@ import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 /* v1.201.0 - the five-tab page: the shared tab row, tiles, donut, avatar and
    drawer, and this page's own module (no new utility classes). */
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
+import { PillSwitch } from "@/components/ui/panel"; // v1.325.0 - D-2
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.325.0 - D-4
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
@@ -1152,11 +1154,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             )}
           </span>
         </div>
-        <div className={sp.peekTabs} role="tablist" aria-label={L("Profile sections", "Bahagian profil")}>
-          {PEEK_TABS.map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={peekTab === k} onClick={() => setPeekTab(k)}>{label}</button>
-          ))}
-        </div>
+        {/* v1.325.0 (Global UI System D-2) - the one tab row */}
+        <div className={sp.peekTabs}><LineTabs label={L("Profile sections", "Bahagian profil")} value={peekTab} onChange={setPeekTab} tabs={PEEK_TABS.map(([k, label]) => [k, label] as const)} /></div>
 
         {peekTab === "profile" && (
           <>
@@ -1458,10 +1457,8 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             dirList.length === staff.length
               ? L(`${staff.length} staff records`, `${staff.length} rekod kakitangan`)
               : L(`${dirList.length} of ${staff.length} staff records`, `${dirList.length} daripada ${staff.length} rekod kakitangan`),
-            <span className={sp.mode} role="group" aria-label={L("How to show the directory", "Cara memaparkan direktori")}>
-              <button type="button" aria-pressed={layout === "table"} onClick={() => setLayout("table")}><AppIcon name="documents" />{L("List", "Senarai")}</button>
-              <button type="button" aria-pressed={layout === "grid"} onClick={() => setLayout("grid")}><AppIcon name="users" />{L("Grid", "Grid")}</button>
-            </span>)}
+            <PillSwitch testid="dir-layout" label={L("How to show the directory", "Cara memaparkan direktori")} value={layout} onChange={setLayout}
+              options={[["table", L("List", "Senarai"), "documents"], ["grid", L("Grid", "Grid"), "users"]] as const} />)}
           <div className={sp.toolbar}>
             <label className={sp.search}>
               <AppIcon name="search" />
@@ -1542,7 +1539,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
           {loadError && <p className={sp.warnText}><AppIcon name="warning" />{loadError}</p>}
 
           {layout === "table" ? (
-            <div className={`erp-table-scroll ${sp.tableWrap}`}>
+            <FillPanel testid="staff-dir-fill" className={`erp-table-scroll ${sp.tableWrap}`}>
               <table className={sp.table} aria-label={L("Staff directory", "Direktori kakitangan")}>
                 <thead><tr>
                   {selectMode && <th className={sp.checkCell}><span className={sp.srOnly}>{L("Ticked", "Ditanda")}</span></th>}
@@ -1586,7 +1583,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                   ))}
                 </tbody>
               </table>
-            </div>
+            </FillPanel>
           ) : (
             <ul className={sp.grid} aria-label={L("Staff directory", "Direktori kakitangan")}>
               {!loaded && Array.from({ length: 6 }, (_, i) => (
@@ -1740,11 +1737,9 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
         {/* v1.322.0 - the positions list: the CEO and the Super Admin keep it (the server decides who) */}
         {posData?.can_manage && <PositionsCard onChanged={reloadPositions} />}
         <div className={sp.rolesBar}>
-          <span className={sp.pills} role="group" aria-label={L("Which staff to show", "Kakitangan mana untuk dipaparkan")}>
-            <button type="button" aria-pressed={rolesF === "all"} onClick={() => setRolesF("all")}>{L(`Everyone (${activeCount})`, `Semua (${activeCount})`)}</button>
-            <button type="button" aria-pressed={rolesF === "missing"} onClick={() => setRolesF("missing")}>{L(`Not written yet (${notWritten})`, `Belum ditulis (${notWritten})`)}</button>
-            <button type="button" aria-pressed={rolesF === "written"} onClick={() => setRolesF("written")}>{L(`Written (${writtenCount})`, `Ditulis (${writtenCount})`)}</button>
-          </span>
+          <PillSwitch testid="roles-filter" label={L("Which staff to show", "Kakitangan mana untuk dipaparkan")} value={rolesF} onChange={setRolesF} options={[
+            ["all", L(`Everyone (${activeCount})`, `Semua (${activeCount})`)], ["missing", L(`Not written yet (${notWritten})`, `Belum ditulis (${notWritten})`)], ["written", L(`Written (${writtenCount})`, `Ditulis (${writtenCount})`)],
+          ] as const} />
           <select className={selectClassSm} value={rolesDept} onChange={(e) => setRolesDept(e.target.value)} aria-label={L("Department", "Jabatan")} data-testid="roles-dept">
             <option value="">{L("All departments", "Semua jabatan")}</option>
             {byDept.map(([k]) => <option key={k || NO_DEPT} value={k || NO_DEPT}>{k || noDept}</option>)}
@@ -1970,13 +1965,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             {(saved === u.id || rowMsg[u.id]) && (
               <p className={rowMsg[u.id] ? sp.warnText : sp.okText} role="status">{rowMsg[u.id] || L("Saved ✓", "Disimpan ✓")}</p>
             )}
-            <div className={sp.secTabs} role="tablist" aria-label={L("Record sections", "Bahagian rekod")}>
-              {SECTIONS.map(([k, label, icon]) => (
-                <button key={k} type="button" role="tab" aria-selected={recSection === k} onClick={() => setRecSection(k)}>
-                  <AppIcon name={icon} />{label}
-                </button>
-              ))}
-            </div>
+            <div className={sp.secTabs}><LineTabs label={L("Record sections", "Bahagian rekod")} value={recSection} onChange={setRecSection} tabs={SECTIONS.map(([k, label]) => [k, label] as const)} /></div>
             <div className={sp.secBody}>
               <p className={sp.secTitle}><AppIcon name={cur[2]} /><span><strong>{cur[1]}</strong><span>{cur[3]}</span></span></p>
 

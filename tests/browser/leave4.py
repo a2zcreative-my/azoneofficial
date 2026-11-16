@@ -46,8 +46,9 @@ with sync_playwright() as p:
     b = p.chromium.launch()
     c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     go(pg, CEO)
-    names = ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"]
-    check("five views, in the references' order", [t.strip() for t in pg.get_by_role("tab").all_inner_texts()][:5] == names, pg.get_by_role("tab").all_inner_texts())
+    # v1.325.0 (Global UI System D-3, the CEO's approval) - Apply Leave is a button that opens the drawer, not a view
+    names = ["Overview", "My Leave", "Team Calendar", "Approvals & Management"]
+    check("four views in the references' order, and Apply Leave as the row's button", [t.strip() for t in pg.get_by_role("tab").all_inner_texts()][:4] == names and pg.get_by_role("button", name="Apply Leave").filter(visible=True).count() == 1, pg.get_by_role("tab").all_inner_texts())
     check("the Overview is in the address", view_of(pg) == "overview", pg.url)
     t = visible_text(pg)
     check("Overview: Applications, Approved, Pending, Rejected, On Leave Today (of 7 staff)", all(s in t for s in ["Applications", "Approved", "Pending", "Rejected", "On Leave Today", "of 7 staff"]), t[:300])
@@ -166,7 +167,7 @@ with sync_playwright() as p:
     # ---------- staff ----------
     c = ctx_for(b, 1440, 1100); pg = c.new_page(); errs = []; pg.on("pageerror", lambda e: errs.append(str(e)))
     go(pg, STAFF)
-    check("staff see four views - no Approvals & Management", [t.strip() for t in pg.get_by_role("tab").all_inner_texts()][:5] == names[:4], pg.get_by_role("tab").all_inner_texts())
+    check("staff see three views - no Approvals & Management", [t.strip() for t in pg.get_by_role("tab").all_inner_texts()][:4] == names[:3], pg.get_by_role("tab").all_inner_texts())
     go(pg, STAFF, "manage")
     check("a view not offered falls back to the Overview - never a blank page", view_of(pg) == "overview" and pg.get_by_test_id("leave-overview4").is_visible(), pg.url)
     check("staff's Overview speaks of their own pending requests", "My Pending Requests" in pg.get_by_test_id("ov-pending").inner_text())

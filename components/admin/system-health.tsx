@@ -15,6 +15,18 @@ import { getLang } from "@/lib/i18n";
 import { Skel, SkelTable } from "@/components/ui/skeleton"; // v1.77.0
 import { btnClass, btnGhost, card } from "@/lib/ui-styles";
 import { AppIcon } from "@/components/ui/app-icon";
+import { APP_VERSION } from "@/lib/version";
+import { newerVersion } from "@/components/portal/portal-provider";
+
+/* v1.324.0 - the CEO, 16-11-2026: "fix this error too" (a ui_overflow from
+   v1.319.0 on Tasks at 402px, fixed in 1.321.0 and tested at 402px since).
+   An error row keeps what was recorded - the log is never edited - but one
+   that a page of an OLDER version reported now says so beside it, so a
+   fixed fault is not read as a live one. */
+const reportedBy = (message: string): string | null => {
+  const m = /^v(\d+\.\d+\.\d+)\b/.exec(message);
+  return m && newerVersion(APP_VERSION, m[1]!) ? m[1]! : null;
+};
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 const API = "/api/v1";
@@ -206,7 +218,9 @@ export function SystemHealthCard() {
                   <tr key={e.id} className="border-border border-b align-top last:border-0">
                     <td className="text-muted-foreground px-3 py-1.5 whitespace-nowrap">{myt(e.created_at)}</td>
                     <td className="px-3 py-1.5 font-mono text-xs">{e.source}{e.path ? <span className="text-muted-foreground block">{e.path}</span> : null}</td>
-                    <td className="px-3 py-1.5 text-xs break-all">{e.message}</td>
+                    <td className="px-3 py-1.5 text-xs break-all">{e.message}
+                      {reportedBy(e.message) && <span className="erp-chip erp-chip-neutral erp-mt-1" data-testid="err-older">{L(`From v${reportedBy(e.message)} - this portal is v${APP_VERSION}`, `Daripada v${reportedBy(e.message)} - portal ini v${APP_VERSION}`)}</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

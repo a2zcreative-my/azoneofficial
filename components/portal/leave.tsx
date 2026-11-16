@@ -37,12 +37,14 @@ import { LeaveCalendar } from "@/components/portal/leave-calendar"; // v1.181.17
 import { leaveChip, TeamCalendarGrid, monthName } from "@/components/portal/leave-overview"; // v1.196.0
 import { ApplyLeave4, ApprovalQueue4, ApprovalsHead4, LeaveOverview4, MyBalances4, RowMenu, TeamSide, isLeaveView, period, typeName, type Balance4, type LeaveView4 as LeaveView } from "@/components/portal/leave4"; // v1.309.0 - Leave Workspace 4.0
 import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.309.0 - the phone view switch
+import { PillSwitch } from "@/components/ui/panel"; // v1.325.0 - D-2
 import { useTabViewAddress } from "@/lib/tab-view"; // v1.309.0 - the view in the address
 import l4 from "./leave4.module.css";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs"; // v1.196.0
 import lv from "./leave-page.module.css"; // v1.196.0 - the Leave page's tabs
 import { usePortal } from "@/components/portal/portal-provider"; // v1.206.0 - the drawer's related links
 import { SideDrawer } from "@/components/ui/side-drawer";
+import { FillPanel } from "@/components/ui/fill-panel"; // v1.325.0 - D-4
 import { AttendanceAdminPanel } from "@/components/portal/lazy-panels"; // v1.307.0 - Attendance 4.0: unpaid days moved here from Attendance > Settings
 import { Avatar } from "@/components/ui/avatar";
 import { StageDots, StageTimeline, type Stage, type StageState } from "@/components/ui/stage-timeline"; // v1.252.0
@@ -983,6 +985,8 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
      v1.309.0 (L-0) - and every view has its address (?tab=Leave&view=...),
      Back and Forward move between them. */
   const [view, setView] = useState<LeaveView>(() => (isLeaveView(initialView ?? null) ? initialView as LeaveView : "overview"));
+  const [applyOpen, setApplyOpen] = useState(false); // v1.325.0 (D-3) - the Apply Leave drawer
+  const [applyDone, setApplyDone] = useState(false);
   const [seenStart, setSeenStart] = useState(initialView);
   if (initialView !== seenStart) { setSeenStart(initialView); if (isLeaveView(initialView ?? null)) setView(initialView as LeaveView); }
   const [leaveQ, setLeaveQ] = useState("");
@@ -1258,17 +1262,21 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
     .some((t) => t.toLowerCase().includes(qNeedle));
 
   const canManage = canApprove || canSetEntitlement;
-  const openView = (v: LeaveView) => { setView(v); window.scrollTo({ top: 0 }); };
+  /* v1.325.0 (Global UI System D-3, the CEO's approval) - Apply Leave is not a
+     view any more: it is a button that opens the same three steps in the drawer */
+  const openView = (v: LeaveView) => { if (v === "apply") { setApplyDone(false); setApplyOpen(true); return; } setView(v); window.scrollTo({ top: 0 }); };
 
   const VIEW_TABS: readonly (readonly [LeaveView, string, string])[] = [
     ["overview", L("Overview", "Gambaran"), L("This month, waiting on you, who is away", "Bulan ini, menunggu anda, siapa bercuti")],
-    ...(!hourly ? ([["apply", L("Apply Leave", "Mohon Cuti"), L("A new request, checked as you type", "Permohonan baharu, disemak semasa ditaip")], ["mine", L("My Leave", "Cuti Saya"), L("Balance and history", "Baki dan sejarah")]] as const) : []),
+    ...(!hourly ? ([["mine", L("My Leave", "Cuti Saya"), L("Balance and history", "Baki dan sejarah")]] as const) : []),
     ["calendar", L("Team Calendar", "Kalendar Pasukan"), L("Leave, holidays and availability", "Cuti, cuti umum dan ketersediaan")],
     ...(canManage ? ([["manage", L("Approvals & Management", "Kelulusan & Pengurusan"), L("The queue, policy and every request", "Barisan, dasar dan setiap permohonan")]] as const) : []),
   ];
   /* a view this person does not have (a part-timer's Apply, a staff member's
      Approvals) falls back to the Overview once their lists are known - never
      a blank page; the address follows what is shown */
+  /* an address or a link that still asks for ?view=apply (the Dashboard's Apply Leave) opens the drawer over the Overview */
+  if (view === "apply") { setView("overview"); if (!hourly) { setApplyDone(false); setApplyOpen(true); } }
   const shown: LeaveView = !loaded || VIEW_TABS.some((t) => t[0] === view) ? view : "overview";
   useTabViewAddress("Leave", shown, setView, isLeaveView);
   const [calYm, setCalYm] = useState(mytToday().slice(0, 7));
@@ -1296,7 +1304,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
       </div>
       <div className={`erp-phone-only ${l4.viewBar}`} data-testid="leave-view-bar">
         <ViewSwitch value={shown} onChange={(k) => openView(k)} label={L("Leave view", "Paparan cuti")} options={VIEW_TABS} />
-        {!hourly && shown !== "apply" && <TabAction icon="add" onClick={() => openView("apply")}>{L("Apply", "Mohon")}</TabAction>}
+        {!hourly && <TabAction icon="add" onClick={() => openView("apply")}>{L("Apply", "Mohon")}</TabAction>}
       </div>
 
       <TabZone label={L("Overview", "Gambaran")} className={shown !== "overview" ? lv.off : ""}>
@@ -1304,10 +1312,13 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
           open={openView} onView={(id) => setDrawerId(id)} />
       </TabZone>
 
+      {/* v1.325.0 (D-3) - the same three steps, the same checks and the same submit, in the drawer;
+          it asks before discarding a half-written application, and not once it is submitted */}
       {!hourly && (
-      <TabZone label={L("Apply", "Mohon")} className={shown !== "apply" ? lv.off : ""}>
-        <ApplyLeave4 types={LEAVE_TYPES} toast={showLeaveToast} submit={submitLeave} onSubmitted={() => void load()} />
-      </TabZone>
+      <SideDrawer open={applyOpen} onClose={() => { setApplyOpen(false); setApplyDone(false); }} dirty={applyDone ? false : "auto"} wide
+        title={L("Apply Leave", "Mohon Cuti")} subtitle={L("A new request, checked as you type", "Permohonan baharu, disemak semasa ditaip")}>
+        <ApplyLeave4 types={LEAVE_TYPES} toast={showLeaveToast} submit={submitLeave} onSubmitted={() => { setApplyDone(true); void load(); }} />
+      </SideDrawer>
       )}
 
       {!hourly && (
@@ -1379,7 +1390,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
               </div>
               {/* v1.77.0 — skeleton until the first fetch lands. */}
               {!loaded ? <SkelTable rows={5} cols={7} /> : (
-                <div className={lv.regWrap}>
+                <FillPanel testid="leave-register-fill" className={lv.regWrap}>
                   <table className={lv.reg} aria-label={L("Leave — whole company", "Cuti — seluruh syarikat")}>
                     <thead><tr>
                       <th>{L("Applied", "Dimohon")}</th><th>{L("Staff", "Kakitangan")}</th><th>{L("Leave type", "Jenis cuti")}</th><th>{L("Leave period", "Tempoh cuti")}</th>
@@ -1424,7 +1435,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                       })}
                     </tbody>
                   </table>
-                </div>
+                </FillPanel>
               )}
               {loaded && rows.length > 0 && (
                 <div className={lv.pager}>
@@ -1465,10 +1476,8 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
           month, with the department clash marks) */}
       <TabZone label={L("Team calendar", "Kalendar pasukan")} className={shown !== "calendar" ? lv.off : ""}>
         {canByPerson && (
-          <div className={l4.calTools} role="group" aria-label={L("Calendar view", "Paparan kalendar")}>
-            <button type="button" aria-pressed={!byPerson} onClick={() => setByPerson(false)}>{L("Month", "Bulan")}</button>
-            <button type="button" aria-pressed={byPerson} onClick={() => setByPerson(true)} data-testid="cal-by-person">{L("By person", "Ikut orang")}</button>
-          </div>
+          <div className={l4.calTools}><PillSwitch testid="cal" label={L("Calendar view", "Paparan kalendar")} value={byPerson ? "by-person" : "month"}
+            onChange={(k) => setByPerson(k === "by-person")} options={[["month", L("Month", "Bulan")], ["by-person", L("By person", "Ikut orang")]] as const} /></div>
         )}
         <div className={l4.calLayout}>
           <div>

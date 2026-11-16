@@ -285,10 +285,12 @@ ok("the table toolbar, filter chips and action bar are V3", /className="erp-tool
 const shared = stripComments(read("components/portal/page-shared.tsx"));
 ok("the zone label is the V3 zone", /className="erp-zone"/.test(shared) && /className="erp-zone-label"/.test(shared));
 const claims = stripComments(read("components/portal/role-panels.tsx"));
-ok("the claim type switch is the V3 segmented control", /className="erp-segmented erp-mt-3" role="group"/.test(claims));
+/* v1.325.0 (Global UI System D-2) - the claim type is the one view switch, PillSwitch */
+ok("the claim type switch is the one segmented control (PillSwitch)", /<PillSwitch testid="claim-type" label=\{L\("Claim type", "Jenis tuntutan"\)\}/.test(claims));
 /* v1.194.0 - the Claims page is tabbed: the call to action is the gold
    action at the right of the tab row, and it opens the Submit Claim tab */
-ok("the claim form's call to action is the tab row's action", /<TabAction icon="add" onClick=\{\(\) => openClaims\("submit"\)\}>/.test(claims) && /if \(id === "claims-pending"\) setView\("approvals"\);\s*else if \(id === "claim-form"\) setView\("submit"\);\s*else if \(id === "claims-list"\) setView\("mine"\);/.test(claims));
+/* v1.325.0 (D-3) - the action opens the form in the drawer; a reveal of the form opens it too */
+ok("the claim form's call to action is the tab row's action", /<TabAction icon="add" onClick=\{\(\) => openClaims\("submit"\)\}>/.test(claims) && /if \(id === "claims-pending"\) setView\("approvals"\);\s*else if \(id === "claim-form"\) setSubmitOpen\(true\);[^\n]*\n\s*else if \(id === "claims-list"\) setView\("mine"\);/.test(claims));
 /* v1.310.0 (Claims 4.0) - the list is My Claims (claims4.tsx MyClaims4 holds the anchor): a submit and an edit open that view, then reveal it */
 ok("a submitted claim returns its author to the list", /id="claims-list"/.test(read("components/portal/claims4.tsx")) && (claims.match(/setView\("mine"\);[^\n]*\n\s*revealAnchor\("claims-list"\);/g) ?? []).length >= 2, String((claims.match(/revealAnchor\("claims-list"\)/g) ?? []).length));
 const dash = stripComments(read("components/portal/dashboard.tsx"));

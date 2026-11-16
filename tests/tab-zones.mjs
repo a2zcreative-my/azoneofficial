@@ -364,13 +364,15 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
   ok("Claims: submission link, pending decisions, form, records", ordered(panels.slice(panels.indexOf('export function ClaimsPanel')), ['openClaims("submit")', 'id="claims-pending"', 'L("All claims"', 'id="claim-form"', '<MyClaims4 ']));
   /* v1.194.0 - five tabs, in the brief's order; every zone hidden, never unmounted */
   const claimsP = panels.slice(panels.indexOf('export function ClaimsPanel'));
-  ok("Claims: five tabs in the brief's order", ["Overview", "Submit Claim", "My Claims", "Approvals", "Reports & Payments"].map((t) => claimsP.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])));
+  /* v1.325.0 (D-3, the CEO's approval) - Submit Claim is the row's button that opens the drawer: four tabs */
+  ok("Claims: four tabs in the brief's order, Submit Claim in the drawer", /<SideDrawer open=\{submitOpen\}/.test(claimsP) && ["Overview", "My Claims", "Approvals", "Reports & Payments"].map((t) => claimsP.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])));
   /* v1.310.0 - five views (the old decider-only "My claims" zone and the
      records card are one My Claims view): four zones hidden with cov.off and
      the Overview with hidden={shown !== "overview"} - every one mounted */
-  ok("Claims: each zone stays mounted under the other tabs", ["approvals", "submit", "mine", "reports"].every((v) => claimsP.includes(`className={shown !== "${v}" ? cov.off : ""}`)) && /hidden=\{shown !== "overview"\}/.test(claimsP));
+  ok("Claims: each zone stays mounted under the other tabs", ["approvals", "mine", "reports"].every((v) => claimsP.includes(`className={shown !== "${v}" ? cov.off : ""}`)) && /hidden=\{shown !== "overview"\}/.test(claimsP));
   /* v1.196.0 - the history is searched (mine.filter(matchQ)); five tabs, each zone kept mounted */
-  ok("Leave: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Apply Leave", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{shown !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 5); /* v1.309.0 - Leave 4.0: the shown view (a view a person does not have falls back to the Overview) */
+  /* v1.325.0 (D-3, the CEO's approval) - Apply Leave is the row's button that opens the drawer: four tabs, four zones */
+  ok("Leave: four tabs in the brief's order, zones hidden not unmounted, Apply in the drawer", ["Overview", "My Leave", "Team Calendar", "Approvals & Management"].map((t) => leave.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (leave.match(/className=\{shown !== "[a-z]+"[^}]*\? lv\.off : ""\}/g) ?? []).length >= 4 && /<SideDrawer open=\{applyOpen\}/.test(leave)); /* v1.309.0 - Leave 4.0: the shown view (a view a person does not have falls back to the Overview) */
   /* v1.206.0 - the company register is one table (shown.map), the history a table of yours (mine.filter(matchQ)) */
   /* v1.309.0 - Leave 4.0: the Apply form (leave4.tsx), the queue and the company register, then your history */
   ok("Leave: application, approval queue, company register, personal history", ordered(leave.slice(leave.indexOf('export function Leave({')), ['<ApplyLeave4 ', '<ApprovalQueue4 ', 'shown.map((l)', 'mine.filter(matchQ)']));

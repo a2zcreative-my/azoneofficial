@@ -68,7 +68,9 @@ import ivc from "./inventory-overview.module.css"; // v1.193.0 - the Inventory p
 import { ClaimsOverview, ClaimsReports, monthName, type ClaimsView, type OvClaim } from "@/components/portal/claims-overview"; // v1.194.0
 import { ClaimReview, ClaimSteps, ClaimSubmitAside, MyClaims4, isClaimsView, needsReceipt, type ClaimStep4 } from "@/components/portal/claims4"; // v1.310.0 - Claims Workspace 4.0
 import c4 from "./claims4.module.css"; // v1.310.0
-import { ViewSwitch } from "@/components/portal/executive-cards"; // v1.310.0 - the phone view switch
+import { ViewSwitch } from "@/components/portal/executive-cards";
+import { SideDrawer } from "@/components/ui/side-drawer"; // v1.325.0 - D-3
+import { PillSwitch } from "@/components/ui/panel"; // v1.325.0 - D-2 // v1.310.0 - the phone view switch
 import { useTabViewAddress } from "@/lib/tab-view"; // v1.310.0 - the view in the address
 import cov from "./claims-overview.module.css"; // v1.194.0 - the Claims page's tabs
 import { ClaimDots, ClaimDrawer, approveLabel, claimStatusChip, type ClaimActionKey, type ClaimStep, type ClaimWaiter } from "@/components/portal/claim-detail"; // v1.254.0
@@ -4331,6 +4333,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
      records are My Claims. */
   /* v1.203.0 - a Dashboard quick action may open a tab straight on its form */
   const [view, setView] = useState<ClaimsView>(() => (isClaimsView(initialView ?? null) ? initialView as ClaimsView : "overview"));
+  const [submitOpen, setSubmitOpen] = useState(false); // v1.325.0 (D-3) - the Submit Claim drawer
   /* v1.310.0 - the Submit Claim steps (reference 2) and the Approvals list shown */
   const [step, setStep] = useState<ClaimStep4>(1);
   const [appSeg, setAppSeg] = useState<"mine" | "all" | "pay" | "done">("mine");
@@ -4423,7 +4426,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     const onReveal = (e: Event) => {
       const id = (e as CustomEvent<string>).detail;
       if (id === "claims-pending") setView("approvals");
-      else if (id === "claim-form") setView("submit");
+      else if (id === "claim-form") setSubmitOpen(true); // v1.324.0 (D-3) - the form opens in the drawer
       else if (id === "claims-list") setView("mine");
     };
     window.addEventListener("azone:reveal", onReveal);
@@ -4515,7 +4518,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       else showToast(L("Saved", "Disimpan"), resE.data?.resubmitted ? L("Claim resubmitted — CEO notified for approval", "Tuntutan dihantar semula — CEO dimaklumkan untuk kelulusan") : L("Claim updated — still awaiting CEO approval", "Tuntutan dikemas kini — masih menunggu kelulusan CEO"));
       setPurpose(""); setAdvAmount(""); setAdvDate(""); setItems([{ ...emptyItem }]); setReceipt(null); setEditingClaim(null); setPayeeId(0); setClaimType("reimbursement"); setPayrollMonth(currentMonth); setStep(1);
       void load();
-      setView("mine");
+      setView("mine"); setSubmitOpen(false);
       revealAnchor("claims-list"); // v1.172.1 - back to the list
       return;
     }
@@ -4560,7 +4563,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
     if (receiptProblem) showToast(L("Receipt not attached", "Resit tidak dilampirkan"), receiptProblem, "notice");
     else showToast(L("Saved", "Disimpan"), L("Claim submitted — the CEO has been notified", "Tuntutan dihantar — CEO telah dimaklumkan"));
     void load();
-    setView("mine"); // v1.310.0 - My Claims, where the new claim now sits
+    setView("mine"); setSubmitOpen(false); // v1.310.0 - My Claims, where the new claim now sits
     revealAnchor("claims-list"); // v1.172.1 - back to the list, where the new claim now sits
     } finally {
       submitLock.current = false;
@@ -4754,8 +4757,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
               setAdvDate(c.claim_type === "salary_advance" ? (c.claim_date ?? c.created_at.slice(0, 10)) : "");
               setItems(claimItems(c).map((it) => ({ claim_date: it.claim_date, category: it.category, description: it.description ?? "", amount: (it.amount_cents / 100).toString(), km: it.km != null ? String(it.km) : "" })));
               setReceipt(null);
-              setStep(1); setView("submit"); // v1.310.0 - the form is the Submit Claim view
-              requestAnimationFrame(() => document.getElementById("claim-form")?.scrollIntoView({ block: "start" }));
+              setStep(1); setSubmitOpen(true); // v1.325.0 (D-3) - the form opens in the drawer
             }}>
             {c.status === "rejected" ? L("Edit & resubmit", "Sunting & hantar semula") : L("Edit", "Sunting")}
           </button>
@@ -4988,7 +4990,9 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
   const toPay = others.filter((c) => c.status === "approved" && !c.paid_at && (c.actions ?? []).includes("pay"));
   type Seg = "mine" | "all" | "pay" | "done";
   const segFor = (c: Claim): Seg => c.status === "pending" ? (c.my_turn ? "mine" : "all") : (c.actions ?? []).includes("pay") ? "pay" : "done";
-  const openClaims = (v: ClaimsView) => { setView(v); window.scrollTo({ top: 0 }); };
+  /* v1.325.0 (Global UI System D-3, the CEO's approval) - Submit Claim is not a
+     view any more: it is a button that opens the same form in the drawer */
+  const openClaims = (v: ClaimsView) => { if (v === "submit") { setSubmitOpen(true); return; } setView(v); window.scrollTo({ top: 0 }); };
   /* the search over a claim list: number, person, purpose or category */
   const qNeedle = claimQ.trim().toLowerCase();
   const matchQ = (c: Claim) => !qNeedle || [claimNoOf(c), c.claimant ?? "", c.claimant_full ?? "", c.description ?? "", catLabel(c.category)].some((t) => t.toLowerCase().includes(qNeedle));
@@ -5026,13 +5030,14 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
   );
   const VIEW_TABS: readonly (readonly [ClaimsView, string, string])[] = [
     ["overview", L("Overview", "Gambaran"), L("This month, what needs you, recent claims", "Bulan ini, perlu perhatian, tuntutan terkini")],
-    ["submit", L("Submit Claim", "Hantar Tuntutan"), L("A reimbursement or a salary advance", "Bayaran balik atau pendahuluan gaji")],
     ["mine", L("My Claims", "Tuntutan Saya"), L("Your claims and their progress", "Tuntutan anda dan kemajuannya")],
     ...(showApprovals ? ([["approvals", L("Approvals", "Kelulusan"), L("Waiting on you, payments, the register", "Menunggu anda, bayaran, daftar")]] as const) : []),
     ["reports", L("Reports & Payments", "Laporan & Bayaran"), L("By claim date or bank date", "Ikut tarikh tuntutan atau tarikh bank")],
   ];
   /* a view this person does not have falls back to the Overview, never a
      blank page; the address follows what is shown */
+  /* an address or a link that still asks for ?view=submit opens the drawer over the Overview */
+  if (view === "submit") { setView("overview"); setSubmitOpen(true); }
   const shown: ClaimsView = VIEW_TABS.some((t) => t[0] === view) ? view : "overview";
   useTabViewAddress("Claims", shown, setView, isClaimsView);
   const segList: Record<Seg, Claim[]> = { mine: waitingMine, all: allPending, pay: toPay, done: others };
@@ -5073,7 +5078,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       </div>
       <div className={`erp-phone-only ${c4.viewBar}`} data-testid="claims-view-bar">
         <ViewSwitch value={shown} onChange={(k) => openClaims(k)} label={L("Claims view", "Paparan tuntutan")} options={VIEW_TABS} />
-        {shown !== "submit" && <TabAction icon="add" onClick={() => openClaims("submit")}>{L("Submit", "Hantar")}</TabAction>}
+        <TabAction icon="add" onClick={() => openClaims("submit")}>{L("Submit", "Hantar")}</TabAction>
       </div>
       <section className="erp-stack-tight erp-tab-zone" hidden={shown !== "overview"}>
         <ClaimsOverview scope={showStaff ? claims : mineOnly} mine={mineOnly} month={nowMytMonth} loaded={loaded} showStaff={showStaff}
@@ -5102,12 +5107,13 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
                 pending is what they may read (in their review scope, read
                 only unless the server offers an action); Ready for payment
                 is what they mark paid; All claims is the register. */}
-            <div className="erp-segmented erp-mt-2" role="group" aria-label={L("Which claims", "Tuntutan yang mana")}>
-              <button type="button" aria-pressed={appSeg === "mine"} onClick={() => setAppSeg("mine")}>{L("Waiting for my approval", "Menunggu kelulusan saya")} ({waitingMine.length})</button>
-              <button type="button" aria-pressed={appSeg === "all"} onClick={() => setAppSeg("all")}>{L("All pending", "Semua menunggu")} ({allPending.length})</button>
-              <button type="button" aria-pressed={appSeg === "pay"} onClick={() => setAppSeg("pay")}>{L("Ready for payment", "Sedia untuk dibayar")} ({toPay.length})</button>
-              <button type="button" aria-pressed={appSeg === "done"} onClick={() => setAppSeg("done")}>{L("All claims", "Semua tuntutan")} ({others.length})</button>
-            </div>
+            {/* v1.325.0 (Global UI System D-2) - the one view switch */}
+            <div className="erp-mt-2"><PillSwitch testid="claims-seg" label={L("Which claims", "Tuntutan yang mana")} value={appSeg} onChange={setAppSeg} options={[
+              ["mine", `${L("Waiting for my approval", "Menunggu kelulusan saya")} (${waitingMine.length})`],
+              ["all", `${L("All pending", "Semua menunggu")} (${allPending.length})`],
+              ["pay", `${L("Ready for payment", "Sedia untuk dibayar")} (${toPay.length})`],
+              ["done", `${L("All claims", "Semua tuntutan")} (${others.length})`],
+            ] as const} /></div>
             {appSeg === "done" && searchBox}
             {loaded && segList[appSeg].filter(appSeg === "done" ? (c) => matchQ(c) && passF(c) : () => true).length === 0 && <p className="erp-text-sm erp-muted">{appSeg === "pay" ? L("No approved claim is waiting for your payment.", "Tiada tuntutan diluluskan menunggu bayaran anda.") : appSeg === "done" ? L("No claims.", "Tiada tuntutan.") : L("Nothing awaiting your action.", "Tiada apa menunggu tindakan anda.")}</p>}
             {segList[appSeg].filter(appSeg === "done" ? (c) => matchQ(c) && passF(c) : () => true).map((c) => claimRow(c, true))}
@@ -5116,8 +5122,11 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
         </TabZone>
       )}
 
-      <TabZone label={L("Submit", "Hantar")} className={shown !== "submit" ? cov.off : ""}>
-      <div className={c4.submitGrid}>
+      {/* v1.325.0 (D-3) - the same three-step form, the same checks and the same POST, in the drawer.
+          The draft is the panel's own state, so closing the drawer keeps it for the next open. */}
+      <SideDrawer open={submitOpen} onClose={() => setSubmitOpen(false)} wide full
+        title={editingClaim ? `${L("Editing", "Menyunting")} ${editingClaim.no}` : claimType === "salary_advance" ? L("Request a salary advance", "Mohon pendahuluan gaji") : L("Submit Claim", "Hantar Tuntutan")}>
+      <div className={c4.submitGrid} data-testid="claim-drawer">
       <div id="claim-form" className={`${card} ${cl.anchorForm}`}>
         <p className="erp-heading">
           {editingClaim
@@ -5131,14 +5140,8 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
             attachments, then the review and the one submission */}
         <ClaimSteps step={step} />
         {step === 1 && (<>
-        <div className="erp-segmented erp-mt-3" role="group" aria-label={L("Claim type", "Jenis tuntutan")}>
-          {(["reimbursement", "salary_advance"] as const).map((t) => (
-            <button key={t} type="button" aria-pressed={claimType === t}
-              onClick={() => setClaimType(t)}>
-              {t === "reimbursement" ? L("Reimbursement", "Bayaran balik") : L("Salary advance", "Pendahuluan gaji")}
-            </button>
-          ))}
-        </div>
+        <div className="erp-mt-3"><PillSwitch testid="claim-type" label={L("Claim type", "Jenis tuntutan")} value={claimType} onChange={setClaimType}
+          options={[["reimbursement", L("Reimbursement", "Bayaran balik")], ["salary_advance", L("Salary advance", "Pendahuluan gaji")]] as const} /></div>
         {/* v1.181.5 (CEO: "salary advance seem like incorrect flow for
             claim") - an advance is not an expense: no dated lines, no
             categories, no mileage, no receipt. One amount, one reason (it is
@@ -5335,7 +5338,7 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
       </div>
       <ClaimSubmitAside advance={claimType === "salary_advance"} rateCents={rateCents} mileageOnly={mileageOnlyNow} recoverMonthLabel={payMonthLabel(recoverMonth)} />
       </div>
-      </TabZone>
+      </SideDrawer>
 
       {/* v1.310.0 (C-4) - MY CLAIMS: this person's own claims and the claims
           paid to them, for everyone - a decider and a reviewer too. Other

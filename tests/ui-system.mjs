@@ -43,6 +43,9 @@ const FILES = {
   salesEnq: "components/portal/sales-enquiries.tsx", payments: "components/portal/payments-panel.tsx", qa: "components/portal/quote-approval.tsx",
   payroll: "components/portal/payroll-panel.tsx", finance: "components/portal/finance-panels.tsx", lineTabs: "components/ui/line-tabs.tsx",
   dashCss: "components/portal/dashboard-overview.module.css",
+  /* v1.325.0 - Phase D, group 2: HR, Staff, Leave, Claims */
+  leave: "components/portal/leave.tsx", leave4: "components/portal/leave4.tsx", claims: "components/portal/role-panels.tsx", claimsOv: "components/portal/claims-overview.tsx",
+  staffDir: "components/staff/staff-directory.tsx", people: "components/portal/people-panel.tsx", drawer: "components/ui/side-drawer.tsx", health: "components/admin/system-health.tsx",
 };
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 const block = (css, sel) => { const i = css.indexOf(`${sel} {`); return i < 0 ? "" : css.slice(i, css.indexOf("}", i) + 1); };
@@ -73,7 +76,7 @@ const scan = {
 };
 /* the ratchets: today's counts (16-11-2026, after the Phase C pilot). They may only fall:
    Phase D moves each screen onto LineTabs / PillSwitch and lowers them. */
-const BUDGET = { tablists: 15, switchRules: 45 }; // v1.324.0 - Phase D group 1 (Sales, Payroll, Finance): 18 -> 15, 49 -> 45
+const BUDGET = { tablists: 13, switchRules: 42 }; // v1.324.0 group 1: 18 -> 15, 49 -> 45; v1.325.0 group 2 (HR, Staff, Leave, Claims): -> 13, 42
 
 function checks(src, sc) {
   const res = [];
@@ -134,6 +137,17 @@ function checks(src, sc) {
   ok("Reconciliation's two figures are the one KPI strip", /<KpiRow label=\{L\("Reconciliation figures"[^>]*testid="recon-figures">/.test(src.finance) && !/bigTile|bigNum/.test(src.finance));
   ok("the Dashboard's cards sit 12px apart on a desktop (the CEO: tighten so it fits)", /@media \(min-width: 1024px\) \{\s*\.page\.page,[^{]*\.page > \.grid \{\s*gap: var\(--space-3\);/.test(src.dashCss));
 
+  /* ---- Phase D, group 2 (v1.325.0): HR, Staff, Leave, Claims ---- */
+  const claimsPanel = strip(src.claims).slice(strip(src.claims).indexOf("export function ClaimsPanel("));
+  ok("D-3: Apply Leave is a button that opens the same three steps in the drawer, never a tab", !/\["apply", L\("Apply Leave"/.test(src.leave) && /<SideDrawer open=\{applyOpen\}[\s\S]{0,200}?dirty=\{applyDone \? false : "auto"\}/.test(src.leave) && /<ApplyLeave4 types=\{LEAVE_TYPES\} toast=\{showLeaveToast\} submit=\{submitLeave\}/.test(src.leave) && /if \(v === "apply"\) \{ setApplyDone\(false\); setApplyOpen\(true\); return; \}/.test(src.leave));
+  ok("D-3: an address that still asks for the old view opens the drawer (?view=apply, ?view=submit)", /if \(view === "apply"\) \{ setView\("overview"\);/.test(src.leave) && /if \(view === "submit"\) \{ setView\("overview"\); setSubmitOpen\(true\); \}/.test(claimsPanel));
+  ok("D-3: Submit Claim is a button that opens the same form in the drawer, never a tab; a submit closes it", !/\["submit", L\("Submit Claim"/.test(claimsPanel) && /<SideDrawer open=\{submitOpen\}/.test(claimsPanel) && /if \(v === "submit"\) \{ setSubmitOpen\(true\); return; \}/.test(claimsPanel) && (claimsPanel.match(/setView\("mine"\); setSubmitOpen\(false\);/g) ?? []).length === 2 && !/<TabZone label=\{L\("Submit", "Hantar"\)\}/.test(claimsPanel));
+  ok("group 2's switches are PillSwitch (claims, claim type, report basis, half day, calendar view, directory layout, roles filter)", ["claims-seg", "claim-type"].every((t) => claimsPanel.includes(`<PillSwitch testid="${t}"`)) && /<PillSwitch testid="claims-basis"/.test(src.claimsOv) && /<PillSwitch testid="apply-half"/.test(src.leave4) && /<PillSwitch testid="cal"/.test(src.leave) && /<PillSwitch testid="dir-layout"/.test(src.staffDir) && /<PillSwitch testid="roles-filter"/.test(src.staffDir) && ![claimsPanel, src.claimsOv].some((c) => /className="erp-segmented/.test(c)));
+  ok("group 2's sub-tabs are LineTabs (profile and record sections, the lifecycle)", (src.staffDir.match(/<LineTabs label=\{L\("(Profile|Record) sections"/g) ?? []).length === 2 && /<LineTabs label=\{L\("Joining, leaving and letters"/.test(src.people) && !/role="tablist"/.test(strip(src.staffDir)) && !/<SectionTabs/.test(src.people));
+  ok("group 2's long lists fill the screen on a desktop (the leave register, the staff directory)", /<FillPanel testid="leave-register-fill"/.test(src.leave) && /<FillPanel testid="staff-dir-fill"/.test(src.staffDir));
+  ok("the drawer takes dirty as one value (auto until saved)", /dirty\?: boolean \| "auto";/.test(src.drawer));
+  ok("System health marks an error a page of an OLDER version reported, never editing the record", /const reportedBy = \(message: string\)/.test(src.health) && /newerVersion\(APP_VERSION, m\[1\]!\)/.test(src.health) && /data-testid="err-older"/.test(src.health));
+
   /* ---- the house rules ---- */
   const mine = [src.kpiCss, src.panelCss, src.fillCss];
   ok("tokens only in the shared pieces", mine.every((c) => !/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(c)));
@@ -185,6 +199,12 @@ const MUT = [
   ["the payroll grid no longer fills", "payroll", '<FillPanel id="payroll-table"', '<FillPanel data-x="1" id="payroll-table"'],
   ["a disabled option with no reason", "panel", "title={disabled?.[k] ?? undefined}", ""],
   ["the Dashboard's 16px gap back", "dashCss", "gap: var(--space-3);\n  }\n}", "gap: var(--space-4);\n  }\n}"],
+  ["Apply Leave back as a tab", "leave", '...(!hourly ? ([["mine", L("My Leave"', '...(!hourly ? ([["apply", L("Apply Leave", "Mohon Cuti"), "x"], ["mine", L("My Leave"'],
+  ["Apply Leave closes without asking", "leave", 'dirty={applyDone ? false : "auto"}', "dirty={false}"],
+  ["Submit Claim back on the page", "claims", '<SideDrawer open={submitOpen}', '<SideDrawer open={true}'],
+  ["a submitted claim leaves the drawer open", "claims", 'setView("mine"); setSubmitOpen(false); // v1.310.0', 'setView("mine"); // v1.310.0'],
+  ["the claim type by hand again", "claims", '<PillSwitch testid="claim-type"', '<div className="erp-segmented" /><PillSwitch testid="claim-type"'],
+  ["an old error read as live", "health", 'newerVersion(APP_VERSION, m[1]!)', 'false'],
   ["the page frame hides a spill", "globals", ".erp-workspace {", ".erp-workspace { overflow-x: hidden; } .erp-workspace {"],
 ];
 let caught = 0;

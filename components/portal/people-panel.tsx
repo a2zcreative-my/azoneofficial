@@ -29,7 +29,7 @@
 
 import { useEffect, useState } from "react";
 
-import { SectionTabs } from "@/components/portal/page-shared";
+import { LineTabs } from "@/components/ui/line-tabs"; // v1.325.0 - D-2
 import { TabZone } from "@/components/portal/tab-concept";
 import { openPrintPreview } from "@/components/ui/document-preview";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -218,7 +218,8 @@ export function PeoplePanel({ tab: tabProp, onTab, openRecord }: { tab?: PeopleT
     <TabZone label={L("Joining, leaving and letters", "Masuk, keluar dan surat")}>
       <div className={card}>
         {promptNode}{toastNode}
-        <SectionTabs value={tab} onChange={setTab} tabs={[
+        {/* v1.325.0 (Global UI System D-2) - the one tab row */}
+        <LineTabs label={L("Joining, leaving and letters", "Masuk, keluar dan surat")} value={tab} onChange={setTab} testid="hr-tab" tabs={[
           ["joining", `${L("Joining", "Masuk")}${openJoin.length ? ` · ${openJoin.length}` : ""}`],
           ["probation", `${L("Probation", "Percubaan")}${d.probation.length ? ` · ${d.probation.length}` : ""}`],
           ["letters", L("Letters", "Surat")],

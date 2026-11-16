@@ -26,6 +26,7 @@
    No figure from the mockup is used. */
 
 import { useEffect, useState, type ReactNode } from "react";
+import { PillSwitch } from "@/components/ui/panel"; // v1.325.0 - D-2
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
@@ -311,10 +312,8 @@ export function ClaimsReports({ month, months, onMonth, version, catOf, canSeePr
             {months.map((mm) => <option key={mm} value={mm}>{monthName(mm)}</option>)}
           </select>
         </label>
-        <div className="erp-segmented" role="group" aria-label={L("Report basis", "Asas laporan")}>
-          <button type="button" aria-pressed={basis === "claim"} onClick={() => setBasis("claim")}>{L("By claim date", "Ikut tarikh tuntutan")}</button>
-          <button type="button" aria-pressed={basis === "bank"} onClick={() => setBasis("bank")}>{L("By bank date", "Ikut tarikh bank")}</button>
-        </div>
+        <PillSwitch testid="claims-basis" label={L("Report basis", "Asas laporan")} value={basis} onChange={setBasis}
+          options={[["claim", L("By claim date", "Ikut tarikh tuntutan")], ["bank", L("By bank date", "Ikut tarikh bank")]] as const} />
         <button type="button" className={btnSm} disabled={!loaded || list.length === 0} onClick={csv}><AppIcon name="download" />{L("CSV", "CSV")}</button>
       </div>
       {cur?.failed && <p className={css.empty}>{L("The report could not be loaded. Try again in a moment.", "Laporan tidak dapat dimuatkan. Cuba sebentar lagi.")}</p>}

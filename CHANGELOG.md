@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.325.0] - 2026-11-16 - Global UI System, phase D group 2: HR, Staff, Leave, Claims; Apply Leave and Submit Claim open in the drawer (D-3) - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 16-11-2026: "HR / Staff / Leave / Claims. That release will also turn the Apply Leave and Submit Claim tabs into buttons that open the form in a side panel" (D-3, approved with the Phase A audit).
+
+- **Leave (D-3):** Apply Leave is no longer a tab. The gold Apply Leave button (and Apply on a phone) opens the same three steps (Leave Details, Review, Submitted) in the drawer, with the same checks, route preview, certificate upload and submit. A half-written application asks before it is thrown away; a submitted one closes without asking. An old ?view=apply link (the Dashboard's Apply Leave) opens the drawer over the Overview. The Month / By person calendar switch and the half-day choice are the one view switch (PillSwitch; read only on the review step, with the reason). The company leave register fills the screen on a desktop.
+- **Claims (D-3):** Submit Claim is no longer a tab. Submit claim opens the same three-step form (with My Claim Info and Required Documents beside it) in the drawer; the draft is kept if the drawer is closed; a submit or an update closes it and opens My Claims, as before. ?view=submit and an Edit open the drawer. Which claims (Waiting for my approval, All pending, Ready for payment, All claims), the claim type and the report basis are PillSwitch.
+- **Staff:** the profile and record sections are the one tab row (LineTabs); the directory's List / Grid and the roles filter are PillSwitch; the directory table fills the screen on a desktop.
+- **HR:** the lifecycle sections (Joining, Probation, Letters, Training, Leaving) are LineTabs.
+- **System health:** an error row reported by a page of an older version says so ("From v1.319.0 - this portal is v1.325.0"), so a fault fixed since (the 402px Tasks overflow of v1.319.0, fixed in 1.321.0) is not read as live. The log itself is never edited.
+- `SideDrawer`'s `dirty` is one value (`boolean | "auto"`), so a form can be "auto" until it is saved.
+- No route, rule, figure, permission or table changed. Guards: tests/ui-system.mjs 47 checks, 41 mutations (ratchets: tab rows 15 -> 13, switch styles 45 -> 42); tests/browser/ui-system.py adds the two drawers at 1440 and 390 and the old links. Adapted, intent kept: interface-v3, tab-zones, unpaid-leave (node); leave4, leave-timeline, claims4 (browser) - from the Apply / Submit tabs to the approved buttons.
+
 ## [1.324.0] - 2026-11-16 - Global UI System, phase D group 1: Sales, Payroll, Finance; the Dashboard fits the screen - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 16-11-2026, after reviewing 1.323.0: "Dashboard with the alert band: tighten the space between cards so it fits the screen" and "Phase D order: confirm Sales / Payroll / Finance first, then HR / Staff / Leave / Claims, then the rest."

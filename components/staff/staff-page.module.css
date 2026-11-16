@@ -381,38 +381,7 @@
   outline: 2px solid var(--gold-solid);
   outline-offset: 1px;
 }
-.mode {
-  display: inline-flex;
-  flex-wrap: wrap;
-  padding: 0.1875rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--secondary);
-}
-.mode button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  min-height: 2rem;
-  padding: 0 0.75rem;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  cursor: pointer;
-}
-.mode button svg {
-  width: 0.875rem;
-  height: 0.875rem;
-}
-.mode button[aria-pressed="true"] {
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: 0 1px 3px rgb(26 41 70 / 0.12);
-}
+/* v1.325.0 - the directory layout is the one view switch (PillSwitch) */
 .selectBar {
   display: flex;
   flex-wrap: wrap;
@@ -922,37 +891,10 @@
   font-size: var(--type-caption-size);
   color: var(--muted-foreground);
 }
+/* v1.325.0 - the profile sections are the one tab row (LineTabs) */
 .peekTabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.125rem;
-  padding: 0.1875rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--secondary);
-}
-.peekTabs button {
   min-width: 0;
-  min-height: 2rem;
-  padding: 0 0.625rem;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
 }
-.peekTabs button:hover {
-  color: var(--foreground);
-}
-.peekTabs button[aria-selected="true"] {
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: 0 1px 3px rgb(26 41 70 / 0.12);
-}
-.peekTabs button:focus-visible,
 .deptCard:focus-visible {
   outline: 2px solid var(--gold-solid);
   outline-offset: 2px;
@@ -1193,9 +1135,6 @@
 .coverFig strong { font-size: 1.375rem; line-height: 1.2; color: var(--foreground); font-variant-numeric: tabular-nums; }
 .coverage .track { min-width: 8rem; }
 .rolesBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.pills { display: flex; gap: 0.5rem; overflow-x: auto; max-width: 100%; padding-bottom: 0.125rem; }
-.pills button { flex: none; min-height: 2.75rem; padding: 0 1rem; border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--card); color: inherit; font: inherit; font-size: var(--type-body-sm-size); cursor: pointer; }
-.pills button[aria-pressed="true"] { border-color: var(--gold-solid); background: color-mix(in srgb, var(--gold-solid) 12%, var(--card)); font-weight: 600; }
 @media (min-width: 1024px) {
   .coverage { grid-template-columns: minmax(0, 1.6fr) auto auto minmax(8rem, 1.2fr); gap: 1.5rem; }
   .coverage > .coverFig { padding-left: 1.5rem; border-left: 1px solid var(--border); }
@@ -1214,10 +1153,8 @@
 .recMeta svg { width: 0.875rem; height: 0.875rem; }
 .recActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .okText { margin: 0.5rem 0 0; font-size: var(--type-caption-size); font-weight: 600; color: var(--success); }
-.secTabs { display: flex; gap: 0.25rem; margin-top: 1rem; overflow-x: auto; border-bottom: 1px solid var(--border); }
-.secTabs button { display: inline-flex; flex: none; align-items: center; gap: 0.375rem; min-height: 2.75rem; padding: 0 0.625rem; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted-foreground); font: inherit; font-size: var(--type-body-sm-size); cursor: pointer; }
-.secTabs button[aria-selected="true"] { border-bottom-color: var(--gold-solid); color: var(--foreground); font-weight: 600; }
-.secTabs svg { width: 1rem; height: 1rem; }
+/* v1.325.0 - the record sections are the one tab row (LineTabs) */
+.secTabs { margin-top: 1rem; min-width: 0; }
 .secBody { display: grid; gap: 1rem; margin-top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: color-mix(in srgb, var(--secondary) 35%, var(--card)); min-width: 0; }
 .secTitle { display: flex; align-items: center; gap: 0.625rem; margin: 0; }
 .secTitle > svg { width: 1.25rem; height: 1.25rem; color: var(--gold-solid); flex: none; }
