@@ -90,3 +90,24 @@
     justify-self: stretch;
   }
 }
+/* v1.332.0 - the Payment & No Refund Policy above the tick box: the paper's tint and gold rule */
+.policy {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.625rem 0.875rem;
+  border-left: 3px solid var(--doc-gold);
+  border-radius: var(--radius-control);
+  background: var(--doc-tint);
+  color: var(--doc-ink-soft);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.policy p {
+  margin: 0;
+}
+.policy .policyTitle {
+  color: var(--doc-navy);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}

@@ -138,8 +138,37 @@ export function quoteValidUntil(doc: Pick<DocFull, "valid_until" | "revision" | 
  * padding = 269mm of content), less the furniture that is always there:
  * letterhead ~46, meta strip ~12, the two address panels ~26, table head ~7,
  * amount-in-words + totals ~34 (not on a DO), notes ~0-12, acceptance or
- * payment block with the signatures ~52, footer ~10.
+ * payment block with the signatures ~52, footer ~10; v1.332.0 - the Payment &
+ * No Refund Policy above that block ~20 (quotation and invoice).
  */
+/**
+ * v1.332.0 - THE PAYMENT & NO REFUND POLICY (the CEO, 17-11-2026: "Include the
+ * approved Payment & No Refund Policy in both invoice templates ... Place the
+ * policy above the Payment & Signature section ... Apply the same policy to the
+ * relevant quotation acceptance terms before payment ... Both companies must use
+ * the same approved policy wording while maintaining their separate company
+ * identities").
+ *
+ * ONE wording, word for word as approved, for BOTH issuers: the letterhead,
+ * the bank, the registration and the signatures around it stay each company's
+ * own (resolveIssuer). Drawn above the closing block of an invoice (PAYMENT)
+ * and a quotation (COMMITMENT ORDER CONFIRMATION), never on a delivery order -
+ * by this template (preview, print, the shared link) and by lib/doc-pdf.ts
+ * (the PDF), and shown beside the online acceptance (doc-accept.tsx). Words
+ * only: no amount, status or calculation reads it.
+ */
+export const PAYMENT_POLICY = {
+  title: "PAYMENT & NO REFUND POLICY",
+  paragraphs: [
+    "Upon receipt and confirmation of payment, the Company will commence or continue the agreed services according to the approved project scope and timeline.",
+    "All payments are non-refundable once work has commenced, except where required by applicable law. Any changes to the agreed scope or timeline must be mutually agreed upon in writing.",
+  ],
+} as const;
+/** the documents that carry the policy: the quotation (before payment) and the invoice */
+export const policyApplies = (docType: string) => docType === "INV" || docType === "QT";
+/** the policy block's share of the one A4 page, in millimetres (the page budget below) */
+export const POLICY_MM = 18; // measured: 14mm printed (Chromium, A4), 18mm in the PDF block - the larger
+
 export interface PageFit {
   /** millimetres the item table will take */
   used: number;
@@ -167,7 +196,7 @@ export function docPageFit(
 ): PageFit {
   const isDO = docType === "DO";
   const notesMm = notes && notes.trim() ? Math.min(12, 4 + Math.ceil(notes.length / 110) * 4) : 0;
-  const capacity = Math.max(30, 269 - (46 + 12 + 26 + 7 + (isDO ? 0 : 34) + 52 + 10) - notesMm);
+  const capacity = Math.max(30, 269 - (46 + 12 + 26 + 7 + (isDO ? 0 : 34) + 52 + 10) - notesMm - (policyApplies(docType) ? POLICY_MM : 0)); // v1.332.0 - the policy above the closing block
   const measure = (dense: boolean) => items.reduce((mm, it) => {
     const subs = (it.sub ?? []).filter((x) => (x ?? "").trim()).length;
     /* A long description wraps; ~54 characters to the line in that column. */
@@ -337,9 +366,14 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
   /* One closing shape for all three types — heading, a short clause on the
      left, signer + counterparty on the right — so the three documents read as
      one family and the signature rules land identically on every one. */
+  /* v1.332.0 - the approved policy, the same words for both companies, directly above the closing block */
+  const policy = policyApplies(doc.doc_type)
+    ? `<div class="policy" data-policy="payment-no-refund"><p class="pt">${esc(PAYMENT_POLICY.title)}</p>${PAYMENT_POLICY.paragraphs.map((x) => `<p>${esc(x)}</p>`).join("")}</div>`
+    : "";
   let bottom: string;
   if (isINV) {
     bottom = `<div class="accept">
+      ${policy}
       <div class="hdr">PAYMENT</div>
       <div class="split">
         <div>
@@ -364,10 +398,12 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     </div>`;
   } else {
     bottom = `<div class="accept">
+      ${policy}
       <div class="hdr">COMMITMENT ORDER CONFIRMATION</div>
       <div class="split">
         <p class="body">We hereby accept the quoted items and agree that this signed
-        document shall be deemed our official Purchase Order, subject to the terms above.</p>
+        document shall be deemed our official Purchase Order, subject to the terms above,
+        including the Payment &amp; No Refund Policy.</p>
         <div class="split2">${preparedBy("Prepared by")}
           ${partnerBlock("Accepted &amp; confirmed by", "Name &amp; designation", "Company chop")}</div>
       </div>
@@ -453,6 +489,11 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     .tot tr.grand td:last-child { border-radius: 0 5px 5px 0; }
     .notes { margin-top: 10px; font-size: 10.5px; color: ${DOC.inkSoft}; white-space: pre-wrap; }
     .accept { margin-top: auto; padding-top: 18px; }
+    /* v1.332.0 - the Payment & No Refund Policy: the address panels' tint and gold rule, small type */
+    .policy { background: ${DOC.tint}; border-left: 3px solid ${DOC.gold}; border-radius: 5px; padding: 5px 10px; margin-bottom: 9px;
+      font-size: 8px; line-height: 1.4; color: ${DOC.inkSoft}; }
+    .policy p { margin: 0; }
+    .policy .pt { font-size: 7.5px; letter-spacing: .14em; color: ${DOC.navy}; font-weight: 800; margin-bottom: 1px; }
     .accept .hdr { text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-top: 1px solid ${DOC.navy}; padding-top: 7px; }
     .accept .body { font-size: 10px; color: ${DOC.inkSoft}; margin: 4px 0 0; line-height: 1.5; flex: none; width: 300px; }
     .split { display: flex; gap: 12px; margin-top: 10px; justify-content: space-between; align-items: flex-end; }

@@ -172,6 +172,20 @@ function baseFixture(p) {
   /* v1.234.0 - the access policy and the access review (worker: staff.ts
      /access/policy, /access/review). The role lists are the worker's own as
      of 1.234.0; the people, exceptions and history are invented. */
+  /* v1.332.0 - a shared document (the customer's link): token a… = A2Z CREATIVE MARKETING, b… = AZ ONE OFFICIAL;
+     second character 1 = a quotation the customer can accept, 2 = an invoice. Invented customer. */
+  {
+    const m = /^\/public\/doc\/([a-f0-9]{32})$/.exec(p);
+    if (m) {
+      const t = m[1], a2z = t[0] === "a", qt = t[1] === "1";
+      data = { doc: { id: 7, doc_type: qt ? "QT" : "INV", doc_number: `${qt ? "QT" : "INV"}-${a2z ? "A2Z" : "AZO"}171126-3`, company: "Aina Boutique Sdn. Bhd.", contact_person: "Puan Aina Rahman",
+        address: "No. 12, Jalan Hang Tuah 3, 75300 Melaka", customer_phone: "+60 12-555 0101", customer_email: "aina@example.test",
+        items: JSON.stringify([1, 2, 3].map((i) => ({ name: `Live commerce session package ${i} - TikTok Shop host, 3 hours`, uom: "SET", qty: 1, unit_price_cents: 150000, sub: ["Script, product briefing and live rundown"] }))),
+        discount_cents: 0, tax_percent: 0, delivery_cents: 0, total_cents: 450000, created_at: "2026-11-17 02:00:00", due_date: "2026-11-24", valid_until: "2026-12-01",
+        kind: "service", payment_status: qt ? null : "unpaid", signer_role: null, signer_name: "Fixture Person", signer_position: "Chief Executive Officer",
+        issuer_code: a2z ? "a2z" : "azoo", revision: 0, can_accept: qt, acceptance: null } };
+    }
+  }
   if (p === "/staff/access/policy") {
     const R = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin"];
     const only = (...xs) => R.filter((r) => xs.includes(r));
@@ -196,6 +210,11 @@ function baseFixture(p) {
         A("System", "audit_read", "Read the full system audit log", only("ceo", "admin", "super_admin")),
         A("System", "owner_designate", "Name the company owner; give or take the CEO role; manage Super Admin accounts", only("super_admin"), "Recovery procedure"),
         A("System", "backup", "Download the database backup", only("super_admin"), "Holds password hashes and 2FA secrets"),
+        /* v1.331.0 - one row for each verb the role editor groups by (the worker's own role lists) */
+        A("Payroll", "payroll_export", "Export payroll", only("super_admin", "admin", "ceo", "coo")),
+        A("Claims", "claims_submit", "Submit claims", only("ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host")),
+        A("Claims", "claims_decide", "Approve claims", only("ceo", "coo", "hr_admin")),
+        A("Tasks", "task_delete", "Delete a task", only("super_admin", "ceo")),
       ].map((a) => ({ ...a, owner_grant: ["role_any", "exec_accounts", "tech_admin"].includes(a.key), cond: a.key === "confirm_paid" ? { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] } : {}, na: a.key === "confirm_paid" ? ["super_admin", "admin"] : [],
         /* v1.237.0 - the editable cell behind each row (worker: cap, default, saved edit) */
         cap: a.key === "tab_access" ? null : ({ sales_view: "sales", mark_paid: "invoice_payment", tech_admin: "tech_admin_grant", backup: "backup_download", geofence: "geofence_admin", commission_decide: "commission_settle" }[a.key] ?? a.key),
@@ -1722,7 +1741,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     contacts: [], tags: [], all_tags: ["f&b", "hijab", "retainer"], terms_days: null, followups: [], recurring: [], invoices: [],
     owners: [{ id: 9001, name: "Fixture Person" }, { id: 9002, name: "Nur Aisyah" }], me: 9001, today: D + "18", can_write: true };
   /* v1.181.16 - a shared quotation the customer can accept (the public page) */
-  if (/^\/public\/doc\/[a-f0-9]{32}$/.test(p)) data = { doc: { ...docs[0], company: "Aina Boutique", contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
+  if (/^\/public\/doc\/[a-f0-9]{32}$/.test(p) && !/^\/public\/doc\/[ab][12]0{30}$/.test(p) /* v1.332.0 - the policy documents above */) data = { doc: { ...docs[0], company: "Aina Boutique", contact_person: "Aina Rahman", address: "12 Jalan Bunga, Melaka", customer_phone: "0174761019",
     items: JSON.stringify([{ name: "TikTok LIVE hosting - 8 sessions", qty: 1, unit_price_cents: 300000, uom: "PKG" }, { name: "Product photography - 20 photos", qty: 1, unit_price_cents: 150000, uom: "SET" }]),
     discount_cents: 0, tax_percent: 0, delivery_cents: 0, issuer_code: "a2z", kind: "service", signer_role: null, signer_name: "Nur Aisyah", signer_position: "Sales Executive", can_accept: true, acceptance: null } };
   if (p === "/staff/docs/1/acceptance") data = { acceptances: [{ revision: 0, accepted_name: "Aina Rahman", accepted_position: "Owner", accepted_at: D + "16 04:12:00", ip: "203.0.113.9" }] };

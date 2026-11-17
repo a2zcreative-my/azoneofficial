@@ -301,7 +301,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     /* v1.234.0 - Roles & Permissions: what roles do, what they see, the exceptions; Security & Settings: the log, then the geofence (the owner kept it here) */
     /* v1.251.0 - Customers & Agents; the tab rows fold under the one matrix; Audit History follows Security & Sessions */
     /* v1.327.0 - Customers & Agents is the directory beside the account (CustomersAgents); the sign-in log lives in Security & Sessions' workspace (SecuritySessions) */
-    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customers & agents", "Pelanggan & ejen")}>', '<CustomersAgents', '<AccessPolicyCard', '<TabAccessCard', '<ExceptionsCard', '<SecuritySessions', '<GeofenceCard', '<AuditPanel person=']));
+    ordered(usersPanel, ['<UsersOverview', 'L("Staff accounts", "Akaun kakitangan")}>', 'L("Customers & agents", "Pelanggan & ejen")}>', '<CustomersAgents', '<RolesPermissions', '<ExceptionsCard bare', '<TabAccessCard', '<SecuritySessions', '<GeofenceCard', '<AuditPanel person=']));
   /* the owner's reference draws these five as underline tabs (a gold rule
      under the open one) - this page's own, everything else keeps the pill */
   ok("the five Users tabs are the reference's underline tabs, and every body stays mounted (hidden, never unmounted)",
@@ -311,7 +311,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
     && /const geofence = holdsCap\("geofence_admin", \["super_admin", "ceo", "coo"\]\.includes\(role\)\)/.test(usersPanel)
     && /const superAdmin = role === "super_admin";\s*const canEdit = superAdmin \|\| owner;/.test(usersPanel) /* v1.236.0 - the verified company owner changes roles too (the owner, 30-10-2026) */
-    && /<ExceptionsCard review=\{review\} canEdit=\{holds\}/.test(usersPanel) && /\{secPart === "location" && geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel) /* v1.327.0 - Security & Sessions' Office location part */
+    && /<ExceptionsCard bare review=\{review\} canEdit=\{holds\}/.test(usersPanel) /* v1.331.0 - in its drawer */ && /\{secPart === "location" && geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel) /* v1.327.0 - Security & Sessions' Office location part */
     && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));
 }
 

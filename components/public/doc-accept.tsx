@@ -14,6 +14,7 @@
 import { useState } from "react";
 
 import { csrfFetch } from "@/lib/api";
+import { PAYMENT_POLICY } from "@/lib/doc-template"; // v1.332.0 - the one approved wording
 
 import css from "./doc-accept.module.css";
 
@@ -76,9 +77,14 @@ export function DocAccept({ token, label, initial }: { token: string; label: str
           <input className={css.input} value={position} maxLength={120} autoComplete="organization-title" onChange={(e) => setPosition(e.target.value)} />
         </label>
       </div>
+      {/* v1.332.0 - the approved Payment & No Refund Policy is part of what is accepted (the same words as the paper) */}
+      <div className={css.policy} data-testid="accept-policy">
+        <p className={css.policyTitle}>{PAYMENT_POLICY.title}</p>
+        {PAYMENT_POLICY.paragraphs.map((x) => <p key={x}>{x}</p>)}
+      </div>
       <label className={css.check}>
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-        I accept {label} on behalf of my company.
+        I accept {label} on behalf of my company, including the Payment &amp; No Refund Policy.
       </label>
       {error && <p className={css.error} role="alert">{error}</p>}
       <button type="button" className={css.button} disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Accept quotation"}</button>

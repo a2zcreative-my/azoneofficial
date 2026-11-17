@@ -10,6 +10,61 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.333.0] - 2026-11-17 - Attendance: days with no clock-in reach Exceptions & Approvals from Payroll's own scan; the long lists are paged - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 17-11-2026, with the Payroll and Attendance screenshots: "Attendance Records seem still overflow list scroll and same goes to Exceptions & Approvals, I also noticed that missing of the attendance data on 4th Nov reported by Payroll was not appear in the attendance".
+
+- **Why 04-11 was missing:** Payroll's "Days with no clock-in" comes from the server's absence scan (a scheduled working day with no clock-in and no approved leave, or a day clocked well short). Exceptions & Approvals only ever listed forgotten punches somebody had CLAIMED and overtime. A day nobody claimed had no place in Attendance except the day register, so Payroll was the only screen that asked about it.
+- **The fix - one scan, two doors:** the same route now also answers `GET /staff/attendance/absences` (for the people who may correct attendance, or run payroll). Exceptions & Approvals gains a **No clock-in** filter listing those days for this month and last, with a drawer that says how each is settled: add the missing punch under Corrections & back-entry (the **Add the punch** button goes there), apply the leave on Leave, or let Payroll decide (**Open Payroll**). A day already claimed as a forgotten punch is shown once, as that punch. Attendance never deducts and never writes leave; the unpaid decision stays on Payroll. A day leaves the list the moment it is explained.
+- **The long lists:** the month punch log under Attendance Records and the Corrections & back-entry register (107 records + 16 leave days) are paged with the shared pager (25 a page; 10/15/25/50), never an inner vertical scroller. The register's CSV still exports every row on screen.
+- **Not changed:** the absence rule itself, the payroll door (payroll_process only), any permission, deduction or table. Part-timers paid by the hour are still not in the scan (Payroll pays them by the clock), so they appear as "Missing clock-in" on the day register only.
+- Guards: tests/attendance4.mjs 69 checks + 13 mutations (new: the two doors return the same list; HR may read it, a seller or editor may not; claimed days not doubled; the lists are paged; Exceptions never deducts - a broken gate or a doubled day fails); tests/payroll-days.mjs 127, tests/unpaid-leave.mjs 101, tests/csv-export.mjs 20, tests/shift-schedule.mjs 159 (anchors updated to the shared door / the paged table). The full guard run and the browser checks were not run in this session - PUSH.bat runs the guards.
+
+## [1.332.0] - 2026-11-17 - The Payment & No Refund Policy on every invoice and quotation of both companies - BUILT, NOT DEPLOYED (NO MIGRATION, DOCUMENT TEXT ONLY)
+
+The CEO, 17-11-2026: "Include the approved Payment & No Refund Policy in both invoice templates ... Place the policy above the Payment & Signature section ... Ensure the policy appears in invoice previews, PDF downloads, printed documents and shared invoices ... Apply the same policy to the relevant quotation acceptance terms before payment ... Both companies must use the same approved policy wording while maintaining their separate company identities."
+
+- **One wording, word for word as approved:** `PAYMENT_POLICY` in lib/doc-template.ts, used by both companies. The letterhead, registration, bank account, signatures and footer around it are still each company's own (resolveIssuer); there is no per-company branch.
+- **Where it shows:**
+  - every invoice: directly above the PAYMENT heading (the payment instruction and the signatures);
+  - every quotation: directly above COMMITMENT ORDER CONFIRMATION;
+  - never on a delivery order.
+- **Every output:**
+  - the template (lib/doc-template.ts) draws the staff preview, the print and the customer's shared link;
+  - the PDF (lib/doc-pdf.ts) is the second renderer and draws the same constant in the same place.
+- **Quotation acceptance before payment:**
+  - the paper's acceptance clause now ends "subject to the terms above, including the Payment & No Refund Policy";
+  - the online acceptance on the shared link shows the policy above the tick box, and the box reads "I accept ... on behalf of my company, including the Payment & No Refund Policy". The server records the same acceptance as before.
+- **Layout:** a compact block (14mm printed) in the paper's own tint with the gold rule of the address panels. Every document stays ONE A4 page:
+  - the one-page budget (`docPageFit`) gives the policy 18mm on quotations and invoices, the larger of the print and PDF heights;
+  - a quotation or invoice therefore holds about two fewer plain item lines than before (or prints its table denser).
+- **Not changed:** amounts, totals, payment status, the payment engine, numbering, acceptance records and every calculation. Nothing that counts money reads the policy.
+- Guards: tests/payment-policy.mjs (new; 13 checks, 9 mutations). Browser: tests/browser/payment-policy.py opens the shared link of each company's invoice and quotation (27/27). The fixture gains four shared documents (tokens a1…/a2…/b1…/b2…). Rendered both companies' invoice, quotation and delivery order, typical and filled to the budget, as the printed page and as the PDF: every one is one page; the policy is above PAYMENT / COMMITMENT ORDER CONFIRMATION on all eight invoices and quotations and on no delivery order. All 212 guards pass; lint 0 errors, 115 warnings.
+
+## [1.331.0] - 2026-11-17 - Users & Security → Roles & Permissions: a role at a time (the old wide matrix replaced) - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 17-11-2026: "REPLACE LEGACY ROLES & PERMISSIONS UI. The previous redesign was NOT implemented correctly ... DO NOT reuse or restyle this old layout."
+
+- **Replaced on the same route:** the React component that drew "Access policy matrix" (`AccessPolicyCard`, every role across every module, with its `ModuleRows`, `EditCell` and `Cell`) is deleted. The "Who sees each tab" fold and the stacked "Exceptions and accounts" zone are gone from the page. `components/portal/roles-permissions.tsx` takes their place in Users → Roles & Permissions; no second page or copy.
+- **The layout:**
+  - the connected strip: Total Roles · Assigned Users · Modules Controlled · Edited Permissions · CEO Access;
+  - the **Role Directory** (35%), with search, an All / Executive / Staff / Technical / External filter and, per role, its active headcount and how many actions it may do;
+  - the **chosen role's editor** (65%), with tabs Permissions · Assigned Users (n) · Role Details · Access Preview.
+  - The split is held to one screen from 1024px; the panes scroll inside, and phones get one column.
+- **Permissions:** one row per module and seven columns (View, Create, Edit, Approve, Delete, Export, Manage), each a switch.
+  - The verbs only group the server's own ACTION_CATALOGUE actions; "—" means the module has no such action.
+  - A module opens to its single actions, each with its own switch, its notes, "Edited" and "Protected".
+  - A locked cell (the owner, the backup, the Super Admin / CEO roles) has no switch.
+  - "Set from template" copies another role's switches into the draft; "Role defaults" and "Reset" are also there.
+- **Saving is the existing server path:** Save Changes opens a review (who gains, who loses, the cells a route also needs, "nobody will be able to do this"). It needs a reason of 10 or more characters, then the authenticator code, then ONE POST /staff/access/policy. The server enforces the saved cells from the next request and audits each one. The editor then re-reads /auth/me and the policy.
+- **Assign a user:** the existing role door (POST /staff/users/:id/role) with a reason and the code. The server's roleChangeRule decides. Agents stay in Customers & Agents.
+- **Per-user exceptions** and **Tab visibility** are drawers (the same cards and routes). **Access review** keeps its drawer.
+- **CEO Access** is worked out from the published cells: what the Super Admin may do that the CEO may not, beyond the verified owner's grants and the protected cells. It reads "Equivalent" or "n gap(s) · Owner not verified". On the CEO role, a "Match the Super Admin" draft appears only when a fixable gap exists.
+- **Not built - needs the owner's approval:** Create / Duplicate / Disable / Delete role. The server's roles are a fixed set (the users.role CHECK, the Role type, the chains). The plan and its decisions CR-1 ... CR-7 are in docs/CUSTOM-ROLES-STAGE-0-AUDIT.md. No such control is drawn until then.
+- **Also fixed:** an address that opens straight on Roles & Permissions (`?view=roles`) now reads the policy; before, it waited for a press.
+- The editor's switches are the shared `Switch` (components/ui/switch.tsx), which gains a `mixed` state (a module where only some actions are on), a title and a test id.
+- Guards: tests/roles-permissions.mjs (new; 17 checks, 13 mutations); design-tokens adapted (the shared Switch may announce mixed). Adapted, intent kept: access-policy, tab-zones; browser users-admin and release-b (the locked-cell checks now read the role editor); new browser tests/browser/roles-permissions.py (servers 4320 / 4321 keep saves, as the server does) 44/44. All 212 guards pass; lint 0 errors, 115 warnings; browser users-admin 61/61, ui-system 348/348, owner-roles 28/28, overflow sweep 272/272. Known, not from this release: release-b 24/25 - the Sales row's deposit-billing wording after the fixture's convert.
+
 ## [1.330.0] - 2026-11-17 - Sales → Payments → Payment History lists every payment on record, the same invoices Closed Sales shows - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 17-11-2026, with the Payment History and Closed Sales screenshots: "Payment history is incorrectly recorded which is missing data ... Closed sales recorded correctly".

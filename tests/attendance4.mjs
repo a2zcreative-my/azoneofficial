@@ -180,6 +180,22 @@ async function runtime(workerBundle) {
     const au = await call("/attendance/audit?user_id=15", 7);
     ok(au.status === 200 && au.j.entries.length === 1 && au.j.entries[0].action === "attendance.forgot_approve" && !/payroll|auth\.login/.test(au.text), "a person's audit is their attendance events, never payroll or sign-ins", au.text.slice(0, 300));
 
+    /* v1.331.0 - the days with no clock-in: Attendance reads Payroll's own scan
+       (the CEO, 17-11-2026: Payroll said "04/11 no clock-in", Exceptions said nothing) */
+    const absA = await call("/attendance/absences?month=2026-11", 1);
+    const absP = await call("/payroll/absences?month=2026-11", 1);
+    const eve = absA.j?.staff?.find((p) => p.user_id === 17);
+    ok(absA.status === 200 && absP.status === 200 && JSON.stringify(absA.j.staff) === JSON.stringify(absP.j.staff),
+      "v1.331.0: Attendance and Payroll read one and the same list of unexplained days", `${absA.status}/${absP.status} ${absA.text.slice(0, 200)}`);
+    ok(eve?.missing?.includes("2026-11-10") && !absA.j.staff.some((p) => p.user_id === 7 && p.missing.includes("2026-11-10"))
+      && !absA.j.staff.some((p) => p.missing.includes("2026-11-07") || p.missing.includes("2026-11-09")),
+      "v1.331.0: Eve's 10-11 is listed; HR on approved leave, the Saturday and the holiday are not", absA.text.slice(0, 300));
+    ok(absA.j.staff.some((p) => p.user_id === 3 && p.missing.includes("2026-11-10")),
+      "v1.331.0: a punch waiting for approval is not evidence (the scan still lists the COO's 10-11) - Exceptions shows that day once, as the forgotten punch");
+    ok((await call("/attendance/absences?month=2026-11", 7)).status === 200 && (await call("/attendance/absences?month=2026-11", 15)).status === 403
+      && (await call("/attendance/absences?month=2026-11", 17)).status === 403 && (await call("/payroll/absences?month=2026-11", 7)).status === (absP.status === 200 ? (await call("/payroll/absences?month=2026-11", 7)).status : 0),
+      "v1.331.0: HR (attendance corrections) reads it; a seller and an editor cannot; the payroll door is unchanged");
+
     /* nothing written */
     ok(tables() === before.tables && db.prepare(`SELECT COUNT(*) AS n FROM attendance_records`).get().n === before.punches, "reading the workspace writes nothing and adds no table");
   } catch (e) {
@@ -222,6 +238,21 @@ function sourceChecks(read) {
   ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only|0204_staff_positions)";/.test(read("worker/src/index.ts")) && !readdirSync(join(root, "worker/migrations")).some((f) => /attendance/.test(f) && f >= "0196"), "no migration: corrections stay as they are until P3 (A-7)");
   ok(/(?:view|shown) === "manage" && holds\("unpaid_leave", \["ceo", "super_admin"\]\.includes\(user\.role\)\)/.test(strip(read("components/portal/leave.tsx"))) && /<AttendanceAdminPanel role=\{user\.role\} areas=\{\["unpaid"\]\} showPending=\{false\} \/>/.test(read("components/portal/leave.tsx")), "unpaid days moved to Leave, CEO-only as before");
   ok(/<AttendancePolicyCard \/>/.test(read("components/portal/automation-rules.tsx")) && !/method: "(POST|PUT|PATCH)"/.test(read("components/portal/automation-rules.tsx")), "the policy card in Automation & Rules reads the rule and edits nothing");
+  /* v1.331.0 - no clock-in days on Exceptions, from the one scan; Attendance never deducts */
+  ok(/\/staff\/attendance\/absences\?month=\$\{thisMonth\}/.test(ex) && /\/staff\/attendance\/absences\?month=\$\{prevMonth\(thisMonth\)\}/.test(ex) && /kind: "absent"/.test(ex)
+    && !/\/staff\/payroll\/(unpaid|mark|absences)|\/staff\/leave"|method: "(POST|PUT|PATCH)"[^\n]*absen/.test(ex),
+    "v1.331.0: Exceptions lists the days with no clock-in from the same scan Payroll reads, and never deducts or writes leave");
+  ok(/data-testid="exc-add-punch"/.test(ex) && /getElementById\("att-corrections"\)/.test(ex) && /<span id="att-corrections" \/>/.test(ex) && /onPayroll=\{\(\) => go\("Payroll"\)\}/.test(panel),
+    "v1.331.0: a no-clock-in day is settled at its source - Add the punch (Corrections) - or on Payroll");
+  ok(/const claimed = new Set\(\(punches\.data\?\.pending \?\? \[\]\)\.map\(\(p\) => `\$\{p\.user_id\}:\$\{utcToMyt\(p\.created_at\)\.slice\(0, 10\)\}`\)\);/.test(ex) && /\.filter\(\(d\) => !claimed\.has\(`\$\{a\.user_id\}:\$\{d\}`\)\)/.test(ex),
+    "v1.331.0: a day already claimed as a forgotten punch is listed once - as the punch to decide - not twice");
+  /* v1.331.0 - the long lists are paged, never an inner vertical scroller */
+  const att = strip(read("components/portal/attendance.tsx"));
+  ok(/<PaginationControls page=\{teamCur\} total=\{teamRows\.length\}/.test(att) && /\{teamShown\.map\(\(r, i\) => \(/.test(att) && !/\}\)\(\)\.map\(\(r, i\) => \(/.test(att),
+    "v1.331.0: the month punch log is paged");
+  const rp = strip(read("components/portal/role-panels.tsx"));
+  ok(/<PaginationControls page=\{regCur\} total=\{regTotal\}/.test(rp) && /\{lvShown\.map\(/.test(rp) && /\{rcShown\.map\(\(r\) => \(/.test(rp) && /const rows = exportRows\(\);/.test(rp),
+    "v1.331.0: the corrections register is paged; its CSV still exports every row");
   ok(!/Illustrative|UI reference only/.test(["attendance-overview", "attendance-records", "shift-roster", "attendance-exceptions", "attendance-reports"].map((f) => read(`components/portal/${f}.tsx`)).join("\n")), "none of the reference's illustrative labels is copied");
   return out;
 }

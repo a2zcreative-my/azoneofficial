@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import css from "./attendance.module.css";
 import { daysOf, hoursLabel } from "@/lib/clock-sessions";
+import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls"; // v1.331.0 - the team report is paged
 
 /* ================= Attendance ================= */
 
@@ -138,6 +139,22 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReport, showMonitor]);
+  /* v1.331.0 - THE TEAM REPORT IS PAGED (the CEO, 17-11-2026: "Attendance
+     Records seem still overflow list scroll"). A month of every punch for the
+     whole team ran hundreds of rows down the page under the day register. One
+     page of the same filtered, sorted list; pages, never an inner vertical
+     scroller (v1.176.1). */
+  const [teamPage, setTeamPage] = useState(1);
+  const [teamSize, setTeamSize] = useState<PageSize>(25);
+  const teamRows = (() => {
+    const visible = filterName ? records.filter((r) => r.name === filterName) : records;
+    if (!sortKey) return visible;
+    const val = (r: (typeof records)[number]) =>
+      sortKey === "name" ? (r.name ?? "") : sortKey === "type" ? r.type : r.created_at;
+    return [...visible].sort((a, b) => (val(a).localeCompare(val(b)) || a.created_at.localeCompare(b.created_at)) * sortDir);
+  })();
+  const teamCur = Math.min(Math.max(1, teamPage), Math.max(1, Math.ceil(teamRows.length / teamSize)));
+  const teamShown = teamRows.slice((teamCur - 1) * teamSize, teamCur * teamSize);
 
   return (
     <div className={css.page}>
@@ -296,7 +313,7 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
                   "Show one staff member only",
                   "Papar seorang kakitangan sahaja"
                 )}
-                onChange={(e) => setFilterName(e.target.value)}
+                onChange={(e) => { setFilterName(e.target.value); setTeamPage(1); }}
               >
                 <option value="">
                   {L("Find staff: everyone", "Cari kakitangan: semua")}
@@ -479,23 +496,7 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
                 </tr>
               </thead>
               <tbody>
-                {(() => {
-                  const visible = filterName
-                    ? records.filter((r) => r.name === filterName)
-                    : records;
-                  if (!sortKey) return visible;
-                  const val = (r: (typeof records)[number]) =>
-                    sortKey === "name"
-                      ? (r.name ?? "")
-                      : sortKey === "type"
-                        ? r.type
-                        : r.created_at;
-                  return [...visible].sort(
-                    (a, b) =>
-                      (val(a).localeCompare(val(b)) ||
-                        a.created_at.localeCompare(b.created_at)) * sortDir
-                  );
-                })().map((r, i) => (
+                {teamShown.map((r, i) => (
                   <tr key={i} className={css.row}>
                     <td className={`${css.td} ${css.tdStrong}`}>
                       {r.name ?? "—"}
@@ -517,6 +518,10 @@ export function Attendance({ user, view = "all", onMonitor, onMine }: {
               </tbody>
             </table>
           </div>
+        )}
+        {loaded && reportMode && canReport && teamRows.length > 0 && (
+          <PaginationControls page={teamCur} total={teamRows.length} size={teamSize} onPage={setTeamPage} onSize={(n) => { setTeamSize(n); setTeamPage(1); }}
+            label={L("Team attendance report pages", "Halaman laporan kehadiran pasukan")} testid="att-team-pages" />
         )}
       </div>
       )}

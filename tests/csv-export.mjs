@@ -97,7 +97,8 @@ const { buildCsv, csvCell } = await import(pathToFileURL(out).href);
 {
   const panels = read("components/portal/role-panels.tsx");
   ok("the visible set is defined once", /const exportRows = \(\): AttRecord\[\] => \{/.test(panels));
-  ok("the table renders it", /\{exportRows\(\)\.map\(\(r\) => \(/.test(panels),
+  /* v1.331.0 - the table renders a PAGE of it: the same list, sliced, never a second filter */
+  ok("the table renders it", /const regLeave = visibleLeave\(\), regRecs = exportRows\(\);/.test(panels) && /const rcShown = regRecs\.slice\(/.test(panels) && /\{rcShown\.map\(\(r\) => \(/.test(panels),
      "if the table filters separately from the export, the two disagree the first time a filter is added");
   ok("the export button uses it too", /const rows = exportRows\(\);/.test(panels));
   ok("the export never reaches for the unfiltered rows",

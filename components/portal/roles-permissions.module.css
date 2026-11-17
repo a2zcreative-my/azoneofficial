@@ -1,0 +1,106 @@
+/* v1.331.0 - Users & Security → Roles & Permissions (roles-permissions.tsx):
+   the role directory beside the chosen role's editor. Tokens, --type-* roles
+   and the house breakpoints only; every grid names its tracks. */
+.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.muted { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.label { margin: 0; font-size: var(--type-body-sm-size); font-weight: 700; }
+.error { margin: 0; color: var(--danger); font-size: var(--type-body-sm-size); }
+.warnText { color: var(--warning); }
+.gain { color: var(--success); }
+.num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.footRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; width: 100%; min-width: 0; }
+.tags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; min-width: 0; }
+.chipWrap { display: flex; flex-wrap: wrap; gap: 0.375rem; min-width: 0; }
+
+.search { display: flex; align-items: center; gap: 0.375rem; flex: 1 1 12rem; min-width: 0; min-height: 2.5rem; padding: 0 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--muted-foreground); }
+.search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--foreground); font: inherit; font-size: var(--type-body-sm-size); }
+.search:focus-within { outline: 2px solid var(--ring); outline-offset: 1px; }
+
+/* a role, in the directory and at the top of the editor */
+.roleCell { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.roleIcon { display: inline-grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: var(--radius-control); background: var(--info-soft); color: var(--info); }
+.roleIcon[data-group="exec"] { background: var(--warning-soft); color: var(--brand-primary); }
+.roleIcon[data-group="tech"] { background: var(--secondary); color: var(--muted-foreground); }
+.roleText { display: grid; gap: 0.125rem; min-width: 0; }
+.roleText strong { font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.roleText small { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: break-word; }
+.roleText .big { font-size: var(--type-section-size); line-height: var(--type-section-lh); }
+.selHead { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; min-width: 0; }
+.selHead > .roleText { flex: 1 1 12rem; }
+
+.part { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-content: start; min-width: 0; }
+.partBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; min-width: 0; }
+.partBar > .muted { flex: 1 1 16rem; }
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-control); background: var(--info-soft); color: var(--foreground); font-size: var(--type-body-sm-size); }
+.notice > span { flex: 1 1 14rem; min-width: 0; }
+
+/* the module × verb table: one row per module; on a phone each row's verbs wrap under its name, each with its word */
+.perm { display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius-control); min-width: 0; }
+.pGroup + .pGroup { border-top: 1px solid var(--border); }
+.pRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; padding: 0.375rem 0.625rem; min-width: 0; }
+.pHead { display: none; }
+.pMod { flex: 1 1 100%; min-width: 0; }
+.pCell { display: inline-flex; flex-direction: column; align-items: center; gap: 0.125rem; flex: 0 0 auto; min-width: 3.25rem; }
+.verbName { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.modBtn { display: flex; align-items: center; gap: 0.375rem; width: 100%; min-height: 2.25rem; padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; font-size: var(--type-body-sm-size); font-weight: 600; text-align: left; cursor: pointer; }
+.modBtn > span { min-width: 0; overflow-wrap: break-word; }
+.modBtn small { margin-left: auto; color: var(--muted-foreground); font-size: var(--type-caption-size); font-weight: 500; font-variant-numeric: tabular-nums; }
+.modBtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.chev { flex: none; transition: transform var(--dur-fast, 0.15s) ease; }
+.chevOpen { transform: rotate(90deg); }
+
+/* one action, under its module */
+.acts, .list { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; padding: 0; list-style: none; min-width: 0; }
+.acts { padding: 0 0.625rem 0.5rem 1.75rem; }
+.acts > li, .list > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.375rem 0.75rem; padding: 0.5rem 0; min-width: 0; }
+.acts > li + li, .list > li + li { border-top: 1px solid var(--border); }
+.actText { display: grid; gap: 0.25rem; flex: 1 1 14rem; min-width: 0; }
+.actText strong { font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.actText small { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: break-word; }
+.actText small.warnText { color: var(--warning); }
+.actText small.gain { color: var(--success); }
+.who { display: flex; align-items: center; gap: 0.625rem; flex: 1 1 14rem; min-width: 0; }
+
+/* the switch is the house Switch (components/ui/switch.tsx); this only centres it in its cell */
+.cellSwitch { display: inline-grid; place-items: center; min-width: 2.75rem; }
+
+/* a cell nobody here may change */
+.mark { display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: var(--radius-full); }
+.mark[data-st="on"] { background: var(--success-soft); color: var(--success); }
+.mark[data-st="off"] { background: var(--danger-soft); color: var(--danger); }
+.mark[data-st="cond"], .mark[data-st="part"] { background: var(--warning-soft); color: var(--brand-primary); }
+.none { display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; color: var(--muted-foreground); }
+
+.facts { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.facts > div { display: grid; gap: 0.125rem; padding: 0.5rem 0.75rem; min-width: 0; }
+.facts > div + div { border-top: 1px solid var(--border); }
+.facts dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.facts dd { margin: 0; font-size: var(--type-body-sm-size); font-weight: 600; overflow-wrap: break-word; }
+.block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); min-width: 0; }
+.review { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; }
+.field { display: grid; gap: 0.375rem; font-size: var(--type-body-sm-size); font-weight: 600; }
+
+@media (min-width: 640px) {
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts > div + div { border-top: 0; }
+  .facts > div:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .facts > div:nth-child(even) { border-left: 1px solid var(--border); }
+}
+/* a phone lists only the verbs a module has (the header row that explains "—" is a desktop column) */
+@media (max-width: 767px) {
+  .pCell[data-none] { display: none; }
+  .pCell { justify-content: flex-start; }
+}
+/* from 768px the verbs are columns under one header row */
+@media (min-width: 768px) {
+  .pRow { flex-wrap: nowrap; gap: 0; padding: 0.25rem 0.625rem; }
+  .pHead { display: flex; position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--border); border-radius: var(--radius-control) var(--radius-control) 0 0; }
+  .pHead > span { color: var(--muted-foreground); font-size: var(--type-caption-size); font-weight: 600; }
+  .pMod { flex: 1 1 0; }
+  .pCell { flex: 0 0 3.5rem; min-width: 0; }
+  .verbName { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chev { transition: none; }
+}

@@ -593,7 +593,16 @@ const AUG = (() => {
 /* ---- 6. no clock-in is a proposal, never a deduction ---- */
 {
   const staff = read("worker/src/staff.ts");
-  ok("the absence scan exists", /path === "\/payroll\/absences" && method === "GET"/.test(staff));
+  ok("the absence scan exists", /path === "\/payroll\/absences"( \|\| path === "\/attendance\/absences"\))? && method === "GET"/.test(staff));
+  /* v1.331.0 - ONE scan, two doors: Attendance reads the same days Payroll does,
+     behind the attendance-correction (or payroll) permission. Payroll's own
+     door is unchanged: payroll_process only. */
+  ok("v1.331.0: Attendance reads the very same scan (one source), never a copy",
+     /\(path === "\/payroll\/absences" \|\| path === "\/attendance\/absences"\) && method === "GET"/.test(staff)
+     && (staff.match(/workingDayList\(mA2\)/g) ?? []).length === 1);
+  ok("v1.331.0: the payroll door still needs payroll_process; the attendance door needs attendance_correct or payroll_process",
+     /const payrollDoor = path === "\/payroll\/absences";\s*if \(payrollDoor && !can\(user\.role, "payroll_process"\)\) return err\("forbidden"/.test(staff)
+     && /if \(!payrollDoor && !can\(user\.role, "attendance_correct"\) && !can\(user\.role, "payroll_process"\)\) return err\("forbidden"/.test(staff));
   ok("approved full days are excluded and partial days are reviewed without a deduction",
      /covered\.some\(l => !isPartialLeave\(l\)\)\) continue/.test(staff) && /partial_review\.push\([\s\S]{0,150}continue;/.test(staff),
      "paid leave must not be offered up as an unpaid day");

@@ -20,6 +20,9 @@
   .r55_45 > * { flex-grow: 55; }
   .r55_45 > * + * { flex-grow: 45; }
   .r50_50 > *, .r50_50 > * + * { flex-grow: 50; }
+  /* v1.331.0 - a narrow directory beside a wide editor (Roles & Permissions) */
+  .r35_65 > * { flex-grow: 35; }
+  .r35_65 > * + * { flex-grow: 65; }
   /* a pane is a column: its head, toolbar and foot keep their height */
   .pane { display: flex; flex-direction: column; }
   .column { display: flex; flex-direction: column; gap: var(--space-4); }

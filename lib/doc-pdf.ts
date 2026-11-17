@@ -17,7 +17,7 @@
    Units: PDF points. The HTML layout is designed against 688px of A4, and
    688px = 516pt, so px * 0.75 = pt throughout. */
 
-import { docDateOf, docRevisionLabel, quoteValidUntil, readSign, signSrc, type DocFull, type DocItem } from "@/lib/doc-template";
+import { docDateOf, docRevisionLabel, PAYMENT_POLICY, policyApplies, quoteValidUntil, readSign, signSrc, type DocFull, type DocItem } from "@/lib/doc-template";
 import { resolveIssuer } from "@/lib/issuers";
 
 /* ---------------------------------------------------------------- metrics */
@@ -528,6 +528,28 @@ export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean;
   // closing block, pinned to the foot of the page
   const footY = PAGE_H - M - 22;
   const closeTop = footY - 134;   // 22 zone offset + 55 zone + 41 of signer lines + clearance
+  /* v1.332.0 - the Payment & No Refund Policy, the same words as the HTML template
+     (PAYMENT_POLICY), in the address panels' tint with the gold rule, directly above
+     the closing block of a quotation or an invoice; never on a delivery order */
+  if (policyApplies(doc.doc_type)) {
+    const size = 6.2, lead = 7.6, pw = CW - 18;
+    const lines = (t: string) => {
+      let n = 0, line = "";
+      for (const word of ascii(t).split(/\s+/).filter(Boolean)) {
+        const test = line ? `${line} ${word}` : word;
+        if (widthOf(test, size, false) > pw && line) { n++; line = word; } else line = test;
+      }
+      return n + (line ? 1 : 0);
+    };
+    const n = PAYMENT_POLICY.paragraphs.reduce((k, t) => k + lines(t), 0);
+    const ph = 7 + 8.5 + n * lead + 1.5;
+    const pt = closeTop - ph - 4;
+    c.rect(M, pt, CW, ph, PANEL);
+    c.rect(M, pt, 2.25, ph, GOLD);
+    c.text(PAYMENT_POLICY.title, M + 9, pt + 9.5, 5.8, { bold: true, spacing: 0.6 });
+    let py = pt + 17.5;
+    for (const t of PAYMENT_POLICY.paragraphs) py = c.wrap(t, M + 9, py, pw, size, lead, { colour: SLATE });
+  }
   const hdr = isINV ? "PAYMENT" : isDO ? "DELIVERY CONFIRMATION" : "COMMITMENT ORDER CONFIRMATION";
   c.line(M, closeTop, R, NAVY, 0.6);
   c.text(hdr, M + CW / 2, closeTop + 12, 8.25, { bold: true, align: "c", spacing: 0.5 });
@@ -535,7 +557,7 @@ export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean;
     ? `Payment by bank transfer to ${issuer.bank} (${issuer.bankHolder}). Please send the transfer receipt via WhatsApp ${issuer.whatsapp} quoting the invoice number.`
     : isDO
       ? "The goods listed above were delivered in the quantities stated. Please sign and return one copy as proof of receipt."
-      : "We hereby accept the quoted items and agree that this signed document shall be deemed our official Purchase Order, subject to the terms above.";
+      : "We hereby accept the quoted items and agree that this signed document shall be deemed our official Purchase Order, subject to the terms above, including the Payment & No Refund Policy.";
   c.wrap(clause, M, closeTop + 72, readSign(doc)?.approved ? 190 : 225, 7.5, 9.5, { colour: SLATE }); // v1.248.0 - narrower beside three columns
   if (isINV && doc.payment_status === "paid") {
     c.text(`OK PAID${doc.paid_at ? ` - ${dmy(doc.paid_at)}` : ""}`, M, closeTop + 112, 8.25, { bold: true, colour: GREEN });

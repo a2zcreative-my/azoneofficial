@@ -37,7 +37,8 @@ import { L } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
 import { GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
-import { AccessPolicyCard, AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
+import { AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
+import { RolesPermissions } from "@/components/portal/roles-permissions"; // v1.331.0 - replaces the AccessPolicyCard matrix
 import { OwnerCard, useOwner } from "@/components/portal/owner-card";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { AccountSheet } from "@/components/portal/account-sheet";
@@ -48,7 +49,6 @@ import { CustomersAgents } from "@/components/portal/customers-agents"; // v1.32
 import { SecuritySessions } from "@/components/portal/security-sessions"; // v1.327.0
 import { withStepUp } from "@/components/portal/page-shared";
 import { usePrompt } from "@/components/ui/prompt-dialog";
-import ap from "./access-policy.module.css";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { InviteSheet } from "@/components/portal/invite-sheet"; // v1.251.0 - Add User (invite)
@@ -170,6 +170,24 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
     } else {
       showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Role change failed", "Penukaran peranan gagal"), "notice");
     }
+  };
+
+  /* v1.331.0 - Roles & Permissions → Assigned Users: give a staff account the chosen role, through
+     the SAME role door as Staff Accounts (a reason, the authenticator code when the server asks; the
+     worker's roleChangeRule decides). Nothing here decides who may change a role. */
+  const assignRole = async (u: Account, to: string): Promise<boolean> => {
+    if (saving) return false;
+    const why = await prompt({ title: L(`${properName(u.full_name || u.name)} → ${roleLabel(to)}`, `${properName(u.full_name || u.name)} → ${roleLabel(to)}`),
+      label: L(`Why (at least 10 characters, kept in the audit history). ${roleLabel(u.role)} becomes ${roleLabel(to)}; what the person may do changes at once.`, `Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit). ${roleLabel(u.role)} menjadi ${roleLabel(to)}; apa yang orang itu boleh lakukan berubah serta-merta.`), required: true });
+    if (!why || why.value.trim().length < 10) return false;
+    setSaving(true);
+    const res = await withStepUp<{ error?: { message?: string } }>(
+      (totp) => api(`/staff/users/${u.id}/role`, { method: "POST", body: JSON.stringify({ role: to, ...(u.employment_status ? { employment_status: u.employment_status } : {}), reason: why.value.trim(), ...(totp ? { totp } : {}) }) }),
+      prompt, { title: L(`Confirm: ${firstName(u.name)} → ${roleLabel(to)}`, `Sahkan: ${firstName(u.name)} → ${roleLabel(to)}`), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
+    setSaving(false);
+    if (res.ok) { showToast(L("Saved", "Disimpan"), `${firstName(u.name)} → ${roleLabel(to)}`); load(); setPolicyTick((n) => n + 1); return true; }
+    showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Role change failed", "Penukaran peranan gagal"), "error");
+    return false;
   };
 
   /* v1.250.0 (the agent portal brief) - Grant Agent Access: the SAME account
@@ -445,8 +463,10 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const [seenRoles, setSeenRoles] = useState(false);
   const openView = (v: UsersView) => { setView(v); if (v === "roles") setSeenRoles(true); };
   const [policyTick, setPolicyTick] = useState(0); // v1.237.0 - reload after a matrix edit
-  const policy = usePolicy(seenRoles, policyTick);
-  const review = useReview(seenRoles && holds, reviewTick);
+  /* v1.331.0 - an address that opens on Roles & Permissions (?view=roles) reads the policy too, not only a press */
+  const rolesOn = seenRoles || view === "roles";
+  const policy = usePolicy(rolesOn, policyTick);
+  const review = useReview(rolesOn && holds, reviewTick);
   const [ownerTick, setOwnerTick] = useState(0);
 
   const ownerState = useOwner(["ceo", "coo", "cco", "admin", "super_admin"].includes(role), ownerTick);
@@ -598,41 +618,21 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
       </div>
 
       <div hidden={view !== "roles"} className={css.body}>
-        <div className={ap.pageHead}>
-          <div>
-            <h2 className={ap.title}>{L("Roles & Permissions", "Peranan & Kebenaran")}</h2>
-            <p className={ap.sub}>{L("The single place to see what each role may do and see. Every action is enforced by the server on each request; hiding a tab is never a permission.", "Satu-satunya tempat untuk melihat apa yang setiap peranan boleh lakukan dan lihat. Setiap tindakan dikuatkuasa pelayan pada setiap permintaan; menyembunyikan tab bukan kebenaran.")}</p>
-          </div>
-          {holds && <button type="button" className={btnSm} onClick={() => { setReviewTick((n) => n + 1); setReviewOpen(true); }}><AppIcon name="verify" />{L("Access review", "Semakan akses")}</button>}
-        </div>
-        <div className={ap.summary}>
-          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Access policy", "Polisi akses")}</p><p className={ap.sumTitle}>{L("One policy, enforced by the server", "Satu polisi, dikuatkuasa pelayan")}</p><p className={ap.sub}>{L("Role → module → action, checked on every request", "Peranan → modul → tindakan, disemak setiap permintaan")}</p></section>
-          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("Role assignments", "Penetapan peranan")}</p><p className={ap.sumTitle}>{L(`${allStaff.filter((u) => u.is_active).length} active staff accounts`, `${allStaff.filter((u) => u.is_active).length} akaun kakitangan aktif`)}</p><p className={ap.sub}>{Object.entries(headcount).map(([r, n]) => `${roleLabel(r)} ${n}`).join(" · ") || "—"}</p></section>
-          <section className={`${card} ${ap.sumCard}`}><p className={ap.eyebrow}>{L("User exceptions", "Pengecualian pengguna")}</p><p className={ap.sumTitle}>{holds ? (review?.d ? L(`${review.d.exceptions.length} exception(s)`, `${review.d.exceptions.length} pengecualian`) : "…") : L("Kept by the CEO", "Disimpan oleh CEO")}</p><p className={ap.sub}>{holds && review?.d ? L(`${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} to review`, `${review.d.exceptions.filter((x) => x.needs_review || x.verdict === "hollow").length} untuk disemak`) : L("Each with its reason and approver", "Setiap satu dengan sebab dan pelulusnya")}</p></section>
-        </div>
-        {/* v1.251.0 - ONE editor: the matrix shows, per module, whether each
-            role sees the tab and what it may do; the tab rows are edited in
-            "Who sees each tab" right under it (the same /staff/tabs/access
-            route). One zone, not two matrices. */}
-        <TabZone label={L("What each role may see and do", "Apa yang setiap peranan boleh lihat dan lakukan")}>
-          <AccessPolicyCard policy={policy} onChanged={() => { setPolicyTick((n) => n + 1); setReviewTick((n) => n + 1); }} />
-          <details className={css.seesEditor} data-testid="sees-editor">
-            <summary>{L("Who sees each tab", "Siapa melihat setiap tab")}<span className={css.sub}>{holds ? L(" - open to change which roles see a tab", " - buka untuk menukar peranan yang melihat tab") : L(" - the CEO changes it", " - CEO menukarnya")}</span></summary>
-            <TabAccessCard canEdit={holds} headcount={headcount} onSaved={() => setPolicyTick((n) => n + 1)} />
-          </details>
-        </TabZone>
-        <TabZone label={L("Exceptions and accounts", "Pengecualian dan akaun")} cols={2}>
-          {holds ? (
-            <ExceptionsCard review={review} canEdit={holds} onChanged={() => setReviewTick((n) => n + 1)}
-              people={allStaff.filter((u) => u.is_active && !["super_admin"].includes(u.role)).map((u) => ({ id: u.id, name: properName(u.full_name || u.name), role: u.role }))} />
-          ) : (
-            <section className={card}><p className={ap.title}>{L("Per-user exceptions", "Pengecualian setiap pengguna")}</p><p className={ap.sub}>{L("Kept by the CEO here, each with a reason and an approver. They hide a tab or show one the role can already read - never more.", "Disimpan oleh CEO di sini, setiap satu dengan sebab dan pelulus. Ia menyembunyikan tab atau memaparkan tab yang peranan sudah boleh baca - tidak lebih.")}</p></section>
-          )}
-          <section className={card}>
-            <p className={ap.title}>{L("Manage user access", "Urus akses pengguna")}</p>
-            <p className={ap.sub}>{L("Staff Accounts assigns each account its role. This tab shows what each role may do and see. A person's job title and reporting line live in Staff → Organisation, and never grant access.", "Akaun Kakitangan menetapkan peranan setiap akaun. Tab ini menunjukkan apa yang setiap peranan boleh lakukan dan lihat. Jawatan dan garis pelaporan seseorang berada di Kakitangan → Organisasi, dan tidak memberi akses.")}</p>
-            <div className={ap.formRow}><button type="button" className={btnSm} onClick={() => setView("staff")}><AppIcon name="person" />{L("Open Staff Accounts", "Buka Akaun Kakitangan")}</button></div>
-          </section>
+        {/* v1.331.0 - ONE ROLE AT A TIME (the CEO, 17-11-2026: "REPLACE LEGACY ROLES & PERMISSIONS
+            UI"): the role directory beside the chosen role's editor (roles-permissions.tsx), held to
+            one screen. It replaces the wide Access policy matrix, the "Who sees each tab" fold and the
+            stacked Per-user exceptions zone - those two are now drawers inside it (the same cards and
+            routes). Every change is saved and enforced by the server, as before. */}
+        <TabZone label={L("Roles & Permissions", "Peranan & Kebenaran")}>
+          <RolesPermissions policy={policy} onChanged={() => { setPolicyTick((n) => n + 1); setReviewTick((n) => n + 1); }}
+            staff={allStaff} loaded={loaded} canAssign={canEdit} assignable={ROLE_OPTIONS.filter((r) => r !== "customer" && r !== "agent")} onAssign={assignRole}
+            exceptionCount={holds && review?.d ? review.d.exceptions.length : null}
+            onReview={holds ? () => { setReviewTick((n) => n + 1); setReviewOpen(true); } : null}
+            exceptions={holds ? (
+              <ExceptionsCard bare review={review} canEdit={holds} onChanged={() => setReviewTick((n) => n + 1)}
+                people={allStaff.filter((u) => u.is_active && !["super_admin"].includes(u.role)).map((u) => ({ id: u.id, name: properName(u.full_name || u.name), role: u.role }))} />
+            ) : null}
+            tabVisibility={<TabAccessCard canEdit={holds} headcount={headcount} onSaved={() => setPolicyTick((n) => n + 1)} />} />
         </TabZone>
         {holds && <AccessReviewDrawer open={reviewOpen} onClose={() => setReviewOpen(false)} review={review} />}
       </div>

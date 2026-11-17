@@ -937,16 +937,5 @@
 .ownerOff > button { flex: none; }
 @media (max-width: 639px) { .ownerOff > button { width: 100%; justify-content: center; } }
 
-/* v1.251.0 - "Who sees each tab", folded under the one matrix */
-.seesEditor { margin-top: 0.75rem; min-width: 0; }
-.seesEditor > summary {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem;
-  min-height: 2.75rem; padding: 0.625rem 0.875rem;
-  border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card);
-  font-weight: 600; cursor: pointer; list-style-position: inside;
-}
-.seesEditor[open] > summary { margin-bottom: 0.75rem; }
-.seesEditor > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-
 /* v1.327.0 - the role editor inside Customers & Agents' account panel (the phone keeps its bottom sheet) */
 .detailEditor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }

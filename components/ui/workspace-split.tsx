@@ -23,7 +23,7 @@ export function WorkspaceSplit({ children, testid, ratio = "60-40" }: {
   children: ReactNode;
   testid?: string;
   /** the register's share : the detail's share */
-  ratio?: "60-40" | "55-45" | "50-50";
+  ratio?: "60-40" | "55-45" | "50-50" | "35-65";
 }) {
   return <FillPanel exact className={`${css.split} ${css[`r${ratio.replace("-", "_")}`] ?? ""}`} testid={testid}>{children}</FillPanel>;
 }

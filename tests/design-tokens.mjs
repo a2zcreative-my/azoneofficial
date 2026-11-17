@@ -99,7 +99,8 @@ ok("a payment that is only reported is never green", /reported: \["warning"/.tes
 const ff = read("components/ui/form-field.tsx");
 ok("a field's hint and error are tied to the control and the error is words", /aria-describedby/.test(ff) && /aria-invalid/.test(ff) && /role="alert"/.test(ff));
 const sw = read("components/ui/switch.tsx");
-ok("the switch is a real switch that says On / Off", /role="switch"/.test(sw) && /aria-checked=\{checked\}/.test(sw) && /"On", "Hidup"/.test(sw));
+/* v1.331.0 - a switch over a group may be "mixed" (Roles & Permissions): announced as a mixed checkbox, a switch otherwise */
+ok("the switch is a real switch that says On / Off", /role=\{mixed \? "checkbox" : "switch"\}/.test(sw) && /aria-checked=\{mixed \? "mixed" : checked\}/.test(sw) && /"On", "Hidup"/.test(sw));
 const sd = read("components/ui/side-drawer.tsx");
 ok("a drawer holding unsaved typing asks before it closes (X, Escape, backdrop)", /dirty\?: boolean/.test(sd) && (sd.match(/requestClose/g) ?? []).length >= 3 && /if \(dirty\) setAsking\(true\); else onClose\(\);/.test(sd) && /Discard your changes\?/.test(sd));
 const tc = read("components/ui/table-card.tsx");

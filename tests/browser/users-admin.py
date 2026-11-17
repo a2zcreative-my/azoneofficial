@@ -131,15 +131,17 @@ with sync_playwright() as p:
     pg.get_by_role("button", name="Show everyone").click(); pg.wait_for_timeout(1200)
     check("Show everyone returns the whole log", "user.suspend" not in pg.inner_text("main") or "only" not in pg.inner_text("main"))
 
-    # Roles & Permissions: one editor
+    # Roles & Permissions: one editor (v1.331.0 - a role at a time: the directory beside the chosen role)
     tab(pg, "Roles & Permissions"); pg.wait_for_timeout(1500)
-    mod = pg.locator("table button[aria-expanded]").filter(has_text="Users")
-    if mod.count(): mod.first.click(); pg.wait_for_timeout(500)
-    check("one matrix: a module opens on whether each role SEES its tab, then what it may DO", pg.get_by_test_id("sees-Users").filter(visible=True).count() == 1)
-    det = pg.get_by_test_id("sees-editor")
-    check("Who sees each tab is folded under the same matrix (one zone, not a second matrix)", det.count() == 1 and pg.get_by_text("What each role sees", exact=True).count() == 0)
-    det.locator("summary").click(); pg.wait_for_timeout(1500)
-    check("...and opens the tab editor in place", det.locator("table, ul").count() >= 1)
+    check("one editor: the Role Directory beside the chosen role's permissions", pg.get_by_test_id("role-directory").is_visible() and pg.get_by_test_id("role-editor").is_visible())
+    pg.get_by_test_id("role-part-preview").click(); pg.wait_for_timeout(400)
+    check("what a role SEES is the chosen role's Access Preview (read from the same tab rule)", "Users" in pg.get_by_test_id("role-preview").inner_text())
+    pg.get_by_test_id("role-part-perms").click(); pg.wait_for_timeout(300)
+    check("no second matrix and no stacked tab editor on the page", pg.get_by_text("What each role sees", exact=True).count() == 0 and pg.get_by_test_id("sees-editor").count() == 0)
+    pg.get_by_test_id("open-tab-visibility").click(); pg.wait_for_timeout(1500)
+    drw = pg.get_by_role("dialog").filter(has_text="Tab visibility")
+    check("...Tab visibility opens the tab editor in a drawer", drw.count() == 1 and drw.locator("table, ul").count() >= 1)
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
 
     # Security & Sessions
     tab(pg, "Security & Sessions")

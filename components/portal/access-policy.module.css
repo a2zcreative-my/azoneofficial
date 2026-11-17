@@ -31,11 +31,7 @@
   font-size: var(--type-body-sm-size);
   color: var(--muted-foreground);
 }
-.foot {
-  margin: 0.75rem 0 0;
-  font-size: var(--type-caption-size);
-  color: var(--muted-foreground);
-}
+
 .warn {
   display: flex;
   align-items: flex-start;
@@ -55,88 +51,8 @@
   color: var(--warning);
 }
 
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-.filters > * {
-  flex: 1 1 12rem;
-  min-width: 0;
-}
-
 /* the matrix: desktop table, phone list */
-.desk {
-  display: none;
-}
-.phone {
-  display: grid;
-}
-.phoneOnly {
-  display: block;
-}
-@media (min-width: 900px) {
-  .desk {
-    display: block;
-  }
-  .phone,
-  .phoneOnly {
-    display: none;
-  }
-}
-.tableWrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-}
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--type-caption-size);
-}
-.table th,
-.table td {
-  padding: 0.5rem 0.375rem;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: middle;
-}
-.table thead th {
-  background: var(--secondary);
-  color: var(--muted-foreground);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-.table tbody tr:last-child td,
-.table tbody tr:last-child th {
-  border-bottom: 0;
-}
-.c {
-  text-align: center !important;
-  white-space: nowrap;
-}
-.group th {
-  background: var(--secondary);
-  color: var(--foreground);
-  font-weight: 700;
-  font-size: var(--type-caption-size);
-}
-.rowHead {
-  display: grid;
-  gap: 0.125rem;
-  min-width: 11rem;
-  font-weight: 600;
-  color: var(--foreground);
-}
-.rowHead small {
-  font-weight: 400;
-  color: var(--muted-foreground);
-}
 
-.phoneList,
 .exList {
   display: grid;
   gap: 0;
@@ -144,7 +60,7 @@
   padding: 0;
   list-style: none;
 }
-.phoneList li,
+
 .exList li {
   display: flex;
   flex-wrap: wrap;
@@ -154,7 +70,7 @@
   padding: 0.625rem 0;
   border-bottom: 1px solid var(--border);
 }
-.phoneList li:last-child,
+
 .exList li:last-child {
   border-bottom: 0;
 }
@@ -217,57 +133,7 @@
 }
 
 /* summary cards (both tabs) */
-.summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.75rem;
-}
-@media (min-width: 720px) {
-  .summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-.sumCard {
-  display: grid;
-  align-content: start;
-  gap: 0.25rem;
-  min-width: 0;
-}
-.eyebrow {
-  margin: 0;
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-.sumTitle {
-  margin: 0;
-  font-size: var(--type-body-size, 1rem);
-  font-weight: 700;
-  color: var(--foreground);
-}
-.pageHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-.ownership {
-  display: grid;
-  gap: 0.25rem;
-  margin: 0;
-  padding: 0.75rem;
-  border: 1px solid var(--gold-solid);
-  border-radius: 0.75rem;
-  background: var(--warning-soft);
-  font-size: var(--type-caption-size);
-  list-style: none;
-}
-.ownership strong {
-  color: var(--foreground);
-}
+
 .controls {
   display: grid;
   gap: 0;
@@ -290,273 +156,14 @@
 
 /* v1.236.0 - the matrix by module (the owner's reference): status marks,
    legend, the outlined CEO column, expandable modules, the owner notice. */
-.st {
-  display: inline-grid;
-  place-items: center;
-  width: 1.625rem;
-  height: 1.625rem;
-  border-radius: 999px;
-  font-size: var(--type-caption-size);
-  font-weight: 700;
-  line-height: 1;
-}
-.st svg {
-  width: 0.9375rem;
-  height: 0.9375rem;
-}
-.stAllow {
-  background: var(--success-soft);
-  color: var(--success);
-}
-.stDeny {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-.stCond {
-  background: var(--info-soft);
-  color: var(--info);
-}
-.stLim {
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-.stNa {
-  background: var(--secondary);
-  color: var(--muted-foreground);
-}
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  margin: 0 0 0.75rem;
-  padding: 0;
-  list-style: none;
-  font-size: var(--type-caption-size);
-  color: var(--muted-foreground);
-}
-.legend li {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-.ceoHead {
-  position: relative;
-  background: color-mix(in srgb, var(--gold-solid) 14%, var(--secondary)) !important;
-  color: var(--foreground) !important;
-  box-shadow: inset 2px 0 0 var(--gold-solid), inset -2px 0 0 var(--gold-solid), inset 0 2px 0 var(--gold-solid);
-}
-.ceoCell {
-  background: color-mix(in srgb, var(--gold-solid) 7%, transparent);
-  box-shadow: inset 2px 0 0 var(--gold-solid), inset -2px 0 0 var(--gold-solid);
-}
-.table tbody tr:last-child .ceoCell {
-  box-shadow: inset 2px 0 0 var(--gold-solid), inset -2px 0 0 var(--gold-solid), inset 0 -2px 0 var(--gold-solid);
-}
-.crown {
-  display: block;
-  width: 1rem;
-  height: 1rem;
-  margin: 0 auto 0.125rem;
-  color: var(--gold-solid);
-}
-.roleName {
-  display: block;
-}
-.count {
-  display: block;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--muted-foreground);
-}
-.ownerTag {
-  display: inline-block;
-  margin-top: 0.125rem;
-  padding: 0 0.375rem;
-  border-radius: 999px;
-  background: var(--gold-solid);
-  color: var(--background);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-.ownerBox {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--gold-solid);
-  border-radius: 0.75rem;
-  background: color-mix(in srgb, var(--gold-solid) 8%, transparent);
-  color: var(--foreground);
-  font-size: var(--type-caption-size);
-}
-.ownerBox svg {
-  flex-shrink: 0;
-  width: 1rem;
-  height: 1rem;
-  color: var(--gold-solid);
-}
-.modRow th,
-.modRow td {
-  background: var(--card);
-}
-.modBtn {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  width: 100%;
-  min-height: 2.25rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--foreground);
-  font: inherit;
-  font-weight: 700;
-  text-align: left;
-  cursor: pointer;
-}
-.modBtn:focus-visible {
-  outline: 2px solid var(--gold-solid);
-  outline-offset: 2px;
-  border-radius: 0.375rem;
-}
-.chev {
-  width: 0.875rem;
-  height: 0.875rem;
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  transition: transform 0.15s ease;
-}
-.chevOpen {
-  transform: rotate(90deg);
-}
-@media (prefers-reduced-motion: reduce) {
-  .chev {
-    transition: none;
-  }
-}
-.keyActs {
-  min-width: 12rem;
-  max-width: 22rem;
-  color: var(--muted-foreground);
-}
-.actRow th,
-.actRow td {
-  background: var(--secondary);
-}
-.actHead {
-  padding-left: 1.75rem !important;
-}
-.phoneMod {
-  display: grid !important;
-  gap: 0.5rem;
-}
-.phoneMod > .modBtn {
-  justify-content: space-between;
-  font-weight: 400;
-}
-.phoneActs {
-  display: grid;
-  margin: 0;
-  padding: 0 0 0 0.75rem;
-  border-left: 2px solid var(--border);
-  list-style: none;
-}
-.phoneActs li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.375rem 0;
-  border-bottom: 0;
-}
-.phoneMod > .modBtn > .main {
-  flex: 1 1 auto;
-}
+
 /* v1.236.0 - .phoneList (display: grid) is declared after the breakpoint
    above and was winning it, so the phone list also drew under the desk
    table. Two classes outrank one. */
-@media (min-width: 900px) {
-  .phoneList.phone {
-    display: none;
-  }
-}
 
 /* v1.237.0 - editing the matrix */
-.editBar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.editCell {
-  border: 0;
-  cursor: pointer;
-}
-.editCell:focus-visible {
-  outline: 2px solid var(--gold-solid);
-  outline-offset: 2px;
-}
-.editCell[aria-checked="true"] {
-  box-shadow: 0 0 0 1px var(--success);
-}
-.editCell[aria-checked="false"] {
-  box-shadow: 0 0 0 1px var(--danger);
-}
-.editedTag {
-  display: inline-block;
-  width: fit-content;
-  margin-top: 0.125rem;
-  padding: 0 0.375rem;
-  border-radius: 999px;
-  background: var(--info-soft);
-  color: var(--info) !important;
-  font-weight: 600;
-}
-.fixedTag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  width: fit-content;
-  color: var(--muted-foreground);
-}
-.fixedTag svg {
-  width: 0.75rem;
-  height: 0.75rem;
-}
-.linkBtn {
-  width: fit-content;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--foreground);
-  font: inherit;
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-.review {
-  display: grid;
-  gap: 0.75rem;
-  margin: 0 0 0.75rem;
-  padding: 0.875rem;
-  border: 1px solid var(--gold-solid);
-  border-radius: 0.875rem;
+
+/* v1.331.0 - the exceptions card inside its drawer (Roles & Permissions): no second card around it */
+.bare {
   min-width: 0;
-}
-.review label {
-  display: grid;
-  gap: 0.25rem;
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-}
-.gain {
-  color: var(--success) !important;
-  font-weight: 600;
-}
-.lose {
-  color: var(--danger) !important;
-  font-weight: 600;
 }

@@ -357,7 +357,8 @@ ok("the attendance panel is actually given the role",
  */
 {
   const abs = (() => {
-    const i = staff.indexOf('if (path === "/payroll/absences" && method === "GET")');
+    /* v1.331.0 - the same scan also answers /attendance/absences (one rule, two doors) */
+    const i = staff.indexOf('if ((path === "/payroll/absences" || path === "/attendance/absences") && method === "GET")');
     const j = staff.indexOf('if (path ===', i + 40);
     return i >= 0 && j > i ? staff.slice(i, j) : "";
   })();

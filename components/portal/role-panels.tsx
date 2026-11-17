@@ -33,6 +33,7 @@ import { SITE_CONFIG } from "@/constants/site";
 import { useLiveRefresh } from "@/hooks/use-live-refresh"; // v1.138.0 - this card was never told when another card decided an OT
 import { useSaveToast } from "@/components/ui/save-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls"; // v1.331.0 - the attendance register is paged
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { RecordDetail } from "@/components/ui/record-detail";
 import { rowBtn, rowBtnDanger, rowBtnGood, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
@@ -2776,6 +2777,19 @@ export function AttendanceAdminPanel({ role = "", areas, showPending = true, bar
     else { setSortKey(k); setSortDir(1); }
   };
   const markOf = (r: AttRecord) => (r.manual_by ? "manual" : r.amended_by ? "amended" : "punch");
+  /* v1.331.0 - THE REGISTER IS PAGED (the CEO, 17-11-2026: "Exceptions &
+     Approvals ... still overflow list scroll" - 107 records + 16 leave days ran
+     the whole page). One page of the SAME list the CSV exports (leave days
+     first, then the punches, in the chosen order); the CSV still exports every
+     row. Pages, never an inner vertical scroller (v1.176.1). */
+  const [regPage, setRegPage] = useState(1);
+  const [regSize, setRegSize] = useState<PageSize>(25);
+  const regLeave = visibleLeave(), regRecs = exportRows();
+  const regTotal = regLeave.length + regRecs.length;
+  const regCur = Math.min(Math.max(1, regPage), Math.max(1, Math.ceil(regTotal / regSize)));
+  const regFrom = (regCur - 1) * regSize, regTo = regFrom + regSize;
+  const lvShown = regLeave.slice(regFrom, regTo);
+  const rcShown = regRecs.slice(Math.max(0, regFrom - regLeave.length), Math.max(0, regTo - regLeave.length));
 
   const loadShifts = useCallback(async () => {
     const [sp, pp] = await Promise.all([
@@ -3856,7 +3870,7 @@ export function AttendanceAdminPanel({ role = "", areas, showPending = true, bar
                 be a second, quieter way to change one. They sit above the
                 punches because an absence explains the punches that are
                 missing beneath it. */}
-            {visibleLeave().map((l) => (
+            {lvShown.map((l) => (
               <Fragment key={`lv-${l.id}-${l.date}`}>
               <tr className="border-border bg-info-soft/30 border-b last:border-0">
                 <td className={tdOneLine}>{properName(l.name)}</td>
@@ -3945,7 +3959,7 @@ export function AttendanceAdminPanel({ role = "", areas, showPending = true, bar
               )}
               </Fragment>
             ))}
-            {exportRows().map((r) => (
+            {rcShown.map((r) => (
               <tr key={r.id} className="border-border border-b last:border-0">
                 <td className={tdOneLine}>{properName(r.name)}</td>
                 <td className={td}>{r.type === "clock_in" ? L("In", "Masuk") : L("Out", "Keluar")}</td>
@@ -4026,6 +4040,10 @@ export function AttendanceAdminPanel({ role = "", areas, showPending = true, bar
           </tbody>
         </table>
       </div>
+      {loaded && regTotal > 0 && (
+        <PaginationControls page={regCur} total={regTotal} size={regSize} onPage={setRegPage} onSize={(n) => { setRegSize(n); setRegPage(1); }}
+          label={L("Attendance register pages", "Halaman daftar kehadiran")} testid="att-register-pages" />
+      )}
       </>)}
     </div>
   );

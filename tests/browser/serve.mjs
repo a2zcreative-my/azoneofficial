@@ -46,6 +46,8 @@ let twofaOn = false;
    already_invoiced; SLOW_CONVERT=<ms> makes the convert take that long, so a
    busy button can be observed; DELETE /docs/:id refuses an invoice. */
 const voided = new Map();
+const permSaved = new Map(); // v1.331.0 - cap -> { roles, reason }: Roles & Permissions saves, read back
+const roleSaved = new Map(); // v1.331.0 - user id -> role: the role door, read back
 const converted = new Set();
 const slowConvert = Number(process.env.SLOW_CONVERT ?? 0);
 /* v1.243.0 (go-live Release C) - two more, stateful:
@@ -118,6 +120,8 @@ const servedChunks = new Set();
 let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
+  /* v1.331.0 - a Roles & Permissions run starts from the defaults (ROLESX servers keep saves) */
+  if (url.pathname === "/__rolesx-reset" && process.env.ROLESX) { permSaved.clear(); roleSaved.clear(); res.writeHead(200, { "content-type": "application/json" }); res.end("{\"ok\":true}"); return; }
   if (url.pathname === "/__fixture-status") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", fa_posts: fa.posts, missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
@@ -448,6 +452,26 @@ const server = http.createServer((req, res) => {
       if (req.method === "POST" && p === "/staff/access/policy") {
         let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
         if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+        /* v1.331.0 - the saved cells come back on the next read, as system_meta.role_permissions does
+           (the worker's own enforcement is proven by tests/matrix-edit.mjs) */
+        if (String(b.reason ?? "").trim().length < 10) { res.writeHead(400, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "reason_required", message: "Give the reason (at least 10 characters) - it is kept in the audit history." } })); return; }
+        if (!process.env.ROLESX) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, changed: [] })); return; }
+        if (b.reset_all) permSaved.clear();
+        for (const c of Array.isArray(b.changes) ? b.changes : []) {
+          if (["owner_designate", "role_top", "backup_download"].includes(c.cap) && (c.roles.length !== 1 || c.roles[0] !== "super_admin")) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "locked_cell", message: `${c.cap} cannot be changed that way.` } })); return; }
+          permSaved.set(c.cap, { roles: c.roles, reason: String(b.reason).trim() });
+        }
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, changed: (b.changes ?? []).map((c) => ({ cap: c.cap })) })); return;
+      }
+      /* v1.331.0 - the role door: the new role comes back with the account list */
+      {
+        const mr = /^\/staff\/users\/(\d+)\/role$/.exec(p);
+        if (mr && req.method === "POST" && process.env.ROLESX) {
+          let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+          if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+          roleSaved.set(Number(mr[1]), b.role);
+          res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, role: b.role, employment_status: b.employment_status ?? "permanent" })); return;
+        }
       }
       /* v1.249.2 - /admin > Users: the owner's role change asks for his code */
       if (process.env.OWNER && req.method === "PATCH" && /^\/users\/\d+$/.test(p)) {
@@ -621,6 +645,13 @@ const server = http.createServer((req, res) => {
         data.records = data.records.filter((r) => !String(r.created_at).startsWith(data.as_of));
         data.today_shift = { ...data.today_shift, entry: { ...data.today_shift.entry, clocked_in: Boolean(pin), open_since: pin?.created_at ?? null }, can_clock_in: !pin, why_not: null };
         if (Array.isArray(data.days)) data.days = data.days.map((d) => (d.date === data.as_of ? { ...d, in: null, out: null, open: Boolean(pin), worked: Boolean(pin) } : d));
+      }
+      if (req.method === "GET" && p === "/staff/access/policy" && permSaved.size && Array.isArray(data?.actions)) {
+        data.actions = data.actions.map((a) => a.cap && permSaved.has(a.cap) ? { ...a, roles: data.roles.filter((r) => permSaved.get(a.cap).roles.includes(r)), owner_grant: a.owner_grant && !permSaved.get(a.cap).roles.includes("ceo"), edited: true, edit_meta: { by_name: "Fixture Person", at: "2026-11-17 01:00:00", reason: permSaved.get(a.cap).reason } } : a);
+        data.edited_count = new Set(data.actions.filter((a) => a.edited).map((a) => a.cap)).size;
+      }
+      if (req.method === "GET" && p === "/staff/users" && roleSaved.size && Array.isArray(data?.users)) {
+        data.users = data.users.map((u) => roleSaved.has(u.id) ? { ...u, role: roleSaved.get(u.id) } : u); data.staff = data.users;
       }
       if (req.method === "GET" && p === "/staff/attendance" && punched.length && Array.isArray(data?.records)) data.records = [...punched.slice().reverse(), ...data.records];
       if (req.method === "GET" && p === "/staff/docs" && Array.isArray(data?.docs) && (voided.size || converted.size)) {

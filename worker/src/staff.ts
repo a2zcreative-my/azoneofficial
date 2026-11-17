@@ -15995,8 +15995,18 @@ async function handleStaffRoutes(
      leave form still in somebody bag. Turning that silence into money off a
      payslip automatically is the one thing this system must not do - so the
      scan finds them, and a person decides. */
-  if (path === "/payroll/absences" && method === "GET") {
-    if (!can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
+  /* v1.331.0 - ONE SCAN, TWO DOORS (the CEO, 17-11-2026: Payroll listed
+     "04/11 no clock-in" while Attendance -> Exceptions & Approvals said
+     "Nothing waiting for a decision"). The days with no clock-in, short days
+     and days waiting on leave are found HERE, once. Payroll reads them to
+     decide pay; Attendance reads the very same list (/attendance/absences, for
+     the people who may correct attendance) so the day can be fixed at its
+     source - the punch added, or leave applied - before payroll. Attendance
+     never deducts: the unpaid decision stays on Payroll. */
+  if ((path === "/payroll/absences" || path === "/attendance/absences") && method === "GET") {
+    const payrollDoor = path === "/payroll/absences";
+    if (payrollDoor && !can(user.role, "payroll_process")) return err("forbidden", "Payroll access required", 403);
+    if (!payrollDoor && !can(user.role, "attendance_correct") && !can(user.role, "payroll_process")) return err("forbidden", "Attendance correction access required", 403);
     const urlA2 = new URL(request.url);
     const mA2 = urlA2.searchParams.get("month") ??
       new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);

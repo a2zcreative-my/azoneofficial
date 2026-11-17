@@ -212,6 +212,12 @@ button.main:focus-visible {
 .switch[aria-checked="true"] .thumb {
   transform: translateX(1rem);
 }
+.switch[aria-checked="mixed"] .track {
+  background: var(--accent);
+}
+.switch[aria-checked="mixed"] .thumb {
+  transform: translateX(0.5rem);
+}
 .switch:focus-visible .track {
   outline: 2px solid var(--ring);
   outline-offset: 2px;

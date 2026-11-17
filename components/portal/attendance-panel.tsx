@@ -139,7 +139,7 @@ export function AttendancePanel({ user, go, startView }: { user: User; go: (t: T
 
       {manage && on("exceptions") && (
         <div hidden={view !== "exceptions"} className={css.body}>
-          <AttendanceExceptions user={user} />
+          <AttendanceExceptions user={user} onPayroll={() => go("Payroll")} />
         </div>
       )}
 
