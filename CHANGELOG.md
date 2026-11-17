@@ -10,6 +10,19 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.341.1] - 2026-11-17 - Fix: the site's security policy blocked the Cloudflare bot check, so nobody could sign in - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+Once 1.341.0 was live and the Turnstile keys were set, the sign-in page said "Cloudflare's security check could not load" for everyone. The browser console: the script `https://challenges.cloudflare.com/turnstile/v0/api.js` "violates the Content Security Policy directive script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com". The page therefore sent no token; the worker asked Cloudflare, Cloudflare answered, so the missing token was refused (the outage rule lets a sign-in through only when Cloudflare itself is unreachable). Every door was closed. The browser test had stubbed Cloudflare's script and so never met the site's real headers.
+
+### Fixed
+- `public/_headers`: `script-src` and `frame-src` now also allow `https://challenges.cloudflare.com` (Cloudflare's documented requirement for Turnstile: its script, and the frame its challenge runs in). Nothing else in the policy changed.
+
+### To restore sign-in at once (before this release)
+- In `worker\`: `npx wrangler secret delete TURNSTILE_SECRET` - with either key missing the check is off and sign-in works as before. After this release is live, `PUSH.bat` step [2c/7] asks for the missing key again.
+
+### Guards
+- `tests/security-sessions.mjs` S8 (+1 mutation): the site's CSP must name `https://challenges.cloudflare.com` in both `script-src` and `frame-src`.
+
 ## [1.341.0] - 2026-11-17 - Security & Sessions: a Cloudflare bot check before every sign-in, and the security picture from real reads - BUILT, NOT DEPLOYED (NO MIGRATION; OFF UNTIL THE TURNSTILE KEYS ARE SET)
 
 The CEO, with his picture: "make the security session strong to prevent any bot or attacker into my system ... before login I can use cloudflare bot checking", with the five sub-tabs kept, no new module, no hardcoded status and no bypass of the recovery and passkey safeguards. His answers: lenient on a Cloudflare outage; a read-only token for the WAF figures; an honest file-check status; a security-incident kind plus a register.

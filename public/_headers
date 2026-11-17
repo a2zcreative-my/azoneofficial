@@ -46,6 +46,11 @@
 # phone number cached for a year is exactly the failure this feature exists
 # to prevent.
 #
+# v1.341.1 - Cloudflare Turnstile (the bot check before sign-in) loads its
+# script and its challenge frame from https://challenges.cloudflare.com, so
+# script-src and frame-src name it. Without it the browser blocked the check
+# and nobody could sign in (17-11-2026). tests/security-sessions.mjs guards it.
+#
 # NOTE: comments live ONLY here at the top — a # line inside a rule block
 # can be misparsed as a header. tests/permissions-policy.mjs guards this.
 /*
@@ -54,7 +59,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(self)
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://static.cloudflareinsights.com; frame-src 'self' blob: data: https://www.google.com; media-src 'self' blob:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://static.cloudflareinsights.com; frame-src 'self' blob: data: https://www.google.com https://challenges.cloudflare.com; media-src 'self' blob:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests
   Cache-Control: no-cache
 
 /_next/static/*

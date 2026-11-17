@@ -112,6 +112,7 @@ const src = {
   login: read("app/login/page.tsx"), link: read("components/auth/link-page.tsx"), bot: read("components/security/bot-check.tsx"),
   sess: read("components/portal/security-sessions.tsx"), status: read("components/portal/security-status.tsx"),
   support: read("components/portal/support-card.tsx"), users: read("components/portal/users-panel.tsx"),
+  headers: read("public/_headers"),
 };
 function source(s) {
   const f = [];
@@ -130,6 +131,11 @@ function source(s) {
     /isRateLimited\(env, keyAcct, 10, 900\) \|\| await isRateLimited\(env, keyIp, 30, 900\)/.test(login) && /twofa_required: true, challenge/.test(s.idx));
   t("S7 the status read is the System health door (CEO and up), read-only",
     /if \(path === "\/api\/v1\/system\/security" && method === "GET"\) \{\s*if \(!atLeast\(user, "ceo"\)\) return errorResponse\("forbidden"/.test(s.idx) && !/INSERT INTO sessions|DELETE FROM sessions|UPDATE sessions/.test(s.st));
+  /* v1.341.1 - the site's security policy lets Cloudflare's widget load (script) and run its challenge (frame);
+     without it the browser blocked the check and nobody could sign in (17-11-2026) */
+  const csp = s.headers.match(/^\s*Content-Security-Policy: (.+)$/m)?.[1] ?? "";
+  t("S8 the site's CSP allows Turnstile: script-src and frame-src name https://challenges.cloudflare.com",
+    /script-src [^;]*https:\/\/challenges\.cloudflare\.com/.test(csp) && /frame-src [^;]*https:\/\/challenges\.cloudflare\.com/.test(csp));
   /* the screens */
   t("U1 the sign-in page and the set-password page use the one hook and send the token", /useBotCheck\(botKey, "signin"\)/.test(s.login) && /bot_token: bot\.token/.test(s.login) && /\?bt=\$\{encodeURIComponent\(bot\.token\)\}/.test(s.login) && /useBotCheck\(botKey, "set_password"\)/.test(s.link) && /bot_token: bot\.token/.test(s.link));
   t("U2 Overview: one KPI strip of six, recovery kept in the controls",
@@ -149,7 +155,7 @@ function source(s) {
 }
 const sf = source(src);
 for (const n of sf) { fails.push(n); console.log(`  ✗ ${n}`); }
-passed += 16 - sf.length;
+passed += 17 - sf.length;
 
 let caught = 0;
 const MUT = [
@@ -159,6 +165,7 @@ const MUT = [
   ["a seventh tile stacked on the Overview", "sess", '<KpiTile icon="warning" tone="red" label={L("Security Alerts"', '<KpiTile icon="warning" label="x" value={0} /><KpiTile icon="warning" tone="red" label={L("Security Alerts"'],
   ["the WAF shown as protected without a read", "status", '!cf.connected\n    ? { value: L("Not connected"', '!cf.connected\n    ? { value: L("Active", "Aktif"), sub: "", tone: "green" } as never ?? { value: L("Not connected"'],
   ["the register may write", "staff", "    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)", "    await env.DB.prepare(`UPDATE tasks SET status = 'completed'`).run();\n    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)"],
+  ["the CSP blocks Cloudflare's script again", "headers", " https://static.cloudflareinsights.com https://challenges.cloudflare.com;", " https://static.cloudflareinsights.com;"],
   ["the old errors card dropped from System health", "users", '<div id="system-health"><SystemHealthCard /></div>', '<div id="system-health" />'],
 ];
 if (!process.env.NOMUT) {
