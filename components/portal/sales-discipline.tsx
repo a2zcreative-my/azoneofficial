@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -130,6 +131,9 @@ const REASON: Record<string, [string, string]> = {
   ageing_quotations: ["quotations going cold", "sebut harga semakin sejuk"], gap_above_best_week: ["the gap is above the best week on record", "baki melebihi minggu terbaik"],
   no_target: ["no company target this week", "tiada sasaran syarikat minggu ini"], reached: ["the target is reached", "sasaran dicapai"],
 };
+/* v1.338.0 - each figure's well and tint in the one KPI strip */
+const CMD_ICON: Record<string, AppIconName> = { inv: "documents", open: "orders", pace: "target", best: "trophy", conf: "chart" };
+const CMD_TONE: Record<string, KpiTone> = { inv: "blue", open: "navy", pace: "gold", best: "green", conf: "purple" };
 export function CommandStrip({ o, gap }: { o: Outlook; gap: number | null }) {
   const c = o.confidence;
   const tiles: { k: string; label: string; value: string; note: string; tone?: string }[] = [
@@ -146,12 +150,14 @@ export function CommandStrip({ o, gap }: { o: Outlook; gap: number | null }) {
   const r = o.risk;
   return (
     <div className={css.strip} aria-label={L("This week at a glance", "Minggu ini sepintas lalu")}>
-      <ul className={css.tiles}>
-        {tiles.map((t) => <li key={t.k}><span className={css.tLabel}>{t.label}</span><strong className={css.tValue}>{t.value}</strong><span className={css.tNote}>{t.note}</span></li>)}
-        <li><span className={css.tLabel}>{L("Sales recovery risk", "Risiko pemulihan jualan")}</span>
-          <strong className={css.tValue}>{r.level && RISKL[r.level] ? <span className={RISKL[r.level]![2]}>{L(RISKL[r.level]![0], RISKL[r.level]![1])}</span> : "—"}</strong>
-          <span className={css.tNote}>{r.ratio !== null ? L(`open quotations cover ${r.ratio}× the gap · `, `sebut harga terbuka meliputi ${r.ratio}× baki · `) : ""}{r.reasons.map((x) => L(REASON[x]?.[0] ?? x, REASON[x]?.[1] ?? x)).join("; ")}</span></li>
-      </ul>
+      {/* v1.338.0 - the CEO's strict KPI strip: the week's figures are segments
+          of the one strip (KpiRow), never six cards; the risk keeps its chip */}
+      <KpiRow label={L("This week at a glance", "Minggu ini sepintas lalu")} testid="command-strip">
+        {tiles.map((t) => <KpiTile key={t.k} cell={t.k} icon={CMD_ICON[t.k] ?? "chart"} tone={CMD_TONE[t.k] ?? "navy"} label={t.label} value={t.value} sub={t.note} title={t.note} />)}
+        <KpiTile cell="risk" icon="warning" tone={r.level === "high" ? "red" : r.level === "medium" ? "gold" : "green"} label={L("Sales recovery risk", "Risiko pemulihan jualan")}
+          value={r.level && RISKL[r.level] ? <span className={RISKL[r.level]![2]}>{L(RISKL[r.level]![0], RISKL[r.level]![1])}</span> : "—"}
+          sub={`${r.ratio !== null ? L(`open quotations cover ${r.ratio}× the gap · `, `sebut harga terbuka meliputi ${r.ratio}× baki · `) : ""}${r.reasons.map((x) => L(REASON[x]?.[0] ?? x, REASON[x]?.[1] ?? x)).join("; ")}`} />
+      </KpiRow>
       <p className={css.fine}>{L("The CEO's target is never changed by the system. The pace is the remaining gap over the working days left; confidence needs 8 weeks with a target and 20 decided quotations before it says anything; nothing here is a sales prediction.", "Sasaran CEO tidak pernah diubah oleh sistem. Rentak ialah baki dibahagi hari bekerja yang tinggal; keyakinan perlukan 8 minggu bersasaran dan 20 sebut harga diputuskan; tiada ramalan jualan di sini.")}</p>
     </div>
   );

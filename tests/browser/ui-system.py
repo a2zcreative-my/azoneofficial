@@ -78,7 +78,8 @@ def judge(tag, strips, w, phone):
         if not s["textOk"]: why.append("text the colour of its ground")
         if phone and s["kids"] > 1 and s["cols"] != 2: why.append(f"{s['cols']} columns on a phone")
         if phone and not s["lastAcross"]: why.append("an odd last one stranded at half width")
-        if not phone and s["kids"] <= 6 and w >= 1280 and s["rows"] != 1: why.append(f"{s['rows']} rows at {w}px")
+        # v1.338.0 - a strip inside a half-width card lays out by its own width (fewer columns); one row is the page-wide strip's rule
+        if not phone and s["kids"] <= 6 and w >= 1280 and s["width"] >= 900 and s["rows"] != 1: why.append(f"{s['rows']} rows at {w}px")
         if why: bad.append(f"{s['id']}: " + "; ".join(why))
     return bad
 

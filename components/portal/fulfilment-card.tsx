@@ -37,12 +37,13 @@ const CHIPS: [key: string, label: string, labelMs: string, icon: AppIconName][] 
   ["delivered", "Delivered", "Telah sampai", "success"],
   ["returned", "Returned / cancelled", "Dipulang / dibatal", "returned"],
 ];
-/* v1.191.0 - each status's tint in the reference's five tiles */
-const TONE: Record<string, string> = { preparing: "gold", shipped: "blue", in_transit: "blue", delivered: "green", returned: "red" };
+/* v1.191.0 - each status's tint; v1.338.0 - the tints of the one KPI strip */
+const TONE: Record<string, KpiTone> = { preparing: "gold", shipped: "blue", in_transit: "blue", delivered: "green", returned: "red" };
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 import { fmtRM as rmF, dmy } from "@/lib/format"; // v1.4.272: the global formatters
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 const dmyT = (ts: string) => {
   const d = new Date(ts.replace(" ", "T") + "Z");
   if (Number.isNaN(d.getTime())) return ts;
@@ -101,16 +102,16 @@ export function FulfilmentCard({ onViewAll }: { onViewAll?: () => void } = {}) {
         <SkelText lines={2} className="mt-2" />
       ) : (
         <>
-          <div className={css.tiles}>
-            {CHIPS.map(([k, label, labelMs, icon]) => (
-              <button key={k} type="button" onClick={() => void toggleDrill(k)} aria-pressed={drill === k}
-                title={L("Click to show these orders", "Klik untuk tunjuk pesanan ini")}
-                className={`${css.tile} ${css[TONE[k] ?? "blue"]} ${drill === k ? css.on : ""}`}>
-                <AppIcon name={icon} />
-                <span className={css.word}>{L(label, labelMs)}</span>
-                <span className={css.n}>{n(k)}</span>
-              </button>
-            ))}
+          {/* v1.338.0 - the CEO's strict KPI strip: the statuses are segments of
+              the one strip (KpiRow), never five cards; pressing one shows its
+              orders exactly as the tile did */}
+          <div className={css.strip} data-testid="fulfilment-strip">
+            <KpiRow label={L("TikTok orders by status", "Pesanan TikTok mengikut status")}>
+              {CHIPS.map(([k, label, labelMs, icon]) => (
+                <KpiTile key={k} cell={k} icon={icon} tone={TONE[k] ?? "blue"} label={L(label, labelMs)} value={n(k)}
+                  onClick={() => void toggleDrill(k)} pressed={drill === k} title={L("Click to show these orders", "Klik untuk tunjuk pesanan ini")} />
+              ))}
+            </KpiRow>
           </div>
           {/* v1.296.0 (Ecommerce v2.0) - the lifecycle, said once: progress and outcome are not one line */}
           <p className={css.sub} data-testid="fulfilment-lifecycle">{L("A new order counts under Preparing, then moves Shipped → In transit → Delivered. Returned / cancelled is how an order ends instead, not a step after Delivered; the store records a return and a cancellation as one outcome.",

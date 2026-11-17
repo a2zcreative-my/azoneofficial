@@ -216,7 +216,7 @@ ok("the shift hero is a card on the page's own tokens - it redefines none (so no
 const styles = read("lib/ui-styles.ts");
 const MAP = {
   card: "erp-card", insetCard: "erp-card-inset", accentCard: "erp-card erp-card-accent",
-  tileCard: "erp-stat", modalCard: "erp-modal", sheetCard: "erp-sheet", toastCard: "erp-toast", menuCard: "erp-menu",
+  modalCard: "erp-modal", sheetCard: "erp-sheet", toastCard: "erp-toast", menuCard: "erp-menu",
   inputClass: "erp-input", inputClassSm: "erp-input erp-input-sm", selectClass: "erp-input erp-select",
   textareaClass: "erp-input erp-textarea", selectClassSm: "erp-input erp-input-sm erp-select",
   fieldRow: "erp-field-row", fieldLabel: "erp-label", th: "erp-th", td: "erp-td", thR2: "erp-th erp-th-num", tdR2: "erp-td erp-td-num",

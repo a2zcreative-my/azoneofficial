@@ -96,8 +96,9 @@ async function checks(f) {
   ok(/state: shiftState, canClockIn/.test(build) && /waiting: waitingPunches\.length/.test(build) && /workedMinutes=\{workedToday\}/.test(build) && /openSince=\{openSinceRaw\}/.test(build), "D the same shift state, outbox and hours On Shift reads");
 
   /* E */
-  ok(/return canAtt\s*\? <button key=\{k\} type="button" className=\{shiftCss\.tileBtn\} onClick=\{\(\) => go\("Attendance"\)\}/.test(zoneShift)
-     && /: <div key=\{k\} className=\{shiftCss\.tileBtn\}>/.test(zoneShift), "E On Shift's tiles open My attendance only for those who may");
+  /* v1.338.0 - the tiles are segments of the one KPI strip; only a segment for those who may opens My attendance */
+  ok(/return canAtt\s*\? <KpiTile key=\{k\} [^>]*onClick=\{\(\) => go\("Attendance"\)\}/.test(zoneShift)
+     && /: <KpiTile key=\{k\} cell=\{k\} [^>]*value=\{value\} \/>;/.test(zoneShift) && /<KpiRow label=\{L\("My shift today"/.test(zoneShift), "E On Shift's tiles open My attendance only for those who may");
   ok(/\{canAtt && <button [^>]*onClick=\{\(\) => go\("Attendance"\)\}>/.test(zoneShift), "E the My attendance button is drawn only for those who may");
   ok(/\{\(activeTab === "Dashboard" \|\| activeTab === "On Shift"\) && \(?\s*<p className=\{`erp-phone-only \$\{css\.phoneSub\}`\}>/.test(strip(f.shell))
      && /\.phoneSub \{/.test(f.shellCss), "E the phone header's subtitle, on Today and On Shift only");
@@ -114,7 +115,7 @@ const mutations = [
   ["the open state read as done", { onShift: real.onShift.replace('if (p.state === "open") return "open";', 'if (p.state === "open") return "done";') }],
   ["the summary sent back to My Day", { dash: real.dash.replace('onOpen={() => go("On Shift")}', 'onOpen={() => setDashView("day")}') }],
   ["a held punch shown as done", { onShift: real.onShift.replace('if (p.waiting > 0) return "waiting";', "") }],
-  ["tiles open Attendance for everybody", { dash: real.dash.replace("return canAtt\n                ? <button key={k}", "return true\n                ? <button key={k}") }],
+  ["tiles open Attendance for everybody", { dash: real.dash.replace("return canAtt\n                ? <KpiTile key={k}", "return true\n                ? <KpiTile key={k}") }],
   ["the subtitle on every tab", { shell: real.shell.replace('{(activeTab === "Dashboard" || activeTab === "On Shift") && (', "{(") }],
 ];
 for (const [name, patch] of mutations) {

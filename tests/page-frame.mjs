@@ -51,7 +51,9 @@ const att = read("components/portal/attendance-panel.tsx");
 const sto = read("components/portal/stokis-panel.tsx");
 ok("Attendance's figures are KpiTiles", (att.match(/<KpiTile\b/g) ?? []).length >= 4 && !/<SummaryStat\b/.test(att));
 ok("Stokis' figures are KpiTiles", (sto.match(/<KpiTile\b/g) ?? []).length >= 3 && !/<SummaryStat\b/.test(sto));
-ok("Content keeps SummaryStat as its stage filter", /<SummaryStat\b/.test(read("components/portal/content-panel.tsx")));
+/* v1.338.0 - the CEO's strict KPI strip: Content's stage filter is the one strip too (a pressed segment) */
+const cont = read("components/portal/content-panel.tsx");
+ok("Content's stage filter is the one KPI strip, its stage in force pressed", /<KpiRow label=/.test(cont) && /pressed=\{stageFilter === s\}/.test(cont) && !/<SummaryStat\b/.test(cont));
 
 /* ---- 3. one tab bar ---- */
 const thr = read("components/portal/threads-panel.tsx");

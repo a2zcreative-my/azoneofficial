@@ -70,8 +70,8 @@ export const card = "erp-card";
                   contained by its parent, not as a card competing with it.
      accentCard   a card with a coloured top edge, for a figure that carries
                   a status.
-     tileCard     a small square tile in a grid of them: one figure, one
-                  label, centred.
+     (tileCard, the figure tile, retired v1.338.0: every figure is a segment
+                  of the one KPI strip, KpiRow / KpiTile in components/ui/kpi-tile.tsx)
      modalCard    the panel a dialog draws over the page.
      sheetCard    the phone's bottom sheet.
      toastCard    the centred confirmation card that fades.
@@ -96,8 +96,6 @@ export const insetCard = "erp-card-inset";
     everything else is the card. */
 export const accentCard = "erp-card erp-card-accent";
 
-/** One figure, one label, centred — in a grid of siblings. */
-export const tileCard = "erp-stat";
 
 /** The panel a dialog draws. Callers add their own max-height/scrolling. */
 export const modalCard = "erp-modal";

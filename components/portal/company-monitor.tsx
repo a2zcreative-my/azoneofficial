@@ -12,8 +12,9 @@ import { Skel, SkelText, StaleHint } from "@/components/ui/skeleton";
 
 import { makeApi } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
-import { AppIcon } from "@/components/ui/app-icon";
-import { btnSm, card, chipAction, chipNeutral, chipDanger, chipWarn, td, th, tileCard } from "@/lib/ui-styles";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
+import { btnSm, card, chipAction, chipNeutral, chipDanger, chipWarn, td, th } from "@/lib/ui-styles";
 import { getLang } from "@/lib/i18n";
 
 const api = makeApi("/staff");
@@ -55,18 +56,12 @@ interface MonTask {
  *
  * MODULE SCOPE, per guard #30: a component declared inside the card would be
  * a new type on every render. */
-function CountTile({ n, label, tone, active, onPick }: {
-  n: number; label: string; tone: string; active: boolean; onPick: () => void;
+/* v1.338.0 - the CEO's strict KPI strip: a count is a segment of the one strip
+   (KpiTile), pressed while its list is open - never a card of its own */
+function CountTile({ n, label, icon, tone, active, onPick }: {
+  n: number; label: string; icon: AppIconName; tone: KpiTone; active: boolean; onPick: () => void;
 }) {
-  return (
-    <button type="button" aria-pressed={active}
-      className={`${tileCard} min-h-16 w-full text-center transition hover:brightness-95 ${tone} ${active ? "ring-primary ring-2" : ""}`}
-      title={L("Show these", "Tunjukkan ini")}
-      onClick={onPick}>
-      <p className="text-xl font-semibold tabular-nums">{n}</p>
-      <p className="text-muted-foreground text-[11px]">{label}{active ? " ✕" : ""}</p>
-    </button>
-  );
+  return <KpiTile icon={icon} tone={tone} label={label} value={n} pressed={active} onClick={onPick} title={L("Show these", "Tunjukkan ini")} />;
 }
 
 export function TaskProgressCard() {
@@ -106,25 +101,27 @@ export function TaskProgressCard() {
         <AppIcon name="assignment" className="text-muted-foreground" />
         {L("Task progress — company-wide", "Kemajuan tugasan — seluruh syarikat")}
       </p>
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center sm:grid-cols-5">
-        {([["open", "Open", "Terbuka"], ["in_progress", "Pending", "Menunggu"], ["completed", "Closed", "Ditutup"]] as const).map(([k, lbl, lblMs]) => (
+      <div className="mt-3" data-testid="task-progress-strip">
+        <KpiRow label={L("Task progress, company-wide", "Kemajuan tugasan, seluruh syarikat")}>
+        {([["open", "Open", "Terbuka", "assignment", "blue"], ["in_progress", "Pending", "Menunggu", "pending", "gold"], ["completed", "Closed", "Ditutup", "success", "green"]] as const).map(([k, lbl, lblMs, icon, tone]) => (
           <CountTile key={k} n={data.task_summary?.find((t) => t.status === k)?.n ?? 0}
-            label={L(lbl, lblMs)} tone="border-border" active={pick === k}
+            label={L(lbl, lblMs)} icon={icon} tone={tone} active={pick === k}
             onPick={() => setPick(pick === k ? null : k)} />
         ))}
         {/* v1.42.0 (CEO: "monitor closely"): the two numbers that demand a
             manager's action — deadlines already missed, and assignments
             nobody has confirmed seeing. Red/amber when above zero. */}
         {typeof data.task_overdue === "number" && (
-          <CountTile n={data.task_overdue} label={L("Overdue", "Tertunggak")}
-            tone={data.task_overdue > 0 ? "border-danger bg-danger-soft text-danger" : "border-border"}
+          <CountTile n={data.task_overdue} label={L("Overdue", "Tertunggak")} icon="warning"
+            tone={data.task_overdue > 0 ? "red" : "navy"}
             active={pick === "overdue"} onPick={() => setPick(pick === "overdue" ? null : "overdue")} />
         )}
         {typeof data.task_unacked === "number" && (
-          <CountTile n={data.task_unacked} label={L("Not acknowledged", "Belum diakui")}
-            tone={data.task_unacked > 0 ? "border-warning bg-warning-soft text-warning" : "border-border"}
+          <CountTile n={data.task_unacked} label={L("Not acknowledged", "Belum diakui")} icon="pending"
+            tone={data.task_unacked > 0 ? "gold" : "navy"}
             active={pick === "unacked"} onPick={() => setPick(pick === "unacked" ? null : "unacked")} />
         )}
+        </KpiRow>
       </div>
 
       {/* The rows behind the figure, right under it. */}

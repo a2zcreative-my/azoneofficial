@@ -42,6 +42,27 @@
   .row > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
+/* v1.338.0 - THE CEO'S STRICT KPI STRIP, on every page. Most strips run the
+   page's width; some sit inside a half-width card (Fulfilment Summary, Sales
+   Performance). The frame is a size container, so the strip also counts its
+   OWN width: a narrow strip only ever takes FEWER columns than the window
+   rules above give it, never more, and never shreds a label. */
+.frame {
+  container: kpistrip / inline-size;
+  min-width: 0;
+}
+@container kpistrip (max-width: 52rem) {
+  .row[data-cells="5"], .row[data-cells="6"], .row[data-cells="7"], .row[data-cells="8"] { --cells: 3; }
+}
+@container kpistrip (max-width: 36rem) {
+  .row[data-cells="4"] { --cells: 2; }
+}
+@container kpistrip (max-width: 30rem) {
+  .row[data-cells] { --cells: 2; }
+  .row[data-cells="1"] { --cells: 1; }
+  .row > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+
 /* ---------- a segment ---------- */
 .tile {
   container-type: inline-size;
@@ -257,6 +278,16 @@
   .well :global(.erp-icon) {
     width: 1.125rem;
     height: 1.125rem;
+  }
+}
+/* v1.338.0 - a segment too narrow for its icon AND its figure (a strip inside a
+   half-width card) drops the icon, never the figure: an amount stays on one line */
+@container (max-width: 11.25rem) {
+  .tile {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .well {
+    display: none;
   }
 }
 @media (max-width: 767px) {

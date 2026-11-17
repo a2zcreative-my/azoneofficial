@@ -31,7 +31,8 @@
    laid out by on-shift.module.css. */
 
 import { useEffect, useMemo, useState } from "react";
-import { AppIcon } from "@/components/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import { Avatar } from "@/components/ui/avatar";
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { L, type AttRecord, type LocOutcome, type MonthDay } from "@/components/portal/page-shared";
@@ -44,6 +45,10 @@ import { dmy, mytToday } from "@/lib/format";
 import { outboxAll, subscribeOutbox, dismissNeedsHr } from "@/lib/outbox";
 import { chipInfo, chipNeutral, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSuccess, chipWarn, inputClass, selectClass } from "@/lib/ui-styles";
 import css from "./on-shift.module.css";
+
+/* v1.338.0 - the wells and tints of On Shift's figures in the one KPI strip */
+const WEEK_ICON: Record<string, AppIconName> = { scheduled: "date", attended: "success", completed: "verify", late: "time", missing: "warning", leave: "holiday", pending: "pending" };
+const TEAM_FIG: Record<string, [AppIconName, KpiTone]> = { scheduled: ["users", "navy"], on: ["success", "green"], notIn: ["pending", "gold"], out: ["time", "blue"], exceptions: ["place", "navy"] };
 
 const utcMs = (at: string): number => Date.parse(`${at.replace(" ", "T")}Z`);
 /** HH:MM Malaysia time for a stored UTC stamp */
@@ -360,15 +365,22 @@ export function TeamOnShift({ rows, onOpenAttendance, site = null }: {
       </div>
       {rows === null ? <SkelRows rows={4} /> : (
         <>
+          {/* v1.338.0 - the CEO's strict KPI strip: the team's five figures are
+              segments of the one strip; a status figure is the status filter
+              (pressed), Location exceptions the location filter, as before */}
           <div className={css.teamFigures} data-testid="team-figures">
-            {FIG.map(([k, en, ms, st]) => {
-              const body = (<><span className={css.figValue} data-testid={`team-fig-${k}`}>{counts[k]}</span><span className={css.figLabel}>{L(en, ms)}</span></>);
-              return st
-                ? <button key={k} type="button" className={css.teamFig} aria-pressed={f === st} onClick={() => { setF(f === st ? "" : st); reset(); }}>{body}</button>
-                : k === "exceptions"
-                  ? <button key={k} type="button" className={css.teamFig} data-alert={counts.exceptions > 0 ? "" : undefined} aria-pressed={locF === "outside"} onClick={() => { setLocF(locF === "outside" ? "" : "outside"); reset(); }}>{body}</button>
-                  : <div key={k} className={css.teamFig}>{body}</div>;
-            })}
+            <KpiRow label={L("Team on shift figures", "Angka pasukan sedang syif")}>
+              {FIG.map(([k, en, ms, st]) => {
+                const [icon, tone] = TEAM_FIG[k] ?? ["users", "navy"];
+                return st
+                  ? <KpiTile key={k} cell={k} testid={`team-fig-${k}`} icon={icon} tone={tone} label={L(en, ms)} value={counts[k]}
+                      pressed={f === st} onClick={() => { setF(f === st ? "" : st); reset(); }} />
+                  : k === "exceptions"
+                    ? <KpiTile key={k} cell={k} testid={`team-fig-${k}`} icon={icon} tone={counts.exceptions > 0 ? "red" : tone} label={L(en, ms)} value={counts[k]}
+                        pressed={locF === "outside"} onClick={() => { setLocF(locF === "outside" ? "" : "outside"); reset(); }} />
+                    : <KpiTile key={k} cell={k} testid={`team-fig-${k}`} icon={icon} tone={tone} label={L(en, ms)} value={counts[k]} />;
+              })}
+            </KpiRow>
           </div>
           {!hasShift && <p className={css.hint}>{L("Scheduled counts are shown once the server sends today's shifts.", "Kiraan berjadual dipaparkan selepas pelayan menghantar syif hari ini.")}</p>}
           <div className={css.teamTools}>
@@ -622,13 +634,17 @@ export function WeekSchedule({ userId, onOpenRoster, days: verdicts = null, reco
       </div>
       {!known || roster.loading ? <SkelRows rows={4} /> : (
         <>
-          <dl className={css.weekFigures}>
-            {FIG.map(([k, en, ms]) => (
-              <div key={k} className={css.weekFig} data-alert={(k === "late" || k === "missing" || k === "pending") && count[k] > 0 ? "" : undefined}>
-                <dt>{L(en, ms)}</dt><dd data-testid={`week-${k}`}>{verdicts ? count[k] : "—"}</dd>
-              </div>
-            ))}
-          </dl>
+          {/* v1.338.0 - the CEO's strict KPI strip: the week's seven figures are
+              segments of the one strip; a late, missing or pending count above
+              zero takes the warning tint, as its figure did */}
+          <div className={css.weekFigures}>
+            <KpiRow label={L("This week's figures", "Angka minggu ini")} testid="week-figures">
+              {FIG.map(([k, en, ms]) => (
+                <KpiTile key={k} cell={k} testid={`week-${k}`} icon={WEEK_ICON[k] ?? "date"} label={L(en, ms)} value={verdicts ? count[k] : "—"}
+                  tone={(k === "late" || k === "missing" || k === "pending") && count[k] > 0 ? "gold" : "navy"} />
+              ))}
+            </KpiRow>
+          </div>
           {roster.failed && !roster.data && <p className={css.hint}>{L("The roster could not be loaded; the days below show your attendance only.", "Roster tidak dapat dimuatkan; hari di bawah hanya menunjukkan kehadiran anda.")}</p>}
           <ul className={css.week} aria-label={L("Days of this week", "Hari minggu ini")}>
             {days.map((d) => {

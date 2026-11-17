@@ -55,6 +55,7 @@ import { btnHero, btnHeroPrimary, card, chipSmNeutral, chipSuccess } from "@/lib
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { PunchIcon } from "@/components/ui/punch-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import css from "./dashboard.module.css";
 import shiftCss from "./on-shift.module.css";
 import { daysOf, hoursLabel, sessionMinutes } from "@/lib/clock-sessions";
@@ -154,12 +155,6 @@ export function MonthAttendanceCard({ days, month, lang, daysPresent, hours }: {
     cells.push(byDate.get(iso) ?? { date: iso, status: "future" });
   }
   const monthName = MONTH_NAMES[lang === "ms" ? "ms" : "en"][m - 1] ?? month;
-  const stat = (label: string, value: string | number, tone: string | undefined) => (
-    <div className={css.stat}>
-      <p className={css.statLabel}>{label}</p>
-      <p className={`${css.statValue} ${tone ?? ""}`}>{value}</p>
-    </div>
-  );
   const notes: string[] = [];
   if (s.absent > 0) notes.push(L(`${s.absent} absent`, `${s.absent} tidak hadir`));
   if (s.awaiting > 0) notes.push(L(`${s.awaiting} awaiting the CEO's approval`, `${s.awaiting} menunggu kelulusan CEO`));
@@ -177,32 +172,23 @@ export function MonthAttendanceCard({ days, month, lang, daysPresent, hours }: {
         </p>
       </div>
       <div className={css.monthBody}>
-        <div className={`${css.stats} ${has ? css.statsFull : ""}`}>
-          {has && stat(L("On time", "Tepat waktu"), s.onTime, css.onTime)}
-          {has && stat(L("Late", "Lewat"), s.late, s.late > 0 ? css.late : "")}
-          {has && stat(L("Half day", "Separuh hari"), s.halfDay, s.halfDay > 0 ? css.half : "")}
-          {/* v1.171.0 — the punches' own figures, from the four-tile strip
-              this card replaced: days with a punch, and the day's shifts
-              added up (v1.133.0 pairing rule - the hours between two shifts
-              are not worked hours). */}
-          {daysPresent !== undefined && (
-            <div className={css.stat} title={L("Days this month with attendance recorded", "Hari bulan ini dengan kehadiran direkodkan")}>
-              <p className={css.statLabel}>{L("Present", "Hadir")}</p>
-              <p className={css.statValue}>{daysPresent}<span className={css.statUnit}>{L("d", "h")}</span></p>
-            </div>
-          )}
-          {hours !== undefined && (
-            <div className={css.stat} title={L("Your shifts added up, per day", "Syif anda dijumlahkan, setiap hari")}>
-              <p className={css.statLabel}>{L("Hours", "Jam")}</p>
-              <p className={css.statValue}>{hours.toFixed(1)}<span className={css.statUnit}>h</span></p>
-            </div>
-          )}
-          {has && (
-            <div className={css.stat} title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")}>
-              <p className={css.statLabel}>{L("Streak", "Rentetan")}</p>
-              <p className={css.statValue}>{s.streak}<span className={css.statUnit}>{L("d", "h")}</span></p>
-            </div>
-          )}
+        {/* v1.338.0 - the CEO's strict KPI strip: the month's figures are
+            segments of the one strip (KpiRow); a late or half day above zero
+            keeps its warning tint; the hover words stay on each figure */}
+        <div className={css.stats} data-testid="month-figures">
+          <KpiRow label={L("Attendance this month", "Kehadiran bulan ini")}>
+            {has && <KpiTile cell="ontime" icon="success" tone="green" label={L("On time", "Tepat waktu")} value={s.onTime} />}
+            {has && <KpiTile cell="late" icon="time" tone={s.late > 0 ? "gold" : "navy"} label={L("Late", "Lewat")} value={s.late} />}
+            {has && <KpiTile cell="half" icon="pending" tone={s.halfDay > 0 ? "red" : "navy"} label={L("Half day", "Separuh hari")} value={s.halfDay} />}
+            {/* v1.171.0 — the punches' own figures: days with a punch, and the
+                day's shifts added up (v1.133.0 pairing rule) */}
+            {daysPresent !== undefined && <KpiTile cell="present" icon="date" tone="blue" label={L("Present", "Hadir")} value={`${daysPresent} ${L("d", "h")}`}
+              title={L("Days this month with attendance recorded", "Hari bulan ini dengan kehadiran direkodkan")} />}
+            {hours !== undefined && <KpiTile cell="hours" icon="time" tone="blue" label={L("Hours", "Jam")} value={`${hours.toFixed(1)} h`}
+              title={L("Your shifts added up, per day", "Syif anda dijumlahkan, setiap hari")} />}
+            {has && <KpiTile cell="streak" icon="trophy" tone="gold" label={L("Streak", "Rentetan")} value={`${s.streak} ${L("d", "h")}`}
+              title={L("Consecutive scheduled days on time, counting back from the last settled day this month", "Hari berjadual berturut-turut yang tepat waktu, dikira ke belakang dari hari terakhir yang selesai bulan ini")} />}
+          </KpiRow>
         </div>
         {/* the month, as it happened — Monday-first, one cell per day */}
         {has && (
@@ -1672,26 +1658,25 @@ export function Dashboard({
         {/* v1.229.0 - Image 1: the four figures with their icons; each opens
             My attendance for those who may (the owner's answer "Tiles open
             My attendance"), otherwise they are plain figures */}
-        <div className={shiftCss.tiles}>
-          {([
-            ["in", shiftCss.wellIn, L("Clocked in", "Daftar masuk"), attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"],
-            ["out", shiftCss.wellOut, L("Last out", "Keluar terakhir"), attKnown && hasOut ? lastOut : "--:--"],
-            ["hours", shiftCss.wellHours, L("Today's hours", "Jam hari ini"), !attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`],
-            ["shifts", shiftCss.wellShifts, L("Shifts", "Syif"), attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"],
-          ] as const).map(([k, well, label, value]) => {
-            const inner = (
-              <>
-                <span className={`${shiftCss.tileWell} ${well}`} aria-hidden>
-                  {k === "in" ? <PunchIcon kind="in" /> : k === "out" ? <PunchIcon kind="out" /> : <AppIcon name={k === "hours" ? "date" : "orders"} />}
-                </span>
-                <span className={shiftCss.tileText}><span className={shiftCss.tileLabel}>{label}</span><span className={shiftCss.tileValue}>{value}</span></span>
-                {canAtt ? <span className={shiftCss.tileChevron} aria-hidden><AppIcon name="next" /></span> : <span />}
-              </>
-            );
-            return canAtt
-                ? <button key={k} type="button" className={shiftCss.tileBtn} onClick={() => go("Attendance")} aria-label={`${label}: ${value} - ${L("open My attendance", "buka kehadiran saya")}`}>{inner}</button>
-                : <div key={k} className={shiftCss.tileBtn}>{inner}</div>;
-          })}
+        {/* v1.338.0 - the CEO's strict KPI strip: the four figures are segments
+            of the one strip (KpiRow). The owner's Check In / Check Out artwork
+            stays in the wells; each segment opens My attendance only for those
+            who may, otherwise it is a plain figure (v1.229.0) */}
+        <div className={shiftCss.tiles} data-testid="shift-tiles">
+          <KpiRow label={L("My shift today", "Syif saya hari ini")}>
+            {([
+              ["in", "blue", L("Clocked in", "Daftar masuk"), attKnown && today.some((r) => r.type === "clock_in") ? firstIn : "--:--"],
+              ["out", "navy", L("Last out", "Keluar terakhir"), attKnown && hasOut ? lastOut : "--:--"],
+              ["hours", "green", L("Today's hours", "Jam hari ini"), !attKnown ? "—" : openNow && workedToday === 0 ? L("Running", "Berjalan") : `${Math.floor(workedToday / 60)}h ${String(workedToday % 60).padStart(2, "0")}m${openNow ? " +" : ""}`],
+              ["shifts", "gold", L("Shifts", "Syif"), attKnown ? `${sessionsNow.length}${todayShift?.slots?.length ? ` / ${todayShift.slots.length}` : ""}` : "—"],
+            ] as const).map(([k, tone, label, value]) => {
+              const glyph = k === "in" ? <PunchIcon kind="in" /> : k === "out" ? <PunchIcon kind="out" /> : undefined;
+              return canAtt
+                ? <KpiTile key={k} cell={k} icon={k === "hours" ? "date" : "orders"} glyph={glyph} tone={tone as KpiTone} label={label} value={value}
+                    onClick={() => go("Attendance")} title={`${label}: ${value} - ${L("open My attendance", "buka kehadiran saya")}`} />
+                : <KpiTile key={k} cell={k} icon={k === "hours" ? "date" : "orders"} glyph={glyph} tone={tone as KpiTone} label={label} value={value} />;
+            })}
+          </KpiRow>
         </div>
         {/* v1.294.0 - section A: the state, the break, overtime and where */}
         {attKnown && (

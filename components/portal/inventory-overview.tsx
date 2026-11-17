@@ -271,18 +271,23 @@ export function InventoryReports({ items, moves, tt, loaded, today }: {
         <div className={css.col}>
           <section className={card} aria-label={L("TikTok stock out this month", "Stok keluar TikTok bulan ini")}>
             <Head icon="chart" tone={css.purple} title={L("TikTok Stock Out", "Stok Keluar TikTok")} sub={L("Units TikTok orders deducted (returned orders excluded). The per-item table is below.", "Unit yang ditolak oleh pesanan TikTok (pesanan dipulangkan tidak dikira). Jadual setiap barang di bawah.")} />
+            {/* v1.338.0 - the CEO's strict KPI strip: segments of the one strip, never three cards */}
             <div className={css.figs}>
-              <div className={css.fig}><p className={css.figLabel}>{L("Today", "Hari ini")}</p><p className={css.figValue}>{loaded ? ttMonth.today : "···"}</p></div>
-              <div className={css.fig}><p className={css.figLabel}>{L("This month", "Bulan ini")}</p><p className={css.figValue}>{loaded ? ttMonth.qty : "···"}</p></div>
-              <div className={css.fig}><p className={css.figLabel}>{L("Sold value, month", "Nilai jualan, bulan")}</p><p className={css.figValue}>{loaded ? `RM ${rmBare(ttMonth.value)}` : "···"}</p></div>
+              <KpiRow label={L("TikTok stock out", "Stok keluar TikTok")}>
+                <KpiTile icon="date" tone="purple" label={L("Today", "Hari ini")} value={ttMonth.today} busy={!loaded} />
+                <KpiTile icon="package" tone="purple" label={L("This month", "Bulan ini")} value={ttMonth.qty} busy={!loaded} />
+                <KpiTile icon="money" tone="green" label={L("Sold value, month", "Nilai jualan, bulan")} value={`RM ${rmBare(ttMonth.value)}`} busy={!loaded} />
+              </KpiRow>
             </div>
           </section>
           <section className={card} aria-label={L("Manual movements, last 30 days", "Pergerakan manual, 30 hari lepas")}>
             <Head icon="transit" tone={css.blue} title={L("Manual Movements (30 Days)", "Pergerakan Manual (30 Hari)")} sub={L("Units moved by hand, reversed records left out, by reason.", "Unit digerakkan secara manual, rekod dibatalkan tidak dikira, mengikut sebab.")} />
             <div className={css.figs}>
-              <div className={css.fig}><p className={css.figLabel}>{L("Units in", "Unit masuk")}</p><p className={`${css.figValue} ${css.plus}`}>{loaded ? (inUnits > 0 ? `+${inUnits}` : "0") : "···"}</p></div>
-              <div className={css.fig}><p className={css.figLabel}>{L("Units out", "Unit keluar")}</p><p className={`${css.figValue} ${css.minus}`}>{loaded ? (outUnits > 0 ? `−${outUnits}` : "0") : "···"}</p></div>
-              <div className={css.fig}><p className={css.figLabel}>{L("Records", "Rekod")}</p><p className={css.figValue}>{loaded ? live.length : "···"}</p></div>
+              <KpiRow label={L("Manual movements, 30 days", "Pergerakan manual, 30 hari")}>
+                <KpiTile icon="up" tone="green" label={L("Units in", "Unit masuk")} value={inUnits > 0 ? `+${inUnits}` : "0"} busy={!loaded} />
+                <KpiTile icon="down" tone="red" label={L("Units out", "Unit keluar")} value={outUnits > 0 ? `−${outUnits}` : "0"} busy={!loaded} />
+                <KpiTile icon="documents" tone="navy" label={L("Records", "Rekod")} value={live.length} busy={!loaded} />
+              </KpiRow>
             </div>
             {loaded && topReasons.length > 0 && (
               <ul className={css.rows}>

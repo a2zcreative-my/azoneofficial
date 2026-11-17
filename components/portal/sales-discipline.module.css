@@ -40,47 +40,6 @@
   gap: 0.5rem;
   min-width: 0;
 }
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.tiles li {
-  display: grid;
-  align-content: start;
-  gap: 0.125rem;
-  min-width: 0;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--card);
-}
-.tLabel {
-  font-size: var(--type-caption-size);
-  font-weight: 600;
-  color: var(--muted-foreground);
-}
-.tValue {
-  font-size: 1.0625rem;
-  font-weight: 800;
-  line-height: 1.25;
-  color: var(--brand-primary);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-:global(.dark) .tValue {
-  color: var(--foreground);
-}
-.tNote {
-  white-space: pre-line;
-  font-size: var(--type-caption-size);
-  line-height: 1.35;
-  color: var(--muted-foreground);
-  overflow-wrap: anywhere;
-}
 
 /* advice cards and open quotations */
 .cards,
@@ -402,15 +361,10 @@
 }
 
 @media (max-width: 767px) {
-  .tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  
   .rhythm {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 359px) {
-  .tiles {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
+
+/* v1.338.0 - the week's figures are the one KPI strip (components/ui/kpi-tile) */

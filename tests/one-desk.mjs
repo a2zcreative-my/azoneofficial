@@ -204,7 +204,8 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
        && /const overdueN = work\.filter\(\(i\) => i\.overdue\)\.length;/.test(read("components/portal/desk-page.tsx")),
        "a figure that ignores what is rendered under it is a wrong figure");
     ok("neither figure strip strands a tile on a row of its own",
-       !/erp-tiles-3/.test(deskSrc) && /erp-tiles-2/.test(deskSrc)
+       /* v1.338.0 - the Dashboard's Desk summary is the one KPI strip too (two segments) */
+       !/erp-tiles-3/.test(deskSrc) && /<KpiRow label=\{L\("Waiting on you"[^>]*testid="desk-summary-strip">/.test(deskSrc) && !/erp-stat/.test(deskSrc)
        /* v1.190.0 - the Desk's three figure cards: one column on a phone, three across
           from 768px, never 2 + 1. v1.293.0 - four figures (management) are 2 + 2, then four across */
        /* v1.323.0 - the Desk's figures are the one KPI strip (D-5, approved 16-11-2026):

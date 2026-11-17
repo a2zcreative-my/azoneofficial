@@ -15,9 +15,16 @@ import { useCachedApi } from "@/lib/cached-api";
 import { dmy, fmtRM, ym } from "@/lib/format";
 import { Lang, t as tr } from "@/lib/i18n";
 import { TabName } from "@/lib/portal-tabs";
-import { btnSmPrimary, card, tileCard, inputClass } from "@/lib/ui-styles";
+import { btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
+/* v1.338.0 - the channel segments' wells and tints, in the order they are drawn */
+const PULSE_LOOK: Record<string, [AppIconName, KpiTone]> = {
+  "Clients": ["clients", "navy"], "Lives today": ["live", "purple"], "In today": ["users", "green"], "Unpaid inv.": ["documents", "red"],
+  "Cash flow (mo)": ["money", "green"], "Peak hour (wk)": ["time", "blue"],
+};
+const BOX_LOOK: [AppIconName, KpiTone][] = [["store", "gold"], ["documents", "blue"], ["shipped", "navy"], ["package", "green"]];
 import { DetailsToggle } from "@/components/ui/details-toggle"; // v1.187.0 - the secondary figures
 
 export function TradingDesk({
@@ -360,16 +367,11 @@ export function TradingDesk({
           })() : null}
       {/* v1.77.0 — skeleton until the first fetch lands (pulse strip, six tiles). */}
       {sumLoading && (
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6" aria-hidden>
-          {Array.from({ length: 6 }, (_, i) => (
-            <div
-              key={i}
-              className={tileCard}
-            >
-              <Skel className="h-5 w-10" />
-              <Skel className="mt-1.5 h-2 w-14" />
-            </div>
-          ))}
+        <div className="mt-3" aria-hidden>
+          {/* v1.338.0 - the loading shape is the one strip, its figures not known yet */}
+          <KpiRow>
+            {Array.from({ length: 6 }, (_, i) => <KpiTile key={i} icon="pending" tone="navy" label="···" value="" busy />)}
+          </KpiRow>
         </div>
       )}
       {/* v1.7.0 company pulse — one compact strip of live counters. */}
@@ -496,52 +498,32 @@ export function TradingDesk({
             const linked = LINKED.has(t.label);
             const home = linked && t.tab && go && canOpen?.(t.tab) ? t.tab : null;
             const Tag = linked && !home ? "div" : "button";
+            /* v1.338.0 - the CEO's strict KPI strip: a pulse figure is a
+               segment of the one strip (KpiTile), never a card of its own. It
+               opens its home tab or its detail exactly as the tile did; a
+               figure the server did not send still says so out loud (v1.177.0:
+               a list is counted, nothing at all is "—"). */
+            const value = Array.isArray(t.value)
+              ? t.value.length
+              : t.value === null || t.value === undefined || t.value === "" || typeof t.value === "boolean"
+                ? <span className="text-muted-foreground" title={L("No figure for this month yet", "Tiada angka untuk bulan ini lagi")}>—</span>
+                : t.value;
+            const [icon, tone] = PULSE_LOOK[t.label] ?? ["pending", "gold"];
             return (
-                <Tag
-                  key={t.label}
-                  {...(Tag === "button" ? { type: "button" as const, onClick: () => (home ? go?.(home) : setDetailModal(t.label)) } : {})}
-                  className={Tag === "button" ? `${tileCard} hover:border-primary transition-colors` : tileCard}
-                  data-testid={linked ? "pulse-home-tile" : undefined}
-                  data-home={home ?? undefined}
-                >
-                  {/* v1.172.1 (Interface System V3): the stat tile's own
-                      value/label classes - one figure, one caption, the same
-                      on every tile of the portal. */}
-                  {/* v1.177.0 - A FIGURE TILE IS NEVER BLANK. The owner's
-                      Dashboard, 22-09-2026: the CLIENTS tile rendered its
-                      caption over empty space, and `sum.clients ?? 0` did not
-                      catch it - because the value was neither null nor
-                      undefined. It was an ARRAY. React renders `[]` as
-                      nothing at all, so a field that arrives as a list where a
-                      count was expected produces a tile with a caption and no
-                      figure, which the reader cannot tell from a tile that is
-                      still loading. A list IS a count, so it is counted; a
-                      value that can produce no text at all says "not known"
-                      out loud instead. A real 0 still prints as 0. */}
-                  <p className="erp-stat-value">
-                    {Array.isArray(t.value)
-                      ? t.value.length
-                      : t.value === null || t.value === undefined || t.value === "" || typeof t.value === "boolean"
-                        ? <span className="text-muted-foreground" title={L("No figure for this month yet", "Tiada angka untuk bulan ini lagi")}>—</span>
-                        : t.value}
-                  </p>
-                  <p className="erp-stat-label">
-                    {t.show ?? t.label}
-                  </p>
-                </Tag>
+              <KpiTile key={t.label} cell={t.label} icon={icon} tone={tone} label={t.show ?? t.label} value={value}
+                testid={linked ? "pulse-home-tile" : undefined}
+                onClick={Tag === "button" ? () => (home ? go?.(home) : setDetailModal(t.label)) : undefined} />
             );
           };
           return (
             <>
-              <div
-                className={`grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6 ${canRevenue && rev ? "border-border mt-3 border-t pt-3" : ""}`}
-              >
-                {primary.map(tile)}
+              <div className={canRevenue && rev ? "border-border mt-3 border-t pt-3" : ""} data-testid="pulse-strip">
+                <KpiRow label={L("The company at a glance", "Syarikat sepintas lalu")}>{primary.map(tile)}</KpiRow>
               </div>
               {secondary.length > 0 && (
                 <DetailsToggle label={L(`More figures (${secondary.length})`, `Lebih angka (${secondary.length})`)}>
-                  <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-                    {secondary.map(tile)}
+                  <div className="mt-2">
+                    <KpiRow label={L("More figures", "Lebih angka")}>{secondary.map(tile)}</KpiRow>
                   </div>
                 </DetailsToggle>
               )}
@@ -915,14 +897,11 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
         <div className={bare ? "" : card} aria-hidden>
           <Skel className="h-4 w-48" />
           <SkelText lines={2} className="mt-2" />
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} className="border-border rounded-lg border p-3">
-                <Skel className="h-2.5 w-20" />
-                <Skel className="mt-2 h-6 w-28" />
-                <Skel className="mt-2 h-2.5 w-full" />
-              </div>
-            ))}
+          {/* v1.338.0 - the loading shape is the strip itself, figures not known yet */}
+          <div className="mt-3">
+            <KpiRow label={L("Sales revenue by channel", "Hasil jualan mengikut saluran")}>
+              {BOX_LOOK.map(([icon, tone], i) => <KpiTile key={i} icon={icon} tone={tone} label="···" value="" busy />)}
+            </KpiRow>
           </div>
         </div>
       );
@@ -944,15 +923,13 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
     (rev.manual?.last_cents ?? 0);
   const delta =
     lastTotal > 0 ? Math.round(((total - lastTotal) / lastTotal) * 100) : null;
-  const box = (label: string, value: string, sub: string) => (
-    <div className="min-w-0 space-y-1">
-      <p className="text-muted-foreground text-xs tracking-wide uppercase">
-        {label}
-      </p>
-      <p className="mt-1 text-xl font-semibold">{value}</p>
-      <p className="text-muted-foreground mt-0.5 text-xs">{sub}</p>
-    </div>
-  );
+  /* v1.338.0 - the CEO's strict KPI strip: each channel is a segment of the one
+     strip (KpiTile); the long line stays whole on hover */
+  let boxN = 0;
+  const box = (label: string, value: string, sub: string) => {
+    const [icon, tone] = BOX_LOOK[boxN++ % BOX_LOOK.length]!;
+    return <KpiTile key={label} icon={icon} tone={tone} label={label} value={value} sub={sub} title={sub} />;
+  };
   return (
     <div className={bare ? "" : card}>
       <p className="text-sm font-semibold">
@@ -976,7 +953,8 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
       </p>
       {/* v1.4.156 (CEO: "show today sales to motivate my Sales team") —
           today leads the grid with the brand-gold accent. */}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-3" data-testid="revenue-channels">
+      <KpiRow label={L("Sales revenue by channel", "Hasil jualan mengikut saluran")}>
         {/* v1.4.271 audit: the 🔥 Today box moved OUT of this card — the
             hero band above owns "today" now; two cards both saying today's
             number was the audit's first finding. This card is the MONTH view. */}
@@ -1013,6 +991,7 @@ export function SalesRevenueCard({ bare }: { bare?: boolean } = {}) {
             `${rev.manual?.this_units ?? 0} unit dijual melalui Out − · bulan lepas ${rm(rev.manual?.last_cents ?? 0)}`
           )
         )}
+      </KpiRow>
       </div>
       {/* v1.6.1: last month's KPI result stays as context; the editable KPI
           target itself now lives on the Dashboard's Sales Floor. */}

@@ -159,7 +159,7 @@ async function runtime(workerBundle, migDir, srcRoot = root) {
     const src = (f) => read(f);
     const td = src("components/portal/trading-desk.tsx");
     ok(!/OtApprovalsCard|LiveScheduleCard|<ClientsCard|<PnlCard|ActiveStokisSummary|live-cards/.test(td) && /const LINKED = new Set\(\["Clients", "Lives today", "Cash flow \(mo\)", "OT pending"\]\);/.test(td)
-      && /const home = linked && t\.tab && go && canOpen\?\.\(t\.tab\) \? t\.tab : null;/.test(td) && /onClick: \(\) => \(home \? go\?\.\(home\) : setDetailModal\(t\.label\)\)/.test(td),
+      && /const home = linked && t\.tab && go && canOpen\?\.\(t\.tab\) \? t\.tab : null;/.test(td) && /* v1.338.0 - a segment of the one KPI strip, the same press */ /\(\) => \(home \? go\?\.\(home\) : setDetailModal\(t\.label\)\)/.test(td),
       "D-2 the company card draws no copy of another tab: those four figures open their home tab, for who may open it");
     ok(!existsSync(join(srcRoot, "components/portal/live-cards.tsx")) && /"components\\portal\\live-cards\.tsx"/.test(src("PUSH.bat")), "D-2 the second overtime and live-schedule cards are gone, and PUSH.bat removes the stale file");
     ok(!/export function PnlCard|finance\/pnl`/.test(src("components/portal/sales.tsx")) && !/path === "\/finance\/pnl"/.test(src("worker/src/staff.ts")), "D-1 no screen and no route for the third profit sum");

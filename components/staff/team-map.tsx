@@ -22,6 +22,7 @@
 
 import { useState } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import { Skel } from "@/components/ui/skeleton";
 import { displayName, givenNames } from "@/lib/names";
 import { getLang } from "@/lib/i18n";
@@ -126,11 +127,9 @@ export function TeamMap({ people, gone, loaded, colorOf, birthdayOf, onLeave, ac
   const pick = (k: string) => setDept(dept === k ? "" : k);
   const dim = (u: MapPerson) => dept !== "" && deptOf(u) !== dept;
 
-  const stat = (icon: Parameters<typeof AppIcon>[0]["name"], label: string, value: number | string, sub: string) => (
-    <div className={tm.stat}>
-      <span className={tm.statIcon} aria-hidden><AppIcon name={icon} /></span>
-      <span className={tm.statText}><span>{label}</span><strong>{value}</strong><span>{sub}</span></span>
-    </div>
+  /* v1.338.0 - the CEO's strict KPI strip: four segments of the one strip */
+  const stat = (icon: Parameters<typeof AppIcon>[0]["name"], tone: KpiTone, label: string, value: number | string, sub: string) => (
+    <KpiTile key={label} icon={icon} tone={tone} label={label} value={value} busy={!loaded} sub={sub} />
   );
 
   return (
@@ -141,10 +140,12 @@ export function TeamMap({ people, gone, loaded, colorOf, birthdayOf, onLeave, ac
           <span><strong className={tm.title}>{L("Team Map", "Peta Pasukan")}</strong><span className={tm.sub}>{L("The whole team at a glance.", "Seluruh pasukan sepintas lalu.")}</span></span>
         </div>
         <div className={tm.stats} data-testid="team-stats">
-          {stat("users", L("Total Staff", "Jumlah Kakitangan"), loaded ? people.length : "—", L("on the staff list", "dalam senarai kakitangan"))}
-          {stat("success", L("Active Staff", "Kakitangan Aktif"), loaded ? activeCount : "—", loaded ? L(`${people.length ? Math.round((activeCount * 100) / people.length) : 0}% of staff`, `${people.length ? Math.round((activeCount * 100) / people.length) : 0}% kakitangan`) : "")}
-          {stat("cake", L("Next Birthdays", "Hari Lahir Seterusnya"), loaded ? birthdays.length : "—", L("in 7 days", "dalam 7 hari"))}
-          {stat("holiday", L("On Leave", "Bercuti"), loaded ? leaveToday.length : "—", L("today", "hari ini"))}
+          <KpiRow label={L("The team at a glance", "Pasukan sepintas lalu")}>
+            {stat("users", "navy", L("Total Staff", "Jumlah Kakitangan"), people.length, L("on the staff list", "dalam senarai kakitangan"))}
+            {stat("success", "green", L("Active Staff", "Kakitangan Aktif"), activeCount, loaded ? L(`${people.length ? Math.round((activeCount * 100) / people.length) : 0}% of staff`, `${people.length ? Math.round((activeCount * 100) / people.length) : 0}% kakitangan`) : "")}
+            {stat("cake", "gold", L("Next Birthdays", "Hari Lahir Seterusnya"), birthdays.length, L("in 7 days", "dalam 7 hari"))}
+            {stat("holiday", "blue", L("On Leave", "Bercuti"), leaveToday.length, L("today", "hari ini"))}
+          </KpiRow>
         </div>
       </div>
 

@@ -32,6 +32,7 @@ import Link from "next/link";
 import { L } from "@/components/portal/page-shared";
 import { Avatar } from "@/components/ui/avatar";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SkelRows } from "@/components/ui/skeleton";
 import { TAB_ICON } from "@/components/layout/nav-icons";
 import { useCachedApi } from "@/lib/cached-api";
@@ -169,20 +170,10 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
   const adminDoor = ["super_admin", "admin"].includes(role); // /admin is where a customer account is created
   const geofenceRole = ["super_admin", "ceo", "coo"].includes(role);
 
+  /* v1.338.0 - the CEO's strict KPI strip: each figure is a segment of the one
+     strip (KpiRow), never a card of its own; its share bar is the strip's bar */
   const kpi = (icon: AppIconName, tone: Tone, label: string, value: number, sub: ReactNode, bar?: { pct: number; tone: "green" | "red" }) => (
-    <div className={`${card} ${css.kpi}`}>
-      <span className={`${css.kpiIcon} ${css[tone]}`}><AppIcon name={icon} /></span>
-      <div className={css.kpiBody}>
-        <p className={css.kpiLabel}>{label}</p>
-        <p className={css.kpiValue} aria-busy={!loaded}>{loaded ? value : "–"}</p>
-        <p className={css.kpiSub}>{sub}</p>
-        {bar && loaded && (
-          <span className={css.bar} role="img" aria-label={`${bar.pct}%`}>
-            <span className={`${css.barFill} ${bar.tone === "green" ? css.barGreen : css.barRed}`} style={{ width: `${bar.pct}%` }} />
-          </span>
-        )}
-      </div>
-    </div>
+    <KpiTile key={label} icon={icon} tone={tone} label={label} value={value} busy={!loaded} sub={sub} bar={bar} />
   );
 
   const door = (icon: AppIconName, tone: Tone, title: string, strong: ReactNode, sub: string, onClick: () => void) => (
@@ -200,13 +191,15 @@ export function UsersOverview({ rows, events, loaded, eventsLoaded, open, role, 
   return (
     <div className={css.ov}>
       <div className={css.kpis}>
+        <KpiRow label={L("Accounts at a glance", "Akaun sepintas lalu")}>
         {kpi("users", "gold", L("Total Accounts", "Jumlah Akaun"), rows.length, L(`${staff.length} staff · ${customers.length} customer · ${agents.length} agent`, `${staff.length} kakitangan · ${customers.length} pelanggan · ${agents.length} ejen`))}
         {kpi("success", "green", L("Active Staff", "Kakitangan Aktif"), staff.filter((u) => u.is_active).length,
-          <span className={css.up}>▲ {L(`${share(active)}% of all accounts active`, `${share(active)}% semua akaun aktif`)}</span>, { pct: share(active), tone: "green" })}
+          L(`${share(active)}% of all accounts active`, `${share(active)}% semua akaun aktif`), { pct: share(active), tone: "green" })}
         {kpi("blocked", "red", L("Suspended / Inactive", "Digantung / Tidak Aktif"), inactive,
-          <span className={css.down}>▼ {L(`${share(inactive)}% inactive`, `${share(inactive)}% tidak aktif`)}</span>, { pct: share(inactive), tone: "red" })}
+          L(`${share(inactive)}% inactive`, `${share(inactive)}% tidak aktif`), { pct: share(inactive), tone: "red" })}
         {kpi("cart", "purple", L("Customer Accounts", "Akaun Pelanggan"), customers.length, L("Google & self sign-up", "Google & daftar sendiri"))}
         {kpi("clients", "blue", L("Active Agents", "Ejen Aktif"), agents.filter((u) => u.is_active).length, L("Outside sales partners", "Rakan jualan luar"))}
+        </KpiRow>
       </div>
 
       <div className={css.ovGrid}>

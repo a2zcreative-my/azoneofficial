@@ -15,6 +15,7 @@
 
 import { useState, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { Segmented } from "@/components/ui/segmented";
 import { SkelRows } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
@@ -373,20 +374,29 @@ export function SalesSummaryCard({ w, owed, onOpen }: {
             <p className={css.sumBig}><span className={css.sumActual}>{fmtRM(w.basis_cents)}</span>{w.target_cents !== null && <span className={css.sumOf}> / {fmtRM(w.target_cents)}</span>}</p>
             {pct !== null && <p className={css.sumPct}>{pct}%</p>}
           </div>
-          {/* the phone's three figures (the photo) */}
-          <dl className={`${css.sumTrio} erp-phone-only`}>
-            <div><dt>{w.basis_kind === "all_channels" ? L("Company sales", "Jualan syarikat") : L("Paid invoices", "Invois dibayar")}</dt><dd>{fmtRM(w.basis_cents)}</dd></div>
-            <div><dt>{L("Weekly target", "Sasaran mingguan")}</dt><dd>{w.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(w.target_cents)}</dd></div>
-            <div><dt>{L("Achieved", "Dicapai")}</dt><dd>{pct === null ? "—" : `${pct}%`}</dd></div>
-          </dl>
           {w.target_cents === null ? <p className={css.sumNote}>{L("No company target is set for this week - set it in Sales → Weekly target.", "Tiada sasaran syarikat minggu ini - tetapkan di Jualan → Sasaran mingguan.")}</p> : (
             <span className={css.sumBar} role="img" aria-label={L(`${pct ?? 0}% of the weekly target`, `${pct ?? 0}% daripada sasaran mingguan`)}><i style={{ width: `${Math.max(0, Math.min(100, pct ?? 0))}%` }} /></span>
           )}
-          <dl className={css.sumFacts}>
-            <div><dt>{L("Remaining gap", "Baki")}</dt><dd>{w.gap_cents === null ? "—" : fmtRM(Math.max(0, w.gap_cents))}</dd></div>
-            <div><dt>{L("Working days left", "Hari bekerja lagi")}</dt><dd>{w.days_left}</dd></div>
-            <div className="erp-desktop-only"><dt>{L("Needed per working day", "Perlu setiap hari bekerja")}</dt><dd>{w.required_per_day_cents === null ? "—" : fmtRM(w.required_per_day_cents)}</dd></div>
-          </dl>
+          {/* v1.338.0 - the CEO's strict KPI strip: the figures are segments of
+              the one strip, never grey boxes. Desktop: the three the week still
+              needs. Phone: the photo's three (sales, target, achieved) and the
+              gap and days left - the same five figures it showed before. */}
+          <div className={`${css.sumFacts} erp-desktop-only`} data-testid="sales-summary-facts">
+            <KpiRow label={L("What the week still needs", "Apa yang minggu ini masih perlukan")}>
+              <KpiTile icon="target" tone="gold" label={L("Remaining gap", "Baki")} value={w.gap_cents === null ? "—" : fmtRM(Math.max(0, w.gap_cents))} />
+              <KpiTile icon="date" tone="navy" label={L("Working days left", "Hari bekerja lagi")} value={w.days_left} />
+              <KpiTile icon="money" tone="green" label={L("Needed per working day", "Perlu setiap hari bekerja")} value={w.required_per_day_cents === null ? "—" : fmtRM(w.required_per_day_cents)} />
+            </KpiRow>
+          </div>
+          <div className={`${css.sumFacts} erp-phone-only`} data-testid="sales-summary-phone">
+            <KpiRow label={L("My week at a glance", "Minggu saya sepintas lalu")}>
+              <KpiTile icon="money" tone="green" label={w.basis_kind === "all_channels" ? L("Company sales", "Jualan syarikat") : L("Paid invoices", "Invois dibayar")} value={fmtRM(w.basis_cents)} />
+              <KpiTile icon="target" tone="gold" label={L("Weekly target", "Sasaran mingguan")} value={w.target_cents === null ? L("Not set", "Belum ditetapkan") : fmtRM(w.target_cents)} />
+              <KpiTile icon="chart" tone="blue" label={L("Achieved", "Dicapai")} value={pct === null ? "—" : `${pct}%`} />
+              <KpiTile icon="target" tone="gold" label={L("Remaining gap", "Baki")} value={w.gap_cents === null ? "—" : fmtRM(Math.max(0, w.gap_cents))} />
+              <KpiTile icon="date" tone="navy" label={L("Working days left", "Hari bekerja lagi")} value={w.days_left} />
+            </KpiRow>
+          </div>
           {owed && <div className={`${css.sumOwed} erp-phone-only`}>{owed}</div>}
           <p className={css.sumBasis} data-testid="sales-basis">{basisLine(w.basis_kind)}</p>
           <button type="button" className={css.linkBtn} onClick={onOpen}>{L("Open Sales", "Buka Jualan")} <span aria-hidden>→</span></button>
@@ -408,11 +418,14 @@ export function SalesRecoveryStrip({ open, cold, items, onPipeline, onOpenDoc }:
   return (
     <section className={`${card} ${css.recovery}`} aria-label={L("Sales recovery", "Pemulihan jualan")} data-testid="sales-recovery">
       <div className={css.recLead}><span className={css.recIcon} aria-hidden><AppIcon name="star" /></span><strong>{L("Sales Recovery", "Pemulihan Jualan")}</strong></div>
-      <dl className={css.recStats}>
-        <div><dd>{open.n}</dd><dt>{L("open quotations", "sebut harga terbuka")}</dt></div>
-        <div><dd>{cold}</dd><dt>{L("need a follow-up", "perlu susulan")}</dt></div>
-        <div><dd>{fmtRM(open.cents)}</dd><dt>{L("quoted value (not revenue)", "nilai sebut harga (bukan hasil)")}</dt></div>
-      </dl>
+      {/* v1.338.0 - the three figures are the one KPI strip, not a strip of its own */}
+      <div className={css.recStats} data-testid="sales-recovery-figures">
+        <KpiRow label={L("Sales recovery figures", "Angka pemulihan jualan")}>
+          <KpiTile icon="documents" tone="navy" label={L("Open quotations", "Sebut harga terbuka")} value={open.n} />
+          <KpiTile icon="pending" tone={cold > 0 ? "gold" : "green"} label={L("Need a follow-up", "Perlu susulan")} value={cold} />
+          <KpiTile icon="money" tone="blue" label={L("Quoted value (not revenue)", "Nilai sebut harga (bukan hasil)")} value={fmtRM(open.cents)} />
+        </KpiRow>
+      </div>
       <button type="button" className={css.viewAll} onClick={onPipeline}>{L("View Pipeline", "Lihat Saluran")} <span aria-hidden>→</span></button>
       {items.length > 0 && (
         <ol className={`${css.recTop} erp-desktop-only`} aria-label={L("Three to recover first", "Tiga untuk dipulihkan dahulu")}>
@@ -431,17 +444,18 @@ export function SalesRecoveryStrip({ open, cold, items, onPipeline, onOpenDoc }:
 
 /** the phone's "My Work": three counts, each opening My Day */
 export function MyWorkStrip({ followups, tasks, schedule, loaded, onOpen }: { followups: number; tasks: number; schedule: number; loaded: boolean; onOpen: () => void }) {
-  const cell = (k: string, label: string, n: number, sub: string) => (
-    <li key={k}><button type="button" className={css.workCell} onClick={onOpen}><span>{label}</span><strong>{loaded ? n : "···"}</strong><small>{sub}</small></button></li>
+  /* v1.338.0 - three segments of the one KPI strip; each opens My Day, as before */
+  const cell = (k: string, icon: AppIconName, label: string, n: number, sub: string) => (
+    <KpiTile key={k} cell={k} icon={icon} tone="navy" label={label} value={n} busy={!loaded} sub={sub} onClick={onOpen} />
   );
   return (
     <section className={`${card} ${css.card} erp-phone-only`} aria-label={L("My work", "Kerja saya")} data-testid="my-work">
       <h3 className={css.title}>{L("My Work", "Kerja Saya")}</h3>
-      <ul className={css.workRow}>
-        {cell("f", L("Follow-ups", "Susulan"), followups, L("due", "perlu"))}
-        {cell("t", L("My Tasks", "Tugasan Saya"), tasks, L("open", "terbuka"))}
-        {cell("s", L("Today's Schedule", "Jadual Hari Ini"), schedule, L("today", "hari ini"))}
-      </ul>
+      <KpiRow label={L("My work", "Kerja saya")} testid="my-work-strip">
+        {cell("f", "chat", L("Follow-ups", "Susulan"), followups, L("due", "perlu"))}
+        {cell("t", "assignment", L("My Tasks", "Tugasan Saya"), tasks, L("open", "terbuka"))}
+        {cell("s", "date", L("Today's Schedule", "Jadual Hari Ini"), schedule, L("today", "hari ini"))}
+      </KpiRow>
     </section>
   );
 }
@@ -539,9 +553,12 @@ export function TodayStrip({ date, shift, counts, decisions, onDecisions }: {
   return (
     <section className={`${card} ${css.today}`} aria-label={L("Today", "Hari ini")} data-testid="today-strip">
       <div className={css.todayLead}><span className={`${css.well} ${css.w_gold}`} aria-hidden><AppIcon name="date" /></span><span className={css.rowText}><strong>{date}</strong><span>{shift}</span></span></div>
-      <dl className={css.todayCounts}>
-        {counts.map((c) => <div key={c.label}><dd>{c.n ?? "···"}</dd><dt>{c.label}</dt></div>)}
-      </dl>
+      {/* v1.338.0 - the day's counts are segments of the one KPI strip */}
+      <div className={css.todayCounts} data-testid="today-counts">
+        <KpiRow label={L("Today's counts", "Kiraan hari ini")}>
+          {counts.map((c) => <KpiTile key={c.label} cell={c.label} icon="pending" tone="navy" label={c.label} value={c.n ?? "···"} busy={c.n === null} />)}
+        </KpiRow>
+      </div>
       {decisions !== null && decisions > 0 && (
         <button type="button" className={css.viewAll} onClick={onDecisions}>
           {L(`${decisions} decision(s) wait for you on Overview`, `${decisions} keputusan menunggu anda di Gambaran`)} <span aria-hidden>→</span>

@@ -10,6 +10,32 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.338.0] - 2026-11-17 - Every row of figures is the one Tasks KPI strip: no figure is a card of its own any more - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 17-11-2026 ("A2Z OS — Strict Global KPI Strip Enforcement"): the Tasks KPI strip is the only approved figure design; replace every separate KPI card with it, the same shared component, zero gaps; preserve every metric and every function.
+
+- **Twenty-three figure rows that were still separate cards or hand-made rows are now the shared strip** (`KpiRow` / `KpiTile`, components/ui/kpi-tile.tsx). Each is one card with its figures as connected segments, thin dividers and no gaps:
+  - **Ecommerce:** the Fulfilment Summary's five statuses, and the five status lanes on Fulfilment (the lane in force is the pressed segment). On Analytics, the month's revenue by channel.
+  - **Dashboard:** Sales Performance's three facts (and the phone's five figures); Sales Recovery's three figures; the company pulse figures and its "More figures"; the Desk summary (Needs your decision · Needs attention); the phone's My Work. On My Day: Today's counts, My Shift's four figures (the Check In / Check Out marks kept in the wells) and the month's attendance figures.
+  - **Sales:** the week strip (Invoiced, Open quotations, Required pace, Best week, Forecast confidence, Sales recovery risk).
+  - **Tasks:** Reports' company task counts.
+  - **Inventory:** Reports' TikTok stock-out and manual-movement figures.
+  - **Staff:** the Team Map figures.
+  - **On Shift:** This Week's seven figures and Team On Shift's five (still the status and location filters).
+  - **Leave:** the balance cards (now segments with their share bars) and the Approvals figures.
+  - **Users:** the Overview figures.
+  - **Content:** the stage filter.
+- **Every figure, filter and link is kept.** A pressable figure still opens or filters exactly what it did. A figure not known yet still shows "···", never a false zero. Nothing reads anything new, and no permission, rule or calculation changed.
+- **The strip now fits the space it is given.** In a half-width card (Fulfilment Summary, Sales Performance) it takes fewer columns instead of squeezing labels into broken words. A segment too narrow for its icon drops the icon, never the figure, so an amount stays on one line.
+- **Retired:** the old figure-tile style name (`tileCard`). No screen uses it.
+- **Ecommerce sales on the Dashboard:** nothing new was added. The Dashboard keeps its own figures from the server. The company week already counts every channel from 10 November (1.275.0, verified paid records only). No figure was merged on the screen, so nothing can be counted twice or across companies.
+- **Known:** with the test data's "backup is 60 days old" alert showing, the Dashboard Overview at 1440×900 is 937 px, against 918 px before this release. It was already 18 px over before. Without an alert it fits (879 px). Sales Recovery's figures grew 20 px as segments. See the gate notes for the two ways to close the gap.
+- **Guards:**
+  - `tests/kpi-strip-only.mjs` (new, registered): the 23 converted strips, no hand-made figure markup or figure-card CSS left, no tileCard / erp-stat / SummaryStrip tile on any screen, the strip's own-width rules. 8 mutations caught.
+  - Adapted with the same intent: today-shift-summary, one-desk, page-frame, card-vocabulary, interface-v3.
+  - `tests/browser/kpi-strip-sweep.py` (new): walks every tab and view at 1440 and 390 and fails on any figure still drawn as a card or any hand-made figure row. 20 failures on 1.336.0, 648/648 on this build.
+  - `tests/browser/ui-system.py`: "one row at 1440" now applies to page-wide strips only.
+
 ## [1.337.0] - 2026-11-17 - Tasks → Reports & Archive in four views; the Task Email workspace in Automation & Rules; the email preview fixed; every task email links only to a record its reader may open - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 17-11-2026, with two references: "Improve A2Z OS → Tasks → Reports & Archive and review the entire Task Email Notification system ... Do not claim emails are working until real end-to-end delivery is successfully tested."

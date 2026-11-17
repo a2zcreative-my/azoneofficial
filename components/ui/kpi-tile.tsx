@@ -30,16 +30,24 @@ function segments(children: ReactNode): number {
     `cols` (v1.320.0) is kept for the pages that pass it - the count decides now. */
 export function KpiRow({ children, label, cols, testid }: { children: ReactNode; label?: string; cols?: 4 | 5 | 6; testid?: string }) {
   const n = segments(children);
+  /* v1.338.0 - the frame measures the space the strip is given, so a strip in a
+     half-width card lays out by ITS width, not the window's (the CEO's strict
+     KPI strip: every figure row on every page is this strip) */
   return (
-    <div className={`${css.row} ${cols ? css[`cols${cols}`] : ""}`} role={label ? "group" : undefined} aria-label={label}
-      data-cols={cols} data-cells={n} data-testid={testid} data-kpi-strip="">
-      {children}
+    <div className={css.frame}>
+      <div className={`${css.row} ${cols ? css[`cols${cols}`] : ""}`} role={label ? "group" : undefined} aria-label={label}
+        data-cols={cols} data-cells={n} data-testid={testid} data-kpi-strip="">
+        {children}
+      </div>
     </div>
   );
 }
 
-export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title, pressed, cell, testid }: {
+export function KpiTile({ icon, glyph, tone, label, value, busy = false, sub, delta, bar, spark, link, onClick, title, pressed, cell, testid }: {
   icon: AppIconName;
+  /** v1.338.0 - a page's own artwork for the well (the owner's Check In / Check Out
+      marks); `icon` stays the fallback. The segment is the same segment. */
+  glyph?: ReactNode;
   tone: KpiTone;
   label: ReactNode;
   value: ReactNode;
@@ -71,7 +79,7 @@ export function KpiTile({ icon, tone, label, value, busy = false, sub, delta, ba
   const max = spark && spark.length > 0 ? Math.max(1, ...spark) : 1;
   const body = (
     <>
-      <span className={`${css.well} ${css[tone]}`}><AppIcon name={icon} /></span>
+      <span className={`${css.well} ${css[tone]}`}>{glyph ?? <AppIcon name={icon} />}</span>
       <span className={css.body}>
         <span className={css.top}>
           <span className={css.label}>{label}</span>

@@ -37,7 +37,9 @@ function checks(f) {
 
   const order = ["{tiles}", "{alertCard}", "<FulfilmentCard", '<TikTokOrders mode="recent"', "{canStock && stockAlerts}"].map((s) => ov.indexOf(s));
   ok("B the directive's order: figures, attention, fulfilment, recent orders, stock alerts", order.every((x, i) => x > 0 && (i === 0 || x > order[i - 1])), order.join(" < "));
-  ok("B four figures, each saying its period", (p.match(/<KpiTile /g) ?? []).length === 4 && (p.match(/["`]This month · |"Now · /g) ?? []).length >= 4);
+  /* v1.338.0 - the fulfilment lanes are segments of the one KPI strip too; the four month figures are the first strip */
+  const firstStrip = p.slice(p.indexOf("<KpiRow"), p.indexOf("</KpiRow>"));
+  ok("B four figures, each saying its period", (firstStrip.match(/<KpiTile /g) ?? []).length === 4 && (p.match(/["`]This month · |"Now · /g) ?? []).length >= 4);
   ok("B no CSS reordering", !/(?<![\w-])order:\s*-?\d/.test(f.css) && /\.bottomGrid \{/.test(f.css));
 
   ok("C the sales figure is gross and says so, never net", /label=\{L\("TikTok sales \(gross\)"/.test(p) && /before TikTok fees/.test(p) && !/Net Sales|net sales/.test(p));

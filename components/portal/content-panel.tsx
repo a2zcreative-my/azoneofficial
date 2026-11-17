@@ -17,7 +17,8 @@ import { Skel } from "@/components/ui/skeleton";
 import { dmy } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { PanelTitle } from "@/components/ui/app-icon";
-import { SummaryStat, SummaryStrip, TabPage, TabZone } from "@/components/portal/tab-concept";
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 
 const api = makeApi("/staff");
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -106,14 +107,16 @@ export function ContentPanel({ canManage }: { canManage: boolean }) {
        then THE WORK: the form and the list in one card. */
     <TabPage>
       <TabZone label={L("The pipeline", "Saluran")}>
-        <SummaryStrip cols={6} ariaLabel={L("Content by stage", "Kandungan mengikut peringkat")}>
+        {/* v1.338.0 - the CEO's strict KPI strip: one segment per stage, the
+            stage in force pressed (press again to clear) */}
+        <KpiRow label={L("Content by stage", "Kandungan mengikut peringkat")}>
           {STAGES.map((s) => (
-            <SummaryStat key={s} label={stageLabel(s)} value={counts[s] ?? 0} busy={!loaded}
-              tone={s === "posted" ? "success" : s === "approval" ? "warning" : "neutral"}
-              active={stageFilter === s} onClick={() => setStageFilter(stageFilter === s ? null : s)}
+            <KpiTile key={s} cell={s} icon={s === "posted" ? "success" : s === "approval" ? "pending" : "content"} label={stageLabel(s)} value={counts[s] ?? 0} busy={!loaded}
+              tone={s === "posted" ? "green" : s === "approval" ? "gold" : "navy"}
+              pressed={stageFilter === s} onClick={() => setStageFilter(stageFilter === s ? null : s)}
               title={L(`Show only ${stageLabel(s)}`, `Tunjuk ${stageLabel(s)} sahaja`)} />
           ))}
-        </SummaryStrip>
+        </KpiRow>
       </TabZone>
       <TabZone label={L("The work", "Kerja")}>
     <div className={card}>

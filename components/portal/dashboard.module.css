@@ -543,46 +543,7 @@
 .monthBody {
   margin-top: 0.75rem;
 }
-.stats {
-  display: grid;
-  gap: 0.5rem 0.75rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-.statsFull {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-@media (min-width: 640px) {
-  .stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .statsFull {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-.stat {
-  min-width: 0;
-}
-.statLabel {
-  /* no letter-spacing: the workspace sets every <p>'s to 0 (globals.css) */
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-.statValue {
-  margin-top: 0.125rem;
-  font-size: 20px;
-  line-height: 1;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.statUnit {
-  margin-left: 0.125rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 500;
-  color: var(--muted-foreground);
-}
+
 .onTime {
   color: var(--ring-ontime);
 }
@@ -606,12 +567,8 @@
     justify-content: space-between;
     gap: 1.25rem;
   }
-  .stats {
-    flex: 1 1 0%;
-  }
-  .statsFull {
-    max-width: 40rem;
-  }
+  
+  
   .calendar {
     margin-top: 0;
     width: 14.5rem;
@@ -893,4 +850,14 @@
   margin-top: 0;
   font-size: 0.8125rem;
   color: var(--muted-foreground);
+}
+
+/* v1.338.0 - the month's figures are the one KPI strip (components/ui/kpi-tile) */
+.stats {
+  min-width: 0;
+}
+@media (min-width: 768px) {
+  .stats {
+    flex: 1 1 0%;
+  }
 }

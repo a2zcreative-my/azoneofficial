@@ -98,7 +98,8 @@ function checks(src, sc) {
   ok("the strip is the workspace card: its border, radius and shadow", /border: 1px solid var\(--border\);/.test(row) && /border-radius: var\(--erp-radius-card/.test(row) && /box-shadow: var\(--erp-shadow-card/.test(row) && /background: var\(--card\);/.test(row));
   ok("segments are connected: no gap, a hairline between them", !/\bgap:/.test(row) && /\.tile \{[^}]*box-shadow: 1px 0 0 var\(--border\), 0 1px 0 var\(--border\);/.test(kpiCss) && /\.tile \{[^}]*border-radius: 0;/.test(kpiCss));
   ok("D-5: two a row below 1024px, an odd last one across the row; three from 1024px", /@media \(max-width: 1023px\) \{\s*\.row, \.row\[data-cells\] \{ --cells: 2; \}[\s\S]{0,120}?\.row > :last-child:nth-child\(odd\) \{ grid-column: 1 \/ -1; \}/.test(kpiCss) && /@media \(max-width: 1279px\) \{\s*\.row\[data-cells="5"\][^}]*--cells: 3;/.test(kpiCss));
-  ok("D-5: no figure hidden - nothing in the strip is display: none but the phone's icon well", (kpiCss.match(/display: none;/g) ?? []).length === 1 && /\.well \{\s*display: none;\s*\}/.test(kpiCss));
+  /* v1.338.0 - and a segment too narrow for its icon drops the WELL (never the figure): the only two display: none are both the well */
+  ok("D-5: no figure hidden - nothing in the strip is display: none but the icon well (phone, too-narrow segment)", (kpiCss.match(/display: none;/g) ?? []).length === 2 && (kpiCss.match(/\.well \{\s*display: none;\s*\}/g) ?? []).length === 2);
   ok("a filter in force is the master's gold wash and underline", /\.press\[aria-pressed="true"\] \{[^}]*inset 0 -2px 0 var\(--gold-solid\)/.test(kpiCss));
   ok("MetricStrip draws through the one strip and keeps no stylesheet", /<KpiRow label=\{label\} testid=\{testid\}>/.test(strip(src.strip)) && /<KpiTile /.test(strip(src.strip)) && !/\.module\.css/.test(src.strip) && !sc.metricStripCss);
   ok("every KpiTile is drawn inside a strip", sc.tileOutsideRow.length === 0, sc.tileOutsideRow.join(", "));

@@ -529,101 +529,9 @@
   gap: 1rem;
   min-width: 0;
 }
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: 0.75rem;
-}
-@media (min-width: 768px) {
-  .kpis {
-    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-    gap: 1rem;
-  }
-}
+
 /* a phone stacks the well over the figure, so a two-up tile never has to
    break a word ("Custome r"); from 768px the well sits beside it */
-.kpi {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 0.625rem;
-}
-.kpiIcon {
-  display: grid;
-  place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 12px;
-}
-.kpiBody,
-.kpiBody > p {
-  overflow-wrap: normal;
-  word-break: normal;
-}
-@media (min-width: 768px) {
-  .kpi {
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 0.875rem;
-  }
-  .kpiIcon {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 14px;
-  }
-}
-.kpiBody {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.125rem;
-  min-width: 0;
-}
-.kpiBody > p {
-  margin: 0;
-}
-.kpiLabel {
-  font-size: var(--type-card-size);
-  font-weight: var(--type-card-weight);
-  line-height: var(--type-card-lh);
-}
-.kpiValue {
-  font-size: var(--type-kpi-lg-size);
-  font-weight: var(--type-kpi-lg-weight);
-  line-height: var(--type-kpi-lg-lh);
-  letter-spacing: var(--type-kpi-lg-tracking);
-  font-variant-numeric: tabular-nums;
-}
-.kpiSub {
-  font-size: var(--type-caption-size);
-  line-height: var(--type-caption-lh);
-  color: var(--muted-foreground);
-}
-.up {
-  color: var(--success);
-  font-weight: 600;
-}
-.down {
-  color: var(--danger);
-  font-weight: 600;
-}
-.bar {
-  display: block;
-  height: 6px;
-  margin-top: 0.5rem;
-  border-radius: 9999px;
-  background: var(--secondary);
-  overflow: hidden;
-}
-.barFill {
-  display: block;
-  height: 100%;
-  border-radius: 9999px;
-}
-.barGreen {
-  background: var(--success);
-}
-.barRed {
-  background: var(--danger);
-}
 
 .ovGrid {
   display: grid;
@@ -939,3 +847,8 @@
 
 /* v1.327.0 - the role editor inside Customers & Agents' account panel (the phone keeps its bottom sheet) */
 .detailEditor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+
+/* v1.338.0 - the overview's figures are the one KPI strip (components/ui/kpi-tile) */
+.kpis {
+  min-width: 0;
+}

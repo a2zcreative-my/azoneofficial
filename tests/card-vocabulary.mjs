@@ -67,7 +67,8 @@ const ok = (label, cond, why = "") => { if (cond) passed++; else { failed++; con
 
 /* ---- 1. the vocabulary exists and is documented as one ---------------- */
 const styles = read("lib/ui-styles.ts");
-const NAMES = ["card", "insetCard", "accentCard", "tileCard", "modalCard", "sheetCard", "toastCard"];
+/* v1.338.0 - tileCard retired: a figure is a segment of the one KPI strip (tests/kpi-strip-only.mjs) */
+const NAMES = ["card", "insetCard", "accentCard", "modalCard", "sheetCard", "toastCard"];
 for (const n of NAMES) {
   ok(`${n} is exported from lib/ui-styles.ts`, new RegExp(`export const ${n}\\s*=`).test(styles));
 }

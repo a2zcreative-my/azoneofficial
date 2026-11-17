@@ -46,7 +46,7 @@ import { STATUSES, TikTokOrders, connectionLine, useOrderCounts, useTikTokSync, 
 import { TopStatesCard } from "@/components/portal/top-states-card";
 import { RevenueAndHoursCard } from "@/components/portal/trading-desk";
 import { AppIcon, PanelTitle, type AppIconName } from "@/components/ui/app-icon";
-import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import { LineTabs, TabAction, TabAside, TabPeriod } from "@/components/ui/line-tabs";
 import { useCachedApi } from "@/lib/cached-api";
 import { dmyMYT, fmtRM } from "@/lib/format";
@@ -56,6 +56,10 @@ import { useTabViewAddress } from "@/lib/tab-view";
 import { btnSm, btnSmPrimary, card } from "@/lib/ui-styles";
 import css from "./ecommerce-panel.module.css";
 
+/* v1.338.0 - each lane's well and tint in the one KPI strip */
+const LANE: Record<string, [AppIconName, KpiTone]> = {
+  preparing: ["package", "gold"], shipped: ["shipped", "blue"], in_transit: ["transit", "blue"], delivered: ["success", "green"], returned: ["returned", "red"],
+};
 type View = "overview" | "orders" | "fulfilment" | "stock" | "analytics" | "sync";
 const VIEWS: readonly View[] = ["overview", "orders", "fulfilment", "stock", "analytics", "sync"];
 /* the phone switch's line under each view's name */
@@ -255,13 +259,15 @@ export function EcommercePanel({ user, lang, go, canOpen, startView }: {
 
   /* where every TikTok order is now (all time), lane by lane */
   const lanes = (
-    <div className={css.lanes} role="tablist" aria-label={L("Fulfilment status", "Status pemenuhan")}>
-      {STATUSES.map(([k, en, ms, chip]) => (
-        <button key={k} type="button" role="tab" aria-selected={lane === k} className={`${css.lane} ${lane === k ? css.laneOn : ""}`} onClick={() => setLane(k)}>
-          <span className={`erp-chip erp-chip-sm ${chip}`}>{L(en, ms)}</span>
-          <span className={css.laneCount}>{oc ? oc[k] ?? 0 : "…"}</span>
-        </button>
-      ))}
+    /* v1.338.0 - the CEO's strict KPI strip: the lanes are segments of the one
+       strip; the lane in force is the pressed segment (gold wash and underline) */
+    <div className={css.lanes} data-testid="fulfil-lanes">
+      <KpiRow label={L("Fulfilment status", "Status pemenuhan")}>
+        {STATUSES.map(([k, en, ms]) => (
+          <KpiTile key={k} cell={k} icon={LANE[k]?.[0] ?? "orders"} tone={LANE[k]?.[1] ?? "navy"} label={L(en, ms)} value={oc ? oc[k] ?? 0 : "…"}
+            busy={!oc} onClick={() => setLane(k)} pressed={lane === k} />
+        ))}
+      </KpiRow>
     </div>
   );
 

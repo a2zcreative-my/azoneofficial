@@ -211,16 +211,6 @@
   color: var(--info);
 }
 
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-@media (min-width: 640px) {
-  .tiles {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
 .tile {
   display: grid;
   gap: 0.25rem;
@@ -229,20 +219,6 @@
   border-radius: var(--erp-radius-panel, 12px);
   background: var(--card);
   min-width: 0;
-}
-.tileLabel {
-  font-size: var(--type-label-size, 0.6875rem);
-  font-weight: var(--type-label-weight, 600);
-  letter-spacing: var(--type-label-tracking, 0.06em);
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-.tileValue {
-  font-size: 1.125rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--primary);
-  overflow-wrap: anywhere;
 }
 
 .subHead {
@@ -589,86 +565,11 @@
   border-radius: 999px;
   background: var(--gold-solid);
 }
-.tileBtn {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.625rem;
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--erp-radius-panel, 12px);
-  background: var(--card);
-  text-align: start;
-  color: inherit;
-  min-width: 0;
-}
-button.tileBtn {
-  cursor: pointer;
-}
-button.tileBtn:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-.tileWell {
-  display: inline-grid;
-  place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.75rem;
-}
-.tileWell svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-.wellIn { background: var(--info-soft); color: var(--info); }
-.wellOut { background: var(--tint-navy); color: var(--primary); }
-.wellHours { background: var(--success-soft); color: var(--success); }
-.wellShifts { background: var(--tint-gold); color: var(--brand-accent-deep); }
-.tileText {
-  display: grid;
-  gap: 0.125rem;
-  min-width: 0;
-}
+
 /* v1.229.0 - Image 1 is a 2 x 2 grid on every width: with a well and a
    chevron, four in a row left the figure ~60px and broke "08:52" and
    "Running" mid-word. Labels wrap only between words; a figure never wraps. */
-.tiles:has(> .tileBtn) {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.tileBtn .tileLabel {
-  overflow-wrap: normal;
-  letter-spacing: 0.04em;
-}
-.tileBtn .tileValue {
-  overflow-wrap: normal;
-  white-space: nowrap;
-}
-@media (max-width: 639.98px) {
-  .tileBtn {
-    gap: 0.5rem;
-    padding: 0.625rem 0.5rem 0.625rem 0.625rem;
-  }
-  .tileWell {
-    width: 2.125rem;
-    height: 2.125rem;
-    border-radius: 0.625rem;
-  }
-  .tileWell svg {
-    width: 1.125rem;
-    height: 1.125rem;
-  }
-  .tileBtn .tileValue {
-    font-size: 1rem;
-  }
-}
-.tileChevron {
-  color: var(--muted-foreground);
-}
-.tileChevron svg {
-  width: 1rem;
-  height: 1rem;
-}
+
 .allDone {
   justify-self: center;
 }
@@ -810,42 +711,7 @@ button.tileBtn:focus-visible {
 }
 
 /* the week */
-.weekFigures {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0;
-}
-.weekFig:last-child:nth-child(odd) { grid-column: 1 / -1; }
-@media (min-width: 640px) {
-  .weekFigures { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .weekFig:last-child:nth-child(odd) { grid-column: auto; }
-}
-@media (min-width: 1024px) {
-  .weekFigures { grid-template-columns: repeat(7, minmax(0, 1fr)); }
-}
-.weekFig {
-  display: grid;
-  gap: 0.125rem;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  min-width: 0;
-}
-.weekFig dt {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-.weekFig dd {
-  margin: 0;
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: var(--primary);
-  font-variant-numeric: tabular-nums;
-}
-.weekFig[data-alert] dd {
-  color: var(--warning);
-}
+
 .week > li {
   min-width: 0;
 }
@@ -946,47 +812,7 @@ button.weekDay:focus-visible {
 .team {
   container-type: inline-size;
 }
-.teamFigures {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-@container (min-width: 560px) {
-  .teamFigures { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
-.teamFig {
-  display: grid;
-  gap: 0.125rem;
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-panel);
-  background: var(--card);
-  color: inherit;
-  text-align: start;
-  font: inherit;
-  min-height: 2.75rem;
-  min-width: 0;
-}
-button.teamFig { cursor: pointer; }
-button.teamFig[aria-pressed="true"] {
-  border-color: var(--brand-accent);
-  background: var(--tint-gold);
-}
-button.teamFig:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring-color);
-  outline-offset: 2px;
-}
-.teamFig[data-alert] .figValue { color: var(--danger); }
-.figValue {
-  font-size: 1.375rem;
-  font-weight: 800;
-  color: var(--primary);
-  font-variant-numeric: tabular-nums;
-}
-.figLabel {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
+
 .teamTools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1185,3 +1011,12 @@ button.teamFig:focus-visible {
 .teamLineText { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; flex: 1 1 16rem; min-width: 0; margin: 0; font-size: var(--type-body-sm-size); }
 .teamLineWarn { color: var(--warning); font-weight: 600; }
 .teamLineSkel { flex: 1 1 16rem; height: 1rem; }
+
+/* v1.338.0 - THE CEO'S STRICT KPI STRIP: My shift's four figures, This
+   Week's seven and Team On Shift's five are the one strip
+   (components/ui/kpi-tile); these only place it in its card. */
+.tiles,
+.weekFigures,
+.teamFigures {
+  min-width: 0;
+}

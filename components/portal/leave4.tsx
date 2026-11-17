@@ -34,7 +34,7 @@ import { L, type LeaveReq, leaveTypeL } from "@/components/portal/page-shared";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Donut } from "@/components/ui/donut";
-import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import { DrawerFoot, DrawerForm, DrawerPanel, DrawerSteps, SideDrawer, useDrawerClose } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { api, csrfFetch } from "@/lib/api";
@@ -43,6 +43,9 @@ import { properName } from "@/lib/names";
 import { btnClass, btnGhost, btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClass, textareaClass } from "@/lib/ui-styles";
 import css from "./leave-page.module.css";
 import l4 from "./leave4.module.css";
+
+/* v1.338.0 - each capped leave type's tint and bar in the one KPI strip */
+const BAL_TONE: Record<string, [KpiTone, "green" | "gold" | "red" | "blue"]> = { annual: ["blue", "blue"], medical: ["green", "green"], replacement: ["gold", "gold"] };
 
 export type LeaveView4 = "overview" | "apply" | "mine" | "calendar" | "manage";
 export const LEAVE_VIEWS: readonly LeaveView4[] = ["overview", "apply", "mine", "calendar", "manage"];
@@ -497,23 +500,22 @@ export function MyBalances4({ balances, loaded, userId }: { balances: Record<str
       <Head icon="balance" title={L("My Leave Balance", "Baki Cuti Saya")} sub={L(`Your current leave balance for ${year}.`, `Baki cuti semasa anda bagi ${year}.`)} action={{ label: L("View details", "Lihat butiran"), onClick: () => setDetails(true) }} />
       {!loaded ? <SkelRows rows={2} /> : (
         <>
-          <ul className={l4.bal}>
-            {CAPPED.map((t) => {
-              const b = balances[t];
-              const tot = total(t);
-              const left = avail(t);
-              return (
-                <li key={t} className={l4.balCard} data-testid={`bal-${t}`}>
-                  <span className={`${css.balIcon} ${css[`bal_${t}`] ?? ""}`} aria-hidden="true"><AppIcon name={icon[t] ?? "date"} /></span>
-                  <span className={l4.balText}>
-                    <span className={l4.balHead}><strong>{typeName(t)}</strong><span><b>{left}</b> / {tot} {L("days", "hari")}</span></span>
-                    <span className={css.track} aria-hidden="true"><span className={`${css.fill} ${css[`fill_${t}`] ?? ""}`} style={{ width: `${tot > 0 ? Math.min(100, Math.max(0, (left / tot) * 100)) : 0}%` }} /></span>
-                    <span className={css.sub}>{(b?.pending ?? 0) > 0 ? L(`${b?.pending} pending · `, `${b?.pending} menunggu · `) : ""}{t === "annual" && b?.accrued != null ? L(`${b.accrued} accrued so far`, `${b.accrued} terkumpul setakat ini`) : t === "replacement" ? L("Earned from rest days worked", "Diperoleh daripada hari rehat bekerja") : L(`${b?.used ?? 0} used`, `${b?.used ?? 0} digunakan`)}</span>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          {/* v1.338.0 - the CEO's strict KPI strip: each balance is a segment of
+              the one strip, its share bar the same bar (left of the total) */}
+          <div className={l4.bal}>
+            <KpiRow label={L("My leave balance", "Baki cuti saya")}>
+              {CAPPED.map((t) => {
+                const b = balances[t];
+                const tot = total(t);
+                const left = avail(t);
+                return (
+                  <KpiTile key={t} cell={t} testid={`bal-${t}`} icon={icon[t] ?? "date"} tone={BAL_TONE[t]?.[0] ?? "navy"} label={typeName(t)}
+                    value={`${left} / ${tot} ${L("days", "hari")}`} bar={{ pct: tot > 0 ? Math.min(100, Math.max(0, (left / tot) * 100)) : 0, tone: BAL_TONE[t]?.[1] ?? "blue" }}
+                    sub={`${(b?.pending ?? 0) > 0 ? L(`${b?.pending} pending · `, `${b?.pending} menunggu · `) : ""}${t === "annual" && b?.accrued != null ? L(`${b.accrued} accrued so far`, `${b.accrued} terkumpul setakat ini`) : t === "replacement" ? L("Earned from rest days worked", "Diperoleh daripada hari rehat bekerja") : L(`${b?.used ?? 0} used`, `${b?.used ?? 0} digunakan`)}`} />
+                );
+              })}
+            </KpiRow>
+          </div>
           <p className={css.sub} data-testid="bal-unpaid">{L(`Emergency and unpaid leave: no limit · ${(balances.emergency?.used ?? 0) + (balances.unpaid?.used ?? 0)} day(s) taken this year · each day is deducted at 1/26 of the monthly wage.`, `Cuti kecemasan dan tanpa gaji: tiada had · ${(balances.emergency?.used ?? 0) + (balances.unpaid?.used ?? 0)} hari diambil tahun ini · setiap hari dipotong 1/26 daripada gaji bulanan.`)}</p>
         </>
       )}
@@ -605,10 +607,13 @@ export function ApprovalsHead4({ all, loaded, canEditPolicy, onManagePolicy }: {
     <div className={l4.mgmtHead}>
       <section className={card} aria-label={L("Leave management", "Pengurusan cuti")} data-testid="mgmt-tiles">
         <Head icon="balance" title={L("Leave Management", "Pengurusan Cuti")} sub={L("Leave approvals, routing and entitlements.", "Kelulusan cuti, laluan dan kelayakan.")} />
+        {/* v1.338.0 - three segments of the one KPI strip */}
         <div className={l4.tiles}>
-          <span className={l4.tile}><AppIcon name="pending" /><strong>{loaded ? mineToAct : "…"}</strong><span>{L("Pending approvals", "Kelulusan menunggu")}</span><em>{L("Requires your action", "Memerlukan tindakan anda")}</em></span>
-          <span className={l4.tile}><AppIcon name="success" /><strong>{loaded ? approvedYear : "…"}</strong><span>{L(`Approved (${year})`, `Diluluskan (${year})`)}</span><em>{L("In the list you can see", "Dalam senarai yang anda boleh lihat")}</em></span>
-          <span className={l4.tile}><AppIcon name="warning" /><strong>{loaded ? routing : "…"}</strong><span>{L("Routing needs configuration", "Laluan perlu ditetapkan")}</span><em>{L("No reporting line on the chart", "Tiada garis pelaporan pada carta")}</em></span>
+          <KpiRow label={L("Leave management figures", "Angka pengurusan cuti")}>
+            <KpiTile icon="pending" tone={mineToAct > 0 ? "gold" : "navy"} label={L("Pending approvals", "Kelulusan menunggu")} value={mineToAct} busy={!loaded} sub={L("Requires your action", "Memerlukan tindakan anda")} />
+            <KpiTile icon="success" tone="green" label={L(`Approved (${year})`, `Diluluskan (${year})`)} value={approvedYear} busy={!loaded} sub={L("In the list you can see", "Dalam senarai yang anda boleh lihat")} />
+            <KpiTile icon="warning" tone={routing > 0 ? "red" : "navy"} label={L("Routing needs configuration", "Laluan perlu ditetapkan")} value={routing} busy={!loaded} sub={L("No reporting line on the chart", "Tiada garis pelaporan pada carta")} />
+          </KpiRow>
         </div>
       </section>
       <section className={card} aria-label={L("Leave policy and entitlements", "Dasar dan kelayakan cuti")} data-testid="mgmt-policy">

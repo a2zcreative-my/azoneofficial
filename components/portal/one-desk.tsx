@@ -46,6 +46,7 @@ import { useMemo, useState } from "react";
 import { useCachedApi } from "@/lib/cached-api";
 import { Skel, StaleHint } from "@/components/ui/skeleton";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { btnSm, card } from "@/lib/ui-styles";
 import { useWatcherOpenCount } from "@/components/portal/watchers-card";
 import { revealAnchor } from "@/components/portal/page-shared";
@@ -211,17 +212,15 @@ export function DeskSummary({ go, role = "", bare = false }: { go: (tab: string)
         {L("Waiting on you", "Menunggu anda")}
         <StaleHint show={desk.stale} className="ml-2" />
       </PanelTitle>
-      <div className="erp-tiles erp-tiles-2 erp-mt-2">
-        <button type="button" className={`erp-stat erp-stat-button ${decide.length > 0 ? "erp-stat-warning" : ""}`}
-          onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")}>
-          <span className="erp-stat-value">{decide.length}</span>
-          <span className="erp-stat-label">{L("Needs your decision", "Perlu keputusan anda")}</span>
-        </button>
-        <button type="button" className="erp-stat erp-stat-button"
-          onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")}>
-          <span className="erp-stat-value">{attentionCount == null ? <span className="erp-stat-busy" aria-hidden>···</span> : attentionCount}</span>
-          <span className="erp-stat-label">{L("Needs attention", "Perlu perhatian")}</span>
-        </button>
+      {/* v1.338.0 - the CEO's strict KPI strip: the two counts are segments of
+          the one strip, each opening the Desk as before */}
+      <div className="erp-mt-2">
+        <KpiRow label={L("Waiting on you", "Menunggu anda")} testid="desk-summary-strip">
+          <KpiTile icon="verify" tone={decide.length > 0 ? "gold" : "navy"} label={L("Needs your decision", "Perlu keputusan anda")} value={decide.length}
+            onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")} />
+          <KpiTile icon="warning" tone="navy" label={L("Needs attention", "Perlu perhatian")} value={attentionCount ?? 0} busy={attentionCount == null}
+            onClick={() => go("Desk")} title={L("Open the Desk", "Buka Meja")} />
+        </KpiRow>
       </div>
       {preview.length > 0 && (
         <ul className="erp-mt-2">

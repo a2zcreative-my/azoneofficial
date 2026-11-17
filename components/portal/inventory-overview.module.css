@@ -236,31 +236,7 @@
 }
 
 /* ---- small figures ---- */
-.figs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin-top: 0.875rem;
-}
-.fig {
-  padding: 0.625rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  min-width: 0;
-}
-.fig > p {
-  margin: 0;
-}
-.figLabel {
-  font-size: var(--type-caption-size);
-  color: var(--muted-foreground);
-}
-.figValue {
-  font-size: 1.25rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
+
 .rows {
   display: grid;
   margin: 0.75rem 0 0;
@@ -322,3 +298,9 @@
 .storeCharges { display: block; margin-top: 0.25rem; font-size: 0.6875rem; line-height: 1.35; color: var(--muted-foreground); max-width: 14rem; }
 .storeLink { margin-left: 0.25rem; padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--primary); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .storeLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+
+/* v1.338.0 - the report's figures are the one KPI strip (components/ui/kpi-tile) */
+.figs {
+  min-width: 0;
+  margin-top: 0.875rem;
+}

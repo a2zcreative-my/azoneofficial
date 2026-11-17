@@ -6,12 +6,7 @@
 .introIcon svg { width: 1.5rem; height: 1.5rem; }
 .title { font-size: var(--type-page-size); font-weight: 700; line-height: 1.2; }
 .sub, .muted { font-size: var(--type-caption-size); color: var(--muted-foreground); margin: 0; }
-.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; flex: 1 1 32rem; }
-.stat { display: flex; align-items: center; gap: 0.625rem; min-width: 0; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
-.statIcon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: none; border-radius: var(--radius-control); background: var(--secondary); color: var(--primary); }
-.statIcon svg { width: 1.125rem; height: 1.125rem; }
-.statText { display: grid; min-width: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); line-height: 1.3; }
-.statText strong { font-size: 1.25rem; color: var(--foreground); font-variant-numeric: tabular-nums; }
+
 .body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding-top: 1rem; }
 .side { display: grid; gap: 1rem; align-content: start; min-width: 0; }
 .panel { display: grid; gap: 0.5rem; padding: 0.875rem; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); min-width: 0; }
@@ -60,11 +55,12 @@
 .gridPerson { display: grid; justify-items: center; gap: 0.25rem; width: 100%; min-height: 2.75rem; padding: 0.25rem; border: 0; border-radius: var(--radius-control); background: none; color: inherit; font: inherit; text-align: center; cursor: pointer; }
 .gridPerson strong { font-size: var(--type-caption-size); overflow-wrap: anywhere; }
 .gridPerson span:last-child { font-size: var(--type-caption-size); color: var(--muted-foreground); overflow-wrap: anywhere; }
-@media (min-width: 768px) {
-  .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
+
 @media (min-width: 1280px) {
   .body { grid-template-columns: 15rem minmax(0, 1fr) 17rem; }
 }
 .skelBig { display: block; width: 6rem; height: 6rem; border-radius: var(--radius-full); }
 .skelFace { display: block; width: 4rem; height: 4rem; border-radius: var(--radius-full); }
+
+/* v1.338.0 - the four figures are the one KPI strip (components/ui/kpi-tile) */
+.stats { flex: 1 1 32rem; min-width: 0; }
