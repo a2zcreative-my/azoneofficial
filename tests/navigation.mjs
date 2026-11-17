@@ -36,10 +36,10 @@ rmSync(dir, { recursive: true, force: true });
 const WANT = [
   ["Workspace", ["Dashboard", "Desk", "Announcements"]],
   ["Revenue", ["Sales", "Ecommerce", "Agents", "Financial Advisory"]],
-  ["Operations", ["Tasks", "Inventory", "Assets", "Hotels"]],
+  ["Operations", ["Tasks", "Assets", "Hotels"]], // v1.340.0 - Inventory moved to ELFIA (the CEO, 17-11-2026)
   ["People", ["HR", "Staff Details", "Attendance", "On Shift", "Roster & Scheduling", "Leave", "Claims", "Payroll"]], // v1.328.0 - R-1
   ["Finance", ["Finance", "Accounting", "Commission"]],
-  ["ELFIA", ["ELFIA Store", "ELFIA Traffic"]],
+  ["ELFIA", ["ELFIA Store", "ELFIA Traffic", "Inventory"]], // v1.340.0 - Inventory belongs to ELFIA
   ["System", ["Companies", "Users", "Automation & Rules"]], // v1.293.0 - the watcher rules (Desk consolidation, D4)
   ["Account", ["Cards", "Profile"]],
 ];
@@ -98,7 +98,7 @@ ok("the group holding the open page wears the gold on the collapsed rail", /clas
 ok("the flyout: arrow keys, Home/End, Escape back to the icon, Tab or an outside click closes it",
   /if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); closeFly\(true\); return; \}/.test(nav) && /if \(e\.key === "Tab"\) \{ setFly\(null\); return; \}/.test(nav)
   && /\["ArrowDown", "ArrowUp", "Home", "End"\]/.test(nav) && /document\.addEventListener\("mousedown", onDown\)/.test(nav));
-ok("the flyout marks the open module and closes before it navigates", /aria-current=\{it\.name === active \? "page" : undefined\}/.test(nav) && /onClick=\{\(\) => \{ closeFly\(false\); onSelect\(it\.name\); \}\}/.test(nav));
+ok("the flyout marks the open module and closes before it navigates", /aria-current=\{it\.name === active \? "page" : undefined\}/.test(nav) && /onClick=\{\(\) => \{ (?:closeFly\(false\)|setFly\(null\)); onSelect\(it\.name\); \}\}/.test(nav) /* v1.340.0 - setFly(null) is closeFly(false) */);
 ok("every rail group has its own icon, none borrowed from a module", T.NAV_GROUPS.filter((g) => g.placement !== "account-menu").every((g) => new RegExp(`\\b${g.id}: [A-Z]`).test(icons)));
 ok("the flyout uses tokens only (no raw colour or radius)", !/#[0-9a-f]{3,8}\b/i.test(css.slice(css.indexOf(".flyout"))) && /\.flyout \{[^}]*border-radius: var\(--radius-control\)/.test(css));
 
@@ -107,7 +107,8 @@ const i18n = read("lib/i18n.ts");
 ok("Users is shown as Users & Security (BM: Pengguna & Keselamatan), on its unchanged URL", /"Users": \{ en: "Users & Security", ms: "Pengguna & Keselamatan" \}/.test(i18n) && T.TAB_ROUTE.Users.slug === "users");
 ok("Workspace has its BM heading", /Workspace: "Ruang Kerja"/.test(nav));
 const shell = strip(read("components/portal/portal-shell.tsx"));
-ok("the phone's More shows Projects in Operations, for the same people as the rail's shortcut", /section\.title === "Operations" && showProjects &&/.test(shell) && /setTabStart\(\{ tab: "Tasks", view: "projects" \}\); setTab\("Tasks"\); setMoreOpen\(false\);/.test(shell));
+/* v1.340.0 - the CEO (17-11-2026): Projects is a tab inside Tasks; no second entry in the More sheet */
+ok("the phone's More shows no Projects shortcut (Tasks > Projects is the one way in)", !/showProjects|more-projects|view: "projects" \}\); setTab\("Tasks"\); setMoreOpen/.test(shell));
 
 
 /* v1.335.0 - the rail's presence (the CEO, 17-11-2026): from real signals only */

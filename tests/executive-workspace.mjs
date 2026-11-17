@@ -55,10 +55,11 @@ ok("there is no rail cut and no desktop More any more", !/RAIL_PRIMARY|moreItems
 ok("Revenue reads Sales, Ecommerce, Agents, Financial Advisory in the registry and the groups", allTabs.indexOf("Sales") < allTabs.indexOf("Ecommerce") && allTabs.indexOf("Ecommerce") < allTabs.indexOf("Agents") && /\{ id: "revenue", title: "Revenue", tabs: \["Sales", "Ecommerce", "Agents", "Financial Advisory"\] \}/.test(registry));
 ok("the expanded rail draws every item of a group (the same filtered items)", /const shown = section\.items;/.test(body));
 ok("the phone's More sheet still groups EVERY tab from SECTIONS", /const mobileGroups = SECTIONS\.map/.test(read("components/portal/portal-provider.tsx")));
-ok("Projects is a shortcut, never aria-current, and opens Tasks > Projects", /const projectsButton = onProjects \?/.test(body) && !/key="__projects"[\s\S]{0,200}aria-current/.test(body)
-  && /onProjects=\{showProjects \? \(\) => \{ setTabStart\(\{ tab: "Tasks", view: "projects" \}\); setTab\("Tasks"\); \} : undefined\}/.test(shell));
-ok("Projects is drawn only for someone who may open Tasks AND holds project_view", /const showProjects = canOpen\("Tasks"\) && canViewProjects\(user\.role\);/.test(shell));
-ok("ONE projects rule, shared by the shortcut and the Tasks page", /export function canViewProjects\(role[^)]*\): boolean \{\s*return holds\("project_view",/.test(caps) && /const canProjects = canViewProjects\(user\.role\);/.test(tasks) && !/holds\("project_view"/.test(strip(tasks)));
+/* v1.340.0 - the CEO (17-11-2026): Projects is already a tab inside Tasks, so
+   the rail, its flyout and the phone's More sheet no longer list it again */
+ok("no Projects shortcut on the rail, its flyout or the phone's More sheet - Tasks > Projects is the one way in",
+  !/projectsButton|onProjects|__projects|FolderKanban/.test(body) && !/onProjects|showProjects|more-projects/.test(shell));
+ok("ONE projects rule, on the Tasks page", /export function canViewProjects\(role[^)]*\): boolean \{\s*return holds\("project_view",/.test(caps) && /const canProjects = canViewProjects\(user\.role\);/.test(tasks) && !/holds\("project_view"/.test(strip(tasks)));
 ok("every group is drawn with its heading (Workspace included)", !/UNTITLED_GROUP|erp-sr-only/.test(body));
 ok("a fold button is still named as a group (\"Finance group\")", /`\$\{sectionTitle\(section\.title, lang\)\} group`/.test(nav));
 

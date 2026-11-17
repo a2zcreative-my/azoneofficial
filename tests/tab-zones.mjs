@@ -366,7 +366,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      (Processing), the release (Payslips), the bank file (Reports & Export),
      then the base salaries and the M2E setup (Settings & Audit); every zone
      kept mounted and hidden with pp.off */
-  ok("Payroll: review before save, release, payment export and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', 'L("Release now"', 'L("M2E salary file"', 'id="payroll-base"', 'L("M2E setup (one-time)']));
+  ok("Payroll: review before save, release, payment export and setup", ordered(pay, ['<table className="tbl-sticky', 'L("Save all"', /* v1.339.0 - the release flow is one function (releaseMonth); the Payslips box calls it */ 'onClick={() => void releaseMonth(month, release.available_from)}', 'L("M2E salary file"', 'id="payroll-base"', 'L("M2E setup (one-time)']));
   ok("Payroll: five tabs in the brief's order, zones hidden not unmounted", ["Overview", "Payroll Processing", "Payslips", "Reports & Export", "Settings & Audit"].map((t) => pay.indexOf(`L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (pay.match(/className=\{view !== "[a-z]+" \? pp\.off : ""\}/g) ?? []).length === 5);
   /* v1.310.0 (Claims 4.0) - the records are My Claims (your own, C-4); the
      register of everyone else's is the Approvals' "All claims" list */

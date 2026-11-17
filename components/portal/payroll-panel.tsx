@@ -1103,7 +1103,49 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const monthLabel = monthName(month);
   const detailUser = detailId === null ? null : staff.find((x) => x.id === detailId) ?? null;
   /* v1.207.0 - the month history (saved entries per month; payroll-history.tsx) */
-  const history = usePayrollHistory(month, histWanted);
+  /* v1.339.0 (the CEO, 17-11-2026: "I should be able to update the status to
+     release from the previous month") - History can release a month too. One
+     release flow, moved here whole from the Payslips box so both places ask the
+     same questions (early-release warnings unchanged) and call the same
+     POST /payroll/release; the server still decides who may (payroll_release). */
+  const [histNonce, setHistNonce] = useState(0);
+  const releaseMonth = async (m: string, availableFrom: string) => {
+                  /* v1.4.210: releasing before the automatic date usually
+                     means the wrong month is on screen — confirm with the
+                     CEO's own flow rule spelled out. */
+                  const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+                  if (availableFrom > nowMYT) {
+                    /* v1.4.211 (CEO: "if I want to release the payslip
+                       earlier then how?"): early release of the month
+                       being PAID (= last calendar month, before its
+                       automatic 5th) is the LEGITIMATE case — benign
+                       confirm. Early release of the current/future month
+                       keeps the strong wrong-month warning (v1.4.210). */
+                    const [yR, moR] = m.split("-").map(Number);
+                    const prevM = new Date(Date.UTC(yR || 0, (moR || 0) - 2, 1)).toISOString().slice(0, 7);
+                    const autoD = dmy(availableFrom);
+                    const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
+                    const ok = m === cycleM
+                      ? await payConfirm({
+                          title: L(`Release ${monthDMY(m)} payslips now?`, `Keluarkan slip gaji ${monthDMY(m)} sekarang?`),
+                          message: L(`Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`, `Lebih awal daripada tarikh automatik (${autoD} 10:00 MYT).\nIni keluaran awal biasa apabila anda membayar gaji sebelum 5 haribulan.`),
+                          confirmLabel: L("Release now", "Keluarkan sekarang"),
+                        })
+                      : await payConfirm({
+                          title: L("Early release — check the month", "Keluaran awal — semak bulan"),
+                          message: L(`${monthDMY(m)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`, `Slip gaji ${monthDMY(m)} dikeluarkan secara automatik pada ${autoD} — SELEPAS bulan ini ditutup.\n\nLarian gaji yang anda bayar sekarang ialah bulan LEPAS (${monthDMY(prevM)}) — slip gajinya dikeluarkan sendiri pada 5 haribulan, tiada tindakan diperlukan.`),
+                          confirmLabel: L(`Release ${monthDMY(m)} anyway`, `Keluarkan ${monthDMY(m)} juga`),
+                          variant: "danger",
+                        });
+                    if (!ok) return;
+                  }
+                  const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month: m }) });
+                  setMsg(res.ok ? L("Payslips released to staff.", "Slip gaji dikeluarkan kepada kakitangan.") : L("Release failed", "Keluaran gagal"));
+                  window.setTimeout(() => setMsg(""), 3000);
+                  void load();
+                  setHistNonce((n) => n + 1);
+                  };
+  const history = usePayrollHistory(month, histWanted, 12, histNonce);
   /* rows the bank file will not price from a saved net: saved without one
      (it would use its older fallback) or not saved at all (not in the file) */
   const noNetRows = loaded ? staff.filter((u) => savedIds.includes(u.id) && noNetIds.includes(u.id)) : [];
@@ -1980,41 +2022,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                 type="button"
                 className="font-medium underline"
                 title={L("Release this month's payslips to staff now, before the automatic date", "Keluarkan slip gaji bulan ini kepada kakitangan sekarang, sebelum tarikh automatik")}
-                onClick={async () => {
-                  /* v1.4.210: releasing before the automatic date usually
-                     means the wrong month is on screen — confirm with the
-                     CEO's own flow rule spelled out. */
-                  const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
-                  if (release.available_from > nowMYT) {
-                    /* v1.4.211 (CEO: "if I want to release the payslip
-                       earlier then how?"): early release of the month
-                       being PAID (= last calendar month, before its
-                       automatic 5th) is the LEGITIMATE case — benign
-                       confirm. Early release of the current/future month
-                       keeps the strong wrong-month warning (v1.4.210). */
-                    const [yR, moR] = month.split("-").map(Number);
-                    const prevM = new Date(Date.UTC(yR || 0, (moR || 0) - 2, 1)).toISOString().slice(0, 7);
-                    const autoD = dmy(release.available_from);
-                    const cycleM = new Date(new Date(Date.now() + 8 * 3600 * 1000).setUTCDate(0)).toISOString().slice(0, 7);
-                    const ok = month === cycleM
-                      ? await payConfirm({
-                          title: L(`Release ${monthDMY(month)} payslips now?`, `Keluarkan slip gaji ${monthDMY(month)} sekarang?`),
-                          message: L(`Ahead of the automatic date (${autoD} 10:00 MYT).\nThis is the normal early release when you pay salaries before the 5th.`, `Lebih awal daripada tarikh automatik (${autoD} 10:00 MYT).\nIni keluaran awal biasa apabila anda membayar gaji sebelum 5 haribulan.`),
-                          confirmLabel: L("Release now", "Keluarkan sekarang"),
-                        })
-                      : await payConfirm({
-                          title: L("Early release — check the month", "Keluaran awal — semak bulan"),
-                          message: L(`${monthDMY(month)} payslips release automatically on ${autoD} — AFTER the month closes.\n\nThe salary run you are paying now is LAST month's (${monthDMY(prevM)}) — its payslips release by themselves on the 5th, no action needed.`, `Slip gaji ${monthDMY(month)} dikeluarkan secara automatik pada ${autoD} — SELEPAS bulan ini ditutup.\n\nLarian gaji yang anda bayar sekarang ialah bulan LEPAS (${monthDMY(prevM)}) — slip gajinya dikeluarkan sendiri pada 5 haribulan, tiada tindakan diperlukan.`),
-                          confirmLabel: L(`Release ${monthDMY(month)} anyway`, `Keluarkan ${monthDMY(month)} juga`),
-                          variant: "danger",
-                        });
-                    if (!ok) return;
-                  }
-                  const res = await api(`/payroll/release`, { method: "POST", body: JSON.stringify({ month }) });
-                  setMsg(res.ok ? L("Payslips released to staff.", "Slip gaji dikeluarkan kepada kakitangan.") : L("Release failed", "Keluaran gagal"));
-                  window.setTimeout(() => setMsg(""), 3000);
-                  void load();
-                }}
+                onClick={() => void releaseMonth(month, release.available_from)}
               >
                 {L("Release now", "Keluarkan sekarang")}
               </button>}
@@ -2115,11 +2123,19 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                       <td><strong>{monthName(h.month)}</strong></td>
                       <td className={pp.num}>{h.failed ? "—" : h.saved}</td>
                       <td className={pp.num}>{h.failed || h.saved === 0 ? "—" : rm(h.net)}{h.noNet > 0 && <span className={pp.histWarn}>{L(` · ${h.noNet} without a saved net`, ` · ${h.noNet} tanpa bersih disimpan`)}</span>}</td>
+                      {/* v1.339.0 - the status is what staff can open (payslipsOutFor): a month
+                          past its automatic date IS out even with no Release press - it was
+                          shown "Not released" while staff were already reading it */}
                       <td>{h.failed ? <span className={chipNeutral}>{L("Not read", "Tidak dibaca")}</span>
-                        : h.released ? <span className={chipSuccess}>{L("Released", "Dikeluarkan")}</span>
-                        : h.saved > 0 ? <span className={chipWarn}>{L("Not released", "Belum dikeluarkan")}</span>
-                        : <span className={chipNeutral}>{L("Nothing saved", "Tiada disimpan")}</span>}</td>
-                      <td className={pp.num}>{h.month !== month && <button type="button" className={rowBtn} onClick={() => setMonth(h.month)}>{L("View", "Lihat")}</button>}</td>
+                        : h.saved === 0 && !h.released ? <span className={chipNeutral} data-testid={`hist-status-${h.month}`}>{L("Nothing saved", "Tiada disimpan")}</span>
+                        : h.released ? <span className={chipSuccess} data-testid={`hist-status-${h.month}`}>{L("Released", "Dikeluarkan")}</span>
+                        : h.out ? <span className={chipSuccess} data-testid={`hist-status-${h.month}`} title={L(`Out to staff automatically from ${dmy(h.availableFrom)}`, `Dikeluarkan kepada kakitangan secara automatik dari ${dmy(h.availableFrom)}`)}>{L("Released · automatic", "Dikeluarkan · automatik")}</span>
+                        : <span className={chipWarn} data-testid={`hist-status-${h.month}`} title={h.availableFrom ? L(`Opens to staff automatically on ${dmy(h.availableFrom)}`, `Dibuka kepada kakitangan secara automatik pada ${dmy(h.availableFrom)}`) : undefined}>{L("Not released", "Belum dikeluarkan")}</span>}</td>
+                      <td className={pp.num}><span className={rowActions}>
+                        {!readOnly && release?.can_release !== false && !h.failed && !h.out && h.saved > 0 && h.availableFrom
+                          && <button type="button" className={rowBtnPrimary} data-testid={`hist-release-${h.month}`} onClick={() => void releaseMonth(h.month, h.availableFrom)}>{L("Release", "Keluarkan")}</button>}
+                        {h.month !== month && <button type="button" className={rowBtn} onClick={() => setMonth(h.month)}>{L("View", "Lihat")}</button>}
+                      </span></td>
                     </tr>
                   ))}
                 </tbody>

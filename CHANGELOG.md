@@ -10,6 +10,33 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.340.0] - 2026-11-17 - Navigation: no second Projects entry, and Inventory sits under ELFIA - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, on the sidebar: "Project sidebar should not appear since already in Tasks tabs. Inventory should move under ELFIA since it belongs to ELFIA."
+
+### Changed
+- **The Projects shortcut is gone.** The v1.279.0 rail item, its entry in the collapsed rail's Operations flyout and the v1.287.0 tile in the phone's More sheet are removed (`components/layout/side-nav.tsx`, `components/portal/portal-shell.tsx`). Projects stays where it lives - the Projects tab inside Tasks - with the same `project_view` rule (`canViewProjects`) deciding who sees it there.
+- **Inventory moved from Operations to ELFIA.** `ALL_TABS` places Inventory after ELFIA Traffic and `NAV_GROUPS` reads Operations = Tasks, Assets, Hotels; ELFIA = ELFIA Store, ELFIA Traffic, Inventory (`lib/portal-tabs.ts`). The rail, the collapsed flyout and the phone's More sheet all read the same list. Who may open Inventory (`TAB_ROLES`, per-person access, the server's checks), its address (`/portal/inventory`) and the page itself are unchanged.
+
+### Guards
+- `tests/navigation.mjs`: the CEO's groups updated (Operations without Inventory, ELFIA with it); the More sheet must carry NO Projects shortcut; the flyout's close-then-navigate check accepts `setFly(null)` (what `closeFly(false)` does) - the flyout item uses it directly so the React lint does not flag a ref helper during render.
+- `tests/executive-workspace.mjs`: the shortcut checks now hold the other way - no `onProjects`, `projectsButton`, `FolderKanban` or `more-projects` anywhere in the rail or the shell; the one projects rule on the Tasks page is kept.
+- `tests/registry-parity.mjs` (unchanged) holds the groups as one contiguous cut of `ALL_TABS`.
+
+## [1.339.0] - 2026-11-17 - Payroll History says what staff can open, and the CEO can release from it - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, looking at Payroll > Reports & Export > Payroll History: "I should be able to update the status to release from the previous month. This looks not normal as CEO." July and October 2026 read **Not released** while their automatic release moment (the 5th of the next month, 10:00 MYT, past weekends and holidays - `payslipAvailableFromFor`) had long passed: staff were already reading those payslips. History looked only for a manual release row.
+
+### Changed
+- **History reads the server's own answer.** `usePayrollHistory` (components/portal/payroll-history.tsx) now takes `population.payslips_out` (= `payslipsOutFor`: a release row OR the automatic moment) and `release.available_from` from the `GET /staff/payroll?month=` it already made. A month out by the automatic date reads **Released · automatic** (hover: the date it opened); a month released by hand reads **Released**; a saved month not yet out reads **Not released** (hover: when it will open).
+- **Release from History.** A saved month that is not out yet carries a **Release** button, for the release holders only (`release.can_release`, the server's `payroll_release`: CEO, COO, super admin). It runs the SAME flow as the Payslips box: the release code moved whole into one function, `releaseMonth(m, availableFrom)`, so both places ask the same early-release questions and call the same `POST /staff/payroll/release`. History re-reads after a release.
+- No route, rule, figure or table changed. A release still stamps the employer of record and is audited exactly as before; undo stays on the Payslips box.
+
+### Guards
+- New `tests/payroll-history-release.mjs` (7 checks, 7 mutations): History reads `payslips_out`; an automatic month never reads Not released; an empty month reads Nothing saved; the button is release-holders-only, never on a month already out, and goes through `releaseMonth`; one release POST in the panel; the early-release warnings kept; the server gate unchanged.
+- New browser test `tests/browser/payroll-history-release.py` (15 checks) over the new `PAYHIST=1` fixture in `tests/browser/serve.mjs`: July, September and October read Released · automatic, August Released, an empty month Nothing saved; November (date still ahead) has Release, which asks first, posts one release and re-reads.
+- `tests/tab-zones.mjs`: the Payroll order check anchors on the Payslips box's `releaseMonth` call (the confirm label "Release now" now lives in the shared function, above the register).
+
 ## [1.338.0] - 2026-11-17 - Every row of figures is the one Tasks KPI strip: no figure is a card of its own any more - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 17-11-2026 ("A2Z OS — Strict Global KPI Strip Enforcement"): the Tasks KPI strip is the only approved figure design; replace every separate KPI card with it, the same shared component, zero gaps; preserve every metric and every function.

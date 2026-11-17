@@ -19,7 +19,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
-import { ChevronDown, ChevronsUpDown, FolderKanban } from "lucide-react";
+import { ChevronDown, ChevronsUpDown } from "lucide-react";
 import css from "./side-nav.module.css";
 import { TabIcon, GroupIcon, LogOut } from "@/components/layout/nav-icons";
 import { NAV_GROUPS } from "@/lib/portal-tabs";
@@ -137,7 +137,7 @@ export const NAV_COLLAPSED_KEY = "azone-nav-collapsed";
 
 export function SideNav({
   items, active, onSelect, onSignOut, collapsed, onToggleCollapsed, userName, userRole, sections = SECTIONS,
-  accountMenu, userPhoto, onProjects, presence,
+  accountMenu, userPhoto, presence,
 }: {
   items: NavItem[];
   active: string;
@@ -160,9 +160,6 @@ export function SideNav({
   /** v1.335.0 - the person's own presence (portal-provider: the device's connection
       and the live session). Left out on the console rails: no badge is drawn. */
   presence?: "online" | "offline";
-  /** v1.279.0 - the Projects shortcut (Tasks > Projects); drawn only when
-      the portal passes it, i.e. the person may open Tasks and its projects */
-  onProjects?: () => void;
 }) {
   const lang = getLang();
   const ms = lang === "ms";
@@ -288,17 +285,9 @@ export function SideNav({
       </li>
     );
   };
-  /* v1.279.0 - Projects is a way into Tasks > Projects, not a tab of its
-     own: it never carries aria-current (Tasks does, whichever Tasks view is
-     open), and it is not a registry entry, so access stays the Tasks tab's */
-  const projectsButton = onProjects ? (
-    <li key="__projects">
-      <button type="button" data-nav-item className="erp-rail-item" onClick={onProjects}>
-        <span className="erp-rail-icon"><FolderKanban aria-hidden className="erp-icon" strokeWidth={1.75} /></span>
-        <span className="erp-rail-item-label">{ms ? "Projek" : "Projects"}</span>
-      </button>
-    </li>
-  ) : null;
+  /* v1.340.0 - the Projects shortcut (v1.279.0) is gone, by the CEO's word
+     (17-11-2026): Projects is already a tab inside Tasks, so the rail does not
+     list it a second time. Tasks > Projects is the one way in. */
 
   return (
     <aside
@@ -376,8 +365,7 @@ export function SideNav({
         })}
         {!groupRail && railGroups.map((section) => {
           const shown = section.items;
-          const withProjects = fullRail && section.title === "Operations" && projectsButton;
-          if (shown.length === 0 && !withProjects) return null;
+          if (shown.length === 0) return null;
           /* v1.277.0 - a group folds (the chevron), except the one holding the
              open tab, which always shows its items */
           const holdsActive = shown.some((i) => i.name === active);
@@ -405,7 +393,7 @@ export function SideNav({
                 {sectionTitle(section.title, lang)}
               </p>
             )}
-            {open && <ul id={listId}>{withProjects}{shown.map(itemButton)}</ul>}
+            {open && <ul id={listId}>{shown.map(itemButton)}</ul>}
           </div>
           );
         })}
@@ -420,14 +408,9 @@ export function SideNav({
             role="group" aria-label={name} onKeyDown={onFlyKey} data-testid="rail-flyout">
             <p className={css.flyTitle} aria-hidden>{name}</p>
             <ul className={css.flyList}>
-              {g.title === "Operations" && onProjects && (
-                <li><button type="button" className={css.flyItem} onClick={() => { closeFly(false); onProjects(); }}>
-                  <FolderKanban aria-hidden className="erp-icon" strokeWidth={1.75} /><span>{ms ? "Projek" : "Projects"}</span>
-                </button></li>
-              )}
               {g.items.map((it) => (
                 <li key={it.name}><button type="button" className={css.flyItem} aria-current={it.name === active ? "page" : undefined}
-                  onClick={() => { closeFly(false); onSelect(it.name); }}>
+                  onClick={() => { setFly(null); onSelect(it.name); }}>
                   <TabIcon name={it.name} className="erp-icon" /><span>{it.label}</span>
                 </button></li>
               ))}

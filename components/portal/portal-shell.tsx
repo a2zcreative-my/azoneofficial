@@ -29,7 +29,6 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { AppShell } from "@/components/layout/app-shell";
 import { SideNav, sectionTitle, type AccountAction } from "@/components/layout/side-nav";
 import { HelpSheet } from "@/components/portal/help-sheet";
-import { canViewProjects } from "@/lib/caps";
 import { useState } from "react";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, CircleHelp, ChevronDown, CalendarDays } from "@/components/layout/nav-icons";
 import { setLang as persistLang, t as tr } from "@/lib/i18n";
@@ -165,7 +164,6 @@ export function PortalShell({ children }: { children: ReactNode }) {
       label: L("Plum & Rose colours", "Warna Plum & Rose"), pressed: theme === "plum", onSelect: () => setTheme(theme === "plum" ? "navy" : "plum") },
     { key: "signout", icon: <LogOut aria-hidden className="erp-icon" strokeWidth={1.75} />, label: tr("Sign out", lang), danger: true, onSelect: signOut },
   ];
-  const showProjects = canOpen("Tasks") && canViewProjects(user.role);
 
   return (
     /* Navigation receives the already permission-filtered registry. */
@@ -183,7 +181,6 @@ export function PortalShell({ children }: { children: ReactNode }) {
           onSignOut={signOut}
           accountMenu={accountActions}
           userPhoto={user.photo_key ? `/api/v1/media/file/${encodeURIComponent(user.photo_key)}` : null}
-          onProjects={showProjects ? () => { setTabStart({ tab: "Tasks", view: "projects" }); setTab("Tasks"); } : undefined}
         />
       }
     >
@@ -558,18 +555,6 @@ export function PortalShell({ children }: { children: ReactNode }) {
                     {sectionTitle(section.title, lang)}
                   </p>
                   <div className={css.moreGrid}>
-                  {/* v1.287.0 - the desktop rail's Projects shortcut, here too
-                      (the CEO's choice D4): a way into Tasks > Projects, not a
-                      tab, so it has no pin and Tasks keeps the access */}
-                  {section.title === "Operations" && showProjects && (
-                    <span className={css.moreCell}>
-                      <button type="button" data-testid="more-projects" className={css.moreTab}
-                        onClick={() => { setTabStart({ tab: "Tasks", view: "projects" }); setTab("Tasks"); setMoreOpen(false); window.scrollTo({ top: 0 }); }}>
-                        <span aria-hidden className="erp-center"><AppIcon name="folder" /></span>
-                        {L("Projects", "Projek")}
-                      </button>
-                    </span>
-                  )}
                   {section.tabs.map((t) => moreTile(t))}
                   </div>
                 </section>

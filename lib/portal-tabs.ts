@@ -98,7 +98,9 @@ export const ALL_TABS = [
      that fed them (the website and customer-account enquiry forms, Astra
      GPT's /api/v1/hankeis, the ELFIA shop checkout) keep accepting work by
      the owner's choice; nothing in the portal shows it. */
-  "Inventory",
+  /* v1.340.0 - Inventory moved to the ELFIA group (the CEO, 17-11-2026: it
+     belongs to ELFIA): it now sits after ELFIA Traffic below, so the ELFIA
+     group stays one contiguous cut of this list. Access is unchanged. */
   "Assets",
   "Hotels",
   "Threads",
@@ -139,6 +141,7 @@ export const ALL_TABS = [
   "Commission",
   "ELFIA Store",
   "ELFIA Traffic",
+  "Inventory",
   "Companies",
   "Users",
   /* v1.293.0 - the Desk consolidation (the CEO, 12-11-2026, K3 / D4): the
@@ -182,10 +185,10 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   { id: "workspace", title: "Workspace", tabs: ["Dashboard", "Desk", "Announcements"] },
   { id: "revenue", title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents", "Financial Advisory"] },
-  { id: "operations", title: "Operations", tabs: ["Tasks", "Inventory", "Assets", "Hotels"] },
+  { id: "operations", title: "Operations", tabs: ["Tasks", "Assets", "Hotels"] },
   { id: "people", title: "People", tabs: ["HR", "Staff Details", "Attendance", "On Shift", "Roster & Scheduling", "Leave", "Claims", "Payroll"] },
   { id: "finance", title: "Finance", tabs: ["Finance", "Accounting", "Commission"] },
-  { id: "elfia", title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic"] },
+  { id: "elfia", title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic", "Inventory"] }, // v1.340.0 - Inventory belongs to ELFIA (the CEO)
   { id: "system", title: "System", tabs: ["Companies", "Users", "Automation & Rules"] },
   { id: "account", title: "Account", tabs: ["Cards", "Profile"], placement: "account-menu" },
 ];

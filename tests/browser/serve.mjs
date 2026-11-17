@@ -17,6 +17,7 @@ import http from "node:http";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, extname } from "node:path";
 import { fixture, projectFixture } from "./fixture.mjs";
+const payReleased = new Set(); /* v1.339.0 - PAYHIST */
 import { fa, faRoute, resetFa } from "./fa-fixture.mjs";
 
 /* v1.247.0 - the task email settings as the worker answers them by default (task-mail.ts DEFAULT_SETTINGS) */
@@ -193,6 +194,13 @@ const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => { body += c; });
     req.on("end", () => {
+      /* v1.339.0 - PAYHIST=1: Payroll History over twelve months - a month before
+         October is out by its automatic date, August by a release row, October
+         out by its date too, November (its date still ahead) not out yet; a release POST is remembered and read back */
+      if (process.env.PAYHIST && req.method === "POST" && p === "/staff/payroll/release") {
+        try { const b = JSON.parse(body || "{}"); if (b.month) payReleased.add(b.month); } catch { /* bad body */ }
+        res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, issuer_code: "a2z", employer: "A2Z Creative Marketing" })); return;
+      }
       if (process.env.TWOFA && req.method === "POST" && p === "/auth/login") {
         /* the password is accepted; a code is owed (the worker's twofa_required + challenge) */
         res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ twofa_required: true, challenge: "ch-fixture" })); return;
@@ -665,6 +673,15 @@ const server = http.createServer((req, res) => {
         data.population = { in_run: 3, file_payees: 2, file_total_cents: 624052, manual_total_cents: manualPaid ? manualPaid.amount_cents : 0, total_cents: 624052 + 95000,
           exceptions: [farid, { user_id: 9004, name: "Tan Mei Ling", kind: "login_suspended", blocking: false, resolved: false, resolution: null, amount_cents: null, detail: null }],
           blocking: manualPaid ? 0 : 1, out_of_run: [], paid: null, payslips_out: false };
+      }
+      if (process.env.PAYHIST && req.method === "GET" && p === "/staff/payroll" && data && !data.error) {
+        const m = url.searchParams.get("month") ?? "";
+        const [y, mo] = m.split("-").map(Number);
+        const next = new Date(Date.UTC(y, mo, 5)).toISOString().slice(0, 10);
+        if (!data.entries?.length && m >= "2026-07") data.entries = [{ user_id: 9001, name: "Aina Sofea", net_cents: 400000 }, { user_id: 9002, name: "Farid Zulkifli", net_cents: 210000 }];
+        const row = m === "2026-08" || payReleased.has(m) ? { released_at: "2026-09-04 02:00:00", released_by: 1, issuer_code: "a2z" } : null;
+        data.release = { ...(data.release ?? {}), available_from: `${next} 10:00`, released: row };
+        data.population = { ...(data.population ?? { in_run: 0, file_payees: 0, file_total_cents: 0, manual_total_cents: 0, total_cents: 0, exceptions: [], blocking: 0, out_of_run: [], paid: null }), payslips_out: Boolean(row) || m < "2026-11" };
       }
       if (mediaBk && req.method === "GET" && p === "/system/health" && data && !data.error) {
         const copy = { at: "2026-10-31T21:30:00.000Z", live: 1240, copied: mediaBk === "pending" ? 40 : 0, pending: mediaBk === "pending" ? 120 : 0 };
