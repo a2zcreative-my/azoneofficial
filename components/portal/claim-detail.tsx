@@ -36,7 +36,7 @@ export interface ClaimStep {
   text: string | null;
   flags?: Record<string, string | boolean>;
 }
-export type ClaimWaiter = "hr" | "coo" | "cco" | "ceo" | "applicant" | "payment" | null;
+export type ClaimWaiter = "hr" | "coo" | "cco" | "ceo" | "manager" | "applicant" | "payment" | null;
 export type ClaimActionKey = "review" | "preapprove" | "approve" | "reject" | "return" | "resubmit" | "pay" | "proof";
 
 /** The fields the drawer reads (the panel's Claim row satisfies it). */
@@ -73,7 +73,7 @@ export interface ClaimLike {
   paid_by_name?: string | null;
 }
 
-const ROLE_NAME: Record<string, string> = { hr_admin: "HR", coo: "COO", cco: "CCO", ceo: "CEO" };
+const ROLE_NAME: Record<string, string> = { hr_admin: "HR", coo: "COO", cco: "CCO", ceo: "CEO", manager: "Manager" }; // v1.358.0 - the line chain (Roles v2 stage 3)
 const roleWord = (r: string | boolean | undefined) => ROLE_NAME[String(r ?? "")] ?? "";
 
 /** Whom the claim waits on, in words, and the chip it wears. */
@@ -88,6 +88,7 @@ export function claimStatusChip(c: ClaimLike): { text: string; cls: string } {
   if (w === "coo") return { text: L("Waiting on COO", "Menunggu COO"), cls: chipSmInfo };
   if (w === "cco") return { text: L("Waiting on CCO", "Menunggu CCO"), cls: chipSmInfo };
   if (w === "ceo") return { text: L("Waiting on CEO", "Menunggu CEO"), cls: chipSmInfo };
+  if (w === "manager") return { text: L("Waiting on their manager", "Menunggu pengurus mereka"), cls: chipSmInfo }; // v1.358.0
   return { text: L("Pending", "Menunggu"), cls: chipSmNeutral };
 }
 
@@ -97,7 +98,7 @@ export function claimStatusChip(c: ClaimLike): { text: string; cls: string } {
 export function approveLabel(c: ClaimLike): string {
   const skip = c.skip_if_approved ?? [];
   if (skip.length === 0) return L("Approve", "Luluskan");
-  const names = skip.map((k) => k === "hr" ? L("HR review", "semakan HR") : (c.claimant_role === "hr_admin" ? L("CCO pre-approval", "pra-kelulusan CCO") : L("COO pre-approval", "pra-kelulusan COO")));
+  const names = skip.map((k) => k === "hr" ? L("HR review", "semakan HR") : /^r_/.test(c.claimant_role ?? "") ? L("manager pre-approval", "pra-kelulusan pengurus") : (c.claimant_role === "hr_admin" ? L("CCO pre-approval", "pra-kelulusan CCO") : L("COO pre-approval", "pra-kelulusan COO")));
   return L(`Approve (skip ${names.join(" and ")})`, `Luluskan (langkau ${names.join(" dan ")})`);
 }
 
@@ -105,7 +106,8 @@ export function approveLabel(c: ClaimLike): string {
 export function claimStages(c: ClaimLike): Stage[] {
   const steps = c.timeline ?? [];
   return steps.map((s): Stage => {
-    const role = roleWord(s.flags?.role);
+    /* v1.358.0 - the line chain names the one manager it waits on */
+    const role = s.flags?.role === "manager" && typeof s.flags?.approver === "string" ? properName(s.flags.approver) : roleWord(s.flags?.role);
     const when = s.at ? dmyMYT(s.at) : null;
     const by = s.who ? properName(s.who) : null;
     if (s.key === "submitted") return { key: s.key, state: s.state, title: L("Claim submitted", "Tuntutan dihantar"),

@@ -45,7 +45,7 @@
  */
 
 import type { Env } from "./index";
-import { can, canUser } from "./permissions";
+import { can, canUser, isOwnKey } from "./permissions";
 import { leaveCanActAt } from "./leave-chain";
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
@@ -105,9 +105,10 @@ const ageDays = (sqliteDt: string | null): number => {
 const rm = (cents: number) => `RM ${(cents / 100).toFixed(2)}`;
 const dmy = (iso: string) => iso.length >= 10 ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : iso;
 
-/** The claim chain, exactly as staff.ts spells it. */
-export const claimChain = (role: string): "staff" | "hr" | "exec" | "top" =>
-  ["marketing", "sales_marketing", "editor", "live_host"].includes(role) ? "staff"
+/** The claim chain, exactly as claim-chain.ts spells it (v1.358.0 - an own role: the LINE chain). */
+export const claimChain = (role: string): "staff" | "hr" | "exec" | "top" | "line" =>
+  isOwnKey(role) ? "line"
+  : ["marketing", "sales_marketing", "editor", "live_host"].includes(role) ? "staff"
     : role === "hr_admin" ? "hr"
       : ["coo", "cco"].includes(role) ? "exec" : "top";
 
@@ -117,7 +118,7 @@ export const claimChain = (role: string): "staff" | "hr" | "exec" | "top" =>
  */
 export function claimStepFor(
   viewer: { id: number; role: string; is_owner?: boolean; custom_role?: string | null },
-  claim: { user_id: number; payee_user_id: number | null; claimant_role: string; hr_reviewed_at: string | null; pre_approved_at: string | null; payee_role?: string | null },
+  claim: { user_id: number; payee_user_id: number | null; claimant_role: string; hr_reviewed_at: string | null; pre_approved_at: string | null; payee_role?: string | null; line_approver_id?: number | null },
 ): "hr_review" | "pre_approve" | "decide" | null {
   if (claim.user_id === viewer.id) return null;              // never your own
   /* v1.271.0 (Phase 0) - nor a claim paid to you (decision-policy.ts).
@@ -132,11 +133,13 @@ export function claimStepFor(
        claims directly; a claim still mid-chain is not waiting on him yet */
     if (chain === "staff") return claim.hr_reviewed_at && claim.pre_approved_at ? "decide" : null;
     if (chain === "hr") return claim.pre_approved_at ? "decide" : null;
+    /* v1.358.0 - the line chain: after the manager, or straight away when there is none (or they are the payee) */
+    if (chain === "line") return !claim.line_approver_id || claim.pre_approved_at || claim.payee_user_id === claim.line_approver_id ? "decide" : null;
     return "decide";
   }
   if (claim.payee_user_id === viewer.id) return null;        // pays to you: the CEO decides it directly
   if (chain === "staff") {
-    if (!claim.hr_reviewed_at) return viewer.role === "hr_admin" || adminTier ? "hr_review" : null;
+    if (!claim.hr_reviewed_at) return canUser(viewer, "claims_hr_review") || adminTier ? "hr_review" : null; // v1.358.0 - a permission
     if (!claim.pre_approved_at) return viewer.role === "coo" || adminTier ? "pre_approve" : null;
     return null;
   }
@@ -144,6 +147,8 @@ export function claimStepFor(
     if (!claim.pre_approved_at) return viewer.role === "cco" || adminTier ? "pre_approve" : null;
     return null;
   }
+  /* v1.358.0 - the line chain: only the manager the claim names */
+  if (chain === "line") return claim.line_approver_id && claim.line_approver_id === viewer.id && !claim.pre_approved_at ? "pre_approve" : null;
   return null;
 }
 
@@ -188,12 +193,12 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   /* ---- claims ---- */
   await guard("claims", async () => {
     const { results } = await env.DB.prepare(
-      `SELECT c.id, c.user_id, c.payee_user_id, c.amount_cents, c.description, c.created_at, c.hr_reviewed_at, c.pre_approved_at,
+      `SELECT c.id, c.user_id, c.payee_user_id, c.amount_cents, c.description, c.created_at, c.hr_reviewed_at, c.pre_approved_at, c.line_approver_id,
               u.role AS claimant_role, py.role AS payee_role, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
          FROM claims c JOIN users u ON u.id = c.user_id LEFT JOIN users py ON py.id = c.payee_user_id
         WHERE c.status = 'pending'
         ORDER BY c.created_at ASC LIMIT 200`,
-    ).all<{ id: number; user_id: number; payee_user_id: number | null; amount_cents: number; description: string | null; created_at: string; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; payee_role: string | null; name: string }>();
+    ).all<{ id: number; user_id: number; payee_user_id: number | null; amount_cents: number; description: string | null; created_at: string; hr_reviewed_at: string | null; pre_approved_at: string | null; line_approver_id: number | null; claimant_role: string; payee_role: string | null; name: string }>();
     for (const c of results) {
       const step = claimStepFor(user, c);
       if (!step) continue;

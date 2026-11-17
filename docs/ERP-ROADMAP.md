@@ -542,3 +542,9 @@ code roles, held roles, protected names and keys - users and custom_roles are
 not altered). A role the owner creates has no base role and is set up only;
 it is given to people once the later stages make pages, staff counts and
 approvals read it.
+1.358.0 (Roles v2 stage 3, the CEO 18-11-2026) adds `0209_roles_assignable`:
+the users table is rebuilt with every row and column kept, its role now
+checked by triggers against the roles table instead of a fixed CHECK, so an
+own role can be held; and claims gains `line_approver_id` (nullable), the
+manager on the Organisation chart a claim from an own role waits on before
+the CEO. Nothing else changes for the existing roles.

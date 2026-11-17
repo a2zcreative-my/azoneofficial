@@ -254,7 +254,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
      is not returned: a figure stays on the claim, behind its own screen. */
   if (allowed.has("claim")) {
     const allClaims = claimReadsAll(user.role, canUser(user, "claims_decide")); // v1.310.0 - the Super Admin keeps its read-only view
-    const scope = claimScope(user.role, allClaims, true, "?2");
+    const scope = claimScope(user.role, allClaims, true, "?2", canUser(user, "claims_hr_review"));
     const match = `(u.name LIKE ?1 ESCAPE '\\' OR u.full_name LIKE ?1 ESCAPE '\\' OR c.description LIKE ?1 ESCAPE '\\' OR c.category LIKE ?1 ESCAPE '\\')`;
     stmts.push({
       kind: "claim",

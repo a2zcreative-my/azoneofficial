@@ -160,7 +160,7 @@ async function runtime(workerBundle) {
     const thread = (await call(`/claims/${A}/comments`, U.aina)).j?.comments ?? [];
     ok(thread.length === 2 && thread[0].body.includes("Which client") && thread[1].body.includes("Kasih Rabiah"), "the question and the answer are kept in the thread");
     /* ---------- 10. one pre-approval under a true race ---------- */
-    race("c.pre_approved_at, u.role AS claimant_role, u.name AS claimant_name");
+    race("c.pre_approved_at, c.line_approver_id, u.role AS claimant_role, u.name AS claimant_name"); // v1.358.0 - the read carries the line approver
     const both = await Promise.all([call(`/claims/${A}/preapprove`, U.coo, "POST", {}), call(`/claims/${A}/preapprove`, U.sa, "POST", {})]);
     barrier = null;
     ok(both.map((r) => r.status).sort().join() === "200,409" && n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'claim.preapprove' AND entity_id = ?`, String(A)) === 1, "(10) the COO and the super admin pressing at once make ONE pre-approval - the other is refused (409)", JSON.stringify(both.map((r) => [r.status, r.text.slice(0, 80)])));
@@ -253,7 +253,7 @@ const MUT = [
   ["worker/src/staff.ts", "a decision does not check the claim is still pending", "decided_at = datetime('now'), decision_note = ?3 WHERE id = ?4 AND status = 'pending'`", "decided_at = datetime('now'), decision_note = ?3 WHERE id = ?4`"],
   ["worker/src/staff.ts", "a pre-approval does not check it was not given already", "WHERE id = ?2 AND status = 'pending' AND pre_approved_at IS NULL`", "WHERE id = ?2`"],
   ["worker/src/claim-chain.ts", "an approved claim shows as paid", "    if (!r.paid_at) steps.push({ key: \"payment\", state: \"now\"", "    if (!r.paid_at) steps.push({ key: \"payment\", state: \"done\""],
-  ["worker/src/claim-chain.ts", "the page offers HR review to the COO", "chain === \"staff\" && !r.hr_reviewed_at && [\"hr_admin\", ...ADMIN_TIER].includes(actor.role)", "chain === \"staff\" && !r.hr_reviewed_at && [\"hr_admin\", \"coo\", ...ADMIN_TIER].includes(actor.role)"],
+  ["worker/src/claim-chain.ts", "the page offers HR review to the COO", "chain === \"staff\" && !r.hr_reviewed_at && (canUser(actor, \"claims_hr_review\") || ADMIN_TIER.includes(actor.role))", "chain === \"staff\" && !r.hr_reviewed_at && (canUser(actor, \"claims_hr_review\") || [\"coo\", ...ADMIN_TIER].includes(actor.role))"],
   ["worker/src/staff.ts", "the claimant reads internal notes", "WHERE m.claim_id = ?1 ${internalOk ? \"\" : \"AND m.visibility = 'employee'\"} ORDER BY m.id`", "WHERE m.claim_id = ?1 ORDER BY m.id`"],
   ["worker/src/staff.ts", "a bank date after today is taken", "      if (body.paid_on > todayMyt) return err(", "      if (false) return err("],
   ["worker/src/staff.ts", "a returned claim can be approved", "    if (action === \"approve\") { const st = await readClaimChain(clMatch[1]!); if (st && claimReturnOpen(st)) return claimReturnedErr(); }", ""],

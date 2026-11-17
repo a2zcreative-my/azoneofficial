@@ -241,7 +241,7 @@ function baseFixture(p) {
       role_table: [["super_admin", "Super Admin", "protected", 0], ["ceo", "CEO", "protected", 1], ["coo", "COO", "protected", 1], ["cco", "CCO", "protected", 1], ["agent", "Agent", "protected", 0], ["customer", "Customer", "protected", 0],
         ["admin", "Admin", "builtin", 0], ["hr_admin", "HR Admin", "builtin", 1], ["sales_marketing", "Sales & Marketing", "builtin", 1], ["marketing", "Marketing", "builtin", 1], ["editor", "Editor", "builtin", 1], ["live_host", "Live Host", "builtin", 1]]
         .map(([key, name, kind, staff]) => ({ key, name, description: null, kind, counts_as_staff: staff, tabs: null, created_at: "2026-11-17 00:00:00", created_by_name: null, updated_at: null, holders: 1 })),
-      role_tab_choices: ["Announcements", "Sales", "Ecommerce", "Inventory", "Tasks", "Attendance", "Leave", "Claims", "Payroll", "Hotels", "Staff", "Users"], roles_stage: 1,
+      role_tab_choices: ["Announcements", "Sales", "Ecommerce", "Inventory", "Tasks", "Attendance", "Leave", "Claims", "Payroll", "Hotels", "Staff", "Users"], roles_stage: 3,
       counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
       owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, set_at: "2026-10-30 02:00:00" } : null,
       me_owner: OWNER && ROLE === "ceo",

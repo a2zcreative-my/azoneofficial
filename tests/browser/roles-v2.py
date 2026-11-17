@@ -14,7 +14,7 @@ Users & Security -> Roles & Permissions:
 
 Servers: 4340 ROLE=ceo OWNER=1 ROLESX=1, 4341 ROLE=coo, 4342 ROLE=r_packing_crew ROLE_TABS=Inventory,Tasks (this build).
     python3 tests/browser/roles-v2.py"""
-import json, os, urllib.parse, urllib.request
+import json, re, os, urllib.parse, urllib.request
 from playwright.sync_api import sync_playwright
 
 S = os.environ.get("SHOTS", "/tmp/rv2-shots"); os.makedirs(S, exist_ok=True)
@@ -105,9 +105,15 @@ with sync_playwright() as p:
     check("a switch saves through /staff/access/policy with its own column", pol and any("r_warehouse_clerk" in (ch.get("roles") or []) for ch in pol[-1].get("changes", [])), pol)
     ok_feedback(pg); pg.wait_for_timeout(800)
 
-    # never given to a person in stage 1
+    # v1.358.0 - stage 3: given to a person through the role door (a reason, then the code)
     pg.get_by_test_id("role-part-users").click(); pg.wait_for_timeout(300)
-    check("Assigned Users: being set up, no account picker", pg.get_by_test_id("own-not-yet").is_visible() and pg.get_by_test_id("assign-pick").count() == 0)
+    check("Assigned Users: the account picker and the approval note", pg.get_by_test_id("own-in-force").is_visible() and pg.get_by_test_id("assign-pick").count() == 1 and pg.get_by_test_id("own-not-yet").count() == 0)
+    pg.get_by_test_id("assign-pick").select_option(index=1); pg.get_by_test_id("assign-go").click(); pg.wait_for_timeout(600)
+    check("Assign asks why", answer(pg, "Why", "Moving to the warehouse desk this month"))
+    check("...and for the code", answer(pg, "authenticator", "123456"))
+    asg = [json.loads(d or "{}") for m, u, d in reqs if m == "POST" and re.search(r"/staff/users/\d+/role$", urllib.parse.urlparse(u).path)]
+    check("the role door carries the own role's key, the reason and the code", asg and asg[-1].get("role") == "r_warehouse_clerk" and asg[-1].get("totp") == "123456" and len(asg[-1].get("reason", "")) >= 10, asg[-1:])
+    ok_feedback(pg); pg.wait_for_timeout(600)
     pg.get_by_test_id("role-part-preview").click(); pg.wait_for_timeout(300)
     prev = pg.get_by_test_id("role-preview").inner_text()
     check("Access Preview reads the chosen pages (Payroll seen, Users not)", prev.index("Payroll") < prev.index("Does not see") < prev.index("Users"), prev[:300])

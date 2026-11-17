@@ -47,7 +47,10 @@
    permissions that start blank or as a copy of any role. It is one more column of the same switches,
    saved through the same door. It is set up here and NOT given to anyone yet: the role door refuses it
    until stage 3 makes approvals read the role (pages and staff counts do from v1.356.0) (the server decides). The
-   custom roles of 1.350.0 keep working as they are, on their base role. */
+   custom roles of 1.350.0 keep working as they are, on their base role.
+   v1.358.0 - STAGE 3: an own role is GIVEN through the role door (role_custom, a reason, the code);
+   claims from it go to the person's manager in the Organisation chart, then the CEO (leave already
+   does); a 1.350.0 custom role can be made into an own role with "Make it your own role". */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
@@ -93,7 +96,7 @@ const VERB_OF: Record<string, Verb> = {
   org_assign: "edit", role_assign: "edit", responsibilities: "edit", elfia_content: "edit", commission_closer: "edit",
   asset_company_change: "edit", account_email: "edit", fa_priority: "edit", leave_entitlement: "edit", unpaid_leave: "edit", agent_requests_manage: "edit",
   confirm_paid: "approve", payment_verify: "approve", payment_evidence: "approve", fa_decide: "approve", fa_criteria: "approve", fa_allocate: "approve",
-  fa_templates_publish: "approve", asset_dispose_approve: "approve", cashbook_accept: "approve", expense_approve: "approve", expense_authorise: "approve",
+  fa_templates_publish: "approve", claims_hr_review: "approve", asset_dispose_approve: "approve", cashbook_accept: "approve", expense_approve: "approve", expense_authorise: "approve",
   books_close: "approve", partner_preapprove: "approve", partner_approve: "approve", payroll_release: "approve", commission_approve: "approve", commission_decide: "approve", claims_decide: "approve",
   live_report_review: "approve", project_complete: "approve", company_review: "approve", elfia_publish: "approve",
   task_delete: "delete",
@@ -363,6 +366,17 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
     if (r.value.trim().length < 10) { setErr(L("Give a reason of at least 10 characters.", "Beri sebab sekurang-kurangnya 10 aksara.")); return; }
     await crSend(`/${cr.id}`, "PATCH", { active: on, reason: r.value.trim() }, on ? L(`${cr.name} activated`, `${cr.name} diaktifkan`) : L(`${cr.name} deactivated`, `${cr.name} dinyahaktif`), L("this changes a role on the server", "ini menukar peranan di pelayan"));
   };
+  /* v1.358.0 - Roles v2 stage 3: "Make it your own role" (the server moves the holders and deactivates this one) */
+  const convertCr = async () => {
+    if (!cr) return;
+    const r = await prompt({ title: L(`Make ${cr.name} your own role?`, `Jadikan ${cr.name} peranan anda sendiri?`),
+      label: L(`Reason (kept in the audit history). It keeps its permissions and the pages ${roleLabel(cr.base_role)} sees today; its ${cr.users.length} holder(s) move onto it, and their leave and claims then go to their manager in the Organisation chart, up to the CEO. This custom role is deactivated, not deleted.`,
+        `Sebab (disimpan dalam sejarah audit). Ia mengekalkan kebenarannya dan halaman yang dilihat ${roleLabel(cr.base_role)} hari ini; ${cr.users.length} pemegangnya berpindah kepadanya, dan cuti serta tuntutan mereka kemudian pergi kepada pengurus mereka dalam carta Organisasi, sehingga CEO. Peranan tersuai ini dinyahaktif, bukan dipadam.`), required: true });
+    if (!r?.value) return;
+    if (r.value.trim().length < 10) { setErr(L("Give a reason of at least 10 characters.", "Beri sebab sekurang-kurangnya 10 aksara.")); return; }
+    const res = await crSend(`/${cr.id}/convert`, "POST", { reason: r.value.trim() }, L(`${cr.name} is now your own role`, `${cr.name} kini peranan anda sendiri`), L("this moves people onto a new role", "ini memindahkan orang ke peranan baharu"));
+    if (res?.key) { setPicked(res.key); setView("perms"); }
+  };
   const doDelete = async () => {
     if (!cr) return;
     const res = await crSend(`/${cr.id}/delete`, "POST", { reassign_to: delTo === "base" ? "base" : Number(delTo), reason: delReason.trim() }, L(`${cr.name} deleted`, `${cr.name} dipadam`), L("this deletes a role on the server", "ini memadam peranan di pelayan"));
@@ -428,9 +442,9 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
 
   /* ---- the chosen role ---- */
   const people = staff.filter((u) => (cr ? cr.users.includes(u.id) : u.role === role)).sort((a, b) => b.is_active - a.is_active || properName(a.full_name || a.name).localeCompare(properName(b.full_name || b.name)));
-  const others = staff.filter((u) => u.is_active && (cr ? !cr.users.includes(u.id) : u.role !== role) && assignable.includes(u.role));
+  const others = staff.filter((u) => u.is_active && (cr ? !cr.users.includes(u.id) : u.role !== role) && (assignable.includes(u.role) || (own ? /^r_/.test(u.role) : false))); // v1.358.0 - one own role to another too
   /* a custom role is given through the same role door (onAssign with its key): role_custom, active only */
-  const mayAssign = own ? false /* v1.355.0 - stage 1: set up, not given yet (the server refuses it too) */ : cr ? canManageCustom && crActive : canAssign && assignable.includes(role);
+  const mayAssign = own ? canManageCustom /* v1.358.0 - Roles v2 stage 3: an own role is given like any other (role_custom, reason, code) */ : cr ? canManageCustom && crActive : canAssign && assignable.includes(role);
   /* tabs follow the role the person actually holds - a custom role's base role */
   const tabRole = cr ? cr.base_role : role;
   const seesTab = (x: { tab: string; always: boolean; sees: string[] }) => x.always || (own ? (own.tabs ?? []).includes(x.tab) : x.sees.includes(tabRole));
@@ -601,7 +615,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
               <AppIcon name="add" />{L(`Assign to ${roleLabel(role)}`, `Tetapkan kepada ${roleLabel(role)}`)}</button>
           </div>
         )}
-        {own && <p className={css.notice} data-testid="own-not-yet"><AppIcon name="info" /><span>{L("This role is being set up. Its pages and its staff switch are already in force; it can be given to people once Roles v2 stage 3 is released, when leave, claim and overtime approvals follow the Organisation chart up to the CEO. Until then the server refuses to give it to anyone.", "Peranan ini sedang disediakan. Halaman dan suis kakitangannya sudah berkuat kuasa; ia boleh diberi kepada orang selepas peringkat 3 Peranan v2 dikeluarkan, apabila kelulusan cuti, tuntutan dan lebih masa mengikut carta Organisasi hingga CEO. Sehingga itu pelayan menolak memberikannya kepada sesiapa.")}</span></p>}
+        {own && <p className={css.muted} data-testid="own-in-force"><AppIcon name="info" /><span>{L("Its pages and its staff switch are in force. Leave and claims from people in this role go to their manager in the Organisation chart, up to the CEO.", "Halaman dan suis kakitangannya berkuat kuasa. Cuti dan tuntutan daripada orang dalam peranan ini pergi kepada pengurus mereka dalam carta Organisasi, sehingga CEO.")}</span></p>}
         {!mayAssign && cr && <p className={css.muted}>{crActive ? L("The CEO or the Super Admin gives a custom role.", "CEO atau Super Admin memberi peranan tersuai.") : L("Activate this role before giving it to anyone.", "Aktifkan peranan ini sebelum memberikannya kepada sesiapa.")}</p>}
         {!mayAssign && !cr && !own && <p className={css.muted}>{role === "agent" ? L("Agent access is given and revoked in Customers & Agents (a proven email, the same account).", "Akses ejen diberi dan ditarik di Pelanggan & Ejen (e-mel yang dibuktikan, akaun yang sama).") : role === "super_admin" ? L("Super Admin accounts are kept by the Super Admin in /admin.", "Akaun Super Admin disimpan oleh Super Admin di /admin.") : L("The company owner or the Super Admin gives a role; the server decides each change.", "Pemilik syarikat atau Super Admin memberi peranan; pelayan memutuskan setiap perubahan.")}</p>}
         {role === "agent" ? null : !loaded ? <SkelRows rows={3} /> : people.length === 0 ? <p className={css.muted}>{L("Nobody holds this role.", "Tiada siapa memegang peranan ini.")}</p> : (
@@ -653,6 +667,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
               <button type="button" className={btnSm} disabled={busy} onClick={() => openForm("edit")} data-testid="cr-edit"><AppIcon name="edit" />{L("Edit details", "Sunting butiran")}</button>
               <button type="button" className={btnSm} disabled={busy} onClick={() => openForm("duplicate")} data-testid="cr-duplicate"><AppIcon name="documents" />{L("Duplicate", "Salin")}</button>
               <button type="button" className={btnSm} disabled={busy} onClick={() => void setActive(!crActive)} data-testid="cr-toggle"><AppIcon name={crActive ? "blocked" : "success"} />{crActive ? L("Deactivate", "Nyahaktif") : L("Activate", "Aktifkan")}</button>
+              {crActive && <button type="button" className={btnSm} disabled={busy} onClick={() => void convertCr()} data-testid="cr-convert"><AppIcon name="success" />{L("Make it your own role", "Jadikan peranan anda sendiri")}</button>}
               <button type="button" className={btnSmDanger} disabled={busy} onClick={() => { setErr(""); setDelTo("base"); setDelReason(""); setDrawer("delete"); }} data-testid="cr-delete"><AppIcon name="error" />{L("Delete", "Padam")}</button>
             </div>
           )}
@@ -798,8 +813,8 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
                 </select>
                 <small className={css.muted}>{L("Protected permissions (the owner, the backup, executive and technical doors) are never copied.", "Kebenaran dilindungi (pemilik, sandaran, pintu eksekutif dan teknikal) tidak pernah disalin.")}</small></label>
             )}
-            <p className={css.notice}><AppIcon name="info" /><span>{L("Set it up now; it can be given to people once Roles v2 stage 3 is released.", "Sediakan sekarang; ia boleh diberi kepada orang selepas peringkat 3 Peranan v2 dikeluarkan.")}</span>
-              {ownForm.mode === "create" && <button type="button" className={btnSm} onClick={() => { setOwnForm(null); openForm("create"); }} data-testid="own-use-base">{L("Need it working today? Use a 1.350.0 custom role", "Perlu berfungsi hari ini? Guna peranan tersuai 1.350.0")}</button>}</p>
+            <p className={css.notice}><AppIcon name="info" /><span>{L("Once saved, give it to people from its Users tab. Their leave and claims go to their manager in the Organisation chart, up to the CEO.", "Selepas disimpan, berikannya kepada orang dari tab Pengguna. Cuti dan tuntutan mereka pergi kepada pengurus mereka dalam carta Organisasi, sehingga CEO.")}</span>
+              {ownForm.mode === "create" && <button type="button" className={btnSm} onClick={() => { setOwnForm(null); openForm("create"); }} data-testid="own-use-base">{L("Or a 1.350.0 custom role on a base role", "Atau peranan tersuai 1.350.0 pada peranan asas")}</button>}</p>
             <label className={css.field}>{L("Reason (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)")}
               <input className={inputClassSm} maxLength={300} value={ownForm.reason} onChange={(e) => setOwnForm({ ...ownForm, reason: e.target.value })} data-testid="own-reason" /></label>
             {err && <p role="alert" className={css.error}>{err}</p>}

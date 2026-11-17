@@ -16,6 +16,9 @@
  *  10 the custom roles of 1.350.0 keep working on their base role
  *  STAGE 2 (v1.356.0): 11-15 a holder's pages are their role's list (and the access review agrees);
  *     every staff list obeys counts_as_staff, from one fragment; 2FA for every own role; a held role stays
+ *  STAGE 3 (v1.358.0): 6 the role door GIVES an own role (role_custom, reason, code; the database checks
+ *     the key); 16-17 a claim from an own role waits on the claimant's chart manager, then the CEO;
+ *     18 HR review is a permission; 19 "Make it your own role"; 20 the users rebuild kept every column
  * Then mutated copies must each fail a check.  NOMUT=1 skips the mutations.
  *
  *   node tests/roles-v2.mjs
@@ -84,7 +87,7 @@ async function runtime(workerBundle) {
     const p0 = await policy(ID.ceo);
     const t0 = p0?.role_table ?? [];
     const kind = Object.fromEntries(t0.map((x) => [x.key, x.kind]));
-    ok(t0.length === 12 && p0.roles_stage === 1, "1 the policy carries the twelve code roles and the stage", JSON.stringify(t0.map((x) => x.key)));
+    ok(t0.length === 12 && p0.roles_stage === 3, "1 the policy carries the twelve code roles and the stage", JSON.stringify(t0.map((x) => x.key)));
     ok(["super_admin", "ceo", "coo", "cco", "agent", "customer"].every((k) => kind[k] === "protected") && ["admin", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"].every((k) => kind[k] === "builtin"), "1 R-1: Super Admin, CEO, COO, CCO, Agent and Customer are protected; the other six are code roles", JSON.stringify(kind));
     const staffOn = t0.filter((x) => x.counts_as_staff).map((x) => x.key).sort().join();
     ok(staffOn === ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"].sort().join(), "1 R-4: counts-as-staff seeds match today's attendance and payroll roles", staffOn);
@@ -143,11 +146,16 @@ async function runtime(workerBundle) {
     ok(!(await policy(ID.ceo)).actions.find((a) => a.cap === "exec_accounts")?.roles?.includes(fs), "5 a stored own column on a protected cell is ignored on read");
     ok((await call("/staff/access/policy", ID.coo, "POST", { reason: R, totp: code(), changes: [{ cap: "hotels_manage", roles: cur("hotels_manage") }] })).status === 403, "5 the COO cannot switch cells");
 
-    /* 6 not given to anyone in stage 1 - the role door and the database both refuse */
+    /* 6 STAGE 3: the role door gives an own role - role_custom, a reason, the code; the database checks the key */
+    ok((await call(`/staff/users/22/role`, ID.coo, "POST", { role: "r_warehouse_clerk", reason: R, totp: code() })).status === 403, "6 the COO cannot give an own role (R-6)");
+    ok((await call(`/staff/users/22/role`, ID.ceo, "POST", { role: "r_warehouse_clerk", reason: "short", totp: code() })).status === 400, "6 a reason is required");
+    ok((await call(`/staff/users/22/role`, ID.ceo, "POST", { role: "r_nobody_has_this", reason: R, totp: code() })).status === 400, "6 an unknown role is refused");
     const g = await call(`/staff/users/22/role`, ID.ceo, "POST", { role: "r_warehouse_clerk", reason: R, totp: code() });
-    ok(g.status === 409 && g.j?.error?.code === "role_not_assignable", "6 the role door refuses an own role in stage 1", JSON.stringify(g.j));
-    ok(db.prepare(`SELECT role FROM users WHERE id = 22`).get().role === "marketing", "6 the person keeps their role");
-    ok(dbRefuses(`UPDATE users SET role = 'r_warehouse_clerk' WHERE id = 22`), "6 users.role still refuses a name the code does not know (its CHECK)");
+    ok(g.status === 200 && db.prepare(`SELECT role FROM users WHERE id = 22`).get().role === "r_warehouse_clerk", "6 the CEO gives an own role through the role door", JSON.stringify(g.j));
+    ok(lastAudit("role.assign")?.to === "r_warehouse_clerk" && lastAudit("role.assign")?.from === "marketing", "6 the change is audited from and to");
+    const back = await call(`/staff/users/22/role`, ID.ceo, "POST", { role: "marketing", reason: R, totp: code() });
+    ok(back.status === 200 && db.prepare(`SELECT role FROM users WHERE id = 22`).get().role === "marketing", "6 and takes it away again through the same door", JSON.stringify(back.j));
+    ok(dbRefuses(`UPDATE users SET role = 'r_not_a_role' WHERE id = 22`) && dbRefuses(`UPDATE users SET role = 'boss' WHERE id = 22`), "6 users.role refuses a key the roles table does not hold (0209 triggers)");
 
     /* 7 edit */
     const e0 = await rl(ID.ceo, "PATCH", "/r_warehouse_clerk", { name: "Warehouse Clerk" , description: "Receives stock", tabs: pages, counts_as_staff: true });
@@ -226,6 +234,55 @@ async function runtime(workerBundle) {
     }
     ok(bare.length === 0, "15 one source: every staff list carries the counts-as-staff switch", bare.slice(0, 5).join(" | "));
     ok((readFileSync(join(root, "worker/src/staff.ts"), "utf8").match(/OR u\.role IN \(SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 1\)\)/g) ?? []).length === 3, "15 the three named staff lists take in the staff own roles");
+
+    /* ---- STAGE 3 (v1.358.0): approvals by the Organisation chart (R-3), assignment, conversion ---- */
+    const fc = await rl(ID.ceo, "POST", "", { name: "Field Crew", tabs: ["Claims", "Tasks"], copy_from: "marketing" });
+    db.exec(`INSERT INTO users (id, name, email, role, is_active, password_hash, totp_enabled, totp_secret, base_salary_cents, reports_to) VALUES
+      (33,'Field One','field1@a2z.test','marketing',1,'x',1,'${SECRET}',150000,22), (34,'Field Two','field2@a2z.test','marketing',1,'x',1,'${SECRET}',150000,1)`);
+    for (const id of [33, 34]) { tok[id] = `t-${id}`; db.prepare(`INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, datetime('now', '+12 hours'), datetime('now'))`).run(createHash("sha256").update(tok[id]).digest("hex"), id); }
+    for (const id of [33, 34]) ok((await call(`/staff/users/${id}/role`, ID.ceo, "POST", { role: fc.j?.key, reason: R, totp: code() })).status === 200, `16 person ${id} is given Field Crew`);
+    db.exec(`UPDATE users SET reports_to = 1 WHERE id = 22`); // the manager is on the chart under the CEO
+    let kn = 0; const ck = () => `rolesv2-claim-key-${String(++kn).padStart(4, "0")}`;
+    const lc1 = await call("/staff/claims", 33, "POST", { claim_date: "2026-11-16", amount: 25, purpose: "Advance for travel", claim_type: "salary_advance", payroll_month: "2026-12", submission_key: ck() });
+    const lc1id = lc1.j?.id ?? db.prepare(`SELECT MAX(id) AS id FROM claims WHERE user_id = 33`).get().id;
+    const lc1row = db.prepare(`SELECT * FROM claims WHERE id = ?`).get(lc1id);
+    ok(lc1.status < 300 && lc1row?.line_approver_id === 22, "16 R-3: the claim waits on the claimant's manager on the Organisation chart, fixed on the claim", JSON.stringify([lc1.status, lc1.j, lc1row?.line_approver_id]));
+    const lc2 = await call("/staff/claims", 34, "POST", { claim_date: "2026-11-16", amount: 30, purpose: "Parking at the client", submission_key: ck() });
+    const lc2row = db.prepare(`SELECT * FROM claims WHERE user_id = 34 ORDER BY id DESC LIMIT 1`).get();
+    ok(lc2.status < 300 && lc2row?.line_approver_id === null, "16 a person who reports to the CEO goes straight to the CEO", JSON.stringify([lc2.status, lc2row?.line_approver_id]));
+    const mine22 = (await call("/staff/claims", 22)).j;
+    const lseen = (mine22?.claims ?? mine22?.rows ?? (Array.isArray(mine22) ? mine22 : [])).find((x) => x.id === lc1id);
+    ok(lseen && lseen.waiting_on === "manager" && lseen.my_turn === true && (lseen.actions ?? []).includes("preapprove"), "16 the manager reads it, it is their turn, and pre-approve is offered", JSON.stringify(lseen ? { w: lseen.waiting_on, t: lseen.my_turn, a: lseen.actions } : mine22).slice(0, 300));
+    const desk22 = JSON.stringify((await call("/staff/desk", 22)).j ?? {});
+    ok(desk22.includes(`claim:${lc1id}`), "16 the manager's Desk lists it");
+    ok(!JSON.stringify((await call("/staff/desk", ID.coo)).j ?? {}).includes(`claim:${lc1id}`), "16 the COO's Desk does not (it is not theirs)");
+    ok((await call(`/staff/claims/${lc1id}/preapprove`, ID.coo, "POST", {})).status === 403, "17 the COO cannot pre-approve it - only the named manager");
+    ok((await call(`/staff/claims/${lc1id}/preapprove`, 23, "POST", {})).status === 403, "17 nor another member of staff");
+    const learly = await call(`/staff/claims/${lc1id}/decide`, ID.ceo, "POST", { action: "approve", totp: code() });
+    ok(learly.status === 400 && learly.j?.error?.code === "reason_required", "17 the CEO approving before the manager states why (an override)", JSON.stringify(learly.j));
+    const lpre = await call(`/staff/claims/${lc1id}/preapprove`, 22, "POST", {});
+    ok(lpre.status === 200 && db.prepare(`SELECT pre_approved_by FROM claims WHERE id = ?`).get(lc1id).pre_approved_by === 22, "17 the manager pre-approves", JSON.stringify(lpre.j));
+    const ceoQ = (await call("/staff/claims", ID.ceo)).j;
+    const atCeo = (ceoQ?.claims ?? ceoQ?.rows ?? (Array.isArray(ceoQ) ? ceoQ : [])).find((x) => x.id === lc1id);
+    ok(atCeo && atCeo.waiting_on === "ceo", "17 then it waits on the CEO, the final step", JSON.stringify(atCeo?.waiting_on));
+    /* 18 HR review is a permission (claims_hr_review), not a role name */
+    const hrCap = (await policy(ID.ceo)).actions.find((a) => a.cap === "claims_hr_review");
+    ok(hrCap && (hrCap.roles ?? []).includes("hr_admin"), "18 HR review of staff claims is a switch in the matrix, on for HR", JSON.stringify(hrCap));
+    /* 19 "Make it your own role": a 1.350.0 custom role, its cells and its holders, in one step */
+    const crKey = cr1.j?.key; const crId = cr1.j?.id;
+    const crCells = Object.entries(rawCells()).filter(([, v]) => v.includes(crKey)).map(([k]) => k);
+    ok((await call(`/staff/access/custom-roles/${crId}/convert`, ID.coo, "POST", { reason: R, totp: code() })).status === 403, "19 the COO cannot convert a custom role");
+    const lcv = await call(`/staff/access/custom-roles/${crId}/convert`, ID.ceo, "POST", { name: "Stock Keeper", reason: R, totp: code() });
+    const lnk = lcv.j?.key;
+    const u23 = db.prepare(`SELECT role, custom_role_id FROM users WHERE id = 23`).get();
+    ok(lcv.status === 200 && lnk && u23.role === lnk && u23.custom_role_id === null, "19 the holder moves onto the new own role", JSON.stringify([lcv.j, u23]));
+    ok(crCells.length > 0 && crCells.every((k) => (rawCells()[k] ?? []).includes(lnk)), "19 every cell of the custom role is the new role's", JSON.stringify(crCells));
+    ok(row(lnk)?.kind === "own" && JSON.parse(row(lnk).tabs).length > 0 && db.prepare(`SELECT active FROM custom_roles WHERE id = ?`).get(crId).active === 0, "19 it has its base role's pages; the custom role is deactivated, not deleted");
+    ok(lastAudit("role.convert")?.to === lnk, "19 the conversion is audited");
+    /* 20 the 0209 rebuild: every column kept, the role checked against the roles table, not a fixed list */
+    const lcols = db.prepare(`PRAGMA table_info(users)`).all().map((c) => c.name);
+    ok(["custom_role_id", "recovery_rotation_required", "reports_to", "totp_secret", "google_sub"].every((c) => lcols.includes(c)), "20 the users rebuild kept every column", lcols.join());
+    ok(!/CHECK\s*\(\s*role/i.test(db.prepare(`SELECT sql FROM sqlite_master WHERE name = 'users'`).get().sql), "20 users.role has no fixed list any more");
   } catch (e) {
     out.push([false, `runtime: ${e?.stack ?? e}`]);
   } finally {
@@ -245,7 +302,12 @@ const MUT = [
   ["worker/src/staff.ts", "the code is skipped on create", 'const su = await requireFreshTotp(env, user, body?.totp, err, "create a role");', "const su = null;"],
   ["worker/src/staff.ts", "a code role is changed through the roles door", '    if (cur && cur.kind !== "own") return err("role_protected",', '    if (false) return err("role_protected",'],
   ["worker/src/staff.ts", "a copy takes a protected capability", "          if (CUSTOM_FORBIDDEN.has(String(cap))) continue;\n          const now = (rec.perms[cap] ?? PERMS[cap]!) as readonly string[];\n          if (!now.includes(from)) continue;\n          rec.perms[cap] = [...now, nk]", "          const now = (rec.perms[cap] ?? PERMS[cap]!) as readonly string[];\n          if (!now.includes(from)) continue;\n          rec.perms[cap] = [...now, nk]"],
-  ["worker/src/staff.ts", "an own role is given in stage 1", '    if (typeof body?.role === "string" && isOwnKey(body.role)) return err("role_not_assignable",', '    if (false) return err("role_not_assignable",'],
+  ["worker/src/staff.ts", "anyone who may change a staff role gives an own role", '      if (!allows(user, "role_custom")) return err("forbidden", "Only the CEO and the super admin give a role they made.", 403);', ""],
+  ["worker/src/staff.ts", "a claim from an own role skips the manager", "if (sup && sup.id !== user.id && sup.role !== \"ceo\") lineApprover = sup.id;", "if (sup && false) lineApprover = sup.id;"],
+  ["worker/src/staff.ts", "anyone pre-approves a line claim", '      if (user.id !== Number(cp.line_approver_id)) return err("forbidden",', '      if (false) return err("forbidden",'],
+  ["worker/src/staff.ts", "the CEO skips the manager silently", '(row.payee_user_id === row.line_approver_id ? waived : skipped).push("manager pre-approval");', 'waived.push("manager pre-approval");'],
+  ["worker/src/desk.ts", "the Desk hides a line claim from its manager", '  if (chain === "line") return claim.line_approver_id && claim.line_approver_id === viewer.id && !claim.pre_approved_at ? "pre_approve" : null;', ''],
+  ["worker/src/staff.ts", "conversion leaves the holders behind", "        env.DB.prepare(`UPDATE users SET role = ?1, custom_role_id = NULL WHERE custom_role_id = ?2`).bind(nk, cur.id),", ""],
   ["worker/src/staff.ts", "an own role's column is not a known role on save", "    const crKeys = await extraRoleKeys(env); // v1.355.0", "    const crKeys = await customRoleKeys(env); // v1.355.0"],
   ["worker/src/staff.ts", "delete leaves the cells behind", "      for (const cap of Object.keys(rec.perms)) {\n        const v = rec.perms[cap]!;\n        if (!v.includes(cur.key as Role)) continue;\n        cells++;", "      for (const cap of [] as string[]) {\n        const v = rec.perms[cap]!;\n        if (!v.includes(cur.key as Role)) continue;\n        cells++;"],
   ["worker/src/staff.ts", "a page outside the portal is accepted", "      if (ask.some((t) => !ROLE_TAB_CHOICES.includes(t))) return \"bad\";", ""],
@@ -270,4 +332,4 @@ for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`roles-v2: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`roles-v2: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - stage 2: a holder's sidebar is their own role's page list and every staff list obeys its staff switch (2FA always); stage 1: the CEO and the super admin create, edit and delete their own roles with no base role (pages, staff switch, blank or copied cells), protected and code roles stay put on the server and in the database, nothing is given to a person yet`);
+console.log(`roles-v2: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - stage 3: an own role is given through the role door and its claims wait on the chart manager before the CEO; stage 2: a holder's sidebar is their own role's page list and every staff list obeys its staff switch (2FA always); stage 1: the CEO and the super admin create, edit and delete their own roles with no base role (pages, staff switch, blank or copied cells), protected and code roles stay put on the server and in the database`);

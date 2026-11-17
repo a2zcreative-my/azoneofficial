@@ -158,7 +158,7 @@ const kinds = (r) => [...new Set(r.hits.map((h) => h.kind))].sort();
   const search = strip(read("worker/src/search.ts"));
   const staff = read("worker/src/staff.ts");
   ok("the Leave list and the search read leaveSeesAll", /const all = url\.searchParams\.get\("all"\) === "1" && leaveSeesAll\(user\.role\);/.test(staff) && /const allLeave = leaveSeesAll\(user\.role\);/.test(search));
-  ok("the Claims list and the search read claimScope", /const mkScope = \(withPayee: boolean\) => claimScope\(user\.role, all, withPayee\);/.test(staff) && /claimScope\(user\.role, allClaims, true, "\?2"\)/.test(search));
+  ok("the Claims list and the search read claimScope", /const mkScope = \(withPayee: boolean\) => claimScope\(user\.role, all, withPayee(, "\?1", canUser\(user, "claims_hr_review"\))?\);/.test(staff) && /claimScope\(user\.role, allClaims, true, "\?2"(, canUser\(user, "claims_hr_review"\))?\)/.test(search));
   ok("no second copy of the claims scope", !/STAFF_CHAIN|payee_user_id = \?/.test(search) && !/const STAFF_CHAIN = /.test(staff));
   ok("the leave rule is the one it was", /return can\(role, "hr_manage"\) \|\| \(PREAPP_ROLES as readonly string\[\]\)\.includes\(role\) \|\| \(FINAL_ROLES as readonly string\[\]\)\.includes\(role\);/.test(read("worker/src/leave-chain.ts")));
 }

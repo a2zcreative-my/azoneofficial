@@ -142,7 +142,10 @@ with sync_playwright() as p:
     def state(port): return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/__partners").read())
     def app_of(port, i): return next(a for a in state(port)["apps"] if a["id"] == i)
     def requests_tab(pg):
-        pg.get_by_test_id("agents-tab-requests").click(); pg.wait_for_timeout(600)
+        # v1.356.0 - on a phone the tab row is the Dashboard-style switch: open it, then choose
+        if pg.get_by_test_id("agents-tab-requests").is_visible(): pg.get_by_test_id("agents-tab-requests").click()
+        else: pg.get_by_test_id("agents-tab-switch").click(); pg.wait_for_timeout(300); pg.get_by_test_id("agents-tab-menu-requests").click()
+        pg.wait_for_timeout(600)
     def partners(pg):
         requests_tab(pg)
         pg.get_by_role("button", name="Partner Applications").filter(visible=True).first.click(); pg.wait_for_timeout(800)
@@ -284,6 +287,7 @@ with sync_playwright() as p:
     reset(4340)
     ctx, pg, errs, reqs = agents_page(4340, 390, 844); partners(pg)
     check("phone: the partner view fits 390px", fits(pg), pg.evaluate("document.documentElement.scrollWidth"))
+    check("phone: the sections are the Dashboard-style switch, not a row that runs off", t(pg, "agents-tab-switch").is_visible() and "Requests" in t(pg, "agents-tab-switch").inner_text() and pg.locator("[role=tablist]").filter(visible=True).count() == 0)
     shot(pg, "partner-requests-phone.png", full=False)
     t(pg, "partner-table").get_by_text("Danial Hakim").first.click(); pg.wait_for_timeout(1300)
     check("phone: choosing one opens the full application", t(pg, "partner-drawer").is_visible())

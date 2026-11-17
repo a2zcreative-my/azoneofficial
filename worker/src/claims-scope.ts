@@ -31,10 +31,12 @@ export const claimReadsAll = (role: string, decides: boolean): boolean => decide
    the COO's to decide, so the COO reads them */
 const CEO_OWN = (withPayee: boolean) => ` OR u.role = 'ceo'${withPayee ? ` OR c.payee_user_id IN (SELECT id FROM users WHERE role = 'ceo')` : ""}`;
 
-export function claimScope(role: string, all: boolean, withPayee: boolean, me = "?1"): string {
-  const P = withPayee ? ` OR c.payee_user_id = ${me}` : "";
+export function claimScope(role: string, all: boolean, withPayee: boolean, me = "?1", hrReview = role === "hr_admin"): string {
+  /* v1.358.0 - Roles v2 stage 3: the manager a line-chain claim waits on reads it (claims.line_approver_id,
+     0209), whatever their role; the HR reader is whoever holds claims_hr_review */
+  const P = withPayee ? ` OR c.payee_user_id = ${me} OR c.line_approver_id = ${me}` : ""; // the no-payee fallback is a pre-0051 database, older than both columns
   return all ? ""
-    : role === "hr_admin" ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN} OR c.status = 'approved'${P})`
+    : hrReview ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN} OR c.status = 'approved'${P})`
     : role === "coo" ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN}${CEO_OWN(withPayee)}${P})`
     : role === "admin" ? ` WHERE (c.user_id = ${me} OR u.role IN ${CLAIM_STAFF_CHAIN}${P})`
       : role === "cco" ? ` WHERE (c.user_id = ${me} OR u.role = 'hr_admin'${P})`

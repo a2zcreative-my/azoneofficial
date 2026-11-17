@@ -2,7 +2,7 @@
 
 **Asked:** the CEO, 17-11-2026, after 1.350.0: *"permission roles that for me to create by myself or super admin without hardcoded ... I need to make sure that I can add or remove the roles based on the operation needed!"*
 
-**Status:** Stage 1 BUILT in 1.355.0, stage 2 BUILT in 1.356.0 (neither deployed). Stages 3-4 not started. Supersedes the "base role" model of `docs/CUSTOM-ROLES-STAGE-0-AUDIT.md` (option A, 1.350.0).
+**Status:** Stage 1 BUILT in 1.355.0, stage 2 BUILT in 1.356.0, stage 3 BUILT in 1.358.0 (none deployed). Stage 4 not started. Supersedes the "base role" model of `docs/CUSTOM-ROLES-STAGE-0-AUDIT.md` (option A, 1.350.0).
 
 ## The CEO's decisions (17-11-2026)
 
@@ -39,7 +39,7 @@
    - `canSeeTab` and the worker's `TAB_READ` read the role's tab list for a non-protected role.
    - Every "who is staff" SQL list reads `counts_as_staff`.
    - Guard: one source for each.
-3. **Approvals.**
+3. **Approvals.** *Built in 1.358.0* (migration `0209_roles_assignable`: the users rebuild, and `claims.line_approver_id`). Own roles are given through the role door; a 1.350.0 custom role converts with "Make it your own role" (one at a time, by choice - not automatically, so no role's pages are guessed). Leave already routed by the chart for everyone (1.309.0). Claims from an own role: chart manager, then the CEO. Overtime stays with the CEO and COO for everyone (it was never role-routed).
    - Leave, claims and overtime for non-protected roles route by reports-to up to the CEO.
    - The HR stage becomes a permission.
    - COO/CCO pre-approvals and the CEO's final approval are unchanged (protected roles).

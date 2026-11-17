@@ -5,9 +5,17 @@
    with a gold rule under the open one, not as the pill row. One component, so
    the two pages cannot drift apart; every other page keeps SectionTabs.
    Bodies are the caller's: render every one and hide the closed ones, so a
-   search typed or a form half filled survives a look at another tab. */
+   search typed or a form half filled survives a look at another tab.
 
-import { useId, type ReactNode } from "react";
+   v1.356.0 (the CEO, 18-11-2026: "tabs should follow like a dashboard ...
+   globally"): on a PHONE the row becomes the Dashboard's view switch - one
+   navy pill naming the open section ("Overview ▾"), a menu of every section
+   with its count and a tick on the open one. A row of words ran off a 390px
+   screen on most pages ("Customers & Agent", "Audit & Histo", "Re"). From
+   768px the underline row is unchanged. Both are drawn and CSS shows one, so
+   the page never jumps after it loads; the bodies stay the caller's. */
+
+import { useId, useState, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import css from "./line-tabs.module.css";
 import { getLang } from "@/lib/i18n";
@@ -27,8 +35,35 @@ export function LineTabs<T extends string>({ value, onChange, tabs, label, aside
   testid?: string;
 }) {
   const uid = useId();
+  const [open, setOpen] = useState(false);
+  const cur = tabs.find((t) => t[0] === value) ?? tabs[0];
+  const ms = getLang() === "ms";
   return (
     <div className={css.bar}>
+      {/* the phone's view switch (Dashboard "CEO View ▾") */}
+      {cur ? (
+        <div className={css.switch} onKeyDown={(e) => { if (e.key === "Escape" && open) { e.stopPropagation(); setOpen(false); } }}
+          onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false); }}>
+          <button type="button" className={css.chip} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
+            aria-label={`${label}: ${cur[1]}`} data-testid={testid ? `${testid}-switch` : undefined}>
+            <span className={css.chipText}>{cur[3] ?? cur[1]}</span>
+            {cur[2] ? <span className={css.chipCount}>{cur[2]}</span> : null}
+            <AppIcon name="expand" />
+          </button>
+          {open && (
+            <div role="menu" aria-label={label} className={css.menu}>
+              {tabs.map(([k, text, n]) => (
+                <button key={k} type="button" role="menuitemradio" aria-checked={k === value} className={css.item}
+                  onClick={() => { setOpen(false); if (k !== value) onChange(k); }} data-testid={testid ? `${testid}-menu-${k}` : undefined}>
+                  <span aria-hidden className={css.tick}>{k === value ? "✓" : ""}</span>
+                  <span className={css.itemText}>{text}</span>
+                  {n ? <span className={css.count}>{n}<span className="erp-sr-only"> {ms ? "menunggu" : "waiting"}</span></span> : null}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
       <div role="tablist" aria-label={label} className={css.tabs}>
         {tabs.map(([k, text, n, short]) => (
           /* v1.281.0 - the tab's NAME is the word it shows ("Payments", or

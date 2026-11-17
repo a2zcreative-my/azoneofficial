@@ -10,6 +10,39 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.358.0] - 2026-11-18 - Roles v2, stage 3: your own roles are given to people; their claims go to their manager - BUILT, NOT DEPLOYED (MIGRATION 0209)
+
+Plan: `docs/ROLES-V2-PLAN.md`, stage 3 (decisions R-3 and R-6).
+
+### Added
+- **Give an own role to a person.** Roles & Permissions > a role you made > Assigned Users now has the account picker. It uses the same role door as every role: only the CEO and the Super Admin, with a reason and the authenticator code, audited. Taking it away is the same door. The Super Admin's account is never changed here, and nobody changes their own role.
+- **Make it your own role.** A custom role from 1.350.0 has a new button. In one step it becomes an own role: it keeps its switches, takes the pages its base role sees today, moves its people onto it, and the old custom role is deactivated (not deleted, so its history stays). Their leave and claims then follow the Organisation chart.
+
+### Changed
+- **Claims from an own role (R-3).** The claimant's manager on the Organisation chart pre-approves, then the CEO approves. The manager is fixed on the claim when it is submitted (as leave fixes its route). Someone who reports straight to the CEO, or has no manager on the chart, goes straight to the CEO. The manager sees it on their Desk and in Claims; the claim shows "Waiting on their manager" with their name on the timeline. The CEO approving before the manager is recorded as an override and needs a reason, as for every other chain; if the manager is the one being paid, their step is waived.
+- **HR review is a permission.** "HR review of staff claims" is now a switch in the matrix (on for HR, as before). The existing claim chains are otherwise unchanged.
+- Leave already follows the Organisation chart for everyone (since 1.309.0), so it needed no change. Overtime is still decided by the CEO or the COO for everyone; that is unchanged.
+
+### Database
+- Migration `0209_roles_assignable` rebuilds the `users` table with every row and column kept, so `users.role` is checked against the roles table (triggers) instead of a fixed list - that is what lets a person hold a role you made. It also adds `claims.line_approver_id` (empty for every existing claim). Tested on a copy: same rows, foreign keys intact, sessions kept, an unknown role refused, a held role cannot be deleted.
+
+### Fixed
+- **Dashboard Quick Actions** no longer squeezes its tiles letter by letter when the card sits in a narrow column (seen at 1440px for roles with few actions). The card measures its own width and stacks the heading above a 2-by-2 grid when it is narrow; wide layouts are unchanged. Guard `ecc4`.
+
+### Guards
+- `roles-v2` grows to 98 checks and 19 mutations: the role door gives and takes an own role (CEO only, reason, the database checks the key), the claim waits on the chart manager (only they pre-approve, the Desk shows it to them and not the COO, the CEO's early approval is an override), HR review is a switch, "Make it your own role" moves cells and people, and the users rebuild kept every column. `claims4`, `go-live-k` and `roles-permissions` follow the new text; browser `roles-v2.py` assigns an own role.
+
+## [1.357.0] - 2026-11-18 - On a phone, every page's sections are the Dashboard's view switch - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, with eleven phone screenshots): "Tabs should follow like a dashboard ... globally in this system".
+
+### Changed
+- **On a phone (under 768px) every page's section tabs are now the Dashboard's "CEO View ▾" control**: one navy pill naming the open section; tapping it opens a menu of every section, the open one ticked, counts kept (e.g. Requests 2). The underline row used to run off a 390px screen on most pages ("Customers & Agent", "Audit & Histo", "Publishing & Sy", "Re"). The page's own control - Add item, Add hotel, the payroll month, Refresh - sits at the right of the same line.
+- One change in the shared `LineTabs` (`components/ui/line-tabs.tsx` + `.module.css`), so Users & Security, Companies, Inventory, ELFIA Store, Payroll, Hotels, Agents, News, Profile, Automation & Rules and every other page that uses it follow; a page built later follows too. Both controls are drawn and the stylesheet shows one, so nothing jumps after the page loads; the sections' bodies are unchanged (a search typed or a form half filled is kept). From 768px (tablet and desktop) the underline row is exactly as before.
+
+### Guards
+- New `tests/phone-tab-switch.mjs` (8 checks): the switch and its menu exist, the phone shows the switch and hides the row, from 768px the reverse, the Dashboard's navy pill in tokens only, the page's action on the same line. Browser `tests/browser/partner-application.py` 90/90 (now switches sections on a phone through the pill). Not moved yet: other browser scripts that tap a tab row at phone width (not run by PUSH.bat).
+
 ## [1.356.0] - 2026-11-18 - Roles v2, stage 2: a role's pages and its staff switch are in force - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 Plan: `docs/ROLES-V2-PLAN.md`, stage 2 (decisions R-4 and R-5).

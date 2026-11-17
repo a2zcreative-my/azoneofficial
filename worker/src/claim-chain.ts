@@ -19,14 +19,25 @@
  * A stage whose approver is the PAYEE is waived (v1.4.175). Approval is not
  * payment: the payment step is done only when Mark paid recorded it.
  *
+ * v1.358.0 - ROLES V2, STAGE 3 (docs/ROLES-V2-PLAN.md, R-3): a claim by
+ * someone on a role the owner made (an OWN role, r_<slug>) follows the LINE
+ * chain - the claimant's manager on the Organisation chart pre-approves,
+ * then the CEO decides. The manager is fixed on the claim when it is made
+ * (claims.line_approver_id, 0209), as leave freezes its route; none (or the
+ * CEO himself as manager) = the CEO alone. The HR review is no longer a role
+ * name here: it is the permission `claims_hr_review` (HR Admin by default).
+ *
  * Nothing here reads the database. Every time and name comes from the row
  * the route read; a stamp that was never stored stays empty - no history
  * is invented.
  */
 
-export type ClaimChain = "staff" | "hr" | "exec" | "top" | "ceo";
+import { canUser, isOwnKey } from "./permissions";
+
+export type ClaimChain = "staff" | "hr" | "exec" | "top" | "ceo" | "line";
 export const claimChain = (role: string): ClaimChain =>
-  ["marketing", "sales_marketing", "editor", "live_host"].includes(role) ? "staff"
+  isOwnKey(role) ? "line" // v1.358.0 - an own role: the manager on the chart, then the CEO
+  : ["marketing", "sales_marketing", "editor", "live_host"].includes(role) ? "staff"
     : role === "hr_admin" ? "hr"
       : ["coo", "cco"].includes(role) ? "exec" : "top";
 /* v1.310.0 - CLAIMS WORKSPACE 4.0 (the CEO, 15-11-2026: "approve as
@@ -51,12 +62,14 @@ export const claimChainOf = (r: { claimant_role?: string | null; payee_role?: st
 
 /** The decision stages of a chain, in order. */
 export type ClaimStageKey = "hr" | "pre" | "final";
-export function claimStages(chain: ClaimChain): ClaimStageKey[] {
+export function claimStages(chain: ClaimChain, lineApprover?: number | null): ClaimStageKey[] {
+  if (chain === "line") return lineApprover ? ["pre", "final"] : ["final"];
   return chain === "staff" ? ["hr", "pre", "final"] : chain === "hr" ? ["pre", "final"] : ["final"];
 }
 
 /** Who signs a stage, by role. */
-export function claimStageRole(chain: ClaimChain, k: ClaimStageKey): "hr_admin" | "coo" | "cco" | "ceo" {
+export function claimStageRole(chain: ClaimChain, k: ClaimStageKey): "hr_admin" | "coo" | "cco" | "ceo" | "manager" {
+  if (chain === "line" && k === "pre") return "manager"; // v1.358.0 - a person (line_approver_id), never a role
   return k === "hr" ? "hr_admin" : k === "pre" ? (chain === "staff" ? "coo" : "cco") : chain === "ceo" ? "coo" : "ceo";
 }
 
@@ -75,6 +88,8 @@ export interface ClaimChainRow {
   returned_from?: string | null;
   returned_at?: string | null;
   return_answered_at?: string | null;
+  /** v1.358.0 - the manager who pre-approves a line-chain claim (fixed when it was made) */
+  line_approver_id?: number | null;
 }
 
 /** An open return: sent back with a question and not answered yet. */
@@ -92,10 +107,12 @@ export function claimCurrentStage(r: ClaimChainRow): ClaimStageKey {
     return "final";
   }
   if (chain === "hr") return !r.pre_approved_at && r.payee_role !== "cco" ? "pre" : "final";
+  /* v1.358.0 - the line manager pre-approves, unless they are the payee (waived, like every stage) */
+  if (chain === "line") return r.line_approver_id && !r.pre_approved_at && r.payee_user_id !== r.line_approver_id ? "pre" : "final";
   return "final";
 }
 
-export type ClaimWaiter = "hr" | "coo" | "cco" | "ceo" | "applicant" | "payment";
+export type ClaimWaiter = "hr" | "coo" | "cco" | "ceo" | "manager" | "applicant" | "payment";
 /** Whom a claim waits on now; null when it is finished (paid or rejected). */
 export function claimWaitingOn(r: ClaimChainRow): ClaimWaiter | null {
   if (r.status === "approved") return r.paid_at ? null : "payment";
@@ -131,10 +148,13 @@ export function claimActions(r: ClaimChainRow, actor: { id: number; role: string
     if (open) {
       if (own) out.push("resubmit");
     } else {
-      if (!own && !payee && chain === "staff" && !r.hr_reviewed_at && ["hr_admin", ...ADMIN_TIER].includes(actor.role)) out.push("review");
+      /* v1.358.0 - the HR review is the permission claims_hr_review (HR Admin by default), not a role name */
+      if (!own && !payee && chain === "staff" && !r.hr_reviewed_at && (canUser(actor, "claims_hr_review") || ADMIN_TIER.includes(actor.role))) out.push("review");
       if (!own && !payee && !r.pre_approved_at && (
         (chain === "staff" && !!r.hr_reviewed_at && ["coo", ...ADMIN_TIER].includes(actor.role))
-        || (chain === "hr" && ["cco", ...ADMIN_TIER].includes(actor.role)))) out.push("preapprove");
+        || (chain === "hr" && ["cco", ...ADMIN_TIER].includes(actor.role))
+        /* v1.358.0 - the line chain: the one manager the claim names, nobody by role */
+        || (chain === "line" && !!r.line_approver_id && r.line_approver_id === actor.id))) out.push("preapprove");
       if (decider) out.push("approve");
       if (out.some((a) => a === "review" || a === "preapprove" || a === "approve")) out.push("return");
     }
@@ -159,7 +179,7 @@ export function claimMyTurn(r: ClaimChainRow, actor: { id: number; role: string;
   if (w === "hr") return acts.includes("review");
   /* v1.310.0 (C-1) - the COO decides the CEO's own claim: then the approval
      is his turn (the CEO's early approval elsewhere stays an override) */
-  if (w === "coo" || w === "cco") return acts.includes("preapprove") || (claimChainOf(r) === "ceo" && acts.includes("approve"));
+  if (w === "coo" || w === "cco" || w === "manager") return acts.includes("preapprove") || (claimChainOf(r) === "ceo" && acts.includes("approve"));
   if (w === "ceo") return acts.includes("approve");
   return false;
 }
@@ -173,6 +193,7 @@ export function claimSkippedIfApproved(r: ClaimChainRow): ("hr" | "pre")[] {
     if (!r.hr_reviewed_at && r.payee_role !== "hr_admin") out.push("hr");
     if (!r.pre_approved_at && r.payee_role !== "coo") out.push("pre");
   } else if (chain === "hr" && !r.pre_approved_at && r.payee_role !== "cco") out.push("pre");
+  else if (chain === "line" && r.line_approver_id && !r.pre_approved_at && r.payee_user_id !== r.line_approver_id) out.push("pre");
   return out;
 }
 
@@ -193,6 +214,8 @@ export interface ClaimTimelineRow extends ClaimChainRow {
   payment_proof?: boolean;
   claim_type?: string | null;
   payroll_month?: string | null;
+  /** v1.358.0 - the line manager's name, for the line chain's pre-approval step */
+  line_approver_name?: string | null;
 }
 export type ClaimStepState = "done" | "now" | "todo" | "skipped" | "rejected" | "returned" | "off";
 export interface ClaimStep {
@@ -214,8 +237,12 @@ export interface ClaimStep {
     at, with the reason. The payment step is done ONLY when Mark paid
     recorded it; an approved claim waits at Payment due. */
 export function claimTimeline(r: ClaimTimelineRow): ClaimStep[] {
+  /* v1.358.0 - the line chain's pre-approval names the one manager it waits on */
+  return claimTimelineSteps(r).map((st) => (st.flags?.role === "manager" && r.line_approver_name ? { ...st, flags: { ...st.flags, approver: r.line_approver_name } } : st));
+}
+function claimTimelineSteps(r: ClaimTimelineRow): ClaimStep[] {
   const chain = claimChainOf(r);
-  const order = claimStages(chain);
+  const order = claimStages(chain, r.line_approver_id);
   const roleOf = (k: ClaimStageKey) => claimStageRole(chain, k);
   const sig: Record<ClaimStageKey, [string | null, string | null]> = {
     hr: [r.hr_by_name ?? null, r.hr_reviewed_at ?? null],
@@ -223,7 +250,8 @@ export function claimTimeline(r: ClaimTimelineRow): ClaimStep[] {
     final: r.status === "approved" ? [r.decided_by_name ?? null, r.decided_at ?? null] : [null, null],
   };
   const signed = (k: ClaimStageKey) => !!sig[k][1];
-  const waived = (k: ClaimStageKey) => (k === "hr" && r.payee_role === "hr_admin") || (k === "pre" && r.payee_role === (chain === "staff" ? "coo" : "cco"));
+  const waived = (k: ClaimStageKey) => (k === "hr" && r.payee_role === "hr_admin")
+    || (k === "pre" && (chain === "line" ? r.payee_user_id != null && r.payee_user_id === r.line_approver_id : r.payee_role === (chain === "staff" ? "coo" : "cco")));
   const steps: ClaimStep[] = [{ key: "submitted", state: "done", who: r.claimant_name ?? null, at: r.created_at, text: null }];
   const answered = !!r.returned_at && !!r.return_answered_at;
 

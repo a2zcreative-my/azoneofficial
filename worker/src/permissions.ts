@@ -39,6 +39,8 @@ export const PERMS: Record<string, readonly Role[]> = {
   positions_manage: ["super_admin", "ceo"], // v1.322.0 (the CEO, 16-11-2026) - keep the positions list; a position never changes anybody's role
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"],
+  /* v1.358.0 - Roles v2 stage 3: the HR review of a staff claim is a permission, not the hr_admin role name (HR Admin by default) */
+  claims_hr_review: ["hr_admin"],
   claims_decide: ["ceo"], // v1.310.0 (Claims 4.0, C-2) - the Super Admin no longer approves or pays claims
   revenue_view: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   expenses: ["admin", "ceo", "coo"], // v1.312.0 (Finance 5.0, CEO-10) - the Super Admin reads Finance (cashflow_manage), never records or pays
@@ -643,6 +645,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Commission", key: "agent_payout_settle", en: "Settle an agent payout (bank reference, in Finance)", ms: "Selesaikan bayaran ejen (rujukan bank, dalam Kewangan)", cap: "agent_payout_settle", note_en: "Never the person who authorised it", note_ms: "Bukan orang yang membenarkannya" },
   { module: "Commission", key: "commission_closer", en: "Correct the closer of a sale", ms: "Betulkan penutup jualan", cap: "commission_decide" },
   { module: "Claims", key: "claims_submit", en: "Submit claims", ms: "Hantar tuntutan", cap: "claims_submit" },
+  { module: "Claims", key: "claims_hr_review", en: "HR review of staff claims", ms: "Semakan HR tuntutan kakitangan", cap: "claims_hr_review" },
   { module: "Claims", key: "claims_decide", en: "Approve claims", ms: "Luluskan tuntutan", cap: "claims_decide" },
   { module: "Leave", key: "leave_entitlement", en: "Set leave entitlement", ms: "Tetapkan kelayakan cuti", cap: "leave_entitlement" },
   { module: "Leave", key: "unpaid_leave", en: "Record unpaid days", ms: "Rekod hari tanpa gaji", cap: "unpaid_leave" },

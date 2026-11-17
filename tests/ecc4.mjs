@@ -37,6 +37,7 @@ const FILES = {
   sales: "components/portal/sales.tsx",
   salesViews: "components/portal/sales-views.tsx", // v1.292.0 - Sales Workspace 4.0 moved the chart into Reports
   desk: "components/portal/one-desk.tsx",
+  execCss: "components/portal/executive.module.css", // v1.358.0 - the Quick Actions card measures itself
 };
 
 function checks(src) {
@@ -115,6 +116,14 @@ function checks(src) {
   ok("the Dashboard carries no Command Center title and no subtitle; the header is the phone's view switch only",
     eh.length > 200 && !/Command Center|key decisions and next actions/.test(ov + cards + dash) && /className=\{`\$\{x\.execHead\} erp-phone-only`\} data-testid="exec-header"/.test(eh) && !/<h1|<h2/.test(eh));
   ok("the source module of each decision is named in words", /export const deskBucketWord = /.test(src.desk) && /source: deskBucketWord\(d\.bucket\)/.test(ovBlock));
+  /* v1.358.0 - Quick Actions in a narrow column (the Overview's right rail): the card measures itself and stacks */
+  {
+    const qc = src.execCss.replace(/\r\n/g, "\n");
+    const cq = qc.slice(qc.lastIndexOf("@container quickcard"));
+    ok("Quick Actions measures itself: a narrow card stacks its title over two columns of actions, never one letter a line",
+      /\.quick \{\n[^}]*container: quickcard \/ inline-size;/.test(qc) && /@container quickcard \(max-width: 34rem\)/.test(cq)
+      && /\.quick4 \.quickList \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/.test(cq) && qc.lastIndexOf("@container quickcard") > qc.lastIndexOf(".quick4 .quickList {\n  grid-template-columns: repeat(4"));
+  }
   return res;
 }
 
@@ -125,6 +134,7 @@ for (const [n, c, d] of res) if (!c) console.log(`  ✗ ${n}${d ? `  [${d}]` : "
 
 /* the mutation pass: each breakage must be caught */
 const MUT = [
+  ["Quick Actions squeezed again in a narrow column", "execCss", "  container: quickcard / inline-size;", ""],
   ["\"Verified\" claimed always", "ov", 'const owedLabel = verifying ? L("Verified outstanding", "Tertunggak disahkan") : L("Outstanding", "Tertunggak");', 'const owedLabel = L("Verified outstanding", "Tertunggak disahkan");'],
   ["company sales titled Collected", "ov", 'label={L("Company sales", "Jualan syarikat")} value={fmtRM(c.basis_cents)}', 'label={L("Collected", "Dikutip")} value={fmtRM(c.basis_cents)}'],
   ["a failed outstanding shown as RM 0", "ov", 'value={pw ? fmtRM(pw.outstanding.cents) : perfWeek.failed ? L("Not available", "Tiada data") : "—"}', 'value={pw ? fmtRM(pw.outstanding.cents) : fmtRM(0)}'],

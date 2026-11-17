@@ -541,7 +541,7 @@ const server = http.createServer((req, res) => {
         if (mr && req.method === "POST" && process.env.ROLESX) {
           let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
           if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
-          if (/^r_/.test(String(b.role))) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "role_not_assignable", message: "This role is being set up." } })); return; } // v1.355.0
+          /* v1.358.0 - stage 3: an own role is given like any other (the worker rules: tests/roles-v2.mjs) */
           const crGive = customSaved.find((c) => c.key === b.role); // v1.350.0 - a custom role: the base role + the link
           const uid = Number(mr[1]);
           for (const c of customSaved) c.users = c.users.filter((x) => x !== uid);

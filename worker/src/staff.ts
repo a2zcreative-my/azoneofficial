@@ -3420,9 +3420,35 @@ async function handleStaffRoutes(
       await audit(env, user.id, "role.assign", "users", String(idC), { from: fromKey ?? tgt.role, to: cr.key, name: cr.name, base_role: cr.base_role, reason: reasonR, by_role: user.role });
       return json({ ok: true, role: cr.key, base_role: cr.base_role });
     }
-    /* v1.355.0 - an own role (Roles v2 stage 1) is set up, never given yet: pages, staff counts and
-       approvals do not read it until stages 2-3, and users.role still refuses it (its CHECK) */
-    if (typeof body?.role === "string" && isOwnKey(body.role)) return err("role_not_assignable", "This role is being set up. It can be given to people once its pages, staff counts and approvals are in place (Roles v2, stages 2 and 3).", 409);
+    /* v1.358.0 - ROLES V2, STAGE 3: an OWN role is given through the same door. Its pages (stage 2),
+       staff counts (stage 2), claim approvals by the Organisation chart (stage 3) and leave (by the chart
+       for everyone since 1.309.0) all read it now. role_custom (the CEO and the super admin, R-6), a
+       reason and the authenticator code; the person's current role must be one this caller may take
+       away (roleChangeRule on it - so an executive, agent or customer stays the owner's or the super
+       admin's to move); never the super admin, never yourself. The database checks the key too. */
+    if (typeof body?.role === "string" && isOwnKey(body.role)) {
+      if (!allows(user, "role_custom")) return err("forbidden", "Only the CEO and the super admin give a role they made.", 403);
+      const orow = (await readRoles(env)).find((x) => x.key === body!.role && x.kind === "own");
+      if (!orow) return err("invalid_input", "Unknown role", 400);
+      const idO = Number(roleMatch[1]!);
+      if (idO === user.id) return err("self_change", "You can't change your own role — ask another authorised account.", 400);
+      const tgtO = await env.DB.prepare(`SELECT id, email, role, custom_role_id FROM users WHERE id = ?1`).bind(idO)
+        .first<{ id: number; email: string; role: string; custom_role_id: number | null }>();
+      if (!tgtO) return err("not_found", "User not found", 404);
+      if (tgtO.role === "super_admin") return err("forbidden", "Super admin accounts are managed by the super admin in /admin only", 403);
+      if (tgtO.role === orow.key) return json({ ok: true, role: orow.key, unchanged: true });
+      if (!isOwnKey(tgtO.role)) {
+        const ruleO = roleChangeRule(user, tgtO, tgtO.role);
+        if (!ruleO.ok) return err(ruleO.code, ruleO.message + (ruleO.status === 403 ? ownerOffHint(user) : ""), ruleO.status);
+      }
+      const reasonO = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+      if (reasonO.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+      const suO = await requireFreshTotp(env, user, body?.totp, err, "give a role");
+      if (suO) return suO;
+      await env.DB.prepare(`UPDATE users SET role = ?1, custom_role_id = NULL WHERE id = ?2`).bind(orow.key, idO).run();
+      await audit(env, user.id, "role.assign", "users", String(idO), { from: tgtO.role, to: orow.key, name: orow.name, ...(tgtO.custom_role_id ? { custom_role_cleared: tgtO.custom_role_id } : {}), reason: reasonO, by_role: user.role });
+      return json({ ok: true, role: orow.key });
+    }
     const OFFERED = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "coo", "cco", "customer", "agent", "admin", "ceo"]; // v1.250.0 - agent (Grant Agent Access); it was offered on screen since 1.249.0 but refused here
     const EMP_STATUSES = ["permanent", "contract", "part_time", "probation"];
     const newRole = typeof body?.role === "string" ? body.role : "";
@@ -8028,12 +8054,21 @@ async function handleStaffRoutes(
      the payee is WAIVED BY DESIGN — the notification routes straight to the
      CEO instead of pinging someone who is forbidden from acting, and the CEO
      is told why. payeeRole is the payee's role (null = no payee). */
-  const notifyClaimFirstStage = async (claimantRole: string, claimantName: string, claimId: string | number, cents: number, prefix: string, payeeRole?: string | null) => {
+  /** v1.358.0 - the manager and payee fixed on a claim, for telling its first stage again */
+  const claimLineOf = async (id: string | number) => env.DB.prepare(`SELECT line_approver_id, payee_user_id FROM claims WHERE id = ?1`).bind(id)
+    .first<{ line_approver_id: number | null; payee_user_id: number | null }>().catch(() => null);
+  const notifyClaimFirstStage = async (claimantRole: string, claimantName: string, claimId: string | number, cents: number, prefix: string, payeeRole?: string | null, lineApprover?: number | null, payeeId?: number | null) => {
     const chain = claimChainOf({ claimant_role: claimantRole, payee_role: payeeRole ?? null });
     const msg = `${prefix}: ${claimantName} — RM ${(cents / 100).toFixed(2)}`;
+    /* v1.358.0 - the line chain: the claimant's manager first (unless they are paid by it), else the CEO */
+    if (chain === "line") {
+      if (lineApprover && lineApprover !== payeeId) await notify(env, lineApprover, "claim", `${msg} (your pre-approval as their manager)`, `claim:${claimId}`);
+      else await notifyRoles(["ceo"], 0, msg, `claim:${claimId}`);
+      return;
+    }
     /* v1.310.0 (C-1) - the CEO's own claim waits on the COO */
     if (chain === "ceo") await notifyRoles(["coo"], 0, `${msg} (the CEO's own claim - your decision)`, `claim:${claimId}`);
-    else if (chain === "staff" && payeeRole !== "hr_admin") await notifyRoles(["hr_admin"], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
+    else if (chain === "staff" && payeeRole !== "hr_admin") await notifyRoles([...rolesFor("claims_hr_review")], 0, `${msg} (HR review needed)`, `claim:${claimId}`);
     else if (chain === "hr" && payeeRole !== "cco") await notifyRoles(["cco"], 0, `${msg} (pre-approval needed)`, `claim:${claimId}`);
     else if (chain === "staff" || chain === "hr") await notifyRoles(["ceo"], 0, `${msg} (pre-approver is the payee — for your direct decision)`, `claim:${claimId}`);
     else await notifyRoles(["ceo"], 0, msg, `claim:${claimId}`);
@@ -8066,7 +8101,7 @@ async function handleStaffRoutes(
         for (const a of ar) if (a.who) paidBy.set(Number(a.entity_id), a.who);
       } catch { /* the audit trail is read-only here; no name, no invented name */ }
     }
-    const retBy = [...new Set(rows.map((r) => Number(r.returned_by)).filter((n) => Number.isInteger(n) && n > 0))];
+    const retBy = [...new Set(rows.flatMap((r) => [Number(r.returned_by), Number(r.line_approver_id)]).filter((n) => Number.isInteger(n) && n > 0))]; // v1.358.0 - and the line manager
     if (retBy.length) {
       const { results: ur } = await env.DB.prepare(
         `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS n FROM users WHERE id IN (${retBy.join(",")})`,
@@ -8086,6 +8121,8 @@ async function handleStaffRoutes(
         pre_by_name: (r.pre_approved_by_full as string | null) || (r.pre_approved_by_name as string | null) || null,
         decided_by_name: (r.decided_by_full as string | null) || (r.decided_by_name as string | null) || null,
         returned_by_name: names.get(Number(r.returned_by)) ?? null,
+        line_approver_id: r.line_approver_id == null ? null : Number(r.line_approver_id),
+        line_approver_name: names.get(Number(r.line_approver_id)) ?? null, // v1.358.0
         paid_by_name: paidBy.get(id) ?? null,
         paid_bank_date: c?.bank ?? null,
         paid_reversed_on: c?.reversed ?? null,
@@ -8106,13 +8143,21 @@ async function handleStaffRoutes(
   /* v1.254.0 - one claim, read the way GET /claims would let this person
      read it (claims-scope.ts), with the chain columns the routes decide on */
   const claimChainSql = `SELECT c.id, c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, c.decided_at, c.paid_at,
-           c.payee_user_id, c.returned_from, c.returned_at, c.return_answered_at, u.role AS claimant_role, u.name AS claimant_name, py.role AS payee_role
+           c.payee_user_id, c.returned_from, c.returned_at, c.return_answered_at, c.line_approver_id, u.role AS claimant_role, u.name AS claimant_name, py.role AS payee_role
       FROM claims c LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users py ON py.id = c.payee_user_id`;
   type ClaimChainRead = ClaimChainRow & { id: number; amount_cents: number; claimant_name: string | null };
   const readClaimChain = async (id: string | number) =>
     env.DB.prepare(`${claimChainSql} WHERE c.id = ?1`).bind(id).first<ClaimChainRead>();
   const claimRolesOf = (w: string | null): string[] =>
-    w === "hr" ? ["hr_admin"] : w === "coo" ? ["coo"] : w === "cco" ? ["cco"] : w === "ceo" ? ["ceo"] : [];
+    w === "hr" ? [...rolesFor("claims_hr_review")] : w === "coo" ? ["coo"] : w === "cco" ? ["cco"] : w === "ceo" ? ["ceo"] : []; // v1.358.0 - HR = whoever holds claims_hr_review
+  /* v1.358.0 - tell whoever the claim waits on now: the one line manager (a person), or the role(s) of the stage */
+  const notifyClaimWaiter = async (row: ClaimChainRow | null, excludeId: number, message: string, ref: string) => {
+    if (!row) return;
+    const w = claimWaitingOn(row);
+    if (w === "manager") { if (row.line_approver_id && row.line_approver_id !== excludeId) await notify(env, row.line_approver_id, "claim", message, ref); return; }
+    const roles = claimRolesOf(w);
+    if (roles.length) await notifyRoles(roles, excludeId, message, ref);
+  };
   const claimBusy = () => err("already_decided", "Someone has just acted on this claim - reload to see where it stands", 409);
   /* v1.310.0 (Claims 4.0) - WHO DECIDES AND PAYS THIS CLAIM: the CEO
      (claims_decide), except on the CEO's own claim - raised by him or paid to
@@ -8124,7 +8169,7 @@ async function handleStaffRoutes(
      it in the list (claims-scope.ts) */
   const claimVisible = async (id: string | number): Promise<boolean> => {
     if (claimReadsAll(user.role, canUser(user, "claims_decide"))) return true;
-    return Boolean(await env.DB.prepare(`${claimChainSql}${claimScope(user.role, false, true, "?1")} AND c.id = ?2`).bind(user.id, id).first().catch(() => null));
+    return Boolean(await env.DB.prepare(`${claimChainSql}${claimScope(user.role, false, true, "?1", canUser(user, "claims_hr_review"))} AND c.id = ?2`).bind(user.id, id).first().catch(() => null));
   };
   /* v1.310.0 (C-8) - a reimbursement needs its receipt before it is approved;
      a mileage-only claim and a salary advance do not */
@@ -8152,7 +8197,7 @@ async function handleStaffRoutes(
     const mq = new URL(request.url).searchParams.get("month");
     const month = mq && /^\d{4}-\d{2}$/.test(mq) ? mq : new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
     const all = claimReadsAll(user.role, canUser(user, "claims_decide"));
-    const scope = claimScope(user.role, all, true, "?1");
+    const scope = claimScope(user.role, all, true, "?1", canUser(user, "claims_hr_review"));
     const from = `${month}-01`;
     const ahead = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 15)).toISOString().slice(0, 10);
     const before = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1) - 86400000).toISOString().slice(0, 10);
@@ -8233,7 +8278,7 @@ async function handleStaffRoutes(
     const SEL = mkSel(true);
     /* v1.205.0 - the scope moved, unchanged, to worker/src/claims-scope.ts
        so the search box finds exactly the claims this list shows. */
-    const mkScope = (withPayee: boolean) => claimScope(user.role, all, withPayee);
+    const mkScope = (withPayee: boolean) => claimScope(user.role, all, withPayee, "?1", canUser(user, "claims_hr_review"));
     let results: unknown[];
     try {
       results = (await env.DB.prepare(
@@ -8306,8 +8351,7 @@ async function handleStaffRoutes(
     await env.DB.prepare(`INSERT INTO claim_comments (claim_id, author_id, visibility, body) VALUES (?1, ?2, 'employee', ?3)`)
       .bind(Number(cid), user.id, text).run();
     const after = await readClaimChain(cid);
-    const roles = claimRolesOf(after ? claimWaitingOn(after) : null);
-    if (roles.length) await notifyRoles(roles, user.id, `${user.name} answered on their claim of RM ${(row.amount_cents / 100).toFixed(2)} - it waits on you again`, `claim:${cid}`);
+    await notifyClaimWaiter(after, user.id, `${user.name} answered on their claim of RM ${(row.amount_cents / 100).toFixed(2)} - it waits on you again`, `claim:${cid}`);
     await audit(env, user.id, "claim.answer", "claims", cid, { stage: row.returned_from ?? null });
     return json({ ok: true });
   }
@@ -8322,7 +8366,7 @@ async function handleStaffRoutes(
     if (!canUser(user, "claims_submit")) return err("forbidden", "Claims access required", 403);
     const cid = Number(claimTalk[1]);
     const all = claimReadsAll(user.role, canUser(user, "claims_decide"));
-    const scope = claimScope(user.role, all, true, "?1");
+    const scope = claimScope(user.role, all, true, "?1", canUser(user, "claims_hr_review"));
     const seen = await env.DB.prepare(
       all ? `${claimChainSql} WHERE c.id = ?1`
         : `${claimChainSql}${scope} AND c.id = ?2`,
@@ -8353,8 +8397,7 @@ async function handleStaffRoutes(
       await audit(env, user.id, "claim.comment", "claims", String(cid), { comment: ins?.id, visibility: vis });
       /* the other side is told: whoever acts now of the claimant's note; the claimant of a note they can read */
       if (own) {
-        const roles = claimRolesOf(claimWaitingOn(seen));
-        if (roles.length) await notifyRoles(roles, user.id, `${user.name} commented on a claim: ${text.slice(0, 120)}`, `claim:${cid}`);
+        await notifyClaimWaiter(seen, user.id, `${user.name} commented on a claim: ${text.slice(0, 120)}`, `claim:${cid}`);
       } else if (vis === "employee") {
         await notify(env, seen.user_id, "claim", `${user.name} commented on your claim: ${text.slice(0, 120)}`, `claim:${cid}:c${ins?.id ?? ""}`, { once: true });
       }
@@ -8417,7 +8460,8 @@ async function handleStaffRoutes(
   const claimReview = path.match(/^\/claims\/(\d+)\/review$/);
   if (claimReview && method === "POST") {
     // v1.4.106 stage 1 (staff chain only): HR reviews, then the COO pre-approves.
-    if (!["hr_admin", "admin", "super_admin"].includes(user.role)) {
+    /* v1.358.0 - Roles v2 stage 3: the HR review is the permission claims_hr_review (HR Admin by default), plus the admin tier as before */
+    if (!canUser(user, "claims_hr_review") && !["admin", "super_admin"].includes(user.role)) {
       return err("forbidden", "HR review is done by HR", 403);
     }
     const cr = await env.DB.prepare(
@@ -8453,9 +8497,9 @@ async function handleStaffRoutes(
     // v1.4.106 stage 2: COO pre-approves staff-chain claims (after HR),
     // CCO pre-approves hr_admin claims. Admin tier as backstop.
     const cp = await env.DB.prepare(
-      `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, u.role AS claimant_role, u.name AS claimant_name
+      `SELECT c.user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, c.line_approver_id, u.role AS claimant_role, u.name AS claimant_name
        FROM claims c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?1`,
-    ).bind(claimPre[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claimant_role: string; claimant_name: string }>();
+    ).bind(claimPre[1]).first<{ user_id: number; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; line_approver_id: number | null; claimant_role: string; claimant_name: string }>();
     if (!cp) return err("not_found", "Claim not found", 404);
     if (cp.status !== "pending") return err("invalid_state", "Already decided", 400);
     { const own = await readClaimChain(claimPre[1]!); if (own && claimIsCeoOwn(own)) return err("invalid_state", "The CEO's own claim is decided by the COO, in one step", 400); } // v1.310.0 (C-1)
@@ -8473,6 +8517,9 @@ async function handleStaffRoutes(
       if (!cp.hr_reviewed_at) return err("invalid_state", "HR review comes first", 400);
     } else if (chainP === "hr") {
       if (user.role !== "cco" && !adminTier) return err("forbidden", "CCO pre-approves HR claims", 403);
+    } else if (chainP === "line" && cp.line_approver_id) {
+      /* v1.358.0 - the line chain: only the manager the claim names, never anyone by role */
+      if (user.id !== Number(cp.line_approver_id)) return err("forbidden", "This claim waits on the claimant's manager on the Organisation chart", 403);
     } else {
       return err("invalid_state", "This claim goes straight to the CEO", 400);
     }
@@ -8653,8 +8700,9 @@ async function handleStaffRoutes(
       ).bind(claimEdit[1]).first<{ r: string | null }>();
       payeeRoleE = prE?.r ?? null;
     } catch { /* pre-0051 */ }
+    const lnE = await claimLineOf(claimEdit[1]!);
     await notifyClaimFirstStage(user.role, user.name, claimEdit[1]!, centsE,
-      wasRejected ? "Resubmitted after rejection" : "Updated claim", payeeRoleE);
+      wasRejected ? "Resubmitted after rejection" : "Updated claim", payeeRoleE, lnE?.line_approver_id ?? null, lnE?.payee_user_id ?? null);
     await audit(env, user.id, wasRejected ? "claim.resubmit" : "claim.edit", "claims", claimEdit[1]!, { amount_cents: centsE, claim_type: claimTypeE, payroll_month: payrollMonthE });
     return json({ ok: true, resubmitted: wasRejected });
   }
@@ -8838,10 +8886,20 @@ async function handleStaffRoutes(
       payeeRole = pu.role;
       if (claimHasNoDecider(user.role, pu.role)) return err("no_decider", NO_DECIDER_MSG, 400); // v1.310.0 (C-1)
     }
+    /* v1.358.0 - Roles v2 stage 3 (R-3): someone on an own role is pre-approved by their manager on the
+       Organisation chart, fixed NOW on the claim (as leave freezes its route); the CEO is the final step,
+       so a manager who IS the CEO (or no manager) means the CEO alone */
+    let lineApprover: number | null = null;
+    if (claimChain(user.role) === "line") {
+      try {
+        const sup = reportingLine(await leaveOrgList(env), user.id)?.supervisor ?? null;
+        if (sup && sup.id !== user.id && sup.role !== "ceo") lineApprover = sup.id;
+      } catch { lineApprover = null; }
+    }
     let res = await env.DB.prepare(
-      `INSERT OR IGNORE INTO claims (user_id, claim_date, category, amount_cents, description, items, payee_user_id, claim_type, payroll_month, submission_key)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
-    ).bind(user.id, claimDate, category, cents, purpose, itemsJson, payeeId, claimType, payrollMonth, submissionKey).first<{ id: number }>();
+      `INSERT OR IGNORE INTO claims (user_id, claim_date, category, amount_cents, description, items, payee_user_id, claim_type, payroll_month, submission_key, line_approver_id)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id`,
+    ).bind(user.id, claimDate, category, cents, purpose, itemsJson, payeeId, claimType, payrollMonth, submissionKey, lineApprover).first<{ id: number }>();
     if (!res) {
       res = await env.DB.prepare(`SELECT id FROM claims WHERE user_id = ?1 AND submission_key = ?2`)
         .bind(user.id, submissionKey).first<{ id: number }>();
@@ -8861,8 +8919,8 @@ async function handleStaffRoutes(
     }
     // v1.4.106: tell the FIRST stage of this claimant's chain.
     await stampIssuer(env, "claims", res?.id);
-    await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim", payeeRole);
-    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents, claim_type: claimType, payroll_month: payrollMonth, ...(payeeId ? { payee_user_id: payeeId } : {}) });
+    await notifyClaimFirstStage(user.role, user.name, res?.id ?? 0, cents, "New claim", payeeRole, lineApprover, payeeId);
+    await audit(env, user.id, "claim.create", "claims", String(res?.id), { category, amount_cents: cents, claim_type: claimType, payroll_month: payrollMonth, ...(payeeId ? { payee_user_id: payeeId } : {}), ...(lineApprover ? { line_approver_id: lineApprover } : {}) });
     return json({ id: res?.id }, 201);
   }
   const clMatch = path.match(/^\/claims\/(\d+)(\/receipt|\/decide)?$/);
@@ -8904,7 +8962,8 @@ async function handleStaffRoutes(
         ).bind(clMatch[1]).first<{ r: string | null }>();
         payeeRoleR = prR?.r ?? null;
       } catch { /* pre-0051 */ }
-      await notifyClaimFirstStage(user.role, user.name, clMatch[1]!, cRow?.amount_cents ?? 0, "Resubmitted with receipt", payeeRoleR);
+      const lnR = await claimLineOf(clMatch[1]!);
+      await notifyClaimFirstStage(user.role, user.name, clMatch[1]!, cRow?.amount_cents ?? 0, "Resubmitted with receipt", payeeRoleR, lnR?.line_approver_id ?? null, lnR?.payee_user_id ?? null);
       await audit(env, user.id, "claim.resubmit", "claims", clMatch[1]!, { via: "receipt_attach" });
       resubmittedR = true;
     }
@@ -8931,9 +8990,9 @@ async function handleStaffRoutes(
     const action = body?.action;
     if (action !== "approve" && action !== "reject") return err("invalid_input", "action must be approve or reject", 400);
     const row = await env.DB.prepare(
-      `SELECT c.user_id, c.payee_user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, c.claim_type, c.receipt_key, c.items, u.role AS claimant_role, py.role AS payee_role
+      `SELECT c.user_id, c.payee_user_id, c.status, c.amount_cents, c.hr_reviewed_at, c.pre_approved_at, c.claim_type, c.receipt_key, c.items, c.line_approver_id, u.role AS claimant_role, py.role AS payee_role
        FROM claims c LEFT JOIN users u ON u.id = c.user_id LEFT JOIN users py ON py.id = c.payee_user_id WHERE c.id = ?1`,
-    ).bind(clMatch[1]).first<{ user_id: number; payee_user_id: number | null; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claim_type: string | null; receipt_key: string | null; items: string | null; claimant_role: string; payee_role: string | null }>();
+    ).bind(clMatch[1]).first<{ user_id: number; payee_user_id: number | null; line_approver_id: number | null; status: string; amount_cents: number; hr_reviewed_at: string | null; pre_approved_at: string | null; claim_type: string | null; receipt_key: string | null; items: string | null; claimant_role: string; payee_role: string | null }>();
     if (!row) return err("not_found", "Claim not found", 404);
     // Per the CEO's instruction: EVERY claim decision is the CEO's - v1.310.0
     // (C-1): except his own claim, which is the COO's.
@@ -8984,6 +9043,9 @@ async function handleStaffRoutes(
         if (!row.pre_approved_at) (payeeRoleD === "coo" ? waived : skipped).push("COO pre-approval");
       } else if (chainD === "hr" && !row.pre_approved_at) {
         (payeeRoleD === "cco" ? waived : skipped).push("CCO pre-approval");
+      } else if (chainD === "line" && row.line_approver_id && !row.pre_approved_at) {
+        /* v1.358.0 - the line manager's pre-approval: waived when they are paid by it, else an override with a reason */
+        (row.payee_user_id === row.line_approver_id ? waived : skipped).push("manager pre-approval");
       }
       if (skipped.length > 0) chainOverride = skipped.join(" + ");
       if (waived.length > 0) conflictWaived = waived.join(" + ");
@@ -15013,7 +15075,7 @@ async function handleStaffRoutes(
       custom_roles: customs, can_manage_custom: allows(user, "role_custom"), custom_bases: CUSTOM_BASE_ROLES,
       /* v1.355.0 - Roles v2 stage 1: every row of the roles table (code roles and own roles) and the
          pages an own role may list (the always-visible ones come with every role) */
-      role_table: rolesTable, role_tab_choices: ROLE_TAB_CHOICES, roles_stage: 1,
+      role_table: rolesTable, role_tab_choices: ROLE_TAB_CHOICES, roles_stage: 3,
     });
   }
   /* ---- v1.350.0 - CUSTOM ROLES (the CEO, 17-11-2026, "A2Z OS - CUSTOM ROLE MANAGEMENT";
@@ -15150,7 +15212,7 @@ async function handleStaffRoutes(
     }
     return err("not_found", "Unknown role action", 404);
   }
-  const crMatch = path.match(/^\/access\/custom-roles(?:\/(\d+)(\/duplicate|\/delete)?)?$/);
+  const crMatch = path.match(/^\/access\/custom-roles(?:\/(\d+)(\/duplicate|\/delete|\/convert)?)?$/);
   if (crMatch && method !== "GET") {
     if (!allows(user, "role_custom")) return err("forbidden", "Only the CEO and the super admin manage custom roles.", 403);
     const reasonC = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
@@ -15250,6 +15312,48 @@ async function handleStaffRoutes(
       setPermissionOverrides(rec.perms);
       await audit(env, user.id, "role.delete", "custom_roles", String(cur.id), { key: cur.key, name: cur.name, base_role: cur.base_role, moved: cur.users, moved_to: target ? target.key : cur.users.length ? cur.base_role : null, reason: reasonC, by_role: user.role });
       return json({ ok: true, moved: cur.users.length });
+    }
+    /* v1.358.0 - ROLES V2, STAGE 3: "Make it your own role". A 1.350.0 custom role becomes an own
+       role in one batch: the pages its base role sees today become its page list, its cells become the
+       new role's cells (protected ones never), every holder moves onto it (users.role = the new key,
+       custom_role_id cleared) and the custom role is deactivated, never deleted, so its audit history
+       stays readable. The holders' leave and claims follow the Organisation chart from then on. */
+    if (cur && crMatch[2] === "/convert" && method === "POST") {
+      const table = await readRoles(env);
+      if (!table.length) return err("not_ready", "The roles table is not in the database yet (migration 0208).", 503);
+      if (!cur.active) return err("role_inactive", `"${cur.name}" is deactivated - activate it first, or create a new role.`, 409);
+      const name = body?.name !== undefined ? cleanName(body.name) : cur.name;
+      if (name.length < 3) return err("invalid_input", "Give the role a name (at least 3 characters).", 400);
+      if (table.some((x) => x.name.toLowerCase() === name.toLowerCase())) return err("name_taken", `A role called "${name}" already exists.`, 409);
+      const su = await requireFreshTotp(env, user, body?.totp, err, "make a custom role your own");
+      if (su) return su;
+      const taRow = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>().catch(() => null);
+      let tov: Record<string, string[]> = {};
+      try { tov = taRow?.value ? (JSON.parse(taRow.value) as Record<string, string[]>) : {}; } catch { tov = {}; }
+      const tabs = ROLE_TAB_CHOICES.filter((t) => canSeeTab(cur.base_role, t, tov, null));
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 36) || "role";
+      const baseKey = `r_${slug.length >= 2 ? slug : `${slug}_role`}`;
+      let nk = baseKey; let i = 2;
+      while (table.some((x) => x.key === nk)) nk = `${baseKey}_${i++}`;
+      const rec = await readPermRecord(env);
+      let cells = 0;
+      for (const cap of Object.keys(PERMS) as (keyof typeof PERMS)[]) {
+        if (CUSTOM_FORBIDDEN.has(String(cap))) continue;
+        const now = (rec.perms[cap] ?? PERMS[cap]!) as readonly string[];
+        if (!now.includes(cur.key)) continue;
+        rec.perms[cap] = [...now, nk] as Role[]; rec.meta[cap] = rec.meta[cap] ?? { by: user.id, by_name: user.name, at, reason: reasonC };
+        cells++;
+      }
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO roles (key, name, description, kind, counts_as_staff, tabs, created_by, created_at) VALUES (?1, ?2, ?3, 'own', 1, ?4, ?5, ?6)`)
+          .bind(nk, name, cur.description || null, JSON.stringify(tabs), user.id, at),
+        env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(JSON.stringify(rec)),
+        env.DB.prepare(`UPDATE users SET role = ?1, custom_role_id = NULL WHERE custom_role_id = ?2`).bind(nk, cur.id),
+        env.DB.prepare(`UPDATE custom_roles SET active = 0, updated_by = ?1, updated_at = ?2 WHERE id = ?3`).bind(user.id, at, cur.id),
+      ]);
+      setPermissionOverrides(rec.perms);
+      await audit(env, user.id, "role.convert", "custom_roles", String(cur.id), { from: cur.key, to: nk, name, base_role: cur.base_role, tabs, cells, moved: cur.users, reason: reasonC, by_role: user.role });
+      return json({ ok: true, key: nk, cells, moved: cur.users.length });
     }
     return err("not_found", "Unknown custom role action", 404);
   }
