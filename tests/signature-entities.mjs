@@ -169,10 +169,12 @@ ok("the thumbnail comes from the vault's own authenticated route",
 ok("a new version busts the cache",
    /\?v=\$\{version\}/.test(panel),
    "without it a fresh upload keeps showing the old chop - a stale picture at the one moment it misleads");
+/* v1.351.0 - the vault is on the portal's pages: its plate and its full-size view live in signatures-panel.module.css */
+const panelCss = read("components/admin/signatures-panel.module.css");
 ok("the chop opens full size, to hold against the paper",
-   /function ChopZoom\(/.test(panel) && /max-h-\[60vh\]/.test(panel));
+   /function ChopZoom\(/.test(panel) && /className=\{css\.zoomImg\}/.test(panel) && /\.zoomImg \{[^}]*max-height: 60vh;/.test(panelCss));
 ok("the signature is drawn on a white plate",
-   /bg-white/.test(panel),
+   /className=\{css\.chop\}/.test(panel) && /\.chop \{[^}]*background: var\(--brand-background\);/.test(panelCss) && /--brand-background: #ffffff;/.test(read("styles/globals.css")),
    "navy ink on transparency is a dark smudge on a dark card");
 ok("the panel says the picture is the thing to check",
    /the handwriting beside it is the only thing that says who signed/.test(panel));

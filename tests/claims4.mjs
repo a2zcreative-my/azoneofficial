@@ -308,9 +308,9 @@ if (process.env.NOMUT) {
 }
 
 const MUT = [
-  ["C-1: the CEO's own claim open to any decider", [["worker/src/staff.ts", 'claimIsCeoOwn(r) ? user.role === "coo" : can(user.role, "claims_decide")', 'can(user.role, "claims_decide") || (claimIsCeoOwn(r) && user.role === "coo")']]],
+  ["C-1: the CEO's own claim open to any decider", [["worker/src/staff.ts", 'claimIsCeoOwn(r) ? user.role === "coo" : canUser(user, "claims_decide")', 'canUser(user, "claims_decide") || (claimIsCeoOwn(r) && user.role === "coo")']]],
   ["C-1: the CEO decides his own claim again (the decider rule and the executive record both opened)", [
-    ["worker/src/staff.ts", 'claimIsCeoOwn(r) ? user.role === "coo" : can(user.role, "claims_decide")', 'can(user.role, "claims_decide") || (claimIsCeoOwn(r) && user.role === "coo")'],
+    ["worker/src/staff.ts", 'claimIsCeoOwn(r) ? user.role === "coo" : canUser(user, "claims_decide")', 'canUser(user, "claims_decide") || (claimIsCeoOwn(r) && user.role === "coo")'],
     ["worker/src/decision-policy.ts", "if (isExecutiveOwner(actor) && !NEVER_EXECUTIVE.includes(action)) {", "if (isExecutiveOwner(actor)) {"]]],
   ["C-1: the CEO's own claim back on the CEO's chain", [["worker/src/claim-chain.ts", '  claimIsCeoOwn(r) ? "ceo" : claimChain(r.claimant_role ?? "");', '  claimChain(r.claimant_role ?? "");']]],
   ["C-1: not the COO's turn", [["worker/src/claim-chain.ts", '  if (w === "coo" || w === "cco") return acts.includes("preapprove") || (claimChainOf(r) === "ceo" && acts.includes("approve"));', '  if (w === "coo" || w === "cco") return acts.includes("preapprove");']]],
@@ -324,7 +324,7 @@ const MUT = [
   ["C-8: approved without the receipt", [["worker/src/staff.ts", '    if (action === "approve" && claimNeedsReceipt(row)) return err(', '    if (false) return err(']]],
   ["C-10: the bank date ignored", [["worker/src/staff.ts", "const payDay = (r: RepRow) => (r.paid_at ? (r.bank_date ?? mytDay(r.paid_at)) : null);", "const payDay = (r: RepRow) => (r.paid_at ? mytDay(r.paid_at) : null);"]]],
   ["C-10: a reversed payment summed as paid", [["worker/src/staff.ts", 'paid: sum(payments.filter((r) => finance(r) !== "reversed"))', "paid: sum(payments)"]]],
-  ["C-10: the report not scoped", [["worker/src/staff.ts", "    const all = claimReadsAll(user.role, can(user.role, \"claims_decide\"));\n    const scope = claimScope(user.role, all, true, \"?1\");", "    const all = true;\n    const scope = claimScope(user.role, all, true, \"?1\");"]]],
+  ["C-10: the report not scoped", [["worker/src/staff.ts", "    const all = claimReadsAll(user.role, canUser(user, \"claims_decide\"));\n    const scope = claimScope(user.role, all, true, \"?1\");", "    const all = true;\n    const scope = claimScope(user.role, all, true, \"?1\");"]]],
   ["C-11: an advance paid into a paid payroll month", [["worker/src/staff.ts", '      if (salPaid) return err("month_paid",', '      if (false) return err("month_paid",']]],
   ["C-11: the payslip not moved", [["worker/src/staff.ts", "      await payrollApplyAdvance(env, cRow.recipient_id, cRow.payroll_month, cRow.amount_cents);\n", ""]]],
   ["C-4: an employee reads everyone's claims", [["worker/src/claims-scope.ts", "        : ` WHERE (c.user_id = ${me}${P})`;", "        : ``;"]]],

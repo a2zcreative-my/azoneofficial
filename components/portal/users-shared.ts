@@ -38,7 +38,11 @@ const ROLE_LABEL: Record<string, string> = {
   editor: "Editor", marketing: "Marketing", customer: "Customer",
   admin: "Admin", super_admin: "Super Admin", agent: "Agent", // v1.251.0 - the role picker said "agent"
 };
-export const roleLabel = (r: string) => ROLE_LABEL[r] ?? r.replace(/_/g, " ");
+/* v1.350.0 - a custom role (cr_*) reads by the name the CEO or the super admin gave it; the
+   names come from /staff/access/policy (setCustomRoleNames), never from a guess */
+const CUSTOM_NAMES: Record<string, string> = {};
+export const setCustomRoleNames = (list: readonly { key: string; name: string }[]) => { for (const c of list) CUSTOM_NAMES[c.key] = c.name; };
+export const roleLabel = (r: string) => ROLE_LABEL[r] ?? CUSTOM_NAMES[r] ?? r.replace(/^cr_/, "").replace(/_/g, " ");
 export const statusLabel = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 /** A sign-in event as a person would say it, and the chip tone it wears. */

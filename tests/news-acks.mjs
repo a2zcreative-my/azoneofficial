@@ -56,7 +56,7 @@ ok("0146 is registered and probed", /"0146_announcements_v2",/.test(read("worker
 ok("the acknowledgement is the session's person and the server's clock", /VALUES \(\?1, \?2, \?3\)\s*ON CONFLICT\(announcement_id, user_id, version\) DO NOTHING`,\s*\)\.bind\(post\.id, user\.id, post\.version\)/.test(news) && !/acked_at\s*[,)][^`]*VALUES[^`]*\?4/.test(news));
 ok("the publisher is the login, never the request", /const from = await publisherLine\(env, user\);/.test(news) && !/body\.from|body\?\.from/.test(news));
 ok("management only for publish, edit, attach, remove and the reports",
-   (news.match(/if \(!can\(user\.role, "team_manage"\)\) return err\("forbidden"/g) ?? []).length === 6);
+   (news.match(/if \(!canUser\(user, "team_manage"\)\) return err\("forbidden"/g) ?? []).length === 6);
 ok("staff.ts hands every /announcements route to news.ts and keeps none of its own",
    /const newsRes = await handleNews\(env, request, path, method, body, user, notify\);/.test(read("worker/src/staff.ts"))
    && !/INSERT INTO announcements|INSERT INTO announcement_acks/.test(strip(read("worker/src/staff.ts"))));

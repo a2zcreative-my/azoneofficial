@@ -228,8 +228,12 @@ function baseFixture(p) {
         /* v1.242.0 (D-6) - the worker's three locked cells, as it sends them */
         locked: a.key === "owner_designate" ? { cap: "owner_designate", rule: "super_admin_only", why: "Naming the owner is the recovery procedure: super admin only, always." }
           : a.key === "backup" ? { cap: "backup_download", rule: "super_admin_only", why: "The backup holds password hashes and 2FA secrets: super admin only, always." } : null,
-        needs: a.key === "payroll_release" ? "payroll_process" : a.key === "bank_run" ? "expenses" : null })),
+        needs: a.key === "payroll_release" ? "payroll_process" : a.key === "bank_run" ? "expenses" : null,
+        /* v1.350.0 - the worker's CUSTOM_FORBIDDEN: locked cells, the owner's grants, the technical doors */
+        custom_forbidden: ["owner_designate", "backup", "role_any", "exec_accounts", "tech_admin"].includes(a.key) })),
       can_edit_actions: (OWNER && ROLE === "ceo") || ROLE === "super_admin", edited_count: 0,
+      /* v1.350.0 - custom roles (worker: readCustomRoles); none until the browser creates one (serve.mjs holds them) */
+      custom_roles: [], can_manage_custom: ["ceo", "super_admin"].includes(ROLE), custom_bases: ["hr_admin", "sales_marketing", "marketing", "editor", "live_host"],
       counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
       owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, set_at: "2026-10-30 02:00:00" } : null,
       me_owner: OWNER && ROLE === "ceo",
@@ -1153,6 +1157,18 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
          and, being fixed history, it raises no Dashboard alert */
       { id: 42, created_at: new Date(Date.now() - 2 * 3600000).toISOString().slice(0, 19).replace("T", " "), source: "ui_overflow", message: "v1.319.0 user=4 tab=Tasks axis=x viewport=402 document=402 :: LI.|R432 | SPAN.tasks2-module__perfNum|R428", path: "/portal" }],
     last_backup: { key: "backups/2026-09-17.sql.gz", size: 412000, uploaded: "2026-09-17T19:20:00.000Z" }, last_offsite: "2026-09-10", migrations_pending: [] };
+  /* v1.349.0 - the /admin Overview's recent account activity (the newest audit rows) */
+  if (p === "/dashboard/summary") data = ROLE !== "super_admin" ? { error: { code: "forbidden", message: "Sign in required" } } : {
+    enquiries: { total: 0, new_count: 0 }, posts: { total: 0 }, portfolio: { total: 0 }, testimonials: { total: 0 },
+    activity: [
+      { action: "auth.login", entity: "users", entity_id: "9001", created_at: "2026-11-17 09:41:00", user_name: "Fixture Person" },
+      { action: "user.role_change", entity: "users", entity_id: "12", created_at: "2026-11-17 08:05:00", user_name: "System Root" },
+      { action: "security.denied", entity: "staff", entity_id: null, created_at: "2026-11-16 22:48:00", user_name: "Nur Aisyah" },
+      { action: "auth.passkey_refused", entity: "users", entity_id: "12", created_at: "2026-11-16 14:02:00", user_name: "Nur Aisyah" },
+      { action: "auth.exec_panel_accept", entity: "users", entity_id: "7", created_at: "2026-11-05 02:10:00", user_name: "Zolkefli bin Sahdi" },
+      { action: "user.suspend", entity: "users", entity_id: "31", created_at: "2026-11-04 06:30:00", user_name: "System Root" },
+      { action: "content.update", entity: "content", entity_id: "hero.title", created_at: "2026-11-03 03:15:00", user_name: "System Root" },
+    ] };
   if (p === "/audit" && (q.get("action") ?? "") === "asset." && !["super_admin", "admin", "ceo"].includes(ROLE)) data = { error: { code: "forbidden", message: "Admin required" } };
   else if (p === "/audit" && (q.get("action") ?? "") === "asset.") data = { entries: [
     { id: 905, action: "asset.update", entity: "assets", entity_id: "3", detail: JSON.stringify({ asset_tag: "A2Z-LGT-03", name: "Godox SL60", status: "repair", assigned_to: "", location: "Studio", condition_note: "Fan noise" }), created_at: "2026-09-14 03:20:00", user_name: "Mei Ling" },

@@ -115,9 +115,9 @@ const W = staff.slice(Math.max(0, wStart - 2000));
 {
   const get = W.match(/if \(path === "\/claims\/mileage-rate" && method === "GET"\) \{[\s\S]*?\n  \}/);
   const post = W.match(/if \(path === "\/claims\/mileage-rate" && method === "POST"\) \{[\s\S]*?\n  \}/);
-  ok("GET rate is open to anyone who can claim", !!get && /can\(user\.role, "claims_submit"\)/.test(get[0]));
-  ok("GET rate says whether the caller may set it", !!get && /can_set: can\(user\.role, "claims_decide"\)/.test(get[0]));
-  ok("POST rate is the claims decider only", !!post && /can\(user\.role, "claims_decide"\)/.test(post[0]) && !/claims_submit/.test(post[0]));
+  ok("GET rate is open to anyone who can claim", !!get && /canUser\(user, "claims_submit"\)/.test(get[0]));
+  ok("GET rate says whether the caller may set it", !!get && /can_set: canUser\(user, "claims_decide"\)/.test(get[0]));
+  ok("POST rate is the claims decider only", !!post && /canUser\(user, "claims_decide"\)/.test(post[0]) && !/claims_submit/.test(post[0]));
   ok("POST rate is bounded (RM 0.01 - RM 100)", !!post && /centsPerKm <= 0 \|\| centsPerKm > 10000/.test(post[0]));
   ok("POST rate is audited with the previous value", !!post && /audit\(env, user\.id, "claim\.mileage_rate_set"[\s\S]*was_cents_per_km/.test(post[0]));
   ok("POST rate upserts the one key", !!post && /ON CONFLICT\(key\) DO UPDATE/.test(post[0]));

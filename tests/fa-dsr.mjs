@@ -262,7 +262,7 @@ const MUT = [
   [F, "duplicates allowed", [["      if (seen.has(key) && !(l.dup && l.dup.length >= 10)) {", "      if (false) {"]]],
   [F, "a revised figure keeps its verification", [["        if (same(l, e)) { keep.add(l.id); continue; }", "        keep.add(l.id); continue;"]]],
   [F, "Sales skips review", [["      } else if (to === \"matching\" && (await reviewState(env, c.id)).decision !== \"proceed\") {", "      } else if (false) {"]]],
-  [F, "Sales decides", [["    if (!can(user.role, \"fa_decide\")) return err(\"forbidden\", \"Only the CEO, COO or CCO decides a review\", 403);", ""]]],
+  [F, "Sales decides", [["    if (!canUser(user, \"fa_decide\")) return err(\"forbidden\", \"Only the CEO, COO or CCO decides a review\", 403);", ""]]],
   [F, "self decision", [["    if (st.submitted_by === user.id && !isExecutiveOwner(user)) {", "    if (false) {"]]],
   [F, "a decision without reason", [["    if (reason.length < min) return err(", "    if (false) return err("]]],
   [F, "an incomplete assessment reviewed", [["    if (a.outcome === \"incomplete\") return err(", "    if (false) return err("]]],

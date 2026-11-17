@@ -21,7 +21,7 @@
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { PERMS, can } from "./permissions";
+import { PERMS, can, canUser } from "./permissions";
 import { buildOrg, reportingLine, type OrgNode, type OrgPerson } from "../../lib/org-tree";
 import { audit, err, json, str } from "./shared";
 import { projectTaskGate } from "./projects";
@@ -560,7 +560,7 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
   const checkpoint = today >= addDays(from, 4) ? "review" : today >= addDays(from, 2) ? "early_warning" : "planning";
   const allowAll = VIEW_ALL(user);
   const company = await companyWeek(env, from, to);
-  const other = can(user.role, "revenue_view") ? await otherChannelsWeek(env, from, to) : null;
+  const other = canUser(user, "revenue_view") ? await otherChannelsWeek(env, from, to) : null;
   const slim = (r: Awaited<ReturnType<typeof weekFor>>, department: string | null): Slim => ({
     user_id: r.user_id, name: r.name, department, target_cents: r.target_cents, basis_cents: r.basis_cents, pct: r.pct, gap_cents: r.gap_cents, status: r.status,
     kind: r.target_cents !== null ? "revenue" : r.goals.length ? "contribution" : "operational", plan: r.plan?.status ?? null,
@@ -580,7 +580,7 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
       target_cents: r.target_cents, target_from: r.target_from, basis_cents: r.basis_cents, paid_invoices: r.paid_invoices, pct: r.pct, gap_cents: r.gap_cents,
       expected_cents: r.expected_cents, status: r.status, working_days: r.working_days, goals: r.goals,
       open_quotations: r.open_quotations, followups_overdue: r.followups_overdue, tasks: r.tasks, top_tasks: tasks,
-      enquiries_waiting: can(user.role, "enquiry_manage") ? await num(`SELECT COUNT(*) AS n FROM enquiries WHERE assigned_to = ?1 AND status IN ('new', 'contacted')`, user.id) : null,
+      enquiries_waiting: canUser(user, "enquiry_manage") ? await num(`SELECT COUNT(*) AS n FROM enquiries WHERE assigned_to = ?1 AND status IN ('new', 'contacted')`, user.id) : null,
       introductions: {
         pending: await num(`SELECT COUNT(*) AS n FROM enquiries WHERE referred_by = ?1 AND qualified_at IS NULL AND status != 'closed'`, user.id),
         verified_week: await num(`SELECT COUNT(*) AS n FROM enquiries WHERE referred_by = ?1 AND qualified_at IS NOT NULL AND COALESCE(qualified_by, 0) != ?1 AND date(qualified_at, '+8 hours') BETWEEN ?2 AND ?3`, user.id, from, to),
@@ -648,7 +648,7 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
   const s = await advisorySettings(env);
   /* v1.263.0 - the open quotations are read ONCE per request and shared by
      the strip, the advice and the list (the same rows each read before) */
-  const sells = allowAll || can(user.role, "sales");
+  const sells = allowAll || canUser(user, "sales");
   const oq = sells ? await openQuotations(env, today, allowAll ? null : user.id) : null;
   const outlook = allowAll ? await companyOutlook(env, from, to, today, startDow, company, s, oq ?? undefined) : null;
   let advisory: { cards: Card[]; total: number; inactive: typeof INACTIVE_RULES } | null = null;
@@ -664,10 +664,10 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
     /* v1.275.0 - basis_kind tells every reader what the figure counts; the
        channel breakdown is revenue, so only a revenue reader gets it */
     company: { target_cents: company.target_cents, target_from: company.target_from, basis_cents: company.basis_cents, pct: company.pct, gap_cents: company.gap_cents,
-      basis_kind: company.basis_kind, channels: can(user.role, "revenue_view") ? company.channels : null },
+      basis_kind: company.basis_kind, channels: canUser(user, "revenue_view") ? company.channels : null },
     outlook, advisory, opportunities,
     other_channels_cents: other, me, team, all,
-    can_set: can(user.role, "sales_week_target"), can_view_all: allowAll, can_assign: can(user.role, "team_manage"), can_sales: can(user.role, "sales"),
+    can_set: canUser(user, "sales_week_target"), can_view_all: allowAll, can_assign: canUser(user, "team_manage"), can_sales: canUser(user, "sales"),
     commission: { policy: false },
   });
 }
@@ -1065,7 +1065,7 @@ async function advisoryAct(env: Env, user: StaffUser, key: string, from: string,
     if (!d || d.doc_type !== docKind) return err("not_found", "That document was not found", 404);
     const mineDoc = d.salesperson_id === user.id;
     if (!mineDoc && !VIEW_ALL(user)) return err("forbidden", "Only the document's closer or management acts on this advice", 403);
-    if (!can(user.role, "sales")) return err("forbidden", "Sales access required to schedule a follow-up", 403);
+    if (!canUser(user, "sales")) return err("forbidden", "Sales access required to schedule a follow-up", 403);
     /* already in hand: the open follow-up, never a second one */
     try {
       const had = await env.DB.prepare(`SELECT id FROM customer_followups WHERE doc_id = ?1 AND done_at IS NULL AND cancelled_at IS NULL LIMIT 1`).bind(id).first<{ id: number }>();
@@ -1086,7 +1086,7 @@ async function advisoryAct(env: Env, user: StaffUser, key: string, from: string,
     return json({ ok: true, kind: "followup", id: r.id, existing: r.existing }, r.existing ? 200 : 201);
   }
   /* low pipeline for a person: one task for the week, for them */
-  if (id !== user.id && !can(user.role, "team_manage")) return err("forbidden", "Only the person or a manager acts on this advice", 403);
+  if (id !== user.id && !canUser(user, "team_manage")) return err("forbidden", "Only the person or a manager acts on this advice", 403);
   const title = `Build pipeline for the week of ${from}`;
   const had = await env.DB.prepare(`SELECT id FROM tasks WHERE link_kind = 'advisory' AND link_id = ?1 AND assigned_to = ?2 AND title = ?3 LIMIT 1`).bind(Number(from.replace(/-/g, "")), id, title).first<{ id: number }>().catch(() => null);
   if (had) return json({ ok: true, kind: "task", id: had.id, existing: true });
@@ -1110,13 +1110,13 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
   if (!path.startsWith("/sales/week")) return null;
   if (path === "/sales/week/dashboard" && method === "GET") return weekDashboard(env, user);
   if (path === "/sales/week/performance" && method === "GET") return companyPerformance(env, user, params); // v1.280.0 - read-only, exec_view
-  if (!can(user.role, "sales") && !can(user.role, "exec_view")) return err("forbidden", "Sales access required", 403);
+  if (!canUser(user, "sales") && !canUser(user, "exec_view")) return err("forbidden", "Sales access required", 403);
   const today = mytToday();
   const startDow = await weekStartDow(env);
   const weekParam = params.get("week") ?? "";
   const from = weekStartOf(DAY.test(weekParam) ? weekParam : today, startDow);
   const to = addDays(from, 6);
-  const isSetter = can(user.role, "sales_week_target"); // v1.239.0 - the matrix cell
+  const isSetter = canUser(user, "sales_week_target"); // v1.239.0 - the matrix cell
   const allowAll = VIEW_ALL(user);
 
   /* ---- the scorecard ---- */
@@ -1136,7 +1136,7 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
     if (ended) await finalise(env, from, rows, { target: companyRow.target_cents, basis: companyRow.basis_cents, confirmed: companyRow.confirmed_cents, basis_kind: companyRow.basis_kind, channels: companyRow.channels });
     /* v1.262.0 - pace, best week, confidence and risk beside the target, never instead */
     const outlook = await companyOutlook(env, from, to, today, startDow, companyRow, await advisorySettings(env));
-    return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "all", can_set: isSetter, can_view_all: true, company: { ...companyRow, channels: can(user.role, "revenue_view") ? companyRow.channels : null }, outlook, rows, commission: { policy: false } });
+    return json({ week: { from, to, today, checkpoint, start_dow: startDow }, scope: "all", can_set: isSetter, can_view_all: true, company: { ...companyRow, channels: canUser(user, "revenue_view") ? companyRow.channels : null }, outlook, rows, commission: { policy: false } });
   }
 
   /* ---- targets: read (management, or your own) and set (CEO, COO, super admin) ---- */
@@ -1297,7 +1297,7 @@ export async function handleWeeklySales(env: Env, path: string, method: string, 
   if (path === "/sales/week/opportunities" && method === "GET") {
     const rows = await openQuotations(env, today, allowAll ? null : user.id);
     rows.sort((a, b) => Number(Boolean(a.last_contact?.outcome)) - Number(Boolean(b.last_contact?.outcome)) || b.age_days - a.age_days);
-    return json({ today, scope: allowAll ? "all" : "mine", rows, outcomes: { quotation: QT_OUTCOMES, invoice: INV_OUTCOMES }, can_sales: can(user.role, "sales") });
+    return json({ today, scope: allowAll ? "all" : "mine", rows, outcomes: { quotation: QT_OUTCOMES, invoice: INV_OUTCOMES }, can_sales: canUser(user, "sales") });
   }
 
   /* ---- the recovery plan ---- */

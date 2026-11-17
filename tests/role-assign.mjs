@@ -105,7 +105,7 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
    tier still needs a company email. ---- */
 {
   const index = read("worker/src/index.ts");
-  const admin = read("app/admin/page.tsx");
+  const admin = read("components/admin/admin-users.tsx"); // v1.349.0 - the /admin Users page moved to its own file
   const patch = index.slice(index.indexOf("v1.157.0 - THE SUPER ADMIN'S CHOICE WINS"), index.indexOf("revoke-sessions"));
   ok("PATCH /users/:id no longer forces part time by email", !/if \(!companyMail\) forcePartTime = true/.test(patch) && !/forcePartTime\b/.test(patch));
   ok("...the alias still means part time", /if \(isPartTimeAlias\) \{\s*await env\.DB\.prepare\(`UPDATE users SET role = \?1, employment_status = 'part_time'/.test(patch));

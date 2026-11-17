@@ -53,7 +53,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { makeApi, csrfFetch } from "@/lib/api";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { card, insetCard } from "@/lib/ui-styles";
+import { btnSm, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // v1.351.0 - the one KPI strip
+import { SplitPane, WorkspaceSplit } from "@/components/ui/workspace-split"; // v1.351.0
+import { TabPage, TabZone } from "@/components/portal/tab-concept"; // v1.351.0
+import css from "./signatures-panel.module.css"; // v1.351.0 - the portal's pages, no utility classes
 import { getLang } from "@/lib/i18n";
 import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 import { AppIcon } from "@/components/ui/app-icon"; // v1.126.0
@@ -106,7 +110,7 @@ function Chop({ entity, role, version, label, onZoom }: {
       title={L("Open full size to check whose signature this is", "Buka saiz penuh untuk semak tandatangan siapa ini")}
       /* A white plate, always: the scans are navy ink on transparency, and on
          a dark card an unplated signature is a dark smudge on a dark square. */
-      className="border-border hover:border-primary block shrink-0 rounded border bg-white p-1 transition-colors"
+      className={css.chop}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {/* h-14, not h-9. Measured against the real scans: at 36px the company
@@ -117,7 +121,7 @@ function Chop({ entity, role, version, label, onZoom }: {
       <img
         src={chopSrc(entity, role, version)}
         alt={L(`Signature on file for ${label}`, `Tandatangan dalam fail untuk ${label}`)}
-        className="h-14 w-auto max-w-[10rem] object-contain"
+        className={css.chopImg}
         onError={() => setBroken(true)}
       />
     </button>
@@ -146,16 +150,16 @@ function ChopZoom({ entity, role, label, entName, onClose }: {
       aria-modal="true"
       aria-label={L(`Signature on file for ${label}, ${entName}`, `Tandatangan dalam fail untuk ${label}, ${entName}`)}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/70 p-6"
+      className={css.zoom}
     >
-      <div className="max-h-[70vh] max-w-full overflow-auto rounded-xl bg-white p-4">
+      <div className={css.zoomPlate}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={chopSrc(entity, role, Date.now())} alt="" className="max-h-[60vh] w-auto object-contain" />
+        <img src={chopSrc(entity, role, Date.now())} alt="" className={css.zoomImg} />
       </div>
-      <div className="text-center text-white">
-        <p className="text-sm font-semibold">{label}</p>
-        <p className="mt-0.5 text-xs text-white/70">{entName}</p>
-        <p className="mt-2 text-xs text-white/60">
+      <div className={css.zoomText}>
+        <p className={css.zoomTitle}>{label}</p>
+        <p>{entName}</p>
+        <p className={css.zoomHint}>
           {L("Is this the right person? If not, upload the correct scan — the wrong one here signs every document for this role.",
              "Adakah ini orang yang betul? Jika tidak, muat naik imbasan yang betul — yang salah di sini menandatangani setiap dokumen bagi peranan ini.")}
         </p>
@@ -203,7 +207,7 @@ export function SignaturesPanel() {
     if (!res.ok) {
       const why = res.status === 503
         ? L("The vault table is missing — run the database migrations, then upload again", "Jadual bilik kebal tiada — jalankan migrasi pangkalan data, kemudian muat naik semula")
-        : L("Upload failed — admin or CEO only", "Muat naik gagal — admin atau CEO sahaja");
+        : L("Upload failed — Super Admin or CEO only", "Muat naik gagal — Super Admin atau CEO sahaja");
       showToast(L("Not uploaded", "Tidak dimuat naik"), why, "notice");
       return;
     }
@@ -221,8 +225,15 @@ export function SignaturesPanel() {
     (rows ?? []).filter((v) => v.issuer_code === entity && v.role === role)
       .sort((a, b) => b.version - a.version);
 
+  /* v1.351.0 - the vault on the portal's pages: one strip of what is on file,
+     the two companies side by side, the rules once below. The counts are the
+     vault's own rows; a cell is never "Missing" while the vault is still answering. */
+  const cells = ENTITIES.flatMap((e) => ROLES.map((r) => ({ e: e.code, r: r.role, cur: history(e.code, r.role)[0] ?? null, legacy: e.code === "a2z" && legacy.includes(r.role) })));
+  const onFile = cells.filter((c) => c.cur).length;
+  const oldOnly = cells.filter((c) => !c.cur && c.legacy).length;
+  const missing = cells.filter((c) => !c.cur && !c.legacy).length;
   return (
-    <div className={card}>
+    <TabPage className={css.page}>
       {toastNode}
       {zoom && (
         <ChopZoom
@@ -233,110 +244,107 @@ export function SignaturesPanel() {
           onClose={() => setZoom(null)}
         />
       )}
-      <h2 className="text-base font-semibold">{L("Signatures", "Tandatangan")}</h2>
-      <p className="text-muted-foreground mt-1 text-sm">
-        {L("Served only to signed-in staff and token-holding customers — never public. Upload a FRESH scan: the old public files must be treated as compromised.",
-           "Hanya diberikan kepada kakitangan yang log masuk dan pelanggan pemegang token — tidak sekali-kali umum. Muat naik imbasan BARU: fail lama yang pernah umum perlu dianggap terjejas.")}
-      </p>
-      <p className="text-muted-foreground mt-1.5 text-sm">
-        {L("Check the picture in each row, not just the date: all three officers of one company share the same stamp, so the handwriting beside it is the only thing that says who signed. A scan in the wrong row signs every document for that role.",
-           "Semak gambar pada setiap baris, bukan tarikh sahaja: ketiga-tiga pegawai bagi satu syarikat berkongsi cop yang sama, jadi tulisan tangan di sebelahnya sahaja yang menentukan siapa menandatangani. Imbasan pada baris yang salah akan menandatangani setiap dokumen bagi peranan itu.")}
-      </p>
-      <p className="text-muted-foreground mt-1.5 text-sm">
-        {L("Each company signs with its own chop, because the chop carries the company stamp. A document is signed by the entity that ISSUED it — so AZ ONE documents keep AZ ONE signatures forever, even when re-printed today.",
-           "Setiap syarikat menandatangani dengan cop sendiri, kerana cop itu membawa cap syarikat. Dokumen ditandatangani oleh entiti yang MENGELUARKANNYA — jadi dokumen AZ ONE kekal dengan tandatangan AZ ONE selama-lamanya, walaupun dicetak semula hari ini.")}
-      </p>
-
+      <TabZone label={L("Signature vault", "Bilik kebal tandatangan")}>
+        <KpiRow label={L("Signature vault figures", "Angka bilik kebal tandatangan")} testid="vault-strip">
+          <KpiTile icon="success" tone="green" label={L("On File", "Dalam Fail")} busy={rows === null} value={rows === null ? "—" : `${onFile} / ${cells.length}`} sub={L("Versioned signatures and stamps", "Tandatangan dan cop berversi")} testid="tile-onfile" />
+          <KpiTile icon="warning" tone={missing ? "red" : "green"} label={L("Missing", "Tiada")} busy={rows === null} value={missing} sub={L("Documents print a blank zone", "Dokumen mencetak ruang kosong")} testid="tile-missing" />
+          <KpiTile icon="refresh" tone={oldOnly ? "gold" : "green"} label={L("Old Files", "Fail Lama")} busy={rows === null} value={oldOnly} sub={L("Pre-v1.127.0 - re-upload to version", "Sebelum v1.127.0 - muat naik semula")} testid="tile-old" />
+          <KpiTile icon="document" tone="navy" label={L("Versions Kept", "Versi Disimpan")} busy={rows === null} value={(rows ?? []).length} sub={L("Nothing here deletes", "Tiada apa dipadam di sini")} testid="tile-versions" />
+        </KpiRow>
+      </TabZone>
       {!ready && (
-        <p className="border-warning/30 bg-warning-soft text-warning mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium">
-          <AppIcon name="warning" className="h-3.5 w-3.5" />
+        <p className={css.warn} role="status">
+          <AppIcon name="warning" />
           {L("The vault table is not there yet — run the database migrations (0118). Until then documents fall back to the pre-v1.127.0 files, which sign for A2Z only.",
              "Jadual bilik kebal belum wujud — jalankan migrasi pangkalan data (0118). Sehingga itu dokumen menggunakan fail sebelum v1.127.0, yang menandatangani untuk A2Z sahaja.")}
         </p>
       )}
-
-      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
-        {ENTITIES.map((ent) => (
-          <section key={ent.code}>
-            <p className="text-[11px] font-semibold tracking-wider uppercase">{ent.name}</p>
-            <p className="text-muted-foreground mb-2 text-[11px]">{L(ent.note, ent.noteMs)}</p>
-            <ul className="space-y-1.5">
-              {ROLES.map((r) => {
-                const hist = history(ent.code, r.role);
-                const cur = hist[0] ?? null;
-                const cell = `${ent.code}:${r.role}`;
-                const hasLegacy = ent.code === "a2z" && legacy.includes(r.role);
-                return (
-                  <li key={cell} className={insetCard}>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                      <span className="min-w-[7rem] font-medium">{r.label}</span>
-                      {rows === null ? (
-                        <><Skel className="h-4 w-24" /><Skel className="h-5 w-20" /></>
-                      ) : (
-                        <>
-                          {/* v1.130.0 - WHOSE signature is in this cell. The
-                              version and the date say an upload happened; only
-                              the picture says who. */}
-                          {(cur || hasLegacy) && (
-                            <Chop
-                              entity={ent.code}
-                              role={r.role}
-                              version={cur ? cur.version : "legacy"}
-                              label={`${r.label} - ${ent.name}`}
-                              onZoom={() => setZoom({ entity: ent.code, role: r.role, label: r.label, entName: ent.name })}
-                            />
-                          )}
-                          {cur ? (
-                            <span className="text-success text-xs">v{cur.version} · {dmy(cur.uploaded_at)}</span>
-                          ) : hasLegacy ? (
-                            <span className="text-muted-foreground text-xs">
-                              {L("pre-v1.127.0 file — re-upload to version it", "fail sebelum v1.127.0 — muat naik semula untuk versinya")}
+      <TabZone label={L("Signatures by company", "Tandatangan mengikut syarikat")}>
+        <WorkspaceSplit testid="vault-split" ratio="50-50" hold={false}>
+          {ENTITIES.map((ent) => (
+            <SplitPane key={ent.code} testid={`vault-${ent.code}`} title={ent.name} sub={L(ent.note, ent.noteMs)}>
+              <ul className={css.rows}>
+                {ROLES.map((r) => {
+                  const hist = history(ent.code, r.role);
+                  const cur = hist[0] ?? null;
+                  const cell = `${ent.code}:${r.role}`;
+                  const hasLegacy = ent.code === "a2z" && legacy.includes(r.role);
+                  return (
+                    <li key={cell} className={css.row} data-testid={`cell-${ent.code}-${r.role}`}>
+                      <div className={css.rowMain}>
+                        <span className={css.role}>{r.label}</span>
+                        {rows === null ? (
+                          <><Skel className={css.skChop} /><Skel className={css.skChip} /></>
+                        ) : (
+                          <>
+                            {/* v1.130.0 - WHOSE signature is in this cell. The version and the date say an
+                                upload happened; only the picture says who. */}
+                            {(cur || hasLegacy) && (
+                              <Chop
+                                entity={ent.code}
+                                role={r.role}
+                                version={cur ? cur.version : "legacy"}
+                                label={`${r.label} - ${ent.name}`}
+                                onZoom={() => setZoom({ entity: ent.code, role: r.role, label: r.label, entName: ent.name })}
+                              />
+                            )}
+                            <span className={css.state}>
+                              {cur ? <span className={chipSmSuccess}>v{cur.version} · {dmy(cur.uploaded_at)}</span>
+                                : hasLegacy ? <span className={chipSmNeutral}>{L("Old file — re-upload to version it", "Fail lama — muat naik semula")}</span>
+                                : <span className={chipSmWarn}>{L("Missing — documents print a blank zone", "Tiada — dokumen mencetak ruang kosong")}</span>}
                             </span>
-                          ) : (
-                            <span className="text-warning text-xs font-medium">
-                              {L("Missing — documents print a blank zone", "Tiada — dokumen mencetak ruang kosong")}
+                            <span className={css.acts}>
+                              <label className={`${btnSm} ${css.upload}`} aria-disabled={busy !== null || undefined}>
+                                {busy === cell
+                                  ? L("Uploading…", "Memuat naik…")
+                                  : cur
+                                    ? L(`Upload v${cur.version + 1}`, `Muat naik v${cur.version + 1}`)
+                                    : L("Upload PNG", "Muat naik PNG")}
+                                <input type="file" accept="image/png" className={css.file} disabled={busy !== null}
+                                  onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(ent.code, r, f); e.target.value = ""; }} />
+                              </label>
+                              {hist.length > 1 && (
+                                <button type="button" className={css.linkBtn} aria-expanded={openHistory === cell}
+                                  onClick={() => setOpenHistory(openHistory === cell ? null : cell)}>
+                                  {openHistory === cell
+                                    ? L("Hide history", "Sembunyi sejarah")
+                                    : L(`${hist.length} versions`, `${hist.length} versi`)}
+                                </button>
+                              )}
                             </span>
-                          )}
-                          <label className="border-border hover:bg-secondary ml-auto cursor-pointer rounded border px-2 py-0.5 text-xs">
-                            {busy === cell
-                              ? L("Uploading…", "Memuat naik…")
-                              : cur
-                                ? L(`Upload v${cur.version + 1}`, `Muat naik v${cur.version + 1}`)
-                                : L("Upload PNG", "Muat naik PNG")}
-                            <input type="file" accept="image/png" className="hidden" disabled={busy !== null}
-                              onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(ent.code, r, f); e.target.value = ""; }} />
-                          </label>
-                          {hist.length > 1 && (
-                            <button type="button" className="text-muted-foreground text-xs underline"
-                              onClick={() => setOpenHistory(openHistory === cell ? null : cell)}>
-                              {openHistory === cell
-                                ? L("Hide history", "Sembunyi sejarah")
-                                : L(`${hist.length} versions`, `${hist.length} versi`)}
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    {openHistory === cell && (
-                      <div className="border-border mt-2 border-t pt-2">
-                        {/* Every version stays — a document signed under v1
-                            has to be able to resolve v1 for as long as it
-                            exists. Nothing here deletes. */}
-                        {hist.map((v) => (
-                          <p key={v.version} className="text-muted-foreground flex flex-wrap justify-between gap-2 text-[11px]">
-                            <span>v{v.version} · {dmy(v.uploaded_at)}{v.uploaded_by_name ? ` · ${v.uploaded_by_name}` : ""}</span>
-                            {v.sha256 ? <span className="font-mono tabular-nums">{v.sha256.slice(0, 12)}</span> : null}
-                          </p>
-                        ))}
+                          </>
+                        )}
                       </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
-      </div>
-    </div>
+                      {openHistory === cell && (
+                        <ul className={css.history}>
+                          {/* Every version stays — a document signed under v1 has to be able to
+                              resolve v1 for as long as it exists. Nothing here deletes. */}
+                          {hist.map((v) => (
+                            <li key={v.version}>
+                              <span>v{v.version} · {dmy(v.uploaded_at)}{v.uploaded_by_name ? ` · ${v.uploaded_by_name}` : ""}</span>
+                              {v.sha256 ? <span className={css.hash}>{v.sha256.slice(0, 12)}</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </SplitPane>
+          ))}
+        </WorkspaceSplit>
+      </TabZone>
+      <TabZone label={L("How the vault works", "Cara bilik kebal berfungsi")}>
+        <ul className={css.rules} data-testid="vault-rules">
+          <li>{L("Served only to signed-in staff and token-holding customers — never public. Upload a FRESH scan: the old public files must be treated as compromised.",
+                 "Hanya diberikan kepada kakitangan yang log masuk dan pelanggan pemegang token — tidak sekali-kali umum. Muat naik imbasan BARU: fail lama yang pernah umum perlu dianggap terjejas.")}</li>
+          <li>{L("Check the picture in each row, not just the date: all three officers of one company share the same stamp, so the handwriting beside it is the only thing that says who signed. A scan in the wrong row signs every document for that role.",
+                 "Semak gambar pada setiap baris, bukan tarikh sahaja: ketiga-tiga pegawai bagi satu syarikat berkongsi cop yang sama, jadi tulisan tangan di sebelahnya sahaja yang menentukan siapa menandatangani. Imbasan pada baris yang salah akan menandatangani setiap dokumen bagi peranan itu.")}</li>
+          <li>{L("Each company signs with its own chop, because the chop carries the company stamp. A document is signed by the entity that ISSUED it — so AZ ONE documents keep AZ ONE signatures forever, even when re-printed today.",
+                 "Setiap syarikat menandatangani dengan cop sendiri, kerana cop itu membawa cap syarikat. Dokumen ditandatangani oleh entiti yang MENGELUARKANNYA — jadi dokumen AZ ONE kekal dengan tandatangan AZ ONE selama-lamanya, walaupun dicetak semula hari ini.")}</li>
+        </ul>
+      </TabZone>
+    </TabPage>
   );
 }

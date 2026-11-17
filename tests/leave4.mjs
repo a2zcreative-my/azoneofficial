@@ -236,7 +236,7 @@ const MUT = [
   ["worker/src/staff.ts", "the reason is optional", "    if (reasonA.length < 5 || reasonA.length > 500) return err(", "    if (false) return err("],
   ["worker/src/staff.ts", "medical leave without a certificate", "    if (body?.type === \"medical\" && !mediaA) return err(", "    if (false) return err("],
   ["worker/src/staff.ts", "anyone's upload may be attached", "WHERE id = ?1 AND uploaded_by = ?2 AND r2_key LIKE 'private/leave/%'", "WHERE id = ?1 AND (uploaded_by = ?2 OR 1) AND r2_key LIKE 'private/leave/%'"],
-  ["worker/src/staff.ts", "the attachment is readable by anyone", "    if (rowF.user_id !== user.id && !onRoute && !can(user.role, \"hr_manage\")) return err(", "    if (false) return err("],
+  ["worker/src/staff.ts", "the attachment is readable by anyone", "    if (rowF.user_id !== user.id && !onRoute && !canUser(user, \"hr_manage\")) return err(", "    if (false) return err("],
   ["worker/src/staff.ts", "the preview answers about another person", "    if (q.get(\"user_id\") && Number(q.get(\"user_id\")) !== user.id) return err(", "    if (false) return err("],
   ["worker/src/staff.ts", "pending days do not hold the balance", "COALESCE(SUM(CASE WHEN status NOT IN ('approved', 'rejected', 'cancelled') THEN days ELSE 0 END), 0) AS pending", "COALESCE(SUM(CASE WHEN status NOT IN ('approved', 'rejected', 'cancelled') THEN 0 ELSE 0 END), 0) AS pending"],
   ["worker/src/staff.ts", "replacement leave is not held to its credits", "export const LEAVE_CAPPED_TYPES: readonly string[] = [\"annual\", \"medical\", \"replacement\"];", "export const LEAVE_CAPPED_TYPES: readonly string[] = [\"annual\", \"medical\"];"],

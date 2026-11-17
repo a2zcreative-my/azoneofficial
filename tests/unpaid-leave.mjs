@@ -57,12 +57,12 @@ for (const [perm, why] of [
 
 /* ---- 2. the routes consult them ---- */
 ok("DELETE /tasks/:id checks task_delete",
-   /taskMatch && method === "DELETE"[\s\S]{0,200}?can\(user\.role, "task_delete"\)/.test(staff),
+   /taskMatch && method === "DELETE"[\s\S]{0,200}?canUser\(user, "task_delete"\)/.test(staff),
    "the route would be open to anyone who can reach the tasks API");
 ok("POST /attendance/unpaid checks unpaid_leave",
-   /"\/attendance\/unpaid" && method === "POST"[\s\S]{0,400}?can\(user\.role, "unpaid_leave"\)/.test(staff));
+   /"\/attendance\/unpaid" && method === "POST"[\s\S]{0,400}?canUser\(user, "unpaid_leave"\)/.test(staff));
 ok("DELETE /attendance/unpaid checks unpaid_leave",
-   /"\/attendance\/unpaid" && method === "DELETE"[\s\S]{0,400}?can\(user\.role, "unpaid_leave"\)/.test(staff));
+   /"\/attendance\/unpaid" && method === "DELETE"[\s\S]{0,400}?canUser\(user, "unpaid_leave"\)/.test(staff));
 
 /* ---- 3. the delete cascade is complete ----
    These tables have no ON DELETE CASCADE. Every child a task owns has to be
@@ -290,14 +290,14 @@ ok("the attendance panel is actually given the role",
      JSON.stringify(roles) === JSON.stringify(["admin", "cco", "ceo", "coo", "hr_admin", "super_admin"]),
      `admits ${roles.join(", ")}`);
   ok("the corrections routes read the permission, not a list of role names",
-     /const ATT_ADMIN = can\(user\.role, "attendance_correct"\);/.test(staff) && !/const ATT_ADMIN = user\.role ===/.test(staff));
+     /const ATT_ADMIN = canUser\(user, "attendance_correct"\);/.test(staff) && !/const ATT_ADMIN = user\.role ===/.test(staff));
   ok("every corrections route is behind it", [...staff.matchAll(/if \(!ATT_ADMIN\) return err\("forbidden"/g)].length >= 5,
      "manual entry, pending list, amend, delete and the unpaid list must all be behind ATT_ADMIN");
   ok("whoever may correct a register may read it",
-     /const forUser = targetUser && \(can\(user\.role, "hr_manage"\) \|\| can\(user\.role, "attendance_correct"\)\)/.test(staff),
+     /const forUser = targetUser && \(canUser\(user, "hr_manage"\) \|\| canUser\(user, "attendance_correct"\)\)/.test(staff),
      "COO and CCO would be handed the card and shown their own punches");
   ok("approving a forgotten punch is still the CEO's",
-     /"\/attendance\/pending\/decide" && method === "POST"[\s\S]{0,400}?can\(user\.role, "unpaid_leave"\)/.test(staff));
+     /"\/attendance\/pending\/decide" && method === "POST"[\s\S]{0,400}?canUser\(user, "unpaid_leave"\)/.test(staff));
   /* v1.307.0 - the corrections card is drawn in Exceptions & Approvals for attendance_correct */
   ok("the page draws the card for the same tier",
      /const CORRECT_ROLES = \["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"\];/.test(read("components/portal/attendance-exceptions.tsx"))

@@ -45,7 +45,7 @@
  */
 
 import type { Env } from "./index";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { leaveCanActAt } from "./leave-chain";
 import { pendingOtDays } from "./ot-pending"; // v1.181.10
 import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
@@ -116,7 +116,7 @@ export const claimChain = (role: string): "staff" | "hr" | "exec" | "top" =>
  * the guard can run it against the decide routes' own rules.
  */
 export function claimStepFor(
-  viewer: { id: number; role: string; is_owner?: boolean },
+  viewer: { id: number; role: string; is_owner?: boolean; custom_role?: string | null },
   claim: { user_id: number; payee_user_id: number | null; claimant_role: string; hr_reviewed_at: string | null; pre_approved_at: string | null; payee_role?: string | null },
 ): "hr_review" | "pre_approve" | "decide" | null {
   if (claim.user_id === viewer.id) return null;              // never your own
@@ -127,7 +127,7 @@ export function claimStepFor(
   if (claim.claimant_role === "ceo" || claim.payee_role === "ceo") return viewer.role === "coo" ? "decide" : null;
   const chain = claimChain(claim.claimant_role);
   const adminTier = viewer.role === "admin" || viewer.role === "super_admin";
-  if (can(viewer.role, "claims_decide")) {
+  if (canUser(viewer, "claims_decide")) {
     /* the CEO decides when the chain is complete, and decides exec/top
        claims directly; a claim still mid-chain is not waiting on him yet */
     if (chain === "staff") return claim.hr_reviewed_at && claim.pre_approved_at ? "decide" : null;
@@ -229,7 +229,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   }
 
   /* ---- forgotten / offline punches ---- */
-  if (can(user.role, "unpaid_leave")) {
+  if (canUser(user, "unpaid_leave")) {
     await guard("punches", async () => {
       const { results } = await env.DB.prepare(
         `SELECT a.id, a.type, a.created_at, a.offline_sent_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name
@@ -291,7 +291,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
      lists them and nobody is notified ---- */
 
   /* ---- v1.181.16 (ERP roadmap phase 4): clients to call back, invoices to raise ---- */
-  if (can(user.role, "sales")) {
+  if (canUser(user, "sales")) {
     await guard("followups", async () => {
       const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       const { results } = await env.DB.prepare(
@@ -338,7 +338,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
   }
 
   /* ---- v1.181.17 (ERP roadmap phase 5): people, and quotations over the owner's limit ---- */
-  if (can(user.role, "hr_manage")) {
+  if (canUser(user, "hr_manage")) {
     await guard("people", async () => {
       const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
       const soon = new Date(Date.now() + 8 * 3600 * 1000 + 14 * DAY_MS).toISOString().slice(0, 10);
@@ -394,7 +394,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
     });
   }
   /* v1.288.0 - DSR assessments waiting for a management review (the CEO, COO and CCO; never one you submitted yourself) */
-  if (can(user.role, "fa_decide")) {
+  if (canUser(user, "fa_decide")) {
     await guard("advisory", async () => {
       const { results } = await env.DB.prepare(
         `SELECT r.id, r.case_id, r.actor_id, r.created_at, c.case_ref, a.projected_dsr_bp, a.outcome

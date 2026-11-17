@@ -97,7 +97,7 @@ const events = read("components/portal/events.tsx");
   const door = staff.slice(staff.indexOf('if (path === "/leave/calendar" && method === "GET")'), staff.indexOf('if (path === "/leave/calendar" && method === "GET")') + 3000);
   ok("the door returns approved rows only", (door.match(/l\.status = 'approved'/g) ?? []).length >= 2);
   ok("the door selects names and dates, never the type", /SELECT l\.user_id, COALESCE\(NULLIF\(TRIM\(u\.full_name\), ''\), u\.name\) AS name, l\.start_date, l\.end_date/.test(door) && !/l\.type|l\.reason|l\.\*/.test(door));
-  ok("the floor is managers only; everyone else sees their own days", /can\(user\.role, "team_manage"\)/.test(door) && /l\.user_id = \?3/.test(door));
+  ok("the floor is managers only; everyone else sees their own days", /canUser\(user, "team_manage"\)/.test(door) && /l\.user_id = \?3/.test(door));
 }
 
 /* ---- 6. a leave day is drawn and named ---- */

@@ -31,7 +31,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, cents, err, glCodeFor, json, logError, postJournal, str } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 
 /* ------------------------------------------------------------------ *
  * Booking and reversing - used by every module that moves money.
@@ -728,8 +728,8 @@ export async function cashExceptionsFor(env: Env, from: string, to: string): Pro
 export async function handleCashbook(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams,
 ): Promise<Response | null> {
-  const canRead = can(user.role, "cashflow_manage");
-  const canFix = can(user.role, "cashbook_correct");
+  const canRead = canUser(user, "cashflow_manage");
+  const canFix = canUser(user, "cashbook_correct");
 
   /* ---- the view: one read for all five tabs ---- */
   if (path === "/cashbook" && method === "GET") {
@@ -746,7 +746,7 @@ export async function handleCashbook(
     const coQ = params.get("company") ?? "all";
     if (coQ !== "all" && !companyOf(coQ)) return err("validation", "company is a2z, azoo or all", 400);
     const company = companyOf(coQ);
-    const empty = { period: { from, to, today }, company: coQ, consolidated: !company, totals: { in_cents: 0, out_cents: 0, net_cents: 0, count: 0, awaiting_cents: 0, awaiting_count: 0, difference_cents: 0, no_company: 0 }, groups: { in: [], out: [] }, trend: [], items: [], banks: [], exceptions: [], can_correct: canFix, can_enter: canFix, can_accept: can(user.role, "cashbook_accept"), confirmations: false };
+    const empty = { period: { from, to, today }, company: coQ, consolidated: !company, totals: { in_cents: 0, out_cents: 0, net_cents: 0, count: 0, awaiting_cents: 0, awaiting_count: 0, difference_cents: 0, no_company: 0 }, groups: { in: [], out: [] }, trend: [], items: [], banks: [], exceptions: [], can_correct: canFix, can_enter: canFix, can_accept: canUser(user, "cashbook_accept"), confirmations: false };
     try {
     let data;
     try { data = await loadAll(env); }
@@ -800,9 +800,9 @@ export async function handleCashbook(
       exceptions,
       can_correct: canFix,
       can_enter: canFix,
-      can_accept: can(user.role, "cashbook_accept"),
+      can_accept: canUser(user, "cashbook_accept"),
       /* v1.312.0 - what this person may do with an expense (the server checks again on each step) */
-      expense_caps: { record: can(user.role, "expenses"), approve: can(user.role, "expense_approve"), authorise: can(user.role, "expense_authorise"), pay: can(user.role, "expense_pay") },
+      expense_caps: { record: canUser(user, "expenses"), approve: canUser(user, "expense_approve"), authorise: canUser(user, "expense_authorise"), pay: canUser(user, "expense_pay") },
       me: { id: user.id, role: user.role },
       pending_migration: !data.v2,
       pending_company: !data.has.company,
@@ -847,7 +847,7 @@ export async function handleCashbook(
   /* ---- v1.312.0 (CEO-6) - a mismatch the CEO accepts as it is: the only
      way one leaves the list while the records still differ ---- */
   if (path === "/cashbook/accept" && method === "POST") {
-    if (!can(user.role, "cashbook_accept")) return err("forbidden", "Only the CEO accepts a difference that remains", 403);
+    if (!canUser(user, "cashbook_accept")) return err("forbidden", "Only the CEO accepts a difference that remains", 403);
     const key = typeof body?.key === "string" && /^(out_of_step|not_booked|elfia_cancelled)\|[A-Z]+[:-][\w:#-]+$/.test(body.key) && body.key.length <= 80 ? body.key : null;
     if (!key) return err("validation", "Only a mismatch is accepted", 400);
     const reason = str(body?.reason, 300) ? (body!.reason as string).trim() : "";

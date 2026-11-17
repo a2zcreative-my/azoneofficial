@@ -15,9 +15,13 @@ export const PERMS: Record<string, readonly Role[]> = {
   agent_requests_manage: ["super_admin", "ceo", "coo", "cco"],
   /* v1.249.0 - the CEO writes to staff about their tasks; COO and CCO read the log (task_reports) */
   task_mail_send: ["super_admin", "ceo"],
+  /* v1.350.0 - CUSTOM ROLES (the CEO, 17-11-2026: "Allow CEO and Super Admin identical effective access to
+     create, edit, duplicate, assign, deactivate and delete custom roles"). Fixed here: it is not a matrix
+     cell (setPermissionOverrides drops any saved edit of it) and a custom role can never hold it. */
+  role_custom: ["super_admin", "ceo"],
   company_review: ["super_admin", "ceo"],
   // === index.ts ===
-  content_manage: ["super_admin", "admin"],
+  content_manage: ["super_admin"], // v1.348.0 (the CEO, 17-11-2026) - the website is edited in /admin, the super admin's console only
   enquiry_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
   sync_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
 
@@ -375,7 +379,8 @@ export function cleanOverrides(raw: unknown): Record<string, Role[]> {
   if (!raw || typeof raw !== "object") return out;
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!(k in PERMS) || !Array.isArray(v)) continue;
-    out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r)))] as Role[];
+    /* v1.350.0 - a custom role's key (cr_...) is a column of the same cells, never on a protected capability */
+    out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r) || (isCustomKey(r) && !CUSTOM_FORBIDDEN.has(k))))] as Role[];
   }
   return out;
 }
@@ -402,6 +407,7 @@ export function lockedCellViolation(cap: string, roles: readonly string[]): stri
 }
 export function setPermissionOverrides(raw: unknown): void {
   const cleaned = cleanOverrides(raw);
+  delete cleaned.role_custom; // v1.350.0 - fixed: the super admin and the CEO, never edited
   for (const l of LOCKED_CELLS) {
     const v = cleaned[l.cap];
     if (!v) continue;
@@ -431,14 +437,50 @@ export const TECHNICAL_ONLY: Readonly<Record<string, string>> = {
   owner_designate: "Naming the owner is the recovery procedure; nobody may name themselves.",
 };
 
+/* ------------------------------------------------------------------ */
+/* v1.350.0 - CUSTOM ROLES (docs/CUSTOM-ROLES-STAGE-0-AUDIT.md option A, approved by the CEO
+   17-11-2026). A custom role is a named COLUMN of the same permission cells
+   (system_meta.role_permissions) on top of one working BASE role:
+     - its key is cr_<slug>; it is never a value of users.role (the CHECK stays);
+     - users.role holds the base role, so every approval chain, payroll
+       population, headcount, tab rule and 2FA rule is the base role's, unchanged
+       (CR-6, CR-7); users.custom_role_id names the profile;
+     - getSessionUser (index.ts) sets actor.custom_role only while the profile is
+       ACTIVE and its base role is still the person's role - a role changed in
+       /admin or through the role door, or a deactivated profile, falls back to
+       the base role at once (CR-4), so the two never conflict;
+     - canUser()/allows() read the profile's cells INSTEAD of the base role's:
+       a custom role is what it is set to do, nothing more;
+     - it can never hold a protected capability (CUSTOM_FORBIDDEN): the locked
+       cells, the owner's grants, the technical-only doors and role_custom itself.
+   One engine: no second permission list, no second check. */
+export const CUSTOM_ROLE_KEY_RE = /^cr_[a-z0-9_]{2,40}$/;
+export function isCustomKey(r: string): boolean { return CUSTOM_ROLE_KEY_RE.test(r); }
+/** the working roles a custom role may stand on - never an executive, technical, external or customer role */
+export const CUSTOM_BASE_ROLES: readonly Role[] = ["hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
+/** what a custom role may never hold, whatever is saved */
+export const CUSTOM_FORBIDDEN: ReadonlySet<string> = new Set<string>([
+  ...LOCKED_CELLS.map((l) => String(l.cap)), ...OWNER_GRANTS.map(String), ...Object.keys(TECHNICAL_ONLY), "role_custom",
+]);
+
 /** A signed-in actor, as getSessionUser builds it. */
-export interface Actor { id?: number; role: Role | string; is_owner?: boolean }
+export interface Actor { id?: number; role: Role | string; is_owner?: boolean; custom_role?: string | null }
+/** anything that names a role and, for a signed-in person, maybe their custom role */
+export interface PermSubject { role: Role | string; custom_role?: string | null }
+
+/** v1.350.0 - THE per-person check: the person's active custom role's cells when they have one,
+    otherwise their role's. Every `can(user.role, x)` of a signed-in person is `canUser(user, x)`. */
+export function canUser(s: PermSubject | null | undefined, perm: keyof typeof PERMS): boolean {
+  if (!s) return false;
+  if (s.custom_role && isCustomKey(s.custom_role)) return !CUSTOM_FORBIDDEN.has(String(perm)) && rolesFor(perm).includes(s.custom_role as Role);
+  return can(s.role, perm);
+}
 
 /** THE one authorization decision for a person (not just a role): the role's
     own capabilities, plus OWNER_GRANTS for the verified company owner. */
 export function allows(actor: Actor | null | undefined, perm: keyof typeof PERMS): boolean {
   if (!actor) return false;
-  if (can(actor.role, perm)) return true;
+  if (canUser(actor, perm)) return true;
   return actor.is_owner === true && actor.role === "ceo" && OWNER_GRANTS.includes(perm);
 }
 

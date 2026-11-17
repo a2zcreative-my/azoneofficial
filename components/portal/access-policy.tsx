@@ -33,7 +33,7 @@ import { dmy } from "@/lib/format";
 import { getLang, t } from "@/lib/i18n";
 import { GOVERNABLE_TABS } from "@/lib/portal-tabs";
 import { btnClass, btnSm, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
-import { roleLabel } from "@/components/portal/users-shared";
+import { roleLabel, setCustomRoleNames } from "@/components/portal/users-shared";
 import css from "./access-policy.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -49,6 +49,8 @@ export interface Policy {
     edit_meta?: { by_name: string; at: string; reason: string } | null;
     /* v1.242.0 (D-6) - one of the three locked cells: super_admin_only never moves; super_admin_keeps always includes the super admin */
     locked?: { cap: string; rule: "super_admin_only" | "super_admin_keeps"; why: string } | null;
+    /* v1.350.0 - a protected capability a custom role can never hold */
+    custom_forbidden?: boolean;
   }[];
   tabs: { tab: string; always: boolean; overridden: boolean; sees: string[]; reads: string[] | null }[];
   can_edit_tabs: boolean;
@@ -57,7 +59,12 @@ export interface Policy {
   me_owner?: boolean;
   can_edit_actions?: boolean;
   edited_count?: number;
+  /* v1.350.0 - custom roles: each a column of the same cells, standing on one working base role */
+  custom_roles?: CustomRole[];
+  can_manage_custom?: boolean;
+  custom_bases?: string[];
 }
+export interface CustomRole { id: number; key: string; name: string; description: string | null; base_role: string; active: number | boolean; created_at: string; created_by_name: string | null; updated_at: string | null; users: number[] }
 type Verdict = "shows_tab" | "hides_only" | "redundant" | "hollow" | "expired" | "no_account";
 interface Exception { user_id: number; name: string | null; role: string | null; active: boolean; tab: string; kind: "grant" | "refuse"; reason: string | null; by_name: string | null; at: string | null; expires_on: string | null; needs_review: boolean; verdict: Verdict }
 interface Review {
@@ -82,6 +89,7 @@ export function usePolicy(enabled: boolean, tick = 0) {
     if (!enabled) return;
     const c = new AbortController();
     void api<Policy>("/staff/access/policy", { signal: c.signal }).then((r) => {
+      if (r.ok && r.data?.custom_roles) setCustomRoleNames(r.data.custom_roles); // v1.350.0 - every roleLabel() then reads a custom role by its name
       if (!c.signal.aborted) setGot({ d: r.ok && r.data ? r.data : null, e: r.ok ? "" : L("The access policy needs the latest server.", "Polisi akses memerlukan pelayan terkini.") });
     });
     return () => c.abort();

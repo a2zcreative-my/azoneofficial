@@ -601,8 +601,8 @@ const AUG = (() => {
      /\(path === "\/payroll\/absences" \|\| path === "\/attendance\/absences"\) && method === "GET"/.test(staff)
      && (staff.match(/workingDayList\(mA2\)/g) ?? []).length === 1);
   ok("v1.331.0: the payroll door still needs payroll_process; the attendance door needs attendance_correct or payroll_process",
-     /const payrollDoor = path === "\/payroll\/absences";\s*if \(payrollDoor && !can\(user\.role, "payroll_process"\)\) return err\("forbidden"/.test(staff)
-     && /if \(!payrollDoor && !can\(user\.role, "attendance_correct"\) && !can\(user\.role, "payroll_process"\)\) return err\("forbidden"/.test(staff));
+     /const payrollDoor = path === "\/payroll\/absences";\s*if \(payrollDoor && !canUser\(user, "payroll_process"\)\) return err\("forbidden"/.test(staff)
+     && /if \(!payrollDoor && !canUser\(user, "attendance_correct"\) && !canUser\(user, "payroll_process"\)\) return err\("forbidden"/.test(staff));
   ok("approved full days are excluded and partial days are reviewed without a deduction",
      /covered\.some\(l => !isPartialLeave\(l\)\)\) continue/.test(staff) && /partial_review\.push\([\s\S]{0,150}continue;/.test(staff),
      "paid leave must not be offered up as an unpaid day");

@@ -14,8 +14,12 @@
          ACTION_CATALOGUE, and a switch changes catalogue caps, nothing else
      R5  Assign a user is the existing role door (POST /staff/users/:id/role,
          step-up, reason 10+); the screen decides nothing about who may
-     R6  no create / duplicate / disable / delete role control is drawn: the
-         server's roles are fixed until the owner approves that server change
+     R6  v1.350.0 (the CEO's "A2Z OS - CUSTOM ROLE MANAGEMENT"): the built-in
+         roles stay fixed; + Create Role and the custom role's Edit / Duplicate
+         / Deactivate / Delete are drawn only for role_custom (the CEO and the
+         super admin, can_manage_custom from the server) and write only through
+         /staff/access/custom-roles with the step-up code; a custom role's
+         switches are the same cells through the same POST /staff/access/policy
      R7  the connected strip has its five figures, CEO Access worked out from
          the published cells (never a written-in "Equivalent")
      R8  the directory and the editor are one 35:65 split held to the screen
@@ -56,7 +60,8 @@ function checks(src) {
   /* R3 */
   ok("R3 a locked cell never gets a switch (super_admin_only for everyone, the super admin's own keeps cell)",
     /return a\.locked\.rule === "super_admin_only" \|\| role === "super_admin";/.test(rp) && /const editableFor = \(a: PolicyAction, role: string\) => !!a\.cap && !!a\.editable && !cellLocked\(a, role\);/.test(rp)
-    && /for \(const a of list\) if \(editableFor\(a, r\)\)/.test(rp) && /canEdit && editableFor\(a, role\)/.test(rp)
+    && /for \(const a of list\) if \(editableFor\(a, r\)\)/.test(rp) && /canEditRole && editableFor\(a, role\)/.test(rp)
+    && /if \(a\.custom_forbidden && isCustomRole\(role\)\) return true;/.test(rp)
     && /rule: "super_admin_only" \| "super_admin_keeps"/.test(perms));
   /* R4 */
   const catKeys = new Set([...perms.slice(perms.indexOf("export const ACTION_CATALOGUE")).matchAll(/key: "([a-z_]+)"/g)].map((m) => m[1]));
@@ -69,10 +74,14 @@ function checks(src) {
   ok("R5 Assign a user = the existing role door, with the step-up code and a reason of 10+",
     /const assignRole = async \(u: Account, to: string\): Promise<boolean> => \{/.test(users) && /if \(!why \|\| why\.value\.trim\(\)\.length < 10\) return false;/.test(users)
     && /\(totp\) => api\(`\/staff\/users\/\$\{u\.id\}\/role`, \{ method: "POST", body: JSON\.stringify\(\{ role: to, /.test(users) && /onAssign=\{assignRole\}/.test(rolesView));
-  ok("R5 the role door is offered only to the owner / super admin (canEdit), the server deciding each change", /canAssign=\{canEdit\}/.test(rolesView) && /const mayAssign = canAssign && assignable\.includes\(role\);/.test(rp));
+  ok("R5 the role door is offered only to the owner / super admin (canEdit), the server deciding each change", /canAssign=\{canEdit\}/.test(rolesView) && /const mayAssign = cr \? canManageCustom && crActive : canAssign && assignable\.includes\(role\);/.test(rp));
   /* R6 */
-  ok("R6 no create / duplicate / disable / delete role control while the roles are fixed on the server",
-    !/(Create|New|Duplicate|Disable|Delete) (custom )?role/i.test(rp.replace(/\/\*[\s\S]*?\*\//g, "")));
+  ok("R6 + Create Role sits in the Role Directory heading, drawn only for role_custom (can_manage_custom, the server's answer)",
+    /const canManageCustom = !!d0\?\.can_manage_custom;/.test(rp) && /actions=\{canManageCustom \? <button type="button" className=\{btnAccent\} onClick=\{\(\) => openForm\("create"\)\} data-testid="role-create">/.test(rp)
+    && /\{canManageCustom && \(\s*<div className=\{css\.inline\} data-testid="cr-actions">/.test(rp));
+  ok("R6 every custom-role change goes to /staff/access/custom-roles with the step-up code; nothing else writes a role",
+    /\(totp\) => api\(`\/staff\/access\/custom-roles\$\{path\}`, \{ method, body: JSON\.stringify\(\{ \.\.\.body, \.\.\.\(totp \? \{ totp \} : \{\}\) \}\) \}\)/.test(rp)
+    && (rp.match(/api\(`\/staff\/access\/custom-roles/g) ?? []).length === 1 && /disabled=\{busy \|\| delReason\.trim\(\)\.length < 10\}/.test(rp));
   /* R7 */
   ok("R7 the strip: Total Roles, Assigned Users, Modules Controlled, Edited Permissions, CEO Access",
     ['cell="roles"', 'cell="assigned"', 'cell="modules"', 'cell="edited"', 'cell="ceo"'].every((c) => rp.includes(c)) && /<KpiRow label=/.test(rp));
@@ -104,7 +113,9 @@ const MUT = [
   ["a locked cell switchable", "rp", "const editableFor = (a: PolicyAction, role: string) => !!a.cap && !!a.editable && !cellLocked(a, role);", "const editableFor = (a: PolicyAction, _role: string) => !!a.cap && !!a.editable;"],
   ["a verb invents an action", "rp", '  task_delete: "delete",', '  task_delete: "delete", role_create: "manage",'],
   ["the role door bypassed", "users", "(totp) => api(`/staff/users/${u.id}/role`, { method: \"POST\", body: JSON.stringify({ role: to, ", "() => api(`/staff/users/${u.id}/role`, { method: \"PATCH\", body: JSON.stringify({ role: to, "],
-  ["a dead Create role button", "rp", "<KpiRow label=", '<button type="button">Create custom role</button><KpiRow label='],
+  ["Create Role for everyone", "rp", 'actions={canManageCustom ? <button type="button" className={btnAccent}', 'actions={true ? <button type="button" className={btnAccent}'],
+  ["a custom role change without the code", "rp", "(totp) => api(`/staff/access/custom-roles${path}`, { method, body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) })", "() => api(`/staff/access/custom-roles${path}`, { method, body: JSON.stringify(body) })"],
+  ["a custom role switched on a protected cell", "rp", "  if (a.custom_forbidden && isCustomRole(role)) return true;", ""],
   ["CEO Access written in", "rp", 'value={gapActs.length === 0 ? L("Equivalent", "Setara")', 'value={true ? L("Equivalent", "Setara")'],
   ["the split back to 60:40", "rp", '<WorkspaceSplit testid="roles-split" ratio="35-65">', '<WorkspaceSplit testid="roles-split">'],
   ["a deep link reads nothing", "users", "const policy = usePolicy(rolesOn, policyTick);", "const policy = usePolicy(seenRoles, policyTick);"],

@@ -45,7 +45,7 @@ import { primaryOrigin } from "./index";
 import type { StaffUser } from "./staff";
 import { notify } from "./staff";
 import { json, err, audit, ensureShareToken, putGuarded } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { approvalLimit, overLimit, loadDocForSigning, issueDoc } from "./signing";
 import { FILE_TYPES, streamTaskFile } from "./tasks-progress";
 import { mailReady, sendMailResult } from "./mail";
@@ -92,9 +92,9 @@ const agentView = (r: Record<string, unknown>) => Object.fromEntries(AGENT_FIELD
 
 export async function handleAgent(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams, request?: Request): Promise<Response | null> {
   if (path !== "/agent" && !path.startsWith("/agent/")) return null;
-  const isAgent = can(user.role, "agent_portal");
-  const viewer = can(user.role, "agent_requests_view");
-  const manager = can(user.role, "agent_requests_manage");
+  const isAgent = canUser(user, "agent_portal");
+  const viewer = canUser(user, "agent_requests_view");
+  const manager = canUser(user, "agent_requests_manage");
   const staff = viewer || manager;
   if (!isAgent && !staff) return err("forbidden", "The agent desk is for agents, Sales and management", 403);
   try {

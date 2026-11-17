@@ -106,7 +106,7 @@ const pkg = JSON.parse(read("package.json"));
   /* v1.158.2 (CEO, on the note: "I should have a option to edit!") */
   {
     const patch = staff.slice(staff.indexOf('salesShiftMatch && method === "PATCH"'), staff.indexOf('path === "/roster" && method === "GET"'));
-    ok("a manager can edit one day of sales duty", /salesShiftMatch && method === "PATCH"/.test(staff) && /can\(user\.role, "team_manage"\)/.test(patch));
+    ok("a manager can edit one day of sales duty", /salesShiftMatch && method === "PATCH"/.test(staff) && /canUser\(user, "team_manage"\)/.test(patch));
     ok("...under the POST's rules: selling role, approved leave, no second duty that day", /MEASURED_ROLES\.includes\(u\.role\)/.test(patch) && /refuseIfOnLeave\(env, user, who, \[day\]/.test(patch) && /AND shift_date = \?2 AND id != \?3/.test(patch));
     ok("...audited with what changed", /"roster\.sales_shift_edit"/.test(patch) && /changed\[k\] = \{ from, to \}/.test(patch));
     ok("the note and the phone bar offer Edit, and it opens the same card prefilled", (board.match(/onClick=\{\(\) => openEditShift\(sh\)\}/g) ?? []).length === 2 && /const openEditShift = \(sh: SalesShift\) => \{/.test(board) && /setEditingShift\(sh\.id\);/.test(board));
@@ -176,7 +176,7 @@ const pkg = JSON.parse(read("package.json"));
 /* ---- 5. the same rules as a task ---- */
 {
   const route = staff.slice(staff.indexOf('path === "/sales-shifts" && method === "POST"'), staff.indexOf('path === "/roster" && method === "GET"'));
-  ok("management only, all three ways: create, edit, remove", (route.match(/can\(user\.role, "team_manage"\)/g) ?? []).length === 3);
+  ok("management only, all three ways: create, edit, remove", (route.match(/canUser\(user, "team_manage"\)/g) ?? []).length === 3);
   ok("a run is validated as a whole, capped at 62 days", /dates\.length > 62/.test(route) && /Array\.isArray\(body\?\.dates\)/.test(route));
   ok("approved leave refuses overlapping hours, with the same override door", /refuseIfOnLeave\(env, user, who, dates, body\?\.leave_override === true, timeWindow\(st, et\)\)/.test(route));
   ok("the end must follow the start", /if \(et <= st\) return err/.test(route));

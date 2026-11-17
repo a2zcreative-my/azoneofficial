@@ -166,7 +166,7 @@ function sourceChecks(read) {
   const perms = read("worker/src/permissions.ts");
   ok(['hr_manage: ["super_admin", "admin", "hr_admin", "ceo"]', 'exec_view: ["super_admin", "admin", "ceo", "coo", "cco"]', 'org_assign: ["ceo", "coo", "cco"]', 'responsibilities_edit: ["super_admin", "admin", "hr_admin", "ceo"]', 'role_assign: ["ceo", "coo"]', 'payroll_process: ["super_admin", "admin", "ceo", "coo"]'].every((x) => perms.includes(x))
     && read("lib/portal-tabs.ts").includes('"Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],'), "no permission and no tab access changed");
-  /* v1.311.0 - 0196 is Commission 5.0's (K-2), not this module's */ ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only|0204_staff_positions)";/.test(read("worker/src/index.ts")), "no migration (S-13 is later)");
+  /* v1.311.0 - 0196 is Commission 5.0's (K-2), not this module's */ ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only|0204_staff_positions|0205_custom_roles)";/.test(read("worker/src/index.ts")), "no migration (S-13 is later)");
   ok(/import \{ reportingLine, type OrgPerson \} from "\.\.\/\.\.\/lib\/org-tree";/.test(read("worker/src/leave-chain.ts")), "leave keeps routing on the reporting line (S-7, unchanged)");
   return out;
 }
@@ -182,7 +182,7 @@ const checks = n;
 const S = "worker/src/staff.ts", D = "components/staff/staff-directory.tsx";
 const MUT = [
   [S, "the list carries the private block again", [["      for (const k of STAFF_PRIVATE_FIELDS) if (!(keepPay && PAYSLIP_PRIVATE_FIELDS.includes(k))) delete o[k];\n", ""]]],
-  [S, "the private block without its gate", [["    if (!can(user.role, \"hr_manage\")) return err(\"forbidden\", \"Private staff details are open to HR and the CEO only\", 403);\n", ""]]],
+  [S, "the private block without its gate", [["    if (!canUser(user, \"hr_manage\")) return err(\"forbidden\", \"Private staff details are open to HR and the CEO only\", 403);\n", ""]]],
   [S, "a private read not audited", [["    await audit(env, user.id, \"staff.private_view\", \"users\", privMatch[1]!, { fields: STAFF_PRIVATE_FIELDS.filter((k) => String(row![k] ?? \"\").trim() !== \"\") });\n", ""]]],
   [S, "no concurrency guard", [["      if (moved.length > 0) return err(\"changed_since\",", "      if (moved.length < 0) return err(\"changed_since\","]]],
   [S, "the bank account's value kept in the history", [["export const STAFF_HISTORY_VALUE_FIELDS = [\"employee_id\",", "export const STAFF_HISTORY_VALUE_FIELDS = [\"bank_account\", \"employee_id\","]]],

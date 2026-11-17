@@ -240,7 +240,7 @@ if (process.env.NOMUT) {
 if (fail) { console.error(`tasks-gate4: ${fail} of ${n} failed (mutations not run)`); process.exit(1); }
 
 const MUT = [
-  ["worker/src/staff.ts", "TK-4 any manager renames", 'if (!projOfTask && !can(user.role, "task_rename")) return err(', 'if (false) return err('],
+  ["worker/src/staff.ts", "TK-4 any manager renames", 'if (!projOfTask && !canUser(user, "task_rename")) return err(', 'if (false) return err('],
   ["worker/src/staff.ts", "TK-4 no reason needed", 'if (titleReason.length < 5) return err("invalid_input", "Say why the title changes', 'if (false) return err("invalid_input", "Say why the title changes'],
   ["worker/src/staff.ts", "a report reviewed by its author", 'if (rep.created_by === user.id) return err("self_approval"', 'if (false) return err("self_approval"'],
   ["worker/src/live-reports.ts", "L2 another host's session reported", 'if (s.host_user_id !== user.id) return err("forbidden", "Only the host of this live reports it", 403);', ''],

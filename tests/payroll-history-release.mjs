@@ -42,7 +42,7 @@ function run(src) {
   ok("H6 History re-reads after a release (nonce in the key)",
     /const key = enabled \? `\$\{month\}\|\$\{count\}\|\$\{nonce\}` : "";/.test(hist) && /usePayrollHistory\(month, histWanted, 12, histNonce\)/.test(pan));
   ok("H7 the server still decides: release needs payroll_release, and the month list answers payslips_out",
-    /if \(!can\(user\.role, "payroll_release"\)\) return err\("forbidden", "Only the CEO, COO or super admin releases payslips", 403\);/.test(wk)
+    /if \(!canUser\(user, "payroll_release"\)\) return err\("forbidden", "Only the CEO, COO or super admin releases payslips", 403\);/.test(wk)
     && /paid: paidRowG \?\? null, payslips_out: await payslipsOut\(month\)/.test(wk));
   return fails;
 }
@@ -60,7 +60,7 @@ const MUT = [
   ["Release offered on a month already out", "components/portal/payroll-panel.tsx", "!h.failed && !h.out && h.saved > 0", "!h.failed && h.saved > 0"],
   ["an empty month called released", "components/portal/payroll-panel.tsx", ": h.saved === 0 && !h.released ?", ": false ?"],
   ["History never re-reads", "components/portal/payroll-panel.tsx", "usePayrollHistory(month, histWanted, 12, histNonce)", "usePayrollHistory(month, histWanted)"],
-  ["the server release gate removed", "worker/src/staff.ts", 'if (!can(user.role, "payroll_release")) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);', ""],
+  ["the server release gate removed", "worker/src/staff.ts", 'if (!canUser(user, "payroll_release")) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);', ""],
 ];
 if (!process.env.NOMUT) {
   for (const [name, f, a, b] of MUT) {

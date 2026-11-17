@@ -38,7 +38,7 @@ import type { Env } from "./index";
 import { totpVerifyOnce } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 
 export const ISSUERS = ["a2z", "azoo"] as const;
 export type IssuerCode = (typeof ISSUERS)[number];
@@ -378,7 +378,7 @@ export async function handleSigning(env: Env, request: Request, path: string, me
       const which = url.searchParams.get("which") ?? "prepared";
       const issuer = entityOf(url.searchParams.get("issuer"));
       const docType = url.searchParams.get("doc_type") ?? "QT";
-      if (!can(user.role, "sales") && !(docType === "INV" && can(user.role, "finance"))) return err("forbidden", "Insufficient rights for this document type", 403);
+      if (!canUser(user, "sales") && !(docType === "INV" && canUser(user, "finance"))) return err("forbidden", "Insufficient rights for this document type", 403);
       const p = await readPolicy(env, issuer);
       let r2: string | null = null;
       if (!p.personal) {
@@ -452,7 +452,7 @@ export async function handleDocSigning(env: Env, request: Request, path: string,
   /* an earlier revision (printed from History) reads ITS OWN issuance - never a later one */
   const qRev = new URL(request.url).searchParams.get("revision");
   const d: DocRow = qRev !== null && /^\d+$/.test(qRev) && Number(qRev) <= Number(d0.revision ?? 0) && method === "GET" ? { ...d0, revision: Number(qRev) } : d0;
-  const readable = d.doc_type === "INV" ? can(user.role, "sales") || can(user.role, "finance") : can(user.role, "sales");
+  const readable = d.doc_type === "INV" ? canUser(user, "sales") || canUser(user, "finance") : canUser(user, "sales");
   if (!readable) return err("forbidden", "Insufficient rights for this document", 403);
   try {
     if (m[2] === "sign-plan" && method === "GET") {

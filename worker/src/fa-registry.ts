@@ -28,7 +28,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, str } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { MY_STATE_NAMES, stateFromPostcode } from "./my-state";
 import { isExecutiveOwner } from "./decision-policy";
 
@@ -135,8 +135,8 @@ function areasOf(v: unknown, coverage: string): string[] | null {
 }
 
 export async function handleFaRegistry(env: Env, path: string, method: string, b: Record<string, unknown>, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
-  const manage = can(user.role, "fa_registry");
-  const register = can(user.role, "fa_edit");
+  const manage = canUser(user, "fa_registry");
+  const register = canUser(user, "fa_edit");
   const today = mytToday();
 
   /* ---- the whole registry, for the directory screens ---- */

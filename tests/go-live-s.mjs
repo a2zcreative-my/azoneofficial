@@ -349,7 +349,7 @@ const MUT = [
   ["worker/src/signing.ts", "a leaver keeps signing", "JOIN users u ON u.id = g.user_id AND u.is_active = 1", "JOIN users u ON u.id = g.user_id"],
   ["worker/src/signing.ts", "a quotation is issued while its approval is missing", "  if (plan.blocked) return { ok: false, res: err(\"approval_required\", plan.blocked, 409) };", ""],
   ["worker/src/signing.ts", "the stamp without a verified signature", "  const stamp = pol.stamp_on.includes(d.doc_type) && (sig || approved) && (!needs || approved) ? await activeStamp(env, issuer) : null;", "  const stamp = pol.stamp_on.includes(d.doc_type) ? await activeStamp(env, issuer) : null;"],
-  ["worker/src/staff.ts", "the raw officer chop open to sales again", "    if (!SIG_VAULT_ROLES.includes(user.role)) {", "    if (!can(user.role, \"sales\")) {"],
+  ["worker/src/staff.ts", "the raw officer chop open to sales again", "    if (!SIG_VAULT_ROLES.includes(user.role)) {", "    if (!canUser(user, \"sales\")) {"],
   ["worker/src/signing.ts", "the COO registers other people's signatures", "export const signAdmin = (u: { role: string }) => u.role === \"ceo\" || u.role === \"super_admin\";", "export const signAdmin = (u: { role: string }) => u.role === \"ceo\" || u.role === \"super_admin\" || u.role === \"coo\";"],
   ["worker/src/index.ts", "the customer's link exposes asset ids", "        prepared: pl.prepared ? { name: pl.prepared.name, position: pl.prepared.position, has: !!pl.prepared.asset_id } : null,", "        prepared: pl.prepared,"],
 ];

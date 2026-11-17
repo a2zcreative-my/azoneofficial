@@ -62,7 +62,7 @@ const salesCode = strip(sales);
 /* ---- 2. the correction ---- */
 {
   const fix = staff.slice(staff.indexOf("const closerFix = path.match("), staff.indexOf("/* ---- notifications ---- */"));
-  ok("the CEO tier corrects, nobody else", /if \(!can\(user\.role, "commission_decide"\)\) return err\("forbidden"/.test(fix));
+  ok("the CEO tier corrects, nobody else", /if \(!canUser\(user, "commission_decide"\)\) return err\("forbidden"/.test(fix));
   ok("with a reason, on an invoice, to a current staff member", /if \(reason\.length < 10\) return err\("invalid_input"/.test(fix) && /if \(inv\.doc_type !== "INV"\)/.test(fix) && /\$\{currentStaffSql\(\)\}/.test(fix));
   ok("conditional on the closer the reviewer saw; salesperson_id and nothing else",
      /UPDATE sales_documents SET salesperson_id = \?1 WHERE id = \?2 AND doc_type = 'INV' AND COALESCE\(salesperson_id, 0\) = \?3/.test(fix)

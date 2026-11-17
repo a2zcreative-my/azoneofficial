@@ -16,7 +16,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit } from "./shared";
-import { can, rolesFor } from "./permissions";
+import { can, rolesFor, canUser } from "./permissions";
 import { notify } from "./staff";
 import { isExecutiveOwner } from "./decision-policy";
 
@@ -60,7 +60,7 @@ export async function writeProfile(env: Env, user: StaffUser, assetId: number, t
   if (shared && holder != null) return err("invalid_input", "A shared-use asset has no single holder - clear Assigned to, or clear the shared label.", 400);
   const moved = was.issuer_code != null && company !== was.issuer_code;
   if (moved) {
-    if (!can(user.role, "asset_company_change")) return err("forbidden", "Only the CEO or COO moves an asset to the other company once its company is set.", 403);
+    if (!canUser(user, "asset_company_change")) return err("forbidden", "Only the CEO or COO moves an asset to the other company once its company is set.", 403);
     if ((want.company_reason ?? "").length < 10) return err("invalid_input", "Give the reason for the company change (at least 10 characters).", 400);
   }
   if (company === was.issuer_code && shared === was.shared_label) return null;
@@ -79,7 +79,7 @@ export async function writeProfile(env: Env, user: StaffUser, assetId: number, t
 /** GET /assets/history[?asset=ID] - the asset events of the audit log (D-7), newest first */
 export async function handleAssetHistory(env: Env, path: string, method: string, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (path !== "/assets/history" || method !== "GET") return null;
-  if (!can(user.role, "asset_view")) return err("forbidden", "The asset register is not open to your role", 403);
+  if (!canUser(user, "asset_view")) return err("forbidden", "The asset register is not open to your role", 403);
   const one = params.get("asset");
   const id = one && /^\d+$/.test(one) ? one : null;
   const limit = Math.min(500, Math.max(1, Number(params.get("limit")) || 300));
@@ -189,11 +189,11 @@ export async function handleCustody(env: Env, path: string, method: string, body
 }
 
 async function custodyRoute(env: Env, path: string, method: string, b: Record<string, unknown>, user: StaffUser): Promise<Response | null> {
-  const manage = can(user.role, "asset_manage");
+  const manage = canUser(user, "asset_manage");
 
   /* ---- My assets (D-4), my team's (D-2), my requests ---- */
   if (path === "/assets/mine" && method === "GET") {
-    if (!can(user.role, "asset_self")) return err("forbidden", "Not open to your role", 403);
+    if (!canUser(user, "asset_self")) return err("forbidden", "Not open to your role", 403);
     const cols = `a.id, a.asset_tag, a.name, a.category, a.brand_model, a.serial_no, a.location, a.status, a.assigned_to, ${PERSON_SQL("u")} AS holder,
       ${PENDING_SQL("a")} AS pending_id,
       (SELECT c.created_at FROM asset_custody c WHERE c.asset_id = a.id AND c.kind IN ('assign', 'transfer') AND c.to_holder = a.assigned_to ORDER BY c.id DESC LIMIT 1) AS handed_at,
@@ -215,7 +215,7 @@ async function custodyRoute(env: Env, path: string, method: string, b: Record<st
 
   /* ---- the management queue: hand-overs not acknowledged, requests waiting ---- */
   if (path === "/assets/custody" && method === "GET") {
-    if (!can(user.role, "asset_view")) return err("forbidden", "The asset register is not open to your role", 403);
+    if (!canUser(user, "asset_view")) return err("forbidden", "The asset register is not open to your role", 403);
     const waiting = (await env.DB.prepare(
       `SELECT a.id, a.asset_tag, a.name, ${PERSON_SQL("u")} AS holder, c.id AS step_id, c.kind, c.created_at AS since, ${PERSON_SQL("iu")} AS issued_by
          FROM assets a JOIN asset_custody c ON c.id = ${PENDING_SQL("a")} LEFT JOIN users u ON u.id = a.assigned_to LEFT JOIN users iu ON iu.id = c.actor_id
@@ -231,7 +231,7 @@ async function custodyRoute(env: Env, path: string, method: string, b: Record<st
 
   /* ---- a manager asks for an assignment or a transfer inside their team (D-2) ---- */
   if (path === "/assets/custody/requests" && method === "POST") {
-    if (!can(user.role, "asset_self")) return err("forbidden", "Not open to your role", 403);
+    if (!canUser(user, "asset_self")) return err("forbidden", "Not open to your role", 403);
     const team = await teamOf(env, user.id);
     const to = await staffOk(env, b.to_holder);
     if (!to || !team.includes(to)) return err("forbidden", "You request a hand-over only to someone in your own team.", 403);
@@ -287,7 +287,7 @@ async function custodyRoute(env: Env, path: string, method: string, b: Record<st
 
   if (method === "GET") {
     const team = a.assigned_to != null ? await teamOf(env, user.id) : [];
-    if (!can(user.role, "asset_view") && !holder && !(a.assigned_to != null && team.includes(a.assigned_to))) return err("forbidden", "Not an asset you hold or keep", 403);
+    if (!canUser(user, "asset_view") && !holder && !(a.assigned_to != null && team.includes(a.assigned_to))) return err("forbidden", "Not an asset you hold or keep", 403);
     const steps = (await env.DB.prepare(
       `SELECT c.id, c.kind, c.from_holder, ${PERSON_SQL("fu")} AS from_name, c.to_holder, ${PERSON_SQL("tu")} AS to_name, c.location, c.reason, c.condition, c.request_id, c.created_at, ${PERSON_SQL("au")} AS actor
          FROM asset_custody c LEFT JOIN users fu ON fu.id = c.from_holder LEFT JOIN users tu ON tu.id = c.to_holder LEFT JOIN users au ON au.id = c.actor_id
@@ -448,12 +448,12 @@ const EVENTS_SQL = (where: string) => `SELECT * FROM (
 const withNames = (inner: string) => `SELECT e.*, a.asset_tag, a.name, a.status, ${PERSON_SQL("u")} AS actor FROM (${inner}) e JOIN assets a ON a.id = e.asset_id LEFT JOIN users u ON u.id = e.actor_id`;
 
 async function careRoute(env: Env, path: string, method: string, b: Record<string, unknown>, user: StaffUser): Promise<Response | null> {
-  const manage = can(user.role, "asset_manage");
-  const approve = can(user.role, "asset_dispose_approve");
+  const manage = canUser(user, "asset_manage");
+  const approve = canUser(user, "asset_dispose_approve");
 
   /* ---- the Maintenance & Disposal board ---- */
   if (path === "/assets/care" && method === "GET") {
-    if (!can(user.role, "asset_view")) return err("forbidden", "The asset register is not open to your role", 403);
+    if (!canUser(user, "asset_view")) return err("forbidden", "The asset register is not open to your role", 403);
     const issues = (await env.DB.prepare(
       `SELECT i.id, i.asset_id, a.asset_tag, a.name, a.status, i.description, i.noticed_on, i.created_at, ${PERSON_SQL("u")} AS reported_by
          FROM asset_issues i JOIN assets a ON a.id = i.asset_id LEFT JOIN users u ON u.id = i.actor_id
@@ -492,7 +492,7 @@ async function careRoute(env: Env, path: string, method: string, b: Record<strin
   if (!mC) return null;
   const a = await env.DB.prepare(`SELECT * FROM assets WHERE id = ?1 AND deleted_at IS NULL`).bind(Number(mC)).first<AssetRow>();
   if (!a) return err("not_found", "Asset not found", 404);
-  const view = can(user.role, "asset_view");
+  const view = canUser(user, "asset_view");
   const holder = a.assigned_to != null && a.assigned_to === user.id;
   const teamLead = !holder && a.assigned_to != null && (await teamOf(env, user.id)).includes(a.assigned_to);
   /* who may report an issue or a loss: the register's readers, the holder, the holder's manager (blueprint section 9) */

@@ -49,7 +49,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, logError } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 
 /* v1.94.0 — THE AUTHORISE HOST IS threads.com, NOT threads.net.
  *
@@ -725,8 +725,8 @@ export async function handleThreads(
   user: StaffUser,
   params: URLSearchParams,
 ): Promise<Response | null> {
-  if (!can(user.role, "threads_view")) return err("forbidden", "No access to Threads", 403);
-  const manage = can(user.role, "threads_manage");
+  if (!canUser(user, "threads_view")) return err("forbidden", "No access to Threads", 403);
+  const manage = canUser(user, "threads_manage");
 
   try {
     /* ---- accounts: what is connected, how healthy, never the token ---- */

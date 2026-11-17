@@ -26,7 +26,7 @@
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { audit, err, json, str } from "./shared";
 
 export const PACKAGE_ISSUERS = ["a2z", "azoo"] as const;
@@ -205,8 +205,8 @@ export async function handlePackages(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams,
 ): Promise<Response | null> {
   if (path !== "/packages" && !path.startsWith("/packages/")) return null;
-  if (!can(user.role, "sales")) return err("forbidden", "Sales access required", 403);
-  const manage = can(user.role, "packages_manage");
+  if (!canUser(user, "sales")) return err("forbidden", "Sales access required", 403);
+  const manage = canUser(user, "packages_manage");
   const skew = (e: unknown) => e instanceof Error && /no such (table|column)/.test(e.message);
   const migrationMissing = () => err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0153_sales_packages)", 500);
 

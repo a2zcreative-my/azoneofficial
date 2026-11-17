@@ -146,7 +146,7 @@ const MUT = [
   [S, "an empty title ignored", [['    if (typeof body?.title === "string" && body.title.trim() === "") return err(', '    if (false) return err(']]],
   [S, "nobody told", [['      if (to) await notify(env, to, "task", `✏ ${user.name} renamed a task', '      if (false) await notify(env, to, "task", `✏ ${user.name} renamed a task']]],
   /* v1.315.0 (TK-4) - the rename gate stands behind the edit gate: the mutation lifts both */
-  [S, "a helper renames", [['    if (row.assigned_to !== user.id && !manages) {\n      return projGate ?? err("forbidden", "Not your task", 403);', '    if (false) {\n      return projGate ?? err("forbidden", "Not your task", 403);'], ['if (!projOfTask && !can(user.role, "task_rename")) return err(', 'if (false) return err('], ['if (titleReason.length < 5) return err(', 'if (false) return err(']]],
+  [S, "a helper renames", [['    if (row.assigned_to !== user.id && !manages) {\n      return projGate ?? err("forbidden", "Not your task", 403);', '    if (false) {\n      return projGate ?? err("forbidden", "Not your task", 403);'], ['if (!projOfTask && !canUser(user, "task_rename")) return err(', 'if (false) return err('], ['if (titleReason.length < 5) return err(', 'if (false) return err(']]],
   [P, "no title entry in Activity", [['    if (d.changed?.title) add({ key: `a${r.id}t`', '    if (false) add({ key: `a${r.id}t`']]],
   [S, "the rename moves the dates", [['sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim());', 'sets.push(`title = ?${sets.length + 1}`); vals.push(String(body!.title).trim()); sets.push(`deadline = ?${sets.length + 1}`); vals.push(null);']]],
 ];

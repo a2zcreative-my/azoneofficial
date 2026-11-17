@@ -260,7 +260,7 @@ const page = readPortalSource(root);
   ok("crediting exists", /path === "\/replacement-credit" && method === "POST"/.test(staff));
   ok("a credit can be undone", /path === "\/replacement-credit" && method === "DELETE"/.test(staff));
   ok("only the CEO credits",
-     (staff.match(/can\(user\.role, "leave_entitlement"\)[\s\S]{0,120}?Only the CEO can credit replacement leave/g) ?? []).length === 3,
+     (staff.match(/canUser\(user, "leave_entitlement"\)[\s\S]{0,120}?Only the CEO can credit replacement leave/g) ?? []).length === 3,
      "granting a paid day off is the same class of decision as raising an entitlement");
   ok("it must be a rest day on THAT person's schedule",
      /if \(shC\.kind !== "rest_day"\)/.test(staff) && /shiftAtW\(p\.user_id, p\.d\)/.test(staff),

@@ -81,7 +81,7 @@ ok("the new lines and the new revision number land in one batch",
 ok("a revision keeps the original date on the row", /const dateE = !revise && /.test(edit));
 ok("a revision is audited as one", /"doc\.revise"/.test(edit));
 ok("the history route is for sales and never returns the share token",
-  /const docRevs = path\.match[\s\S]{0,200}?if \(!can\(user\.role, "sales"\)\)/.test(staff)
+  /const docRevs = path\.match[\s\S]{0,200}?if \(!canUser\(user, "sales"\)\)/.test(staff)
   && !/"share_token"/.test(staff.slice(staff.indexOf("const docRevs"), staff.indexOf("const docEdit"))));
 ok("a deleted quotation takes its history with it", /DELETE FROM sales_document_revisions WHERE doc_id = \?1/.test(staff));
 

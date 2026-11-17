@@ -151,11 +151,11 @@ for (const c of CASES) {
   const h = staff.slice(staff.indexOf('if (path === "/dashboard/summary"'));
   const body = h.slice(0, h.indexOf("\n  /* v1.5.0: /trends/my"));
   ok("each money figure carries its OWN authority",
-     /cash_in_cents: await gated\(can\(user\.role, "revenue_view"\)/.test(body)
-     && /cash_out_cents: await gated\(can\(user\.role, "expenses"\)/.test(body),
+     /cash_in_cents: await gated\(canUser\(user, "revenue_view"\)/.test(body)
+     && /cash_out_cents: await gated\(canUser\(user, "expenses"\)/.test(body),
      "revenue_view and expenses are held by different sets of roles");
   ok("the claims figure uses claims_decide, not a dashboard-only audience",
-     /pending_claims: await gated\(can\(user\.role, "claims_decide"\)/.test(body),
+     /pending_claims: await gated\(canUser\(user, "claims_decide"\)/.test(body),
      "the owner chose strict ownership over preserving accidental visibility");
   ok("the OT figure reuses the OT route's own rule rather than a second copy",
      /const otDecide = OT_DECIDE_ROLES\.includes\(user\.role\);/.test(body)

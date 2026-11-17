@@ -256,17 +256,17 @@ const MUT = [
   ["worker/src/weekly-sales.ts", "an introduction counts before it is qualified", "WHERE referred_by = ?1 AND qualified_at IS NOT NULL AND COALESCE(qualified_by, 0) != ?1 AND date(qualified_at, '+8 hours') BETWEEN ?2 AND ?3`,\n  };", "WHERE referred_by = ?1 AND date(created_at, '+8 hours') BETWEEN ?2 AND ?3`,\n  };"],
   ["worker/src/weekly-sales.ts", "a self-qualified introduction counts", "AND qualified_at IS NOT NULL AND COALESCE(qualified_by, 0) != ?1 AND date(qualified_at, '+8 hours') BETWEEN ?2 AND ?3`,\n  };", "AND qualified_at IS NOT NULL AND date(qualified_at, '+8 hours') BETWEEN ?2 AND ?3`,\n  };"],
   ["worker/src/weekly-sales.ts", "the company counts unpaid invoices", "FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid' AND ${PAID_DAY} BETWEEN ?1 AND ?2`,\n  ).bind(from, to).first<{ c: number; n: number; k: number }>()", "FROM sales_documents d WHERE d.doc_type = 'INV' AND ${PAID_DAY} BETWEEN ?1 AND ?2`,\n  ).bind(from, to).first<{ c: number; n: number; k: number }>()"],
-  ["worker/src/weekly-sales.ts", "the CCO sets targets", 'const isSetter = can(user.role, "sales_week_target");', 'const isSetter = can(user.role, "exec_view");'],
+  ["worker/src/weekly-sales.ts", "the CCO sets targets", 'const isSetter = canUser(user, "sales_week_target");', 'const isSetter = canUser(user, "exec_view");'],
   ["worker/src/weekly-sales.ts", "a team row carries everything", "user_id: r.user_id, name: r.name, department, target_cents: r.target_cents, basis_cents: r.basis_cents, pct: r.pct, gap_cents: r.gap_cents, status: r.status,", "...r, department,"],
   ["worker/src/enquiries.ts", "qualifying stamps nothing", "try { await env.DB.prepare(`UPDATE enquiries SET qualified_at = COALESCE(qualified_at, datetime('now')), qualified_by = COALESCE(qualified_by, ?2) WHERE id = ?1`).bind(id, user.id).run(); } catch { /* pre-0156 */ }", "/* nothing */"],
   ["worker/src/enquiries.ts", "the same contact twice", 'if (dup) return err("duplicate"', 'if (false) return err("duplicate"'],
   /* v1.275.0 - the company target counts every channel from 10-11-2026 */
   ["worker/src/weekly-sales.ts", "the company leaves the other channels out", "  const all = countsAllChannels(to);", "  const all = false;"],
   ["worker/src/weekly-sales.ts", "every week counts every channel, the earlier ones too", "export const countsAllChannels = (to: string) => to >= ALL_CHANNELS_FROM;", "export const countsAllChannels = (to: string) => to.length > 0;"],
-  ["worker/src/weekly-sales.ts", "the TikTok amount reaches a non-revenue reader", 'basis_kind: company.basis_kind, channels: can(user.role, "revenue_view") ? company.channels : null },', "basis_kind: company.basis_kind, channels: company.channels },"],
+  ["worker/src/weekly-sales.ts", "the TikTok amount reaches a non-revenue reader", 'basis_kind: company.basis_kind, channels: canUser(user, "revenue_view") ? company.channels : null },', "basis_kind: company.basis_kind, channels: company.channels },"],
   ["worker/src/weekly-sales.ts", "a TikTok order counted twice (as an other shipment too)", "WHERE order_ref NOT LIKE 'TT-%' AND status != 'returned' AND date(created_at", "WHERE status != 'returned' AND date(created_at"],
   ["worker/src/weekly-sales.ts", "a returned TikTok order counts", "WHERE order_ref LIKE 'TT-%' AND status != 'returned' AND date(created_at", "WHERE order_ref LIKE 'TT-%' AND date(created_at"],
-  ["worker/src/weekly-sales.ts", "other channels for everyone", 'const other = can(user.role, "revenue_view") ? await otherChannelsWeek(env, from, to) : null;', "const other = await otherChannelsWeek(env, from, to);"],
+  ["worker/src/weekly-sales.ts", "other channels for everyone", 'const other = canUser(user, "revenue_view") ? await otherChannelsWeek(env, from, to) : null;', "const other = await otherChannelsWeek(env, from, to);"],
 ];
 for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   n++;

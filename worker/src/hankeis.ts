@@ -27,7 +27,7 @@
  */
 import type { Env } from "./index";
 import { json, err, audit, str, num, logError } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { notify } from "./staff";
 import {
   quote, canFulfil, canPaymentTransition, exceptionsFor, compareAmount,
@@ -349,7 +349,7 @@ const PLACEHOLDER_REFS = new Set(["n/a", "na", "none", "nil", "-", "--", "test",
  * Concurrency is settled by SQL, not by a read-then-write in JavaScript.
  */
 export async function verifyPayment(env: Env, actor: Actor, v: VerifyInput): Promise<VerifyResult> {
-  if (!can(actor.role, "hankeis_verify")) return { ok: false, code: "forbidden", message: "Only an authorised finance reviewer may verify a payment", status: 403 };
+  if (!canUser(actor, "hankeis_verify")) return { ok: false, code: "forbidden", message: "Only an authorised finance reviewer may verify a payment", status: 403 };
   if (v.attested_bank_checked !== true) {
     return { ok: false, code: "attestation_required", message: "Tick the attestation: the bank record itself must be checked, not only the customer receipt", status: 400 };
   }
@@ -479,11 +479,11 @@ export async function expireOrders(env: Env): Promise<{ expired: number; release
 export async function handleHankeis(
   env: Env, request: Request, path: string, method: string, body: Record<string, unknown> | null, user: Actor, params: URLSearchParams,
 ): Promise<Response> {
-  if (!can(user.role, "hankeis_view")) return err("forbidden", "Hankei's Commerce access required", 403);
-  const mayOrder = can(user.role, "hankeis_orders");
-  const mayVerify = can(user.role, "hankeis_verify");
-  const mayPack = can(user.role, "hankeis_fulfil");
-  const mayAdmin = can(user.role, "hankeis_settings");
+  if (!canUser(user, "hankeis_view")) return err("forbidden", "Hankei's Commerce access required", 403);
+  const mayOrder = canUser(user, "hankeis_orders");
+  const mayVerify = canUser(user, "hankeis_verify");
+  const mayPack = canUser(user, "hankeis_fulfil");
+  const mayAdmin = canUser(user, "hankeis_settings");
 
   try {
     /* ---- dashboard ---- */
@@ -666,7 +666,7 @@ export async function handleHankeis(
     if (catM && method === "POST") {
       /* the privilege gate: a customer can never put themselves on agent or
          stockist pricing, and neither can the integration credential */
-      if (!mayAdmin && !can(user.role, "hankeis_verify")) return err("forbidden", "Only authorised staff may change a customer category", 403);
+      if (!mayAdmin && !canUser(user, "hankeis_verify")) return err("forbidden", "Only authorised staff may change a customer category", 403);
       const id = Number(catM[1]);
       const next = str(body?.category, 20) ? String(body!.category) : "";
       if (!["retail", "agent", "stockist"].includes(next)) return err("invalid_input", "Category must be retail, agent or stockist", 400);

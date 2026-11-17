@@ -19,7 +19,7 @@ import type { StaffUser } from "./staff";
 import { audit, cents, err, json, logError, num, postJournal, str } from "./shared";
 import { handleLedger, isManualRef } from "./ledger"; // v1.222.0 - Accounting 2.0 reads
 import { bookCash, companyOf, issuerCompany } from "./cashbook"; // v1.219.0 - Finance 2.0: one booking, atomic and dated
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { STAFF_ORDER_SQL } from "./staff"; // v1.95.0 - one company order, everywhere
 
 /* Doc numbering, same shape as sales_documents: PREFIX-YYYY-NNNN. The count
@@ -63,14 +63,14 @@ export async function handleErp(
     /* ================= Phase 5 — Cash Flow ================= */
 
     if (path === "/banks" && method === "GET") {
-      if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      if (!canUser(user, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
       const rows = await env.DB.prepare(`SELECT * FROM bank_accounts ORDER BY active DESC, name`).all();
       return json({ banks: rows.results ?? [] });
     }
     if (path === "/banks" && method === "POST") {
       /* v1.312.0 (Finance 5.0) - an account is a correction-level record (CEO,
          COO) and belongs to ONE company from the start (CEO-2) */
-      if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO adds a company account", 403);
+      if (!canUser(user, "cashbook_correct")) return err("forbidden", "Only the CEO or COO adds a company account", 403);
       if (!str(body?.name, 100)) return err("validation", "The account needs a name", 400);
       const coB = companyOf(body?.company);
       if (!coB) return err("validation", "Choose the company this account belongs to", 400);
@@ -101,7 +101,7 @@ export async function handleErp(
     }
 
     if (path === "/cashflow" && method === "GET") {
-      if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      if (!canUser(user, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
       const rows = await env.DB.prepare(
         `SELECT c.*, b.name AS bank_name FROM cashflow_entries c
            LEFT JOIN bank_accounts b ON b.id = c.bank_id
@@ -123,7 +123,7 @@ export async function handleErp(
            double tap answers with the first row.
          - It names its company, and the account (if any) is that company's.
          - A reason is required and audited. */
-      if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO enters a manual movement", 403);
+      if (!canUser(user, "cashbook_correct")) return err("forbidden", "Only the CEO or COO enters a manual movement", 403);
       const type = body?.type === "in" ? "in" : body?.type === "out" ? "out" : null;
       const amount = cents(body?.amount);
       const entryDate = str(body?.entry_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.entry_date as string)
@@ -162,7 +162,7 @@ export async function handleErp(
     {
       const m = /^\/cashflow\/(\d+)$/.exec(path);
       if (m && method === "DELETE") {
-        if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+        if (!canUser(user, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
         /* v1.219.0 (Finance 2.0, audit D9): a cash movement is never deleted
            - deleting one left its journal entry behind and erased the trail.
            It is reversed instead (POST /erp/cashbook/rows/:id/reverse, with a
@@ -173,7 +173,7 @@ export async function handleErp(
 
     if (path === "/cashflow/backfill" && method === "POST") {
       /* v1.312.0 - booking what a module paid is a correction-level act (CEO, COO) */
-      if (!can(user.role, "cashbook_correct")) return err("forbidden", "Only the CEO or COO books missing movements", 403);
+      if (!canUser(user, "cashbook_correct")) return err("forbidden", "Only the CEO or COO books missing movements", 403);
       /* v1.21.1 (CEO: "I didnt see yet it populate the existing data!"):
          the live automation only books events that happen AFTER it shipped.
          This walks what Finance ALREADY holds — paid expenses, paid claims,
@@ -183,7 +183,7 @@ export async function handleErp(
          after the live path already booked some — creates nothing extra.
          Each source is fenced: a table this database doesn't have yet just
          contributes zero. */
-      if (!can(user.role, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
+      if (!canUser(user, "cashflow_manage")) return err("forbidden", "No access to cash flow", 403);
       // v1.21.3: fail LOUD when the ledger table itself is missing — before
       // this, every source silently skipped and the button lied "up to date".
       try {
@@ -252,14 +252,14 @@ export async function handleErp(
     /* ================= Phase 5 — Reconciliation ================= */
 
     if (path === "/reconciliation" && method === "GET") {
-      if (!can(user.role, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
+      if (!canUser(user, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
       const rows = await env.DB.prepare(
         `SELECT * FROM reconciliations ORDER BY period DESC, id DESC LIMIT 1000`,
       ).all();
       return json({ rows: rows.results ?? [] });
     }
     if (path === "/reconciliation" && method === "POST") {
-      if (!can(user.role, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
+      if (!canUser(user, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
       const period = str(body?.period, 7) && /^\d{4}-\d{2}$/.test(body!.period as string) ? (body!.period as string) : null;
       if (!period) return err("validation", "Period must be YYYY-MM", 400);
       const channel = str(body?.channel, 20) && ["tiktok", "shopee", "lazada", "direct", "stokis"].includes(body!.channel as string)
@@ -284,7 +284,7 @@ export async function handleErp(
          ALREADY holds (postage_records — the same base /revenue sums), so
          "actual sales" stops being a hand-typed fifth revenue figure. Rows
          are keyed by order_no; a second pull only adds what is new. */
-      if (!can(user.role, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
+      if (!canUser(user, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
       const period = str(body?.period, 7) && /^\d{4}-\d{2}$/.test(body!.period as string) ? (body!.period as string) : null;
       if (!period) return err("validation", "Period must be YYYY-MM", 400);
       const src = await env.DB.prepare(
@@ -341,7 +341,7 @@ export async function handleErp(
     {
       const m = /^\/reconciliation\/(\d+)$/.exec(path);
       if (m && method === "PATCH") {
-        if (!can(user.role, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
+        if (!canUser(user, "reconcile_manage")) return err("forbidden", "No access to reconciliation", 403);
         const status = str(body?.status, 20) ? (body!.status as string) : "";
         if (!["pending", "reconciled", "disputed"].includes(status)) {
           return err("validation", "Status must be pending, reconciled or disputed", 400);
@@ -358,7 +358,7 @@ export async function handleErp(
 
     if (path === "/hosts" && method === "GET") {
       // Host picker for rates/entries — names only, no personal fields.
-      if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
+      if (!canUser(user, "commission_view")) return err("forbidden", "No access to commission", 403);
       // v1.21.0 (CEO: "staff name list should be populate full staff name"):
       // full_name preferred, same COALESCE as /staff-list — one convention.
       /* v1.25.2 (error_log 18-08 09:43 "no such column: suspended"): the
@@ -373,7 +373,7 @@ export async function handleErp(
     }
 
     if (path === "/commission/rates" && method === "GET") {
-      if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
+      if (!canUser(user, "commission_view")) return err("forbidden", "No access to commission", 403);
       /* v1.148.0 - the company order, not the alphabet. The host picker six
          lines above this already used STAFF_ORDER_SQL, so one screen showed
          the same people twice in two different orders - pick a name from the
@@ -385,7 +385,7 @@ export async function handleErp(
       return json({ rates: rows.results ?? [] });
     }
     if (path === "/commission/rates" && method === "POST") {
-      if (!can(user.role, "commission_decide")) return err("forbidden", "Only the CEO tier sets commission rates", 403);
+      if (!canUser(user, "commission_decide")) return err("forbidden", "Only the CEO tier sets commission rates", 403);
       const hostId = num(body?.host_id);
       const percent = num(body?.percent);
       const perHour = cents(body?.per_hour) ?? 0;
@@ -402,7 +402,7 @@ export async function handleErp(
     }
 
     if (path === "/commission" && method === "GET") {
-      if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
+      if (!canUser(user, "commission_view")) return err("forbidden", "No access to commission", 403);
       const rows = await env.DB.prepare(
         `SELECT e.*, u.name AS host_name FROM commission_entries e JOIN users u ON u.id = e.host_id
           ORDER BY e.period DESC, e.id DESC LIMIT 1000`,
@@ -410,7 +410,7 @@ export async function handleErp(
       return json({ entries: rows.results ?? [] });
     }
     if (path === "/commission" && method === "POST") {
-      if (!can(user.role, "commission_view")) return err("forbidden", "No access to commission", 403);
+      if (!canUser(user, "commission_view")) return err("forbidden", "No access to commission", 403);
       const hostId = num(body?.host_id);
       const period = str(body?.period, 7) && /^\d{4}-\d{2}$/.test(body!.period as string) ? (body!.period as string) : null;
       const basis = cents(body?.basis);
@@ -439,7 +439,7 @@ export async function handleErp(
     {
       const m = /^\/commission\/(\d+)$/.exec(path);
       if (m && method === "PATCH") {
-        if (!can(user.role, "commission_decide")) return err("forbidden", "Only the CEO tier approves commission", 403);
+        if (!canUser(user, "commission_decide")) return err("forbidden", "Only the CEO tier approves commission", 403);
         const status = str(body?.status, 20) ? (body!.status as string) : "";
         if (!["pending", "approved", "paid"].includes(status)) return err("validation", "Status must be pending, approved or paid", 400);
         const r = await env.DB.prepare(`UPDATE commission_entries SET status = ?1 WHERE id = ?2`).bind(status, Number(m[1])).run();
@@ -452,7 +452,7 @@ export async function handleErp(
     /* ================= Phase 6 — Ads Fund ================= */
 
     if (path === "/adsfund" && method === "GET") {
-      if (!can(user.role, "adsfund_claim")) return err("forbidden", "No access to the ads fund", 403);
+      if (!canUser(user, "adsfund_claim")) return err("forbidden", "No access to the ads fund", 403);
       const allocs = await env.DB.prepare(
         `SELECT a.*,
                 (SELECT COALESCE(SUM(c.amount_cents), 0) FROM ads_fund_claims c WHERE c.allocation_id = a.id AND c.status = 'approved') AS approved_cents,
@@ -466,7 +466,7 @@ export async function handleErp(
       return json({ allocations: allocs.results ?? [], claims: claims.results ?? [] });
     }
     if (path === "/adsfund" && method === "POST") {
-      if (!can(user.role, "adsfund_manage")) return err("forbidden", "Only management allocates the ads fund", 403);
+      if (!canUser(user, "adsfund_manage")) return err("forbidden", "Only management allocates the ads fund", 403);
       const period = str(body?.period, 7) && /^\d{4}-\d{2}$/.test(body!.period as string) ? (body!.period as string) : null;
       const amount = cents(body?.amount);
       if (!period || amount === null || amount <= 0) return err("validation", "An allocation needs a period (YYYY-MM) and an amount", 400);
@@ -486,7 +486,7 @@ export async function handleErp(
            here was the audit's finding B. Managers record spend directly
            (status approved on insert, budget cap still enforced); staff who
            paid from their own pocket claim through the Claims tab. */
-        if (!can(user.role, "adsfund_manage")) return err("forbidden", "Only management records ads spend — out-of-pocket ads go through the Claims tab", 403);
+        if (!canUser(user, "adsfund_manage")) return err("forbidden", "Only management records ads spend — out-of-pocket ads go through the Claims tab", 403);
         const amount = cents(body?.amount);
         if (amount === null || amount <= 0 || !str(body?.description, 500)) {
           return err("validation", "A claim needs an amount and what it was spent on", 400);
@@ -517,7 +517,7 @@ export async function handleErp(
 
     if (path === "/stock-items" && method === "GET") {
       // v1.20.0 C4: the PO builder's picker — names only, purchasing roles.
-      if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+      if (!canUser(user, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
       const rows = await env.DB.prepare(
         `SELECT id, sku, name, stock FROM inventory_items WHERE status != 'discontinued' ORDER BY name`,
       ).all();
@@ -525,12 +525,12 @@ export async function handleErp(
     }
 
     if (path === "/suppliers" && method === "GET") {
-      if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+      if (!canUser(user, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
       const rows = await env.DB.prepare(`SELECT * FROM suppliers ORDER BY active DESC, name`).all();
       return json({ suppliers: rows.results ?? [] });
     }
     if (path === "/suppliers" && method === "POST") {
-      if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+      if (!canUser(user, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
       if (!str(body?.name, 200)) return err("validation", "The supplier needs a name", 400);
       const res = await env.DB.prepare(
         `INSERT INTO suppliers (name, contact, phone, email, notes) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
@@ -544,7 +544,7 @@ export async function handleErp(
     }
 
     if (path === "/purchase-orders" && method === "GET") {
-      if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+      if (!canUser(user, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
       const rows = await env.DB.prepare(
         `SELECT p.*, s.name AS supplier_name FROM purchase_orders p JOIN suppliers s ON s.id = p.supplier_id
           ORDER BY p.id DESC LIMIT 500`,
@@ -552,7 +552,7 @@ export async function handleErp(
       return json({ pos: rows.results ?? [] });
     }
     if (path === "/purchase-orders" && method === "POST") {
-      if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+      if (!canUser(user, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
       const supplierId = num(body?.supplier_id);
       if (supplierId === null) return err("validation", "Pick a supplier", 400);
       const rawItems = Array.isArray(body?.items) ? (body!.items as Record<string, unknown>[]) : [];
@@ -583,7 +583,7 @@ export async function handleErp(
     {
       const m = /^\/purchase-orders\/(\d+)$/.exec(path);
       if (m && method === "PATCH") {
-        if (!can(user.role, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
+        if (!canUser(user, "purchasing_manage")) return err("forbidden", "No access to purchasing", 403);
         const status = str(body?.status, 20) ? (body!.status as string) : "";
         if (!["draft", "sent", "received", "cancelled"].includes(status)) {
           return err("validation", "Status must be draft, sent, received or cancelled", 400);
@@ -646,12 +646,12 @@ export async function handleErp(
     }
 
     if (path === "/gl/accounts" && method === "GET") {
-      if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
+      if (!canUser(user, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
       const rows = await env.DB.prepare(`SELECT * FROM gl_accounts ORDER BY code`).all();
       return json({ accounts: rows.results ?? [] });
     }
     if (path === "/gl/accounts" && method === "POST") {
-      if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
+      if (!canUser(user, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
       const code = str(body?.code, 10) ? (body!.code as string).trim() : "";
       const name = str(body?.name, 200) ? (body!.name as string).trim() : "";
       const type = str(body?.type, 12) && ["asset", "liability", "equity", "income", "expense"].includes(body!.type as string)
@@ -673,7 +673,7 @@ export async function handleErp(
     /* v1.317.0 (the duplicate-function audit, D-7) - GET /gl/journal and GET
        /gl/trial-balance are the ledger's alone (ledger.ts, handleLedger above) */
     if (path === "/gl/journal" && method === "POST") {
-      if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
+      if (!canUser(user, "accounting_post")) return err("forbidden", "Only the CEO or COO post to the ledger (AC-1)", 403);
       const entryDate = str(body?.entry_date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(body!.entry_date as string)
         ? (body!.entry_date as string) : null;
       const rawLines = Array.isArray(body?.lines) ? (body!.lines as Record<string, unknown>[]) : [];
@@ -746,7 +746,7 @@ export async function handleErp(
     {
       const rv = /^\/gl\/journal\/(\d+)\/reverse$/.exec(path);
       if (rv && method === "POST") {
-        if (!can(user.role, "accounting_post")) return err("forbidden", "Only the CEO or COO reverse a journal entry (AC-1)", 403);
+        if (!canUser(user, "accounting_post")) return err("forbidden", "Only the CEO or COO reverse a journal entry (AC-1)", 403);
         const reason = str(body?.reason, 300) ? (body!.reason as string).trim() : "";
         if (reason.length < 8) return err("validation", "Say why this entry is being reversed (at least 8 characters)", 400);
         const id = Number(rv[1]);

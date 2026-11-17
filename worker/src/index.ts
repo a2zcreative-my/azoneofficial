@@ -107,7 +107,7 @@ export interface Env {
   CF_ZONE_ID?: string;
 }
 
-import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermissionOverrides, PERMS, MANDATORY_2FA_ROLES } from "./permissions";
+import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermissionOverrides, PERMS, MANDATORY_2FA_ROLES, canUser } from "./permissions";
 // v1.23.5: the ONE version number — read from the repo root package.json at
 // bundle time, so worker and site stamps always come from the same place.
 import pkg from "../../package.json";
@@ -122,6 +122,9 @@ interface SessionUser {
   requires_2fa?: boolean;
   /** v1.236.0 - the verified company owner (see getSessionUser) */
   is_owner?: boolean;
+  /** v1.350.0 - the person's ACTIVE custom role key (cr_...), applied by canUser()/allows() */
+  custom_role?: string;
+  custom_role_name?: string;
 }
 
 /* ---------------- crypto: PBKDF2-SHA256 (WebCrypto-native) ---------------- */
@@ -313,7 +316,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0204_staff_positions";
+const LATEST_MIGRATION = "0205_custom_roles";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -1483,8 +1486,12 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
      setup, abandoned immediately, cleared the "you must enrol" flag for good
      while login (which correctly checks totp_enabled) still issued no
      challenge. The two halves now agree on the same column. */
-  const sel = (seen: boolean) => env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.photo_key,
+  /* v1.350.0 - the custom role, only while ACTIVE and standing on the person's current role (CR-4: a
+     deactivated profile, or a role changed in /admin or the role door, falls back to the base role at once) */
+  const sel = (seen: boolean, cr = true) => env.DB.prepare(
+    `SELECT u.id, u.email, u.name, u.role, u.photo_key,${cr ? `
+            (SELECT c.key FROM custom_roles c WHERE c.id = u.custom_role_id AND c.active = 1 AND c.base_role = u.role) AS custom_role,
+            (SELECT c.name FROM custom_roles c WHERE c.id = u.custom_role_id AND c.active = 1 AND c.base_role = u.role) AS custom_role_name,` : ""}
             CASE WHEN COALESCE(u.totp_enabled, 0) = 1 THEN 0 ELSE 1 END AS missing_2fa,
             (SELECT value FROM system_meta WHERE key = 'company_owner') AS owner_meta,
             (SELECT value FROM system_meta WHERE key = 'role_permissions') AS perm_meta${seen ? ",\n            CASE WHEN s.last_seen_at IS NULL OR s.last_seen_at < datetime('now', '-10 minutes') THEN 1 ELSE 0 END AS seen_stale" : ""}
@@ -1495,8 +1502,11 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
      minutes per session (migration 0155); before 0155 the old read. */
   let row: (SessionUser & { missing_2fa: 1 | 0; owner_meta: string | null; perm_meta: string | null; seen_stale?: 1 | 0 }) | null;
   try { row = await sel(true); } catch (e) {
-    if (!/no such column|has no column/.test(String(e))) throw e;
-    row = await sel(false);
+    if (!/no such column|has no column|no such table/.test(String(e))) throw e;
+    try { row = await sel(true, false); } catch (e2) { // before 0205 (custom roles)
+      if (!/no such column|has no column/.test(String(e2))) throw e2;
+      row = await sel(false, false); // before 0155
+    }
   }
   if (!row) return null;
   if (row.seen_stale === 1) {
@@ -1516,7 +1526,9 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
   if (row.role === "ceo" && row.missing_2fa === 0 && row.owner_meta) {
     try { is_owner = Number((JSON.parse(row.owner_meta) as { user_id?: unknown }).user_id) === row.id; } catch { is_owner = false; }
   }
-  return { id: row.id, email: row.email, name: row.name, role: row.role, photo_key: row.photo_key, requires_2fa, ...(is_owner ? { is_owner } : {}) };
+  const cr = (row as { custom_role?: string | null; custom_role_name?: string | null });
+  return { id: row.id, email: row.email, name: row.name, role: row.role, photo_key: row.photo_key, requires_2fa, ...(is_owner ? { is_owner } : {}),
+    ...(cr.custom_role ? { custom_role: cr.custom_role, custom_role_name: cr.custom_role_name ?? cr.custom_role } : {}) };
 }
 
 /**
@@ -1725,7 +1737,7 @@ const ROLE_RANK: Record<Role, number> = {
  * the /admin page gate.
  */
 function isContentTeam(user: SessionUser | null): user is SessionUser {
-  return !!user && can(user.role, "content_manage");
+  return !!user && canUser(user, "content_manage");
 }
 
 function atLeast(user: SessionUser | null, role: Role): user is SessionUser {
@@ -3457,7 +3469,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   if (path === "/api/v1/integrations/tiktok/sync" && method === "POST") {
     const me = await getSessionUser(request, env);
-    if (!me || !can(me.role, "sync_manage")) {
+    if (!me || !canUser(me, "sync_manage")) {
       return errorResponse("forbidden", "Inventory access required", 403);
     }
     const r = await runTikTokSync(env, me.id);
@@ -3594,7 +3606,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      pair always agrees and no domain enters this file. */
   if (path === "/api/v1/integrations/threads/connect" && method === "GET") {
     const me = await getSessionUser(request, env);
-    if (!me || !can(me.role, "threads_manage")) {
+    if (!me || !canUser(me, "threads_manage")) {
       return errorResponse("forbidden", "Management sign-in required", 403);
     }
     if (!threadsConfigured(env)) {
@@ -3634,7 +3646,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
   if (path === "/api/v1/integrations/threads/callback" && method === "GET") {
     const me = await getSessionUser(request, env);
-    if (!me || !can(me.role, "threads_manage")) {
+    if (!me || !canUser(me, "threads_manage")) {
       return errorResponse("forbidden", "Management sign-in required", 403);
     }
     const u = new URL(request.url);
@@ -5138,7 +5150,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      which is the same class of data as /staff/revenue, not the motivational
      shop-wide GMV any staff member may see. */
   if (path === "/api/v1/tiktok-analytics" && method === "GET") {
-    if (!user || !can(user.role, "revenue_view")) {
+    if (!user || !canUser(user, "revenue_view")) {
       return errorResponse("forbidden", "Revenue access required", 403);
     }
     const qDays = Number(new URL(request.url).searchParams.get("days"));
@@ -5719,6 +5731,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0201 (tasks 5.0: the Live Host Report - versions, screenshots, reviews)", `SELECT r.state, v.gmv_cents, f.r2_key, w.action FROM live_reports r, live_report_versions v, live_report_files f, live_report_reviews w LIMIT 0`],
       ["0202 (tasks 5.0: project deliverables to tick and the client acceptance)", `SELECT d.done_at, d.removed_at, a.accepted_on, a.client_name FROM project_deliverables d, project_acceptances a LIMIT 0`],
       ["0204 (staff: the positions list and its kept changes)", `SELECT p.name, p.access_role, p.retired_at, c.action FROM staff_positions p, staff_position_changes c LIMIT 0`],
+      ["0205 (users: custom roles on a base role)", `SELECT c.key, c.base_role, c.active, u.custom_role_id FROM custom_roles c, users u LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -5947,6 +5960,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0202_project_deliverables",
       "0203_journal_append_only",
       "0204_staff_positions",
+      "0205_custom_roles",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -6307,11 +6321,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       // Staff documents (contracts, letters): the owner, HR, or management.
       const mDoc = key.match(/^private\/staff-docs\/(\d+)-/);
       if (mDoc && user.id !== Number(mDoc[1]) &&
-          !can(user.role, "hr_manage") && !can(user.role, "exec_view")) {
+          !canUser(user, "hr_manage") && !canUser(user, "exec_view")) {
         return errorResponse("forbidden", "This document belongs to another staff member", 403);
       }
       // Payroll template: payroll roles only.
-      if (key.startsWith("private/m2e/") && !can(user.role, "payroll_export")) {
+      if (key.startsWith("private/m2e/") && !canUser(user, "payroll_export")) {
         return errorResponse("forbidden", "Payroll access required", 403);
       }
       // v1.9.0 — clock-in selfies: the owner, HR or management only. Any key
@@ -6321,14 +6335,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         const mSelf = key.match(/^private\/attendance\/(\d+)-/);
         const ownerId = mSelf ? Number(mSelf[1]) : NaN;
         if (!Number.isFinite(ownerId) ||
-            (user.id !== ownerId && !can(user.role, "hr_manage") && !can(user.role, "exec_view"))) {
+            (user.id !== ownerId && !canUser(user, "hr_manage") && !canUser(user, "exec_view"))) {
           return errorResponse("forbidden", "This selfie belongs to another staff member", 403);
         }
       }
       // Claim receipts / payment proofs: the claimant, payee, HR, or deciders.
       const mClaim = key.match(/^claims\/(\d+)-/);
-      if (mClaim && !can(user.role, "hr_manage") && !can(user.role, "claims_decide") &&
-          !can(user.role, "exec_view")) {
+      if (mClaim && !canUser(user, "hr_manage") && !canUser(user, "claims_decide") &&
+          !canUser(user, "exec_view")) {
         const owner = await env.DB.prepare(
           `SELECT user_id, payee_user_id FROM claims WHERE id = ?1`,
         ).bind(Number(mClaim[1])).first<{ user_id: number; payee_user_id: number | null }>();
@@ -6708,6 +6722,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
           await env.DB.prepare(`UPDATE users SET role = ?1 WHERE id = ?2`).bind(roleWanted, id).run();
           changed.push("role");
         }
+        /* v1.350.0 - a role set in /admin is a SYSTEM role: any custom role the person held ends here
+           (it would no longer apply anyway - getSessionUser needs the base role to match) */
+        try {
+          const had = await env.DB.prepare(`UPDATE users SET custom_role_id = NULL WHERE id = ?1 AND custom_role_id IS NOT NULL RETURNING id`).bind(id).first();
+          if (had) changed.push("custom_role=cleared");
+        } catch { /* before migration 0205 */ }
       }
     }
     if (typeof body.is_active === "number" || typeof body.is_active === "boolean") {

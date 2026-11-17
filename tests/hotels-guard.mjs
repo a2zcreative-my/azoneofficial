@@ -144,7 +144,7 @@ const { MY_STATES, formatMyPhone, cleanEmail } = await import(pathToFileURL(out)
   ok("the client's tab mirrors the worker", JSON.stringify(rolesOf(tabs, "Hotels")) === JSON.stringify(SIX),
      rolesOf(tabs, "Hotels").join(", "));
   ok("the whole module is behind hotels_view",
-     /if \(!can\(user\.role, "hotels_view"\)\) return err\("forbidden"/.test(src));
+     /if \(!canUser\(user, "hotels_view"\)\) return err\("forbidden"/.test(src));
   ok("every write needs hotels_manage",
      [...src.matchAll(/method === "(POST|PUT|DELETE)"/g)].length >= 3
      && [...src.matchAll(/if \(!manage\) return err\("forbidden"/g)].length >= 3,

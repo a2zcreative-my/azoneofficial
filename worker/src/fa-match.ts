@@ -29,7 +29,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, str } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { isExecutiveOwner } from "./decision-policy";
 import { MY_STATE_NAMES } from "./my-state";
 import { todayMyt, bankerStatus, availabilityNow, bankKey, contactChangedAt } from "./fa-registry";
@@ -76,7 +76,7 @@ export async function handleFaMatch(env: Env, path: string, method: string, b: R
     if (!c || !(await ctx.mayOpen(env, user, c))) return err("forbidden", "Not a case you can open", 403);
     const action = String(b.action ?? "");
     if (action === "approve") {
-      if (!can(user.role, "fa_allocate")) return err("forbidden", "Only the CEO or COO approves an allocation", 403);
+      if (!canUser(user, "fa_allocate")) return err("forbidden", "Only the CEO or COO approves an allocation", 403);
       if (a.created_by === user.id && !isExecutiveOwner(user)) {
         await audit(env, user.id, "auth.self_approval_refused", "fa_allocations", String(a.id), { action: "fa.allocation_approve" });
         return err("self_approval", "You proposed this banker - another manager approves it.", 403);
@@ -91,7 +91,7 @@ export async function handleFaMatch(env: Env, path: string, method: string, b: R
       return json({ ok: true, state: to });
     }
     if (action === "cancel") {
-      if (!(can(user.role, "fa_allocate") || a.created_by === user.id)) return err("forbidden", "The proposer or management cancels an allocation", 403);
+      if (!(canUser(user, "fa_allocate") || a.created_by === user.id)) return err("forbidden", "The proposer or management cancels an allocation", 403);
       const reason = str(b.reason, 300) ? String(b.reason).trim() : "";
       if (reason.length < 5) return err("invalid_input", "Say why (at least 5 characters).", 400);
       if (!ACTIVE.includes(a.state)) return err("invalid_state", "This allocation is not active.", 409);

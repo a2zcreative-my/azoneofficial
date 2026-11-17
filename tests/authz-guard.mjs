@@ -173,7 +173,7 @@ const perms = readFileSync("worker/src/permissions.ts", "utf8");
     if (/PAYROLL_PROC(?:_CB)?\.includes\(user\.role\)/.test(head)) {
       admits = [...PROC];
     } else {
-      const canM = head.match(/can\(user\.role, "([a-z_]+)"\)/);
+      const canM = head.match(/canUser\(user, "([a-z_]+)"\)/);
       if (canM) admits = permSets[canM[1]] ?? [];
     }
     if (admits === null) {

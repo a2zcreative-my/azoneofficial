@@ -10,6 +10,70 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.351.0] - 2026-11-17 - /admin Phase 3: Security & Audit, My Account and Signatures on the portal's pages - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+Phase 3 of the /admin plan the CEO approved (17-11-2026). The tabs now read Overview, Security & Audit and My Account on screen (their keys are unchanged).
+
+### Changed
+- **Security & Audit** (`components/admin/admin-security.tsx`): one underline tab row - **Audit Trail** (the audit register as it was: its strip, filters, register and event details) and **Backups & Errors** (one strip - Nightly Backup, Off-site Copy, Errors (24 h), Database Updates - from `/system/health` and `/system/security`, then the existing System health card with Back up now and the off-site copy). Both views stay mounted.
+- **My Account** (`components/admin/admin-account.tsx`): one strip - Two-Factor (with backup codes left), Google Sign-in, Passkeys ("Not enabled" before the rollout), Recovery Panel ("Ready" only when the server says two members can act) - then the same five panels: Change password beside Two-factor, Google beside Passkeys, and the Executive recovery panel. Each panel saves exactly as before.
+- **Signatures** (`components/admin/signatures-panel.tsx`, rebuilt in place, new `signatures-panel.module.css`): one strip from the vault's own rows (On File n / 10, Missing, Old Files to re-upload, Versions Kept), the two companies side by side with every role's chop, state, Upload and version history, and the vault's three rules once below. Upload (PNG, appends a version), the full-size check and "nothing here deletes" are unchanged; the refusal now says "Super Admin or CEO only" (1.348.0).
+
+### Guards
+- `tests/admin-super-only.mjs` 12 checks, 10 mutations (P4-P6). `tests/ui-system.mjs` finds the System health card in its new /admin home. Browser `tests/browser/admin-console.py` 50/50 (adds the three pages at 1440 and 390).
+
+## [1.350.0] - 2026-11-17 - Custom roles in Roles & Permissions - BUILT, NOT DEPLOYED (MIGRATION 0205, ADDITIVE)
+
+The CEO's brief "A2Z OS - CUSTOM ROLE MANAGEMENT" (17-11-2026), built as option A of `docs/CUSTOM-ROLES-STAGE-0-AUDIT.md` inside the existing Users & Security -> Roles & Permissions tab. No new page, sidebar or tab; the KPI strip and the permission editor are unchanged.
+
+### Added
+- **+ Create Role** (gold) beside the Role Directory heading, for the CEO and the Super Admin only. It opens the **Create Custom Role** drawer on the right: role name, description, base role (HR Admin, Sales & Marketing, Marketing, Editor or Live Host), start permissions from (any role), the module permissions it starts with, a reason, and the note "Protected system roles cannot be deleted. CEO and Super Admin share custom-role management." Saving asks for the authenticator code.
+- A custom role sits in the same Role Directory (Type: Custom, or Deactivated) and opens in the same editor. Its switches are the same cells, saved through the same `POST /staff/access/policy`. Assigned Users gives it through the one role door. Role Details has Edit details, Duplicate, Deactivate / Activate and Delete (Delete asks where the people go: back to the base role or to another custom role on the same base).
+- Server: migration **0205** adds `custom_roles` and `users.custom_role_id` (nothing rebuilt). New routes `/staff/access/custom-roles` (create, duplicate, edit, deactivate/activate, delete). Each needs the `role_custom` permission, held by the CEO and the Super Admin alike, plus a reason and the authenticator code. Each is recorded in the audit history as `role.create`, `role.duplicate`, `role.update`, `role.disable`, `role.enable`, `role.delete` or `role.assign`.
+
+### Changed
+- Every permission check of a signed-in person now goes through `canUser(user, cap)` (512 call sites, mechanical). For someone who holds an active custom role, it reads that role's cells instead of the base role's. It never grants a protected capability: the owner, the backup, the executive and technical doors, or custom-role management itself.
+- A deactivated role sends its holders back to the base role at once. A system role change, in the portal or in /admin, clears a custom role. A custom role whose base no longer matches the person's role is ignored at sign-in.
+- The strip's Edited Permissions figure counts built-in cells only, so a custom role's switches do not inflate it. Total Roles still shows the 10 built-in roles; the Role Directory heading counts every role.
+
+### Known limitations
+- A custom role holder sees the base role's tabs.
+- Approval chains, headcounts and the literal role checks follow the base role.
+- About 14 checks about *other* people (who to notify, who may be picked) read the base role.
+
+### Tests
+- `tests/custom-roles.mjs`: the whole worker against SQLite with every migration, with both CEO and Super Admin. 78 checks and 8 mutations caught.
+- `tests/roles-permissions.mjs`: R6 rewritten. 18 checks and 15 mutations caught.
+- `tests/browser/custom-roles.py`: 50 of 50.
+- `tests/browser/roles-permissions.py`: 44 of 44.
+- matrix-edit, access-policy, owner-access, owner-coverage, role-assign, go-live-g, self-approval, commission5, authz-guard and dashboard-authz all pass. About 50 guards that matched the literal `can(user.role, ` now match `canUser(user, `.
+
+## [1.349.0] - 2026-11-17 - /admin Phase 2: Overview and Users on the portal's pages - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+Phase 2 of the /admin plan the CEO approved (17-11-2026): the Super Admin's Overview and Users, rebuilt on the portal's page concept (TabPage, one KpiRow, WorkspaceSplit/SplitPane, CompactTaskTable, SideDrawer, a CSS Module, tokens only).
+
+### Changed
+- **Overview** (`components/admin/admin-overview.tsx`, replaces the old content counts): one KPI strip - Active Accounts (of all, suspended), Super Admins (how many have 2FA), Last Backup (date and age), Errors (24 h), Database Updates - then Recent Account Activity (the newest audit rows, in words where the action is a known security one) beside the Super Admin Console (where each control lives). Every figure is an existing read (`/users`, `/staff/users`, `/system/health`, `/system/security`, `/dashboard/summary`); a read that fails says "Not available", never a guess.
+- **Users** (`components/admin/admin-users.tsx`, replaces the old two-column panel): one KPI strip (All, Active, Suspended, Staff Without 2FA, Super Admins - each filters the list), the accounts register (search, role, status; name, role, 2FA, status, created) beside the Selected Account (role, two-factor, status, created; Sign out everywhere, Set password, Suspend/Reinstate), Add user in a drawer, and the Company owner card below. Every action is the same request as before (POST /users, PATCH /users/:id, POST /users/:id/revoke-sessions, the authenticator step-up when the server asks, a confirmation before a role change or a suspension); your own account cannot be changed from here. The owner-CEO branches of the old panel are gone (he gives roles in portal Users since 1.348.0).
+
+### Guards
+- `tests/admin-super-only.mjs` 9 checks, 7 mutations (P1-P3: the new pages render, the Overview only reads, Users keeps every action on its route). `tests/role-assign.mjs` reads the new Users file. New browser test `tests/browser/admin-console.py` (34/34: the lock for the admin role and the owner CEO, the Overview's figures, every Users action's request, no overflow at 1440 and 390).
+
+## [1.348.0] - 2026-11-17 - /admin is the Super Admin's console only (Phase 1: access and retirements) - BUILT, NOT DEPLOYED (NO MIGRATION; WORKER CHANGE)
+
+The CEO: "make sure that /Admin are totally super admin control in the system which is secured!" His decisions on the per-tab review (17-11-2026): the owner's role-giving moves to portal Users; the admin role loses /admin; the website editor stays in /admin for the super admin; Enquiries is retired.
+
+### Changed
+- **Who opens /admin**: role `super_admin` only. The company-owner CEO and the `admin` role now go to /portal (the owner gives and takes roles in portal Users → Staff Accounts → Change role, under the same server rule, `roleChangeRule`, with a reason and the authenticator code); a customer goes to /account.
+- **Retired tabs**: Enquiries (contact-form messages reach Sales → Customers & Follow-ups since v1.216.0; the website form keeps working) and Staff (the directory, leave list and holidays live in the portal's Staff, Leave and HR → Calendar).
+- **Signatures** is its own tab: the officer signature and company-stamp vault, which exists nowhere else.
+- **/admin/permissions** is retired: it showed the built-in defaults, not the matrix the system enforces. Old links open portal Users → Roles & Permissions.
+- **Server**: the website content (website text, posts, portfolio, testimonials, media, content keys, the console summary) is refused to every role but `super_admin` (`content_manage`), and the signature vault (upload and read) no longer admits the `admin` role (the CEO keeps his rule).
+- /admin now has 10 tabs: Dashboard, Website, Portfolio, Testimonials, Posts, Media, Advanced, Users, Signatures, Audit, Account. The approved plan merges the six website tabs into one Website Content tab and restyles every tab on the portal's pages in Phases 2–4.
+
+### Guards
+- New `tests/admin-super-only.mjs` (6 checks, 4 mutations). `tests/shell-scroll.mjs` drops the retired permissions page.
+
 ## [1.347.0] - 2026-11-17 - Agents redesigned on the CEO's four references (Overview, Requests, Agents, Packages) - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
 
 The CEO, with four reference pictures: "A2Z OS - AGENTS MODULE UI REDESIGN". The Sales & management side of the Agents tab is rebuilt - the old header card, tile row, "Latest updates" table, agent cards and package cards are gone - each tab on its own reference layout, from the shared components only. The agent's own portal, the request drawer, the submit form, the update form, every route, permission, workflow step and commission rule are unchanged.

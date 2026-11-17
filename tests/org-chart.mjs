@@ -180,7 +180,7 @@ const P = (id, role, reports_to = null, employment_status = "permanent") =>
        "the CEO said he assigns it himself, and named who else may");
   }
   ok("the route is behind org_assign",
-     /if \(!can\(user\.role, "org_assign"\)\)[\s\S]{0,160}?403\)/.test(staff));
+     /if \(!canUser\(user, "org_assign"\)\)[\s\S]{0,160}?403\)/.test(staff));
   ok("the client passes the viewer's role in", /role=\{user\.role\}/.test(read("app/portal/page.tsx")));
   ok("the client hides the control it may not use",
      /canAssign=\{canAssign && !readOnly\}/.test(directory) && /ORG_ASSIGN_ROLES\.includes\(role\)/.test(directory));

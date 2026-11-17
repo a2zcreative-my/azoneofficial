@@ -4,7 +4,16 @@
 
 **Also asked:** *"If backend/schema changes are required, report them for approval instead of improvising security changes."*
 
-**Status:** nothing built. **Every decision below waits for the owner.**
+**Status:** BUILT in v1.350.0 (not deployed), on the CEO's brief "A2Z OS - CUSTOM ROLE MANAGEMENT" (17-11-2026), option **A**. As built:
+- CR-1: model A. The profile's cells live in the same `system_meta.role_permissions` record as a `cr_<slug>` column, not a `caps_json` field. One matrix, one editor.
+- CR-2: per the brief, the **CEO and the Super Admin** have identical access (`role_custom`, any CEO-role account). Each change needs a reason and the authenticator code.
+- CR-3: as recommended. `CUSTOM_FORBIDDEN` = the locked cells, OWNER_GRANTS, TECHNICAL_ONLY and `role_custom`.
+- CR-4: as recommended.
+- CR-5: per the brief, delete is allowed once nobody holds the role. When people hold it, they must first be reassigned (to the base role or to another custom role on the same base). The audit history stays.
+- CR-6: as recommended.
+- CR-7: as recommended.
+
+See CHANGELOG 1.350.0.
 
 ## 1. What is fixed today
 

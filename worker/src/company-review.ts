@@ -1,6 +1,6 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { err, json, str } from "./shared";
 import { COMPANY_CODES, COMPANY_NAMES, REVIEW_KINDS, isCompanyCode, type ReviewKind, type ReviewRecord, type ReviewDecision, type CompanyMembership } from "../../lib/company-review";
 
@@ -93,7 +93,7 @@ function auditStatement(env: Env, user: StaffUser, kind: string, id: number, req
 }
 
 export async function handleCompanyReview(env: Env, url: URL, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser): Promise<Response> {
-  if (!can(user.role, "company_review")) return err("forbidden", "Company review requires CEO authorization", 403);
+  if (!canUser(user, "company_review")) return err("forbidden", "Company review requires CEO authorization", 403);
   try {
     // Migration absence is not an empty queue.
     await env.DB.prepare(`SELECT record_id FROM company_review_decisions LIMIT 1`).first();

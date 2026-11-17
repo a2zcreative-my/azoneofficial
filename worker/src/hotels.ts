@@ -35,7 +35,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { handleHotelPipeline, isDue, STAGES } from "./hotel-pipeline"; // v1.110.0, re-spoken v1.111.0
 
 /** The workbook's fifteen sheet names, in the workbook's own order. The
@@ -141,8 +141,8 @@ export async function handleHotels(
   user: StaffUser,
   params: URLSearchParams,
 ): Promise<Response | null> {
-  if (!can(user.role, "hotels_view")) return err("forbidden", "No access to the hotel directory", 403);
-  const manage = can(user.role, "hotels_manage");
+  if (!canUser(user, "hotels_view")) return err("forbidden", "No access to the hotel directory", 403);
+  const manage = canUser(user, "hotels_manage");
 
   try {
     /* ---- v1.110.0 - the pipeline: calls, client link, stage, the due list.

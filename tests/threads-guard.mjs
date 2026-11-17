@@ -117,7 +117,7 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
     ok(`${name} needs threads_manage`, /if \(!manage\) return err\("forbidden"/.test(after(m, 400)), "a viewer could act on the credential");
   }
   ok("connecting is audited too", /audit\(env, actorId, "threads\.connected"/.test(threads));
-  ok("the whole module is behind threads_view", /if \(!can\(user\.role, "threads_view"\)\) return err\("forbidden"/.test(threads));
+  ok("the whole module is behind threads_view", /if \(!canUser\(user, "threads_view"\)\) return err\("forbidden"/.test(threads));
   ok("both permissions exist in the matrix", /threads_view:/.test(perms) && /threads_manage:/.test(perms));
   ok("threads_manage is a subset of threads_view", (() => {
     const v = perms.match(/threads_view: \[([^\]]*)\]/)?.[1] ?? "";
@@ -243,7 +243,7 @@ ok("the module exists", threads.length > 2000, "worker/src/threads.ts is missing
   ok("connect and callback derive the same URI", /allowedOrigins\(env\)\.includes\(origin\) \? origin : primaryOrigin\(env\)/.test(connect)
      && /allowedOrigins\(env\)\.includes\(origin\) \? origin : primaryOrigin\(env\)/.test(callback));
   ok("the state cookie is checked on the way back", /state !== cookieState/.test(callback));
-  ok("both routes need a management session", /can\(me\.role, "threads_manage"\)/.test(connect) && /can\(me\.role, "threads_manage"\)/.test(callback));
+  ok("both routes need a management session", /canUser\(me, "threads_manage"\)/.test(connect) && /canUser\(me, "threads_manage"\)/.test(callback));
 }
 
 /* ---- 5. work is budgeted ----

@@ -66,7 +66,7 @@ ok("no social links and no invented copy", !/facebook|instagram|tiktok|youtube|l
 /* ---- 3. the staff check ---- */
 const rawStaff = read("worker/src/staff.ts");
 const route = rawStaff.slice(rawStaff.indexOf('if (path === "/cards/profile-check" && method === "GET") {'), rawStaff.indexOf("/* ---- announcements ----"));
-ok("the staff check is management-only", /if \(!can\(user\.role, "exec_view"\)\) return err\("forbidden"/.test(route));
+ok("the staff check is management-only", /if \(!canUser\(user, "exec_view"\)\) return err\("forbidden"/.test(route));
 ok("...reads four fields of the three officers, nothing else", /SELECT role, COALESCE\(NULLIF\(TRIM\(full_name\), ''\), name\) AS name, position, phone,\s*CASE WHEN photo_key/.test(route)
    && !/ic_number|bank_|address|employee_id|email|birthday|epf|socso|tax_no|emergency/.test(route) && /role IN \('ceo', 'coo', 'cco'\)/.test(route));
 ok("...and writes nothing", route.length > 100 && !/\b(INSERT|UPDATE|DELETE)\b/.test(route));

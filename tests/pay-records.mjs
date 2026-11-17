@@ -97,7 +97,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
 {
   const patch = route(staff, 'if (path === "/attendance/unpaid" && method === "PATCH") {');
   ok("B1. the edit route exists", patch.length > 0);
-  ok("B1. CEO only (unpaid_leave)", /if \(!can\(user\.role, "unpaid_leave"\)\)/.test(patch));
+  ok("B1. CEO only (unpaid_leave)", /if \(!canUser\(user, "unpaid_leave"\)\)/.test(patch));
   ok("B1. only a day the company recorded is read", /l\.type = 'unpaid' AND l\.recorded_direct = 1 AND l\.status = 'approved'/.test(patch));
   ok("B1. ...and only such a row is written", /WHERE id = \?1 AND type = 'unpaid' AND recorded_direct = 1/.test(patch));
   ok("B1. the released month is checked at both ends of a move",
@@ -114,7 +114,7 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const drill = route(staff, 'if (path === "/dashboard/attendance-today" && method === "GET") {');
   ok("C1. the drill-down route exists", drill.length > 0);
   ok("C1. gated like the donut (hr_manage or exec_view)",
-    /if \(!can\(user\.role, "hr_manage"\) && !can\(user\.role, "exec_view"\)\)/.test(drill));
+    /if \(!canUser\(user, "hr_manage"\) && !canUser\(user, "exec_view"\)\)/.test(drill));
   /* v1.307.0 - Attendance 4.0 (A-1, A-5): on time / late is the day verdict -
      each person's own start plus the dated grace - for the names AND the
      donut's counts, read from the same attendanceDay (the same people) */

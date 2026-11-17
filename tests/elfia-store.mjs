@@ -205,7 +205,7 @@ report(source());
 const MUT = [
   ["worker/src/permissions.ts", "Marketing may publish and price again", 'elfia_publish: ["super_admin", "ceo", "coo"],', 'elfia_publish: ["super_admin", "ceo", "coo", "cco", "marketing", "sales_marketing"],'],
   ["worker/src/staff.ts", "a price under the discount is accepted", "if (d > 0 && nextBase > 0 && d >= nextBase) {", "if (false) {"],
-  ["worker/src/staff.ts", "the discount gate is dropped", 'if (hasDiscount && !can(user.role, "elfia_publish"))', "if (false)"],
+  ["worker/src/staff.ts", "the discount gate is dropped", 'if (hasDiscount && !canUser(user, "elfia_publish"))', "if (false)"],
   ["worker/src/index.ts", "the feed read is not recorded", "env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('elfia_feed_last_read', strftime('%Y-%m-%d %H:%M:%f', 'now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value`),", ""],
   ["worker/src/staff.ts", "waiting ignores the store's read", "const waiting = [...changed].filter(([, at]) => !lastRead || at >= lastRead.slice(0, 19))", "const waiting = [...changed].filter(() => false)"],
   ["worker/src/staff.ts", "Restore accepts any key", 'if (!known) return err("invalid_input", "That photo is not in this product\'s history", 400);', ""],

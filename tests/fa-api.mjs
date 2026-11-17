@@ -266,7 +266,7 @@ const MUT = [
   [F, "the IC stored whole", [["const maskIc = (d: string) => `••••••-••-${d.slice(-4)}`;", "const maskIc = (d: string) => d;"]]],
   [F, "a banker may approve", [["const BANKER_STATUS = [\"enquiry_sent\",", "const BANKER_STATUS = [\"officially_approved\", \"enquiry_sent\","]]],
   [F, "a decision without evidence", [["      if (!ev) return err(\"evidence_required\"", "      if (false) return err(\"evidence_required\""]]],
-  [F, "Sales verifies criteria", [["    if (!can(user.role, \"fa_criteria\")) return err(\"forbidden\", \"Only management verifies bank criteria\", 403);", ""]]],
+  [F, "Sales verifies criteria", [["    if (!canUser(user, \"fa_criteria\")) return err(\"forbidden\", \"Only management verifies bank criteria\", 403);", ""]]],
   [F, "the agreement gate open", [['if (sub === "agreement" && method === "POST") {', "if (false) {"]]],
   ["worker/src/fa-templates.ts", "a fee billed from the case", [['if (!d || !usable(d)) {', "if (false) {"]]], // v1.302.0 - the fee route lives in fa-templates.ts
   [F, "a duplicate client by phone", [["      if (hit) return json(", "      if (false) return json("]]],

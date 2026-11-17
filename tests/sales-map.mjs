@@ -85,7 +85,7 @@ const S = await import(pathToFileURL(out).href);
 /* the aggregator, with shared/permissions stubbed so only the pure parts load */
 const { writeFileSync } = await import("node:fs");
 writeFileSync(join(dir, "shared.js"), `export function json(d, s = 200) { return new Response(JSON.stringify(d), { status: s }); } export function err(c, m, s) { return json({ error: { code: c, message: m } }, s); }`);
-writeFileSync(join(dir, "permissions.js"), `export function can(role) { return role === "ceo"; }`);
+writeFileSync(join(dir, "permissions.js"), `export function can(role) { return role === "ceo"; } export function canUser(u) { return !!u && u.role === "ceo"; }`);
 writeFileSync(join(dir, "sales-map.ts"), src.replace('from "./shared"', `from "${stubUrl(join(dir, "shared.js"))}"`).replace('from "./permissions"', `from "${stubUrl(join(dir, "permissions.js"))}"`).replace('from "./my-state"', `from "${importPath(join(root, "worker/src/my-state.ts"))}"`));
 const out2 = join(dir, "sales-map.mjs");
 execSync(`npx esbuild "${join(dir, "sales-map.ts")}" --bundle --format=esm --platform=neutral --external:*/shared.js --external:*/permissions.js --outfile="${out2}" --log-level=error`, { cwd: root, stdio: "inherit" });
@@ -172,7 +172,7 @@ const M = await import(pathToFileURL(out2).href);
 
 /* ---- 5. the wiring ---- */
 {
-  ok("the route is behind revenue_view", /can\(user\.role, "revenue_view"\)/.test(src));
+  ok("the route is behind revenue_view", /canUser\(user, "revenue_view"\)/.test(src));
   ok("...and has a door in staff.ts", /path === "\/sales\/map" && method === "GET"/.test(staff) && /handleSalesMap\(env, user/.test(staff));
   ok("orders count only when the portal saw them paid, at the booked amount", /FROM web_orders WHERE paid_seen_at IS NOT NULL/.test(src) && /COALESCE\(booked_cents, total_cents\)/.test(src),
      "revenue on the map must be the revenue Finance shows");

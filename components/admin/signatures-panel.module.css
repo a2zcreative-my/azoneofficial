@@ -1,0 +1,175 @@
+/* v1.351.0 - THE SIGNATURE VAULT ON THE PORTAL'S PAGES (Phase 3 of the /admin
+   plan). Tokens only; the chop plate stays white in both themes - the scans
+   are navy ink on transparency. */
+
+.page { min-width: 0; }
+
+.rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: visible;
+  flex-shrink: 0;
+}
+.row {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem 0.875rem;
+}
+.row + .row { border-top: 1px solid var(--border); }
+.rowMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+.role {
+  flex: 0 0 7rem;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: var(--type-body-size);
+  font-weight: 600;
+}
+.state { display: inline-flex; flex: 1 1 8rem; min-width: 0; }
+.acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.upload { position: relative; cursor: pointer; }
+.upload[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.file {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.linkBtn {
+  min-height: 2rem;
+  padding: 0 0.25rem;
+  border: 0;
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--type-caption-size);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.linkBtn:focus-visible, .chop:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.history {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+.history li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.hash { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
+
+/* the chop: a white plate at a size where the handwriting is legible (v1.130.0) */
+.chop {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--brand-background);
+  cursor: zoom-in;
+}
+.chop:hover { border-color: var(--brand-primary); }
+.chopImg {
+  display: block;
+  width: auto;
+  height: 3.5rem;
+  max-width: 10rem;
+  object-fit: contain;
+}
+.skChop { width: 4rem; height: 3.5rem; }
+.skChip { width: 7rem; height: 1.25rem; }
+
+/* full size, to hold against the paper */
+.zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--brand-primary) 80%, transparent);
+}
+.zoomPlate {
+  max-width: 100%;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 1rem;
+  border-radius: var(--radius-overlay);
+  background: var(--brand-background);
+}
+.zoomImg { display: block; width: auto; max-height: 60vh; object-fit: contain; }
+.zoomText {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 32rem;
+  color: var(--brand-background);
+  font-size: var(--type-caption-size);
+  text-align: center;
+}
+.zoomText p { margin: 0; }
+.zoomTitle { font-size: var(--type-body-size); font-weight: 600; }
+.zoomText .zoomHint { margin-top: 0.5rem; opacity: 0.8; }
+
+.warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+  border-radius: var(--radius-control);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: var(--type-caption-size);
+  font-weight: 500;
+}
+
+.rules {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 1rem 1.25rem 1rem 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card, var(--radius-control));
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: var(--type-body-sm-size);
+}
+
+@media (max-width: 767px) {
+  .role { flex-basis: 100%; }
+  .acts { margin-left: 0; }
+}

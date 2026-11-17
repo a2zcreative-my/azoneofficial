@@ -162,8 +162,8 @@ report(source());
 const MUT = [
   ["worker/src/permissions.ts", "the Admin account marks paid again", 'invoice_payment: ["super_admin", "ceo", "coo"],', 'invoice_payment: ["super_admin", "admin", "ceo", "coo"],'],
   ["worker/src/permissions.ts", "the Admin account releases payslips again", 'payroll_release: ["super_admin", "ceo", "coo"],', 'payroll_release: ["super_admin", "admin", "ceo", "coo"],'],
-  ["worker/src/staff.ts", "the bank-run check is dropped", 'if (!can(user.role, "bank_run")) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);', ""],
-  ["worker/src/staff.ts", "the release check is dropped (policy no longer = enforcement)", 'if (!can(user.role, "payroll_release")) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);', ""],
+  ["worker/src/staff.ts", "the bank-run check is dropped", 'if (!canUser(user, "bank_run")) return err("forbidden", "Only the CEO, COO or super admin records the payroll bank run", 403);', ""],
+  ["worker/src/staff.ts", "the release check is dropped (policy no longer = enforcement)", 'if (!canUser(user, "payroll_release")) return err("forbidden", "Only the CEO, COO or super admin releases payslips", 403);', ""],
   ["worker/src/staff.ts", "a hollow exception is accepted", 'if (mode === "allow" && TAB_READ[tabName] && !TAB_READ[tabName]!(target.role)) {', "if (false) {"],
   ["worker/src/staff.ts", "an exception without a reason is accepted", 'if ((mode === "allow" || mode === "deny") && reasonX.length < 10)', "if (false)"],
   ["worker/src/staff.ts", "an ended exception keeps applying", "const liveEx = (p: PersonAccess, tab: string) => { const e = p.meta?.[tab]?.expires_on; return !e || e >= todayTA; };", "const liveEx = (_p: PersonAccess, _tab: string) => true;"],

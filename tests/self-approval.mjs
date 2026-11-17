@@ -280,7 +280,7 @@ const MUT = [
   ["worker/src/claim-chain.ts", "buttons offered on one's own claim", [['const decider = !(own || payee) && (chain', "const decider = (chain"]]],
   ["worker/src/claim-chain.ts", "the Super Admin a claim decider again", [['const DECIDERS = ["ceo"];', 'const DECIDERS = ["ceo", "super_admin"];']]],
   ["worker/src/permissions.ts", "the Super Admin given claims_decide again", [['claims_decide: ["ceo"]', 'claims_decide: ["super_admin", "ceo"]']]],
-  [S, "the CEO's own claim open to any decider", [['claimIsCeoOwn(r) ? user.role === "coo" : can(user.role, "claims_decide")', 'can(user.role, "claims_decide") || user.role === "coo"']]],
+  [S, "the CEO's own claim open to any decider", [['claimIsCeoOwn(r) ? user.role === "coo" : canUser(user, "claims_decide")', 'canUser(user, "claims_decide") || user.role === "coo"']]],
 ];
 for (const [file, name, reps] of NOMUT ? [] : MUT) {
   n++;

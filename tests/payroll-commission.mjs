@@ -66,7 +66,7 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
   /* v1.311.0 (Commission 5.0, K-3, approved 15-11-2026) - the CEO owner alone confirms Paid; the COO no longer does */
   ok("the CEO confirms by default - nobody else (not the COO, not the super admin)", /confirm_paid: \["ceo"\],/.test(readFileSync(join(root, "worker/src/permissions.ts"), "utf8"))); // v1.237.0 - PERMS.confirm_paid, editable by the owner
   const c = between(staffCode, "const confirmPaid = path.match(", "const confirmRevoke = path.match(");
-  ok("the route is gated on that role AND the verified owner", /if \(!\(can\(user\.role, "confirm_paid"\) && user\.is_owner === true\)\) return err\("forbidden"/.test(c));
+  ok("the route is gated on that role AND the verified owner", /if \(!\(canUser\(user, "confirm_paid"\) && user\.is_owner === true\)\) return err\("forbidden"/.test(c));
   /* v1.216.2 - the owner: "CEO can self-confirm"; the COO and super admin still cannot */
   ok("only the CEO confirms their own sale", /const SELF_CONFIRM_ROLES = \["ceo"\];/.test(staffCode)
      && /const selfConfirm = inv\.salesperson_id === user\.id;\s*if \(selfConfirm && !SELF_CONFIRM_ROLES\.includes\(user\.role\)\) return err\("forbidden"/.test(c));
@@ -80,7 +80,7 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
   ok("audited", /await audit\(env, user\.id, "invoice\.paid_confirm", "sales_documents"/.test(c));
   const r = between(staffCode, "const confirmRevoke = path.match(", "/* ---- notifications ---- */");
   ok("taking it back: the same roles, a reason, a stamp, audited",
-     /if \(!\(can\(user\.role, "confirm_paid"\) && user\.is_owner === true\)\) return err\("forbidden"/.test(r) && /if \(reason\.length < 10\) return err\("invalid_input"/.test(r)
+     /if \(!\(canUser\(user, "confirm_paid"\) && user\.is_owner === true\)\) return err\("forbidden"/.test(r) && /if \(reason\.length < 10\) return err\("invalid_input"/.test(r)
      && /UPDATE invoice_paid_confirmations SET revoked_at = datetime\('now'\), revoked_by = \?2, revoke_reason = \?3/.test(r)
      && /"invoice\.paid_confirm_revoke"[\s\S]{0,80}automatic: false/.test(r));
 }
@@ -95,14 +95,14 @@ ok("a confirmation is never deleted", !/DELETE FROM invoice_paid_confirmations/i
   ok("an invoice whose total changed loses a confirmation for a different amount",
      /if \(docE\.doc_type === "INV"\) await revokePaidConfirmation\(env, Number\(idE\), user\.id, "Invoice total changed after the confirmation", totalE\);/.test(staffCode));
   ok("GET /docs says which invoices are confirmed and who may confirm",
-     /r\.paid_confirmed_at = c\.confirmed_at; r\.paid_confirmed_by = c\.by_name;/.test(staffCode) && /can_confirm_paid: can\(user\.role, "confirm_paid"\)/.test(staffCode));
+     /r\.paid_confirmed_at = c\.confirmed_at; r\.paid_confirmed_by = c\.by_name;/.test(staffCode) && /can_confirm_paid: canUser\(user, "confirm_paid"\)/.test(staffCode));
 }
 
 /* ---- 4. payroll reads, never writes ---- */
 {
   const src = between(staffCode, 'if (path === "/payroll/commission-sources" && method === "GET") {', 'if (path === "/payroll/pull-commission"');
   ok("commission-sources is the payroll processors' read of live confirmations",
-     /if \(!can\(user\.role, "payroll_process"\)\) return err\("forbidden"/.test(src) && /WHERE c\.revoked_at IS NULL AND strftime\('%Y-%m', c\.confirmed_at, '\+8 hours'\) = \?1/.test(src));
+     /if \(!canUser\(user, "payroll_process"\)\) return err\("forbidden"/.test(src) && /WHERE c\.revoked_at IS NULL AND strftime\('%Y-%m', c\.confirmed_at, '\+8 hours'\) = \?1/.test(src));
   /* v1.224.0 (the owner's Commission answers, 29-10-2026): it now also names
      the approved policy and what each invoice earned in the commission
      ledger, and - with the owner's payroll switch on - lets the ledger give

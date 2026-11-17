@@ -40,7 +40,7 @@
  */
 
 import type { Env } from "./index";
-import { can } from "./permissions";
+import { can, canUser, type PermSubject } from "./permissions";
 import { leaveSeesAll } from "./leave-chain";
 import { claimReadsAll, claimScope } from "./claims-scope";
 
@@ -87,20 +87,22 @@ const DIGITS = (col: string) =>
 
 /** Which sources this role may search - one rule per source, the SAME rule
     the source's own tab and routes use. Exported so the guard can compare. */
-export function sourcesFor(role: string): string[] {
+/* v1.350.0 - a signed-in person is passed whole, so an active custom role decides (canUser) */
+export function sourcesFor(who: string | PermSubject): string[] {
+  const has = (c: Parameters<typeof can>[1]) => (typeof who === "string" ? can(who, c) : canUser(who, c));
   const out: string[] = [];
-  if (can(role, "hotels_view")) out.push("hotel", "contact");
-  if (can(role, "hr_manage") || can(role, "exec_view")) out.push("staff");
-  if (can(role, "revenue_view")) out.push("client");
-  if (can(role, "sales") || can(role, "exec_view")) out.push("document");
+  if (has("hotels_view")) out.push("hotel", "contact");
+  if (has("hr_manage") || has("exec_view")) out.push("staff");
+  if (has("revenue_view")) out.push("client");
+  if (has("sales") || has("exec_view")) out.push("document");
   /* v1.183.0 - "order" (web_orders, the Web Orders tab) retired with the tab */
-  if (can(role, "inventory")) out.push("stock");
-  if (can(role, "hr_manage") || can(role, "exec_view")) out.push("asset");
+  if (has("inventory")) out.push("stock");
+  if (has("hr_manage") || has("exec_view")) out.push("asset");
   out.push("task"); // everyone: their own; managers: all
   /* v1.205.0 - invoices are sales documents: the documents' rule */
-  if (can(role, "sales") || can(role, "exec_view")) out.push("invoice");
+  if (has("sales") || has("exec_view")) out.push("invoice");
   out.push("leave"); // everyone: their own; the HR tier and the approvers: all (leaveSeesAll)
-  if (can(role, "claims_submit")) out.push("claim"); // GET /claims refuses anyone else; the scope is claimScope
+  if (has("claims_submit")) out.push("claim"); // GET /claims refuses anyone else; the scope is claimScope
   return out;
 }
 
@@ -112,7 +114,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
   /* v1.205.0 - `only` NARROWS: a source it names that this role may not
      search stays out, because the set starts from sourcesFor(). */
   const only = (params.get("only") ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-  const allowed = new Set(sourcesFor(user.role).filter((k) => only.length === 0 || only.includes(k)));
+  const allowed = new Set(sourcesFor(user).filter((k) => only.length === 0 || only.includes(k)));
   const per = Math.min(PER_SOURCE_MAX, Math.max(1, Math.floor(Number(params.get("per"))) || PER_SOURCE));
 
   type Row = Record<string, string | number | null>;
@@ -218,7 +220,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
     });
   }
   /* tasks: managers search every task; everyone else, their own */
-  const allTasks = can(user.role, "team_manage");
+  const allTasks = canUser(user, "team_manage");
   if (allowed.has("task")) stmts.push({
     kind: "task",
     stmt: env.DB.prepare(
@@ -251,7 +253,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
   /* v1.205.0 - claims: the GET /claims scope itself (claimScope). The amount
      is not returned: a figure stays on the claim, behind its own screen. */
   if (allowed.has("claim")) {
-    const allClaims = claimReadsAll(user.role, can(user.role, "claims_decide")); // v1.310.0 - the Super Admin keeps its read-only view
+    const allClaims = claimReadsAll(user.role, canUser(user, "claims_decide")); // v1.310.0 - the Super Admin keeps its read-only view
     const scope = claimScope(user.role, allClaims, true, "?2");
     const match = `(u.name LIKE ?1 ESCAPE '\\' OR u.full_name LIKE ?1 ESCAPE '\\' OR c.description LIKE ?1 ESCAPE '\\' OR c.category LIKE ?1 ESCAPE '\\')`;
     stmts.push({

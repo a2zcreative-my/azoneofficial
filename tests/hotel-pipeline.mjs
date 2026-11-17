@@ -82,7 +82,7 @@ export function json(data, status = 200) { return new Response(JSON.stringify(da
 export function err(code, message, status) { return json({ error: { code, message } }, status); }
 export async function audit(env, userId, action, table, id, meta) { audits.push({ userId, action, table, id, meta }); }
 `);
-writeFileSync(join(dir, "permissions.js"), `export function can(role, perm) { return role === "ceo"; }`);
+writeFileSync(join(dir, "permissions.js"), `export function can(role, perm) { return role === "ceo"; } export function canUser(u, perm) { return !!u && u.role === "ceo"; }`);
 const rewritten = src
   .replace('from "./shared"', `from "${stubUrl(join(dir, "shared.js"))}"`)
   .replace('from "./permissions"', `from "${stubUrl(join(dir, "permissions.js"))}"`);

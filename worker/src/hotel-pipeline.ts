@@ -33,7 +33,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 
 export const STAGES = ["lead", "contacted", "agreed", "reviewed", "published", "declined"] as const;
 export type Stage = (typeof STAGES)[number];
@@ -84,7 +84,7 @@ export async function handleHotelPipeline(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams,
 ): Promise<Response | null> {
   void params;
-  const manage = can(user.role, "hotels_manage");
+  const manage = canUser(user, "hotels_manage");
   const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
   /* ---- the pipeline view: counts by stage and state, the due list ---- */

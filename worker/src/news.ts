@@ -23,7 +23,7 @@
  * /staff/*. */
 import type { Env } from "./index";
 import { json, err, audit, putGuarded, str } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 
 export const ANN_CATS = ["news", "meeting", "holiday", "kpi", "training", "memo"] as const;
 const FILE_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
@@ -49,7 +49,7 @@ export async function viewerOf(env: Env, user: { id: number; role: string }): Pr
   const u = await env.DB.prepare(`SELECT department, joined_on FROM users WHERE id = ?1`).bind(user.id)
     .first<{ department: string | null; joined_on: string | null }>();
   const joined = u?.joined_on && /^\d{4}-\d{2}-\d{2}$/.test(u.joined_on) ? u.joined_on : null;
-  return { manager: can(user.role, "team_manage"), dept: u?.department?.trim() || null, joined };
+  return { manager: canUser(user, "team_manage"), dept: u?.department?.trim() || null, joined };
 }
 
 /** The people a post is for, today: current, active staff in its audience,
@@ -171,7 +171,7 @@ export async function handleNews(
 
   /* ---- publish: management only; the publisher is the person signed in ---- */
   if (path === "/announcements" && method === "POST") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Management access required", 403);
     const r = await readFields(env, body ?? {}, false);
     if (!r.ok) return r.res;
     const f = r.f;
@@ -196,7 +196,7 @@ export async function handleNews(
 
   /* ---- edit: management; a change of words is a new version ---- */
   if (one && method === "PATCH") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Management access required", 403);
     const id = Number(one[1]);
     const cur = await env.DB.prepare(
       `SELECT id, title, body, category, to_line, memo_date, important, pinned, audience, version, created_by, created_at FROM announcements WHERE id = ?1`,
@@ -273,7 +273,7 @@ export async function handleNews(
   /* ---- who has acknowledged: management, read-only ---- */
   const acks = path.match(/^\/announcements\/(\d+)\/acks$/);
   if (acks && method === "GET") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Management access required", 403);
     const post = await env.DB.prepare(`SELECT id, title, version, created_by, created_at, audience FROM announcements WHERE id = ?1`)
       .bind(Number(acks[1])).first<{ id: number; title: string; version: number; created_by: number | null; created_at: string; audience: string | null }>();
     if (!post) return err("not_found", "Announcement not found", 404);
@@ -292,7 +292,7 @@ export async function handleNews(
 
   /* ---- the report: every post's completion, management, read-only ---- */
   if (path === "/announcements/report" && method === "GET") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Management access required", 403);
     const { results: posts } = await env.DB.prepare(
       `SELECT a.id, a.title, a.category, a.version, a.created_by, a.created_at, a.audience, a.important, a.pinned,
               COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS publisher_name
@@ -321,7 +321,7 @@ export async function handleNews(
   /* ---- attachments: management uploads; whoever may read the post downloads ---- */
   const filesM = path.match(/^\/announcements\/(\d+)\/files$/);
   if (filesM && method === "POST") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Management access required", 403);
     const id = Number(filesM[1]);
     const post = await env.DB.prepare(`SELECT id FROM announcements WHERE id = ?1`).bind(id).first<{ id: number }>();
     if (!post) return err("not_found", "Announcement not found", 404);
@@ -360,7 +360,7 @@ export async function handleNews(
     } });
   }
   if (fileOne && method === "DELETE") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Management access required", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Management access required", 403);
     const f = await env.DB.prepare(`SELECT id, r2_key, filename FROM announcement_files WHERE id = ?1 AND announcement_id = ?2 AND removed_at IS NULL`)
       .bind(Number(fileOne[2]), Number(fileOne[1])).first<{ id: number; r2_key: string; filename: string }>();
     if (!f) return err("not_found", "File not found", 404);

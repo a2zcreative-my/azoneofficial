@@ -22,7 +22,7 @@
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { err, json } from "./shared";
 import { cashExceptionsFor } from "./cashbook";
 
@@ -259,7 +259,7 @@ export async function handleLedger(env: Env, path: string, method: string, user:
   const owned = ["/gl/overview", "/gl/month-end", "/gl/ledger", "/gl/pnl", "/gl/journal", "/gl/trial-balance"].includes(path)
     || /^\/gl\/journal\/\d+$/.test(path);
   if (!owned) return null;
-  if (!can(user.role, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
+  if (!canUser(user, "accounting_manage")) return err("forbidden", "No access to accounting", 403);
   const today = mytToday();
   const book = await loadBook(env);
 

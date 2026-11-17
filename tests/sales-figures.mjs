@@ -63,11 +63,11 @@ ok("the paid rule is the /revenue rule (COALESCE(paid_at, created_at), Malaysia 
    /const PAID_DAY = `date\(COALESCE\(d\.paid_at, d\.created_at\), '\+8 hours'\)`;/.test(route) && /d\.doc_type = 'INV' AND d\.payment_status = 'paid' AND \$\{PAID_DAY\} BETWEEN \?1 AND \?2/.test(route));
 ok("part payments count only when not voided", /WHERE p\.invoice_id = \$\{alias\}\.id AND p\.voided_at IS NULL/.test(route) && /WHERE p\.voided_at IS NULL AND p\.received_on BETWEEN \?1 AND \?2/.test(route));
 ok("the route only reads", !/\b(INSERT|UPDATE|DELETE)\b/.test(route) && !/audit\(|notify\(/.test(route));
-ok("sales or exec_view, as GET /docs", /if \(!can\(user\.role, "sales"\) && !can\(user\.role, "exec_view"\)\) return err\("forbidden"/.test(route));
+ok("sales or exec_view, as GET /docs", /if \(!canUser\(user, "sales"\) && !canUser\(user, "exec_view"\)\) return err\("forbidden"/.test(route));
 ok("\"mine\" is the salesperson", /const who = mine \? ` AND d\.salesperson_id = \$\{Number\(user\.id\)\}` : "";/.test(route));
 ok("the company target only for revenue_view; yours on \"mine\"",
    /if \(mine\) return \(await one<[^>]+>\(`SELECT target_cents AS t FROM user_sales_targets WHERE user_id = \?1 AND month = \?2`, user\.id, ym\)\)/.test(route)
-   && /if \(!can\(user\.role, "revenue_view"\)\) return null;/.test(route));
+   && /if \(!canUser\(user, "revenue_view"\)\) return null;/.test(route));
 ok("no target set -> no pace; nothing turns last month into a goal",
    /if \(t == null \|\| t <= 0\) \{ pace = null; break; \}/.test(route) && !/\*\s*1\.1\b|autoTarget/.test(route));
 ok("GET /docs tops up the 200 with every unpaid invoice and every invoice paid since last month",

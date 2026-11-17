@@ -92,10 +92,10 @@ const idx = read("worker/src/index.ts");
   const tl = biz.slice(biz.indexOf("const mTl = path.match"));
   ok("the timeline is for whoever may read Sales documents", /if \(!canReadDocs\(user\)\) return err\("forbidden", "Sales access required", 403\);/.test(tl)
     && /const canReadDocs = \(u: StaffUser\) => can\(u\.role, "sales"\) \|\| can\(u\.role, "exec_view"\);/.test(biz));
-  ok("enquiries only for the business team", /if \(can\(user\.role, "enquiry_manage"\)\) \{/.test(tl) && /else hidden\.push\("enquiries"\)/.test(tl));
+  ok("enquiries only for the business team", /if \(canUser\(user, "enquiry_manage"\)\) \{/.test(tl) && /else hidden\.push\("enquiries"\)/.test(tl));
   ok("live sessions only for the management that schedules them", /if \(LIVE_MGR\.includes\(user\.role\)\) \{/.test(tl) && /else hidden\.push\("live_sessions"\)/.test(tl));
   ok("engagements as Sales Performance shows them: a seller sees only their own",
-    /const mine = !can\(user\.role, "sales_perf_manage"\);/.test(tl) && /\$\{mine \? "AND e\.user_id = \?2" : ""\}/.test(tl));
+    /const mine = !canUser\(user, "sales_perf_manage"\);/.test(tl) && /\$\{mine \? "AND e\.user_id = \?2" : ""\}/.test(tl));
   ok("the timeline only reads", !/\b(INSERT|UPDATE|DELETE)\b/.test(tl.slice(0, tl.indexOf("return json({ customer"))));
   ok("the Sales tab opens it from the client's row", /onClick=\{\(\) => openCustomerTimeline\(c\.id, c\.company\)\}/.test(read("components/portal/sales.tsx")));
 }
@@ -106,7 +106,7 @@ const idx = read("worker/src/index.ts");
   ok("phase 2 and the phase 3 stock take are written down as the only writers to an existing table",
     /This phase and phase 3's stock take\s+are the only routes here that write to an existing table/.test(biz));
   ok("receiving stock needs the inventory permission, like a manual stock in",
-    (p2.match(/if \(!can\(user\.role, "inventory"\)\) return err\("forbidden"/g) ?? []).length >= 5);
+    (p2.match(/if \(!canUser\(user, "inventory"\)\) return err\("forbidden"/g) ?? []).length >= 5);
   ok("each line logs the same movement a manual stock in writes (direction in, purpose restock)",
     /INSERT INTO manual_stockouts \(item_id, sku, item_name, qty, unit_sale_cents, remark, out_date, created_by, direction, purpose\)\s*VALUES \(\?1, \?2, \?3, \?4, NULL, \?5, \?6, \?7, 'in', 'restock'\)/.test(p2));
   ok("stock moves relatively, so a movement in between is never lost", /SET stock = stock \+ \?1,/.test(p2) && /SET stock = stock - \?1,/.test(p2));
@@ -154,14 +154,14 @@ const idx = read("worker/src/index.ts");
     && /if \(postCloseReason\.length < 8\) \{\s*return err\("closed_period"/.test(erpSrc));
   ok("only a month that has ended can be closed", /if \(m >= thisMonth\(\)\) return err\("invalid_input"/.test(p3));
   ok("a reopen needs a reason and keeps the close on record", /reason\.length < 3/.test(p3) && /UPDATE period_closes SET reopened_at = datetime\('now'\)/.test(p3) && !/DELETE FROM period_closes/.test(biz));
-  ok("the books are for the Accounting tab's own permission", /const BOOKS = can\(user\.role, "accounting_manage"\);/.test(p3)
+  ok("the books are for the Accounting tab's own permission", /const BOOKS = canUser\(user, "accounting_manage"\);/.test(p3)
     && (p3.match(/if \(!BOOKS\) return err\("forbidden"/g) ?? []).length >= 4);
   ok("the audit trail is for the CEO and super admin only", /const AUDIT_READERS = \["super_admin", "ceo"\];/.test(p3) && /if \(!AUDIT_READERS\.includes\(user\.role\)\) return err\("forbidden"/.test(p3));
   ok("the audit filters are bound, never spliced into the SQL", /binds\.push\(`%\$\{q\}%`\)/.test(p3) && !/LIKE '%\$\{/.test(p3));
   ok("debtors take part payments off, never mark anything paid", /SUM\(p\.amount_cents\) FROM invoice_payments p WHERE p\.invoice_id = d\.id AND p\.voided_at IS NULL/.test(p3) && !/payment_status = 'paid'\s*WHERE/.test(p3));
   /* stock take */
   ok("a stock take needs the inventory permission, like a manual adjustment",
-    (st.match(/if \(!can\(user\.role, "inventory"\)\) return err\("forbidden"/g) ?? []).length >= 6);
+    (st.match(/if \(!canUser\(user, "inventory"\)\) return err\("forbidden"/g) ?? []).length >= 6);
   ok("one stock take open at a time", /SELECT id FROM stock_counts WHERE status = 'open'/.test(st));
   ok("posting moves stock by the difference against the snapshot, never to an absolute figure",
     /const d = l\.counted_qty - l\.system_qty;/.test(st) && /SET stock = stock \+ \?1,/.test(st) && !/SET stock = \?/.test(st));
@@ -194,8 +194,8 @@ const idx = read("worker/src/index.ts");
   const p4writes = [...p4.matchAll(/\b(INSERT\s+(?:OR\s+\w+\s+)?INTO|(?<!DO\s)UPDATE|DELETE\s+FROM)\s+([a-z_]+)/gi)].map((m) => m[2].toLowerCase());
   ok("phase 4 writes only to its own six tables - never customers, never a document", p4writes.length >= 8 && p4writes.every((t) => OWN.includes(t)), p4writes.filter((t) => !OWN.includes(t)).join(", "));
   ok("reads are for whoever may open Sales, writes need the sales permission POST /customers uses",
-    /const CRM_WRITE = can\(user\.role, "sales"\);/.test(p4) && (p4.match(/if \(!CRM_WRITE\) return err\("forbidden"/g) ?? []).length >= 9
-    && /if \(method === "GET" \? !can\(user\.role, "sales"\) && !can\(user\.role, "exec_view"\) : !can\(user\.role, "sales"\)\)/.test(staff));
+    /const CRM_WRITE = canUser\(user, "sales"\);/.test(p4) && (p4.match(/if \(!CRM_WRITE\) return err\("forbidden"/g) ?? []).length >= 9
+    && /if \(method === "GET" \? !canUser\(user, "sales"\) && !canUser\(user, "exec_view"\) : !canUser\(user, "sales"\)\)/.test(staff));
   ok("a contact is removed by a stamp, never deleted", /UPDATE customer_contacts SET removed_at = datetime\('now'\)/.test(p4) && !/DELETE FROM customer_contacts/.test(biz));
   ok("a follow-up is closed by a stamp, never deleted, and its owner is on the sales team",
     !/DELETE FROM customer_followups/.test(biz) && /!can\(who\.role, "sales"\)\) return err\("invalid_input"/.test(p4));
@@ -220,7 +220,7 @@ const idx = read("worker/src/index.ts");
   /* the desk */
   const desk = read("worker/src/desk.ts");
   ok("follow-ups and monthly invoices reach the Desk only for the sales team, and a follow-up only for its owner or nobody's",
-    /if \(can\(user\.role, "sales"\)\) \{\s*await guard\("followups"/.test(desk) && /\(f\.owner_id = \?2 OR f\.owner_id IS NULL\)/.test(desk));
+    /if \(canUser\(user, "sales"\)\) \{\s*await guard\("followups"/.test(desk) && /\(f\.owner_id = \?2 OR f\.owner_id IS NULL\)/.test(desk));
   ok("the Desk only reads them", !/(INSERT|UPDATE|DELETE)\s/.test(desk.slice(desk.indexOf('await guard("followups"'), desk.indexOf("news I have not acknowledged"))));
   /* the funnel */
   ok("the prospects pipeline stays retired: nothing here reads or writes prospects", !/prospects/.test(p4.slice(p4.indexOf("*/") + 2).replace(/\/\*[\s\S]*?\*\//g, "")) && !/\/pipeline/.test(staff.replace(/\/\*[\s\S]*?\*\//g, "")));
@@ -241,9 +241,9 @@ const idx = read("worker/src/index.ts");
   const w5 = [...p5.matchAll(/\b(INSERT\s+(?:OR\s+\w+\s+)?INTO|(?<!DO\s)UPDATE|DELETE\s+FROM)\s+([a-z_]+)/gi)].map((m) => m[2].toLowerCase());
   ok("phase 5 writes only its own six tables - never users, leave, payroll or a document", w5.length >= 8 && w5.every((t) => OWN5.includes(t)), w5.filter((t) => !OWN5.includes(t)).join(", "));
   ok("deciding a probation records it and never touches the employment status", !/SET[^`]*employment_status/.test(p5) && /UPDATE probation_reviews SET outcome = \?2/.test(p5));
-  ok("people routes are for the Staff Details permission", /const HR = can\(user\.role, "hr_manage"\);/.test(p5) && (p5.match(/if \(!HR\) return err\("forbidden"/g) ?? []).length >= 7);
+  ok("people routes are for the Staff Details permission", /const HR = canUser\(user, "hr_manage"\);/.test(p5) && (p5.match(/if \(!HR\) return err\("forbidden"/g) ?? []).length >= 7);
   ok("the leave calendar is for the roles that decide leave, and only reads",
-    /if \(!can\(user\.role, "team_manage"\)\) return err\("forbidden"/.test(p5)
+    /if \(!canUser\(user, "team_manage"\)\) return err\("forbidden"/.test(p5)
     && !/(INSERT|UPDATE|DELETE)\s/.test(p5.slice(p5.indexOf('path === "/people/leave-calendar"'), p5.indexOf("the quotation approval limit - OFF"))));
   /* the joining checklist is the one Staff Details already writes */
   const dir = read("components/staff/staff-directory.tsx");

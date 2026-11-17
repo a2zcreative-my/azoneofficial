@@ -331,7 +331,7 @@ const MUT = [
   ["worker/src/staff.ts", "C2 reverted: no pre-check on convert", "    if (kindQ !== \"service\") {\n      const short = await stockShortages(env, String(qt.items ?? \"[]\"));\n      if (short.length) return err(\"stock_short\", shortMessage(short), 400);\n    }", ""],
   ["worker/src/staff.ts", "C1 reverted: a returned loan can be reverted", [["      if (row.returned_at) return err(\"invalid_state\", \"This loan was marked returned: its stock is already back on the shelf, so there is nothing to revert.\", 409);", ""], ["UPDATE manual_stockouts SET reverted = 1 WHERE id = ?1 AND COALESCE(reverted, 0) = 0 AND returned_at IS NULL", "UPDATE manual_stockouts SET reverted = 1 WHERE id = ?1 AND COALESCE(reverted, 0) = 0"]]],
   ["worker/src/permissions.ts", "D-6 reverted: no locked cells", "    if (l.rule === \"super_admin_only\" && (roles.length !== 1 || roles[0] !== \"super_admin\")) return l.why;", "    if (false) return l.why;"],
-  ["worker/src/staff.ts", "C4 reverted: anyone prices a published item", "        if (!can(user.role, \"elfia_publish\")) return err(\"forbidden\", \"This item is published to ELFIA", "        if (false) return err(\"forbidden\", \"This item is published to ELFIA"],
+  ["worker/src/staff.ts", "C4 reverted: anyone prices a published item", "        if (!canUser(user, \"elfia_publish\")) return err(\"forbidden\", \"This item is published to ELFIA", "        if (false) return err(\"forbidden\", \"This item is published to ELFIA"],
 ];
 for (const [file, name, from, to, opts] of NOMUT ? [] : MUT) {
   n++;

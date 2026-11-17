@@ -9,33 +9,22 @@
 import { api, csrfFetch } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { signOutRequest } from "@/lib/push-client"; // v1.226.0: signing out unbinds this device's push
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
-import { GoogleConnectPanel } from "@/components/security/google-connect-panel"; // v1.265.0
-import { RecoveryPanel } from "@/components/security/recovery-panel"; // v1.268.0 - Phase R
-import { PasskeysPanel } from "@/components/security/passkeys-panel"; // v1.269.0 - Phase 2A
 import { compressImage } from "@/lib/compress-image";
 import { useCallback, useEffect, useState } from "react";
-import { AuditPanel } from "@/components/admin/audit-panel";
-import { SystemHealthCard } from "@/components/admin/system-health";
-import { HrAdminPanel } from "@/components/admin/hr-admin-panel";
-import { StaffDirectory } from "@/components/staff/staff-directory";
-import { StaffPanel } from "@/components/admin/staff-panel";
+import { AdminOverview } from "@/components/admin/admin-overview"; // v1.349.0 - Phase 2
+import { AdminUsers } from "@/components/admin/admin-users"; // v1.349.0 - Phase 2
+import { AdminSecurity } from "@/components/admin/admin-security"; // v1.351.0 - Phase 3
+import { AdminAccount } from "@/components/admin/admin-account"; // v1.351.0 - Phase 3
 import { SignaturesPanel } from "@/components/admin/signatures-panel"; // v1.38.0 (S-1)
-import { PasswordInput } from "@/components/ui/password-input";
-import { useConfirm } from "@/components/ui/confirm-dialog";
-import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.249.2 - the owner's reason
-import { withStepUp } from "@/components/portal/page-shared"; // v1.249.2 - the owner's authenticator code
-import { OwnerCard, useOwner } from "@/components/portal/owner-card"; // v1.252.1 - the one Company owner card, here too
 import { SiteEditor } from "@/components/admin/site-editor";
-import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { btnClass, btnGhost, card, inputClass } from "@/lib/ui-styles";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton"; // v1.228.0
 import { ConsoleShell } from "@/components/layout/console-shell"; // v1.228.0 - the portal chrome
-import { dmyMYT as dmyMyt } from "@/lib/format";
 import { rowBtn, rowBtnDanger } from "@/components/ui/row-button";
 import { RecordToggle, DetailGrid } from "@/components/ui/record-row";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang, type Lang } from "@/lib/i18n";
-import { Skel, SkelText } from "@/components/ui/skeleton"; // v1.77.0
+import { Skel } from "@/components/ui/skeleton"; // v1.77.0
 
 const API = "/api/v1";
 
@@ -55,17 +44,6 @@ interface User {
   is_owner?: boolean; // v1.249.2 - the verified company owner (server-set)
 }
 
-interface Enquiry {
-  id: number;
-  name: string;
-  company: string | null;
-  phone: string | null;
-  email: string | null;
-  message: string;
-  status: string;
-  created_at: string;
-}
-
 interface CrudItem {
   id: number;
   [key: string]: unknown;
@@ -73,104 +51,6 @@ interface CrudItem {
 
 
 
-
-/* ---------------- Enquiries ---------------- */
-
-const ENQUIRY_STATUSES = ["new", "contacted", "qualified", "closed"] as const;
-
-/* BM labels for enquiry status VALUES — display only; the value sent to the
-   API stays English. */
-const ENQUIRY_STATUS_MS: Record<string, string> = {
-  new: "baharu",
-  contacted: "dihubungi",
-  qualified: "layak",
-  closed: "ditutup",
-};
-
-function Enquiries() {
-  const [openEnq, setOpenEnq] = useState<number | null>(null);
-  const { show: showToast, node: toastNode } = useSaveToast();
-  const [items, setItems] = useState<Enquiry[]>([]);
-  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
-  const load = useCallback(async () => {
-    const res = await api<{ enquiries: Enquiry[] }>("/enquiries");
-    if (res.ok && res.data) setItems(res.data.enquiries);
-    setLoaded(true);
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const setStatus = async (id: number, status: string) => {
-    const r = await api(`/enquiries/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-      r.ok ? L(`Marked ${status}`, `Ditanda ${ENQUIRY_STATUS_MS[status] ?? status}`) : L("Could not update that enquiry — try again", "Pertanyaan itu tidak dapat dikemas kini — cuba lagi"),
-      r.ok ? undefined : "notice");
-    void load();
-  };
-
-  /* v1.77.0 — skeleton until the first fetch lands. Same article cards as the
-     real list: name on the left, the status select on the right. */
-  if (!loaded)
-    return (
-      <div className="space-y-4" aria-busy="true">
-        {Array.from({ length: 3 }, (_, i) => (
-          <article key={i} className="rounded-xl border border-border p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Skel className="h-4 w-48 max-w-full" />
-              <Skel className="h-6 w-24" />
-            </div>
-          </article>
-        ))}
-      </div>
-    );
-
-  if (items.length === 0)
-    return <p className="text-muted-foreground text-sm">{L("No enquiries yet.", "Belum ada pertanyaan.")}</p>;
-
-  return (
-    <div className="space-y-4">
-      {toastNode}
-      {items.map((e) => (
-        <article key={e.id} className="rounded-xl border border-border p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* v1.4.256: the enquirer's name opens the record. Every enquiry
-                used to print its whole message inline, so ten enquiries was a
-                wall of text and the status control — the thing you actually
-                came to change — sat somewhere in the middle of it. */}
-            <p className="text-sm font-semibold">
-              <RecordToggle open={openEnq === e.id} title={L("Contact details and the message", "Butiran hubungan dan mesej")}
-                onToggle={() => setOpenEnq(openEnq === e.id ? null : e.id)}>
-                {e.name}
-              </RecordToggle>
-              {e.company ? ` — ${e.company}` : ""}
-            </p>
-            <select
-              className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
-              value={e.status}
-              onChange={(ev) => void setStatus(e.id, ev.target.value)}
-            >
-              {ENQUIRY_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {L(s, ENQUIRY_STATUS_MS[s] ?? s)}
-                </option>
-              ))}
-            </select>
-          </div>
-          {openEnq === e.id && (
-            <DetailGrid items={[
-              { label: L("Email", "E-mel"), value: e.email ?? "" },
-              { label: L("Phone", "Telefon"), value: e.phone ?? "" },
-              { label: L("Company", "Syarikat"), value: e.company ?? "" },
-              { label: L("Received", "Diterima"), value: dmyMyt(e.created_at) },
-              { label: L("Message", "Mesej"), wide: true, value: <span className="whitespace-pre-line">{e.message}</span> },
-            ]} />
-          )}
-        </article>
-      ))}
-    </div>
-  );
-}
 
 /* ---------------- Generic CRUD panel ---------------- */
 
@@ -361,71 +241,6 @@ function CrudPanel({
 }
 
 /* ---------------- Dashboard ---------------- */
-
-interface Activity {
-  action: string;
-  entity: string | null;
-  entity_id: string | null;
-  created_at: string;
-  user_name: string | null;
-}
-
-function Dashboard() {
-  const [summary, setSummary] = useState<{
-    enquiries?: { total: number; new_count: number };
-    portfolio?: { total: number };
-    posts?: { total: number };
-    testimonials?: { total: number };
-    activity?: Activity[];
-  } | null>(null);
-  useEffect(() => {
-    void api<typeof summary>("/dashboard/summary").then((r) => {
-      /* v1.77.0 — `null` means "still loading"; a failed request settles to
-         {} so the skeleton ends and the tiles show "—" exactly as before. */
-      setSummary(r.ok && r.data ? r.data : {});
-    });
-  }, []);
-  /* v1.77.0 — skeleton until the first fetch lands. */
-  const loading = summary === null;
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {[
-          { label: L("Total enquiries", "Jumlah pertanyaan"), value: summary?.enquiries?.total },
-          { label: L("New enquiries", "Pertanyaan baharu"), value: summary?.enquiries?.new_count },
-          { label: L("Blog posts", "Kiriman blog"), value: summary?.posts?.total },
-          { label: L("Portfolio items", "Item portfolio"), value: summary?.portfolio?.total },
-          { label: L("Testimonials", "Testimoni"), value: summary?.testimonials?.total },
-        ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-border p-5">
-            {/* the tile and its label are real; only the figure is loading */}
-            {loading ? <Skel className="h-9 w-16" /> : <p className="text-3xl font-semibold">{s.value ?? "—"}</p>}
-            <p className="text-muted-foreground mt-1 text-sm">{s.label}</p>
-          </div>
-        ))}
-      </div>
-      <div>
-        <h3 className="text-sm font-semibold tracking-tight">{L("Recent activity", "Aktiviti terkini")}</h3>
-        {loading ? (
-          <SkelText lines={4} className="mt-3" />
-        ) : (
-        <ul className="mt-3 space-y-1.5">
-          {(summary?.activity ?? []).map((a, i) => (
-            <li key={i} className="text-muted-foreground text-sm">
-              <span className="text-foreground">{a.user_name ?? L("system", "sistem")}</span>{" "}
-              — {a.action}
-              {a.entity_id ? ` #${a.entity_id}` : ""} · {dmyMyt(a.created_at)}
-            </li>
-          ))}
-          {(summary?.activity ?? []).length === 0 && (
-            <li className="text-muted-foreground text-sm">{L("No activity yet.", "Belum ada aktiviti.")}</li>
-          )}
-        </ul>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ---------------- Media ---------------- */
 
@@ -660,381 +475,25 @@ function ContentPanel() {
 
 /* ---------------- Account (every admin user) ---------------- */
 
-function AccountPanel() {
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold tracking-tight">{L("Change password", "Tukar kata laluan")}</h3>
-        <p className="text-muted-foreground mt-1 text-xs">
-          {L("Changing your password signs you out everywhere else — any other device or stolen session loses access immediately.",
-            "Menukar kata laluan anda akan melog keluar anda di tempat lain — mana-mana peranti lain atau sesi yang dicuri hilang akses serta-merta.")}
-        </p>
-      </div>
-      <ChangePasswordForm />
-    </div>
-  );
-}
+/* ---------------- My Account: components/admin/admin-account.tsx (v1.351.0) ---------------- */
 
-/* ---------------- Users (admin & super admin) ---------------- */
-
-interface AdminUser {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-  employment_status?: string | null; // v1.4.180 — drives live_host_part_time display
-  is_active: number;
-}
-
-/** UTC DB timestamp → DD-MM-YYYY HH:mm in Malaysia time. */
-
-// customer included deliberately: demoting a personal-email account back to
-// customer is the cleanup path the domain policy (v1.4.42) depends on.
-/* v1.4.180 (CEO): live_host_part_time is a real option — role live_host with
-   employment_status part_time, assignable to ANY email (Google accounts
-   included).
-   v1.157.0 (CEO: "it is supposed to Live Host instead of Live Host Part
-   Time!"): the super admin's choice wins. A personal email no longer forces
-   part time - the alias means part time, a plain role means full staff, and
-   a part-time account given a plain role becomes permanent (refine on the
-   Staff tab). The confirmation below says so before it happens. */
-const ROLES =["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"] as const; // v1.249.0 - agent
-
-function UsersPanel({ me }: { me: User }) {
-  const { show: showToast, node: toastNode } = useSaveToast();
-  const { confirm: userConfirm, node: userConfirmNode } = useConfirm(); // v1.4.240
-  const { prompt: ask, node: askNode } = usePrompt(); // v1.249.2
-  /* v1.249.2 (the owner, 01-11-2026) - in /admin only the company owner and
-     the super admin change roles; the owner also gives and takes Super Admin
-     and CEO (with a reason and his authenticator code, never his own). The
-     server decides (index.ts /api/v1/users/:id); this only mirrors it. */
-  const ownerCeo = me.role === "ceo" && me.is_owner === true;
-  const canRoles = me.role === "super_admin" || ownerCeo;
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [draft, setDraft] = useState({ email: "", name: "", role: "editor", password: "" });
-  const [error, setError] = useState("");
-  const [loaded, setLoaded] = useState(false); // v1.77.0 — first fetch settled (ok or not)
-  /* v1.252.1 (the owner, 02-11-2026: "inside the /Admin User I cant see
-     anything for me to update") - the Super Admin names the company owner
-     here as well as in the portal. The same OwnerCard and the same
-     GET/POST /staff/owner; the server still decides (super admin only,
-     a reason, the authenticator code). */
-  const [ownerTick, setOwnerTick] = useState(0);
-  const ownerState = useOwner(me.role === "super_admin" || ownerCeo, ownerTick);
-
-  const load = useCallback(async () => {
-    const res = await api<{ users: AdminUser[] }>("/users");
-    if (res.ok && res.data) setUsers(res.data.users);
-    setLoaded(true);
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const create = async () => {
-    setError("");
-    let reason = "";
-    if (ownerCeo && ["super_admin", "admin", "ceo", "coo", "cco", "agent"].includes(draft.role)) {
-      const r = await ask({ title: L(`Create a ${draft.role.replace(/_/g, " ")} account`, `Buat akaun ${draft.role.replace(/_/g, " ")}`), label: L("Why (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)"), required: true });
-      if (!r) return;
-      reason = r.value.trim();
-    }
-    const res = await withStepUp<{ error?: { code?: string; message?: string } }>((totp) => api("/users", {
-      method: "POST",
-      body: JSON.stringify({ ...draft, ...(reason ? { reason } : {}), ...(totp ? { totp } : {}) }),
-    }), ask, { title: L("Confirm with your authenticator", "Sahkan dengan pengesah anda"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
-    if (!res.ok) {
-      setError(
-        res.status === 409
-          ? L("Email already exists.", "E-mel sudah wujud.")
-          : (res.data?.error?.message ??
-            L("Check all fields — password needs 10+ characters.", "Semak semua medan — kata laluan perlu 10+ aksara.")),
-      );
-      showToast(L("No changes", "Tiada perubahan"), L("User not created — see the message on the form", "Pengguna tidak dibuat — lihat mesej pada borang"), "notice");
-      return;
-    }
-    showToast(L("Saved", "Disimpan"), L(`${draft.email} created`, `${draft.email} dibuat`));
-    setDraft({ email: "", name: "", role: "editor", password: "" });
-    void load();
-  };
-
-  /* v1.4.255: patch() drives suspend / reinstate / role change / promote —
-     four different actions that all used to complete in silence. The caller
-     passes what happened so the toast can say it. */
-  const patch = async (id: number, body: Record<string, unknown>, said = L("Updated", "Dikemas kini")) => {
-    const r = await api<{ error?: { message?: string } }>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-      r.ok ? said : (r.data?.error?.message ?? L("Could not update that account — try again", "Akaun itu tidak dapat dikemas kini — cuba lagi")), r.ok ? undefined : "notice");
-    void load();
-  };
-
-  /* v1.249.2 - a role change. The owner gives a reason and, when the server
-     asks, his authenticator code; the super admin changes as before. */
-  const changeRole = async (u: AdminUser, newRole: string) => {
-    let reason = "";
-    if (ownerCeo) {
-      const r = await ask({ title: L(`Change ${u.name}'s role to ${newRole.replace(/_/g, " ")}`, `Tukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}`), label: L("Why (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)"), required: true });
-      if (!r) { void load(); return; }
-      reason = r.value.trim();
-    }
-    const r = await withStepUp<{ error?: { message?: string } }>((totp) => api(`/users/${u.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ role: newRole, ...(reason ? { reason } : {}), ...(totp ? { totp } : {}) }),
-    }), ask, { title: L("Confirm with your authenticator", "Sahkan dengan pengesah anda"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
-    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-      r.ok ? L(`Role changed to ${newRole.replace(/_/g, " ")}`, `Peranan ditukar kepada ${newRole.replace(/_/g, " ")}`) : (r.data?.error?.message ?? L("The role was not changed", "Peranan tidak ditukar")), r.ok ? undefined : "notice");
-    void load();
-  };
-
-  const forceLogout = async (id: number) => {
-    const r = await api(`/users/${id}/revoke-sessions`, { method: "POST" });
-    showToast(r.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"),
-      r.ok ? L("Signed out of every device", "Dilog keluar dari setiap peranti") : L("Could not revoke those sessions", "Sesi tersebut tidak dapat dibatalkan"), r.ok ? undefined : "notice");
-    void load();
-  };
-
-  // Inline password reset (forgotten-password flow). Uses the existing
-  // PATCH /users/:id — the server hashes the new password and revokes every
-  // session the user had, so a forgotten (or compromised) credential is dead
-  // the moment the new one is set.
-  const [resetId, setResetId] = useState<number | null>(null);
-  const [resetPw, setResetPw] = useState("");
-  const [resetDone, setResetDone] = useState<number | null>(null);
-
-  /* v1.22.7 (CEO: "when I click on set password there is no popup to tell me
-     that the password set successfully or what?"): the result now speaks
-     through the SAME save-toast every other action here uses — success and
-     failure both. The inline green line stays as a second confirmation. */
-  const resetPassword = async (id: number, email: string) => {
-    if (resetPw.length < 10) return;
-    const res = await api<{ error?: { message?: string } }>(`/users/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ password: resetPw }),
-    });
-    if (res.ok) {
-      setResetDone(id);
-      setResetId(null);
-      setResetPw("");
-      window.setTimeout(() => setResetDone(null), 5000);
-      showToast(L("Password set", "Kata laluan ditetapkan"), L(`${email} — signed out everywhere. Tell them the new password directly.`, `${email} — dilog keluar di semua tempat. Beritahu mereka kata laluan baharu secara terus.`));
-    } else {
-      showToast(L("Not saved", "Tidak disimpan"), res.data?.error?.message ?? L("Could not set that password — try again", "Kata laluan itu tidak dapat ditetapkan — cuba lagi"), "notice");
-    }
-  };
-
-  return (
-    <div className="grid grid-cols-1 gap-8">
-    {ownerState && <div data-testid="admin-owner"><OwnerCard state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} /></div>}
-    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-      {userConfirmNode}
-      {askNode}
-      {toastNode}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold tracking-tight">{L("Add user", "Tambah pengguna")}</h3>
-        <input className={inputClass} placeholder={L("Email", "E-mel")} value={draft.email}
-          onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
-        <input className={inputClass} placeholder={L("Name", "Nama")} value={draft.name}
-          onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
-        <select className={inputClass} value={draft.role}
-          onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}>
-          {ROLES.filter((r) => r !== "super_admin" || canRoles).map(
-            (r) => <option key={r} value={r}>{r}</option>,
-          )}
-        </select>
-        <label className="block">
-          <span className="text-muted-foreground mb-1 block text-xs font-medium">{L("Password", "Kata laluan")}</span>
-          <PasswordInput
-            className={inputClass}
-            placeholder={L("10+ characters", "10+ aksara")}
-            value={draft.password}
-            onChange={(e) => setDraft((d) => ({ ...d, password: e.target.value }))}
-          />
-          {draft.password.length > 0 && draft.password.length < 10 && (
-            <p className="text-destructive mt-1 text-xs">
-              {L(`${draft.password.length} of 10 characters`, `${draft.password.length} daripada 10 aksara`)}
-            </p>
-          )}
-        </label>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <button type="button" className={btnClass} onClick={() => void create()}>{L("Create user", "Buat pengguna")}</button>
-      </div>
-      <div className="space-y-2">
-        <h3 className="text-sm font-semibold tracking-tight">{L("Team", "Pasukan")}</h3>
-        {/* v1.249.2 - who may change a role here, said where it is decided */}
-        <p className="text-muted-foreground text-xs">
-          {ownerCeo
-            ? L("As the company owner you give and take every role here, Super Admin and CEO included. Each change asks for a reason and your authenticator code; never your own account; the last super admin with 2FA cannot be removed.",
-                "Sebagai pemilik syarikat anda memberi dan menarik setiap peranan di sini, termasuk Super Admin dan CEO. Setiap perubahan meminta sebab dan kod pengesah anda; tidak pada akaun sendiri; super admin terakhir dengan 2FA tidak boleh dibuang.")
-            : canRoles
-              ? L("Role changes are yours and the company owner's only.", "Perubahan peranan hanya untuk anda dan pemilik syarikat.")
-              : L("Read only for roles - the company owner or the super admin changes them.", "Baca sahaja untuk peranan - pemilik syarikat atau super admin menukarnya.")}
-        </p>
-        {/* v1.77.0 — skeleton until the first fetch lands: the same bordered
-            rows as the real team list (name · email left, role select and
-            row actions right). */}
-        {!loaded && Array.from({ length: 5 }, (_, i) => (
-          <div key={i} className="rounded-lg border border-border px-3 py-2" aria-busy="true">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Skel className="h-4 w-56 max-w-full" />
-              <span className="flex flex-wrap items-center gap-2">
-                <Skel className="h-6 w-24" />
-                <Skel className="h-5 w-20" />
-                <Skel className="h-5 w-24" />
-              </span>
-            </div>
-          </div>
-        ))}
-        {users.map((u) => {
-          // An admin can see a super admin but cannot act on them.
-          // v1.249.2 - the owner changes a Super Admin's or CEO's ROLE, but
-          // their password, sign-in and suspension stay the super admin's.
-          const locked = ["super_admin", "ceo"].includes(u.role) && me.role !== "super_admin";
-          return (
-            <div key={u.id} className="rounded-lg border border-border px-3 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-medium">
-                  {u.name} <span className="text-muted-foreground">· {u.email}</span>
-                  {!u.is_active && (
-                    <span className="bg-destructive/10 text-destructive ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase">
-                      {L("Suspended", "Digantung")}
-                    </span>
-                  )}
-                </span>
-                <span className="flex flex-wrap items-center gap-2">
-                  <select
-                    className="rounded-lg border border-input bg-background px-2 py-1 text-xs"
-                    value={u.role === "live_host" && u.employment_status === "part_time" ? "live_host_part_time" : u.role}
-                    disabled={u.id === me.id || !canRoles}
-                    title={!canRoles ? L("Roles are changed by the company owner or the super admin", "Peranan ditukar oleh pemilik syarikat atau super admin") : u.id === me.id ? L("You cannot change your own role", "Anda tidak boleh menukar peranan sendiri") : undefined}
-                    onChange={(e) => {
-                      const newRole = e.target.value;
-                      const wasPartTime = u.employment_status === "part_time";
-                      const toPartTime = newRole === "live_host_part_time";
-                      const statusNote = toPartTime && !wasPartTime
-                        ? L(" Their employment status becomes part time.", " Status pekerjaan mereka menjadi separuh masa.")
-                        : !toPartTime && wasPartTime && newRole !== "customer"
-                          ? L(" They stop being part time: status becomes permanent (set contract or probation on the Staff tab if that is wrong).", " Mereka tidak lagi separuh masa: status menjadi tetap (tetapkan kontrak atau percubaan di tab Kakitangan jika itu salah).")
-                          : "";
-                      void userConfirm({
-                        title: L("Confirm Role Change", "Sahkan Pertukaran Peranan"),
-                        message: L(`Are you sure you want to change ${u.name}'s role to ${newRole.replace(/_/g, " ")}?${statusNote}`, `Adakah anda pasti mahu menukar peranan ${u.name} kepada ${newRole.replace(/_/g, " ")}?${statusNote}`),
-                        confirmLabel: L("Change Role", "Tukar Peranan"),
-                      }).then((ok) => {
-                        if (ok) void changeRole(u, newRole);
-                      });
-                    }}
-                  >
-                    {ROLES.filter((r) => r !== "super_admin" || canRoles || u.role === "super_admin").map(
-                      (r) => <option key={r} value={r}>{r}</option>,
-                    )}
-                  </select>
-                  {u.id !== me.id && !locked && (
-                    <>
-                      {/* Force logout: ends every session immediately but keeps the
-                          account. First response to "this account looks odd". */}
-                      <button
-                        type="button"
-                        className={rowBtn}
-                        onClick={() => void forceLogout(u.id)}
-                      >
-                        {L("Force logout", "Paksa log keluar")}
-                      </button>
-                      <button
-                        type="button"
-                        className={rowBtn}
-                        onClick={() => {
-                          setResetId(resetId === u.id ? null : u.id);
-                          setResetPw("");
-                        }}
-                      >
-                        {L("Reset password", "Set semula kata laluan")}
-                      </button>
-                      {/* Kill switch: suspend blocks sign-in AND revokes all
-                          sessions server-side, instantly. */}
-                      <button
-                        type="button"
-                        className={u.is_active ? "text-destructive text-xs font-medium underline" : "text-xs underline"}
-                        onClick={async () => {
-                          if (u.is_active && !(await userConfirm({
-                            title: L(`Suspend ${u.email}?`, `Gantung ${u.email}?`),
-                            message: L("They are signed out everywhere immediately and cannot sign back in until reinstated.", "Mereka dilog keluar di semua tempat serta-merta dan tidak boleh log masuk semula sehingga dipulihkan."),
-                            confirmLabel: L("Suspend", "Gantung"),
-                            variant: "danger",
-                          }))) return;
-                          void patch(u.id, { is_active: u.is_active ? 0 : 1 }, u.is_active ? L(`${u.email} suspended — signed out everywhere`, `${u.email} digantung — dilog keluar di semua tempat`) : L(`${u.email} reinstated`, `${u.email} dipulihkan`));
-                        }}
-                      >
-                        {u.is_active ? L("Suspend", "Gantung") : L("Reinstate", "Pulihkan")}
-                      </button>
-                    </>
-                  )}
-                </span>
-              </div>
-
-              {resetId === u.id && (
-                <div className="border-border mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
-                  <PasswordInput
-                    autoComplete="new-password"
-                    className="border-input bg-background w-full rounded-lg border px-2 py-1.5 text-xs sm:w-56"
-                    placeholder={L("New password (10+ characters)", "Kata laluan baharu (10+ aksara)")}
-                    value={resetPw}
-                    onChange={(e) => setResetPw(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                    disabled={resetPw.length < 10}
-                    onClick={() => void resetPassword(u.id, u.email)}
-                  >
-                    {L("Set password", "Tetapkan kata laluan")}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-muted-foreground text-xs underline"
-                    onClick={() => {
-                      setResetId(null);
-                      setResetPw("");
-                    }}
-                  >
-                    {L("Cancel", "Batal")}
-                  </button>
-                  {resetPw.length > 0 && resetPw.length < 10 && (
-                    <span className="text-destructive text-xs">
-                      {L(`${resetPw.length} of 10 characters`, `${resetPw.length} daripada 10 aksara`)}
-                    </span>
-                  )}
-                  <span className="text-muted-foreground w-full text-[11px]">
-                    {L("Tell them the new password directly (WhatsApp or in person) and ask them to change it in Profile after signing in. Setting it signs them out everywhere.",
-                      "Beritahu mereka kata laluan baharu secara terus (WhatsApp atau bersemuka) dan minta mereka menukarnya di Profil selepas log masuk. Menetapkannya akan melog keluar mereka di semua tempat.")}
-                  </span>
-                </div>
-              )}
-              {resetDone === u.id && (
-                <p className="mt-2 text-xs font-medium text-success">
-                  {L("Password set — all their sessions were signed out.", "Kata laluan ditetapkan — semua sesi mereka telah dilog keluar.")}
-                </p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-    </div>
-  );
-}
+/* ---------------- Users: components/admin/admin-users.tsx (v1.349.0) ---------------- */
 
 /* ---------------- Shell ---------------- */
 
+/* v1.348.0 (the CEO, 17-11-2026: "/Admin are totally super admin control") -
+   Enquiries and Staff are retired here (Sales → Customers & Follow-ups, and the
+   portal's Staff, Leave and HR own them); the signature vault, which lives
+   nowhere else, is its own tab. */
 const TABS = [
   "Dashboard",
   "Website",
-  "Enquiries",
   "Portfolio",
   "Testimonials",
   "Posts",
   "Media",
   "Users",
-  "Staff",
+  "Signatures",
   "Audit",
   "Account",
   "Advanced",
@@ -1044,28 +503,28 @@ type Tab = (typeof TABS)[number];
 /* BM labels for the tab KEYS above — display only. The Tab values themselves
    drive routing, icon lookup and role gating, so they stay English. */
 const TAB_MS: Record<Tab, string> = {
-  Dashboard: "Papan Pemuka",
+  Dashboard: "Gambaran Keseluruhan",
   Website: "Laman Web",
-  Enquiries: "Pertanyaan",
   Portfolio: "Portfolio",
   Testimonials: "Testimoni",
   Posts: "Kiriman",
   Media: "Media",
   Users: "Pengguna",
-  Staff: "Kakitangan",
-  Audit: "Audit",
-  Account: "Akaun",
+  Signatures: "Tandatangan",
+  Audit: "Keselamatan & Audit",
+  Account: "Akaun Saya",
   Advanced: "Lanjutan",
 };
-const tabLabel = (t: Tab) => L(t, TAB_MS[t]);
+/* v1.351.0 - the plan's names on screen; the keys (routing, icons, guards) stay as they were */
+const TAB_EN: Partial<Record<Tab, string>> = { Dashboard: "Overview", Audit: "Security & Audit", Account: "My Account" };
+const tabLabel = (t: Tab) => L(TAB_EN[t] ?? t, TAB_MS[t]);
 /* v1.228.0 - how the rail and the More sheet group the admin tabs (the
    portal's grouped-rail pattern, components/layout/side-nav.tsx) */
 const ADMIN_SECTIONS = [
   { title: "Overview", tabs: ["Dashboard"] },
   { title: "Content", tabs: ["Website", "Portfolio", "Testimonials", "Posts", "Media", "Advanced"] },
-  { title: "Leads", tabs: ["Enquiries"] },
-  { title: "People", tabs: ["Staff", "Users"] },
-  { title: "System", tabs: ["Audit"] },
+  { title: "People", tabs: ["Users"] },
+  { title: "System", tabs: ["Signatures", "Audit"] },
   { title: "Account", tabs: ["Account"] },
 ];
 
@@ -1074,37 +533,34 @@ const ADMIN_SECTIONS = [
    SVG map (components/layout/nav-icons.tsx) alongside the portal's, so the
    surfaces speak one icon language and get tintable strokes. */
 
-const PORTAL_ROLES = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent"];
 
 /** Plain-language purpose line shown under the tab bar. */
 const TAB_HELP: Record<Tab, string> = {
-  Dashboard: "Company snapshot and recent account activity.",
+  Dashboard: "The console's state: accounts, backups, errors, database updates and recent activity.",
   Website: "Edit the text on the live website — hero, about, sections, footer, statistics.",
-  Enquiries: "Messages from the contact form.",
   Portfolio: "Client work shown on the Portfolio page.",
   Testimonials: "Client quotes shown on the site.",
   Posts: "Blog articles.",
   Media: "Uploaded images and files.",
   Users: "Staff and customer accounts — roles, suspension, force logout.",
-  Staff: "Leave approvals and entry to every staff module — full admin authority.",
-  Audit: "Full activity trail — sign-ins, approvals, role changes, resets.",
-  Account: "Your own sign-in security.",
+  Signatures: "Officer signatures and company stamps for each issuing company.",
+  Audit: "The full audit trail, backups, errors and database updates.",
+  Account: "Your own password, two-factor, Google sign-in, passkeys and recovery.",
   Advanced: "Raw content keys — for anything the Website tab does not cover.",
 };
 
 /* BM twin of TAB_HELP — same keys, display only. */
 const TAB_HELP_MS: Record<Tab, string> = {
-  Dashboard: "Gambaran syarikat dan aktiviti akaun terkini.",
+  Dashboard: "Keadaan konsol: akaun, sandaran, ralat, kemas kini pangkalan data dan aktiviti terkini.",
   Website: "Sunting teks laman web live — hero, tentang, seksyen, footer, statistik.",
-  Enquiries: "Mesej daripada borang hubungan.",
   Portfolio: "Kerja pelanggan yang dipaparkan di halaman Portfolio.",
   Testimonials: "Petikan pelanggan yang dipaparkan di laman.",
   Posts: "Artikel blog.",
   Media: "Imej dan fail yang dimuat naik.",
   Users: "Akaun kakitangan dan pelanggan — peranan, penggantungan, paksa log keluar.",
-  Staff: "Kelulusan cuti dan akses ke setiap modul kakitangan — kuasa admin penuh.",
-  Audit: "Jejak aktiviti penuh — log masuk, kelulusan, pertukaran peranan, set semula.",
-  Account: "Keselamatan log masuk anda sendiri.",
+  Signatures: "Tandatangan pegawai dan cop syarikat bagi setiap syarikat pengeluar.",
+  Audit: "Jejak audit penuh, sandaran, ralat dan kemas kini pangkalan data.",
+  Account: "Kata laluan, dua faktor, log masuk Google, kunci laluan dan pemulihan anda sendiri.",
   Advanced: "Kunci kandungan mentah — untuk apa-apa yang tab Laman Web tidak liputi.",
 };
 
@@ -1160,13 +616,17 @@ export default function AdminPage() {
   /* v1.249.2 (the owner, 01-11-2026) - the verified company owner opens
      /admin for one thing: Users, to give and take every role. Any other CEO
      account, and every other portal role, still goes to /portal. */
-  const ownerCeo = user.role === "ceo" && user.is_owner === true;
-  if (PORTAL_ROLES.includes(user.role) && !ownerCeo) {
-    window.location.replace("/portal");
-    return <AdminPageSkeleton />;
-  }
+  /* v1.348.0 (the CEO, 17-11-2026) - /admin is the SUPER ADMIN's console and
+     nobody else's: the company owner gives and takes roles in portal Users
+     (the same server rule, roleChangeRule), the admin role and every other
+     staff role work in /portal, a customer in /account. The server refuses the
+     website content to everyone but the super admin as well (content_manage). */
   if (user.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
+    return <AdminPageSkeleton />;
+  }
+  if (user.role !== "super_admin") {
+    if (typeof window !== "undefined") window.location.replace("/portal");
     return <AdminPageSkeleton />;
   }
 
@@ -1217,8 +677,8 @@ export default function AdminPage() {
      /portal?"): the navy ICON RAIL too — same SidebarNav component, fed the
      admin tabs. The desktop pill row is gone (the rail replaces it, exactly
      like /portal); phones keep the bottom navigation. */
-  const visibleTabs: Tab[] = ownerCeo ? ["Users"] : TABS.filter((t) => !["Users", "Staff", "Audit"].includes(t) || ["super_admin", "admin"].includes(user.role));
-  const tabNow: Tab = visibleTabs.includes(tab) ? tab : visibleTabs[0]!; // v1.249.2 - the owner lands on Users
+  const visibleTabs: Tab[] = [...TABS]; // v1.348.0 - one person reaches this page: the super admin
+  const tabNow: Tab = visibleTabs.includes(tab) ? tab : visibleTabs[0]!;
   /* v1.228.0 (the owner, 30-10-2026: "/admin and /account should follow the
      interface of /portal"): the console now wears the portal's chrome -
      the light grouped rail, the .erp-topbar header, the tinted phone bar and
@@ -1243,8 +703,7 @@ export default function AdminPage() {
         {/* v1.22.8: bare sections now render inside the house card, exactly
             like every /portal module. Staff/Audit/Account tabs already use
             card components of their own. */}
-        {tabNow === "Dashboard" && <div className={card}><Dashboard /></div>}
-        {tabNow === "Enquiries" && <div className={card}><Enquiries /></div>}
+        {tabNow === "Dashboard" && <AdminOverview onOpen={(t) => setTab(t as Tab)} />}
         {tabNow === "Posts" && (
           <div className={card}>
           <CrudPanel
@@ -1278,31 +737,11 @@ export default function AdminPage() {
         {tabNow === "Media" && <div className={card}><MediaPanel /></div>}
         {tabNow === "Website" && <div className={card}><SiteEditor /></div>}
         {tabNow === "Advanced" && <div className={card}><ContentPanel /></div>}
-        {tabNow === "Users" && (["super_admin", "admin"].includes(user.role) || ownerCeo) && <div className={card}><UsersPanel me={user} /></div>}
+        {tabNow === "Users" && <AdminUsers me={user} />}
         {/* v1.4.192: standard multi-card spacing wrapper (was ad-hoc mt-6 divs) */}
-        {tabNow === "Staff" && ["super_admin", "admin"].includes(user.role) && (
-          <div className="space-y-4 md:space-y-6">
-            <StaffDirectory canAmend />
-            <HrAdminPanel />
-            <StaffPanel />
-            <SignaturesPanel />
-          </div>
-        )}
-        {tabNow === "Audit" && ["super_admin", "admin"].includes(user.role) && (
-          <div className="space-y-4 md:space-y-6">
-            <div id="system-health"><SystemHealthCard /></div>
-            <AuditPanel />
-          </div>
-        )}
-        {tabNow === "Account" && (
-          <div className="space-y-4 md:space-y-6">
-            <div className={card}><AccountPanel /></div>
-            <TwoFactorPanel />
-            <GoogleConnectPanel />
-            <PasskeysPanel />
-            <RecoveryPanel />
-          </div>
-        )}
+        {tabNow === "Signatures" && <SignaturesPanel />}
+        {tabNow === "Audit" && <AdminSecurity />}
+        {tabNow === "Account" && <AdminAccount onReload={() => void loadMe()} />}
         {tabNow === "Testimonials" && (
           <div className={card}>
           <CrudPanel

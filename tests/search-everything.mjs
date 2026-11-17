@@ -106,7 +106,7 @@ const { can, PERMS } = await bundle("worker/src/permissions.ts", "perms");
   ok("a missing table costs its source, not the search", /catch \{ rows\.push\(\[\]\); \}/.test(src));
   ok("a short query is refused before touching the database", /if \(q\.length < MIN_CHARS\) return json\(\{ hits: \[\], q \}\);/.test(src));
   ok("hotels that were removed do not come back through search", /FROM hotels\s+WHERE is_active = 1/.test(src) && /JOIN hotels h ON h\.id = c\.hotel_id AND h\.is_active = 1/.test(src));
-  ok("tasks: everyone their own, managers everything", /const allTasks = can\(user\.role, "team_manage"\);/.test(src) && /AND \(t\.assigned_to = \?2 OR t\.created_by = \?2\)/.test(src));
+  ok("tasks: everyone their own, managers everything", /const allTasks = canUser\(user, "team_manage"\);/.test(src) && /AND \(t\.assigned_to = \?2 OR t\.created_by = \?2\)/.test(src));
 }
 
 /* ---- 3. the wiring ---- */

@@ -250,7 +250,7 @@ const ok = (label, cond, extra = "") => {
   /* v1.271.0 - the route body up to the next route (a fixed 3000-character
      window stopped short once the Phase 0 self-decision check was added). */
   const body = staff.slice(i, staff.indexOf("if (path ===", i + 10));
-  ok("only the CEO decides", /can\(user\.role, "unpaid_leave"\)[\s\S]{0,120}?Only the CEO can approve a forgotten punch/.test(body),
+  ok("only the CEO decides", /canUser\(user, "unpaid_leave"\)[\s\S]{0,120}?Only the CEO can approve a forgotten punch/.test(body),
      "approving one creates paid time out of a claim nobody can verify");
   ok("approving can set the real time",
      /UPDATE attendance_records SET pending_approval = 0, created_at = \?2/.test(body),
@@ -625,7 +625,7 @@ for (const [name, probe] of [
   /* v1.159.5 (CEO: "I can change the effective date which is easier for me
      to update the effective date!") */
   const mv = staff.slice(staff.indexOf("const asgMove = path.match("), staff.indexOf("const asgDel = path.match("));
-  ok("an assignment's effective date can be moved, by HR, never onto a date the person already has one", /asgMove && method === "PATCH"/.test(mv) && /can\(user\.role, "hr_manage"\)/.test(mv)
+  ok("an assignment's effective date can be moved, by HR, never onto a date the person already has one", /asgMove && method === "PATCH"/.test(mv) && /canUser\(user, "hr_manage"\)/.test(mv)
      && /WHERE user_id = \?1 AND effective_from = \?2 AND id != \?3 LIMIT 1/.test(mv) && /UPDATE staff_shifts SET effective_from = \?1 WHERE id = \?2/.test(mv));
   ok("...audited with both dates, and the person told when it touches today or later", /"staff_shift\.move"/.test(mv) && /from: rowM\.effective_from, to: toM/.test(mv) && /if \(toM >= todayM \|\| rowM\.effective_from >= todayM\)/.test(mv));
   ok("...the confirmation of a re-measure arrives on the query string - a DELETE carries no parsed body", /searchParams\.get\("confirm_remeasure"\) === "1"/.test(staff));

@@ -519,3 +519,8 @@ Only the CEO and COO post or reverse; only the CEO closes a month.
 triggers that refuse a deleted position or a rewritten change - users is not
 altered). A position is linked to an access level as a suggestion only; it
 never changes anybody's role, which still changes through the role door.
+1.350.0 (custom roles, the CEO 17-11-2026) adds `0205_custom_roles`
+(additive: custom_roles and one nullable users.custom_role_id - users is not
+rebuilt and no row is rewritten). A custom role is a column of the existing
+permission cells on one working base role; users.role keeps the base role, so
+every chain, payroll population and headcount is unchanged.

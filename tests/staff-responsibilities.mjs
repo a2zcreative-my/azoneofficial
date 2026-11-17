@@ -66,7 +66,7 @@ ok("hr_manage is untouched (the CEO's other staff fields keep their rule)", /hr_
 /* ---- 2. its own door, no lock ---- */
 const route = staff.slice(staff.indexOf('const respRoute = path.match(/^\\/users\\/(\\d+)\\/responsibilities$/);'), staff.indexOf('const reportsTo = path.match('));
 ok("the route exists, PUT or PATCH on /users/:id/responsibilities", route.length > 200 && /if \(respRoute && \(method === "PUT" \|\| method === "PATCH"\)\)/.test(route));
-ok("the route is behind responsibilities_edit", /if \(!can\(user\.role, "responsibilities_edit"\)\)/.test(route));
+ok("the route is behind responsibilities_edit", /if \(!canUser\(user, "responsibilities_edit"\)\)/.test(route));
 ok("working staff only - a leaver's record is refused with 409", /if \(!person\.is_active\) return err\("inactive", [^,]+, 409\);/.test(route));
 ok("customers are not staff", /AND role <> 'customer'/.test(route));
 ok("the title is capped at 120, each line at 200, the list at 30", /\.slice\(0, 120\)/.test(route) && /l\.length > 200/.test(route) && /lines\.length > 30/.test(route));

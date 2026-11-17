@@ -31,7 +31,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, currentStaffSql, staffRolesSql } from "./staff";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { audit, err, json, str } from "./shared";
 import { appendTaskUpdate, appendProjectNote, latestUpdates, loadTask, storeTaskFile, streamTaskFile, taskAccess } from "./tasks-progress"; // v1.246.0 - one progress record for every task (T-1)
 
@@ -96,18 +96,18 @@ export async function quotationState(env: Env, qt: QtRow): Promise<{ accepted: b
 export interface Access { view: boolean; manage: boolean; owner: boolean; assigned: boolean; ownerAssign: boolean; complete: boolean; prices: boolean; contact: boolean; mgmt: boolean }
 /** Who may do what on THIS project - the one place it is decided. */
 export async function projectAccess(env: Env, user: StaffUser, p: ProjectRow): Promise<Access> {
-  const view = can(user.role, "project_view");
-  const mgmt = can(user.role, "project_manage");
+  const view = canUser(user, "project_view");
+  const mgmt = canUser(user, "project_manage");
   const owner = p.owner_id !== null && p.owner_id === user.id;
   const assigned = !!(await env.DB.prepare(`SELECT 1 AS x FROM tasks WHERE link_kind = 'project' AND link_id = ?1 AND assigned_to = ?2 LIMIT 1`)
     .bind(p.id, user.id).first().catch(() => null));
   const manage = view && (mgmt || owner);
   return {
     view, manage, owner, assigned: view && assigned, mgmt,
-    ownerAssign: can(user.role, "project_owner_assign"),
-    complete: can(user.role, "project_complete"),
-    prices: view && (mgmt || owner || can(user.role, "sales")),
-    contact: view && (mgmt || owner || assigned || can(user.role, "sales")),
+    ownerAssign: canUser(user, "project_owner_assign"),
+    complete: canUser(user, "project_complete"),
+    prices: view && (mgmt || owner || canUser(user, "sales")),
+    contact: view && (mgmt || owner || assigned || canUser(user, "sales")),
   };
 }
 
@@ -128,7 +128,7 @@ export async function ensureProject(env: Env, user: StaffUser, qid: number): Pro
      caller may do with it); creating one is for the people below */
   const existing = await env.DB.prepare(`SELECT id FROM projects WHERE quotation_id = ?1`).bind(qid).first<{ id: number }>();
   if (existing) return { id: existing.id, existing: true };
-  const manager = can(user.role, "project_manage");
+  const manager = canUser(user, "project_manage");
   const mayCreate = manager || qt.salesperson_id === user.id || qt.created_by === user.id;
   if (!mayCreate) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO create its project brief", 403);
   /* v1.246.3 - the owner, 01-11-2026: a project starts only once the
@@ -263,7 +263,7 @@ export async function handleProjects(
   env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, q: URLSearchParams, request: Request,
 ): Promise<Response | null> {
   if (!(path === "/projects" || path.startsWith("/projects/"))) return null;
-  if (!can(user.role, "project_view")) return err("forbidden", "Projects are for staff", 403);
+  if (!canUser(user, "project_view")) return err("forbidden", "Projects are for staff", 403);
   try {
     return await route(env, path, method, body, user, q, request);
   } catch (e) {
@@ -295,7 +295,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
         ORDER BY p.status IN ('completed', 'cancelled'), p.updated_at DESC LIMIT 200`,
     ).bind(...args, user.id).all()).results;
-    return json({ projects: rows.map((r) => ({ ...r, progress: Math.round(Number((r as { progress: number }).progress ?? 0)) })), can_manage: can(user.role, "project_manage") });
+    return json({ projects: rows.map((r) => ({ ...r, progress: Math.round(Number((r as { progress: number }).progress ?? 0)) })), can_manage: canUser(user, "project_manage") });
   }
 
   /* ---------------- the quotation's project (or none) ---------------- */
@@ -318,7 +318,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     for (const r of (await env.DB.prepare(`SELECT doc_number, created_at, payment_status FROM sales_documents WHERE doc_type = 'INV' AND converted_from = ?1 ORDER BY id`).bind(qt.id).all<{ doc_number: string; created_at: string; payment_status: string | null }>()).results)
       events.push({ at: r.created_at, kind: "quotation_invoiced", text: `Invoiced as ${r.doc_number}${r.payment_status === "void" ? " (voided)" : ""}`, by: null });
     events.sort((a, b) => b.at.localeCompare(a.at));
-    const mayCreate = can(user.role, "project_manage") || qt.salesperson_id === user.id || qt.created_by === user.id;
+    const mayCreate = canUser(user, "project_manage") || qt.salesperson_id === user.id || qt.created_by === user.id;
     return json({
       project: p ?? null, quotation_state: st, events,
       can_create: !p && mayCreate && (st.accepted || st.invoiced), // v1.246.3 - only once the customer agreed
@@ -365,7 +365,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
      drawer) and the ones with no project yet (the Projects board). The CEO,
      COO and CCO see every live quotation; a salesperson sees their own. */
   if (path === "/projects/quotations" && method === "GET") {
-    const all = can(user.role, "project_manage");
+    const all = canUser(user, "project_manage");
     const rows = (await env.DB.prepare(
       `SELECT d.id, d.doc_number, d.valid_until, d.revision, d.salesperson_id, d.created_by, c.company, c.contact_person,
               p.id AS project_id, p.status AS project_status, p.title AS project_title

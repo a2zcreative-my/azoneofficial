@@ -21,7 +21,7 @@
  * edited or deleted change row. */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { audit, err, json } from "./shared";
 
 /** the access levels a position may be linked to - the role door's own list, less the shopper */
@@ -51,7 +51,7 @@ async function logChange(env: Env, user: StaffUser, p: { id: number }, action: s
 export async function handlePositions(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (path !== "/positions" && !path.startsWith("/positions/")) return null;
   if (user.role === "customer" || user.role === "agent") return err("forbidden", "Staff only", 403);
-  const manage = can(user.role, "positions_manage");
+  const manage = canUser(user, "positions_manage");
   const refuse = () => err("forbidden", "Only the CEO or the Super Admin keeps the positions list", 403);
   try {
     /* ---------------- the list: everyone on staff reads it ---------------- */

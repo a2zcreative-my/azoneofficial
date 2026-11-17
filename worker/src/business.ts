@@ -27,7 +27,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit, str, num } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { INV_OUTCOMES, QT_OUTCOMES, openDocFollowup } from "./weekly-sales"; // v1.262.0 - one open follow-up per document, and its outcome codes
 import { personalApprove } from "./signing"; // v1.248.0 - a personal-signing company approves by signing
 import { glMonthFigures } from "./ledger"; // v1.222.0 - the ledger in the month-close snapshot (reads only)
@@ -307,7 +307,7 @@ export async function handleBusiness(
     } else hidden.push("live_sessions");
     /* enquiries - the business team; matched by phone or company name,
        because an enquiry is typed by the public and carries no customer id */
-    if (can(user.role, "enquiry_manage")) {
+    if (canUser(user, "enquiry_manage")) {
       const digits = (c.phone ?? "").replace(/\D/g, "").slice(-9);
       for (const q of await run<{ name: string; company: string | null; message: string; status: string; created_at: string }>(
         `SELECT name, company, message, status, created_at FROM enquiries
@@ -320,8 +320,8 @@ export async function handleBusiness(
       }
     } else hidden.push("enquiries");
     /* engagements - Sales Performance: a manager sees all, a seller their own */
-    if (can(user.role, "sales_perf_manage") || can(user.role, "sales_perf_view")) {
-      const mine = !can(user.role, "sales_perf_manage");
+    if (canUser(user, "sales_perf_manage") || canUser(user, "sales_perf_view")) {
+      const mine = !canUser(user, "sales_perf_manage");
       for (const g of await run<{ happened_at: string; channel: string | null; interaction: string | null; outcome: string | null; status: string | null; staff: string | null }>(
         `SELECT e.happened_at, e.channel, e.interaction_type AS interaction, e.outcome, e.status, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS staff
            FROM sp_engagements e LEFT JOIN users u ON u.id = e.user_id
@@ -370,7 +370,7 @@ export async function handleBusiness(
      profit and loss and the cash book read exactly as before. */
 
   if (path === "/inventory/receipts" && method === "GET") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     try {
       const { results } = await env.DB.prepare(
         `SELECT r.id, r.supplier, r.received_on, r.reference, r.note, r.total_cents, r.bill_due_on, r.bill_paid_on,
@@ -400,7 +400,7 @@ export async function handleBusiness(
 
   const mRcv = path.match(/^\/inventory\/receipts\/(\d+)$/);
   if (mRcv && method === "GET") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id, item_id, sku, item_name, qty, unit_cost_cents, stock_before, stock_after, cost_before_cents, cost_after_cents
          FROM stock_receipt_lines WHERE receipt_id = ?1 ORDER BY id`,
@@ -409,7 +409,7 @@ export async function handleBusiness(
   }
 
   if (path === "/inventory/receipts" && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const supplier = str(body?.supplier, 120) ? String(body!.supplier).trim() : "";
     if (supplier.length < 2) return err("invalid_input", "Who supplied it? Enter the supplier's name.", 400);
     const on = body?.received_on;
@@ -498,7 +498,7 @@ export async function handleBusiness(
 
   const mRcvVoid = path.match(/^\/inventory\/receipts\/(\d+)\/void$/);
   if (mRcvVoid && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (reason.length < 3) return err("invalid_input", "Say why this receipt is being voided.", 400);
     const rid = Number(mRcvVoid[1]);
@@ -551,7 +551,7 @@ export async function handleBusiness(
 
   const mBill = path.match(/^\/inventory\/receipts\/(\d+)\/bill$/);
   if (mBill && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const paidOn = body?.paid_on;
     if (paidOn !== null && (!validDay(paidOn) || paidOn > mytToday())) {
       return err("invalid_input", "The day the supplier was paid must be a real date, today or earlier (or null to undo).", 400);
@@ -572,7 +572,7 @@ export async function handleBusiness(
   /* a reorder level per item - optional; empty = the portal as it always was */
   const mReo = path.match(/^\/inventory\/(\d+)\/reorder$/);
   if (mReo && method === "PUT") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const lvl = body?.reorder_level === null ? null : num(body?.reorder_level);
     const qty = body?.reorder_qty === null || body?.reorder_qty === undefined ? null : num(body?.reorder_qty);
     if (lvl !== null && (!Number.isInteger(lvl) || lvl < 0 || lvl > 100000)) return err("invalid_input", "The reorder level must be a whole number from 0, or empty.", 400);
@@ -602,7 +602,7 @@ export async function handleBusiness(
      audit trail is narrower still: the CEO and super_admin, because it
      carries every payroll, leave and claim decision in the company. */
 
-  const BOOKS = can(user.role, "accounting_manage");
+  const BOOKS = canUser(user, "accounting_manage");
   const AUDIT_READERS = ["super_admin", "ceo"];
   const validMonth = (m: unknown): m is string => typeof m === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
   const thisMonth = () => mytToday().slice(0, 7);
@@ -680,7 +680,7 @@ export async function handleBusiness(
 
   if (path === "/books/close" && method === "POST") {
     if (!BOOKS) return err("forbidden", "Accounting access required", 403);
-    if (!can(user.role, "books_close")) return err("forbidden", "Only the CEO closes or reopens a month (AC-1)", 403);
+    if (!canUser(user, "books_close")) return err("forbidden", "Only the CEO closes or reopens a month (AC-1)", 403);
     const m = body?.month;
     if (!validMonth(m)) return err("invalid_input", "month (YYYY-MM) is required", 400);
     if (m >= thisMonth()) return err("invalid_input", "Only a month that has ended can be closed.", 400);
@@ -700,7 +700,7 @@ export async function handleBusiness(
 
   if (path === "/books/reopen" && method === "POST") {
     if (!BOOKS) return err("forbidden", "Accounting access required", 403);
-    if (!can(user.role, "books_close")) return err("forbidden", "Only the CEO closes or reopens a month (AC-1)", 403);
+    if (!canUser(user, "books_close")) return err("forbidden", "Only the CEO closes or reopens a month (AC-1)", 403);
     const m = body?.month;
     const reason = str(body?.reason, 300) ? String(body!.reason).trim() : "";
     if (!validMonth(m)) return err("invalid_input", "month (YYYY-MM) is required", 400);
@@ -801,7 +801,7 @@ export async function handleBusiness(
      open at a time. Permission: inventory, like a manual adjustment. */
 
   if (path === "/stock-counts" && method === "GET") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     try {
       const { results } = await env.DB.prepare(
         `SELECT s.id, s.category, s.note, s.status, s.started_at, s.posted_at, s.cancelled_at,
@@ -820,7 +820,7 @@ export async function handleBusiness(
   }
 
   if (path === "/stock-counts" && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     try {
       const open = await env.DB.prepare(`SELECT id FROM stock_counts WHERE status = 'open'`).first<{ id: number }>();
       if (open) return err("invalid_input", `Stock take #${open.id} is still open. Post or cancel it first.`, 400);
@@ -846,7 +846,7 @@ export async function handleBusiness(
 
   const mCnt = path.match(/^\/stock-counts\/(\d+)$/);
   if (mCnt && method === "GET") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const head = await env.DB.prepare(`SELECT id, category, note, status, started_at, posted_at FROM stock_counts WHERE id = ?1`).bind(Number(mCnt[1])).first();
     if (!head) return err("not_found", "Stock take not found", 404);
     const { results } = await env.DB.prepare(
@@ -859,7 +859,7 @@ export async function handleBusiness(
 
   const mCntLines = path.match(/^\/stock-counts\/(\d+)\/lines$/);
   if (mCntLines && method === "PUT") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const cid = Number(mCntLines[1]);
     const head = await env.DB.prepare(`SELECT status FROM stock_counts WHERE id = ?1`).bind(cid).first<{ status: string }>();
     if (!head) return err("not_found", "Stock take not found", 404);
@@ -883,7 +883,7 @@ export async function handleBusiness(
 
   const mCntPost = path.match(/^\/stock-counts\/(\d+)\/post$/);
   if (mCntPost && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const cid = Number(mCntPost[1]);
     try {
       const head = await env.DB.prepare(`SELECT status FROM stock_counts WHERE id = ?1`).bind(cid).first<{ status: string }>();
@@ -933,7 +933,7 @@ export async function handleBusiness(
 
   const mCntCancel = path.match(/^\/stock-counts\/(\d+)\/cancel$/);
   if (mCntCancel && method === "POST") {
-    if (!can(user.role, "inventory")) return err("forbidden", "Inventory access required", 403);
+    if (!canUser(user, "inventory")) return err("forbidden", "Inventory access required", 403);
     const r = await env.DB.prepare(`UPDATE stock_counts SET status = 'cancelled', cancelled_at = datetime('now') WHERE id = ?1 AND status = 'open'`)
       .bind(Number(mCntCancel[1])).run();
     if (!r.meta?.changes) return err("invalid_input", "That stock take is not open.", 400);
@@ -954,7 +954,7 @@ export async function handleBusiness(
      The prospects pipeline stays retired (v1.21.0): enquiries are the
      funnel, and an enquiry becomes a quotation through the existing handoff. */
 
-  const CRM_WRITE = can(user.role, "sales");
+  const CRM_WRITE = canUser(user, "sales");
   const crmSkew = () => err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0143_customer_joins)", 500);
   const tagOf = (t: unknown) => (typeof t === "string" ? t.trim().toLowerCase().replace(/\s+/g, " ") : "");
   const thisYm = () => mytToday().slice(0, 7);
@@ -1281,7 +1281,7 @@ export async function handleBusiness(
       if (!d) return err("not_found", "Quotation not found", 404);
       if (d.doc_type !== "QT") return err("invalid_input", "Only a quotation is accepted", 400);
       const mine = d.salesperson_id === user.id || d.created_by === user.id;
-      if (!mine && !can(user.role, "project_manage")) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance", 403);
+      if (!mine && !canUser(user, "project_manage")) return err("forbidden", "The quotation's salesperson or the CEO, COO or CCO record the customer's acceptance", 403);
       if (d.valid_until && /^\d{4}-\d{2}-\d{2}/.test(d.valid_until) && d.valid_until.slice(0, 10) < mytToday()) {
         return err("expired", `This quotation was valid until ${d.valid_until.slice(0, 10)} - issue a revision with a new date, then record the acceptance on that`, 409);
       }
@@ -1315,7 +1315,7 @@ export async function handleBusiness(
      And one sales control the owner asked to have OFF until he sets it: a
      quotation approval limit. With no limit nothing anywhere changes. */
 
-  const HR = can(user.role, "hr_manage");
+  const HR = canUser(user, "hr_manage");
   const OWNER_ROLES = ["super_admin", "ceo"];
   const hrSkew = () => err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0144_people)", 500);
   const addDays = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -1530,7 +1530,7 @@ export async function handleBusiness(
 
   /* a month of leave, for the managers who decide it */
   if (path === "/people/leave-calendar" && method === "GET") {
-    if (!can(user.role, "team_manage")) return err("forbidden", "Managers only", 403);
+    if (!canUser(user, "team_manage")) return err("forbidden", "Managers only", 403);
     const m = params.get("month") ?? mytToday().slice(0, 7);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) return err("invalid_input", "month (YYYY-MM) is required", 400);
     const first = `${m}-01`;

@@ -46,7 +46,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify } from "./staff";
 import { json, err, audit, str } from "./shared";
-import { can, rolesFor } from "./permissions";
+import { can, rolesFor, canUser } from "./permissions";
 import { isExecutiveOwner } from "./decision-policy";
 import { earnsNothing } from "./commission";
 import { todayMyt } from "./fa-registry";
@@ -234,7 +234,7 @@ export async function handleFaTemplates(env: Env, path: string, method: string, 
 }
 
 async function route(env: Env, path: string, method: string, b: Record<string, unknown>, user: StaffUser, ctx: Ctx): Promise<Response | null> {
-  const drafter = can(user.role, "fa_templates"), publisher = can(user.role, "fa_templates_publish");
+  const drafter = canUser(user, "fa_templates"), publisher = canUser(user, "fa_templates_publish");
 
   /* ---- the library: everyone in Financial Advisory sees it (an approved version is what they use) ---- */
   if (path === "/fa/templates" && method === "GET") {
@@ -387,7 +387,7 @@ async function route(env: Env, path: string, method: string, b: Record<string, u
 
   /* ---- the fees the viewer may prepare: disbursements recorded with evidence, in their scope ---- */
   if (path === "/fa/fees" && method === "GET") {
-    const all = can(user.role, "fa_decide");
+    const all = canUser(user, "fa_decide");
     const { results } = await env.DB.prepare(
       `SELECT n.id AS note_id, n.case_id, n.bank, n.approved_cents, n.evidence_id IS NOT NULL AS has_evidence, n.created_at AS recorded_at,
               EXISTS (SELECT 1 FROM fa_notes x WHERE x.corrects_id = n.id) AS corrected,

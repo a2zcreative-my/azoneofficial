@@ -93,7 +93,7 @@ const connCard = read("components/portal/connection-status-card.tsx");
   const route = staff.slice(r, staff.indexOf('if (path === "/postage" && method === "POST")'));
   const b = route.indexOf('if (pq.get("source") === "tiktok") {');
   const branch = b > 0 ? route.slice(b, route.indexOf("return json({ records: results, total, page, per, counts });") + 10) : "";
-  ok("the paged branch sits inside the route's own permission check", r > 0 && b > route.indexOf('if (!can(user.role, "inventory") && !can(user.role, "exec_view"))'));
+  ok("the paged branch sits inside the route's own permission check", r > 0 && b > route.indexOf('if (!canUser(user, "inventory") && !canUser(user, "exec_view"))'));
   ok("it reads TikTok orders only, a bounded page", /p\.order_ref LIKE 'TT-%'/.test(branch) && /Math\.min\(50, Math\.max\(5,/.test(branch) && /LIMIT \$\{per\} OFFSET \$\{\(page - 1\) \* per\}/.test(branch));
   ok("it is read-only", branch.length > 500 && !/\b(INSERT|UPDATE|DELETE|REPLACE)\b/.test(branch));
   ok("the typed search is a literal (instr), never a LIKE pattern", /instr\(lower\(p\.order_ref\), \?1\) > 0/.test(branch) && !/LIKE \?/.test(branch));

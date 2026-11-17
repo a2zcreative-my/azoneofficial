@@ -76,7 +76,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, requireFreshTotp, revokePaidConfirmation, currentStaffSql } from "./staff";
 import { json, err, audit, str, putGuarded } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { bookCash, reverseLive } from "./cashbook";
 import { ensureLedger } from "./commission";
 import { isExecutiveOwner } from "./decision-policy";
@@ -156,11 +156,11 @@ export function settlementOf(total: number, verified: number, pending: number, p
 
 /** may this person read this invoice's payments */
 function seesInvoice(user: StaffUser, inv: Inv): boolean {
-  if (can(user.role, "payment_verify") || can(user.role, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role)) return true;
+  if (canUser(user, "payment_verify") || canUser(user, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role)) return true;
   return inv.salesperson_id === user.id;
 }
 function reportsOn(user: StaffUser, inv: Inv): boolean {
-  if (!can(user.role, "payment_report")) return false;
+  if (!canUser(user, "payment_report")) return false;
   return REPORT_ALL_ROLES.includes(user.role) || inv.salesperson_id === user.id;
 }
 
@@ -304,7 +304,7 @@ export async function handlePayments(
 
   /* ---- v1.283.0 (B6) - the audit trail across invoices, newest first, read only ---- */
   if (path === "/payments/events" && method === "GET") {
-    if (!can(user.role, "payment_verify") && !can(user.role, "payment_evidence") && !REPORT_ALL_ROLES.includes(user.role)) {
+    if (!canUser(user, "payment_verify") && !canUser(user, "payment_evidence") && !REPORT_ALL_ROLES.includes(user.role)) {
       return err("forbidden", "Only the CEO, COO and CCO read the payment audit trail", 403);
     }
     const limit = Math.min(200, Math.max(1, Number(params.get("limit") ?? 100) || 100));
@@ -423,11 +423,11 @@ export async function handlePayments(
   }
 
   if (path === "/payments" && method === "GET") {
-    if (!can(user.role, "sales") && !can(user.role, "exec_view") && !can(user.role, "payment_report")) return err("forbidden", "Sales access required", 403);
+    if (!canUser(user, "sales") && !canUser(user, "exec_view") && !canUser(user, "payment_report")) return err("forbidden", "Sales access required", 403);
     const on = await paymentVerificationOn(env);
-    const all = can(user.role, "payment_verify") || can(user.role, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role);
+    const all = canUser(user, "payment_verify") || canUser(user, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role);
     const caps = {
-      report: can(user.role, "payment_report"), verify: verifier(user), evidence: false,
+      report: canUser(user, "payment_report"), verify: verifier(user), evidence: false,
       switch: user.role === "ceo" && user.is_owner === true, all,
     };
     let reports: unknown[] = [];
@@ -576,7 +576,7 @@ export async function handlePayments(
     }
     if (method !== "POST") return null;
     if (!(await paymentVerificationOn(env))) return err("payment_verification_off", "Payment verification is switched off - payments are recorded the existing way.", 409);
-    if (!can(user.role, "payment_report")) return err("forbidden", "You cannot report payments", 403);
+    if (!canUser(user, "payment_report")) return err("forbidden", "You cannot report payments", 403);
     if (!reportsOn(user, inv)) return err("forbidden", `${inv.doc_number} is not your invoice - its salesperson, the COO or the CCO reports its payments.`, 403);
     if (inv.payment_status === "void") return err("voided", `${inv.doc_number} is void - no payment can be reported on it.`, 409);
     if (inv.payment_status === "paid") return err("invalid_input", `${inv.doc_number} is already paid in full.`, 400);
@@ -692,14 +692,14 @@ export async function handlePayments(
   }
 
   if (action === "evidence") {
-    if (!can(user.role, "payment_evidence")) return err("forbidden", "You do not check payment evidence", 403);
+    if (!canUser(user, "payment_evidence")) return err("forbidden", "You do not check payment evidence", 403);
     /* v1.285.0 - the CEO's own payment needs no second person's check */
     return err("not_needed", "No evidence check is needed: the CEO's own payment is final when the CEO verifies it.", 409);
   }
 
   /* everything below is the verifier's */
   if (!verifier(user)) {
-    if (can(user.role, "payment_verify")) await audit(env, user.id, "auth.payment_verify_refused", "invoice_payment_reports", String(rid), { action, reason: "not the company owner" });
+    if (canUser(user, "payment_verify")) await audit(env, user.id, "auth.payment_verify_refused", "invoice_payment_reports", String(rid), { action, reason: "not the company owner" });
     return err("forbidden", "Only the CEO (the company owner) verifies payments", 403);
   }
 

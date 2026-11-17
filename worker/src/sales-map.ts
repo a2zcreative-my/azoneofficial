@@ -24,7 +24,7 @@
 
 import type { Env } from "./index";
 import { json, err } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { stateFromAddress, MY_STATE_NAMES } from "./my-state";
 
 export const RANGES = ["month", "year", "all"] as const;
@@ -74,7 +74,7 @@ export function rangeStart(range: Range, now = new Date()): string | null {
 }
 
 export async function handleSalesMap(env: Env, user: { role: string }, params: URLSearchParams): Promise<Response> {
-  if (!can(user.role, "revenue_view")) return err("forbidden", "Sales access required", 403);
+  if (!canUser(user, "revenue_view")) return err("forbidden", "Sales access required", 403);
   const range: Range = (RANGES as readonly string[]).includes(params.get("range") ?? "") ? (params.get("range") as Range) : "year";
   const since = rangeStart(range);
 

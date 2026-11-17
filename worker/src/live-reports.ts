@@ -26,7 +26,7 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify } from "./staff";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { audit, err, json, putGuarded } from "./shared";
 
 type Report = {
@@ -60,7 +60,7 @@ async function reviewers(env: Env, except: number): Promise<number[]> {
 
 export async function handleLiveReports(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams, request: Request): Promise<Response | null> {
   if (path !== "/live-reports" && !path.startsWith("/live-reports/")) return null;
-  const reviewer = can(user.role, "live_report_review");
+  const reviewer = canUser(user, "live_report_review");
   try {
     /* ---------------- the list: the host's own, or every report for a reviewer ---------------- */
     if (path === "/live-reports" && method === "GET") {

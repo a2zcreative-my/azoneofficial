@@ -1,0 +1,164 @@
+/* v1.349.0 - THE SUPER ADMIN'S CONSOLE, ON THE PORTAL'S PAGES (the CEO,
+   17-11-2026: "for /Admin make it standardize as same as /Portal").
+   Overview and Users: TabPage + one KpiRow + WorkspaceSplit/SplitPane +
+   CompactTaskTable + SideDrawer; this only lays out what sits inside a pane.
+   Tokens only; grids name their tracks. */
+
+.page { min-width: 0; }
+
+.rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: visible;
+  flex-shrink: 0;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.75rem 0.875rem;
+}
+.row + .row { border-top: 1px solid var(--border); }
+.rowIcon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--gold-solid) 14%, transparent);
+  color: var(--brand-accent-deep);
+}
+.rowText {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.rowText strong {
+  color: var(--foreground);
+  font-size: var(--type-body-size);
+  font-weight: 600;
+}
+.rowText span {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.rowEnd {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.note {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-control);
+  background: var(--info-soft, var(--secondary));
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+  flex-shrink: 0;
+}
+.muted {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--type-body-sm-size);
+}
+
+/* a register cell: the name above, the email or detail below */
+.cell {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.cell strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cell span {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nowrap { white-space: nowrap; }
+
+/* the toolbar: search, then the two filters */
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .toolbar { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* the chosen account */
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  margin: 0;
+  flex-shrink: 0;
+}
+.fact {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.fact dt {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.fact dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: var(--type-body-size);
+  overflow-wrap: break-word;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.reset {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  flex-shrink: 0;
+}
+.form {
+  display: grid;
+  gap: 0.875rem;
+}
+.form label {
+  display: grid;
+  gap: 0.375rem;
+}
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--type-body-sm-size);
+}
+.ok {
+  margin: 0;
+  color: var(--success);
+  font-size: var(--type-body-sm-size);
+  font-weight: 600;
+}

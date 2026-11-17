@@ -139,7 +139,7 @@ ok("the three event routes were found", postEvents.length > 0 && patchEvents.len
 /* ---- 6. the picker is never empty for somebody allowed to use it ---- */
 {
   ok("the staff options ride on the events response",
-     /can\(user\.role, "events_manage"\)[\s\S]{0,600}?FROM users u[\s\S]{0,300}?ORDER BY \$\{STAFF_ORDER_SQL\}/.test(staff),
+     /canUser\(user, "events_manage"\)[\s\S]{0,600}?FROM users u[\s\S]{0,300}?ORDER BY \$\{STAFF_ORDER_SQL\}/.test(staff),
      "GET /users is gated on hr_manage / exec_view - an events manager may be neither");
   ok("the picker lists people in the company order, not alphabetically",
      (staff.match(/ORDER BY \$\{STAFF_ORDER_SQL\}/g) ?? []).length >= 2,

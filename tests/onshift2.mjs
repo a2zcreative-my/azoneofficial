@@ -70,7 +70,7 @@ function checks(f) {
     && /records, ot, ot_eligible, today_shift, days,/.test(get) && !/records: results/.test(get));
   ok("B GET /attendance: the site's point goes only with the person's own day", /fence: fenceA \? \{ label: fenceA\.label, radius_m: fenceA\.radius_m, \.\.\.\(own \? \{ lat: fenceA\.lat, lng: fenceA\.lng \} : \{\}\) \} : null,/.test(get));
   ok("B GET /attendance: still read-only (no INSERT, UPDATE or DELETE added)", !/\b(INSERT|UPDATE|DELETE)\b/.test(get.replace(/deriveOtForDay/g, "")));
-  ok("B the monitor still answers hr_manage or exec_view only", /if \(!can\(user\.role, "hr_manage"\) && !can\(user\.role, "exec_view"\)\)/.test(mon));
+  ok("B the monitor still answers hr_manage or exec_view only", /if \(!canUser\(user, "hr_manage"\) && !canUser\(user, "exec_view"\)\)/.test(mon));
   ok("B the monitor's additions are outcomes and words: no coordinate leaves in a punch",
     /const punches = mine\.map\(\(p\) => \(\{ type: p\.type, at: p\.created_at, pending: p\.pending_approval === 1, loc: locOutcome\(p\.gps, fenceM\) as LocOutcome \}\)\);/.test(mon)
     && !/gps: p\.gps|lat: fenceM|lng: fenceM/.test(mon) && /site: fenceM \? \{ label: fenceM\.label, radius_m: fenceM\.radius_m \} : null,/.test(mon));
@@ -169,7 +169,7 @@ const MUT = [
   ["the COO flagged again", "loc", '["ceo", "coo", "cco"]', '["ceo", "cco"]'],
   ["raw records sent", "staff", "records, ot, ot_eligible, today_shift, days,", "records: results, ot, ot_eligible, today_shift, days,"],
   ["the gps passed on", "staff", "pending: r.pending_approval === 1,\n      loc: locOutcome(r.gps, fenceA) as LocOutcome,", "pending: r.pending_approval === 1, gps: r.gps,\n      loc: locOutcome(r.gps, fenceA) as LocOutcome,"],
-  ["the monitor opened to everyone", "staff", 'if (!can(user.role, "hr_manage") && !can(user.role, "exec_view")) {\n      return err("forbidden", "HR access required", 403);\n    }\n    const todayM', 'if (false) {\n      return err("forbidden", "HR access required", 403);\n    }\n    const todayM'],
+  ["the monitor opened to everyone", "staff", 'if (!canUser(user, "hr_manage") && !canUser(user, "exec_view")) {\n      return err("forbidden", "HR access required", 403);\n    }\n    const todayM', 'if (false) {\n      return err("forbidden", "HR access required", 403);\n    }\n    const todayM'],
   ["a write in the monitor", "staff", "const staffM = (results", "await env.DB.prepare(`UPDATE users SET department = NULL`).run();\n    const staffM = (results"],
   ["a second location read", "dash", "const lastLocPunch =", "const watch = () => navigator.geolocation.watchPosition(() => {});\n  const lastLocPunch ="],
   ["a keyed map service", "pm", "const TILE = 256;", 'const TILE = 256;\nconst KEY = "apikey=abc";'],

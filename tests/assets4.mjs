@@ -175,7 +175,7 @@ report(await runtime(join(dir, "worker.mjs"), join(dir, "fig.mjs"), false));
 const checks = n;
 const A = "worker/src/assets.ts", S = "worker/src/staff.ts", P = "worker/src/permissions.ts", G = "lib/asset-figures.ts";
 const MUT = [
-  [A, "a company moved without the right", [["    if (!can(user.role, \"asset_company_change\")) return err(", "    if (false) return err("]]],
+  [A, "a company moved without the right", [["    if (!canUser(user, \"asset_company_change\")) return err(", "    if (false) return err("]]],
   [A, "a company moved without a reason", [["    if ((want.company_reason ?? \"\").length < 10) return err(", "    if (false) return err("]]],
   [A, "a holder and a shared label together", [["  if (shared && holder != null) return err(", "  if (false) return err("]]],
   [S, "a shared new asset with a holder", [["    if (profA.want.shared_label && asgn != null) return err(", "    if (false) return err("]]],

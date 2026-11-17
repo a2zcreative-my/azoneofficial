@@ -22,7 +22,7 @@
 
 import type { Env } from "./index";
 import { json, err, audit, bumpVersion } from "./shared";
-import { PERMS, can } from "./permissions";
+import { PERMS, can, canUser } from "./permissions";
 import { notify } from "./staff";
 
 export const STATUSES = ["new", "contacted", "qualified", "closed"] as const;
@@ -116,7 +116,7 @@ export async function handleEnquiries(
     return json({ ok: true, id }, 201);
   }
 
-  if (!user || !can(user.role, "enquiry_manage")) return err("forbidden", "Business team access required", 403);
+  if (!user || !canUser(user, "enquiry_manage")) return err("forbidden", "Business team access required", 403);
 
   /* ---- the list: newest first, with who took it and who answered ---- */
   if (path === "/enquiries" && method === "GET") {

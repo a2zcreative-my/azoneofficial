@@ -26,7 +26,7 @@ import {
   Globe, Hotel, IdCard, Image, Inbox, Landmark, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
   Receipt, ScrollText, Settings2, ShieldCheck, SlidersHorizontal,
-  ShoppingCart, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
+  ShoppingCart, Signature, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet, LayoutGrid, TrendingUp, Boxes, Users, Coins, ShoppingBag, Cog,
   type LucideIcon,
 } from "lucide-react";
@@ -81,6 +81,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Posts: SquarePen,
   Media: Clapperboard,
   Staff: UsersRound,
+  Signatures: Signature, // v1.348.0 - the signature vault, its own /admin tab
   Audit: ScrollText,
   Account: UserRound,
   Advanced: Settings2,

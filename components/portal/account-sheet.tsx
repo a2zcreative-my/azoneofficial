@@ -27,7 +27,7 @@ import { SkelRows } from "@/components/ui/skeleton";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { L, withStepUp } from "@/components/portal/page-shared";
-import { roleLabel } from "@/components/portal/users-shared";
+import { roleLabel, setCustomRoleNames } from "@/components/portal/users-shared";
 import { api } from "@/lib/api";
 import { btnClass, btnSm, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm } from "@/lib/ui-styles";
 import css from "./account-sheet.module.css";
@@ -43,6 +43,9 @@ interface Sheet {
   history: { id: number; action: string; created_at: string; detail: string | null; who: string | null }[];
   can: { email: boolean; recovery: boolean };
   roles_allowed?: string[];
+  /* v1.350.0 - the custom role this person works under (null = their business role alone), and the custom roles' names */
+  custom_role?: { key: string; name: string; active: boolean } | null;
+  custom_roles?: { key: string; name: string; base_role: string; active: boolean }[];
   mail_ready: boolean; privileged: boolean; me: number;
 }
 type Route = "email" | "google" | "in_person";
@@ -93,6 +96,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
     if (!open || !userId) return;
     const c = new AbortController();
     void api<Sheet>(`/staff/accounts/${userId}`, { signal: c.signal }).then((r) => {
+      if (r.ok && r.data?.custom_roles) setCustomRoleNames(r.data.custom_roles); // v1.350.0 - the role list reads custom roles by name
       if (!c.signal.aborted) setData({ d: r.ok && r.data ? r.data : null, e: r.ok ? "" : ((r.data as { error?: { message?: string } } | null)?.error?.message ?? L("Could not open this account.", "Tidak dapat membuka akaun ini.")) });
     });
     return () => c.abort();
@@ -203,7 +207,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
             </div>
             <dl className={css.dl}>
               <dt>{L("Account type", "Jenis akaun")}</dt><dd>{a.role === "agent" ? L("Agent (outside sales partner)", "Ejen (rakan jualan luar)") : L("Staff", "Kakitangan")}</dd>
-              <dt>{L("Business role", "Peranan perniagaan")}</dt><dd><strong>{roleLabel(a.role)}</strong>{a.employment_status ? <span className={css.muted}> · {a.employment_status.replace(/_/g, " ")}</span> : null}</dd>
+              <dt>{L("Business role", "Peranan perniagaan")}</dt><dd><strong>{roleLabel(a.role)}</strong>{d.custom_role ? <span className={css.muted}> · {d.custom_role.name}{d.custom_role.active ? "" : L(" (deactivated)", " (dinyahaktif)")}</span> : null}{a.employment_status ? <span className={css.muted}> · {a.employment_status.replace(/_/g, " ")}</span> : null}</dd>
               <dt>{L("Company access", "Akses syarikat")}</dt><dd>{L("Both companies - A2Z Creative Marketing and AZ One Official. Access is decided by the role; there is no per-person company limit.", "Kedua-dua syarikat - A2Z Creative Marketing dan AZ One Official. Akses ditentukan oleh peranan; tiada had syarikat bagi setiap orang.")}</dd>
             </dl>
             {roleForm && (

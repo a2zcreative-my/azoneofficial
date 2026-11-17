@@ -30,7 +30,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify, currentStaffSql, staffRolesSql } from "./staff";
 import { queueTaskMailTo, taskForMail } from "./task-mail"; // v1.247.0 - the email leg
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { audit, err, json, putGuarded } from "./shared";
 import { projectAccess, type ProjectRow, type Access as ProjectAccess } from "./projects";
 
@@ -101,7 +101,7 @@ export async function taskAccess(env: Env, user: StaffUser, t: TaskRow): Promise
   }
   /* T-4: a project task is managed by the project's Owner and project_manage;
      a standalone task by team_manage, as it always was */
-  const manage = project ? !!pa?.manage : can(user.role, "team_manage");
+  const manage = project ? !!pa?.manage : canUser(user, "team_manage");
   const view = assignee || assistant || creator || manage || (project ? !!pa?.view : false);
   const team = assignee || assistant || creator || manage;
   /* T-2: the reviewer - whoever set it, or those who manage it; never the
@@ -643,7 +643,7 @@ async function route(
       can: {
         edit: (a.assignee || a.manage) && a.open,
         /* v1.315.0 (TK-4) - the title: the assignee, the Project Owner on a project task, or the CEO, COO or CCO (task_rename) - with the reason when it is not theirs */
-        rename: a.open && (a.assignee || (a.project ? a.manage : can(user.role, "task_rename"))), rename_reason: !a.assignee,
+        rename: a.open && (a.assignee || (a.project ? a.manage : canUser(user, "task_rename"))), rename_reason: !a.assignee,
         reassign: a.manage && a.open, assistants: a.manage && a.open, tick: (a.assignee || a.assistant || a.manage) && a.open,
         update: a.update && a.open, comment: a.team, files: a.update && a.open, restricted_files: a.manage || (a.review && !a.assignee),
         request_review: a.assignee && !a.selfSet && a.open && t.stage !== "review", review: a.review && a.open && !a.selfSet && t.stage === "review",

@@ -42,7 +42,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { STAFF_ORDER_SQL, currentStaffSql } from "./staff";
 import { json, err, audit, str } from "./shared";
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { shiftSalesSplit, type DutyWindow, type LiveWindow, type ShiftPunch, type ShiftOrder } from "./shift-sales"; // v1.155.0 - the CEO's TikTok attribution rules, reused
 import {
   readSocialUrl, normalizeHandle, customerKey, spScore, spBand, ratio, spBusyVsProductive,
@@ -386,8 +386,8 @@ const EVIDENCE_MAX = 8 * 1024 * 1024;
 export async function handleSalesPerformance(
   env: Env, request: Request, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams,
 ): Promise<Response> {
-  if (!can(user.role, "sales_perf_view")) return err("forbidden", "Sales Performance access required", 403);
-  const manager = can(user.role, "sales_perf_manage");
+  if (!canUser(user, "sales_perf_view")) return err("forbidden", "Sales Performance access required", 403);
+  const manager = canUser(user, "sales_perf_manage");
   const me = user.id;
   const pending = (e: unknown) => String(e).includes("no such table") ? err("pending_migration", "Sales Performance needs database change 0127 - run PUSH.bat", 503) : null;
 

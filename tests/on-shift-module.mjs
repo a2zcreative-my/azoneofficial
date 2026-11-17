@@ -154,7 +154,7 @@ const bundle = async (src, name) => {
   const on = strip(read("components/portal/on-shift.tsx"));
   const staff = read("worker/src/staff.ts");
   ok("the team is drawn for the roles that read the monitor (v1.328.0: as one line, R-3)", /\{MANAGE_ROLES\.includes\(user\.role\) && \(\s*<div className=\{shiftCss\.wide\}>\s*<TeamOnShiftLine /.test(dash));
-  ok("…the worker still answers only hr_manage and exec_view", /if \(path === "\/attendance\/monitor" && method === "GET"\) \{[\s\S]{0,600}?if \(!can\(user\.role, "hr_manage"\) && !can\(user\.role, "exec_view"\)\)/.test(staff));
+  ok("…the worker still answers only hr_manage and exec_view", /if \(path === "\/attendance\/monitor" && method === "GET"\) \{[\s\S]{0,600}?if \(!canUser\(user, "hr_manage"\) && !canUser\(user, "exec_view"\)\)/.test(staff));
   ok("the team section never draws a position", !/in_gps|geofence|lat\b|lng\b/.test(on));
   ok("the week shows the person's own roster rows", /s\.host_user_id === userId/.test(on) && /b\.user_id === userId/.test(on));
   ok("location is read only by the punch and the tap", (dash.match(/navigator\.geolocation\.getCurrentPosition/g) ?? []).length === 1 && !/geolocation/.test(on));

@@ -96,7 +96,8 @@ ok("the worker records which axis the report is about",
      interface of /portal". The consoles render ConsoleShell
      (components/layout/console-shell.tsx), which renders AppShell with the
      portal's rail; so an app view is "in the shell" through either. */
-  const APP_VIEWS = ["components/portal/portal-shell.tsx", "components/layout/console-shell.tsx", "app/admin/page.tsx", "app/admin/permissions/page.tsx", "app/account/page.tsx"];
+  /* v1.348.0 - /admin/permissions is retired: it only redirects to portal Users → Roles & Permissions */
+  const APP_VIEWS = ["components/portal/portal-shell.tsx", "components/layout/console-shell.tsx", "app/admin/page.tsx", "app/account/page.tsx"];
   ok("the console shell is the portal's: AppShell with the grouped SideNav rail", /<AppShell\s+navigation=\{\s*<SideNav/.test(read("components/layout/console-shell.tsx")));
   for (const f of APP_VIEWS) {
     const src = read(f);

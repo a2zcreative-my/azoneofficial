@@ -31,7 +31,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { notify } from "./staff";
 import { json, err, audit, str, putGuarded } from "./shared";
-import { can, rolesFor } from "./permissions";
+import { can, rolesFor, canUser } from "./permissions";
 import { handleFaRegistry } from "./fa-registry";
 import { assess, ENGINE_VERSION, type FaItem, type FaCriterion, type Product } from "./fa-engine";
 import { isExecutiveOwner } from "./decision-policy";
@@ -216,7 +216,7 @@ async function picture(env: Env, u: StaffUser, c: Case) {
 
 export async function handleFa(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams, request: Request): Promise<Response | null> {
   if (!path.startsWith("/fa/")) return null;
-  if (!can(user.role, "fa_view")) return err("forbidden", "Financial Advisory is not open to your role", 403);
+  if (!canUser(user, "fa_view")) return err("forbidden", "Financial Advisory is not open to your role", 403);
   if (body && hasCredential(body)) {
     await audit(env, user.id, "fa.credential_refused", "fa", path, { path });
     return err("credential_refused", "Never record a password, OTP, PIN or online-banking login. Remove that field.", 400);
@@ -308,7 +308,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
       reviews: await one(`c.stage != 'closed' AND ${REVIEW_PENDING}`),
       banker_pending: await one(`c.stage != 'closed' AND c.banker_status IN ('enquiry_sent', 'under_review')`),
       legal: FA_LEGAL,
-      can: { create: can(user.role, "fa_edit"), decide: can(user.role, "fa_decide"), criteria: can(user.role, "fa_criteria") },
+      can: { create: canUser(user, "fa_edit"), decide: canUser(user, "fa_decide"), criteria: canUser(user, "fa_criteria") },
     });
   }
 
@@ -320,7 +320,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   }
 
   if (path === "/fa/cases" && method === "POST") {
-    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot open advisory cases", 403);
+    if (!canUser(user, "fa_edit")) return err("forbidden", "You cannot open advisory cases", 403);
     const product = String(b.product ?? "");
     if (!(PRODUCTS as readonly string[]).includes(product)) return err("invalid_input", `product is one of ${PRODUCTS.join(", ")}`, 400);
     const issuer = b.issuer_code === "azoo" ? "azoo" : b.issuer_code === "a2z" ? "a2z" : null;
@@ -377,10 +377,10 @@ async function route(env: Env, path: string, method: string, body: Record<string
   /* ---- bank criteria (the one verified directory) ---- */
   if (path === "/fa/criteria" && method === "GET") {
     const today = mytToday();
-    return json({ criteria: (await liveCriteria(env)).map((c) => ({ ...c, shows: criterionShows(c as never, today) })), can: { propose: can(user.role, "fa_edit"), verify: can(user.role, "fa_criteria") }, me: user.id });
+    return json({ criteria: (await liveCriteria(env)).map((c) => ({ ...c, shows: criterionShows(c as never, today) })), can: { propose: canUser(user, "fa_edit"), verify: canUser(user, "fa_criteria") }, me: user.id });
   }
   if (path === "/fa/criteria" && method === "POST") {
-    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
+    if (!canUser(user, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
     /* v1.286.0 - the bank comes from the one bank registry, never typed (ONE BANK REGISTRY) */
     const bk = typeof b.bank_id === "number" ? await env.DB.prepare(`SELECT id, name, status FROM fa_banks WHERE id = ?1`).bind(b.bank_id).first<{ id: number; name: string; status: string }>() : null;
     const product = String(b.product ?? "");
@@ -437,7 +437,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   /* v1.301.0 - anyone who may propose asks management to verify a draft (a notification, nothing changes on the rule) */
   const mRq = path.match(/^\/fa\/criteria\/(\d+)\/request-verification$/);
   if (mRq && method === "POST") {
-    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
+    if (!canUser(user, "fa_edit")) return err("forbidden", "You cannot propose criteria", 403);
     const c = (await liveCriteria(env)).find((x) => x.id === Number(mRq[1]));
     if (!c) return err("not_found", "Criterion not found", 404);
     if (c.state !== "draft") return err("invalid_state", "Only a draft or indicative entry waits for verification.", 409);
@@ -448,7 +448,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   }
   const mCr = path.match(/^\/fa\/criteria\/(\d+)\/(verify|retire)$/);
   if (mCr && method === "POST") {
-    if (!can(user.role, "fa_criteria")) return err("forbidden", "Only management verifies bank criteria", 403);
+    if (!canUser(user, "fa_criteria")) return err("forbidden", "Only management verifies bank criteria", 403);
     const c = (await liveCriteria(env)).find((x) => x.id === Number(mCr[1])) as (FaCriterion & { created_by: number }) | undefined;
     if (!c) return err("not_found", "Criterion not found", 404);
     if (mCr[2] === "verify") {
@@ -484,7 +484,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
      the official outcome - only for the cases this person may open ---- */
   const mBc = path.match(/^\/fa\/bankers\/(\d+)\/cases$/);
   if (mBc && method === "GET") {
-    if (!can(user.role, "fa_view")) return err("forbidden", "You cannot open Financial Advisory", 403);
+    if (!canUser(user, "fa_view")) return err("forbidden", "You cannot open Financial Advisory", 403);
     const bankerId = Number(mBc[1]);
     const bk = await env.DB.prepare(`SELECT id FROM fa_bankers WHERE id = ?1`).bind(bankerId).first();
     if (!bk) return err("not_found", "Banker not found", 404);
@@ -609,7 +609,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     if (n.note_type === "system") return err("invalid_input", "A system assessment is never edited - run a new assessment.", 400);
     const c = await caseOf(env, n.case_id);
     if (!c || !(await mayOpen(env, user, c))) return err("forbidden", "Not a case you can open", 403);
-    if (n.note_type === "decision" ? !can(user.role, "fa_decide") : !(can(user.role, "fa_edit") || (await isMember(env, c.id, user.id)))) return err("forbidden", "You cannot correct this note", 403);
+    if (n.note_type === "decision" ? !canUser(user, "fa_decide") : !(canUser(user, "fa_edit") || (await isMember(env, c.id, user.id)))) return err("forbidden", "You cannot correct this note", 403);
     const text = str(b.body, 2000) ? String(b.body).trim() : "";
     if (text.length < 5) return err("invalid_input", "Write the correction.", 400);
     const row = await env.DB.prepare(`INSERT INTO fa_notes (case_id, note_type, bank, status_value, body, evidence_id, corrects_id, author_id, author_role) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`)
@@ -621,7 +621,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
 
   /* ---- v1.288.0 DSR pre-check: the one engine, stateless (Quick Check and the live result) ---- */
   if (path === "/fa/preview" && method === "POST") {
-    if (!can(user.role, "fa_edit")) return err("forbidden", "You cannot run a DSR pre-check", 403);
+    if (!canUser(user, "fa_edit")) return err("forbidden", "You cannot run a DSR pre-check", 403);
     const product = String(b.product ?? "personal_financing") as Product;
     if (!["personal_financing", "debt_consolidation", "advisory_only"].includes(product)) return err("invalid_input", "Unknown product", 400);
     const raw = Array.isArray(b.items) ? (b.items as Array<Record<string, unknown>>) : [];
@@ -651,7 +651,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
 
   /* ---- v1.288.0 the management review queue ---- */
   if (path === "/fa/reviews" && method === "GET") {
-    const decide = can(user.role, "fa_decide");
+    const decide = canUser(user, "fa_decide");
     const { results } = await env.DB.prepare(
       `SELECT r.id, r.case_id, r.assessment_id, r.reason, r.created_at, ${PERSON("u")} AS submitted_by, c.case_ref, c.product, c.prescreen, cu.company AS client,
               a.current_dsr_bp, a.projected_dsr_bp, a.outcome
@@ -955,7 +955,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
 
   /* ---- v1.288.0 Management decides - an internal decision, never a loan approval ---- */
   if (sub === "review" && method === "PUT") {
-    if (!can(user.role, "fa_decide")) return err("forbidden", "Only the CEO, COO or CCO decides a review", 403);
+    if (!canUser(user, "fa_decide")) return err("forbidden", "Only the CEO, COO or CCO decides a review", 403);
     const st = await reviewState(env, c.id);
     if (!st.pending) return err("invalid_state", "Nothing is waiting for a decision on this case.", 409);
     if (st.submitted_by === user.id && !isExecutiveOwner(user)) {
@@ -987,7 +987,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   }
 
   if (sub === "override" && method === "POST") {
-    if (!can(user.role, "fa_decide")) return err("forbidden", "Only management overrides a pre-screen", 403);
+    if (!canUser(user, "fa_decide")) return err("forbidden", "Only management overrides a pre-screen", 403);
     const to = String(b.outcome ?? "");
     if (!OUTCOMES.includes(to) || to === "incomplete") return err("invalid_input", "Choose the outcome you set.", 400);
     const reason = str(b.reason, 600) ? String(b.reason).trim() : "";
@@ -1050,7 +1050,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
       return json({ ok: true, id: row?.id }, 201);
     }
     if (type === "decision") {
-      if (!can(user.role, "fa_decide")) return err("forbidden", "Only management records an official bank decision", 403);
+      if (!canUser(user, "fa_decide")) return err("forbidden", "Only management records an official bank decision", 403);
       const status = String(b.status ?? "");
       if (!DECISIONS.includes(status)) return err("invalid_input", `An official decision is one of ${DECISIONS.join(", ")}`, 400);
       const ev = await docOnCase(env, c.id, b.evidence_id);
@@ -1078,7 +1078,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
   if (sub === "updates" && method === "POST") {
     const edit = mayEdit(user, c);
     const member = edit || (await isMember(env, c.id, user.id));
-    if (!member || !can(user.role, "fa_edit")) return err("forbidden", "Not a case you can update", 403);
+    if (!member || !canUser(user, "fa_edit")) return err("forbidden", "Not a case you can update", 403);
     if (c.stage === "closed") return err("invalid_state", "A closed case takes no updates.", 409);
     const comment = str(b.comment, 1000) ? String(b.comment).trim() : "";
     const want = { follow: b.follow_up_on !== undefined, doc: b.document_id !== undefined, blocker: b.blocker !== undefined, next: b.next_action !== undefined, waiting: b.waiting_on !== undefined };
@@ -1135,7 +1135,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
      the computed one. Never on a case the decider owns, the verified owner
      account apart. */
   if (sub === "priority" && method === "PUT") {
-    if (!can(user.role, "fa_priority")) return err("forbidden", "Only management overrides a case's priority", 403);
+    if (!canUser(user, "fa_priority")) return err("forbidden", "Only management overrides a case's priority", 403);
     if (c.owner_id === user.id && !isExecutiveOwner(user)) {
       await audit(env, user.id, "auth.self_approval_refused", "fa_cases", String(c.id), { action: "fa.priority_override" });
       return err("self_approval", "This is your own case - another manager sets its priority.", 403);

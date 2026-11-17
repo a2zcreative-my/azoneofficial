@@ -47,7 +47,7 @@ import type { StaffUser } from "./staff";
 import { notify, payslipsOutFor } from "./staff"; // v1.255.0 - review and payout notices; v1.311.0 - the released-month rule, read for the Payroll Sync preview
 import { audit, err, json, str } from "./shared";
 import { publicRateCard } from "./packages"; // v1.317.0
-import { can } from "./permissions";
+import { can, canUser } from "./permissions";
 import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0
 import { bookCash } from "./cashbook"; // v1.255.0 - the agent payout's one cash-book row, at settlement
 
@@ -487,12 +487,12 @@ export async function handleCommission(env: Env, path: string, method: string, b
     || path === "/commission/disputes" || path.startsWith("/commission/disputes/")
     || path === "/commission/overview" || path === "/commission/transactions" || path === "/commission/agents" || path === "/commission/payroll-preview")) return null;
   /* v1.255.0 - an agent reads their own 7% at /agent/commission only; the Commission module is staff's */
-  if (can(user.role, "agent_portal") || user.role === "agent") return err("forbidden", "Agents see their own commission in the agent portal", 403);
+  if (canUser(user, "agent_portal") || user.role === "agent") return err("forbidden", "Agents see their own commission in the agent portal", 403);
   const agentRes = await handleAgentDeals(env, path, method, body, user, params);
   if (agentRes) return agentRes;
   const ws5 = await handleWorkspace5(env, path, method, user, params);
   if (ws5) return ws5;
-  const all = can(user.role, "commission_view_all");
+  const all = canUser(user, "commission_view_all");
   const today = mytToday();
   const wantAll = params.get("scope") === "all" && all; // everyone else only ever reads their own
   const me = wantAll ? null : user.id;
@@ -584,7 +584,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       };
     });
     const match = (r: Record<string, unknown>) => !q || [r.doc_number, r.company, r.closer_name, r.package].some((x) => String(x ?? "").toLowerCase().includes(q));
-    return json({ scope: me ? "mine" : "all", entries: rows.filter(match), estimates: estimates.filter(match), can_decide: can(user.role, "commission_settle") });
+    return json({ scope: me ? "mine" : "all", entries: rows.filter(match), estimates: estimates.filter(match), can_decide: canUser(user, "commission_settle") });
   }
 
   /* ---- one entry, with everything that happened to it ---- */
@@ -647,13 +647,13 @@ export async function handleCommission(env: Env, path: string, method: string, b
     const hold = attribution && attribution.classification === "review" && !attribution.decision && !attribution.closed_at && row.kind === "earn" && Number(row.amount_cents) === 0 ? 1 : 0;
     const nextE = nextOfEntry({ ...(row as { status: string; user_id: number | null; payroll_month: string | null; recipient_role: string }), hold }, await syncSwitch(env), await entryContext(env));
     const safeRow = all ? row : { ...row, agent_request_id: undefined, payout_id: undefined, attribution_id: undefined };
-    return json({ entry: { ...safeRow, package: lineSummary(row.items as string | null), next: nextE, hold }, related, confirmations, history, breakdown, attribution: attrOut, can_decide: can(user.role, "commission_settle") });
+    return json({ entry: { ...safeRow, package: lineSummary(row.items as string | null), next: nextE, hold }, related, confirmations, history, breakdown, attribution: attrOut, can_decide: canUser(user, "commission_settle") });
   }
 
   /* ---- decide an entry under review (CEO, super admin) ---- */
   const dec = path.match(/^\/commission\/ledger\/(\d+)\/decide$/);
   if (dec && method === "POST") {
-    if (!can(user.role, "commission_settle")) return err("forbidden", "Only the CEO decides a commission under review", 403);
+    if (!canUser(user, "commission_settle")) return err("forbidden", "Only the CEO decides a commission under review", 403);
     const id = Number(dec[1]);
     const decision = String(body?.decision ?? "");
     const note = str(body?.note, 500) ? String(body!.note).trim() : "";
@@ -881,11 +881,11 @@ export async function handleCommission(env: Env, path: string, method: string, b
     return json({
       agent_partnership: agentSw?.value === "off" ? "off" : "on",
       versions, log, in_force: inF ? { ...inF, packages: pkV.get(inF.id) ?? [] } : null, sync: await syncSwitch(env),
-      start: COMMISSION_START_DAY, today, can_draft: can(user.role, "commission_draft"), can_approve: can(user.role, "commission_approve"), can_switch: can(user.role, "commission_settle"),
+      start: COMMISSION_START_DAY, today, can_draft: canUser(user, "commission_draft"), can_approve: canUser(user, "commission_approve"), can_switch: canUser(user, "commission_settle"),
     });
   }
   if (path === "/commission/policy" && method === "POST") {
-    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO or COO drafts a commission policy", 403);
+    if (!canUser(user, "commission_draft")) return err("forbidden", "Only the CEO or COO drafts a commission policy", 403);
     const name = str(body?.name, 80) ? String(body!.name).trim() : "";
     const from = String(body?.effective_from ?? "");
     const kind = body?.rate_kind === "fixed" ? "fixed" : "percent";
@@ -995,7 +995,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       return json({ policy: p, rows: out, total_cents: out.reduce((a, r) => a + r.amount_cents, 0), note: "A preview only - nothing is written, and past entitlements keep their own version." });
     }
     if (pol[2] === "approve" && method === "POST") {
-      if (!can(user.role, "commission_approve")) return err("forbidden", "Only the CEO approves a commission policy", 403);
+      if (!canUser(user, "commission_approve")) return err("forbidden", "Only the CEO approves a commission policy", 403);
       if (p.status !== "draft") return err("conflict", "Only a draft is approved.", 409);
       if (p.effective_from < today) return err("invalid_input", `This draft starts on ${p.effective_from}, which has passed. Draft it again from today or later.`, 400);
       if (body?.confirm !== true) return err("invalid_input", "Tick that you approve this policy.", 400);
@@ -1018,7 +1018,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
       return json({ ok: true });
     }
     if (pol[2] === "reject" && method === "POST") {
-      if (!can(user.role, "commission_approve")) return err("forbidden", "Only the CEO rejects a commission policy", 403);
+      if (!canUser(user, "commission_approve")) return err("forbidden", "Only the CEO rejects a commission policy", 403);
       const reason = str(body?.reason, 500) ? String(body!.reason).trim() : "";
       if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
       const r = await env.DB.prepare(`UPDATE commission_policies SET status = 'rejected', rejected_by = ?2, rejected_at = datetime('now'), reject_reason = ?3 WHERE id = ?1 AND status = 'draft'`).bind(id, user.id, reason).run();
@@ -1028,7 +1028,7 @@ export async function handleCommission(env: Env, path: string, method: string, b
     }
   }
   if (path === "/commission/settings" && method === "POST") {
-    if (!can(user.role, "commission_settle")) return err("forbidden", "Only the CEO switches commission into payroll", 403);
+    if (!canUser(user, "commission_settle")) return err("forbidden", "Only the CEO switches commission into payroll", 403);
     /* v1.255.0 - THE AGENT KILL SWITCH: off holds every agent-linked sale
        for review (never direct); nothing already written changes */
     if (body?.agent_partnership !== undefined) {
@@ -1390,8 +1390,8 @@ async function tellDeciders(env: Env, text: string, ref: string): Promise<void> 
    only; every money write is conditional and in one batch. ---- */
 const DAYRX = /^\d{4}-\d{2}-\d{2}$/;
 async function handleAgentDeals(env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
-  const all = can(user.role, "commission_view_all");
-  const decider = can(user.role, "commission_settle");
+  const all = canUser(user, "commission_view_all");
+  const decider = canUser(user, "commission_settle");
   const today = mytToday();
   const reasonOf = (v: unknown) => (str(v, 500) ? String(v).trim() : "");
   const missingT = (e: unknown) => /no such table|no such column/i.test(String(e));
@@ -1426,7 +1426,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
       const agents = ((await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name, is_active FROM users u WHERE role = 'agent' ORDER BY name`).all()).results ?? []);
       return json({
         attributions: (results ?? []).map((r) => ({ ...r, reasons: String(r.reasons ?? "").split(",").filter(Boolean), evidence: (() => { try { return JSON.parse(String(r.evidence ?? "null")); } catch { return null; } })() })),
-        versions, disputes, agents, can_decide: decider, can_flag: can(user.role, "commission_draft"), today,
+        versions, disputes, agents, can_decide: decider, can_flag: canUser(user, "commission_draft"), today,
       });
     } catch (e) {
       if (missingT(e)) return json({ attributions: [], versions: [], disputes: [], agents: [], can_decide: false, can_flag: false, today, pending_migration: true });
@@ -1514,7 +1514,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
 
   /* ---------- disputes (S3): flagged by management, cleared by the CEO ---------- */
   if (path === "/commission/disputes" && method === "POST") {
-    if (!can(user.role, "commission_draft")) return err("forbidden", "Only the CEO or COO flags a disputed attribution", 403);
+    if (!canUser(user, "commission_draft")) return err("forbidden", "Only the CEO or COO flags a disputed attribution", 403);
     const scope = body?.scope === "customer" ? "customer" : body?.scope === "invoice" ? "invoice" : "";
     let ref = Number(body?.ref_id);
     /* from the screen: an invoice number - the invoice itself, or its customer (renewals too) */
@@ -1570,7 +1570,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
            FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id LEFT JOIN users a ON a.id = o.authorized_by LEFT JOIN users s ON s.id = o.settled_by LEFT JOIN users c ON c.id = o.cancelled_by
           ORDER BY o.id DESC LIMIT 200`,
       ).all()).results ?? []);
-      return json({ due, rows, payouts: payouts.map((o) => ({ ...(o as Record<string, unknown>), auth_key: undefined })), can_authorise: decider, can_settle: can(user.role, "agent_payout_settle"), me: user.id, today });
+      return json({ due, rows, payouts: payouts.map((o) => ({ ...(o as Record<string, unknown>), auth_key: undefined })), can_authorise: decider, can_settle: canUser(user, "agent_payout_settle"), me: user.id, today });
     } catch (e) {
       if (missingT(e)) return json({ due: [], rows: [], payouts: [], can_authorise: false, can_settle: false, me: user.id, today, pending_migration: true });
       throw e;
@@ -1600,7 +1600,7 @@ async function handleAgentDeals(env: Env, path: string, method: string, body: Re
   if (po && method === "POST") {
     /* v1.311.0 (K-5) - the CEO cancels (before settlement); the COO confirms
        the bank paid it (agent_payout_settle), never the person who authorised it */
-    if (po[2] === "cancel" ? !decider : !can(user.role, "agent_payout_settle")) return err("forbidden", po[2] === "cancel" ? "Only the CEO cancels an agent payout" : "Only Finance (the COO) confirms an agent payout was paid", 403);
+    if (po[2] === "cancel" ? !decider : !canUser(user, "agent_payout_settle")) return err("forbidden", po[2] === "cancel" ? "Only the CEO cancels an agent payout" : "Only Finance (the COO) confirms an agent payout was paid", 403);
     const id = Number(po[1]);
     const o = await env.DB.prepare(`SELECT o.*, ${PERSON("u")} AS agent_name FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id WHERE o.id = ?1`).bind(id).first<{ id: number; agent_id: number; agent_name: string | null; status: string; amount_cents: number; authorized_by: number; authorized_at: string; settled_by: number | null; settled_on: string | null; bank_ref: string | null }>();
     if (!o) return err("not_found", "Payout not found", 404);
@@ -1677,7 +1677,7 @@ const standOf = (sts: string[], deal: string): string =>
 
 async function handleWorkspace5(env: Env, path: string, method: string, user: StaffUser, params: URLSearchParams): Promise<Response | null> {
   if (method !== "GET" || !["/commission/overview", "/commission/transactions", "/commission/agents", "/commission/payroll-preview"].includes(path)) return null;
-  const all = can(user.role, "commission_view_all");
+  const all = canUser(user, "commission_view_all");
   const today = mytToday();
   const month = MONTH.test(params.get("month") ?? "") ? params.get("month")! : today.slice(0, 7);
   const company = ["a2z", "azoo"].includes(params.get("company") ?? "") ? params.get("company")! : null;
@@ -1888,10 +1888,10 @@ async function handleWorkspace5(env: Env, path: string, method: string, user: St
     ).all()).results ?? [];
   } catch { /* pre-0168 */ }
   return json({
-    month, released, future: month > today.slice(0, 7), sync: await syncSwitch(env), can_sync: can(user.role, "payroll_process"),
+    month, released, future: month > today.slice(0, 7), sync: await syncSwitch(env), can_sync: canUser(user, "payroll_process"),
     employees: people.map((r) => ({ ...r, on_payroll: Number(r.on_payroll) === 1 })),
     totals: { ready: people.reduce((a, r) => a + Number(r.ready), 0), in_payroll: people.reduce((a, r) => a + Number(r.in_payroll), 0), paid: people.reduce((a, r) => a + Number(r.paid), 0) },
-    agents: { due: agentsDue, authorised, can_authorise: can(user.role, "commission_settle"), can_settle: can(user.role, "agent_payout_settle") },
+    agents: { due: agentsDue, authorised, can_authorise: canUser(user, "commission_settle"), can_settle: canUser(user, "agent_payout_settle") },
   });
 }
 const mytDayOfUtc = (utc: string | null | undefined) => (utc ? new Date(Date.parse(`${String(utc).replace(" ", "T")}Z`) + 8 * 3600 * 1000).toISOString().slice(0, 10) : null);
