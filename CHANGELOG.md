@@ -10,6 +10,24 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.353.0] - 2026-11-17 - Partner Interest Application: the public form and its home in Agents - BUILT, NOT DEPLOYED (MIGRATION 0206, ADDITIVE)
+
+The CEO's brief "A2Z OS - CREATE PARTNER INTEREST APPLICATION" (17-11-2026), drawn from his three pictures.
+
+### Added
+- **The public form** at `https://a2zcreative.my/apply/partner` (`app/apply/partner/`): "A2Z Partner Interest Application", no sign-in, EN/BM, one step at a time exactly as the three pictures - Contact & Source, Referral Capability, Availability & Consent - with the answers kept across Back and Continue (and a reload, in this browser tab only). Twelve recruitment sources (Referral and Other take a short description); UTM parameters from the link are captured separately. No CV, no salary question, no client list, no account. Mandatory acknowledgements and Privacy Notice, separate optional marketing consent, "Submit for Screening", a confirmation with the reference (`PIA-YYMMDD-XXXX`). Phone-first: one column, 16px inputs, no sideways scroll.
+- **`POST /api/v1/public/partner-applications`** (`worker/src/partners.ts`): validated on the server, the existing Cloudflare bot check (action `partner_apply`), 20 an hour per connection; ONE record per press (`client_key` unique - a retry, even two at the same moment, gets the same reference) and one per person while an application is open (same email or phone within 30 days); never creates a user, customer or agent.
+- **Agents -> Requests** gains a request-type switch, **Client Requests | Partner Applications** (client requests unchanged and still the default). The applications list (applicant and reference, age range, source and campaign, contact, capability, review status, owner, submitted) sits beside the Screening Workflow; one application opens in a drawer with everything it says, its history and only the actions the server allows: **Pick Up** (claims it once - a second person is told somebody already has it), **Contact**, **Review Notes**, **Shortlist**, **Hold**, **Reject**, Hand back; management's **Approve / Reject (final)** and, as a separate recorded step, **Activate** (agreement date and where it is kept + an Agent account already given in Users & Security -> Customers & Agents; this screen grants nothing).
+- **Agents -> Overview**: a Partner Recruitment panel - one KPI strip (Applications, In Screening, Qualified, Approved, First Response, Agent Sales This Week against the company weekly target), by source, by campaign, screening status and staff ownership; the agent table gains Quotations and Verified paid (CEO-confirmed partnership sales only, each once). Gender and age are never used to decide.
+- **Alerts on the existing engines**: the Sales and agent team and management are notified once per application (`partner:<id>:...` refs open the exact application); the Desk lists applications nobody picked up, owned ones with no contact or a follow-up due, and shortlisted / approved ones for management. The hourly pass reminds once a day: not picked up after 4 h (management), no contact or follow-up due after 24 h (the owner), escalation after 48 h - hours editable by management with a reason (Reminder settings).
+- Permission `partner_approve` (CEO, COO, CCO, super admin) in the matrix; viewing and screening use the existing `agent_requests_view` / `agent_requests_manage`.
+
+### Migration
+- `0206_partner_applications` (additive): `partner_applications` (status new / assigned / screening / shortlisted / approved / rejected / on_hold / activated, owner, first response, follow-up, approval and activation each recorded apart, `version`) and an append-only `partner_application_events`; triggers refuse a deleted application and a rewritten event.
+
+### Guards
+- `tests/partner-applications.mjs` 136 checks, 7 mutations (true races for Pick Up and a double press). Browser `tests/browser/partner-application.py` 60/60 (the three steps at 1440 and 390, BM, Back keeps answers, submit + confirmation, staff Pick Up / Contact / double claim / approval / activation gate / Overview).
+
 ## [1.352.0] - 2026-11-17 - /admin Phase 4: one Website Content tab - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
 
 Phase 4, the last of the /admin plan the CEO approved (17-11-2026). The console is now six tabs: Overview, Website Content, Users, Signatures, Security & Audit, My Account.

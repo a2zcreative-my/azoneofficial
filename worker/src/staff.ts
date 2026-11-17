@@ -20,6 +20,7 @@ import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.
 import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
+import { handlePartners } from "./partners"; // v1.351.0
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
@@ -3134,6 +3135,12 @@ async function handleStaffRoutes(
   if (path === "/projects" || path.startsWith("/projects/")) {
     const pj = await handleProjects(env, path, method, body, user, new URL(request.url).searchParams, request);
     if (pj) return pj;
+  }
+
+  /* ---- v1.351.0 partner interest applications (partners.ts): Agents -> Requests -> Partner Applications ---- */
+  if (path === "/partner-applications" || path.startsWith("/partner-applications/")) {
+    const pa = await handlePartners(env, path, method, body, user, new URL(request.url).searchParams);
+    if (pa) return pa;
   }
 
   /* ---- v1.249.0 the agent desk (agent.ts): packages to promote, agents' requests ---- */

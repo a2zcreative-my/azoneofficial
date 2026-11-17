@@ -89,6 +89,7 @@ export function recordOf(id: string): { tab: TabName; kind: string; id: number }
     case "quote": return { tab: "Sales", kind: "document", id: n };
     case "announcement": return { tab: "Announcements", kind: "announcement", id: n };
     case "stock": return { tab: "Inventory", kind: "stock", id: n };
+    case "partner": return { tab: "Agents", kind: "partner", id: n }; // v1.351.0
     default: return null;
   }
 }
@@ -100,7 +101,7 @@ export function refOf(id: string): string {
     leave: ["Leave", "Cuti"], claim: ["Claim", "Tuntutan"], ot: ["Overtime", "Kerja lebih masa"], punch: ["Punch", "Ketukan"],
     task: ["Task", "Tugasan"], "task-close": ["Task", "Tugasan"], quote: ["Quotation", "Sebut harga"], announcement: ["News", "Berita"],
     followup: ["Follow-up", "Susulan"], recurring: ["Recurring invoice", "Invois berulang"], probation: ["Probation", "Percubaan"],
-    joining: ["Joining", "Kemasukan"], leaving: ["Leaving", "Keluar"], "fa-review": ["Review", "Semakan"], stock: ["Stock", "Stok"],
+    joining: ["Joining", "Kemasukan"], leaving: ["Leaving", "Keluar"], "fa-review": ["Review", "Semakan"], stock: ["Stock", "Stok"], partner: ["Partner application", "Permohonan rakan kongsi"],
   };
   const w = word[m[1]!];
   if (m[1] === "ot" && m[3]) return `${L("Overtime", "Kerja lebih masa")} · ${dmy(m[3])}`;
@@ -110,12 +111,12 @@ export function refOf(id: string): string {
 /* the module a tab name reads as, in the reader's language */
 const MODULE_MS: Record<string, string> = {
   Leave: "Cuti", Claims: "Tuntutan", Attendance: "Kehadiran", Tasks: "Tugasan", Sales: "Jualan", Announcements: "Berita",
-  HR: "HR", "Financial Advisory": "Nasihat Kewangan", Inventory: "Inventori", Assets: "Aset", Enquiries: "Pertanyaan",
+  HR: "HR", "Financial Advisory": "Nasihat Kewangan", Agents: "Ejen", Inventory: "Inventori", Assets: "Aset", Enquiries: "Pertanyaan",
 };
 const moduleWord = (tab: string) => (tab === "Announcements" ? L("News", "Berita") : L(tab, MODULE_MS[tab] ?? tab));
 const BUCKET_ICON: Partial<Record<DeskItem["bucket"], AppIconName>> = {
   leave: "date", claims: "receipt", ot: "time", punches: "time", tasks: "documents", news: "content",
-  followups: "users", billing: "documents", people: "users", quotes: "documents", advisory: "documents",
+  followups: "users", billing: "documents", people: "users", quotes: "documents", advisory: "documents", partners: "users",
 };
 
 /* overdue first, then the longest waiting */

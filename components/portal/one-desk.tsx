@@ -56,7 +56,7 @@ import css from "./one-desk.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory";
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners"; // v1.351.0 partners
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
@@ -88,6 +88,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   people: ["People", "Orang"], // v1.181.17
   quotes: ["Quotations to approve", "Sebut harga untuk diluluskan"], // v1.181.17
   advisory: ["DSR assessments to review", "Penilaian DSR untuk disemak"], // v1.288.0
+  partners: ["Partner applications", "Permohonan rakan kongsi"], // v1.351.0
 };
 
 /** v1.291.0 - the module a Desk item comes from, in words (the Dashboard's decision queue) */
@@ -120,7 +121,7 @@ export function waited(since: string | null): string {
 export function useDeskData() {
   /* the topics every bucket can move on - a write anywhere here refetches */
   return useCachedApi<DeskData>("/staff/desk", true,
-    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes"]);
+    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes", "partner-applications"]); // v1.351.0 - a new or moved partner application
 }
 
 /** The three lists the surfaces need, split once so they cannot drift apart. */

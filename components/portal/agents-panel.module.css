@@ -56,7 +56,7 @@
 .vis { display: inline-flex; padding: 0 0.375rem; border-radius: 0.375rem; font-size: var(--type-caption-size); font-weight: 700; }
 .pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--type-body-sm-size); color: var(--foreground); }
 .drawer { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
-.block { display: grid; gap: 0.625rem; min-width: 0; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.block { display: grid; gap: 0.625rem; align-content: start; min-width: 0; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
 .block:last-child { border-bottom: 0; }
 .dl { display: grid; grid-template-columns: minmax(7rem, 9rem) 1fr; gap: 0.375rem 0.75rem; margin: 0; font-size: var(--type-body-sm-size); }
 .dl dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
@@ -159,7 +159,11 @@
 .conv { display: inline-flex; align-items: center; gap: 0.5rem; min-width: 7rem; }
 .convBar { position: relative; flex: 1 1 4rem; height: 0.375rem; border-radius: var(--radius-full); background: var(--secondary); overflow: hidden; }
 .convBar > span { position: absolute; inset: 0 auto 0 0; border-radius: var(--radius-full); background: var(--gold-solid); }
-.feed { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+/* v1.353.0 - a counted list (partner sources, campaigns): the name keeps one line, the bar and the figure follow */
+.barRow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(3rem, 8rem) 2rem; align-items: center; gap: 0.5rem; padding: 0.5rem 0; }
+.barRow > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barRow > .convBar { width: 100%; }
+.feed { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; }
 .feed > li + li { border-top: 1px solid var(--border); }
 .feedItem { display: flex; align-items: center; gap: 0.625rem; width: 100%; min-height: 3rem; padding: 0.625rem 0; border: 0; background: none; color: var(--foreground); font: inherit; text-align: left; cursor: pointer; }
 .feedItem:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm); }

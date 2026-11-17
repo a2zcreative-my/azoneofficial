@@ -13,6 +13,8 @@ export const PERMS: Record<string, readonly Role[]> = {
   agent_portal: ["agent"],
   agent_requests_view: ["super_admin", "ceo", "coo", "cco", "sales_marketing"],
   agent_requests_manage: ["super_admin", "ceo", "coo", "cco"],
+  /* v1.351.0 - the FINAL approval and the separate activation of a partner (agent) application; Sales screens and recommends (agent_requests_view) */
+  partner_approve: ["super_admin", "ceo", "coo", "cco"],
   /* v1.249.0 - the CEO writes to staff about their tasks; COO and CCO read the log (task_reports) */
   task_mail_send: ["super_admin", "ceo"],
   /* v1.350.0 - CUSTOM ROLES (the CEO, 17-11-2026: "Allow CEO and Super Admin identical effective access to
@@ -628,6 +630,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Tasks", key: "task_mail_send", en: "Send a task update email to staff", ms: "Hantar e-mel kemas kini tugasan kepada kakitangan", cap: "task_mail_send", note_en: "Each person gets their own open tasks; COO and CCO read the log", note_ms: "Setiap orang menerima tugasan terbuka sendiri; COO dan CCO membaca log" },
   { module: "Agents", key: "agent_requests_view", en: "See agents' package requests", ms: "Lihat permintaan pakej ejen", cap: "agent_requests_view" },
   { module: "Agents", key: "agent_requests_manage", en: "Edit agents' requests: status, follow-up person, notes", ms: "Sunting permintaan ejen: status, orang susulan, nota", cap: "agent_requests_manage" },
+  { module: "Agents", key: "partner_approve", en: "Approve partner applications and record their activation", ms: "Luluskan permohonan rakan kongsi dan rekod pengaktifannya", cap: "partner_approve" },
   { module: "Agents", key: "agent_portal", en: "Agent: own tasks, packages to promote, submit clients", ms: "Ejen: tugasan sendiri, pakej untuk dipromosi, hantar pelanggan", cap: "agent_portal", note_en: "No other module, no staff data", note_ms: "Tiada modul lain, tiada data kakitangan" },
   { module: "Tasks", key: "task_rename", en: "Rename a task given to someone else (with the reason)", ms: "Tukar tajuk tugasan orang lain (dengan sebab)", cap: "task_rename" },
   { module: "Tasks", key: "live_report_review", en: "Review, accept or return a Live Host Report", ms: "Semak, terima atau pulangkan Laporan Hos Live", cap: "live_report_review" },

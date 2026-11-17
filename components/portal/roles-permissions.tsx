@@ -86,7 +86,7 @@ const VERB_OF: Record<string, Verb> = {
   asset_company_change: "edit", account_email: "edit", fa_priority: "edit", leave_entitlement: "edit", unpaid_leave: "edit", agent_requests_manage: "edit",
   confirm_paid: "approve", payment_verify: "approve", payment_evidence: "approve", fa_decide: "approve", fa_criteria: "approve", fa_allocate: "approve",
   fa_templates_publish: "approve", asset_dispose_approve: "approve", cashbook_accept: "approve", expense_approve: "approve", expense_authorise: "approve",
-  books_close: "approve", payroll_release: "approve", commission_approve: "approve", commission_decide: "approve", claims_decide: "approve",
+  books_close: "approve", partner_approve: "approve", payroll_release: "approve", commission_approve: "approve", commission_decide: "approve", claims_decide: "approve",
   live_report_review: "approve", project_complete: "approve", company_review: "approve", elfia_publish: "approve",
   task_delete: "delete",
   payroll_export: "export", backup: "export",

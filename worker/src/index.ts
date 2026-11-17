@@ -16,6 +16,7 @@ import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // 
 import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { assetAckSweep, assetRepairSweep } from "./assets"; // v1.304.0 - Assets 4.0 phase 2; v1.305.0 - phase 3 repair follow-up
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 / v1.226.0 - 15 minutes before a shift, 15 before its end, and at the end
+import { submitPartnerApplication, partnerSweep } from "./partners"; // v1.351.0 - the public partner interest application and its hourly reminders
 import { drainMailOutbox, taskMailSweep, taskDigest } from "./task-mail"; // v1.247.0 - task emails: the outbox drains on the five-minute tick, reminders ride the hourly pass, the digest at 08:30 MYT
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
 import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
@@ -316,7 +317,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0205_custom_roles";
+const LATEST_MIGRATION = "0206_partner_applications";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -2306,6 +2307,8 @@ export default {
         try { await taskMailSweep(env); } catch (e) { await logError(env, "task_mail_sweep", e instanceof Error ? e.message : String(e)); }
         /* v1.260.0 - routed leave waiting too long for its start date: tell the approver's manager and HR (never approves) */
         try { await leaveEscalationSweep(env); } catch (e) { await logError(env, "leave_escalation", e instanceof Error ? e.message : String(e)); }
+        /* v1.351.0 - partner applications: unclaimed or overdue -> the owner reminded, management told (once a day each) */
+        try { await partnerSweep(env); } catch (e) { await logError(env, "partner_sweep", e instanceof Error ? e.message : String(e)); }
         /* v1.304.0 - an asset hand-over unacknowledged for 3 days: an ordinary Task for whoever issued it (once) */
         try { await assetAckSweep(env); } catch (e) { await logError(env, "asset_ack_sweep", e instanceof Error ? e.message : String(e)); }
         try { await assetRepairSweep(env); } catch (e) { await logError(env, "asset_repair_sweep", e instanceof Error ? e.message : String(e)); }
@@ -3101,6 +3104,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       200,
       { "Cache-Control": "public, max-age=60" },
     );
+  }
+
+  /* v1.351.0 - the public Partner Interest Application (/apply/partner, partners.ts): no session,
+     same origin only, Cloudflare's bot check, retry-safe; it never creates an account */
+  if (path === "/api/v1/public/partner-applications" && method === "POST") {
+    const rateOk = await checkRateLimit(env, `partner_apply:${clientIp(request)}`, 20, 3600);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    return submitPartnerApplication(env, request, body, rateOk);
   }
 
   if (path === "/api/v1/enquiries" && method === "POST") {
@@ -5732,6 +5743,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0202 (tasks 5.0: project deliverables to tick and the client acceptance)", `SELECT d.done_at, d.removed_at, a.accepted_on, a.client_name FROM project_deliverables d, project_acceptances a LIMIT 0`],
       ["0204 (staff: the positions list and its kept changes)", `SELECT p.name, p.access_role, p.retired_at, c.action FROM staff_positions p, staff_position_changes c LIMIT 0`],
       ["0205 (users: custom roles on a base role)", `SELECT c.key, c.base_role, c.active, u.custom_role_id FROM custom_roles c, users u LIMIT 0`],
+      ["0206 (agents: partner interest applications and their history)", `SELECT p.ref, p.status, p.owner_id, e.kind FROM partner_applications p, partner_application_events e LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -5961,6 +5973,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0203_journal_append_only",
       "0204_staff_positions",
       "0205_custom_roles",
+      "0206_partner_applications",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

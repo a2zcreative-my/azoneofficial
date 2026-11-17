@@ -44,7 +44,7 @@ function loadScript(): Promise<void> {
 
 export type BotState = "off" | "checking" | "ready" | "unavailable";
 
-export function useBotCheck(siteKey: string | null, action: "signin" | "set_password") {
+export function useBotCheck(siteKey: string | null, action: "signin" | "set_password" | "partner_apply") { // v1.351.0 - the public partner application asks too
   const box = useRef<HTMLDivElement | null>(null);
   const widget = useRef<string | null>(null);
   const [token, setToken] = useState<string | null>(null);

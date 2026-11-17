@@ -47,7 +47,7 @@ export function weekStartOf(d: string, startDow = 1): string {
   return addDays(d, -((dow(d) - startDow + 7) % 7));
 }
 
-async function weekStartDow(env: Env): Promise<number> {
+export async function weekStartDow(env: Env): Promise<number> { // v1.351.0 - exported for the partner figures
   try {
     const r = await env.DB.prepare(`SELECT value FROM business_settings WHERE key = 'sales_week_start'`).first<{ value: string | null }>();
     const n = Number(r?.value);
@@ -69,7 +69,7 @@ type Resolved = { target_cents: number | null; target_count: number | null; from
 const NONE: Resolved = { target_cents: null, target_count: null, from: null, set_by: null, reason: null, id: null };
 /** The approved target for a week: the latest row from that week or before,
     for one metric (revenue unless named; rows from before 0156 are revenue). */
-async function targetFor(env: Env, scope: "person" | "team" | "company", key: number | string | null, week: string, metric: "revenue" | GoalMetric = "revenue"): Promise<Resolved> {
+export async function targetFor(env: Env, scope: "person" | "team" | "company", key: number | string | null, week: string, metric: "revenue" | GoalMetric = "revenue"): Promise<Resolved> {
   const where = scope === "person" ? "t.user_id = ?2" : scope === "team" ? "t.team = ?2" : "?2 IS NULL";
   type Row = { id: number; target_cents: number | null; target_count?: number | null; week_from: string; reason: string; who: string | null };
   let r: Row | null = null;

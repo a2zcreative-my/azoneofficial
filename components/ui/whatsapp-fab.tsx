@@ -36,6 +36,8 @@ export function WhatsAppFab() {
     /* v1.238.0 - the single-use link pages: one job, nothing beside it */
     pathname.startsWith("/verify-email") ||
     pathname.startsWith("/set-password") ||
+    /* v1.351.0 - the partner application: a form with its own buttons, the FAB would float over Continue */
+    pathname.startsWith("/apply") ||
     CARD_PATHS.has(pathname) ||
     CARD_PATHS.has(pathname.replace(/\/$/, ""));
 

@@ -260,10 +260,10 @@ export default function PortalPage() {
             user.role === "agent" ? (
               <TabPage>
                 <TabZone label={L("Packages and my clients", "Pakej dan pelanggan saya")}>
-                  <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
+                  <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} focus={focusOf("Agents")} />
                 </TabZone>
               </TabPage>
-            ) : <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
+            ) : <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} focus={focusOf("Agents")} />
           )}
           {/* v1.284.0 - Financial Advisory: TAB_ROLES draws it for the fa_view
               holders; every route checks fa_view and the case scope itself */}

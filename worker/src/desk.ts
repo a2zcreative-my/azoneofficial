@@ -52,7 +52,7 @@ import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory"; // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners"; // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -410,6 +410,33 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           since: r.created_at, overdue: ageDays(r.created_at) > 2,
           kind: "decide", who: null, next: "Proceed, ask for information, record a concern, or mark unsuitable",
         });
+      }
+    });
+  }
+  /* v1.351.0 - partner interest applications (partners.ts): an unclaimed one to pick up (the Sales and
+     agent team), the ones I own that wait on a first contact or a follow-up, and - for whoever holds
+     partner_approve - a shortlisted one to approve and an approved one to activate. The row opens the
+     application itself (Agents -> Requests -> Partner Applications). */
+  if (canUser(user, "agent_requests_view") || canUser(user, "partner_approve")) {
+    await guard("partners", async () => {
+      const { results } = await env.DB.prepare(
+        `SELECT id, ref, full_name, source, status, owner_id, created_at, picked_at, first_response_at, next_follow_up_on, updated_at, approved_at
+           FROM partner_applications WHERE status IN ('new', 'assigned', 'screening', 'on_hold', 'shortlisted', 'approved') ORDER BY id ASC LIMIT 200`,
+      ).all<{ id: number; ref: string; full_name: string; source: string; status: string; owner_id: number | null; created_at: string; picked_at: string | null; first_response_at: string | null; next_follow_up_on: string | null; updated_at: string | null; approved_at: string | null }>();
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const sees = canUser(user, "agent_requests_view");
+      const approves = canUser(user, "partner_approve");
+      for (const a of results) {
+        const base = { bucket: "partners" as const, id: `partner:${a.id}`, tab: "Agents", who: a.full_name };
+        if (a.status === "new" && sees) {
+          items.push({ ...base, title: `${a.ref} - new partner application`, sub: `${a.source} · not picked up`, since: a.created_at, overdue: ageDays(a.created_at) > 1 / 6, kind: "do", next: "Pick it up and contact the applicant" });
+        } else if (a.owner_id === user.id && ["assigned", "screening", "on_hold"].includes(a.status) && (!a.first_response_at || (a.next_follow_up_on && a.next_follow_up_on <= today))) {
+          items.push({ ...base, title: `${a.ref} - partner screening`, sub: a.first_response_at ? `follow-up ${dmy(a.next_follow_up_on ?? "")}` : "no contact yet", since: a.first_response_at ? a.next_follow_up_on : a.picked_at, overdue: a.first_response_at ? (a.next_follow_up_on ?? "") < today : ageDays(a.picked_at) > 1, kind: "do", next: a.first_response_at ? "Follow up and record it" : "Contact the applicant" });
+        } else if (a.status === "shortlisted" && approves) {
+          items.push({ ...base, title: `${a.ref} - partner application shortlisted`, sub: "recommended by Sales · final approval", since: a.updated_at ?? a.created_at, overdue: ageDays(a.updated_at ?? a.created_at) > 2, kind: "decide", next: "Approve or reject" });
+        } else if (a.status === "approved" && approves) {
+          items.push({ ...base, title: `${a.ref} - approved partner to activate`, sub: "agreement and Agent access pending", since: a.approved_at, overdue: ageDays(a.approved_at) > 3, kind: "do", next: "Record the agreement, then activate" });
+        }
       }
     });
   }

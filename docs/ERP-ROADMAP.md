@@ -524,3 +524,10 @@ never changes anybody's role, which still changes through the role door.
 rebuilt and no row is rewritten). A custom role is a column of the existing
 permission cells on one working base role; users.role keeps the base role, so
 every chain, payroll population and headcount is unchanged.
+1.353.0 (the Partner Interest Application, the CEO 17-11-2026) adds
+`0206_partner_applications` (additive: partner_applications with a unique
+reference and a unique once-only key, and an append-only
+partner_application_events; triggers refuse a deleted application or a
+rewritten event - no existing table is altered). A public application never
+creates a user; activation links an Agent account already given through Users
+& Security.

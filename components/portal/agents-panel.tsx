@@ -59,11 +59,13 @@ import { SkelCard, SkelRows } from "@/components/ui/skeleton";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { FlowStrip, type FlowStep, type FlowTone } from "@/components/ui/flow-strip";
-import { Panel, WorkspaceGrid } from "@/components/ui/panel";
+import { Panel, PillSwitch, WorkspaceGrid } from "@/components/ui/panel";
 import { SplitPane, WorkspaceSplit } from "@/components/ui/workspace-split";
 import { Avatar } from "@/components/ui/avatar";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { btnClass, btnSm, btnSmPrimary, btnSmQuiet, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { PartnerDrawer, PartnerInbox, PartnerOverview, PartnerSettings, type PList, type PSummary } from "@/components/portal/partner-applications"; // v1.351.0
+import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import css from "./agents-panel.module.css";
 
 type Status = "draft" | "submitted" | "under_review" | "more_info" | "preparing" | "quotation_ready" | "with_client" | "revision_requested" | "acceptance_pending" | "won" | "not_proceeding";
@@ -145,7 +147,7 @@ type View = "overview" | "packages" | "requests" | "quotations" | "agents" | "co
 const AGENT_VIEWS: View[] = ["overview", "packages", "requests", "quotations", "commission"];
 const STAFF_VIEWS: View[] = ["overview", "requests", "agents", "packages"];
 
-export function AgentsPanel({ role, owner = false, initialView }: { role: string; owner?: boolean; initialView?: string }) {
+export function AgentsPanel({ role, owner = false, initialView, focus }: { role: string; owner?: boolean; initialView?: string; focus?: RecordFocus | null }) {
   const isAgent = role === "agent";
   const views = isAgent ? AGENT_VIEWS : STAFF_VIEWS;
   const canGrant = owner || role === "super_admin"; // the server decides; this only offers the way there
@@ -171,6 +173,29 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
   const [picked, setPicked] = useState<number | null>(null);
   const { show, node: toastNode } = useSaveToast();
   const { setTab, setTabStart, canOpen } = usePortal();
+  /* v1.351.0 - partner applications (the public /apply/partner form) beside the client requests */
+  const [reqType, setReqType] = useState<"clients" | "partners">("clients");
+  const [pList, setPList] = useState<PList | null>(null);
+  const [pFailed, setPFailed] = useState("");
+  const [pSum, setPSum] = useState<PSummary | null>(null);
+  const [pOpen, setPOpen] = useState<number | null>(null);
+  const [pSettings, setPSettings] = useState(false);
+  const [pTick, setPTick] = useState(0);
+  useEffect(() => {
+    if (isAgent) return;
+    const c = new AbortController();
+    void api<PList & { error?: { message?: string } }>("/staff/partner-applications", { signal: c.signal }).then((r) => {
+      if (c.signal.aborted) return;
+      if (r.ok && r.data?.applications) { setPList(r.data); setPFailed(""); } else setPFailed(r.data?.error?.message ?? L("Partner applications could not be loaded.", "Permohonan rakan kongsi tidak dapat dimuatkan."));
+    });
+    void api<PSummary>("/staff/partner-applications/summary", { signal: c.signal }).then((r) => { if (!c.signal.aborted && r.ok && r.data?.applications) setPSum(r.data); });
+    return () => c.abort();
+  }, [isAgent, tick, pTick]);
+  /* a bell, the Desk or a search opens the exact application */
+  useRecordFocus(focus, !isAgent, (f) => {
+    if (f.kind !== "partner") return;
+    setView("requests"); setReqType("partners"); setPOpen(f.id);
+  });
   useEffect(() => {
     const c = new AbortController();
     void api<{ packages?: Pkg[]; error?: { message?: string } }>("/staff/agent/packages", { signal: c.signal }).then((r) => {
@@ -214,13 +239,16 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
   const drawers = (<>
     {submit && pkgs && <SubmitSheet pkgs={pkgs} initial={submit.pkg} onClose={() => setSubmit(null)} onDone={(draft) => { setSubmit(null); go("requests"); reload(); show(draft ? L("Draft saved", "Draf disimpan") : L("Sent to the sales team", "Dihantar kepada pasukan jualan")); }} />}
     {open !== null && <RequestDrawer id={open} isAgent={isAgent} canManage={!!list?.can_manage} onClose={() => setOpen(null)} onChanged={(msg) => { reload(); if (msg) show(msg); }} />}
+    {pOpen !== null && <PartnerDrawer id={pOpen} onClose={() => setPOpen(null)} onChanged={(msg) => { setPTick((t) => t + 1); if (msg) show(msg); }} />}
+    {pSettings && <PartnerSettings onClose={() => setPSettings(false)} onSaved={() => { setPTick((t) => t + 1); show(L("Reminders saved", "Peringatan disimpan")); }} />}
   </>);
 
   /* ------------------------------------------------ Sales & management */
   if (!isAgent) {
     const waiting = cnt("submitted");
+    const pNew = pList?.counts?.new ?? 0;
     const tabs: readonly (readonly [View, string] | readonly [View, string, number | null])[] = [
-      ["overview", L("Overview", "Ringkasan")], ["requests", L("Requests", "Permintaan"), waiting || null], ["agents", L("Agents", "Ejen")], ["packages", L("Packages", "Pakej")],
+      ["overview", L("Overview", "Ringkasan")], ["requests", L("Requests", "Permintaan"), waiting + pNew || null], ["agents", L("Agents", "Ejen")], ["packages", L("Packages", "Pakej")],
     ];
     const pickAgent = (id: number) => { setPicked(id); go("agents"); };
     return (
@@ -229,11 +257,21 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
           {toastNode}
           <LineTabs value={view} onChange={(v) => go(v)} tabs={tabs} label={L("Agents", "Ejen")} testid="agents-tab" />
           <div hidden={view !== "overview"} className={css.view} data-testid="agents-overview">
-            <StaffOverview rows={rows} loaded={!!list} cnt={cnt} agents={agents} asg={asg} onFilter={(f) => go("requests", f)} onOpen={setOpen} onAgent={pickAgent} onAgents={() => go("agents")} />
+            <StaffOverview rows={rows} loaded={!!list} cnt={cnt} agents={agents} asg={asg} onFilter={(f) => { setReqType("clients"); go("requests", f); }} onOpen={setOpen} onAgent={pickAgent} onAgents={() => go("agents")} paid={pSum?.agents ?? null} />
+            <PartnerOverview s={pSum} failed={!!pFailed} onList={() => { setReqType("partners"); go("requests"); }} />
           </div>
           <div hidden={view !== "requests"} className={css.view} data-testid="agents-requests">
+            {!pFailed && (
+              <PillSwitch testid="request-type" label={L("Request type", "Jenis permintaan")} value={reqType} onChange={setReqType}
+                options={[["clients", L("Client Requests", "Permintaan Pelanggan")], ["partners", L("Partner Applications", "Permohonan Rakan Kongsi")]] as const}
+                counts={{ clients: list ? rows.length : null, partners: pList ? pList.applications.length : null }} />
+            )}
+            {reqType === "partners" && !pFailed ? (<>
+              <PartnerInbox list={pList} failed={pFailed} onOpen={setPOpen} onSettings={() => setPSettings(true)} />
+            </>) : (
             <RequestsInbox rows={rows} shown={shown} loaded={!!list} agents={agents} filter={statusF} onFilter={setStatusF} agentF={agentF} onAgentF={setAgentF} q={q} onQ={setQ}
               onOpen={setOpen} canGrant={canGrant} onManage={manageAccess} onAgents={() => go("agents")} />
+            )}
           </div>
           <div hidden={view !== "agents"} className={css.view} data-testid="agents-directory">
             <AgentDirectory agents={agents} failed={agentsFailed} rows={rows} asg={asg} picked={picked} onPick={setPicked} canGrant={canGrant} onManage={manageAccess}
@@ -371,9 +409,11 @@ function RequestList({ rows, onOpen }: { rows: Row[]; onOpen: (id: number) => vo
    v1.347.0 - Sales & management: picture 01, the Overview
    ================================================================ */
 interface AgentPerf { id: number; name: string; email: string; active: boolean; verified: boolean; requests: number; open: number; won: number; lost: number; salesperson: string | null }
-function StaffOverview({ rows, loaded, cnt, agents, asg, onFilter, onOpen, onAgent, onAgents }: {
+function StaffOverview({ rows, loaded, cnt, agents, asg, onFilter, onOpen, onAgent, onAgents, paid }: {
   rows: Row[]; loaded: boolean; cnt: (...s: Status[]) => number; agents: AgentRow[] | null; asg: AssignRes | null;
   onFilter: (f: Filter) => void; onOpen: (id: number) => void; onAgent: (id: number) => void; onAgents: () => void;
+  /** v1.351.0 - per agent: quotations Sales made for their leads and the CEO-verified payments (partners.ts summary) */
+  paid: PSummary["agents"] | null;
 }) {
   const today = mytToday();
   const weekOn = addDays(today, 7);
@@ -399,6 +439,8 @@ function StaffOverview({ rows, loaded, cnt, agents, asg, onFilter, onOpen, onAge
     { key: "req", label: L("Requests", "Permintaan"), cell: (p) => <span className={css.num}>{p.requests}</span> },
     { key: "open", label: L("Open", "Terbuka"), cell: (p) => <span className={css.num}>{p.open}</span> },
     { key: "won", label: L("Won", "Berjaya"), cell: (p) => <span className={css.num}>{p.won}</span> },
+    { key: "qt", label: L("Quotations", "Sebut harga"), cell: (p) => <span className={css.num}>{paid ? paid.find((x) => x.id === p.id)?.quotations ?? 0 : "…"}</span> },
+    { key: "paid", label: L("Verified paid", "Bayaran disahkan"), cell: (p) => { const x = paid?.find((y) => y.id === p.id); return paid ? <span className={css.num} title={L(`${x?.paid_sales ?? 0} sale(s) verified by the CEO`, `${x?.paid_sales ?? 0} jualan disahkan CEO`)}>{fmtRM(x?.paid_cents ?? 0)}</span> : <span className={css.mutedInline}>…</span>; } },
     { key: "conv", label: L("Conversion", "Penukaran"), cell: (p) => (
       <span className={css.conv} title={L(`${p.won} won of ${p.requests} request(s)`, `${p.won} berjaya daripada ${p.requests} permintaan`)}>
         <span className={css.convBar} aria-hidden><span style={{ width: `${rate(p)}%` }} /></span><span className={css.num}>{rate(p)}%</span>
