@@ -154,6 +154,34 @@
 .bellAnchor {
   position: relative;
 }
+/* v1.336.0 - the phone's profile photo in the header, with the presence dot
+   (the global .erp-dot) on its corner, ringed in the page colour */
+.hdrFace {
+  position: relative;
+  padding: 0;
+}
+.hdrFaceImg {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  background: var(--brand-primary);
+  color: var(--card);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.hdrFaceDot {
+  position: absolute;
+  right: 0.0625rem;
+  bottom: 0.0625rem;
+  margin: 0;
+  width: 0.625rem;
+  height: 0.625rem;
+  box-shadow: 0 0 0 2px var(--background);
+}
 @media (min-width: 768px) {
   .identity {
     flex-basis: 100%;

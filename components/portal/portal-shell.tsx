@@ -362,6 +362,23 @@ export function PortalShell({ children }: { children: ReactNode }) {
                 </span>
               )}
             </button>
+            {/* v1.336.0 - THE PHONE'S PROFILE (the CEO, 17-11-2026, his reference:
+                the photo at the end of the phone header, with the presence dot).
+                The same live presence the rail's name card shows; a tap opens
+                Profile. Phones only - the rail's name card is the desktop's. */}
+            <button
+              type="button"
+              className={`${btnHdr} erp-phone-only ${css.hdrFace}`}
+              onClick={() => setTab("Profile")}
+              aria-label={`${L("Your profile", "Profil anda")}: ${user.name} · ${presence === "online" ? L("online", "dalam talian") : L("offline", "luar talian")}`}
+              data-testid="phone-profile"
+            >
+              {user.photo_key
+                /* eslint-disable-next-line @next/next/no-img-element */
+                ? <img src={`/api/v1/media/file/${encodeURIComponent(user.photo_key)}`} alt="" className={css.hdrFaceImg} />
+                : <span aria-hidden className={css.hdrFaceImg}>{user.name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("")}</span>}
+              <span aria-hidden className={`erp-dot ${presence === "online" ? "erp-dot-success" : ""} ${css.hdrFaceDot}`} data-testid="phone-presence-dot" data-presence={presence} />
+            </button>
             {/* v1.279.0 - Help: what this page is for, how to get around,
                 where the settings went (components/portal/help-sheet.tsx) */}
             <button

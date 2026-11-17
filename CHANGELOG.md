@@ -10,6 +10,14 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.336.0] - 2026-11-17 - The phone header ends with your photo and the same live presence dot - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 17-11-2026, answering "No. 1, please add" (his phone reference: the photo at the end of the header, with a green dot).
+
+- **Phones only:** the header's last button is the person's photo (initials when there is none) with the presence dot on its corner - the global `.erp-dot`, green when online, from the same `presence` 1.335.0 gives the rail (the device's connection and the live session; nothing fixed). A tap opens Profile. Its spoken label names the person and says online or offline.
+- The desktop header is unchanged (the rail's name card carries the photo there).
+- Guards: tests/executive-workspace.mjs 58 checks (new: the photo is phone-only, opens Profile, and its dot is the live presence). The full guard run and the browser checks were not run in this session - PUSH.bat runs the guards.
+
 ## [1.335.0] - 2026-11-17 - The rail's name card shows Online / Offline from the live session and the connection - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 17-11-2026, with a reference picture: "Add a real-time Online Status Badge to the A2Z OS sidebar user profile ... Automatically update to Offline when the session is no longer active, based on actual session/presence data ... Do not change existing authentication or session security logic. No hardcoded status, no new styling".

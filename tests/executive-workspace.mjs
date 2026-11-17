@@ -80,6 +80,11 @@ const hdr = shell.slice(shell.indexOf('<header className="erp-topbar"'), shell.i
 ok("the header keeps search, the bell, Help and dark mode", /Search the portal/.test(hdr) && /Notifications/.test(hdr) && /aria-label=\{L\("Help", "Bantuan"\)\}/.test(hdr) && /Toggle dark mode/.test(hdr));
 ok("the header no longer carries sound, push, colour theme, language or Sign out", !/Mute notification sound|Toggle push alerts|Switch colour theme|Toggle language|tr\("Sign out", lang\)/.test(strip(hdr)));
 ok("the header draws no avatar (the photo is on the name card)", !/css\.avatar/.test(strip(hdr)));
+/* v1.336.0 - the CEO, 17-11-2026: on the PHONE the header ends with the person's photo and presence dot
+   (no rail there); it is phone-only, opens Profile, and its dot is the live presence, never fixed */
+ok("v1.336.0: the phone header's profile photo is phone-only, opens Profile, and its dot is the live presence",
+  /className=\{`\$\{btnHdr\} erp-phone-only \$\{css\.hdrFace\}`\}/.test(hdr) && /onClick=\{\(\) => setTab\("Profile"\)\}/.test(hdr)
+  && /presence === "online" \? "erp-dot-success" : ""/.test(hdr) && !/data-presence="online"/.test(hdr));
 ok("Help opens the Help sheet, from the header and from the phone's More sheet", /<HelpSheet open=\{helpOpen\}/.test(shell) && /setMoreOpen\(false\); setHelpOpen\(true\);/.test(shell));
 const help = read("components/portal/help-sheet.tsx");
 ok("the Help sheet is a SideDrawer that names no number or reply time it cannot keep", /<SideDrawer /.test(help) && !/\+?6?0\d{1,2}[- ]?\d{3,4}[- ]?\d{4}|within \d+ (hours|minutes)/.test(help));
