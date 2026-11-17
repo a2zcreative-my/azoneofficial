@@ -309,12 +309,15 @@ export function SideNav({
       {/* Brand + collapse toggle */}
       <div className="erp-rail-brand">
         {portalRail ? (
-          /* v1.279.0 - the photo's wordmark; the image logo stays on the
-             /admin and /account rails */
+          /* v1.334.0 - THE COMPANY'S OWN LOGO (the CEO, 17-11-2026: "change by
+             using my company logo"). The typed "A2Z OS / A2Z CREATIVE
+             MARKETING" wordmark is replaced by public/logo.png on the same
+             white plate the dialogs use (.erp-brand-logo, brand-logo.tsx),
+             so the navy mark reads in the light and the dark theme. */
           !collapsed && (
             <span className={css.wordmark}>
-              <span className={css.wordmarkName}>A2Z <span className={css.wordmarkOs}>OS</span></span>
-              <span className={css.wordmarkSub}>A2Z CREATIVE MARKETING</span>
+              {/* eslint-disable-next-line @next/next/no-img-element -- a static export: next/image has no optimiser to call */}
+              <img src="/logo.png" alt="A2Z Creative Marketing" className="erp-brand-logo" width={991} height={547} data-testid="rail-logo" />
             </span>
           )
         ) : (

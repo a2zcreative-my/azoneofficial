@@ -10,6 +10,14 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.334.0] - 2026-11-17 - The side rail shows the company's own logo instead of the typed "A2Z OS" wordmark - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, 17-11-2026, on the rail's "A2Z OS / A2Z CREATIVE MARKETING" wordmark: "change by using my company logo".
+
+- The portal rail's brand row now draws public/logo.png (the A2Z Creative mark) on the same white plate the dialogs already use (`.erp-brand-logo`, as in brand-logo.tsx since 1.318.0), so the navy mark reads in the light and the dark theme. The /admin and /account rails keep their logo as before.
+- Collapsed, the rail shows only the toggle, as before. The unused wordmark styles were removed.
+- No figure, rule or route changed. Not run here: the full guard run and the browser checks - PUSH.bat runs the guards.
+
 ## [1.333.0] - 2026-11-17 - Attendance: days with no clock-in reach Exceptions & Approvals from Payroll's own scan; the long lists are paged - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 17-11-2026, with the Payroll and Attendance screenshots: "Attendance Records seem still overflow list scroll and same goes to Exceptions & Approvals, I also noticed that missing of the attendance data on 4th Nov reported by Payroll was not appear in the attendance".
