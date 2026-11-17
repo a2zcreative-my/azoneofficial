@@ -21,7 +21,7 @@
 .headAside { flex: 0 0 auto; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
 /* lists inside cards */
-.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.125rem; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; } /* v1.329.1 - a long row ellipsizes inside, never widens the card */
 .list > li > button, .list > li > .row { display: flex; align-items: center; gap: 0.625rem; width: 100%; min-height: 2.75rem; padding: 0.375rem 0.25rem; border: 0; border-radius: var(--radius-control); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .list > li > button:hover { background: var(--muted); }
 .list > li > button:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
@@ -54,7 +54,7 @@
 .fact { display: grid; gap: 0.125rem; padding: 0.5rem 0.625rem; border: 1px solid var(--border); border-radius: var(--radius-control); min-width: 0; }
 .fact small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
 .fact strong { font-size: var(--type-body-sm-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.subList { list-style: none; margin: 0; padding: 0.5rem 0.75rem; display: grid; gap: 0.375rem; border: 1px solid var(--border); border-radius: var(--radius-control); }
+.subList { list-style: none; margin: 0; padding: 0.5rem 0.75rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; border: 1px solid var(--border); border-radius: var(--radius-control); }
 .subList li { display: flex; gap: 0.5rem; align-items: flex-start; font-size: var(--type-body-sm-size); }
 .subList li small { display: block; color: var(--muted-foreground); font-size: var(--type-caption-size); }
 .subDone { text-decoration: line-through; color: var(--muted-foreground); }

@@ -398,6 +398,17 @@ with sync_playwright() as p:
         check(f"On Shift {w}: This week and Recent share one card behind a tab row", pg.get_by_test_id("recent-attendance").is_visible() and not pg.get_by_test_id("week-summary").is_visible())
         check(f"On Shift {w}: no sideways page, no page error", not pg.evaluate("document.scrollingElement.scrollWidth > innerWidth + 1") and not errs, errs)
         ctx.close()
+    # ================= v1.329.1: a long staff name never pushes the Staff card's count out =================
+    ctx, pg, errs = open_tab(b, "Tasks", 1280, 700, False)
+    pg.goto("http://127.0.0.1:4177/portal?tab=Tasks&view=overview"); pg.wait_for_timeout(3000)
+    pg.evaluate("""() => { const n = document.querySelectorAll('[data-testid=staff-performance] li [class*=perfName]'); n.forEach(x => x.textContent = 'NURFARAH SUAIDAH BINTI ABDULLAH SAMSUDIN');
+      document.querySelectorAll('[data-testid=staff-performance] li [class*=perfNum]').forEach(x => x.innerHTML = '10 / 19 <em>(53%)</em>'); }""")
+    pg.wait_for_timeout(300)
+    fit = pg.evaluate("""() => { const body = document.querySelector('[data-testid=overview-panel-body]'); const bb = body.getBoundingClientRect();
+      const nums = [...body.querySelectorAll('[class*=perfNum]')].map(e => e.getBoundingClientRect().right);
+      return { sw: body.scrollWidth, cw: body.clientWidth, numsIn: nums.every(r => r <= bb.right - 1), n: nums.length }; }""")
+    check("Tasks 1280: a long staff name ellipsizes - the rail never scrolls sideways and every count stays inside the card", fit["sw"] <= fit["cw"] and fit["numsIn"] and fit["n"] >= 1, fit)
+    ctx.close()
     # ================= v1.329.0: the one feedback modal (F-1...F-5) - the Attendance pilot =================
     for w, h, phone in [(1440, 900, False), (390, 844, True)]:
         ctx, pg, errs = open_tab(b, "Attendance", w, h, phone)

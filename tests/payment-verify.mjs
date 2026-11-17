@@ -340,6 +340,34 @@ async function runtime(workerBundle) {
     const pic = await call("/docs/104/payment-reports", 6, "GET");
     ok(pic.j?.verified_cents === parts(104) && pic.j?.outstanding_cents === 30000 - parts(104), "the drawer's figures are the payment record's");
 
+    /* ---------- v1.330.0 - Payment History lists every payment on record ----------
+       (the CEO, 17-11-2026: an invoice marked paid in Sales before verification
+       was on appears on Closed Sales but was missing from Payment History) */
+    const monthBefore = (await call("/payments", 1, "GET")).j?.tiles?.verified_month_cents;
+    db.prepare(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents, payment_status, payment_method, payment_ref, paid_at, created_at, created_by, salesperson_id, kind, issuer_code, revision)
+                VALUES (130, 'INV', 'INV-T-130', 2, '[]', 0, 0, 3750, 'paid', 'bank_transfer', 'MBB 0911', '2026-11-09 04:00:00', '2026-11-09 01:00:00', 1, 9, 'service', 'a2z', 0),
+                       (131, 'INV', 'INV-T-131', 3, '[]', 0, 0, 5000, 'unpaid', NULL, NULL, NULL, '2026-11-09 01:00:00', 1, 15, 'service', 'a2z', 0)`).run();
+    db.prepare(`INSERT INTO invoice_paid_confirmations (invoice_id, amount_cents, confirmed_by, confirmed_at) VALUES (130, 3750, 1, '2026-11-13 10:00:00')`).run();
+    const partId = Number(db.prepare(`INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, method, created_by) VALUES (131, 1000, '2026-11-10', 'cash', 15)`).run().lastInsertRowid);
+    const hist = await call("/payments", 1, "GET");
+    const dir = hist.j?.direct ?? [];
+    const d130 = dir.find((d) => d.key === "inv:130");
+    ok(d130?.kind === "marked_paid" && d130.amount_cents === 3750 && d130.received_on === "2026-11-09" && d130.confirmed_by === "Owner Person" && d130.reference === "MBB 0911",
+      "v1.330.0: an invoice marked paid in Sales without a report is in the history, with its paid day and its confirmation", JSON.stringify(d130));
+    ok(dir.find((d) => d.key === `part:${partId}`)?.amount_cents === 1000 && dir.find((d) => d.key === `part:${partId}`)?.recorded_by === "Lia Seller",
+      "v1.330.0: a part payment entered directly is in the history, with who recorded it");
+    const linkedIds = new Set(db.prepare(`SELECT payment_id FROM invoice_payment_reports WHERE payment_id IS NOT NULL`).all().map((r) => `part:${r.payment_id}`));
+    ok(dir.every((d) => !linkedIds.has(d.key)), "v1.330.0: a payment that came from a verified report is never listed twice");
+    const coveredByReports = db.prepare(`SELECT d.id FROM sales_documents d WHERE d.doc_type = 'INV' AND d.payment_status = 'paid'
+      AND d.total_cents <= COALESCE((SELECT SUM(r.verified_cents) FROM invoice_payment_reports r WHERE r.invoice_id = d.id AND r.state = 'verified'), 0)`).all().map((r) => `inv:${r.id}`);
+    ok(coveredByReports.length > 0 && coveredByReports.every((k) => !dir.some((d) => d.key === k)), "v1.330.0: an invoice paid through verified reports is not repeated as 'recorded in Sales'", coveredByReports.join(","));
+    ok(dir.every((d) => d.amount_cents > 0), "v1.330.0: no empty rows");
+    const liaDir = (await call("/payments", 15, "GET")).j?.direct ?? [];
+    const ainaDir = (await call("/payments", 9, "GET")).j?.direct ?? [];
+    ok(liaDir.some((d) => d.key === `part:${partId}`) && !liaDir.some((d) => d.key === "inv:130") && ainaDir.some((d) => d.key === "inv:130") && !ainaDir.some((d) => d.key === `part:${partId}`),
+      "v1.330.0: a salesperson sees only her own invoices' payments");
+    ok(hist.j?.tiles?.verified_month_cents === monthBefore, "v1.330.0: money recorded in Sales never counts as verified");
+
     /* ---------- v1.283.0 Track B (Payment Verification 3.0) ---------- */
     /* B4 - a receipt alone is not proof */
     const b4 = await report(111, 9, 20000, "MBB 1110");

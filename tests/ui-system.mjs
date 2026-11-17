@@ -157,6 +157,11 @@ function checks(src, sc) {
 
   /* ---- v1.326.0: My Tasks - the register on the left, the task on the right, held to the screen ---- */
   ok("My Tasks from 1024px: the one compact task table (CompactTaskTable), the row on show marked, paged, filling its column", /<MyTaskTable rows=\{mineRows\} picked=\{present === "beside" \? openTask : null\}/.test(src.tasks) && /<CompactTaskTable rows=\{rows\} cols=\{cols\} label=\{L\("My Tasks", "Tugasan Saya"\)\}[\s\S]{0,200}?picked=\{picked\} dense fill/.test(src.tasks2) && /aria-current=\{picked != null && picked === r\.id \? "true" : undefined\}/.test(src.taskTable) && /tr\[aria-current="true"\] > td \{ background: color-mix\(in srgb, var\(--gold-solid\) 9%, transparent\); \}/.test(src.taskTableCss) && /page=\{minePage\} size=\{mineSize\}/.test(src.tasks));
+  /* v1.329.1 (the CEO's screenshot, 17-11-2026): a long name widened the Staff card and pushed its count out */
+  ok("the Overview rail's lists name their one track minmax(0, 1fr): a long name ellipsizes, the count stays in the card",
+    /\.perf \{[^}]*display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(src.t2Css) && /@container perf \(max-width: 22rem\) \{\s*\.perf button \{ display: grid;/.test(src.t2Css) && /\.feed \{[^}]*display: grid; grid-template-columns: minmax\(0, 1fr\);/.test(src.t2Css)
+    && /\.perfName \{[^}]*overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/.test(src.t2Css) && /\.perfNum \{ flex: 0 0 auto;/.test(src.t2Css)
+    && /^\.list \{[^}]*grid-template-columns: minmax\(0, 1fr\);/m.test(src.t5Css));
   ok("My Tasks: the split is ONE flex line held to the screen (FillPanel) - both columns end on one line and scroll inside", /<FillPanel className=\{t2\.mine\} testid="mine-split">/.test(src.tasks) && /\.mine \{ display: flex; align-items: stretch; \}/.test(src.t2Css) && /\.fill > \.scroll \{ min-height: 0; overflow: auto;/.test(src.taskTableCss) && /\.paneFill \{[^}]*overflow-y: auto;/.test(src.wsCss));
   ok("the task pane says the state and the progress once: no icon well, no Now chip without a tag, the review bar bare of the chip", !/className=\{ws\.headIcon\}/.test(src.ws) && /state === "now" && tag && <em/.test(src.ws) && /\{!bare && <span><StateChip status=\{t\.status\} stage=\{t\.stage\} \/>/.test(src.progress) && /data-testid="progress-source"/.test(src.ws));
   ok("the facts lay out by the PANE's width (a container), never the screen's", /container: taskpane \/ inline-size;/.test(src.wsCss) && /@container taskpane \(min-width: 42rem\) \{\n  \.facts \{ grid-template-columns:/.test(src.wsCss));
@@ -200,6 +205,7 @@ if (failed.length) { console.log(`ui-system: ${failed.length} of ${res.length} F
 
 /* ---- every rule catches its own breakage ---- */
 const MUT = [
+  ["a long staff name widens the Overview rail again", "t2Css", "display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; container: perf", "display: grid; gap: 0.125rem; container: perf"],
   ["a tile is a card again", "kpi", 'className={`${css.tile} ', 'className={`erp-card ${css.tile} '],
   ["the strip loses its shadow", "kpiCss", "box-shadow: var(--erp-shadow-card, none);", "box-shadow: none;"],
   ["a gap between the segments", "kpiCss", "  min-width: 0;\n  overflow: hidden;", "  gap: 0.75rem;\n  min-width: 0;\n  overflow: hidden;"],

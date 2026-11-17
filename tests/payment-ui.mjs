@@ -81,6 +81,11 @@ ok("a second report on a fully pending invoice sits behind its own warning and t
 /* ---- the page ---- */
 ok("P2: the switch is the owner's Settings sheet, with the waiting count, not a banner button", /\{data\.can\.switch && <button type="button" className=\{btnSm\} onClick=\{\(\) => setPolicy\(true\)\}>/.test(panel) && /function PolicySheet\(/.test(panel) && /pending > 0 \?/.test(panel) && !/function SwitchCard/.test(panel));
 ok("the four tabs, one dataset each", ["needs", "balances", "history", "audit"].every((k) => panel.includes(`["${k}", `)) && /\{tab === "needs" && \(/.test(panel) && /\{tab === "balances" && \(/.test(panel) && /\{tab === "history" && \(/.test(panel) && /\{tab === "audit" && <AuditTrail /.test(panel));
+/* v1.330.0 - the history is every payment on record (the CEO, 17-11-2026): decided reports AND money recorded in Sales without one */
+ok("v1.330.0: Payment History lists the decided reports and the payments recorded in Sales, newest first",
+  /\.\.\.\(data\?\.direct \?\? \[\]\)\.map\(/.test(panel) && /rows\.sort\(\(a, b\) => b\.at\.localeCompare\(a\.at\)\)/.test(panel) && /\{history\.map\(/.test(panel) && !/\{decided\.map\(/.test(panel));
+ok("v1.330.0: a payment recorded in Sales is never shown as verified - its own neutral chip and its confirmation line",
+  /"Recorded in Sales"/.test(panel) && /"Part recorded in Sales"/.test(panel) && /d\.confirmed_by \?/.test(panel) && /\$\{chipSmNeutral\} \$\{css\.chip\}`\}>\{d\.kind === "marked_paid"/.test(panel));
 ok("the Audit Trail reads the read-only route", /api<\{ events: Ev\[\] \}>\("\/staff\/payments\/events\?limit=100"\)/.test(panel));
 ok("the tiles: verified outstanding says pending is not deducted; the pending tile counts the independent reviews", /pending not deducted/.test(panel) && /awaiting independent review/.test(panel));
 ok("the report sheet is three steps: Details, Proof, Review", /\[1, L\("Details", "Butiran"\)\], \[2, L\("Proof", "Bukti"\)\], \[3, L\("Review", "Semak"\)\]/.test(panel) && /data-testid="report-review"/.test(panel));

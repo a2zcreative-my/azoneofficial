@@ -67,8 +67,14 @@ interface OpenInv {
   id: number; doc_number: string; total_cents: number; customer: string | null; salesperson: string | null; salesperson_id?: number | null; company: string; created_at?: string;
   verified_cents: number; pending_cents: number; outstanding_cents: number; status: string; can_report: boolean;
 }
+/** v1.330.0 - money recorded in Sales without a payment report (marked paid, or a part entered directly) */
+interface Direct {
+  key: string; kind: "marked_paid" | "part_recorded"; invoice_id: number; doc_number: string; issuer_code: string | null; customer: string | null;
+  salesperson: string | null; amount_cents: number; received_on: string | null; method: string | null; reference: string | null;
+  recorded_by: string | null; confirmed_at: string | null; confirmed_by: string | null;
+}
 interface Data {
-  on: boolean; ready: boolean; can: Caps; banks: Bank[]; reports: Rep[]; invoices: OpenInv[];
+  on: boolean; ready: boolean; can: Caps; banks: Bank[]; reports: Rep[]; invoices: OpenInv[]; direct?: Direct[];
   tiles: { pending_cents: number; pending_count: number; verified_month_cents: number; outstanding_cents: number; outstanding_invoices: number; partial_invoices: number };
 }
 interface Ev { id: number; invoice_id?: number; report_id: number | null; event: string; amount_cents: number | null; detail: string | null; created_at: string; actor: string | null; doc_number?: string | null }
@@ -91,6 +97,8 @@ const EVENT_WORDS: Record<string, [string, string]> = {
 const METHODS: [string, string, string][] = [["bank_transfer", "Bank transfer", "Pindahan bank"], ["online", "Online / DuitNow", "Dalam talian / DuitNow"], ["cheque", "Cheque", "Cek"], ["cash", "Cash", "Tunai"], ["other", "Other", "Lain-lain"]];
 const methodWord = (m: string) => { const f = METHODS.find((x) => x[0] === m); return f ? L(f[1], f[2]) : m; };
 const toCents = (s: string) => { const n = Number(s.replace(/,/g, "")); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0; };
+/** v1.330.0 - a UTC timestamp as its Malaysian day, YYYY-MM-DD, for sorting the history */
+const dmyKey = (utc: string) => { const t = Date.parse(`${utc.replace(" ", "T")}Z`); return Number.isNaN(t) ? utc.slice(0, 10) : new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 10); };
 const msg = (r: { data: unknown }, fallback: string) => (r.data as Err | null)?.error?.message ?? fallback;
 /** the account printed on the invoice's letterhead - what the customer was told to pay into (lib/issuers.ts) */
 const letterhead = (company: string) => { const i = company === "a2z" ? A2Z_CREATIVE : AZ_ONE; return `${i.bank} (${i.bankHolder})`; };
@@ -157,6 +165,16 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
   const invById = useMemo(() => new Map((data?.invoices ?? []).map((i) => [i.id, i])), [data]);
   const pendingReps = useMemo(() => (data?.reports ?? []).filter((r) => isPendingState(r.state)), [data]);
   const decided = useMemo(() => (data?.reports ?? []).filter((r) => !isPendingState(r.state)), [data]);
+  /* v1.330.0 - the history is every payment on record: the decided reports AND
+     the money recorded in Sales without one (what Closed Sales already lists),
+     newest first - a report by the day it was decided, the rest by the day paid */
+  const history = useMemo(() => {
+    const rows: Array<{ at: string; rep?: Rep; dir?: Direct }> = [
+      ...decided.map((r) => ({ at: r.decided_at ? dmyKey(r.decided_at) : "", rep: r })),
+      ...(data?.direct ?? []).map((d) => ({ at: d.received_on ?? "", dir: d })),
+    ];
+    return rows.sort((a, b) => b.at.localeCompare(a.at));
+  }, [decided, data]);
 
   if (failed) return <div className={card}><p className={css.empty}>{L("Payments could not be loaded.", "Bayaran tidak dapat dimuatkan.")}</p></div>;
   if (!data) return <div className={card}><SkelRows rows={4} /></div>;
@@ -349,14 +367,14 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
       {tab === "history" && (
         <section className={`${card} ${css.sec}`} aria-label={L("Payment History", "Sejarah Bayaran")}>
           <h3 className={css.h}>{L("Payment History", "Sejarah Bayaran")}</h3>
-          <p className={css.meta}>{L("Decided payments: verified, rejected and reversed. Nothing is deleted.", "Bayaran yang diputuskan: disahkan, ditolak dan dibatalkan. Tiada apa dipadam.")}</p>
-          {decided.length === 0 ? <p className={css.empty}>{L("No decided payments yet.", "Belum ada bayaran diputuskan.")}</p> : (
+          <p className={css.meta}>{L("Every payment on record: decided reports (verified, rejected, reversed) and payments recorded in Sales without a report. Nothing is deleted.", "Setiap bayaran yang direkod: laporan yang diputuskan (disahkan, ditolak, dibatalkan) dan bayaran yang direkod dalam Jualan tanpa laporan. Tiada apa dipadam.")}</p>
+          {history.length === 0 ? <p className={css.empty}>{L("No payments on record yet.", "Belum ada bayaran direkod.")}</p> : (
             <div className={`${css.table} ${css.tHist}`} role="table" aria-label={L("Payment History", "Sejarah Bayaran")}>
               <div className={css.thead} role="row">
-                {[L("Invoice & customer", "Invois & pelanggan"), L("Amount", "Amaun"), L("Status", "Status"), L("Submitted by", "Dihantar oleh"), L("Decided", "Diputuskan"), ""].map((h, n) => <span key={n} role="columnheader" className={n === 1 ? css.num : undefined}>{h}</span>)}
+                {[L("Invoice & customer", "Invois & pelanggan"), L("Amount", "Amaun"), L("Status", "Status"), L("Submitted by", "Dihantar oleh"), L("Decided / paid", "Diputuskan / dibayar"), ""].map((h, n) => <span key={n} role="columnheader" className={n === 1 ? css.num : undefined}>{h}</span>)}
               </div>
-              {decided.map((r) => (
-                <div key={r.id} role="row" className={css.tr} data-testid="payment-row">
+              {history.map(({ rep: r, dir: d }) => r ? (
+                <div key={`rep:${r.id}`} role="row" className={css.tr} data-testid="payment-row">
                   <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{r.doc_number} <span className={css.co}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span><span className={css.sub}>{r.customer ?? "-"}</span></Cell>
                   <Cell k={L("Amount", "Amaun")} num><b>{fmtRM(r.state === "verified" ? r.verified_cents ?? r.amount_cents : r.amount_cents)}</b></Cell>
                   <Cell k={L("Status", "Status")}><ReviewChip r={reviewOf(r)} /></Cell>
@@ -364,7 +382,19 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
                   <Cell k={L("Decided", "Diputuskan")}>{r.decided_at ? dmyMYT(r.decided_at) : "—"}</Cell>
                   <span role="cell" className={css.cAct}><button type="button" className={btnSm} onClick={() => setOpenInv(r.invoice_id)}>{L("View", "Lihat")}</button></span>
                 </div>
-              ))}
+              ) : d ? (
+                <div key={d.key} role="row" className={css.tr} data-testid="payment-row-direct">
+                  <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{d.doc_number} <span className={css.co}>{COMPANY[d.issuer_code ?? ""] ?? d.issuer_code ?? ""}</span></span><span className={css.sub}>{d.customer ?? "-"}</span></Cell>
+                  <Cell k={L("Amount", "Amaun")} num><b>{fmtRM(d.amount_cents)}</b></Cell>
+                  <Cell k={L("Status", "Status")}>
+                    <span className={`${chipSmNeutral} ${css.chip}`}>{d.kind === "marked_paid" ? L("Recorded in Sales", "Direkod dalam Jualan") : L("Part recorded in Sales", "Bahagian direkod dalam Jualan")}</span>
+                    {d.kind === "marked_paid" && <span className={css.sub}>{d.confirmed_by ? L(`Confirmed · ${d.confirmed_by}`, `Disahkan · ${d.confirmed_by}`) : L("Not confirmed", "Belum disahkan")}</span>}
+                  </Cell>
+                  <Cell k={L("Submitted by", "Dihantar oleh")}>{d.kind === "marked_paid" ? L("Marked paid in Sales (no report)", "Ditanda dibayar dalam Jualan (tiada laporan)") : d.recorded_by ?? "-"}</Cell>
+                  <Cell k={L("Paid on", "Dibayar pada")}>{d.received_on ? dmy(d.received_on) : "—"}</Cell>
+                  <span role="cell" className={css.cAct}><button type="button" className={btnSm} onClick={() => setOpenInv(d.invoice_id)}>{L("View", "Lihat")}</button></span>
+                </div>
+              ) : null)}
             </div>
           )}
         </section>

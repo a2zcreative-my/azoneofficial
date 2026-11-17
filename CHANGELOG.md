@@ -10,6 +10,24 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.330.0] - 2026-11-17 - Sales → Payments → Payment History lists every payment on record, the same invoices Closed Sales shows - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 17-11-2026, with the Payment History and Closed Sales screenshots: "Payment history is incorrectly recorded which is missing data ... Closed sales recorded correctly".
+
+- **The cause:** Payment History listed only payment REPORTS (invoice_payment_reports) that had been decided. An invoice marked paid in Sales without a report - INV-AZO091126-1, paid 09-11-2026, before the payment verification switch was in use - is on Closed Sales but had no report, so it never appeared in the history. A part payment entered directly had the same gap.
+- **The fix:** `GET /staff/payments` also returns `direct`: each paid invoice's amount that no verified report accounts for ("Recorded in Sales", with its paid day, reference and the CEO/COO confirmation if any) and each part payment entered directly on an invoice not yet paid (with who recorded it). The history merges them with the decided reports, newest first. A payment that came from a verified report is never listed twice.
+- **What did not change:** these rows are read only and never shown as "Verified". No tile (Verified this month stays CEO-verified only), balance, cash row, commission or Closed Sales figure reads them. A salesperson still sees only her own invoices.
+- Guards: tests/payment-verify.mjs 126 checks (7 new, against the whole worker on SQLite: the 09-11 case, a direct part, no double listing, scope, the tile unchanged; a broken version fails 4 of them), 30 mutations caught; tests/payment-ui.mjs 45 checks (2 new). The full guard run and the browser checks were not run in this session - PUSH.bat runs the guards.
+
+## [1.329.1] - 2026-11-17 - Tasks → Overview: a long staff name no longer pushes the Staff card's count out - BUILT, NOT DEPLOYED (NO MIGRATION, CSS ONLY)
+
+The CEO, 17-11-2026, on the Tasks Overview screenshot: "I saw there is overflow text on the staff cards".
+
+- **The cause:** the Staff Performance list (and the Recent Activity list beside it) was a grid with no named track, so its one column took the width of its longest row. A long name such as "NURFARAH SUAIDAH BINTI ..." made the row wider than the rail, the count "0 / 9 (0%)" ran past the card's edge, and the rail scrolled sideways (the bar under Weekly Summary).
+- **The fix (CSS only):** the lists name their track `minmax(0, 1fr)` (the house rule for every grid), so a long name ellipsizes inside its row. Where the list itself is narrow (the rail beside the queue, under 22rem) each row is two lines - rank, face, name and the count, the bar under the name - as it already was on a phone. The Live Host and sub-lists in tasks5 take the same named track.
+- No figure, rule or route changed.
+- Guards: tests/ui-system.mjs 64 checks, 59 mutations (new: the rail's lists name their track); tests/browser/ui-system.py checks a 40-character name at 1280 px - the rail never scrolls sideways and every count stays inside the card. All 210 guards pass; browser ui-system 348/348, tasks2 105/105, tasks5 82/82; overflow sweep 272/272.
+
 ## [1.329.0] - 2026-11-16 - The one feedback modal: one card for every result; Attendance, Leave and Tasks say what happened - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 16-11-2026: "Perform everything as I need this system ready without waiting further!" - approving F-1 ... F-5 of claude/FEEDBACK-MODAL-STAGE-0-AUDIT.md as recommended - and "Ensure that 1.328.0 and 1.329.0 done tonight ... I have approved it based on recommended."

@@ -363,6 +363,66 @@ export async function handlePayments(
       const verified = Number(i.verified_cents ?? 0), pending = pendingBy.get(Number(i.id)) ?? 0, total = Number(i.total_cents ?? 0);
       return { ...i, company: companyOf(i.issuer_code as string | null), pending_cents: pending, outstanding_cents: Math.max(0, total - verified), status: settlementOf(total, verified, pending, false), can_report: reportsOn(user, i as unknown as Inv) };
     });
+    /* v1.330.0 - PAYMENT HISTORY SHOWS EVERY PAYMENT ON RECORD (the CEO,
+       17-11-2026: "Payment history is incorrectly recorded which is missing
+       data ... Closed sales recorded correctly"). Closed Sales lists every
+       invoice with money recorded; the history listed only payment REPORTS,
+       so an invoice marked paid in Sales before the verification switch (or
+       while it was off), and a part payment entered directly, never appeared.
+       They are listed here as what they are - "Recorded in Sales", never
+       "Verified" - read only, for the same people who see that invoice on
+       Closed Sales. No tile, balance, cash row or commission reads this list. */
+    const direct: Array<Record<string, unknown>> = [];
+    {
+      const scope = all ? "" : " AND d.salesperson_id = ?1";
+      const args = all ? [] : [user.id];
+      const viaReports = ready
+        ? `COALESCE((SELECT SUM(r.verified_cents) FROM invoice_payment_reports r WHERE r.invoice_id = d.id AND r.state = 'verified'), 0)`
+        : "0";
+      /* an invoice marked paid: the part of its total no verified report accounts for */
+      const paid = ((await env.DB.prepare(
+        `SELECT d.id AS invoice_id, d.doc_number, d.issuer_code, d.total_cents, d.payment_method AS method, d.payment_ref AS reference,
+                date(COALESCE(d.paid_at, d.created_at), '+8 hours') AS received_on, cu.company AS customer,
+                COALESCE(NULLIF(TRIM(s.full_name), ''), s.name) AS salesperson, ${viaReports} AS via_reports
+           FROM sales_documents d LEFT JOIN customers cu ON cu.id = d.customer_id LEFT JOIN users s ON s.id = d.salesperson_id
+          WHERE d.doc_type = 'INV' AND d.payment_status = 'paid'${scope} ORDER BY d.id DESC LIMIT 300`,
+      ).bind(...args).all()).results ?? []) as Array<Record<string, unknown>>;
+      const confirmed = new Map<number, { at: string; by: string | null }>();
+      try {
+        const { results: conf } = await env.DB.prepare(
+          `SELECT c.invoice_id, c.confirmed_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name
+             FROM invoice_paid_confirmations c LEFT JOIN users u ON u.id = c.confirmed_by WHERE c.revoked_at IS NULL`,
+        ).all<{ invoice_id: number; confirmed_at: string; by_name: string | null }>();
+        for (const c of conf ?? []) confirmed.set(Number(c.invoice_id), { at: c.confirmed_at, by: c.by_name });
+      } catch (e) { if (!skew(e)) throw e; }
+      for (const p of paid) {
+        const amount = Number(p.total_cents ?? 0) - Number(p.via_reports ?? 0);
+        if (amount <= 0) continue;
+        const c = confirmed.get(Number(p.invoice_id));
+        direct.push({
+          key: `inv:${p.invoice_id}`, kind: "marked_paid", invoice_id: p.invoice_id, doc_number: p.doc_number, issuer_code: p.issuer_code,
+          customer: p.customer, salesperson: p.salesperson, amount_cents: amount, received_on: p.received_on, method: p.method, reference: p.reference,
+          recorded_by: null, confirmed_at: c?.at ?? null, confirmed_by: c?.by ?? null,
+        });
+      }
+      /* a part payment entered directly on an invoice not yet paid (a paid one is listed whole above) */
+      const linked = ready ? " AND NOT EXISTS (SELECT 1 FROM invoice_payment_reports r WHERE r.payment_id = p.id)" : "";
+      const parts = ((await env.DB.prepare(
+        `SELECT p.id, p.invoice_id, p.amount_cents, p.received_on, p.method, p.reference, d.doc_number, d.issuer_code, cu.company AS customer,
+                COALESCE(NULLIF(TRIM(s.full_name), ''), s.name) AS salesperson, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS recorded_by
+           FROM invoice_payments p JOIN sales_documents d ON d.id = p.invoice_id
+           LEFT JOIN customers cu ON cu.id = d.customer_id LEFT JOIN users s ON s.id = d.salesperson_id LEFT JOIN users u ON u.id = p.created_by
+          WHERE p.voided_at IS NULL AND d.doc_type = 'INV' AND COALESCE(d.payment_status, 'unpaid') NOT IN ('paid', 'void')${linked}${scope}
+          ORDER BY p.id DESC LIMIT 300`,
+      ).bind(...args).all()).results ?? []) as Array<Record<string, unknown>>;
+      for (const p of parts) {
+        direct.push({
+          key: `part:${p.id}`, kind: "part_recorded", invoice_id: p.invoice_id, doc_number: p.doc_number, issuer_code: p.issuer_code,
+          customer: p.customer, salesperson: p.salesperson, amount_cents: Number(p.amount_cents ?? 0), received_on: p.received_on, method: p.method,
+          reference: p.reference, recorded_by: p.recorded_by, confirmed_at: null, confirmed_by: null,
+        });
+      }
+    }
     const month = mytToday().slice(0, 7);
     const pend = (reports as Array<{ state: string; amount_cents: number }>).filter((r) => PENDING.includes(r.state));
     /* v1.283.0 (B5) - the Malaysian month (decided_at is UTC), every verified report, summed in SQL */
@@ -384,7 +444,7 @@ export async function handlePayments(
     }
     return json({
       on, ready, can: caps, banks, reports: (reports as Array<Record<string, unknown>>).map((r) => ({ ...r, has_proof: !!r.has_proof, mine: r.reported_by === user.id, needs_evidence: false })),
-      invoices,
+      invoices, direct,
       tiles: {
         pending_cents: pend.reduce((a, r) => a + Number(r.amount_cents), 0), pending_count: pend.length,
         verified_month_cents: verifiedMonth,
