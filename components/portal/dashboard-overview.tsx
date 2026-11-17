@@ -844,7 +844,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         onClick={pw ? () => (openAt ? openAt("Sales", "payments") : go("Sales")) : undefined} />
     );
     const recovery = (wk.opportunities ?? []).slice(0, 3).map((q) => ({ id: q.id, doc: q.doc_number, company: q.company, cents: q.total_cents,
-      why: `${oppStatus(q, wk.week.today)[0]} · ${L(`${q.age_days} days open`, `${q.age_days} hari terbuka`)}` }));
+      owner: q.owner?.name ?? null, ageDays: q.age_days, status: oppStatus(q, wk.week.today) }));
     const decisionItems = decide.map((d) => ({ id: d.id, title: d.title, sub: d.sub, bucket: d.bucket, overdue: d.overdue, tab: d.tab, since: d.since, source: deskBucketWord(d.bucket),
       open: () => { go(d.tab as TabName); revealAnchor(deskAnchor(d.bucket)); } }));
     const fuMine = wk.me ? (wk.me.followups_today ?? 0) + wk.me.followups_overdue : 0;
@@ -883,7 +883,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         </div>
         {can("Sales") && (
           <div className={x.span3} style={o(4)}>
-            <SalesRecoveryStrip open={ol.open_quotations} cold={ol.ageing_quotations} items={recovery}
+            <SalesRecoveryStrip open={ol.open_quotations} cold={ol.ageing_quotations} booked={ol.followups_scheduled} items={recovery}
               onPipeline={() => (openAt ? openAt("Sales", "open_quotations") : go("Sales"))} onOpenDoc={(id) => { openRecord("Sales", "document", id); go("Sales"); }} />
           </div>
         )}

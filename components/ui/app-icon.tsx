@@ -44,7 +44,7 @@ import {
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
-  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, Users, Cloud, MonitorSmartphone, type LucideIcon,
+  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, Users, Cloud, MonitorSmartphone, Building2, Ellipsis, type LucideIcon,
 } from "lucide-react";
 import type React from "react";
 
@@ -132,6 +132,8 @@ export const APP_ICON = {
   puzzle: Puzzle,
   cloud: Cloud, // v1.345.0 - the sign-in page's "Cloud Protected"
   devices: MonitorSmartphone, // v1.345.0 - the sign-in page's "Web + PWA Ready"
+  building: Building2, // v1.346.0 - a customer on the Sales Recovery Pipeline
+  more: Ellipsis, // v1.346.0 - a row's "open" control drawn as the reference's three dots
 } satisfies Record<string, LucideIcon>;
 
 export type AppIconName = keyof typeof APP_ICON;

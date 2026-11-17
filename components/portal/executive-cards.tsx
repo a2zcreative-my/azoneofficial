@@ -22,7 +22,8 @@ import { ErrorState } from "@/components/ui/error-state";
 import { useCachedApi } from "@/lib/cached-api";
 import { fmtRM } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
-import { card } from "@/lib/ui-styles";
+import { btnSm, card, chipSmNeutral } from "@/lib/ui-styles";
+import { CompactTaskTable, type TableCol } from "@/components/portal/task-table";
 import css from "./executive.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -407,36 +408,58 @@ export function SalesSummaryCard({ w, owed, onOpen }: {
 }
 
 /** the open quotations the week engine lists (a few, most urgent first) */
-export interface RecoveryItem { id: number; doc: string; company: string | null; cents: number; why: string }
-/** SALES RECOVERY - open quotations, those with no follow-up booked going
-    cold (the server's own count), the quoted value (not revenue) and the
-    three to recover first. */
-export function SalesRecoveryStrip({ open, cold, items, onPipeline, onOpenDoc }: {
-  open: { n: number; cents: number }; cold: number; items: RecoveryItem[];
+export interface RecoveryItem {
+  id: number; doc: string; company: string | null; cents: number;
+  /** v1.346.0 - the row's own facts: who owns it, days open, and the status the Pipeline card already words (oppStatus) */
+  owner: string | null; ageDays: number; status: [string, string];
+}
+/** SALES RECOVERY PIPELINE (v1.346.0, the CEO's reference, 17-11-2026) - a
+    header with View Pipeline, the one KPI strip (open quotations, those with no
+    follow-up booked going cold - the server's own count, the quoted value - not
+    revenue, and the follow-ups booked this week) and the quotations to recover
+    first in the shared compact table. Every figure is the week engine's own;
+    a row opens its quotation. */
+export function SalesRecoveryStrip({ open, cold, booked, items, onPipeline, onOpenDoc }: {
+  open: { n: number; cents: number }; cold: number; booked: number; items: RecoveryItem[];
   onPipeline: () => void; onOpenDoc: (id: number) => void;
 }) {
+  const cols: TableCol<RecoveryItem>[] = [
+    { key: "customer", label: L("Customer / Project", "Pelanggan / Projek"), main: true, cell: (q) => (
+      <span className={css.recCust}>
+        <span className={css.recCustIcon} aria-hidden><AppIcon name="building" /></span>
+        <span className={css.recCustText}><strong>{q.company ?? "—"}</strong>{q.owner && <span>{L(`Owner: ${q.owner}`, `Pemilik: ${q.owner}`)}</span>}</span>
+      </span>
+    ) },
+    { key: "doc", label: L("Quotation No.", "No. Sebut Harga"), cell: (q) => <span className={`${chipSmNeutral} ${css.recDoc}`}>{q.doc}</span> },
+    { key: "amount", label: L("Amount", "Jumlah"), cell: (q) => <strong className={css.recAmt}>{fmtRM(q.cents)}</strong> },
+    { key: "aging", label: L("Aging (Open Days)", "Usia (Hari Terbuka)"), cell: (q) => <span className={css.recAge}><AppIcon name="date" />{L(`${q.ageDays} days`, `${q.ageDays} hari`)}</span> },
+    { key: "status", label: L("Status", "Status"), cell: (q) => <span className={`${q.status[1]} ${css.recStatus}`}><span className={css.recDot} aria-hidden />{q.status[0]}</span> },
+    { key: "open", label: L("Open", "Buka"), cmds: true, cell: (q) => (
+      <button type="button" className={css.recMore} onClick={() => onOpenDoc(q.id)} aria-label={L(`Open ${q.doc}`, `Buka ${q.doc}`)}><AppIcon name="more" /></button>
+    ) },
+  ];
   return (
-    <section className={`${card} ${css.recovery}`} aria-label={L("Sales recovery", "Pemulihan jualan")} data-testid="sales-recovery">
-      <div className={css.recLead}><span className={css.recIcon} aria-hidden><AppIcon name="star" /></span><strong>{L("Sales Recovery", "Pemulihan Jualan")}</strong></div>
-      {/* v1.338.0 - the three figures are the one KPI strip, not a strip of its own */}
+    <section className={`${card} ${css.recovery}`} aria-label={L("Sales recovery pipeline", "Saluran pemulihan jualan")} data-testid="sales-recovery">
+      <div className={css.recHead}>
+        <span className={css.recIcon} aria-hidden><AppIcon name="star" /></span>
+        <div className={css.recHeadText}>
+          <h2 className={css.recTitle}>{L("Sales Recovery Pipeline", "Saluran Pemulihan Jualan")}</h2>
+          <p className={css.recSub}>{L("Recover pending sales and move quotations to payment.", "Pulihkan jualan tertangguh dan gerakkan sebut harga ke bayaran.")}</p>
+        </div>
+        <button type="button" className={`${btnSm} ${css.recView}`} onClick={onPipeline}>{L("View Pipeline", "Lihat Saluran")} <span aria-hidden>→</span></button>
+      </div>
+      {/* v1.338.0 - the figures are the one KPI strip, not a strip of its own */}
       <div className={css.recStats} data-testid="sales-recovery-figures">
         <KpiRow label={L("Sales recovery figures", "Angka pemulihan jualan")}>
-          <KpiTile icon="documents" tone="navy" label={L("Open quotations", "Sebut harga terbuka")} value={open.n} />
-          <KpiTile icon="pending" tone={cold > 0 ? "gold" : "green"} label={L("Need a follow-up", "Perlu susulan")} value={cold} />
-          <KpiTile icon="money" tone="blue" label={L("Quoted value (not revenue)", "Nilai sebut harga (bukan hasil)")} value={fmtRM(open.cents)} />
+          <KpiTile icon="document" tone="navy" label={L("Open Quotations", "Sebut Harga Terbuka")} value={open.n} />
+          <KpiTile icon="pending" tone={cold > 0 ? "gold" : "green"} label={L("Need Follow-Up", "Perlu Susulan")} value={cold} />
+          <KpiTile icon="database" tone="blue" label={L("Quoted Value", "Nilai Sebut Harga")} value={fmtRM(open.cents)} sub={L("Not revenue", "Bukan hasil")} />
+          <KpiTile icon="date" tone="red" label={L("Follow-Ups Booked", "Susulan Ditempah")} value={booked} sub={L("Due today to week end", "Tarikh hari ini hingga hujung minggu")} />
         </KpiRow>
       </div>
-      <button type="button" className={css.viewAll} onClick={onPipeline}>{L("View Pipeline", "Lihat Saluran")} <span aria-hidden>→</span></button>
       {items.length > 0 && (
-        <ol className={`${css.recTop} erp-desktop-only`} aria-label={L("Three to recover first", "Tiga untuk dipulihkan dahulu")}>
-          {items.slice(0, 3).map((q) => (
-            <li key={q.id}>
-              <button type="button" className={css.recItem} onClick={() => onOpenDoc(q.id)}>
-                <strong>{q.doc} · {q.company ?? "—"}</strong><span>{fmtRM(q.cents)} · {q.why}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
+        <CompactTaskTable rows={items.slice(0, 3)} cols={cols} label={L("Quotations to recover first", "Sebut harga untuk dipulihkan dahulu")}
+          onOpen={onOpenDoc} record="quotation" testid="recovery-table" />
       )}
     </section>
   );

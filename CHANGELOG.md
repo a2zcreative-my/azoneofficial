@@ -10,6 +10,19 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.346.0] - 2026-11-17 - Dashboard → Sales Recovery Pipeline, on the CEO's reference - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, with a reference image of the Dashboard: the Sales Recovery section only, redesigned in its own component (`SalesRecoveryStrip`, components/portal/executive-cards.tsx). No other Dashboard section, the KPI strip, Quick Actions, the worker or any data changed.
+
+### Changed
+- **Header**: the gold star tile, "Sales Recovery Pipeline", "Recover pending sales and move quotations to payment." and an outlined **View Pipeline →** (it opens Sales → open quotations, as before).
+- **The one KPI strip, four tiles**: Open Quotations, Need Follow-Up (the server's going-cold count), **Quoted Value** with "Not revenue" under it, and **Follow-Ups Booked** (the week engine's `followups_scheduled`: follow-ups due from today to the week's end). The reference's "Awaiting Payment" and "High Priority" are not used: an open quotation is not awaiting payment, and nothing in the system counts a "high priority" quotation - the tile shows a real figure instead.
+- **The compact table** (the shared `CompactTaskTable`): Customer / Project (a building tile, the customer, and the quotation's owner - the system holds no project name on a quotation), Quotation No. as a chip, Amount, Aging (Open Days) with a calendar mark, Status as a dotted chip (the same words the Pipeline card uses - `oppStatus`), and a ⋯ control; a row and the ⋯ open the quotation. The three rows are the week engine's own (most urgent first). On a phone each row is a card; no horizontal overflow at 390.
+- `AppIcon` names `building` (Building2) and `more` (Ellipsis).
+
+### Guards
+- `tests/ecc4.mjs` R8 now holds "Quoted Value" with "Not revenue" under it and the server's follow-up count; `kpi-strip-only`, `dashboard-overview`, `executive-workspace`, `design-tokens` pass.
+
 ## [1.345.0] - 2026-11-17 - Sign-in page redesigned on the CEO's two references (web and PWA) - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
 
 The CEO, with a desktop and an iPhone PWA reference: one A2Z identity on both, a modern Protected by Cloudflare notice that shows the check's REAL state, every existing sign-in path kept.

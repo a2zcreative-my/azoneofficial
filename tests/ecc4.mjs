@@ -77,7 +77,9 @@ function checks(src) {
     && /days_left: ol\.days_left, required_per_day_cents: ol\.required_per_day_cents/.test(ovBlock));
   ok("R8 - the quoted value says it is not revenue; going cold is the server's own count",
     /* v1.338.0 - the figure is a segment of the one KPI strip; its label still says it is not revenue */
-    /[Qq]uoted value \(not revenue\)/.test(cards) && /cold=\{ol\.ageing_quotations\}/.test(ovBlock));
+    /* v1.346.0 - the Recovery Pipeline: "Quoted Value" with "Not revenue" under it; a fourth tile is the server's follow-ups booked */
+    /label=\{L\("Quoted Value", "Nilai Sebut Harga"\)\} value=\{fmtRM\(open\.cents\)\} sub=\{L\("Not revenue", "Bukan hasil"\)\}/.test(cards)
+      && /cold=\{ol\.ageing_quotations\} booked=\{ol\.followups_scheduled\}/.test(ovBlock));
   ok("R9 - the alert band shows only while something is wrong (backup over 7 days, errors in 24 h, a migration behind)",
     /\{alerts\.length > 0 && <div className=\{x\.span3\} style=\{o\(0\)\}><AlertBand alerts=\{alerts\} \/><\/div>\}/.test(ovBlock)
     && /else if \(\(backupAge \?\? 0\) > 7\)/.test(ovBlock) && /if \(errors24 > 0\)/.test(ovBlock) && /if \(mp > 0\)/.test(ovBlock) && /if \(alerts\.length === 0\) return null;/.test(cards));
@@ -127,7 +129,7 @@ const MUT = [
   ["company sales titled Collected", "ov", 'label={L("Company sales", "Jualan syarikat")} value={fmtRM(c.basis_cents)}', 'label={L("Collected", "Dikutip")} value={fmtRM(c.basis_cents)}'],
   ["a failed outstanding shown as RM 0", "ov", 'value={pw ? fmtRM(pw.outstanding.cents) : perfWeek.failed ? L("Not available", "Tiada data") : "—"}', 'value={pw ? fmtRM(pw.outstanding.cents) : fmtRM(0)}'],
   ["decisions counted from another list", "ov", "value={desk.data ? decide.length :", "value={desk.data ? desk.data.total :"],
-  ["quoted value said to be revenue", "cards", 'L("Quoted value (not revenue)", "Nilai sebut harga (bukan hasil)")', 'L("Quoted value", "Nilai sebut harga")'],
+  ["quoted value said to be revenue", "cards", ' sub={L("Not revenue", "Bukan hasil")}', ''],
   ["the alert band always drawn", "ov", "{alerts.length > 0 && <div className={x.span3} style={o(0)}><AlertBand alerts={alerts} /></div>}", "<div className={x.span3} style={o(0)}><AlertBand alerts={alerts} /></div>"],
   ["more than four actions", "ov", "<div className={x.span3} style={o(5)}><QuickActionsStrip actions={quick} max={4} /></div>", "<div className={x.span3} style={o(5)}><QuickActionsStrip actions={quick} /></div>"],
   ["the attendance chart dropped from Attendance", "att", "<DailyAttendanceChart role={user.role} />", ""],
