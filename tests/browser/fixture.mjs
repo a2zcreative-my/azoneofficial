@@ -1090,7 +1090,11 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
         { user_id: 9001, name: "Mohamad Izzudin bin Amdan", role: "cco", user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", last_seen_at: null, created_at: ago(4000), expires_at: "2026-12-01 00:00:00" },
       ] },
       bot_check: { enabled: !process.env.BOTOFF, refused: { today: process.env.BOTOFF ? 0 : 7, yesterday: process.env.BOTOFF ? 0 : 19 }, outage: { today: 0, yesterday: 0 }, on_outage: "allow" },
-      cloudflare: process.env.SECCF ? { connected: true, ok: true, requests_24h: 12840, threats_24h: 3, firewall_24h: 128, firewall_by_action: [{ action: "managed_challenge", count: 96 }, { action: "block", count: 32 }] } : { connected: false },
+      /* v1.341.2 - SECCF=1: both figures read; SECCF=partial: the firewall dataset refused (the CEO's zone, 17-11-2026), traffic read */
+      cloudflare: process.env.SECCF ? { connected: true,
+        traffic: { ok: true, value: { requests_24h: 12840, threats_24h: 3 } },
+        firewall: process.env.SECCF === "partial" ? { ok: false, error: "zone 'b9e50b3cc3f7e32d187f8fb7691c8cd2' does not have access to the path. Refer to this page for more details about access controls: https://developers.cloudflare.com" }
+          : { ok: true, value: { total_24h: 128, by_action: [{ action: "managed_challenge", count: 96 }, { action: "block", count: 32 }] } } } : { connected: false },
       files: { antivirus: false, type_signature: true, size_cap: true, note: "Every upload is checked for its size limit and that its first bytes match its declared type. Files are not scanned for viruses." },
       platform: { errors_24h: 0 },
       backup: { last: { uploaded: ago(60 * 11), size: 412000 }, retention_runs: 30, offsite_last: ago(60 * 24 * 3), bucket_bound: true },

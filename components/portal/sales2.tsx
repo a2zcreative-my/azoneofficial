@@ -60,7 +60,7 @@ const PIPE: Record<PipeKey, [FlowStep["icon"], string, string, FlowStep["tone"]]
 export const pipeWord = (k: PipeKey) => L(PIPE[k][1], PIPE[k][2]);
 export function SalesPipeline({ counts, picked, onPick, loaded }: { counts: Record<PipeKey, number>; picked: PipeKey | null; onPick: (k: PipeKey) => void; loaded: boolean }) {
   const steps: FlowStep[] = PIPELINE.map((k) => ({ key: k, icon: PIPE[k][0], label: L(PIPE[k][1], PIPE[k][2]), tone: PIPE[k][3], count: loaded ? counts[k] : null, onClick: () => onPick(k), pressed: picked === k }));
-  return <FlowStrip steps={steps} label={L("Sales pipeline", "Saluran jualan")} testid="sales-pipeline" compact />;
+  return <FlowStrip steps={steps} label={L("Sales pipeline", "Saluran jualan")} testid="sales-pipeline" compact arrows />;
 }
 
 /* ---------------- picture 01: the Overview ---------------- */

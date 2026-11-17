@@ -29,10 +29,15 @@ import { chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, listBox } from "@
 import css from "./security-status.module.css";
 
 export interface SessionRow { user_id: number; name: string; role: string; user_agent: string | null; last_seen_at: string | null; created_at: string | null; expires_at: string }
+/* v1.341.2 - the two Cloudflare figures arrive separately: one refused never hides the other */
+type Part<T> = { ok: true; value: T } | { ok: false; error: string };
 type Cf =
   | { connected: false }
-  | { connected: true; ok: false; error: string }
-  | { connected: true; ok: true; requests_24h: number; threats_24h: number; firewall_24h: number; firewall_by_action: { action: string; count: number }[] };
+  | { connected: true; traffic: Part<{ requests_24h: number; threats_24h: number }>; firewall: Part<{ total_24h: number; by_action: { action: string; count: number }[] }> };
+/** Cloudflare's refusal in plain words: a dataset this zone's plan or this token may not read */
+const cfWhy = (e: string) => (/does not have access to the path/i.test(e)
+  ? L("Not available to this token or this Cloudflare plan", "Tidak tersedia untuk token atau pelan Cloudflare ini")
+  : e);
 export interface SecurityStatus {
   as_of: string;
   sessions: { count: number; active_30m: number; people: number; rows: SessionRow[]; error: string | null };
@@ -134,10 +139,12 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
   const cf = s.cloudflare;
   const bot = botWord(s);
   const bk = backupWord(s);
-  const cfTile: { value: string; sub: string; tone: KpiTone } = !cf.connected
+  const fw = cf.connected ? cf.firewall : null;
+  const tr = cf.connected ? cf.traffic : null;
+  const cfTile: { value: string; sub: string; tone: KpiTone } = !fw
     ? { value: L("Not connected", "Tidak disambung"), sub: L("Add a read-only Cloudflare token", "Tambah token Cloudflare baca sahaja"), tone: "gold" }
-    : !cf.ok ? { value: L("Read failed", "Gagal dibaca"), sub: cf.error, tone: "red" }
-    : { value: fmt(cf.firewall_24h), sub: L("Firewall events, last 24 h", "Peristiwa firewall, 24 jam"), tone: "blue" };
+    : !fw.ok ? { value: L("Not available", "Tidak tersedia"), sub: cfWhy(fw.error), tone: "gold" }
+    : { value: fmt(fw.value.total_24h), sub: L("Firewall events, last 24 h", "Peristiwa firewall, 24 jam"), tone: "blue" };
   const row = (icon: AppIconName, title: string, sub: string, chip: React.ReactNode, testid: string) => (
     <li data-testid={testid}><span className={css.rowIcon} aria-hidden><AppIcon name={icon} /></span>
       <span className={css.rowText}><strong>{title}</strong><small>{sub}</small></span>{chip}</li>
@@ -148,8 +155,9 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
         <KpiTile icon="success" tone={s.platform.errors_24h ? "red" : "green"} label={L("Platform", "Platform")} value={s.platform.errors_24h ? L(`${s.platform.errors_24h} errors`, `${s.platform.errors_24h} ralat`) : L("Healthy", "Sihat")} sub={L("Recorded errors, last 24 h", "Ralat direkodkan, 24 jam")} />
         <KpiTile icon="verify" tone={bot.tone} label={L("Bot check", "Semakan bot")} value={bot.value} sub={bot.sub} />
         <KpiTile icon="connection" tone={cfTile.tone} label={L("Cloudflare firewall", "Firewall Cloudflare")} value={cfTile.value} sub={cfTile.sub} />
-        <KpiTile icon="warning" tone={cf.connected && cf.ok && cf.threats_24h ? "red" : "blue"} label={L("Threats seen", "Ancaman dikesan")}
-          value={cf.connected && cf.ok ? fmt(cf.threats_24h) : "—"} sub={cf.connected && cf.ok ? L(`of ${fmt(cf.requests_24h)} requests, 24 h`, `daripada ${fmt(cf.requests_24h)} permintaan, 24 jam`) : L("Needs the Cloudflare token", "Perlu token Cloudflare")} />
+        <KpiTile icon="warning" tone={tr?.ok && tr.value.threats_24h ? "red" : "blue"} label={L("Threats seen", "Ancaman dikesan")}
+          value={tr?.ok ? fmt(tr.value.threats_24h) : "—"}
+          sub={tr?.ok ? L(`of ${fmt(tr.value.requests_24h)} requests, 24 h`, `daripada ${fmt(tr.value.requests_24h)} permintaan, 24 jam`) : tr ? cfWhy(tr.error) : L("Needs the Cloudflare token", "Perlu token Cloudflare")} />
         <KpiTile icon="document" tone="gold" label={L("File checks", "Semakan fail")} value={L("Type + size", "Jenis + saiz")} sub={L("Not antivirus scanning", "Bukan imbasan antivirus")} />
         <KpiTile icon="database" tone={bk.tone} label={L("Backup", "Sandaran")} value={bk.value} sub={bk.sub} />
       </KpiRow>
@@ -164,10 +172,10 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
             {row("lock", L("Sign-in limits", "Had log masuk"), L("10 failed tries per account and 30 per network in 15 minutes; 2FA for every staff role.", "10 cubaan gagal setiap akaun dan 30 setiap rangkaian dalam 15 minit; 2FA untuk setiap peranan kakitangan."),
               <span className={chipSmSuccess}>{L("Active", "Aktif")}</span>, "infra-limits")}
             {row("connection", L("Cloudflare firewall (WAF) events", "Peristiwa firewall Cloudflare (WAF)"),
-              !cf.connected ? L("Not connected - the WAF itself runs at Cloudflare; the portal reads its events only with a read-only token.", "Tidak disambung - WAF sendiri berjalan di Cloudflare; portal membaca peristiwanya hanya dengan token baca sahaja.")
-                : !cf.ok ? cf.error
-                : cf.firewall_by_action.length ? cf.firewall_by_action.slice(0, 4).map((a) => `${a.action} ${fmt(a.count)}`).join(" · ") : L("No firewall events in 24 h", "Tiada peristiwa firewall dalam 24 jam"),
-              <span className={!cf.connected ? chipSmNeutral : cf.ok ? chipSmSuccess : chipSmWarn}>{!cf.connected ? L("Not connected", "Tidak disambung") : cf.ok ? L("Reading", "Dibaca") : L("Read failed", "Gagal")}</span>, "infra-waf")}
+              !fw ? L("Not connected - the WAF itself runs at Cloudflare; the portal reads its events only with a read-only token.", "Tidak disambung - WAF sendiri berjalan di Cloudflare; portal membaca peristiwanya hanya dengan token baca sahaja.")
+                : !fw.ok ? L(`${cfWhy(fw.error)}. The WAF still runs at Cloudflare; only this count cannot be read here.`, `${cfWhy(fw.error)}. WAF masih berjalan di Cloudflare; hanya kiraan ini tidak dapat dibaca di sini.`)
+                : fw.value.by_action.length ? fw.value.by_action.slice(0, 4).map((a) => `${a.action} ${fmt(a.count)}`).join(" · ") : L("No firewall events in 24 h", "Tiada peristiwa firewall dalam 24 jam"),
+              <span className={!fw ? chipSmNeutral : fw.ok ? chipSmSuccess : chipSmWarn}>{!fw ? L("Not connected", "Tidak disambung") : fw.ok ? L("Reading", "Dibaca") : L("Not available", "Tidak tersedia")}</span>, "infra-waf")}
             {row("document", L("Upload checks", "Semakan muat naik"), L("Every upload is held to its size limit and its first bytes must match its type. Files are not scanned for viruses.", "Setiap muat naik dihadkan saiznya dan bait pertamanya mesti sepadan dengan jenisnya. Fail tidak diimbas untuk virus."),
               <span className={chipSmInfo}>{L("Type + size", "Jenis + saiz")}</span>, "infra-files")}
             {row("database", L("Database backup", "Sandaran pangkalan data"),
@@ -176,17 +184,19 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
           </ul>
         </SplitPane>
         <SplitPane testid="cf-traffic" title={L("Cloudflare, last 24 hours", "Cloudflare, 24 jam terakhir")} label={L("Cloudflare traffic", "Trafik Cloudflare")}
-          sub={cf.connected && cf.ok ? L(`Read ${mytWhen(s.as_of)} MYT`, `Dibaca ${mytWhen(s.as_of)} MYT`) : undefined}>
-          {cf.connected && cf.ok ? (
-            <dl className={css.figs}>
-              <div><dt>{L("Requests", "Permintaan")}</dt><dd>{fmt(cf.requests_24h)}</dd></div>
-              <div><dt>{L("Threats", "Ancaman")}</dt><dd>{fmt(cf.threats_24h)}</dd></div>
-              <div><dt>{L("Firewall events", "Peristiwa firewall")}</dt><dd>{fmt(cf.firewall_24h)}</dd></div>
-            </dl>
+          sub={cf.connected ? L(`Read ${mytWhen(s.as_of)} MYT`, `Dibaca ${mytWhen(s.as_of)} MYT`) : undefined}>
+          {cf.connected ? (
+            <>
+              <dl className={css.figs}>
+                <div><dt>{L("Requests", "Permintaan")}</dt><dd>{tr?.ok ? fmt(tr.value.requests_24h) : "—"}</dd></div>
+                <div><dt>{L("Threats", "Ancaman")}</dt><dd>{tr?.ok ? fmt(tr.value.threats_24h) : "—"}</dd></div>
+                <div><dt>{L("Firewall events", "Peristiwa firewall")}</dt><dd>{fw?.ok ? fmt(fw.value.total_24h) : "—"}</dd></div>
+              </dl>
+              {tr && !tr.ok && <p className={css.muted}>{L("Requests and threats: ", "Permintaan dan ancaman: ")}{cfWhy(tr.error)}</p>}
+              {fw && !fw.ok && <p className={css.muted}>{L("Firewall events: ", "Peristiwa firewall: ")}{cfWhy(fw.error)}</p>}
+            </>
           ) : (
-            <p className={css.muted}>{!cf.connected
-              ? L("Add a read-only Cloudflare API token (Zone · Analytics · Read) and the zone id on the server to see requests, threats and firewall events here. Until then nothing is shown rather than a guess.", "Tambah token API Cloudflare baca sahaja (Zone · Analytics · Read) dan id zon pada pelayan untuk melihat permintaan, ancaman dan peristiwa firewall di sini. Sehingga itu tiada apa dipaparkan, bukan tekaan.")
-              : cf.error}</p>
+            <p className={css.muted}>{L("Add a read-only Cloudflare API token (Zone · Analytics · Read) and the zone id on the server to see requests, threats and firewall events here. Until then nothing is shown rather than a guess.", "Tambah token API Cloudflare baca sahaja (Zone · Analytics · Read) dan id zon pada pelayan untuk melihat permintaan, ancaman dan peristiwa firewall di sini. Sehingga itu tiada apa dipaparkan, bukan tekaan.")}</p>
           )}
           {onAudit && <button type="button" className={css.link} onClick={onAudit}>{L("Detailed events: Audit History", "Peristiwa terperinci: Sejarah Audit")}</button>}
         </SplitPane>

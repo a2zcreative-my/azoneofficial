@@ -52,3 +52,56 @@ button.box[aria-pressed="true"] { border-color: var(--brand-primary); box-shadow
   .strip { grid-auto-columns: minmax(9.5rem, 11rem); gap: 1.25rem; }
   .step + .step::before { left: -0.875rem; }
 }
+
+/* v1.342.0 - arrows (the Sales Pipeline picture): one row of joined chevrons.
+   Each step is cut to a chevron (clip-path); the next step's notch takes the
+   point, a hairline of the card showing between them. The row's two ends are
+   rounded by the row itself. The ring for focus and for the step in force is
+   drawn inside the shape (::after), because a clip-path would cut an outline.
+   On a phone the row keeps its steps whole and scrolls inside .scroll. */
+.arrows {
+  --arrow: 1rem; --seam: 0.1875rem;
+  gap: 0; grid-auto-columns: minmax(11rem, 1fr); min-width: min-content;
+  border-radius: var(--radius-card-v2); overflow: hidden; background: var(--card);
+}
+.arrows .step + .step { margin-left: calc(var(--seam) - var(--arrow)); }
+.arrows .step + .step::before { content: none; }
+.arrows .box {
+  position: relative; gap: 0.625rem; min-height: 4.5rem; border: 0; border-radius: 0;
+  padding: 0.625rem calc(var(--arrow) + 0.25rem) 0.625rem calc(var(--arrow) + 0.625rem);
+  clip-path: polygon(0 0, calc(100% - var(--arrow)) 0, 100% 50%, calc(100% - var(--arrow)) 100%, 0 100%, var(--arrow) 50%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--muted-foreground) 5%, var(--card)), color-mix(in srgb, var(--muted-foreground) 13%, var(--card)));
+}
+.arrows .step:first-child .box { padding-left: 1rem; clip-path: polygon(0 0, calc(100% - var(--arrow)) 0, 100% 50%, calc(100% - var(--arrow)) 100%, 0 100%); }
+.arrows .step:last-child .box { padding-right: 1rem; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, var(--arrow) 50%); }
+.arrows .step[data-tone="gold"] .box { background: linear-gradient(90deg, color-mix(in srgb, var(--gold-solid) 7%, var(--card)), color-mix(in srgb, var(--gold-solid) 19%, var(--card))); }
+.arrows .step[data-tone="blue"] .box { background: linear-gradient(90deg, color-mix(in srgb, var(--info) 7%, var(--card)), color-mix(in srgb, var(--info) 19%, var(--card))); }
+.arrows .step[data-tone="green"] .box { background: linear-gradient(90deg, color-mix(in srgb, var(--success) 7%, var(--card)), color-mix(in srgb, var(--success) 19%, var(--card))); }
+.arrows .step[data-tone="green"]:last-child .box { background: linear-gradient(90deg, color-mix(in srgb, var(--success) 10%, var(--card)), color-mix(in srgb, var(--success) 30%, var(--card))); }
+.arrows .step[data-tone="purple"] .box { background: linear-gradient(90deg, color-mix(in srgb, var(--plan, var(--info)) 7%, var(--card)), color-mix(in srgb, var(--plan, var(--info)) 19%, var(--card))); }
+.arrows .step[data-tone="red"] .box { background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 7%, var(--card)), color-mix(in srgb, var(--danger) 19%, var(--card))); }
+.arrows .icon svg { width: 1.625rem; height: 1.625rem; stroke-width: 1.6; }
+.arrows .words { gap: 0.125rem; }
+.arrows .words strong { font-size: var(--type-body-sm-size); font-weight: 650; line-height: 1.25; white-space: normal; overflow: visible; overflow-wrap: normal; word-break: normal; }
+.arrows .count { min-width: 0; padding: 0; background: transparent; text-align: left; color: var(--foreground); font-size: var(--type-kpi-md-size); line-height: var(--type-kpi-md-lh); font-weight: 700; }
+.arrows .go { display: grid; place-items: center; flex: 0 0 auto; color: var(--muted-foreground); }
+.arrows .go svg { width: 1rem; height: 1rem; }
+.arrows button.box:hover { border-color: transparent; }
+.arrows button.box:hover .go { color: var(--foreground); }
+.arrows .box::after {
+  content: ""; position: absolute; pointer-events: none; border-radius: var(--radius-control);
+  inset: 0.3125rem calc(var(--arrow) + 0.125rem) 0.3125rem calc(var(--arrow) + 0.25rem);
+}
+.arrows .step:first-child .box::after { left: 0.3125rem; }
+.arrows .step:last-child .box::after { right: 0.3125rem; }
+.arrows button.box[aria-pressed="true"] { border-color: transparent; box-shadow: none; }
+.arrows button.box[aria-pressed="true"]::after { box-shadow: inset 0 0 0 2px var(--brand-primary); }
+.arrows button.box:focus-visible { outline: none; }
+.arrows button.box:focus-visible::after { box-shadow: inset 0 0 0 2px var(--ring); }
+@media (max-width: 767px) {
+  .arrows { grid-auto-columns: minmax(12.5rem, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .arrows .go { transition: transform 150ms ease; }
+  .arrows button.box:hover .go { transform: translateX(2px); }
+}

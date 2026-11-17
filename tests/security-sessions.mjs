@@ -95,14 +95,34 @@ const counted = (k) => Number(meta.get(`${k}:${day}`) ?? 0);
 }
 {
   const nc = await S.cloudflareFigures(env());
-  answer = { data: { viewer: { zones: [{ fw: [{ count: 96, dimensions: { action: "managed_challenge" } }, { count: 32, dimensions: { action: "block" } }], http: [{ sum: { requests: 10000, threats: 2 } }, { sum: { requests: 2840, threats: 1 } }] }] } } };
-  calls = [];
-  const c = await S.cloudflareFigures(env({ CF_API_TOKEN: "t", CF_ZONE_ID: "z" }));
-  answer = { data: null, errors: [{ message: "not authorized for that zone" }] };
-  const e = await S.cloudflareFigures(env({ CF_API_TOKEN: "t", CF_ZONE_ID: "z" }));
-  ok("C1 Cloudflare figures: none without a token; read and summed with one; a refusal is said, never a number",
-    nc.connected === false && c.ok && c.firewall_24h === 128 && c.requests_24h === 12840 && c.threats_24h === 3 && c.firewall_by_action[0].action === "managed_challenge"
-    && calls[0]?.url === "https://api.cloudflare.com/client/v4/graphql" && e.connected && e.ok === false && /not authorized/.test(e.error));
+  const cfEnv = env({ CF_API_TOKEN: "t", CF_ZONE_ID: "z" });
+  /* both datasets answer */
+  const both = async (body) => {
+    const q = JSON.parse(body).query;
+    return q.includes("httpRequests1hGroups")
+      ? { data: { viewer: { zones: [{ http: [{ sum: { requests: 10000, threats: 2 } }, { sum: { requests: 2840, threats: 1 } }] }] } } }
+      : { data: { viewer: { zones: [{ fw: [{ count: 96, dimensions: { action: "managed_challenge" } }, { count: 32, dimensions: { action: "block" } }] }] } } };
+  };
+  const real = globalThis.fetch;
+  let mode = "both"; calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url) });
+    const q = JSON.parse(init.body).query;
+    const out = mode === "partial" && q.includes("firewallEventsAdaptiveGroups")
+      ? { data: null, errors: [{ message: "zone 'z' does not have access to the path" }] }
+      : await both(init.body);
+    return new Response(JSON.stringify(out), { status: 200 });
+  };
+  const c = await S.cloudflareFigures(cfEnv);
+  mode = "partial";
+  const p = await S.cloudflareFigures(cfEnv);
+  globalThis.fetch = real;
+  ok("C1 Cloudflare figures: none without a token; with one, each dataset asked SEPARATELY and summed",
+    nc.connected === false && calls.length >= 2 && calls.every((x) => x.url === "https://api.cloudflare.com/client/v4/graphql")
+    && c.traffic.ok && c.traffic.value.requests_24h === 12840 && c.traffic.value.threats_24h === 3
+    && c.firewall.ok && c.firewall.value.total_24h === 128 && c.firewall.value.by_action[0].action === "managed_challenge");
+  ok("C3 one dataset refused (the CEO's zone, 17-11-2026) never hides the other: traffic read, the firewall's refusal kept as its reason",
+    p.connected && p.traffic.ok && p.traffic.value.requests_24h === 12840 && p.firewall.ok === false && /does not have access to the path/.test(p.firewall.error));
 }
 ok("C2 the file status says it is not antivirus", S.FILE_CHECKS.antivirus === false && /not scanned for viruses/.test(S.FILE_CHECKS.note));
 
@@ -141,8 +161,9 @@ function source(s) {
   t("U2 Overview: one KPI strip of six, recovery kept in the controls",
     (s.sess.slice(s.sess.indexOf('<KpiRow label={L("Security figures"'), s.sess.indexOf("</KpiRow>")).match(/<KpiTile /g) ?? []).length === 6 && /"control-recovery"/.test(s.sess) && /"control-passkeys"/.test(s.sess) && /"control-2fa"/.test(s.sess));
   t("U3 the protection line never says protected unless the server says the bot check is on", /st\.bot_check\.enabled\s*\? L\("Cloudflare bot check on every sign-in\."/.test(s.sess));
-  t("U4 Cloudflare figures shown only from a connected, read answer - otherwise Not connected / Read failed",
-    /!cf\.connected\s*\? \{ value: L\("Not connected"/.test(s.status) && /: !cf\.ok \? \{ value: L\("Read failed"/.test(s.status) && /value=\{cf\.connected && cf\.ok \? fmt\(cf\.threats_24h\) : "—"\}/.test(s.status));
+  t("U4 each Cloudflare figure shown only from its own read answer - otherwise Not connected / Not available, never a number",
+    /const cfTile[^=]*= !fw\s*\? \{ value: L\("Not connected"/.test(s.status) && /: !fw\.ok \? \{ value: L\("Not available"/.test(s.status) && /value=\{tr\?\.ok \? fmt\(tr\.value\.threats_24h\) : "—"\}/.test(s.status)
+      && /<dd>\{fw\?\.ok \? fmt\(fw\.value\.total_24h\) : "—"\}<\/dd>/.test(s.status));
   t("U5 System health keeps the existing errors-and-backups card under the new strip", /<SecurityHealth s=\{secStatus\}[^\n]*\/>\s*<div id="system-health"><SystemHealthCard \/><\/div>/.test(s.users));
   t("U6 Problem reports: the register over the SAME report sheet, the receiver card kept", /<ReportsRegister \/>\s*<SupportCard \/>/.test(s.users) && /<ReportProblem tab="Users & Security" onSent=/.test(s.support) && /onOpen=\{\(id\) => portal\?\.openRecord\("Tasks", "task", id\)\}/.test(s.support));
   t("U7 Company owner and Office location are unchanged", /\{secPart === "owner" && ownerState && ownerZone\}/.test(s.users) && /<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(s.users));
@@ -163,7 +184,7 @@ const MUT = [
   ["the Google door asks Google first", "idx", 'const botG = await botCheck(env, request, new URL(request.url).searchParams.get("bt"), "signin");\n    if (!botG.ok) return new Response(null, { status: 302, headers: { Location: "/login?error=bot" } });\n    const g = await beginGoogle("signin");', 'const g = await beginGoogle("signin");'],
   ["the secret sent to the page", "idx", "bot_check: botCheckPublic(env)", "bot_check: { site_key: env.TURNSTILE_SITE_KEY, secret: env.TURNSTILE_SECRET }"],
   ["a seventh tile stacked on the Overview", "sess", '<KpiTile icon="warning" tone="red" label={L("Security Alerts"', '<KpiTile icon="warning" label="x" value={0} /><KpiTile icon="warning" tone="red" label={L("Security Alerts"'],
-  ["the WAF shown as protected without a read", "status", '!cf.connected\n    ? { value: L("Not connected"', '!cf.connected\n    ? { value: L("Active", "Aktif"), sub: "", tone: "green" } as never ?? { value: L("Not connected"'],
+  ["the WAF shown as protected without a read", "status", '= !fw\n    ? { value: L("Not connected"', '= !fw\n    ? { value: L("Active", "Aktif"), sub: "", tone: "green" } as never ?? { value: L("Not connected"'],
   ["the register may write", "staff", "    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)", "    await env.DB.prepare(`UPDATE tasks SET status = 'completed'`).run();\n    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)"],
   ["the CSP blocks Cloudflare's script again", "headers", " https://static.cloudflareinsights.com https://challenges.cloudflare.com;", " https://static.cloudflareinsights.com;"],
   ["the old errors card dropped from System health", "users", '<div id="system-health"><SystemHealthCard /></div>', '<div id="system-health" />'],

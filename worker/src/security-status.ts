@@ -102,45 +102,58 @@ export const BOT_REFUSED_MESSAGE = "Please complete the security check and try a
 
 /* ------------------------------------------------------------------ */
 
+/* v1.341.2 - the two figures are asked for SEPARATELY. On 17-11-2026 one
+   combined query came back "zone ... does not have access to the path" - one
+   dataset refused (a plan or a token limit) - and that one refusal hid the
+   other figure too. Now each dataset is its own request: what the zone and the
+   token allow is shown, and what Cloudflare refuses is named with its reason. */
+type Part<T> = { ok: true; value: T } | { ok: false; error: string };
 type CfFigures =
   | { connected: false }
-  | { connected: true; ok: false; error: string }
-  | { connected: true; ok: true; requests_24h: number; threats_24h: number; firewall_24h: number; firewall_by_action: { action: string; count: number }[] };
+  | { connected: true; traffic: Part<{ requests_24h: number; threats_24h: number }>; firewall: Part<{ total_24h: number; by_action: { action: string; count: number }[] }> };
+
+async function cfQuery(env: Env, query: string, variables: Record<string, unknown>): Promise<Part<Record<string, unknown>>> {
+  try {
+    const r = await fetch(CF_GRAPHQL, {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.CF_API_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ query, variables: { zone: env.CF_ZONE_ID, ...variables } }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const j = (await r.json().catch(() => null)) as { data?: { viewer?: { zones?: Record<string, unknown>[] } }; errors?: { message?: string }[] | null } | null;
+    if (!r.ok || !j) return { ok: false, error: `Cloudflare answered ${r.status}` };
+    if (j.errors?.length) return { ok: false, error: String(j.errors[0]?.message ?? "Cloudflare refused the read").slice(0, 200) };
+    const z = j.data?.viewer?.zones?.[0];
+    return z ? { ok: true, value: z } : { ok: false, error: "The zone was not found for this token" };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e).slice(0, 200) };
+  }
+}
 
 /** Cloudflare's own analytics for the zone, last 24 hours - only with a read-only token */
 export async function cloudflareFigures(env: Env): Promise<CfFigures> {
   if (!env.CF_API_TOKEN || !env.CF_ZONE_ID) return { connected: false };
   const until = new Date();
   const since = new Date(until.getTime() - 24 * 3600_000);
-  const query = `query($zone: String!, $since: Time!, $until: Time!, $sinceH: Time!, $untilH: Time!) {
-    viewer { zones(filter: { zoneTag: $zone }) {
-      fw: firewallEventsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }) { count dimensions { action } }
-      http: httpRequests1hGroups(limit: 25, filter: { datetime_geq: $sinceH, datetime_lt: $untilH }) { sum { requests threats } }
-    } } }`;
   const hour = (d: Date) => new Date(Math.floor(d.getTime() / 3600_000) * 3600_000).toISOString();
-  try {
-    const r = await fetch(CF_GRAPHQL, {
-      method: "POST",
-      headers: { authorization: `Bearer ${env.CF_API_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ query, variables: { zone: env.CF_ZONE_ID, since: since.toISOString(), until: until.toISOString(), sinceH: hour(since), untilH: hour(until) } }),
-      signal: AbortSignal.timeout(6000),
-    });
-    const j = (await r.json().catch(() => null)) as { data?: { viewer?: { zones?: { fw?: { count: number; dimensions: { action: string } }[]; http?: { sum: { requests: number; threats: number } }[] }[] } }; errors?: { message?: string }[] | null } | null;
-    if (!r.ok || !j) return { connected: true, ok: false, error: `Cloudflare answered ${r.status}` };
-    if (j.errors?.length) return { connected: true, ok: false, error: String(j.errors[0]?.message ?? "Cloudflare refused the read").slice(0, 160) };
-    const z = j.data?.viewer?.zones?.[0];
-    if (!z) return { connected: true, ok: false, error: "The zone was not found for this token" };
+  const [http, fw] = await Promise.all([
+    cfQuery(env, `query($zone: String!, $since: Time!, $until: Time!) { viewer { zones(filter: { zoneTag: $zone }) {
+      http: httpRequests1hGroups(limit: 25, filter: { datetime_geq: $since, datetime_lt: $until }) { sum { requests threats } } } } }`,
+      { since: hour(since), until: hour(until) }),
+    cfQuery(env, `query($zone: String!, $since: Time!, $until: Time!) { viewer { zones(filter: { zoneTag: $zone }) {
+      fw: firewallEventsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }) { count dimensions { action } } } } }`,
+      { since: since.toISOString(), until: until.toISOString() }),
+  ]);
+  const traffic: Part<{ requests_24h: number; threats_24h: number }> = http.ok
+    ? { ok: true, value: ((http.value.http ?? []) as { sum: { requests: number; threats: number } }[]).reduce((a, g) => ({ requests_24h: a.requests_24h + Number(g.sum.requests || 0), threats_24h: a.threats_24h + Number(g.sum.threats || 0) }), { requests_24h: 0, threats_24h: 0 }) }
+    : http;
+  let firewall: Part<{ total_24h: number; by_action: { action: string; count: number }[] }>;
+  if (fw.ok) {
     const byAction = new Map<string, number>();
-    for (const g of z.fw ?? []) byAction.set(g.dimensions.action, (byAction.get(g.dimensions.action) ?? 0) + Number(g.count || 0));
-    const http = (z.http ?? []).reduce((a, g) => ({ requests: a.requests + Number(g.sum.requests || 0), threats: a.threats + Number(g.sum.threats || 0) }), { requests: 0, threats: 0 });
-    return {
-      connected: true, ok: true, requests_24h: http.requests, threats_24h: http.threats,
-      firewall_24h: [...byAction.values()].reduce((a, n) => a + n, 0),
-      firewall_by_action: [...byAction].map(([action, count]) => ({ action, count })).sort((a, b) => b.count - a.count),
-    };
-  } catch (e) {
-    return { connected: true, ok: false, error: String((e as Error)?.message ?? e).slice(0, 160) };
-  }
+    for (const g of (fw.value.fw ?? []) as { count: number; dimensions: { action: string } }[]) byAction.set(g.dimensions.action, (byAction.get(g.dimensions.action) ?? 0) + Number(g.count || 0));
+    firewall = { ok: true, value: { total_24h: [...byAction.values()].reduce((a, n) => a + n, 0), by_action: [...byAction].map(([action, count]) => ({ action, count })).sort((a, b) => b.count - a.count) } };
+  } else firewall = fw;
+  return { connected: true, traffic, firewall };
 }
 
 /** The upload rules as they are in shared.ts (MAGIC + the per-route size caps) - no antivirus */

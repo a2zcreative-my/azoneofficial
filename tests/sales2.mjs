@@ -100,6 +100,18 @@ async function checks(src) {
   }
   ok("the flow strip shows a count only when it is handed one - never an invented zero", /\{compact && s\.count != null && /.test(src.flow) && /\{!compact && s\.count != null && /.test(src.flow));
   ok("the flow strip scrolls inside itself on a phone, never the page", /\.scroll \{[^}]*overflow-x: auto/.test(src.flowCss));
+  /* v1.342.0 - the CEO's picture: the Sales Pipeline is one row of joined chevrons (FlowStrip arrows),
+     only there; a step's word never breaks inside itself, and the ring for focus and the step in force is
+     drawn inside the shape because the clip-path would cut an outline */
+  ok("v1.342.0 the Sales Pipeline, and only it, is the chevron row",
+    /testid="sales-pipeline" compact arrows \/>/.test(src.s2) && (src.s2.match(/ arrows /g) ?? []).length === 1
+    && /className=\{`\$\{css\.strip\} \$\{arrows \? css\.arrows : compact \? css\.compact : css\.stacked\}`\}/.test(src.flow)
+    && /\.arrows \.box \{[^}]*clip-path: polygon\(/.test(src.flowCss));
+  ok("v1.342.0 a step's word never shreds, the row keeps its steps whole and scrolls inside itself on a phone",
+    /\.arrows \.words strong \{[^}]*overflow-wrap: normal; word-break: normal;/.test(src.flowCss) && /\.arrows \{[^}]*min-width: min-content;/.test(src.flowCss)
+    && /@media \(max-width: 767px\) \{\s*\.arrows \{ grid-auto-columns: minmax\(12\.5rem, 1fr\); \}/.test(src.flowCss));
+  ok("v1.342.0 focus and the step in force are drawn inside the chevron, never cut away",
+    /\.arrows button\.box:focus-visible::after \{ box-shadow: inset 0 0 0 2px var\(--ring\); \}/.test(src.flowCss) && /\.arrows button\.box\[aria-pressed="true"\]::after \{ box-shadow: inset 0 0 0 2px var\(--brand-primary\); \}/.test(src.flowCss));
   /* v1.323.0 - the one strip counts its own cells: every figure on one row only
      from 1280px, three below that, two below 1024px (D-5) */
   ok("KpiRow keeps every figure on one row only from 1280px", /data-cells=\{n\}/.test(src.kpi) && /@media \(max-width: 1279px\) \{\s*\.row\[data-cells="5"\][^}]*--cells: 3;/.test(src.kpiCss) && /@media \(max-width: 1023px\) \{\s*\.row, \.row\[data-cells\] \{ --cells: 2; \}/.test(src.kpiCss) && /cols\?: 4 \| 5 \| 6/.test(src.kpi));
@@ -144,6 +156,9 @@ const MUT = [
   ["a literal colour in the panel", "panelCss", ".navy { background: var(--muted); color: var(--foreground); }", ".navy { background: #eef1f6; color: var(--foreground); }"],
   ["a breakpoint of its own", "flowCss", "@media (max-width: 767px)", "@media (max-width: 700px)"],
   ["a zero drawn when no count is handed", "flow", "{compact && s.count != null && ", "{compact && "],
+  ["the pipeline back to the pill row", "s2", 'testid="sales-pipeline" compact arrows />', 'testid="sales-pipeline" compact />'],
+  ["a word shredded inside its chevron", "flowCss", "overflow-wrap: normal; word-break: normal;", "overflow-wrap: anywhere;"],
+  ["no focus ring inside the chevron", "flowCss", ".arrows button.box:focus-visible::after { box-shadow: inset 0 0 0 2px var(--ring); }", ".arrows button.box:focus-visible::after { }"],
 ];
 let caught = 0;
 if (process.env.NOMUT !== "1") {

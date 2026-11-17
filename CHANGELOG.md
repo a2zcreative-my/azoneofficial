@@ -10,6 +10,36 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.342.0] - 2026-11-17 - Sales → Overview: the Sales Pipeline is one row of joined chevrons - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, with a picture: "For sales pipeline, please enhance to this styles instead. only for Sales Pipeline".
+
+### Changed
+- **The Sales Pipeline is drawn as the picture's chevron row.** The seven steps (Enquiry, Quotation, Follow-Up, Invoice, Payment Reported, CEO Verified, Closed Sale) join into one row of arrow-shaped steps, each with its icon beside the word, the count large under it and a ">" because the step can be pressed. Each step is tinted by its tone with a soft left-to-right gradient: grey, then gold, blue and green. Closed Sale is the strongest green, and a thin line of the card separates the steps. The row's two ends are rounded.
+- **Only the Sales Pipeline changed.** `FlowStrip` gains an `arrows` variant (`components/ui/flow-strip.tsx`, `.arrows` in `flow-strip.module.css`), and `SalesPipeline` (`components/portal/sales2.tsx`) is its only user. The Payment Flow and the Tasks, Claims and Leave workflows keep their look.
+- **Same behaviour.** Same counts (`pipelineCounts`), same press: a step filters the one worklist, and CEO Verified and Closed Sale open Closed Sales. Clear works as before. The step in force and keyboard focus get a ring drawn inside the chevron, because the shape would cut an outline.
+- **Phones.** The row keeps every step whole (12.5rem a step) and scrolls sideways inside itself; the page never does. A word never breaks inside itself.
+- Tokens only (`--muted-foreground`, `--gold-solid`, `--info`, `--success`, `--card`, `--ring`, `--brand-primary`); it works in dark mode. House breakpoints only.
+
+### Guards
+- `tests/sales2.mjs`: three new checks:
+  - the Sales Pipeline, and only it, is the chevron row;
+  - a step's word never shreds, and the row scrolls inside itself on a phone;
+  - focus and the step in force are drawn inside the chevron.
+
+  Three new mutations; 36 checks, 17 mutations.
+
+## [1.341.2] - 2026-11-17 - System health: each Cloudflare figure is read on its own, so one refusal no longer hides the other - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+With the read-only token set, System health showed **Read failed** with Cloudflare's own answer: "zone ... does not have access to the path". One of the two datasets the portal asks for (the firewall events, `firewallEventsAdaptiveGroups`) is not open to this token or this zone's plan, and because both were asked in ONE query, that one refusal hid the traffic figures too.
+
+### Changed
+- `worker/src/security-status.ts`: `cloudflareFigures` asks for the traffic (`httpRequests1hGroups`: requests, threats) and the firewall events (`firewallEventsAdaptiveGroups`) in two separate requests; each comes back as its own value or its own refusal (`{ traffic, firewall }`).
+- `components/portal/security-status.tsx`: Threats seen and the Cloudflare pane show the traffic whenever it was read; the Cloudflare firewall tile and its protection line say **Not available** - "Not available to this token or this Cloudflare plan" - when that dataset is refused, and add that the WAF itself still runs at Cloudflare. Still never a number that was not read.
+
+### Guards
+- `tests/security-sessions.mjs`: C1 (each dataset asked separately and summed) and C3 (a refused firewall dataset never hides the traffic) run against a stubbed Cloudflare; U4 follows the new shape. Browser fixture `SECCF=partial` serves the CEO's case.
+
 ## [1.341.1] - 2026-11-17 - Fix: the site's security policy blocked the Cloudflare bot check, so nobody could sign in - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 Once 1.341.0 was live and the Turnstile keys were set, the sign-in page said "Cloudflare's security check could not load" for everyone. The browser console: the script `https://challenges.cloudflare.com/turnstile/v0/api.js` "violates the Content Security Policy directive script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com". The page therefore sent no token; the worker asked Cloudflare, Cloudflare answered, so the missing token was refused (the outage rule lets a sign-in through only when Cloudflare itself is unreachable). Every door was closed. The browser test had stubbed Cloudflare's script and so never met the site's real headers.

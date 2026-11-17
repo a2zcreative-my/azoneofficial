@@ -11,7 +11,12 @@
    force. A step with no count shows none - never an invented zero.
    On a phone the strip scrolls sideways inside itself; the page never does.
 
-   One component so the modules cannot drift apart. It fetches nothing. */
+   One component so the modules cannot drift apart. It fetches nothing.
+
+   v1.342.0 - `arrows` (the CEO, 17-11-2026, the Sales Pipeline picture): the
+   steps join into one row of chevrons, each tinted by its tone, the icon
+   beside the word with the count under it and a ">" when the step can be
+   pressed. Layout only: the same steps, counts and presses. */
 
 import type { ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
@@ -25,14 +30,16 @@ export interface FlowStep {
   onClick?: () => void; pressed?: boolean;
 }
 
-export function FlowStrip({ steps, label, testid, compact = false }: {
+export function FlowStrip({ steps, label, testid, compact = false, arrows = false }: {
   steps: readonly FlowStep[]; label: string; testid?: string;
-  /** one line per step (the pill row of the Sales Pipeline); otherwise icon over the words */
+  /** one line per step, the count under the word; otherwise icon over the words */
   compact?: boolean;
+  /** with compact: the steps join into one row of tinted chevrons (the Sales Pipeline) */
+  arrows?: boolean;
 }) {
   return (
     <div className={css.scroll}>
-      <ol className={`${css.strip} ${compact ? css.compact : css.stacked}`} aria-label={label} data-testid={testid}>
+      <ol className={`${css.strip} ${arrows ? css.arrows : compact ? css.compact : css.stacked}`} aria-label={label} data-testid={testid}>
         {steps.map((s) => {
           const body = (
             <>
@@ -43,6 +50,7 @@ export function FlowStrip({ steps, label, testid, compact = false }: {
                 {compact && s.count != null && <span className={css.count} data-testid="flow-count">{s.count}</span>}
               </span>
               {!compact && s.count != null && <span className={css.count} data-testid="flow-count">{s.count}</span>}
+              {arrows && s.onClick && <span className={css.go} aria-hidden><AppIcon name="next" /></span>}
             </>
           );
           return (
