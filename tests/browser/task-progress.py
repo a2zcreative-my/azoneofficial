@@ -296,19 +296,26 @@ with sync_playwright() as p:
     pg.wait_for_timeout(1500)
     cl = pg.locator("tr:has-text('Nur Aisyah')").first
     check("Claims: the same photo beside the staff name", cl.count() == 1 and cl.locator("img[src*='/api/v1/media/file/']").count() >= 1, cl.inner_text()[:120] if cl.count() else "no row")
-    # v1.247.0 - task emails: Reports & Archive panel, and Send reminder on a task drawer
+    # v1.247.0 - task emails; v1.337.0 - the settings live in System > Automation & Rules, one press from Reports & Archive
     tab(pg, "Tasks")
     pg.get_by_role("tab", name="Reports & Archive", exact=True).first.click(); pg.wait_for_timeout(1500)
+    pg.get_by_test_id("task-email-settings").click(); pg.wait_for_timeout(2200)
     mp = pg.get_by_test_id("task-mail-panel")
     mt = mp.inner_text() if mp.count() else ""
-    check("Reports & Archive: the Task Email panel shows the sender, the triggers and the log", mp.count() == 1 and "hello@a2zcreative.my" in mt and "New task assigned" in mt and "Overdue" in mt and "Delivery log" in mt, mt[:200])
-    check("the log shows the provider's own answer for a send that failed, and offers Retry to the CEO", "550 5.1.1 mailbox unavailable" in mt and mp.get_by_role("button", name="Retry").count() == 1)
-    check("the digest switch is off by default (the owner's answer)", mp.get_by_role("switch", name="Daily digest").get_attribute("aria-checked") == "false")
+    check("Task email settings opens the Task Email view: the sender, the triggers", mp.count() == 1 and "hello@a2zcreative.my" in mt and "New task assigned" in mt and "Overdue" in mt, mt[:200])
+    check("the digest switch is off by default (the owner's answer)", mp.get_by_role("switch", name=re.compile("Daily digest")).get_attribute("aria-checked") == "false")
     check("the preview is the real template in a sandboxed frame", mp.get_by_test_id("mail-preview").get_attribute("sandbox") == "")
-    mp.get_by_role("switch", name="Daily digest").click(); pg.wait_for_timeout(200)
+    mp.get_by_role("switch", name=re.compile("Daily digest")).click(); pg.wait_for_timeout(200)
     pg.get_by_test_id("mail-save").click(); pg.wait_for_timeout(900)
     puts = get(4213, "/__tasks")["posts"]
     check("Save sends the settings with the digest on", any(x.get("p") == "/staff/tasks/mail-settings" and '"digest_on":true' in (x.get("body") or "") for x in puts), str(puts)[-300:])
+    for fb in pg.get_by_test_id("feedback-ok").all():
+        fb.click()
+    pg.get_by_test_id("auto-view-log").click(); pg.wait_for_timeout(1200)
+    lg = pg.get_by_test_id("mail-log")
+    lt = lg.inner_text() if lg.count() else ""
+    check("the Delivery Log shows the provider's own answer for a send that failed, and offers Retry to the CEO", "550 5.1.1 mailbox unavailable" in lt and lg.get_by_role("button", name="Retry").count() == 1, lt[:200])
+    tab(pg, "Tasks")
     dr, _ = open_task(pg, "All Tasks", "Financing application - Maybank SME")
     rb = dr.get_by_test_id("send-reminder")
     check("the task drawer offers Send reminder to the person who set it", rb.count() == 1)

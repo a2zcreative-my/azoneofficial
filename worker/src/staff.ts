@@ -10695,6 +10695,24 @@ async function handleStaffRoutes(
      settings store), read by the CEO, COO and CCO, written by the CEO or a
      super admin (audited). The sender itself (the binding, MAIL_FROM) is
      never in the UI - wrangler.toml and the dashboard own it. */
+  /* v1.337.0 - what the email pipeline can PROVE, read-only: the binding and the sender as the
+     Worker sees them, whether the outbox table exists, what waits, the last message Cloudflare
+     accepted and the last test. "Domain verified" is never claimed from configuration - only an
+     accepted message proves the sender works, and inbox delivery is never claimed at all. */
+  const mailDiagnostics = async (e: Env) => {
+    const binding = !!e.EMAIL && typeof e.EMAIL.send === "function";
+    const out = { binding, from: e.MAIL_FROM ?? null, outbox: true, waiting: 0, oldest_waiting: null as string | null, last_accepted: null as string | null,
+      last_test: null as { status: string; at: string; error: string | null } | null, dead_7d: 0 };
+    try {
+      const w = await e.DB.prepare(`SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM mail_outbox WHERE status IN ('queued', 'sending', 'failed')`).first<{ n: number; oldest: string | null }>();
+      out.waiting = Number(w?.n ?? 0); out.oldest_waiting = w?.oldest ?? null;
+      out.last_accepted = (await e.DB.prepare(`SELECT MAX(sent_at) AS at FROM mail_outbox WHERE status = 'accepted'`).first<{ at: string | null }>())?.at ?? null;
+      const t = await e.DB.prepare(`SELECT status, COALESCE(sent_at, created_at) AS at, last_error FROM mail_outbox WHERE kind = 'test' ORDER BY id DESC LIMIT 1`).first<{ status: string; at: string; last_error: string | null }>();
+      out.last_test = t ? { status: t.status, at: t.at, error: t.last_error } : null;
+      out.dead_7d = Number((await e.DB.prepare(`SELECT COUNT(*) AS n FROM mail_outbox WHERE status = 'dead' AND created_at >= datetime('now', '-7 days')`).first<{ n: number }>())?.n ?? 0);
+    } catch (x) { if (/no such table/i.test(String(x))) out.outbox = false; }
+    return out;
+  };
   const mailUrl = new URL(request.url);
   const mailMgr = can(user.role, "project_manage") || user.role === "super_admin";
   const mailAdmin = user.role === "ceo" || user.role === "super_admin";
@@ -10709,7 +10727,7 @@ async function handleStaffRoutes(
       await audit(env, user.id, "tasks.mail_settings", "system_meta", "task_mail_settings", { from: cur, to: next });
     }
     const st = await readMailSettings(env);
-    return json({ settings: st, sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null }, can_edit: mailAdmin, can_broadcast: can(user.role, "task_mail_send") });
+    return json({ settings: st, sender: { ready: mailReady(env), from: env.MAIL_FROM ?? null }, can_edit: mailAdmin, can_broadcast: can(user.role, "task_mail_send"), diagnostics: await mailDiagnostics(env) });
   }
   /* v1.249.0 - SEND A TASK UPDATE (the owner, 01-11-2026): the CEO (task_mail_send,
      editable in Roles & Permissions) writes a message; each chosen person gets

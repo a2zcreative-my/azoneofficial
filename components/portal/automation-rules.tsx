@@ -8,7 +8,10 @@
    change a rule, the COO, CCO and admin read them. What the rules FIND is
    worked in the Desk's Action Inbox (Alerts); rules and findings stay apart. */
 
+import { useState } from "react";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { LineTabs } from "@/components/ui/line-tabs";
+import { TaskEmailLog, TaskEmailSettings } from "@/components/portal/task-mail-panel"; // v1.337.0 - task email settings live here, not under Tasks
 import { SkelRows } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
 import { WatchersCard } from "@/components/portal/watchers-card";
@@ -51,24 +54,59 @@ function AttendancePolicyCard() {
   );
 }
 
-export function AutomationRulesPage({ role, go }: { role: string; go: (tab: string) => void }) {
+/* v1.337.0 - FOUR VIEWS, ONE AT A TIME (the CEO, 17-11-2026: "Keep email
+   configuration in an appropriate authorized settings workspace"). Task Email
+   and its Delivery Log moved here from the foot of Tasks > Reports & Archive -
+   the same panel, the same routes, the same gates: they are drawn for the CEO,
+   COO, CCO and super admin, as on Tasks (the server answers 403 to anyone
+   else); the Admin account keeps the watcher rules and the attendance policy.
+   Each body stays mounted once opened and is hidden, never unmounted. */
+type AutoView = "email" | "log" | "rules" | "policy";
+const MAIL_ROLES = ["ceo", "coo", "cco", "super_admin"];
+
+export function AutomationRulesPage({ role, go, initialView }: { role: string; go: (tab: string) => void; initialView?: string }) {
   const canEdit = role === "ceo" || role === "super_admin";
+  const mail = MAIL_ROLES.includes(role);
+  const views: (readonly [AutoView, string])[] = [
+    ...(mail ? [["email", L("Task Email", "E-mel Tugasan")] as const, ["log", L("Delivery Log", "Log Penghantaran")] as const] : []),
+    ["rules", L("Watcher Rules", "Peraturan Pemerhati")],
+    ["policy", L("Attendance Policy", "Polisi Kehadiran")],
+  ];
+  const first = views[0]![0];
+  const [view, setView] = useState<AutoView>(() => (views.some(([k]) => k === initialView) ? initialView as AutoView : first));
+  const [seen, setSeen] = useState<Record<string, boolean>>({ [view]: true });
+  const open = (v: AutoView) => { setView(v); setSeen((s) => (s[v] ? s : { ...s, [v]: true })); };
   return (
     <TabPage>
-      <p className={css.lead}>
-        {L("The rules the company watches its own data with. A rule finds records; what it finds appears in each person's Desk → Action Inbox → Alerts. ",
-          "Peraturan yang syarikat gunakan untuk memerhati datanya sendiri. Peraturan menemui rekod; dapatannya muncul dalam Meja → Peti Tindakan → Amaran setiap orang. ")}
-        {canEdit ? L("Only you and the super admin can change a rule.", "Hanya anda dan pentadbir super boleh mengubah peraturan.")
-          : L("Only the CEO changes a rule; you can read them.", "Hanya CEO mengubah peraturan; anda boleh membacanya.")}
-      </p>
-      <TabZone label={L("Watcher rules", "Peraturan pemerhati")}>
-        <section className={`${card} ${css.card}`} data-testid="automation-rules">
-          <WatchersCard role={role} go={go} section="rules" bare />
-        </section>
-      </TabZone>
-      <TabZone label={L("Attendance policy", "Polisi kehadiran")} hint={L("The one status rule every attendance view uses. Read-only.", "Satu peraturan status yang digunakan setiap paparan kehadiran. Baca sahaja.")}>
-        <AttendancePolicyCard />
-      </TabZone>
+      <LineTabs value={view} onChange={open} label={L("Automation & Rules views", "Paparan Automasi & Peraturan")} testid="auto-view" tabs={views} />
+      {mail && (
+        <div hidden={view !== "email"}>
+          <TabZone label={L("Task email", "E-mel tugasan")}>{seen.email && <TaskEmailSettings />}</TabZone>
+        </div>
+      )}
+      {mail && (
+        <div hidden={view !== "log"}>
+          <TabZone label={L("Delivery log", "Log penghantaran")}>{seen.log && <TaskEmailLog />}</TabZone>
+        </div>
+      )}
+      <div hidden={view !== "rules"}>
+        <p className={css.lead}>
+          {L("The rules the company watches its own data with. A rule finds records; what it finds appears in each person's Desk → Action Inbox → Alerts. ",
+            "Peraturan yang syarikat gunakan untuk memerhati datanya sendiri. Peraturan menemui rekod; dapatannya muncul dalam Meja → Peti Tindakan → Amaran setiap orang. ")}
+          {canEdit ? L("Only you and the super admin can change a rule.", "Hanya anda dan pentadbir super boleh mengubah peraturan.")
+            : L("Only the CEO changes a rule; you can read them.", "Hanya CEO mengubah peraturan; anda boleh membacanya.")}
+        </p>
+        <TabZone label={L("Watcher rules", "Peraturan pemerhati")}>
+          <section className={`${card} ${css.card}`} data-testid="automation-rules">
+            <WatchersCard role={role} go={go} section="rules" bare />
+          </section>
+        </TabZone>
+      </div>
+      <div hidden={view !== "policy"}>
+        <TabZone label={L("Attendance policy", "Polisi kehadiran")} hint={L("The one status rule every attendance view uses. Read-only.", "Satu peraturan status yang digunakan setiap paparan kehadiran. Baca sahaja.")}>
+          <AttendancePolicyCard />
+        </TabZone>
+      </div>
     </TabPage>
   );
 }

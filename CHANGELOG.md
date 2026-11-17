@@ -10,6 +10,32 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.337.0] - 2026-11-17 - Tasks → Reports & Archive in four views; the Task Email workspace in Automation & Rules; the email preview fixed; every task email links only to a record its reader may open - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO, 17-11-2026, with two references: "Improve A2Z OS → Tasks → Reports & Archive and review the entire Task Email Notification system ... Do not claim emails are working until real end-to-end delivery is successfully tested."
+
+- **Reports & Archive, one view at a time.** One connected strip: Reports Submitted · Awaiting Review (reports not yet reviewed) · Archived Tasks · Task Attention (overdue). One view switch: Submitted Reports · Team Performance · Completed Tasks · Task History. Each view stays mounted once opened and is hidden, never unmounted. Every role sees the views it saw before: reports for task_reports, Team Performance for the managing roles, and the archive and history for everyone.
+- **Submitted Reports:** the register (search, period, status, pager, CSV export of exactly the rows shown) beside the chosen report, read whole with its line breaks. **Submit Report is a drawer.** Daily, weekly and monthly and the three types are kept, on the same route. A failed submit keeps the draft and says why in the drawer (no more browser alert). Review stays management's, never the author's. One screen at 1440×900.
+- **Task History** is real now. It shows each task's recorded story from the existing `GET /staff/tasks/:id/activity` (the server's own taskAccess), beside a searchable list of the board's tasks. The "proposed, not built" note is gone.
+- **The task email settings moved** from the foot of Reports & Archive to **System → Automation & Rules**, now in four views: Task Email · Delivery Log · Watcher Rules · Attendance Policy. The email views are for the CEO, COO, CCO and super admin, as on Tasks; the Admin keeps Watcher Rules and Attendance Policy. A "Task email settings" button on Reports & Archive opens them. Routes, gates and settings are unchanged; it is one engine.
+- **The Task Email view:**
+  - the strip: Email Service · In-app Alerts · Email Triggers · Delivery Status;
+  - a "not configured" banner with the owner's four-step setup checklist (in a drawer);
+  - the triggers and their rules;
+  - the delivery configuration **as the Worker sees it**: provider binding, from address, sender proven (only by an accepted message), and the queue;
+  - the preview;
+  - Send a task update, now a drawer.
+- **The Delivery Log** has its own view: last-7-day figures, every email with the provider's own answer, a not-sent filter, a pager and Retry (CEO).
+- **The broken email preview, fixed:** every API answer carries `X-Frame-Options: DENY` (kept), and the preview was an iframe pointed at the API, which the browser refuses. The HTML is now fetched and drawn with `srcDoc` in a sandboxed frame.
+- **Every task email links only to a record its reader may open** (worker/src/task-mail.ts `mayOpenTask`, the server's own `taskAccess`).
+  - An escalation to a reporting line who is not on the task, or the "no longer yours" note, still goes.
+  - In those cases it links to the reader's Tasks list instead, and says they cannot open the record.
+  - Giving reporting lines read access is a proposal for approval (P-1).
+- **Read-only delivery diagnostics** on `GET /staff/tasks/mail-settings`: binding, sender, outbox, waiting and oldest, last accepted, last test, not sent in 7 days.
+- **Email sending is still not configured in production.** The send_email binding and MAIL_FROM are commented out in worker/wrangler.toml, and the domain is not onboarded in Cloudflare Email Sending. **No end-to-end delivery has been tested**; the audit lists the owner's four steps and how to prove it: docs/TASK-EMAIL-AUDIT-2026-11-17.md.
+- The shared `SplitPane` gains `fit` (a short pane keeps its own height in a column).
+- An email whose reader cannot open the record also drops its "update your progress" lines. Guards: tests/go-live-m.mjs is 65 checks and 15 mutations (new M18–M20, the record link only for someone who may open it). tests/task-email-workspace.mjs is new (14 checks, 11 mutations). Adapted, intent kept: kept-lines (a report reads whole in its pane). New browser test tests/browser/task-reports-email.py (36/36); the fixture gains each task's activity, report submit times, delivery diagnostics and a not-configured server (MAIL_OFF=1). task-progress adapted (the settings opened from Reports & Archive, checked in their new home; 84/84). All 213 guards pass; lint 0 errors, 115 warnings; browser tasks5 82/82, tasks2 105/105, desk5 168/168, hr4 62/62, news2 97/97, ui-system 348/348; overflow sweep 272/272.
+
 ## [1.336.0] - 2026-11-17 - The phone header ends with your photo and the same live presence dot - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
 
 The CEO, 17-11-2026, answering "No. 1, please add" (his phone reference: the photo at the end of the header, with a green dot).

@@ -85,7 +85,7 @@ export default function PortalPage() {
         {/* v1.293.0 - two views (Overview, Action Inbox), the view in the address */}
         {activeTab === "Desk" && <DeskPage user={user} go={(t) => setTab(t as TabName)} startView={startOf("Desk")} />}
         {/* v1.293.0 - the watcher rules, moved whole from the Desk (D4) */}
-        {activeTab === "Automation & Rules" && <AutomationRulesPage role={user.role} go={(t) => setTab(t as TabName)} />}
+        {activeTab === "Automation & Rules" && <AutomationRulesPage role={user.role} go={(t) => setTab(t as TabName)} initialView={startOf("Automation & Rules")} />}
           {activeTab === "Dashboard" && (
             <>
               {/* v1.105.0 - iPhone + Safari + not installed, once: how to put

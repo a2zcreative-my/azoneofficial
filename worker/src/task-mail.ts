@@ -24,6 +24,8 @@ import type { Env } from "./index";
 import { primaryOrigin } from "./index";
 import { mailReady, sendMailResult } from "./mail";
 import { currentStaffSql, taskPeopleSql } from "./staff"; // v1.249.0 - agents get the emails about their own tasks
+import { taskAccess, type TaskRow } from "./tasks-progress"; // v1.337.0 - a link only to a record the person may open (used at call time; the import cycle is harmless)
+import type { StaffUser } from "./staff";
 
 /* ---------------------------------------------------------------- settings */
 
@@ -154,6 +156,9 @@ export interface TaskMailData {
   next?: string | null;      // next action, when the update carried one
   to: Recipient;
   extra?: string | null;     // a free line (the manual reminder's reason)
+  /** v1.337.0 - false when the recipient cannot open this task record (queueTaskMail decides,
+      with the server's own taskAccess): the email then points to their Tasks list and says so */
+  canOpen?: boolean;
 }
 
 const NAVY = "#1a2946", GOLD = "#c8a96a", INK = "#14213d", MUTED = "#5b6478";
@@ -187,7 +192,10 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
   const origin = primaryOrigin(env);
   /* v1.249.0 - a broadcast is about the person's work as a whole, like the digest */
   const whole = kind === "digest" || kind === "broadcast";
-  const link = whole ? `${origin}/portal?tab=Tasks` : `${origin}/portal?tab=Tasks&task=${d.task.id}`;
+  /* v1.337.0 - every task email links to its record, and only when the person may open it */
+  const listOnly = whole || d.canOpen === false || !(d.task.id > 0);
+  const link = listOnly ? `${origin}/portal?tab=Tasks` : `${origin}/portal?tab=Tasks&task=${d.task.id}`;
+  const noAccess = !whole && d.canOpen === false ? "You cannot open this task record yourself - ask the person responsible or management for the details." : null;
   const subject = (kind === "digest" ? `[A2Z OS] Your tasks today — ${d.task.title}` : kind === "broadcast" ? `[A2Z OS] ${d.task.title}` : `[A2Z OS] ${HEADLINE[kind]} — ${d.task.title}`).slice(0, 180);
   const rows: [string, string][] = whole ? [] : [["Task", d.task.title]];
   if (d.task.link_label) rows.push(["Project", d.task.link_label]);
@@ -204,13 +212,14 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
   if (d.summary) rows.push([kind === "mention" ? "Comment" : kind === "decision" || kind === "reminder" || kind === "broadcast" ? "Message" : "Latest update", d.summary.slice(0, kind === "broadcast" ? 1000 : 400)]);
   if (kind === "broadcast") rows.push(["Your open tasks", d.extra ?? "No open tasks right now."]);
   if (d.next) rows.push(["Next action", d.next.slice(0, 200)]);
+  if (noAccess) rows.push(["Access", noAccess]);
   if (d.task.description && (kind === "assigned" || kind === "moved")) rows.push(["Description", d.task.description.slice(0, 300)]);
   const intro = INTRO[kind](d);
   const text = [
     `Hello ${d.to.first},`, "", intro, "",
     ...rows.map(([k, v]) => `${k}: ${v}`), "",
-    kind === "test" ? "" : "Please review the task and provide progress updates as the work proceeds.",
-    `${whole ? "Open My Tasks in A2Z OS" : "View the task in A2Z OS"}: ${link}`, "",
+    kind === "test" || noAccess ? "" : "Please review the task and provide progress updates as the work proceeds.",
+    `${listOnly ? "Open My Tasks in A2Z OS" : "View the task in A2Z OS"}: ${link}`, "",
     "Regards,", "A2Z Creative Marketing", "hello@a2zcreative.my", "",
     "This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.",
   ].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
@@ -225,9 +234,9 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
 <p style="margin:0 0 6px;color:${INK};font-size:15px">Hello ${esc(d.to.first)},</p>
 <p style="margin:0 0 16px;color:${INK};font-size:15px;line-height:1.5">${esc(intro)}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;background:#f8f9fb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;margin:0 0 20px"><tr><td><table role="presentation" cellspacing="0" cellpadding="0">${trs}</table></td></tr></table>
-${kind === "test" ? "" : `<p style="margin:0 0 20px;color:${MUTED};font-size:13px;line-height:1.5">Please review the task and provide progress updates as the work proceeds.</p>`}
-<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="background:${GOLD};border-radius:8px"><a href="${esc(link)}" style="display:inline-block;padding:12px 22px;color:${NAVY};font-weight:700;font-size:15px;text-decoration:none">${whole ? "Open My Tasks in A2Z OS" : "View Task in A2Z OS"} →</a></td></tr></table>
-<p style="margin:20px 0 0;color:${MUTED};font-size:12px;line-height:1.5">You can update your progress, add comments and upload files directly in the task.</p>
+${kind === "test" || noAccess ? "" : `<p style="margin:0 0 20px;color:${MUTED};font-size:13px;line-height:1.5">Please review the task and provide progress updates as the work proceeds.</p>`}
+<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="background:${GOLD};border-radius:8px"><a href="${esc(link)}" style="display:inline-block;padding:12px 22px;color:${NAVY};font-weight:700;font-size:15px;text-decoration:none">${listOnly ? "Open My Tasks in A2Z OS" : "View Task in A2Z OS"} →</a></td></tr></table>
+${noAccess ? "" : `<p style="margin:20px 0 0;color:${MUTED};font-size:12px;line-height:1.5">You can update your progress, add comments and upload files directly in the task.</p>`}
 </td></tr>
 <tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;color:${MUTED};font-size:12px;line-height:1.5"><strong style="color:${INK}">A2Z Creative Marketing</strong> · hello@a2zcreative.my<br>This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.</td></tr>
 </table></td></tr></table></body></html>`;
@@ -253,7 +262,8 @@ export async function queueTaskMail(
     if (!to) return { queued: false, why };
     const dup = await env.DB.prepare(`SELECT id FROM mail_outbox WHERE ref = ?1`).bind(ref).first<{ id: number }>();
     if (dup) return { queued: false, why: "already queued", to: to.email };
-    const built = buildTaskMail(env, kind, { ...data, to });
+    const canOpen = await mayOpenTask(env, to, data.task.id, kind);
+    const built = buildTaskMail(env, kind, { ...data, to, canOpen });
     let status = "queued", lastError: string | null = null;
     /* the cap is for the steady stream (updates, mentions, reviews, reminders
        of deadlines); a new assignment, a reassignment and a management
@@ -275,6 +285,19 @@ export async function queueTaskMail(
   } catch (e) {
     return { queued: false, why: /no such table/i.test(String(e)) ? "migration 0161 not applied" : "could not queue" };
   }
+}
+
+/** v1.337.0 - may this person open the task the email is about? The server's own taskAccess
+    (assignee, helper, the person who set it, those who manage it, the project's people). A
+    digest or a broadcast is about the person's own list, never one record. When the task cannot
+    be read the answer is "no" - the email then points to their Tasks list, never to a record. */
+export async function mayOpenTask(env: Env, to: Recipient, taskId: number, kind: MailKind): Promise<boolean> {
+  if (kind === "digest" || kind === "broadcast" || kind === "test" || !(taskId > 0)) return true;
+  try {
+    const t = await env.DB.prepare(`SELECT * FROM tasks WHERE id = ?1`).bind(taskId).first<TaskRow>();
+    if (!t) return false;
+    return (await taskAccess(env, { id: to.id, role: to.role, name: to.name, email: to.email } as StaffUser, t)).view;
+  } catch { return false; }
 }
 
 /** The same email to several people (the author excepted), one ref each. */

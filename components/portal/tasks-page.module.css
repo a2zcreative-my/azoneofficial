@@ -1124,3 +1124,7 @@ td .who > span:first-child { flex-shrink: 0; }
 .tight .latestLine > span { display: inline; }
 .tight .who > span:last-child { max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .small { font-size: var(--type-caption-size); }
+
+/* v1.337.0 - Reports & Archive: the view switch with its one link, and the Team Performance stack */
+.repBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; min-width: 0; }
+.repStack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }

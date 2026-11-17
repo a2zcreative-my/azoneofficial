@@ -484,7 +484,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Stokis: { en: "reseller network", ms: "rangkaian pengedar" },
   Assets: { en: "equipment register", ms: "daftar peralatan" },
   Users: { en: "accounts — keep tight", ms: "akaun — kawal ketat" },
-  "Automation & Rules": { en: "watcher rules — the CEO changes them", ms: "peraturan pemerhati — CEO mengubahnya" },
+  "Automation & Rules": { en: "task email, watcher rules — the CEO changes them", ms: "e-mel tugasan, peraturan pemerhati — CEO mengubahnya" }, // v1.337.0 - task email settings live here
   Cards: { en: "share a director's card", ms: "kongsi kad pengarah" },
 };
 

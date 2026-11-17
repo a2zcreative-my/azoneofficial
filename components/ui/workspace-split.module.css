@@ -29,5 +29,7 @@
   /* only when the split is HELD to the screen (FillPanel on) do the panes share its height and their
      bodies scroll inside; otherwise each is its own height and the page scrolls (a short window, 200% text) */
   .split[data-fill="on"] .column > * { flex: 1 1 0; min-height: 0; }
+  /* v1.337.0 - a pane marked fit keeps its own height; the rest share what is left */
+  .split[data-fill="on"] .column > [data-fit] { flex: 0 0 auto; }
   .split[data-fill="on"] .body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 }

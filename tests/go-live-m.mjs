@@ -73,6 +73,7 @@ async function runtime(workerBundle) {
     (15,'Sus','Sus Pended','sus@a2z.test','editor',0,'x',1,'JBSWY3DPEHPK3PXP','Marketing','permanent','2020-01-01',NULL),
     (16,'Bob','Bob Bounce','bounce@a2z.test','editor',1,'x',1,'JBSWY3DPEHPK3PXP','Marketing','permanent','2020-01-01',NULL)`);
   db.exec(`UPDATE users SET reports_to = 2 WHERE id = 14`); // Farid's verified HOD is the COO; Sara has none
+  db.exec(`UPDATE users SET reports_to = 5 WHERE id = 16`); // v1.337.0 - Bob's reporting line is a salesperson, who cannot open a task she is not on
   const worker = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`));
   const app = worker.default;
   const tok = {};
@@ -193,6 +194,16 @@ async function runtime(workerBundle) {
     ok(esc.length >= 1 && esc.every((r) => /Farid/.test(r.body_text)) && !rows(`kind = 'escalation' AND ref LIKE 'task:${od[1]}:%'`).length, "M11 overdue past the escalation days (2) reaches the assignee's verified HOD (the COO) - not before", JSON.stringify(esc.map((r) => r.ref)));
     const noHod = rows(`ref LIKE 'task:${sara}:esc:%'`);
     ok(noHod.length === 1 && noHod[0].status === "dead" && /no reporting line/.test(noHod[0].last_error) && noHod[0].to_email === "-", "M12 no HOD set: nobody is guessed - the log says so", JSON.stringify(noHod));
+    /* v1.337.0 - every task email links to its record ONLY when the person may open it (the server's taskAccess) */
+    const edOd = (await task(U.ceo, { title: "Bob overdue", assigned_to: U.bob, deadline: day(NOW - 2 * D) })).id;
+    await worker.taskMailSweep(env);
+    const farEsc = rows(`kind = 'escalation' AND user_id = 2`)[0];
+    ok(farEsc && farEsc.body_html.includes(`tab=Tasks&amp;task=`) && !/cannot open this task/.test(farEsc.body_text), "M18 an HOD who may open the task (the COO manages tasks) gets the link to that task record");
+    const edEsc = rows(`kind = 'escalation' AND user_id = 5 AND ref LIKE 'task:${edOd}:%'`)[0];
+    ok(edEsc && !edEsc.body_html.includes("task=") && /cannot open this task record yourself/.test(edEsc.body_text) && /Open My Tasks in A2Z OS/.test(edEsc.body_text),
+      "M19 an HOD who may NOT open the task (a salesperson, not on it) is still told, with no link to a record she cannot open - her Tasks list and a line saying so", JSON.stringify(edEsc && { text: edEsc.body_text.slice(0, 300) }));
+    const asg = rows(`kind = 'assigned'`)[0];
+    ok(asg && asg.body_html.includes(`task=`) && asg.body_text.includes(`&task=`), "M20 the assignee's email links straight to the task record (/portal?tab=Tasks&task=<id>)");
     await worker.taskMailSweep(env);
     ok(rows(`kind = 'overdue'`).length === 3, "the hourly pass does not send an overdue email twice on the same day");
 
@@ -319,6 +330,8 @@ const MUT = [
   ["worker/src/tasks-progress.ts", "every update is its own email", "      await queueTaskMailTo(env, \"update\", [t.created_by, owner, ...(a.assignee ? [] : [t.assigned_to])], user.id, `task:${t.id}:update:${hour}`, upd);", "      await queueTaskMailTo(env, \"update\", [t.created_by, owner, ...(a.assignee ? [] : [t.assigned_to])], user.id, `task:${t.id}:update:${Math.random()}`, upd);"],
   ["worker/src/staff.ts", "anybody sends a reminder", "    if (!ta.manage && !ta.creator) return err(\"forbidden\", \"Only management, the Project Owner or the person who set the task sends a reminder\", 403);", "    if (false) return err(\"forbidden\", \"Only management, the Project Owner or the person who set the task sends a reminder\", 403);"],
   ["worker/src/staff.ts", "reminders repeat at will", "      if (recent) return err(\"too_soon\",", "      if (false) return err(\"too_soon\","],
+  ["worker/src/task-mail.ts", "a link to a record the person cannot open", "    const canOpen = await mayOpenTask(env, to, data.task.id, kind);", "    const canOpen = true;"],
+  ["worker/src/task-mail.ts", "the record link dropped for everyone", "  const listOnly = whole || d.canOpen === false || !(d.task.id > 0);", "  const listOnly = true;"],
   ["worker/src/task-mail.ts", "the HOD is guessed when none is set", "        if (s.triggers.escalation && r.days >= s.escalation_days && r.reports_to && r.reports_to !== r.assigned_to) {", "        if (s.triggers.escalation && r.days >= s.escalation_days && (r.reports_to ?? 1) !== r.assigned_to) {\n          r.reports_to = r.reports_to ?? 1;"],
   ["worker/src/task-mail.ts", "something is queued while the sender is off", "    if (!mailReady(env)) return { queued: false, why: \"sender not configured\" };\n    const s = opts.settings", "    const s = opts.settings"],
 ];

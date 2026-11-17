@@ -33,7 +33,7 @@ export function SplitColumn({ children, testid }: { children: ReactNode; testid?
   return <div className={css.column} data-testid={testid}>{children}</div>;
 }
 
-export function SplitPane({ title, sub, actions, toolbar, children, foot, testid, label }: {
+export function SplitPane({ title, sub, actions, toolbar, children, foot, testid, label, fit = false }: {
   title: ReactNode;
   sub?: ReactNode;
   actions?: ReactNode;
@@ -42,9 +42,12 @@ export function SplitPane({ title, sub, actions, toolbar, children, foot, testid
   foot?: ReactNode;
   testid?: string;
   label?: string;
+  /** v1.337.0 - in a SplitColumn, this pane takes its own height and the others share the rest
+      (a short fact list above a preview), instead of an equal share */
+  fit?: boolean;
 }) {
   return (
-    <section className={`erp-card ${css.pane}`} data-testid={testid} aria-label={label}>
+    <section className={`erp-card ${css.pane}`} data-testid={testid} aria-label={label} data-fit={fit ? "" : undefined}>
       <header className={css.head}>
         <div className={css.headText}>
           <h3 className={css.title}>{title}</h3>

@@ -28,7 +28,7 @@ import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipInfo, chipNeutral,
 import { type ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { ProjectsBoard } from "@/components/portal/project-workspace"; // v1.245.0
-import { TaskMailPanel } from "@/components/portal/task-mail-panel"; // v1.247.0
+import { TaskHistory } from "@/components/portal/task-history"; // v1.337.0 - Reports & Archive > Task History (the existing activity read)
 import { TaskReports } from "@/components/portal/task-reports"; // v1.306.0 - HR 4.0 (H-1): the written reports' one home
 import { StateChip, day, stamp } from "@/components/portal/task-progress"; // v1.246.0 - progress, comments, files, activity
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
@@ -50,7 +50,6 @@ import { FillPanel } from "@/components/ui/fill-panel"; // v1.323.0 - D-4
 import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyTaskTable, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
 import { closedThisWeek } from "@/lib/task-flow";
 import { usePortal } from "@/components/portal/portal-provider"; // v1.328.0 - the calendar's one line to Roster & Scheduling
-import { revealAnchor } from "@/components/portal/page-shared";
 import tk from "./tasks-page.module.css";
 import t2 from "./tasks2.module.css"; // v1.319.0 - kept after the page's own sheet (tests/kept-lines.mjs reads the first module import)
 import { DepartmentCard, Head5, MyDayCards, QuickApprovals, WorkCalendar, WorkloadCard, mondayOf, prioWord } from "@/components/portal/tasks5";
@@ -91,7 +90,7 @@ function useTier(bp: "md" | "lg" | "xl"): boolean {
 /* ================= Tasks ================= */
 
 export function Tasks({ user, progress, initialView, focus }: { user: User; progress?: ReactNode; initialView?: string; focus?: RecordFocus | null }) {
-  const { setTab: openTab } = usePortal();
+  const { setTab: openTab, setTabStart } = usePortal();
   const [draft, setDraft] = useState({
     title: "",
     description: "",
@@ -142,6 +141,8 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      server lets submit them (task_reports - unchanged). */
   const [reportsSeen, setReportsSeen] = useState(view === "reports");
   if (view === "reports" && !reportsSeen) setReportsSeen(true);
+  /* v1.337.0 - Reports & Archive in four focused views, one shown at a time (the CEO, 17-11-2026) */
+  const [repView, setRepView] = useState<"reports" | "team" | "completed" | "history" | null>(null);
   const canTaskReports = holds("task_reports", ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"].includes(user.role));
   /* the Dashboard's "Create task" still opens the form: it is a drawer now */
   const [createOpen, setCreateOpen] = useState(() => initialView === "create");
@@ -154,6 +155,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
   const go = (v: TaskView, anchor?: string) => {
     if (openTask != null && v !== view) closeDetail(); // v1.319.0 - a task shown beside the list or as a page belongs to the view it was opened in
     setView(v);
+    /* v1.337.0 - Reports & Archive shows one view at a time: an anchor names it */
+    if (anchor === "task-archive") { setRepView("completed"); return; }
+    if (anchor === "task-reports") { setRepView("reports"); return; }
     if (anchor) window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start", behavior: "smooth" }), 60);
   };
 
@@ -902,7 +906,19 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
      department (from the staff list - the person's own record) */
   const plusMonth = (k: number) => { const [yy, mm] = todayISO.slice(0, 7).split("-").map(Number); return new Date(Date.UTC(yy!, mm! - 1 + k, 1)).toISOString().slice(0, 7); };
   /* v1.315.0 (Gate 4) - the Live Host Reports submitted for this month's lives */
-  const reportRows = useCachedApi<{ reports: { report_date: string }[] }>("/staff/task-reports", canTaskReports && view === "reports", ["task_reports"]);
+  const reportRows = useCachedApi<{ reports: { report_date: string; status?: string }[] }>("/staff/task-reports", canTaskReports && view === "reports", ["task_reports"]);
+  const reportsAwaiting = (reportRows.data?.reports ?? []).filter((r) => (r.status ?? "submitted") !== "reviewed").length;
+  /* v1.337.0 - the four views, each for whom it was drawn before: reports for task_reports,
+     the team for the managing roles, the archive and the history for everyone */
+  const repOptions = [
+    ...(canTaskReports ? [["reports", L("Submitted Reports", "Laporan Dihantar")] as const] : []),
+    ...(canManage ? [["team", L("Team Performance", "Prestasi Pasukan")] as const] : []),
+    ["completed", L("Completed Tasks", "Tugasan Selesai")] as const,
+    ["history", L("Task History", "Sejarah Tugasan")] as const,
+  ];
+  const rep = repView && repOptions.some(([k]) => k === repView) ? repView : repOptions[0]![0];
+  const [repSeen, setRepSeen] = useState<Record<string, boolean>>({});
+  if (view === "reports" && !repSeen[rep]) setRepSeen((x) => ({ ...x, [rep]: true }));
   const reportsThisMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(todayISO.slice(0, 7))).length;
   const reportsLastMonth = (reportRows.data?.reports ?? []).filter((r) => r.report_date.startsWith(plusMonth(-1))).length;
   const plusDays = (k: number) => new Date(Date.parse(`${todayISO}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
@@ -1376,31 +1392,40 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       </TabZone>
 
       {/* ============================ REPORTS & ARCHIVE ============================ */}
-      {/* v1.313.0 - TASKS 5.0 (image 5): four figures, the operational
-          reports beside the Live Host card, the archive, then the management
-          cards that were here. The Live Host Report form, its GMV evidence and
-          report review come with Gate 4 (TK-1, TK-14) - nothing is pretended. */}
+      {/* v1.313.0 - TASKS 5.0 (image 5). v1.337.0 - FOUR FOCUSED VIEWS, ONE AT A TIME (the
+          CEO, 17-11-2026: "Reorganize Reports & Archive into focused views: Submitted Reports,
+          Team Performance, Completed Tasks and Task History. Show only the active view ...
+          Move Submit Report into a clickable modal/drawer"). One connected strip, one view
+          switch, the chosen view; each view stays mounted once opened and is hidden, never
+          unmounted. The task email settings left for System > Automation & Rules (one link). */}
       <TabZone label={L("Reports and archive", "Laporan dan arkib")} className={view !== "reports" ? tk.off : ""}>
-        <KpiRow label={L("Reports figures", "Angka laporan")}>
-          <KpiTile icon="documents" tone="blue" label={L("Reports Submitted", "Laporan Dihantar")} value={canTaskReports ? reportsThisMonth : "—"} busy={canTaskReports && reportRows.loading && !reportRows.data}
-            sub={canTaskReports ? L(`This month · ${reportsLastMonth} last month`, `Bulan ini · ${reportsLastMonth} bulan lepas`) : L("Read by management", "Dibaca oleh pengurusan")} onClick={() => revealAnchor("task-reports")} />
-          <KpiTile icon="time" tone="gold" label={L("Awaiting Review", "Menunggu Semakan")} value={(canManage ? openTasks : myActive).filter((t) => t.stage === "review").length} busy={!loaded}
-            sub={L("Tasks waiting for management review", "Tugasan menunggu semakan pengurusan")} onClick={() => { clearFilters(); setStatusF("review"); go(canManage ? "all" : "mine"); }} />
-          <KpiTile icon="folder" tone="green" label={L("Archived", "Diarkibkan")} value={closed.length} busy={!loaded}
-            sub={L("Closed tasks on the board", "Tugasan ditutup pada papan")} onClick={() => revealAnchor("task-archive")} />
+        <KpiRow label={L("Reports figures", "Angka laporan")} testid="reports-strip">
+          <KpiTile icon="documents" tone="blue" label={L("Reports Submitted", "Laporan Dihantar")} value={canTaskReports ? reportsThisMonth : "—"} busy={canTaskReports && reportRows.loading && !reportRows.data} cell="submitted"
+            sub={canTaskReports ? L(`This month · ${reportsLastMonth} last month`, `Bulan ini · ${reportsLastMonth} bulan lepas`) : L("Read by management", "Dibaca oleh pengurusan")} onClick={canTaskReports ? () => setRepView("reports") : undefined} />
+          <KpiTile icon="time" tone="gold" label={L("Awaiting Review", "Menunggu Semakan")} value={canTaskReports ? reportsAwaiting : "—"} busy={canTaskReports && reportRows.loading && !reportRows.data} cell="awaiting"
+            sub={canTaskReports ? L("Reports not yet reviewed by management", "Laporan belum disemak pengurusan") : L("Read by management", "Dibaca oleh pengurusan")} onClick={canTaskReports ? () => setRepView("reports") : undefined} />
+          <KpiTile icon="folder" tone="green" label={L("Archived Tasks", "Tugasan Diarkibkan")} value={closed.length + older.filter((o) => !tasks.some((t) => t.id === o.id)).length} busy={!loaded} cell="archived"
+            sub={L("Completed records", "Rekod selesai")} onClick={() => setRepView("completed")} />
+          <KpiTile icon="warning" tone="red" label={L("Task Attention", "Perhatian Tugasan")} value={(canManage ? tasks : myTasks).filter(isOverdue).length} busy={!loaded} cell="attention"
+            sub={L("Overdue tasks", "Tugasan lewat")} onClick={() => { clearFilters(); setStatusF("overdue"); go(canManage ? "all" : "mine"); }} />
         </KpiRow>
-        <>
+        <div className={tk.repBar}>
+          <PillSwitch testid="rep-view" label={L("Reports & Archive view", "Paparan Laporan & Arkib")} value={rep} onChange={setRepView} options={repOptions} />
+          {["ceo", "coo", "cco", "super_admin"].includes(user.role) && (
+            <button type="button" className={btnSm} onClick={() => { openTab("Automation & Rules"); setTabStart({ tab: "Automation & Rules", view: "email" }); }} data-testid="task-email-settings">
+              <AppIcon name="chat" />{L("Task email settings", "Tetapan e-mel tugasan")}</button>
+          )}
+        </div>
+        {/* Submitted Reports - the register, the chosen report, Submit Report in a drawer */}
+        <div hidden={rep !== "reports"} id="task-reports" data-testid="task-reports">
           {canTaskReports && reportsSeen ? (
-            <div id="task-reports" data-testid="task-reports">
-              <TaskReports />
-            </div>
+            <TaskReports />
           ) : <section className={card} aria-label={L("Operational reports", "Laporan operasi")}><Head5 icon="documents" title={L("Operational Reports", "Laporan Operasi")} sub={L("Daily, weekly and monthly reports are written and read by management.", "Laporan harian, mingguan dan bulanan ditulis dan dibaca oleh pengurusan.")} /></section>}
-          {/* v1.328.0 - R-4: the Live Host Report is Roster & Scheduling > Live Reports, beside the live it reports */}
-        </>
-        {/* the company-wide card (management roles), as before */}
-        {progress}
-        {/* v1.247.0 - task emails: settings, preview, delivery log (CEO, COO, CCO; the server decides) */}
-        {["ceo", "coo", "cco", "super_admin"].includes(user.role) && view === "reports" && <TaskMailPanel />}
+        </div>
+        {/* Team Performance - the company-wide card and each person's tasks (management roles) */}
+        {canManage && (
+          <div hidden={rep !== "team"} className={tk.repStack} data-testid="team-performance">
+            {progress}
         {canManage && (
           <section className={card} aria-label={L("Staff task performance", "Prestasi tugasan kakitangan")}>
             {head("trophy", tk.goldWell, L("Staff Task Performance", "Prestasi Tugasan Kakitangan"), L("From the tasks on the board: closed out of total, and what is late.", "Daripada tugasan pada papan: ditutup daripada jumlah, dan yang lewat."))}
@@ -1428,7 +1453,10 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             )}
           </section>
         )}
-      <div id="task-archive">
+          </div>
+        )}
+        {/* Completed Tasks - the archive, searchable, paged, older ones on a press */}
+        <div hidden={rep !== "completed"} id="task-archive">
         {renderTasks([...tasks.filter((t) => t.status === "completed"), ...older.filter((o) => !tasks.some((t) => t.id === o.id))].filter((t) => !archNeedle || [t.title, t.description ?? "", t.assignee ?? ""].some((x) => x.toLowerCase().includes(archNeedle))), L("Completed tasks", "Tugasan selesai"), !loaded, {
           who: canManage,
           pager: { page: archPage, set: setArchPage },
@@ -1449,15 +1477,12 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
             </div>
           ),
         })}
-      </div>
-        <section className={card} aria-label={L("Task history", "Sejarah tugasan")}>
-          {head("time", tk.blueWell, L("Task History", "Sejarah Tugasan"))}
-          <ul className={tk.rules}>
-            <li>{L("Each task's checklist keeps who ticked every item and when — open it from the scope chip on the task.", "Senarai semak setiap tugasan menyimpan siapa menanda setiap item dan bila — buka daripada cip skop pada tugasan.")}</li>
-            <li>{L("Status moves, acknowledgements and reminders are recorded by the system as they happen, and the other person is notified.", "Perubahan status, pengakuan terima dan peringatan direkodkan oleh sistem semasa berlaku, dan orang yang satu lagi dimaklumkan.")}</li>
-            <li className={tk.proposal}><AppIcon name="idea" />{L("Proposed, not built: a per-task timeline of those recorded moves. The records exist; showing them needs a new read on the server — it would come to you for approval first.", "Dicadangkan, belum dibina: garis masa setiap tugasan bagi perubahan yang direkodkan itu. Rekodnya wujud; memaparkannya memerlukan bacaan baharu di pelayan — ia akan dibawa kepada anda untuk kelulusan dahulu.")}</li>
-          </ul>
-        </section>
+        </div>
+        {/* Task History - each task's recorded story (the existing activity read) */}
+        <div hidden={rep !== "history"} data-testid="task-history">
+          {repSeen.history && <TaskHistory tasks={[...tasks, ...older.filter((o) => !tasks.some((t) => t.id === o.id))]} loading={!loaded}
+            onOpenTask={(id) => { const t = [...tasks, ...older].find((x) => x.id === id); if (t) { openList(t); setEditing(null); setOpenHow("open"); setOpenTask(t.id); setItems(null); } }} />}
+        </div>
       </TabZone>
       </div>
       {/* ========================== CREATE / ASSIGN TASK ========================== */}
