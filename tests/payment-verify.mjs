@@ -368,6 +368,37 @@ async function runtime(workerBundle) {
       "v1.330.0: a salesperson sees only her own invoices' payments");
     ok(hist.j?.tiles?.verified_month_cents === monthBefore, "v1.330.0: money recorded in Sales never counts as verified");
 
+    /* ---------- v1.334.0 - the CEO verifies a payment recorded in Sales (from November) ---------- */
+    db.prepare(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents, payment_status, payment_method, payment_ref, paid_at, created_at, created_by, salesperson_id, kind, issuer_code, revision)
+                VALUES (132, 'INV', 'INV-T-132', 2, '[]', 0, 0, 2000, 'paid', 'bank_transfer', 'MBB 2010', '2026-10-20 04:00:00', '2026-10-20 01:00:00', 1, 9, 'service', 'a2z', 0),
+                       (133, 'INV', 'INV-T-133', 3, '[]', 0, 0, 4500, 'paid', 'cash', NULL, '2026-11-12 04:00:00', '2026-11-12 01:00:00', 1, 15, 'service', 'a2z', 0)`).run();
+    const recDir = (await call("/payments", 1, "GET")).j?.direct ?? [];
+    ok(recDir.find((d) => d.key === "inv:130")?.can_verify === true && recDir.find((d) => d.key === "inv:130")?.verify_cents === 3750 && recDir.find((d) => d.key === "inv:132")?.can_verify === false,
+      "v1.334.0: November's recorded payment offers Verify to the CEO; October's stays a record");
+    ok(((await call("/payments", 9, "GET")).j?.direct ?? []).every((d) => !d.can_verify), "v1.334.0: nobody but the owner is offered Verify");
+    const recV = (inv, uid = 1, extra = {}) => call("/payments/recorded/verify", uid, "POST", { invoice_id: inv, bank_id: 1, verify_method: "bank_statement", totp: code(), ...extra });
+    ok((await recV(130, 3)).status === 403 && (await recV(130, 12)).status === 403, "v1.334.0: the COO and a non-owner CEO account cannot (by direct request)");
+    ok((await recV(132)).j?.error?.code === "too_early", "v1.334.0: a payment recorded before November is refused");
+    const cash130 = () => db.prepare(`SELECT COUNT(*) AS n FROM cashflow_entries c WHERE c.ref = 'INV-130' AND NOT EXISTS (SELECT 1 FROM cashflow_entries r WHERE r.reversal_of = c.id)`).get().n;
+    const conf130 = () => db.prepare(`SELECT COUNT(*) AS n FROM invoice_paid_confirmations WHERE invoice_id = 130 AND revoked_at IS NULL`).get().n;
+    const v130 = await recV(130);
+    const r130 = db.prepare(`SELECT * FROM invoice_payment_reports WHERE invoice_id = 130`).all();
+    const p130 = db.prepare(`SELECT * FROM invoice_payments WHERE invoice_id = 130 AND voided_at IS NULL`).all();
+    ok(v130.status === 200 && r130.length === 1 && r130[0].state === "verified" && r130[0].verified_cents === 3750 && r130[0].decided_by === 1 && r130[0].payment_id === p130[0]?.id
+      && p130.length === 1 && p130[0].amount_cents === 3750 && p130[0].received_on === "2026-11-09",
+      "v1.334.0: verifying writes one verified report and its one payment row, dated the day it was paid", v130.text.slice(0, 200));
+    ok(cash130() === 1 && conf130() === 1 && db.prepare(`SELECT payment_status FROM sales_documents WHERE id = 130`).get().payment_status === "paid",
+      "v1.334.0: nothing is booked twice and the confirmation is not repeated");
+    const againRec = await recV(130);
+    ok(againRec.status === 409 && db.prepare(`SELECT COUNT(*) AS n FROM invoice_payments WHERE invoice_id = 130`).get().n === 1 && db.prepare(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE invoice_id = 130`).get().n === 1,
+      "v1.334.0: a second verify changes nothing", againRec.text.slice(0, 160));
+    const after = await call("/payments", 1, "GET");
+    ok(!(after.j?.direct ?? []).some((d) => d.key === "inv:130") && (after.j?.reports ?? []).some((r) => r.invoice_id === 130 && r.state === "verified"),
+      "v1.334.0: Payment History now shows it as Verified, not as Recorded in Sales");
+    ok((await recV(133)).status === 200 && db.prepare(`SELECT COUNT(*) AS n FROM invoice_paid_confirmations WHERE invoice_id = 133 AND revoked_at IS NULL AND confirmed_by = 1`).get().n === 1,
+      "v1.334.0: an unconfirmed one is confirmed by the verification, as every verification confirms");
+    ok((await recV(130, 1, { bank_id: 2 })).status === 409, "v1.334.0: an account of the other company needs the cross-company confirmation (or it is already verified)");
+
     /* ---------- v1.283.0 Track B (Payment Verification 3.0) ---------- */
     /* B4 - a receipt alone is not proof */
     const b4 = await report(111, 9, 20000, "MBB 1110");
@@ -460,6 +491,10 @@ const MUT = [
   [V, "duplicates are not flagged", [["      if (refKey) {\n        const d1", "      if (false) {\n        const d1"]]],
   [V, "no proof needed", [["if (!rep.proof_key && !ownReport) return err(\"proof_required\"", "if (false) return err(\"proof_required\""]]],
   [V, "verify needs no fresh code", [["    const stepUp = await requireFreshTotp(env, user, body?.totp, err, \"verify this payment\");\n    if (stepUp) return stepUp;\n", ""]]],
+  /* v1.334.0 - verifying a payment recorded in Sales */
+  [V, "a recorded payment from before November can be verified", [["    if (paidDay < VERIFY_RECORDED_FROM) return err(\"too_early\"", "    if (false) return err(\"too_early\""]]],
+  [V, "a recorded payment dated today, not the day it was paid", [[".bind(inv.id, amount, paidDay, method, ref, key, user.id),", ".bind(inv.id, amount, mytToday(), method, ref, key, user.id),"]]],
+  [V, "anyone verifies a recorded payment", [["    if (!verifier(user)) return err(\"forbidden\", \"Only the company owner verifies payments\", 403);\n    const invId", "    const invId"]]],
   [V, "a retried verify pays again", [["          WHERE id = ?6 AND state = ?7 AND payment_id IS NULL\n", "          WHERE id = ?6 AND ?7 IS NOT NULL\n"], ["SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM invoice_payment_reports WHERE id = ?8 AND state = 'verified' AND payment_id IS NULL)", "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE ?8 IS NOT NULL"]]],
   /* v1.283.0 - Track B */
   [V, "B1: verify runs as separate writes", [["    const done = await env.DB.batch(steps);", "    const done = []; for (const st of steps) done.push(await st.run());"]]],

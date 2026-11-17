@@ -86,6 +86,9 @@ ok("v1.330.0: Payment History lists the decided reports and the payments recorde
   /\.\.\.\(data\?\.direct \?\? \[\]\)\.map\(/.test(panel) && /rows\.sort\(\(a, b\) => b\.at\.localeCompare\(a\.at\)\)/.test(panel) && /\{history\.map\(/.test(panel) && !/\{decided\.map\(/.test(panel));
 ok("v1.330.0: a payment recorded in Sales is never shown as verified - its own neutral chip and its confirmation line",
   /"Recorded in Sales"/.test(panel) && /"Part recorded in Sales"/.test(panel) && /d\.confirmed_by \?/.test(panel) && /\$\{chipSmNeutral\} \$\{css\.chip\}`\}>\{d\.kind === "marked_paid"/.test(panel));
+/* v1.334.0 - the CEO verifies November's payments recorded in Sales */
+ok("v1.334.0: a recorded row offers Verify only when the server says so, and the sheet posts to the recorded-payment route",
+  /\{d\.can_verify && <button type="button" className=\{btnSmPrimary\} onClick=\{\(\) => setVerifyRec\(d\)\}/.test(panel) && /api<Err>\("\/staff\/payments\/recorded\/verify"/.test(panel) && /code\.length === 6/.test(panel));
 ok("the Audit Trail reads the read-only route", /api<\{ events: Ev\[\] \}>\("\/staff\/payments\/events\?limit=100"\)/.test(panel));
 ok("the tiles: verified outstanding says pending is not deducted; the pending tile counts the independent reviews", /pending not deducted/.test(panel) && /awaiting independent review/.test(panel));
 ok("the report sheet is three steps: Details, Proof, Review", /\[1, L\("Details", "Butiran"\)\], \[2, L\("Proof", "Bukti"\)\], \[3, L\("Review", "Semak"\)\]/.test(panel) && /data-testid="report-review"/.test(panel));
@@ -108,11 +111,11 @@ ok("on Payments the header's gold action is Report payment", /wsView === "paymen
      account with no company stays unchoosable. The rule changed by the
      owner's decision; tests/payment-verify.mjs holds the server side. */
   ok("an account with no company is never choosable; the other company's is, flagged", /disabled=\{!b\.company\}/.test(pp)
-    && (pp.match(/bankOption\(b, (inv\.company|pic\.invoice\.company)\)/g) ?? []).length === 2
-    && (pp.match(/<CrossCompany bankCo=/g) ?? []).length === 2);
+    && (pp.match(/bankOption\(b, (inv\.company|pic\.invoice\.company|invCo)\)/g) ?? []).length === 3 // v1.334.0 - + the recorded-payment Verify sheet
+    && (pp.match(/<CrossCompany bankCo=/g) ?? []).length === 3);
   ok("...the confirmation and its reason are required before Verify, and sent with it",
     /const crossReady = \(bankCo: string \| null \| undefined, invCo: string, ok: boolean, why: string\) => !bankCo \|\| bankCo === invCo \|\| \(ok && why\.trim\(\)\.length >= 10\);/.test(pp)
-    && (pp.match(/crossReady\(/g) ?? []).length === 2 && (pp.match(/cross_company: crossOk, cross_reason: crossWhy\.trim\(\)/g) ?? []).length === 2);
+    && (pp.match(/crossReady\(/g) ?? []).length === 3 && (pp.match(/cross_company: crossOk, cross_reason: crossWhy\.trim\(\)/g) ?? []).length === 3); // v1.334.0 - three Verify forms
   ok("...and a verified cross-company payment says so", /data-testid="cross-company-chip"/.test(pp));
   ok("...and when none can be chosen both pickers say why and where to assign it",
     (pp.match(/data-testid="bank-company-missing"/g) ?? []).length === 2 && /open the Bank accounts register/.test(pp));

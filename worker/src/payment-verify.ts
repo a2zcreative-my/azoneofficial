@@ -87,6 +87,11 @@ const REPORT_ALL_ROLES = ["ceo", "coo", "cco"];
 const METHODS = ["bank_transfer", "online", "cash", "cheque", "other"] as const;
 /* v1.283.0 (B4) - "receipt_only" is no longer accepted for a new verification */
 const VERIFY_METHODS = ["bank_statement", "bank_app"] as const;
+/* v1.334.0 - the first Malaysian day a payment recorded in Sales (Mark Paid, no
+   report) may still be verified by the CEO from Payment History (the CEO,
+   17-11-2026: "for november month, I want to have an option for me to verify
+   it"). Earlier months stay as the record they are. */
+export const VERIFY_RECORDED_FROM = "2026-11-01";
 const PENDING = ["reported", "evidence_checked", "clarify"];
 const PROOF_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 const PROOF_MAX = 8 * 1024 * 1024;
@@ -319,6 +324,104 @@ export async function handlePayments(
   }
 
   /* ---- the Payments tab: the queue, the open invoices, the tiles ---- */
+  /* ---- v1.334.0 - VERIFY A PAYMENT ALREADY RECORDED IN SALES ----
+     (the CEO, 17-11-2026, on Payment History's "Recorded in Sales" rows: "for
+     november month, I want to have an option for me to verify it since I
+     should verify it"). An invoice marked paid in Sales without a report is
+     already paid and booked (INV-<id>). Verifying it writes what every other
+     verification writes - a verified report and its ONE row in the payment
+     record, linked, in one batch - dated the day the invoice was paid, so no
+     cash figure moves to another day and nothing is booked twice. The CEO
+     checks the money on the bank statement or app, names the account it came
+     into (the invoice's company, or a cross-company receipt with a reason) and
+     confirms with his code. Then settle() finishes the same way as any
+     verification: the INV- booking already exists, the Confirm Paid row is
+     written only if there is none, and commission starts once. Only the
+     verified company owner; only from VERIFY_RECORDED_FROM; never twice. */
+  if (path === "/payments/recorded/verify" && method === "POST") {
+    if (!verifier(user)) return err("forbidden", "Only the company owner verifies payments", 403);
+    const invId = typeof body?.invoice_id === "number" ? body.invoice_id : NaN;
+    if (!Number.isInteger(invId)) return err("invalid_input", "invoice_id is required", 400);
+    const inv = await invoiceOf(env, invId);
+    if (!inv || inv.doc_type !== "INV") return err("not_found", "Invoice not found", 404);
+    if (inv.payment_status !== "paid") return err("invalid_state", `${inv.doc_number} is not marked paid - report and verify its payment the usual way.`, 409);
+    const day = await env.DB.prepare(`SELECT date(COALESCE(paid_at, created_at), '+8 hours') AS d, payment_method AS m, payment_ref AS r FROM sales_documents WHERE id = ?1`)
+      .bind(inv.id).first<{ d: string; m: string | null; r: string | null }>();
+    const paidDay = String(day?.d ?? "");
+    if (paidDay < VERIFY_RECORDED_FROM) return err("too_early", `${inv.doc_number} was paid on ${paidDay}; payments recorded before ${VERIFY_RECORDED_FROM} stay as recorded.`, 409);
+    let waiting = 0;
+    try {
+      const w = await env.DB.prepare(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE invoice_id = ?1 AND state IN ('reported', 'evidence_checked', 'clarify')`).bind(inv.id).first<{ n: number }>();
+      waiting = Number(w?.n ?? 0);
+    } catch (e) {
+      if (skew(e)) return err("migration_missing", "Run migration 0181 first (PUSH.bat).", 503);
+      throw e;
+    }
+    if (waiting > 0) return err("pending_reports", `${inv.doc_number} has a reported payment waiting - decide that one first.`, 409);
+    const amount = Math.max(0, inv.total_cents - (await verifiedOf(env, inv.id)));
+    if (amount <= 0) return err("nothing_to_verify", `Every ringgit of ${inv.doc_number} is already in the payment record.`, 409);
+    const vm = String(body?.verify_method ?? "");
+    if (!(VERIFY_METHODS as readonly string[]).includes(vm)) return err("invalid_input", `verify_method is one of ${VERIFY_METHODS.join(", ")}`, 400);
+    const bankId = typeof body?.bank_id === "number" ? body.bank_id : NaN;
+    if (!Number.isInteger(bankId)) return err("invalid_input", "Choose the account the money arrived in.", 400);
+    const bank = await bankCompany(env, bankId);
+    if (!bank.ok || !bank.active) return err("invalid_input", "That account is not an active company account.", 400);
+    if (bank.company === null) return err("bank_company_unknown", `${bank.name} is not assigned to a company yet. Assign it in Companies (review), then verify.`, 409);
+    const invCo = companyOf(inv.issuer_code);
+    const crossCompany = bank.company !== invCo;
+    const crossReason = crossCompany && str(body?.cross_reason, 300) ? String(body!.cross_reason).trim() : "";
+    if (crossCompany && (crossReason.length < 10 || body?.cross_company !== true)) {
+      return err("company_mismatch", `${inv.doc_number} is ${COMPANY_NAME[invCo] ?? invCo}'s invoice; ${bank.name} belongs to ${COMPANY_NAME[bank.company] ?? bank.company}. If the customer paid into that account, confirm it as a cross-company receipt and give the reason (at least 10 characters).`, 409);
+    }
+    const cross = crossCompany ? { cross_company: true, invoice_company: invCo, received_company: bank.company, cross_reason: crossReason } : null;
+    const stepUp = await requireFreshTotp(env, user, body?.totp, err, "verify this recorded payment");
+    if (stepUp) return stepUp;
+    const method = ["bank_transfer", "cash", "cheque"].includes(String(day?.m)) ? String(day?.m) : "other";
+    const ref = day?.r ? String(day.r).slice(0, 120) : null;
+    const key = `Verified Sales record INV-${inv.id}`;
+    /* ONE batch, as a verification is: the report (only while nothing is waiting
+       and the money still is not in the record), its payment row, their link */
+    const done = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO invoice_payment_reports (invoice_id, issuer_code, amount_cents, received_on, method, reference, note, state, reported_by, decided_by, decided_at, verify_method, verified_cents, bank_id)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'verified', ?8, ?8, datetime('now'), ?9, ?3, ?10
+          WHERE NOT EXISTS (SELECT 1 FROM invoice_payment_reports WHERE invoice_id = ?1 AND (note = ?7 OR state IN ('reported', 'evidence_checked', 'clarify')))
+            AND (SELECT total_cents FROM sales_documents WHERE id = ?1) - COALESCE((SELECT SUM(amount_cents) FROM invoice_payments WHERE invoice_id = ?1 AND voided_at IS NULL), 0) >= ?3`,
+      ).bind(inv.id, invCo, amount, paidDay, method, ref, key, user.id, vm, bankId),
+      env.DB.prepare(
+        `INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, method, reference, note, created_by)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 WHERE EXISTS (SELECT 1 FROM invoice_payment_reports WHERE invoice_id = ?1 AND note = ?6 AND state = 'verified' AND payment_id IS NULL)`,
+      ).bind(inv.id, amount, paidDay, method, ref, key, user.id),
+      env.DB.prepare(
+        `UPDATE invoice_payment_reports SET payment_id = (SELECT MAX(id) FROM invoice_payments WHERE invoice_id = ?1 AND note = ?2 AND voided_at IS NULL)
+          WHERE invoice_id = ?1 AND note = ?2 AND state = 'verified' AND payment_id IS NULL`,
+      ).bind(inv.id, key),
+    ]);
+    const rep = await env.DB.prepare(`SELECT id, payment_id FROM invoice_payment_reports WHERE invoice_id = ?1 AND note = ?2`).bind(inv.id, key).first<{ id: number; payment_id: number | null }>();
+    if (!Number(done[0]?.meta?.changes ?? 0)) {
+      if (rep?.payment_id) {
+        const fresh = (await invoiceOf(env, inv.id)) ?? inv;
+        return json({ ok: true, repeated: true, ...(await picture(env, fresh, user)) });
+      }
+      return err("conflict", `${inv.doc_number} changed - reload it.`, 409);
+    }
+    await env.DB.prepare(
+      `INSERT INTO cashbook_marks (item_key, bank_id, bank_note, bank_by, bank_at) VALUES (?1, ?2, ?3, ?4, datetime('now'))
+       ON CONFLICT(item_key) DO UPDATE SET bank_id = excluded.bank_id, bank_note = excluded.bank_note, bank_by = excluded.bank_by, bank_at = excluded.bank_at`,
+    ).bind(`PART:${rep?.payment_id}`, bankId, cross ? `Payment verification (recorded in Sales) · cross-company: ${COMPANY_NAME[cross.invoice_company] ?? cross.invoice_company} invoice received in ${COMPANY_NAME[cross.received_company] ?? cross.received_company}'s account` : "Payment verification (recorded in Sales)", user.id).run().catch(() => undefined);
+    const ownSale = user.id === inv.salesperson_id;
+    const sale = { own_sale: ownSale, salesperson_id: inv.salesperson_id, salesperson: inv.salesperson ?? null, recorded_in_sales: true, paid_on: paidDay };
+    await event(env, inv.id, rep?.id ?? null, "verified", user.id, amount, { verify_method: vm, bank: bank.name, payment_id: rep?.payment_id, ...sale, ...(cross ?? {}) }, `verified:${rep?.id}`);
+    await audit(env, user.id, "payment.recorded_verified", "invoice_payment_reports", String(rep?.id), {
+      invoice: inv.doc_number, amount_cents: amount, verify_method: vm, bank_id: bankId, payment_id: rep?.payment_id, ...(cross ?? {}), ...sale,
+    });
+    /* the same finish as any verification: INV- already booked (never twice), Confirm Paid only if none, commission once */
+    await settle(env, user, inv, bankId, ref);
+    if (inv.salesperson_id && !ownSale) await notify(env, inv.salesperson_id, "payment", `The CEO verified ${rm(amount)} on ${inv.doc_number} (recorded in Sales on ${paidDay}).`, `pay_rec_ok:${rep?.id}`, { once: true });
+    const fresh = (await invoiceOf(env, inv.id)) ?? inv;
+    return json({ ok: true, recorded_verified: amount, ...(await picture(env, fresh, user)) }); // picture() carries the invoice's verified_cents
+  }
+
   if (path === "/payments" && method === "GET") {
     if (!can(user.role, "sales") && !can(user.role, "exec_view") && !can(user.role, "payment_report")) return err("forbidden", "Sales access required", 403);
     const on = await paymentVerificationOn(env);
@@ -382,6 +485,7 @@ export async function handlePayments(
       /* an invoice marked paid: the part of its total no verified report accounts for */
       const paid = ((await env.DB.prepare(
         `SELECT d.id AS invoice_id, d.doc_number, d.issuer_code, d.total_cents, d.payment_method AS method, d.payment_ref AS reference,
+                COALESCE((SELECT SUM(ip.amount_cents) FROM invoice_payments ip WHERE ip.invoice_id = d.id AND ip.voided_at IS NULL), 0) AS parts,
                 date(COALESCE(d.paid_at, d.created_at), '+8 hours') AS received_on, cu.company AS customer,
                 COALESCE(NULLIF(TRIM(s.full_name), ''), s.name) AS salesperson, ${viaReports} AS via_reports
            FROM sales_documents d LEFT JOIN customers cu ON cu.id = d.customer_id LEFT JOIN users s ON s.id = d.salesperson_id
@@ -399,10 +503,14 @@ export async function handlePayments(
         const amount = Number(p.total_cents ?? 0) - Number(p.via_reports ?? 0);
         if (amount <= 0) continue;
         const c = confirmed.get(Number(p.invoice_id));
+        /* v1.334.0 - from November, the CEO may verify it here (the money not yet in the payment record) */
+        const verifyCents = Math.max(0, Number(p.total_cents ?? 0) - Number(p.parts ?? 0));
+        const canVerify = ready && verifier(user) && verifyCents > 0 && String(p.received_on ?? "") >= VERIFY_RECORDED_FROM;
         direct.push({
           key: `inv:${p.invoice_id}`, kind: "marked_paid", invoice_id: p.invoice_id, doc_number: p.doc_number, issuer_code: p.issuer_code,
+          company: companyOf(p.issuer_code as string | null),
           customer: p.customer, salesperson: p.salesperson, amount_cents: amount, received_on: p.received_on, method: p.method, reference: p.reference,
-          recorded_by: null, confirmed_at: c?.at ?? null, confirmed_by: c?.by ?? null,
+          recorded_by: null, confirmed_at: c?.at ?? null, confirmed_by: c?.by ?? null, can_verify: canVerify, verify_cents: canVerify ? verifyCents : 0,
         });
       }
       /* a part payment entered directly on an invoice not yet paid (a paid one is listed whole above) */

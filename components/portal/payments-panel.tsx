@@ -72,6 +72,8 @@ interface Direct {
   key: string; kind: "marked_paid" | "part_recorded"; invoice_id: number; doc_number: string; issuer_code: string | null; customer: string | null;
   salesperson: string | null; amount_cents: number; received_on: string | null; method: string | null; reference: string | null;
   recorded_by: string | null; confirmed_at: string | null; confirmed_by: string | null;
+  /** v1.334.0 - the CEO may verify it here (from November); the amount not yet in the payment record */
+  company?: string; can_verify?: boolean; verify_cents?: number;
 }
 interface Data {
   on: boolean; ready: boolean; can: Caps; banks: Bank[]; reports: Rep[]; invoices: OpenInv[]; direct?: Direct[];
@@ -146,6 +148,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
   const [bal, setBal] = useState<"all" | "unpaid" | "partial" | "waiting">("all");
   const [openInv, setOpenInv] = useState<number | null>(null);
   const [recordFor, setRecordFor] = useState<OpenInv | "pick" | null>(null);
+  const [verifyRec, setVerifyRec] = useState<Direct | null>(null); // v1.334.0
   const [policy, setPolicy] = useState(false);
   const { show: toast, node: toastNode } = useSaveToast();
 
@@ -392,7 +395,10 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
                   </Cell>
                   <Cell k={L("Submitted by", "Dihantar oleh")}>{d.kind === "marked_paid" ? L("Marked paid in Sales (no report)", "Ditanda dibayar dalam Jualan (tiada laporan)") : d.recorded_by ?? "-"}</Cell>
                   <Cell k={L("Paid on", "Dibayar pada")}>{d.received_on ? dmy(d.received_on) : "—"}</Cell>
-                  <span role="cell" className={css.cAct}><button type="button" className={btnSm} onClick={() => setOpenInv(d.invoice_id)}>{L("View", "Lihat")}</button></span>
+                  <span role="cell" className={css.cAct}>
+                    {d.can_verify && <button type="button" className={btnSmPrimary} onClick={() => setVerifyRec(d)} data-testid="verify-recorded">{L("Verify", "Sahkan")}</button>}
+                    <button type="button" className={btnSm} onClick={() => setOpenInv(d.invoice_id)}>{L("View", "Lihat")}</button>
+                  </span>
                 </div>
               ) : null)}
             </div>
@@ -409,6 +415,9 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
       {drawerInv !== null && <InvoiceDrawer key={drawerInv} invId={drawerInv} data={data} userId={userId} onClose={() => { setOpenInv(null); onViewOpened?.(); }}
         onReport={(i) => { setOpenInv(null); onViewOpened?.(); setRecordFor(i); }}
         onDone={(m) => { toast(L("Saved", "Disimpan"), m); reload(); }}
+        onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
+      {verifyRec && <VerifyRecordedSheet rec={verifyRec} banks={data.banks} onClose={() => setVerifyRec(null)}
+        onDone={(m) => { setVerifyRec(null); toast(L("Saved", "Disimpan"), m); reload(); }}
         onFail={(m) => toast(L("No changes", "Tiada perubahan"), m, "notice")} />}
       {policy && <PolicySheet data={data} pending={pendingReps.length} onClose={() => setPolicy(false)}
         onDone={(m) => { setPolicy(false); toast(L("Saved", "Disimpan"), m); reload(); }}
@@ -664,6 +673,65 @@ function CrossCompany({ bankCo, invCo, ok, setOk, why, setWhy }: { bankCo: strin
   );
 }
 const crossReady = (bankCo: string | null | undefined, invCo: string, ok: boolean, why: string) => !bankCo || bankCo === invCo || (ok && why.trim().length >= 10);
+
+/* v1.334.0 - VERIFY A PAYMENT ALREADY RECORDED IN SALES (the CEO, 17-11-2026:
+   "for november month, I want to have an option for me to verify it"). The
+   invoice is already paid and booked; this records the CEO's check of the
+   money - where he saw it, the account it came into, his code - exactly as a
+   verification does (POST /staff/payments/recorded/verify). Nothing is booked
+   twice and no figure moves to another day; "Verified this month" counts it. */
+function VerifyRecordedSheet({ rec, banks, onClose, onDone, onFail }: { rec: Direct; banks: Bank[]; onClose: () => void; onDone: (m: string) => void; onFail: (m: string) => void }) {
+  const invCo = rec.company ?? (rec.issuer_code === "a2z" ? "a2z" : "azoo");
+  const companyBanks = banks.filter((b) => b.company === invCo);
+  const [bank, setBank] = useState<number | "">(companyBanks.length === 1 ? companyBanks[0]!.id : "");
+  const [vm, setVm] = useState("bank_statement");
+  const [code, setCode] = useState("");
+  const [crossOk, setCrossOk] = useState(false);
+  const [crossWhy, setCrossWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const bankCo = bank === "" ? null : banks.find((b) => b.id === bank)?.company ?? null;
+  const ready = bank !== "" && crossReady(bankCo, invCo, crossOk, crossWhy) && code.length === 6;
+  const send = async () => {
+    setBusy(true);
+    const r = await api<Err>("/staff/payments/recorded/verify", { method: "POST", body: JSON.stringify({ invoice_id: rec.invoice_id, bank_id: bank === "" ? null : bank, verify_method: vm, totp: code,
+      ...(bankCo && bankCo !== invCo ? { cross_company: crossOk, cross_reason: crossWhy.trim() } : {}) }) });
+    setBusy(false); setCode("");
+    if (!r.ok) { onFail(msg(r, L("Not verified - try again", "Tidak disahkan - cuba lagi"))); return; }
+    onDone(L(`${rec.doc_number} verified - ${fmtRM(rec.verify_cents ?? rec.amount_cents)}`, `${rec.doc_number} disahkan - ${fmtRM(rec.verify_cents ?? rec.amount_cents)}`));
+  };
+  return (
+    <SideDrawer open onClose={onClose} title={L(`Verify payment - ${rec.doc_number}`, `Sahkan bayaran - ${rec.doc_number}`)} subtitle={rec.customer ?? undefined}
+      footer={<div className={css.foot}>
+        <button type="button" className={btnSmQuiet} onClick={onClose}>{L("Cancel", "Batal")}</button>
+        <button type="button" className={css.btnGold} disabled={busy || !ready} onClick={() => void send()} data-testid="verify-recorded-send">{busy ? L("Verifying…", "Mengesahkan…") : L("Verify payment", "Sahkan bayaran")}</button>
+      </div>}>
+      <div className={css.formCol} data-testid="verify-recorded-sheet">
+        <dl className={css.facts}>
+          <div><dt>{L("Invoice", "Invois")}</dt><dd>{rec.doc_number} · {COMPANY[invCo] ?? invCo}</dd></div>
+          <div><dt>{L("Amount", "Amaun")}</dt><dd>{fmtRM(rec.verify_cents ?? rec.amount_cents)}</dd></div>
+          <div><dt>{L("Marked paid in Sales on", "Ditanda dibayar dalam Jualan pada")}</dt><dd>{rec.received_on ? dmy(rec.received_on) : "-"}</dd></div>
+          <div><dt>{L("Reference", "Rujukan")}</dt><dd>{rec.reference || "-"}</dd></div>
+          <div><dt>{L("Commission", "Komisen")}</dt><dd>{rec.confirmed_by ? L(`Already confirmed by ${rec.confirmed_by}`, `Sudah disahkan oleh ${rec.confirmed_by}`) : L("Confirmed by this verification", "Disahkan oleh pengesahan ini")}</dd></div>
+        </dl>
+        <p className={css.note}><AppIcon name="info" />{L("The invoice is already paid and booked. Verifying records your check of the money on that day - nothing is booked twice.", "Invois sudah dibayar dan direkod. Pengesahan merekod semakan anda atas wang pada hari itu - tiada apa direkod dua kali.")}</p>
+        <label className={css.field}>{L("Received in account", "Diterima dalam akaun")}
+          <select className={selectClassSm} value={bank} onChange={(e) => setBank(e.target.value ? Number(e.target.value) : "")}>
+            <option value="">{L("Choose the account", "Pilih akaun")}</option>
+            {banks.map((b) => bankOption(b, invCo))}
+          </select>
+        </label>
+        <CrossCompany bankCo={bankCo} invCo={invCo} ok={crossOk} setOk={setCrossOk} why={crossWhy} setWhy={setCrossWhy} />
+        <label className={css.field}>{L("Where you saw the money", "Di mana anda melihat wang")}
+          <select className={selectClassSm} value={vm} onChange={(e) => setVm(e.target.value)}>
+            <option value="bank_statement">{L("Bank statement", "Penyata bank")}</option>
+            <option value="bank_app">{L("Bank app / online banking", "Aplikasi bank / perbankan dalam talian")}</option>
+          </select>
+        </label>
+        <label className={css.field}>{L("Authenticator code", "Kod pengesah")}<input className={inputClassSm} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" /></label>
+      </div>
+    </SideDrawer>
+  );
+}
 
 /** One invoice: its figures, its payments, the actions this person may take, the timeline. */
 function InvoiceDrawer({ invId, data, userId, onClose, onReport, onDone, onFail }: { invId: number; data: Data; userId: number; onClose: () => void; onReport: (i: OpenInv) => void; onDone: (m: string) => void; onFail: (m: string) => void }) {

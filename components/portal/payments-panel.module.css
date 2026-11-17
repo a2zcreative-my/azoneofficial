@@ -184,6 +184,7 @@
 }
 .cAct {
   display: flex;
+  gap: 0.375rem;
 }
 .cAct button {
   flex: 1 1 auto;
@@ -258,7 +259,8 @@
   }
   .tHist .thead,
   .tHist .tr {
-    grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, 1.2fr) 5.5rem;
+    /* v1.334.0 - the action column holds Verify + View on November's recorded rows */
+    grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1.6fr) minmax(0, 1.2fr) 9.5rem;
   }
 }
 

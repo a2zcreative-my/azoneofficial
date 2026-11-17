@@ -10,13 +10,14 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
-## [1.334.0] - 2026-11-17 - The side rail shows the company's own logo instead of the typed "A2Z OS" wordmark - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+## [1.334.0] - 2026-11-17 - Payments: the CEO can verify a November payment that was marked paid in Sales without a report - BUILT, NOT DEPLOYED (NO MIGRATION)
 
-The CEO, 17-11-2026, on the rail's "A2Z OS / A2Z CREATIVE MARKETING" wordmark: "change by using my company logo".
+The CEO, 17-11-2026, on Payment History's "Recorded in Sales" rows: "for november month, I want to have an option for me to verified it since I should verify it".
 
-- The portal rail's brand row now draws public/logo.png (the A2Z Creative mark) on the same white plate the dialogs already use (`.erp-brand-logo`, as in brand-logo.tsx since 1.318.0), so the navy mark reads in the light and the dark theme. The /admin and /account rails keep their logo as before.
-- Collapsed, the rail shows only the toggle, as before. The unused wordmark styles were removed.
-- No figure, rule or route changed. Not run here: the full guard run and the browser checks - PUSH.bat runs the guards.
+- **Verify on the row:** from 1 November 2026 (`VERIFY_RECORDED_FROM`), a payment recorded in Sales without a report (Mark Paid) shows **Verify** in Payment History - for the verified company owner only. Earlier months stay as recorded.
+- **What it writes (POST /staff/payments/recorded/verify):** exactly what every verification writes - one verified report and its one row in the payment record, linked, in one batch - dated the day the invoice was paid. He chooses the account the money came into (the invoice's company, or a cross-company receipt with a reason), where he saw it (bank statement or app), and confirms with his authenticator code.
+- **Nothing is doubled:** the invoice is already paid and its cash book row (INV-<id>) already exists, so nothing is booked again and no cash figure moves to another day. A Confirm Paid row is written only if there is none (so commission starts once, as with every verification). A second press changes nothing. "Verified this month" now counts it; the row moves from "Recorded in Sales" to "Verified".
+- Guards: tests/payment-verify.mjs 136 checks, 33 mutations (new: October refused, COO and a non-owner refused, one report + one payment row dated the paid day, no second cash row or confirmation, a repeat changes nothing, an unconfirmed one is confirmed); tests/payment-ui.mjs 46. The full guard run and the browser checks were not run in this session - PUSH.bat runs the guards.
 
 ## [1.333.0] - 2026-11-17 - Attendance: days with no clock-in reach Exceptions & Approvals from Payroll's own scan; the long lists are paged - BUILT, NOT DEPLOYED (NO MIGRATION)
 

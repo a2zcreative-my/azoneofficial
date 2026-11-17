@@ -53,8 +53,27 @@
   min-width: 0;
   flex: 1 1 auto;
   padding-inline: 0.25rem 0;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: start;
+}
+/* a logotype carries no contrast requirement (WCAG 1.4.3), but the gold is
+   held to the deep accent where it sits on the dark deck */
+.wordmarkName {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+.wordmarkOs {
+  color: var(--gold-solid);
+}
+.wordmarkSub {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .foot {
   position: relative;

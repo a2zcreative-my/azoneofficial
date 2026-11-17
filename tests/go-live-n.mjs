@@ -357,15 +357,18 @@ async function runtime(workerBundle) {
     race("FROM agent_payouts o LEFT JOIN users u ON u.id = o.agent_id WHERE o.id = ?1");
     const both = await Promise.all([call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" }), call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-99999", settled_on: "2026-11-03" })]);
     barrier = null;
+    /* v1.334.0 - which of the two presses wins the race is not fixed (a run on the owner's PC,
+       17-11-2026, had MBB-99999 win). ONE must stand; the checks below follow the one that did. */
+    const won = both[0].status === 200 ? "MBB-77821" : "MBB-99999";
     const cash = db.prepare(`SELECT * FROM cashflow_entries WHERE ref = 'AGT-${au.j.id}'`).all();
     ok(both.map((r) => r.status).sort().join() === "200,409" && cash.length === 1 && cash[0].amount_cents === 21000 && cash[0].type === "out" && cash[0].effective_date === "2026-11-03" && cash[0].category === "agent_commission",
       "L two settlements pressed at once: ONE stands, ONE cash-book row (RM 210.00 out, the bank date, agent_commission)", fmt([both.map((r) => [r.status, r.text.slice(0, 80)]), cash]));
-    ok(n(`SELECT COUNT(*) AS n FROM commission_ledger WHERE payout_id = ${au.j.id} AND status = 'paid'`) === 3 && db.prepare(`SELECT status, bank_ref, settled_by FROM agent_payouts WHERE id = ?`).get(au.j.id).bank_ref === "MBB-77821", "L the rows are paid only now, with the bank reference");
+    ok(n(`SELECT COUNT(*) AS n FROM commission_ledger WHERE payout_id = ${au.j.id} AND status = 'paid'`) === 3 && db.prepare(`SELECT status, bank_ref, settled_by FROM agent_payouts WHERE id = ?`).get(au.j.id).bank_ref === won, "L the rows are paid only now, with the bank reference");
     const retry = await call(`/commission/payouts/${au.j.id}/settle`, U.coo, "POST", { bank_ref: "MBB-77821", settled_on: "2026-11-03" });
     ok(retry.j?.already_settled === true && n(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE ref = 'AGT-${au.j.id}'`) === 1 && n(`SELECT COUNT(*) AS n FROM journal_entries WHERE ref = 'AGT-${au.j.id}'`) <= 1, "L a retry books nothing");
     ok((await call(`/commission/payouts/${au.j.id}/cancel`, U.ceo, "POST", { reason: "Changed my mind about it" })).status === 409, "L a settled payout is never cancelled");
     const rosL = await call(`/agent/commission`, U.ros);
-    ok(rosL.j.totals.paid === 21000 && rosL.j.rows.filter((r) => r.stage === "paid").every((r) => r.payout?.bank_ref === "MBB-77821" && r.payout?.settled_on === "2026-11-03") && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 21 AND message LIKE 'A payout of RM 210.00 was settled%'`) === 1,
+    ok(rosL.j.totals.paid === 21000 && rosL.j.rows.filter((r) => r.stage === "paid").every((r) => r.payout?.bank_ref === won && r.payout?.settled_on === "2026-11-03") && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 21 AND message LIKE 'A payout of RM 210.00 was settled%'`) === 1,
       "L Ros sees RM 210.00 paid with the date and the bank reference, and is told once");
     /* cancel before settlement returns the rows */
     deal({ inv: 115, cust: 9 });
