@@ -108,7 +108,7 @@ export interface Env {
   CF_ZONE_ID?: string;
 }
 
-import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermissionOverrides, PERMS, MANDATORY_2FA_ROLES, canUser } from "./permissions";
+import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermissionOverrides, PERMS, MANDATORY_2FA_ROLES, needs2fa, canUser } from "./permissions";
 // v1.23.5: the ONE version number — read from the repo root package.json at
 // bundle time, so worker and site stamps always come from the same place.
 import pkg from "../../package.json";
@@ -317,7 +317,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0206_partner_applications";
+const LATEST_MIGRATION = "0208_roles";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -1517,7 +1517,7 @@ async function getSessionUser(req: Request, env: Env): Promise<SessionUser | nul
      every signed-in request and applied inside can() (permissions.ts). */
   try { setPermissionOverrides(row.perm_meta ? (JSON.parse(row.perm_meta) as { perms?: unknown }).perms : null); } catch { setPermissionOverrides(null); }
 
-  const requires_2fa = row.missing_2fa === 1 && MANDATORY_2FA_ROLES.includes(row.role);
+  const requires_2fa = row.missing_2fa === 1 && needs2fa(row.role); // v1.356.0 - an own role too
   /* v1.236.0 - THE COMPANY OWNER, decided here and nowhere else (the owner,
      30-10-2026; claude/CEO-OWNER-ACCESS-AUDIT.md). One account: named in
      system_meta.company_owner by a super admin, AND role ceo, AND active
@@ -2491,7 +2491,7 @@ export default {
         const refR = `clockout2:${todayR}`;
         const { results: openShifts } = await env.DB.prepare(
           `SELECT u.id FROM users u
-           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
+           WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
              /* v1.139.0 - a day is OPEN when the LAST punch is a clock-in.
                 "has a clock-in and no clock-out" was the one-pair-a-day
                 shape v1.133.0 retired: somebody who worked 11-17 and then
@@ -5744,6 +5744,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0204 (staff: the positions list and its kept changes)", `SELECT p.name, p.access_role, p.retired_at, c.action FROM staff_positions p, staff_position_changes c LIMIT 0`],
       ["0205 (users: custom roles on a base role)", `SELECT c.key, c.base_role, c.active, u.custom_role_id FROM custom_roles c, users u LIMIT 0`],
       ["0206 (agents: partner interest applications and their history)", `SELECT p.ref, p.status, p.owner_id, e.kind FROM partner_applications p, partner_application_events e LIMIT 0`],
+      ["0207 (agents: the COO / CCO pre-approval of a partner application)", `SELECT preapproved_by, preapproved_at FROM partner_applications LIMIT 0`],
+      ["0208 (roles: the roles table the owner adds to - Roles v2 stage 1)", `SELECT key, name, kind, counts_as_staff, tabs FROM roles LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -5974,6 +5976,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0204_staff_positions",
       "0205_custom_roles",
       "0206_partner_applications",
+      "0207_partner_preapproval",
+      "0208_roles",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -6055,7 +6059,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const toId = Number((bodyOb as { handover_to?: unknown }).handover_to ?? 0);
     if (toId) {
       const to = await env.DB.prepare(
-        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
+        `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`,
       ).bind(toId).first<{ id: number }>();
       if (to && to.id !== idOb) {
         const tr = await env.DB.prepare(`UPDATE tasks SET assigned_to = ?1 WHERE assigned_to = ?2 AND status != 'completed'`).bind(to.id, idOb).run();

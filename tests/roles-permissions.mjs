@@ -61,7 +61,7 @@ function checks(src) {
   ok("R3 a locked cell never gets a switch (super_admin_only for everyone, the super admin's own keeps cell)",
     /return a\.locked\.rule === "super_admin_only" \|\| role === "super_admin";/.test(rp) && /const editableFor = \(a: PolicyAction, role: string\) => !!a\.cap && !!a\.editable && !cellLocked\(a, role\);/.test(rp)
     && /for \(const a of list\) if \(editableFor\(a, r\)\)/.test(rp) && /canEditRole && editableFor\(a, role\)/.test(rp)
-    && /if \(a\.custom_forbidden && isCustomRole\(role\)\) return true;/.test(rp)
+    && /if \(a\.custom_forbidden && isExtraRole\(role\)\) return true;/.test(rp) && /const isExtraRole = \(r: string\) => isCustomRole\(r\) \|\| isOwnRole\(r\);/.test(rp)
     && /rule: "super_admin_only" \| "super_admin_keeps"/.test(perms));
   /* R4 */
   const catKeys = new Set([...perms.slice(perms.indexOf("export const ACTION_CATALOGUE")).matchAll(/key: "([a-z_]+)"/g)].map((m) => m[1]));
@@ -74,14 +74,23 @@ function checks(src) {
   ok("R5 Assign a user = the existing role door, with the step-up code and a reason of 10+",
     /const assignRole = async \(u: Account, to: string\): Promise<boolean> => \{/.test(users) && /if \(!why \|\| why\.value\.trim\(\)\.length < 10\) return false;/.test(users)
     && /\(totp\) => api\(`\/staff\/users\/\$\{u\.id\}\/role`, \{ method: "POST", body: JSON\.stringify\(\{ role: to, /.test(users) && /onAssign=\{assignRole\}/.test(rolesView));
-  ok("R5 the role door is offered only to the owner / super admin (canEdit), the server deciding each change", /canAssign=\{canEdit\}/.test(rolesView) && /const mayAssign = cr \? canManageCustom && crActive : canAssign && assignable\.includes\(role\);/.test(rp));
+  ok("R5 the role door is offered only to the owner / super admin (canEdit), the server deciding each change", /canAssign=\{canEdit\}/.test(rolesView) && /const mayAssign = own \? false .*: cr \? canManageCustom && crActive : canAssign && assignable\.includes\(role\);/.test(rp));
   /* R6 */
   ok("R6 + Create Role sits in the Role Directory heading, drawn only for role_custom (can_manage_custom, the server's answer)",
-    /const canManageCustom = !!d0\?\.can_manage_custom;/.test(rp) && /actions=\{canManageCustom \? <button type="button" className=\{btnAccent\} onClick=\{\(\) => openForm\("create"\)\} data-testid="role-create">/.test(rp)
+    /const canManageCustom = !!d0\?\.can_manage_custom;/.test(rp) && /actions=\{canManageCustom \? <button type="button" className=\{btnAccent\} onClick=\{\(\) => openOwn\("create"\)\} data-testid="role-create">/.test(rp)
     && /\{canManageCustom && \(\s*<div className=\{css\.inline\} data-testid="cr-actions">/.test(rp));
   ok("R6 every custom-role change goes to /staff/access/custom-roles with the step-up code; nothing else writes a role",
-    /\(totp\) => api\(`\/staff\/access\/custom-roles\$\{path\}`, \{ method, body: JSON\.stringify\(\{ \.\.\.body, \.\.\.\(totp \? \{ totp \} : \{\}\) \}\) \}\)/.test(rp)
-    && (rp.match(/api\(`\/staff\/access\/custom-roles/g) ?? []).length === 1 && /disabled=\{busy \|\| delReason\.trim\(\)\.length < 10\}/.test(rp));
+    /base = "\/staff\/access\/custom-roles"\) => \{/.test(rp) && /\(totp\) => api\(`\$\{base\}\$\{path\}`, \{ method, body: JSON\.stringify\(\{ \.\.\.body, \.\.\.\(totp \? \{ totp \} : \{\}\) \}\) \}\)/.test(rp)
+    && (rp.match(/api\(`\$\{base\}/g) ?? []).length === 1 && (rp.match(/"\/staff\/access\/roles"\)/g) ?? []).length === 3 && /disabled=\{busy \|\| delReason\.trim\(\)\.length < 10\}/.test(rp));
+  /* R11 - v1.355.0 Roles v2 stage 1: an OWN role has no base role, its pages come from the server's list, it is never given in stage 1 */
+  {
+    const ownDrawer = rp.slice(rp.indexOf('{/* v1.355.0 - Create / Edit one of YOUR roles'), rp.indexOf('{/* v1.350.0 - Create / Edit / Duplicate a custom role'));
+    ok("R11 Create Role asks for no base role (name, description, the staff switch, the pages, blank or a copy)",
+      ownDrawer.length > 500 && !/cr-base|base_role|crForm\??\.base/.test(ownDrawer) && /<Switch checked=\{ownForm\.staff\}/.test(ownDrawer) && /tabChoices\.map\(/.test(ownDrawer)
+      && /<option value="">\{L\("Blank - nothing allowed/.test(ownDrawer) && /disabled=\{busy \|\| !ownForm \|\| ownForm\.name\.trim\(\)\.length < 3 \|\| ownForm\.reason\.trim\(\)\.length < 10\}/.test(ownDrawer));
+    ok("R11 the pages it may list are the server's (role_tab_choices), never a list in the screen", /const tabChoices = d0\?\.role_tab_choices \?\? \[\];/.test(rp));
+    ok("R11 an own role is never offered to a person in stage 1 (the server refuses it too)", /data-testid="own-not-yet"/.test(rp) && /isOwnKey\(body\.role\)\) return err\("role_not_assignable"/.test(read("worker/src/staff.ts")));
+  }
   /* R7 */
   ok("R7 the strip: Total Roles, Assigned Users, Modules Controlled, Edited Permissions, CEO Access",
     ['cell="roles"', 'cell="assigned"', 'cell="modules"', 'cell="edited"', 'cell="ceo"'].every((c) => rp.includes(c)) && /<KpiRow label=/.test(rp));
@@ -114,8 +123,10 @@ const MUT = [
   ["a verb invents an action", "rp", '  task_delete: "delete",', '  task_delete: "delete", role_create: "manage",'],
   ["the role door bypassed", "users", "(totp) => api(`/staff/users/${u.id}/role`, { method: \"POST\", body: JSON.stringify({ role: to, ", "() => api(`/staff/users/${u.id}/role`, { method: \"PATCH\", body: JSON.stringify({ role: to, "],
   ["Create Role for everyone", "rp", 'actions={canManageCustom ? <button type="button" className={btnAccent}', 'actions={true ? <button type="button" className={btnAccent}'],
-  ["a custom role change without the code", "rp", "(totp) => api(`/staff/access/custom-roles${path}`, { method, body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) })", "() => api(`/staff/access/custom-roles${path}`, { method, body: JSON.stringify(body) })"],
-  ["a custom role switched on a protected cell", "rp", "  if (a.custom_forbidden && isCustomRole(role)) return true;", ""],
+  ["an own role offered to a person", "rp", "const mayAssign = own ? false", "const mayAssign = own ? canManageCustom"],
+  ["an own role made on a base role", "rp", 'placeholder={L("e.g. Warehouse Clerk", "cth. Kerani Gudang")}', 'placeholder={L("e.g. Warehouse Clerk", "cth. Kerani Gudang")} data-base={crForm?.base}'],
+  ["a custom role change without the code", "rp", "(totp) => api(`${base}${path}`, { method, body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) })", "() => api(`${base}${path}`, { method, body: JSON.stringify(body) })"],
+  ["a custom role switched on a protected cell", "rp", "  if (a.custom_forbidden && isExtraRole(role)) return true;", ""],
   ["CEO Access written in", "rp", 'value={gapActs.length === 0 ? L("Equivalent", "Setara")', 'value={true ? L("Equivalent", "Setara")'],
   ["the split back to 60:40", "rp", '<WorkspaceSplit testid="roles-split" ratio="35-65">', '<WorkspaceSplit testid="roles-split">'],
   ["a deep link reads nothing", "users", "const policy = usePolicy(rolesOn, policyTick);", "const policy = usePolicy(seenRoles, policyTick);"],

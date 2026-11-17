@@ -39,7 +39,15 @@
    base role's). + Create Role sits beside the Role Directory heading and
    opens a drawer; a custom role's switches, Assigned Users and Role Details
    reuse the editor below; every change goes to the server with a reason and
-   the authenticator code and lands in the audit history. */
+   the authenticator code and lands in the audit history.
+
+   v1.355.0 - ROLES V2, STAGE 1 (docs/ROLES-V2-PLAN.md; the CEO, 17-11-2026: "permission roles that
+   for me to create by myself or super admin without hardcoded"). + Create Role now makes an OWN role
+   with NO base role: its name, description, whether it counts as company staff, the pages it sees, and
+   permissions that start blank or as a copy of any role. It is one more column of the same switches,
+   saved through the same door. It is set up here and NOT given to anyone yet: the role door refuses it
+   until stage 3 makes approvals read the role (pages and staff counts do from v1.356.0) (the server decides). The
+   custom roles of 1.350.0 keep working as they are, on their base role. */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
@@ -56,7 +64,7 @@ import { Switch } from "@/components/ui/switch";
 import { CompactTaskTable, type TableCol } from "@/components/portal/task-table";
 import { withStepUp } from "@/components/portal/page-shared";
 import { roleLabel, type Account } from "@/components/portal/users-shared";
-import { actionStatus, type CustomRole, type Policy, type PolicyAction } from "@/components/portal/access-policy";
+import { actionStatus, type CustomRole, type Policy, type PolicyAction, type RoleTableRow } from "@/components/portal/access-policy";
 import { api } from "@/lib/api";
 import { setCaps } from "@/lib/caps";
 import { dmy } from "@/lib/format";
@@ -86,7 +94,7 @@ const VERB_OF: Record<string, Verb> = {
   asset_company_change: "edit", account_email: "edit", fa_priority: "edit", leave_entitlement: "edit", unpaid_leave: "edit", agent_requests_manage: "edit",
   confirm_paid: "approve", payment_verify: "approve", payment_evidence: "approve", fa_decide: "approve", fa_criteria: "approve", fa_allocate: "approve",
   fa_templates_publish: "approve", asset_dispose_approve: "approve", cashbook_accept: "approve", expense_approve: "approve", expense_authorise: "approve",
-  books_close: "approve", partner_approve: "approve", payroll_release: "approve", commission_approve: "approve", commission_decide: "approve", claims_decide: "approve",
+  books_close: "approve", partner_preapprove: "approve", partner_approve: "approve", payroll_release: "approve", commission_approve: "approve", commission_decide: "approve", claims_decide: "approve",
   live_report_review: "approve", project_complete: "approve", company_review: "approve", elfia_publish: "approve",
   task_delete: "delete",
   payroll_export: "export", backup: "export",
@@ -94,29 +102,32 @@ const VERB_OF: Record<string, Verb> = {
 export const verbOf = (key: string): Verb => VERB_OF[key] ?? "manage";
 
 /* the directory's groups (a filter, not a permission) */
-type Group = "all" | "exec" | "staff" | "tech" | "ext" | "custom";
+type Group = "all" | "exec" | "staff" | "tech" | "ext" | "custom" | "own";
 const GROUP_OF: Record<string, Exclude<Group, "all">> = {
   ceo: "exec", coo: "exec", cco: "exec",
   hr_admin: "staff", sales_marketing: "staff", marketing: "staff", editor: "staff", live_host: "staff",
   admin: "tech", super_admin: "tech", agent: "ext",
 };
 const GROUP_WORD: Record<Exclude<Group, "all">, [string, string]> = {
-  exec: ["Executive", "Eksekutif"], staff: ["Staff", "Kakitangan"], tech: ["Technical", "Teknikal"], ext: ["External", "Luaran"], custom: ["Custom", "Tersuai"],
+  exec: ["Executive", "Eksekutif"], staff: ["Staff", "Kakitangan"], tech: ["Technical", "Teknikal"], ext: ["External", "Luaran"], custom: ["Custom", "Tersuai"], own: ["Your role", "Peranan anda"],
 };
 /** v1.350.0 - a custom role's key (the server's CUSTOM_ROLE_KEY_RE) */
 export const isCustomRole = (r: string) => /^cr_[a-z0-9_]{2,40}$/.test(r);
+/** v1.355.0 - an own role's key (the server's OWN_ROLE_KEY_RE): made by the owner, no base role */
+export const isOwnRole = (r: string) => /^r_[a-z0-9_]{2,40}$/.test(r);
+const isExtraRole = (r: string) => isCustomRole(r) || isOwnRole(r);
 /** one press: the gold action button of the house (the Agents tab's "Assign Salesperson") */
 const btnAccent = "erp-button erp-button-accent erp-button-compact";
 
 type St = "on" | "off" | "part" | "cond" | "none";
 /** a cell that cannot be toggled: every role of a super-admin-only cap; the super admin's own cell of a keeps cap (the server's LOCKED_CELLS) */
 export function cellLocked(a: PolicyAction, role: string): boolean {
-  if (a.custom_forbidden && isCustomRole(role)) return true; // v1.350.0 - a protected capability a custom role can never hold
+  if (a.custom_forbidden && isExtraRole(role)) return true; // v1.350.0 - a protected capability a custom role can never hold
   if (!a.locked) return false;
   return a.locked.rule === "super_admin_only" || role === "super_admin";
 }
-const lockWhy = (a: PolicyAction, role: string) => (a.custom_forbidden && isCustomRole(role)
-  ? L("Protected - a custom role can never hold this; it stays with the built-in roles.", "Dilindungi - peranan tersuai tidak boleh memegang ini; ia kekal pada peranan terbina.")
+const lockWhy = (a: PolicyAction, role: string) => (a.custom_forbidden && isExtraRole(role)
+  ? L("Protected - a role you create can never hold this; it stays with the built-in roles.", "Dilindungi - peranan yang anda cipta tidak boleh memegang ini; ia kekal pada peranan terbina.")
   : a.locked?.why ?? "");
 const editableFor = (a: PolicyAction, role: string) => !!a.cap && !!a.editable && !cellLocked(a, role);
 function stateOf(acts: PolicyAction[], role: string): St {
@@ -153,8 +164,10 @@ function Mark({ st, locked, why }: { st: St; locked?: boolean; why?: string }) {
   );
 }
 
-const roleIcon = (x: { role: string; group: string }): AppIconName => (x.role === "ceo" ? "star" : x.group === "tech" ? "lock" : x.group === "exec" ? "verify" : x.group === "ext" ? "connection" : x.group === "custom" ? "access" : "users");
-type RoleRow = { id: number; role: string; group: Exclude<Group, "all">; people: number; allowed: number; custom?: CustomRole };
+const roleIcon = (x: { role: string; group: string }): AppIconName => (x.role === "ceo" ? "star" : x.group === "tech" ? "lock" : x.group === "exec" ? "verify" : x.group === "ext" ? "connection" : x.group === "custom" ? "access" : x.group === "own" ? "add" : "users");
+type RoleRow = { id: number; role: string; group: Exclude<Group, "all">; people: number; allowed: number; custom?: CustomRole; own?: RoleTableRow };
+/** v1.355.0 - the own-role drawer (create or edit) */
+type OwnForm = { mode: "create" | "edit"; key: string | null; name: string; description: string; staff: boolean; tabs: string[]; from: string; reason: string };
 /** the Create / Edit / Duplicate drawer's form */
 type CrForm = { mode: "create" | "edit" | "duplicate"; id: number | null; name: string; description: string; base: string; template: string; reason: string };
 type View = "perms" | "users" | "details" | "preview";
@@ -186,7 +199,8 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
   const [view, setView] = useState<View>("perms");
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, string[]>>({});
-  const [drawer, setDrawer] = useState<"" | "save" | "exceptions" | "tabs" | "role" | "delete">("");
+  const [drawer, setDrawer] = useState<"" | "save" | "exceptions" | "tabs" | "role" | "delete" | "own">("");
+  const [ownForm, setOwnForm] = useState<OwnForm | null>(null);
   const [crForm, setCrForm] = useState<CrForm | null>(null);
   const [delTo, setDelTo] = useState("base");
   const [delReason, setDelReason] = useState("");
@@ -207,6 +221,8 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
 
   /* v1.350.0 - the custom roles, after the built-in ones: each a column of the same cells */
   const customs = useMemo(() => d0?.custom_roles ?? [], [d0]);
+  const owns = useMemo(() => (d0?.role_table ?? []).filter((x) => x.kind === "own"), [d0]);
+  const tabChoices = d0?.role_tab_choices ?? [];
   const canManageCustom = !!d0?.can_manage_custom;
   const activeIds = useMemo(() => new Set(staff.filter((u) => u.is_active).map((u) => u.id)), [staff]);
   const customOf = useMemo(() => {
@@ -224,16 +240,22 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
       people: loaded ? c.users.filter((id) => activeIds.has(id)).length : c.users.length,
       allowed: acts.filter((a) => actionStatus(a, c.key).st === "allow").length,
     })),
-  ], [roles, customs, d0, acts, loaded, activeIds]);
+    /* v1.355.0 - the owner's own roles, last: each its own column, no base role */
+    ...owns.map((o, i) => ({
+      id: roles.length + customs.length + i + 1, role: o.key, group: "own" as const, own: o, people: o.holders,
+      allowed: acts.filter((a) => actionStatus(a, o.key).st === "allow").length,
+    })),
+  ], [roles, customs, owns, d0, acts, loaded, activeIds]);
   const needle = q.trim().toLowerCase();
   const shownRows = roleRows.filter((x) => (group === "all" || x.group === group) && (!needle || roleLabel(x.role).toLowerCase().includes(needle) || x.role.includes(needle)));
   const sel = roleRows.find((x) => x.role === picked) ?? roleRows[0] ?? null;
   const role = sel?.role ?? "";
   const cr = sel?.custom ?? null;
+  const own = sel?.own ?? null;
   const crActive = !!cr?.active;
   /* who may switch THIS role's cells: a built-in role is the owner's or the super admin's; a custom
      role's column is also role_custom's (the CEO and the super admin) - the server checks both */
-  const canEditRole = cr ? canEdit || canManageCustom : canEdit;
+  const canEditRole = cr || own ? canEdit || canManageCustom : canEdit;
   const pick = (id: number) => { const r = roleRows.find((x) => x.id === id); if (r) setPicked(r.role); setErr(""); };
 
   /* ---- the strip ---- */
@@ -298,10 +320,10 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
     return true;
   }, [prompt, toast, onChanged]);
   /* ---- v1.350.0 - custom roles: create, edit, duplicate, deactivate, delete (role_custom on the server) ---- */
-  const crSend = useCallback(async (path: string, method: string, body: Record<string, unknown>, done: string, what: string) => {
+  const crSend = useCallback(async (path: string, method: string, body: Record<string, unknown>, done: string, what: string, base = "/staff/access/custom-roles") => {
     setBusy(true); setErr("");
     const r = await withStepUp<{ key?: string; error?: { message?: string } }>(
-      (totp) => api(`/staff/access/custom-roles${path}`, { method, body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) }),
+      (totp) => api(`${base}${path}`, { method, body: JSON.stringify({ ...body, ...(totp ? { totp } : {}) }) }),
       prompt,
       { title: L("Confirm with your authenticator", "Sahkan dengan pengesah anda"), label: L(`Your 6-digit authenticator code - ${what}`, `Kod pengesah 6 digit anda - ${what}`) },
     );
@@ -347,6 +369,34 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
     if (!res) return;
     setPicked("ceo"); setView("perms"); setDrawer("");
   };
+  /* ---- v1.355.0 - own roles: create, edit, delete (role_custom on the server; /staff/access/roles) ---- */
+  const openOwn = (mode: OwnForm["mode"]) => {
+    setErr("");
+    if (mode === "create") setOwnForm({ mode, key: null, name: "", description: "", staff: true, tabs: [], from: "", reason: "" });
+    else if (own) setOwnForm({ mode, key: own.key, name: own.name, description: own.description ?? "", staff: !!own.counts_as_staff, tabs: own.tabs ?? [], from: "", reason: "" });
+    setDrawer("own");
+  };
+  const submitOwn = async () => {
+    if (!ownForm) return;
+    const f = ownForm;
+    const body = { name: f.name.trim(), description: f.description.trim(), counts_as_staff: f.staff, tabs: f.tabs, reason: f.reason.trim() };
+    const res = f.mode === "create"
+      ? await crSend("", "POST", { ...body, copy_from: f.from }, L(`${body.name} created`, `${body.name} dicipta`), L("this creates a role on the server", "ini mencipta peranan di pelayan"), "/staff/access/roles")
+      : await crSend(`/${f.key}`, "PATCH", body, L(`${body.name} saved`, `${body.name} disimpan`), L("this changes a role on the server", "ini menukar peranan di pelayan"), "/staff/access/roles");
+    if (!res) return;
+    if (res.key) { setPicked(res.key); setView("perms"); }
+    setOwnForm(null); setDrawer("");
+  };
+  const deleteOwn = async () => {
+    if (!own) return;
+    const r = await prompt({ title: L(`Delete ${own.name}?`, `Padam ${own.name}?`), label: L("Reason (kept in the audit history). Its permission switches go with it; nobody holds it.", "Sebab (disimpan dalam sejarah audit). Suis kebenarannya turut dipadam; tiada siapa memegangnya."), required: true });
+    if (!r?.value) return;
+    if (r.value.trim().length < 10) { setErr(L("Give a reason of at least 10 characters.", "Beri sebab sekurang-kurangnya 10 aksara.")); return; }
+    const res = await crSend(`/${own.key}/delete`, "POST", { reason: r.value.trim() }, L(`${own.name} deleted`, `${own.name} dipadam`), L("this deletes a role on the server", "ini memadam peranan di pelayan"), "/staff/access/roles");
+    if (res) { setPicked("ceo"); setView("perms"); }
+  };
+  const alwaysTabs = (d0?.tabs ?? []).filter((x) => x.always).map((x) => x.tab);
+
   /* what a role would start with, module by module, in the drawer (read from the cells, never a rule) */
   const startsWith = (from: string) => modules.map((m) => {
     const mActs = acts.filter((a) => a.module === m && !a.custom_forbidden);
@@ -367,11 +417,11 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
         <span className={css.roleIcon} data-group={x.group} aria-hidden><AppIcon name={roleIcon(x)} /></span>
         <span className={css.roleText}>
           <strong>{roleLabel(x.role)}</strong>
-          <small>{x.custom ? L(`On ${roleLabel(x.custom.base_role)}`, `Atas ${roleLabel(x.custom.base_role)}`) : L(GROUP_WORD[x.group][0], GROUP_WORD[x.group][1])} · {L(`${x.allowed} of ${acts.length} actions`, `${x.allowed} daripada ${acts.length} tindakan`)}</small>
+          <small>{x.own ? L("No base role · setting up", "Tiada peranan asas · sedang disediakan") : x.custom ? L(`On ${roleLabel(x.custom.base_role)}`, `Atas ${roleLabel(x.custom.base_role)}`) : L(GROUP_WORD[x.group][0], GROUP_WORD[x.group][1])} · {L(`${x.allowed} of ${acts.length} actions`, `${x.allowed} daripada ${acts.length} tindakan`)}</small>
         </span>
       </span>
     ) },
-    { key: "kind", label: L("Type", "Jenis"), cell: (x) => !x.custom ? <span className={chipSmNeutral}>{L("System", "Sistem")}</span>
+    { key: "kind", label: L("Type", "Jenis"), cell: (x) => x.own ? <span className={chipSmInfo}>{L("Your role", "Peranan anda")}</span> : !x.custom ? <span className={chipSmNeutral}>{L("System", "Sistem")}</span>
       : x.custom.active ? <span className={chipSmInfo}>{L("Custom", "Tersuai")}</span> : <span className={chipSmWarn}>{L("Deactivated", "Dinyahaktif")}</span> },
     { key: "people", label: L("Users", "Pengguna"), cell: (x) => <span className={css.num}>{x.people}</span> },
   ];
@@ -380,11 +430,12 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
   const people = staff.filter((u) => (cr ? cr.users.includes(u.id) : u.role === role)).sort((a, b) => b.is_active - a.is_active || properName(a.full_name || a.name).localeCompare(properName(b.full_name || b.name)));
   const others = staff.filter((u) => u.is_active && (cr ? !cr.users.includes(u.id) : u.role !== role) && assignable.includes(u.role));
   /* a custom role is given through the same role door (onAssign with its key): role_custom, active only */
-  const mayAssign = cr ? canManageCustom && crActive : canAssign && assignable.includes(role);
+  const mayAssign = own ? false /* v1.355.0 - stage 1: set up, not given yet (the server refuses it too) */ : cr ? canManageCustom && crActive : canAssign && assignable.includes(role);
   /* tabs follow the role the person actually holds - a custom role's base role */
   const tabRole = cr ? cr.base_role : role;
-  const sees = (d0?.tabs ?? []).filter((x) => x.always || x.sees.includes(tabRole));
-  const hidden = (d0?.tabs ?? []).filter((x) => !(x.always || x.sees.includes(tabRole)));
+  const seesTab = (x: { tab: string; always: boolean; sees: string[] }) => x.always || (own ? (own.tabs ?? []).includes(x.tab) : x.sees.includes(tabRole));
+  const sees = (d0?.tabs ?? []).filter(seesTab);
+  const hidden = (d0?.tabs ?? []).filter((x) => !seesTab(x));
   const editedHere = (d0?.actions ?? []).filter((a) => a.edited && a.cap);
   const lockedHere = (d0?.actions ?? []).filter((a) => cellLocked(a, role));
   const draftForRole = pending.filter(([cap]) => current(cap).includes(role) !== (draft[cap] ?? []).includes(role)).length;
@@ -496,10 +547,11 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
         <span className={css.roleIcon} data-group={sel.group} aria-hidden><AppIcon name={roleIcon(sel)} /></span>
         <span className={css.roleText}>
           <strong className={css.big} data-testid="role-title">{roleLabel(role)}</strong>
-          <small>{cr ? L(`Custom role on ${roleLabel(cr.base_role)}`, `Peranan tersuai atas ${roleLabel(cr.base_role)}`) : L(GROUP_WORD[sel.group][0], GROUP_WORD[sel.group][1])} · {L(`${sel.people} active`, `${sel.people} aktif`)} · {L(`${sel.allowed} of ${acts.length} actions`, `${sel.allowed} daripada ${acts.length} tindakan`)}</small>
+          <small>{own ? L("Your role · no base role", "Peranan anda · tiada peranan asas") : cr ? L(`Custom role on ${roleLabel(cr.base_role)}`, `Peranan tersuai atas ${roleLabel(cr.base_role)}`) : L(GROUP_WORD[sel.group][0], GROUP_WORD[sel.group][1])} · {L(`${sel.people} active`, `${sel.people} aktif`)} · {L(`${sel.allowed} of ${acts.length} actions`, `${sel.allowed} daripada ${acts.length} tindakan`)}</small>
         </span>
         <span className={css.tags}>
-          {!cr ? <span className={chipSmNeutral}>{L("System role", "Peranan sistem")}</span>
+          {own ? <span className={chipSmWarn} data-testid="role-setting-up">{L("Setting up - not given to anyone yet", "Sedang disediakan - belum diberi kepada sesiapa")}</span>
+            : !cr ? <span className={chipSmNeutral}>{L("System role", "Peranan sistem")}</span>
             : crActive ? <span className={chipSmInfo}>{L("Custom role", "Peranan tersuai")}</span> : <span className={chipSmWarn} data-testid="role-deactivated">{L("Deactivated - holders fall back to the base role", "Dinyahaktif - pemegang kembali ke peranan asas")}</span>}
           {role === "ceo" && ownerOk && <span className={chipSmSuccess}>{L("Owner verified", "Pemilik disahkan")}</span>}
           {draftForRole > 0 && <span className={chipSmWarn} data-testid="role-unsaved">{L(`${draftForRole} unsaved`, `${draftForRole} belum disimpan`)}</span>}
@@ -524,7 +576,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
                 <option value="">{L("Set from template…", "Tetapkan daripada templat…")}</option>
                 {roleRows.filter((x) => x.role !== role).map((x) => <option key={x.role} value={x.role}>{L(`Same as ${roleLabel(x.role)}`, `Sama seperti ${roleLabel(x.role)}`)}</option>)}
               </select>
-              <button type="button" className={btnSm} onClick={cr ? () => copyFrom(cr.base_role) : backToDefault} data-testid="perm-default">{cr ? L(`Same as ${roleLabel(cr.base_role)}`, `Sama seperti ${roleLabel(cr.base_role)}`) : L("Role defaults", "Asal peranan")}</button>
+              <button type="button" className={btnSm} onClick={cr ? () => copyFrom(cr.base_role) : backToDefault} data-testid="perm-default">{own ? L("Turn all off", "Matikan semua") : cr ? L(`Same as ${roleLabel(cr.base_role)}`, `Sama seperti ${roleLabel(cr.base_role)}`) : L("Role defaults", "Asal peranan")}</button>
             </span>
           )}
         </div>
@@ -549,8 +601,9 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
               <AppIcon name="add" />{L(`Assign to ${roleLabel(role)}`, `Tetapkan kepada ${roleLabel(role)}`)}</button>
           </div>
         )}
+        {own && <p className={css.notice} data-testid="own-not-yet"><AppIcon name="info" /><span>{L("This role is being set up. Its pages and its staff switch are already in force; it can be given to people once Roles v2 stage 3 is released, when leave, claim and overtime approvals follow the Organisation chart up to the CEO. Until then the server refuses to give it to anyone.", "Peranan ini sedang disediakan. Halaman dan suis kakitangannya sudah berkuat kuasa; ia boleh diberi kepada orang selepas peringkat 3 Peranan v2 dikeluarkan, apabila kelulusan cuti, tuntutan dan lebih masa mengikut carta Organisasi hingga CEO. Sehingga itu pelayan menolak memberikannya kepada sesiapa.")}</span></p>}
         {!mayAssign && cr && <p className={css.muted}>{crActive ? L("The CEO or the Super Admin gives a custom role.", "CEO atau Super Admin memberi peranan tersuai.") : L("Activate this role before giving it to anyone.", "Aktifkan peranan ini sebelum memberikannya kepada sesiapa.")}</p>}
-        {!mayAssign && !cr && <p className={css.muted}>{role === "agent" ? L("Agent access is given and revoked in Customers & Agents (a proven email, the same account).", "Akses ejen diberi dan ditarik di Pelanggan & Ejen (e-mel yang dibuktikan, akaun yang sama).") : role === "super_admin" ? L("Super Admin accounts are kept by the Super Admin in /admin.", "Akaun Super Admin disimpan oleh Super Admin di /admin.") : L("The company owner or the Super Admin gives a role; the server decides each change.", "Pemilik syarikat atau Super Admin memberi peranan; pelayan memutuskan setiap perubahan.")}</p>}
+        {!mayAssign && !cr && !own && <p className={css.muted}>{role === "agent" ? L("Agent access is given and revoked in Customers & Agents (a proven email, the same account).", "Akses ejen diberi dan ditarik di Pelanggan & Ejen (e-mel yang dibuktikan, akaun yang sama).") : role === "super_admin" ? L("Super Admin accounts are kept by the Super Admin in /admin.", "Akaun Super Admin disimpan oleh Super Admin di /admin.") : L("The company owner or the Super Admin gives a role; the server decides each change.", "Pemilik syarikat atau Super Admin memberi peranan; pelayan memutuskan setiap perubahan.")}</p>}
         {role === "agent" ? null : !loaded ? <SkelRows rows={3} /> : people.length === 0 ? <p className={css.muted}>{L("Nobody holds this role.", "Tiada siapa memegang peranan ini.")}</p> : (
           <ul className={css.list}>
             {people.map((u) => (
@@ -569,7 +622,23 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
       </div>
 
       <div hidden={view !== "details"} className={css.part} data-testid="role-details">
-        {cr ? (<>
+        {own ? (<>
+          <dl className={css.facts}>
+            <div><dt>{L("Role name", "Nama peranan")}</dt><dd data-testid="own-name">{own.name}</dd></div>
+            <div><dt>{L("Type", "Jenis")}</dt><dd>{L("Your role - no base role", "Peranan anda - tiada peranan asas")}</dd></div>
+            <div><dt>{L("Counts as company staff", "Dikira sebagai kakitangan syarikat")}</dt><dd data-testid="own-staff">{own.counts_as_staff ? L("Yes - payroll, headcount, attendance and rosters", "Ya - gaji, bilangan, kehadiran dan jadual") : L("No", "Tidak")}</dd></div>
+            <div><dt>{L("Pages", "Halaman")}</dt><dd data-testid="own-pages">{(own.tabs ?? []).length ? (own.tabs ?? []).map((x) => t(x, getLang())).join(", ") : L("Only the pages every role sees", "Hanya halaman yang dilihat setiap peranan")}</dd></div>
+            <div><dt>{L("Description", "Penerangan")}</dt><dd>{own.description || L("None", "Tiada")}</dd></div>
+            <div><dt>{L("Created", "Dicipta")}</dt><dd>{own.created_by_name ?? "—"} · {dmy(own.created_at.slice(0, 10))}</dd></div>
+          </dl>
+          {canManageCustom && (
+            <div className={css.inline} data-testid="own-actions">
+              <button type="button" className={btnSm} disabled={busy} onClick={() => openOwn("edit")} data-testid="own-edit"><AppIcon name="edit" />{L("Edit role", "Sunting peranan")}</button>
+              <button type="button" className={btnSmDanger} disabled={busy || own.holders > 0} onClick={() => void deleteOwn()} data-testid="own-delete"><AppIcon name="error" />{L("Delete role", "Padam peranan")}</button>
+            </div>
+          )}
+          {err && drawer === "" && <p role="alert" className={css.error}>{err}</p>}
+        </>) : cr ? (<>
           <dl className={css.facts}>
             <div><dt>{L("Role name", "Nama peranan")}</dt><dd data-testid="cr-name">{cr.name}</dd></div>
             <div><dt>{L("Type", "Jenis")}</dt><dd>{crActive ? L("Custom role", "Peranan tersuai") : L("Custom role - deactivated", "Peranan tersuai - dinyahaktif")}</dd></div>
@@ -606,7 +675,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
             {protectedActs.length > 0 && <p className={css.muted}><strong>{L("Protected - the Super Admin only", "Dilindungi - Super Admin sahaja")}: </strong>{protectedActs.map((a) => L(a.en, a.ms)).join(" · ")}</p>}
           </div>
         )}
-        {!cr && <div className={css.block}>
+        {!cr && !own && <div className={css.block}>
           <p className={css.label}>{L(`Edited permissions (${editedHere.length})`, `Kebenaran disunting (${editedHere.length})`)}</p>
           {editedHere.length === 0 ? <p className={css.muted}>{L("Every permission is at its default.", "Setiap kebenaran pada asalnya.")}</p> : (
             <ul className={css.list}>{editedHere.map((a) => (
@@ -631,6 +700,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
           <p className={css.label}>{L(`Does not see ${hidden.length}`, `Tidak melihat ${hidden.length}`)}</p>
           <span className={css.chipWrap}>{hidden.map((x) => <span key={x.tab} className={chipSmNeutral}>{t(x.tab, getLang())}</span>)}</span>
         </>}
+        {own && <p className={css.notice}><AppIcon name="info" /><span>{L("Exactly the pages its holders' sidebar shows, from this role's own list.", "Tepat halaman yang ditunjukkan bar sisi pemegangnya, daripada senarai peranan ini sendiri.")}</span></p>}
         {cr && <p className={css.notice}><AppIcon name="info" /><span>{L(`Tabs follow the base role (${roleLabel(cr.base_role)}); what the person may DO inside them follows this custom role's switches.`, `Tab mengikut peranan asas (${roleLabel(cr.base_role)}); apa yang orang itu boleh LAKUKAN di dalamnya mengikut suis peranan tersuai ini.`)}</span></p>}
         <p className={css.muted}>{L("Seeing a tab is never a permission: the server checks every action on its own. One person's tabs can differ only through a per-user exception.", "Melihat tab bukan kebenaran: pelayan menyemak setiap tindakan sendiri. Tab seseorang boleh berbeza hanya melalui pengecualian setiap pengguna.")}</p>
       </div>
@@ -641,7 +711,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
     <div className={css.page} data-testid="roles-permissions">
       {toastNode}{promptNode}
       <KpiRow label={L("Roles and permissions figures", "Angka peranan dan kebenaran")} testid="roles-strip">
-        <KpiTile icon="users" tone="navy" label={L("Total Roles", "Jumlah Peranan")} value={roles.length} busy={!d0} sub={L("System roles", "Peranan sistem")} cell="roles" />
+        <KpiTile icon="users" tone="navy" label={L("Total Roles", "Jumlah Peranan")} value={roles.length} busy={!d0} sub={owns.length ? L(`System · ${owns.length} in setup`, `Sistem · ${owns.length} disediakan`) : L("System roles", "Peranan sistem")} cell="roles" />
         <KpiTile icon="person" tone="blue" label={L("Assigned Users", "Pengguna Ditetapkan")} value={assignedTotal} busy={!d0} sub={L("Active staff accounts", "Akaun kakitangan aktif")} cell="assigned" />
         <KpiTile icon="folder" tone="purple" label={L("Modules Controlled", "Modul Dikawal")} value={modules.length} busy={!d0} sub={L(`${acts.length} server-checked actions`, `${acts.length} tindakan disemak`)} cell="modules" />
         <KpiTile icon="edit" tone="gold" label={L("Edited Permissions", "Kebenaran Disunting")} value={d0?.edited_count ?? 0} busy={!d0} sub={L("Reason and code each", "Sebab dan kod setiap satu")} cell="edited" />
@@ -653,7 +723,7 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
       {policy?.e ? <p role="alert" className={css.error}>{policy.e}</p> : (
         <WorkspaceSplit testid="roles-split" ratio="35-65">
           <SplitPane testid="role-directory" title={L(`Role Directory (${roleRows.length})`, `Direktori Peranan (${roleRows.length})`)} label={L("Role directory", "Direktori peranan")}
-            actions={canManageCustom ? <button type="button" className={btnAccent} onClick={() => openForm("create")} data-testid="role-create"><AppIcon name="add" />{L("Create Role", "Cipta Peranan")}</button> : undefined}
+            actions={canManageCustom ? <button type="button" className={btnAccent} onClick={() => openOwn("create")} data-testid="role-create"><AppIcon name="add" />{L("Create Role", "Cipta Peranan")}</button> : undefined}
             sub={L("Choose a role to see and change what it may do.", "Pilih peranan untuk melihat dan menukar apa yang boleh dilakukan.")}
             toolbar={<>
               <label className={css.search}><AppIcon name="search" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search roles", "Cari peranan")} aria-label={L("Find a role", "Cari peranan")} data-testid="roles-search" /></label>
@@ -684,6 +754,58 @@ export function RolesPermissions({ policy, onChanged, staff, loaded, canAssign, 
           </SplitPane>
         </WorkspaceSplit>
       )}
+
+      {/* v1.355.0 - Create / Edit one of YOUR roles: no base role (Roles v2 stage 1) */}
+      <SideDrawer open={drawer === "own" && !!ownForm} onClose={() => { setDrawer(""); setOwnForm(null); setErr(""); }} icon="access" dirty="auto"
+        title={ownForm?.mode === "edit" ? L("Edit Role", "Sunting Peranan") : L("Create Role", "Cipta Peranan")}
+        subtitle={L("Your own role: no base role - you choose its pages and what it may do", "Peranan anda sendiri: tiada peranan asas - anda pilih halaman dan apa yang boleh dilakukan")}
+        footer={<span className={css.inline}>
+          <button type="button" className={btnSm} onClick={() => { setDrawer(""); setOwnForm(null); setErr(""); }} data-testid="own-cancel">{L("Cancel", "Batal")}</button>
+          <button type="button" className={btnAccent} data-testid="own-submit"
+            disabled={busy || !ownForm || ownForm.name.trim().length < 3 || ownForm.reason.trim().length < 10}
+            onClick={() => void submitOwn()}>
+            <AppIcon name={ownForm?.mode === "edit" ? "save" : "add"} />{ownForm?.mode === "edit" ? L("Save Role", "Simpan Peranan") : L("Create Role", "Cipta Peranan")}</button>
+        </span>}>
+        {ownForm && (
+          <div className={css.review} data-testid="own-form">
+            <label className={css.field}>{L("Role name *", "Nama peranan *")}
+              <input className={inputClassSm} maxLength={60} value={ownForm.name} onChange={(e) => setOwnForm({ ...ownForm, name: e.target.value })} placeholder={L("e.g. Warehouse Clerk", "cth. Kerani Gudang")} data-testid="own-name-input" /></label>
+            <label className={css.field}>{L("Description", "Penerangan")}
+              <textarea className={textareaClass} rows={2} maxLength={300} value={ownForm.description} onChange={(e) => setOwnForm({ ...ownForm, description: e.target.value })} placeholder={L("What this role is for", "Untuk apa peranan ini")} data-testid="own-desc-input" /></label>
+            <div className={css.field}>
+              <Switch checked={ownForm.staff} onChange={(v) => setOwnForm({ ...ownForm, staff: v })} label={L("Counts as company staff", "Dikira sebagai kakitangan syarikat")} testid="own-staff-switch" />
+              <small className={css.muted}>{L("On: holders are in payroll, headcount, attendance and rosters. Off: an outside or system account.", "Hidup: pemegang dalam gaji, bilangan, kehadiran dan jadual. Mati: akaun luar atau sistem.")}</small>
+            </div>
+            <fieldset className={css.tabPick} data-testid="own-pages-pick">
+              <legend className={css.label}>{L(`Pages it sees (${ownForm.tabs.length} chosen)`, `Halaman yang dilihat (${ownForm.tabs.length} dipilih)`)}</legend>
+              {alwaysTabs.length > 0 && <small className={css.muted}>{L(`Every role also sees: ${alwaysTabs.map((x) => t(x, getLang())).join(", ")}.`, `Setiap peranan juga melihat: ${alwaysTabs.map((x) => t(x, getLang())).join(", ")}.`)}</small>}
+              <div className={css.tabGrid}>
+                {tabChoices.map((tb) => (
+                  <label key={tb} className={css.tabOpt}>
+                    <input type="checkbox" checked={ownForm.tabs.includes(tb)} data-testid={`own-tab-${tb}`}
+                      onChange={(e) => setOwnForm({ ...ownForm, tabs: e.target.checked ? [...ownForm.tabs, tb] : ownForm.tabs.filter((x) => x !== tb) })} />
+                    <span>{t(tb, getLang())}</span>
+                  </label>
+                ))}
+              </div>
+              <small className={css.muted}>{L("Seeing a page is never a permission: the switches on Permissions decide what the role may do there.", "Melihat halaman bukan kebenaran: suis di Kebenaran menentukan apa yang boleh dilakukan di situ.")}</small>
+            </fieldset>
+            {ownForm.mode === "create" && (
+              <label className={css.field}>{L("Permissions start", "Kebenaran bermula")}
+                <select className={selectClassSm} value={ownForm.from} onChange={(e) => setOwnForm({ ...ownForm, from: e.target.value })} data-testid="own-from">
+                  <option value="">{L("Blank - nothing allowed until you switch it on", "Kosong - tiada yang dibenarkan sehingga anda hidupkan")}</option>
+                  {roleRows.map((x) => <option key={x.role} value={x.role}>{L(`Copy of ${roleLabel(x.role)}`, `Salinan ${roleLabel(x.role)}`)}</option>)}
+                </select>
+                <small className={css.muted}>{L("Protected permissions (the owner, the backup, executive and technical doors) are never copied.", "Kebenaran dilindungi (pemilik, sandaran, pintu eksekutif dan teknikal) tidak pernah disalin.")}</small></label>
+            )}
+            <p className={css.notice}><AppIcon name="info" /><span>{L("Set it up now; it can be given to people once Roles v2 stage 3 is released.", "Sediakan sekarang; ia boleh diberi kepada orang selepas peringkat 3 Peranan v2 dikeluarkan.")}</span>
+              {ownForm.mode === "create" && <button type="button" className={btnSm} onClick={() => { setOwnForm(null); openForm("create"); }} data-testid="own-use-base">{L("Need it working today? Use a 1.350.0 custom role", "Perlu berfungsi hari ini? Guna peranan tersuai 1.350.0")}</button>}</p>
+            <label className={css.field}>{L("Reason (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)")}
+              <input className={inputClassSm} maxLength={300} value={ownForm.reason} onChange={(e) => setOwnForm({ ...ownForm, reason: e.target.value })} data-testid="own-reason" /></label>
+            {err && <p role="alert" className={css.error}>{err}</p>}
+          </div>
+        )}
+      </SideDrawer>
 
       {/* v1.350.0 - Create / Edit / Duplicate a custom role: a right-side drawer on the house SideDrawer */}
       <SideDrawer open={drawer === "role" && !!crForm} onClose={() => { setDrawer(""); setCrForm(null); setErr(""); }} icon="access" dirty="auto"

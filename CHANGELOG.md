@@ -10,6 +10,67 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.356.0] - 2026-11-18 - Roles v2, stage 2: a role's pages and its staff switch are in force - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+Plan: `docs/ROLES-V2-PLAN.md`, stage 2 (decisions R-4 and R-5).
+
+### Changed
+- **Pages (R-5).** A person on one of your own roles sees exactly that role's page list in the sidebar, plus the pages every role sees (Dashboard, Desk, On Shift, Profile). It is ONE list: `canSeeTab` (`lib/portal-tabs.ts`) reads a registry the server fills - `GET /staff/tabs/access` hands each person their own role's list (`role_tabs`) and name (`role_names`), and the access review reads the same list. A per-person grant or refusal still sits above it. The code roles' pages are unchanged.
+- **Staff counts (R-4).** Every staff list in the worker - the 47 `role NOT IN ('customer', 'agent', ...)` lists, `staffRolesSql`, `taskPeopleSql` and the attendance and monitor lists - now obeys the role's **Counts as company staff** switch: on, its people are in payroll, headcount, attendance, rosters and pickers; off, they are not. One SQL fragment, the same everywhere. The code roles' people are unchanged.
+- **2FA for every own role.** A person on a role you made must set up 2FA, whether or not it counts as staff (`needs2fa`).
+- The account chip shows an own role by the name you gave it.
+
+### Still not yet
+- An own role is still not given to anyone: that waits for stage 3, when leave, claim and overtime approvals follow the Organisation chart up to the CEO (R-3). Until then the role door keeps refusing it.
+
+### Guards
+- `roles-v2` grows to 74 checks and 14 mutations: a holder's pages are their role's list (and the review agrees), the staff switch moves people in and out of the staff lists, 2FA is required, a held role is not deleted, and every staff list carries the switch (one source). Browser `roles-v2.py` 35 checks: the sidebar of a person on an own role.
+
+### Noticed, not changed
+- The Dashboard's Quick Actions card is squeezed into a narrow column at 1440px for roles with few actions (seen for Live Host too). It is the existing Dashboard layout, not this release.
+
+## [1.355.0] - 2026-11-18 - Roles v2, stage 1: roles you create with no base role - BUILT, NOT DEPLOYED (MIGRATION 0208, ADDITIVE)
+
+The CEO, 17-11-2026: "permission roles that for me to create by myself or super admin without hardcoded ... I need to make sure that I can add or remove the roles based on the operation needed!" Plan and decisions R-1 to R-6: `docs/ROLES-V2-PLAN.md`.
+
+### Added
+- **The roles table** (migration `0208_roles`, additive): the twelve code roles as rows - Super Admin, CEO, COO, CCO, Agent and Customer **protected** (R-1: never deleted or renamed), Admin, HR Admin, Sales & Marketing, Marketing, Editor and Live Host **code roles** (freed in the later stages) - each with a counts-as-staff flag that matches today's payroll and attendance lists. Database triggers refuse deleting a code role or a held role, renaming a protected role, and changing a key or its kind, whatever a route does.
+- **Create Role with no base role** (Users & Security -> Roles & Permissions -> + Create Role): a name, a description, **Counts as company staff** (on by default, R-4), **the pages it sees** (any portal page except the ones every role always sees, R-5), and permissions that start **blank** or as a **copy of any role**. A copy never takes a protected capability. The role is one more column of the same permission switches, saved through the same door.
+- **Edit and delete** your own roles in Role Details. A delete removes its column from every switch; the audit history stays.
+- Routes `POST /staff/access/roles`, `PATCH /staff/access/roles/:key`, `POST /staff/access/roles/:key/delete`: the CEO and the Super Admin only (`role_custom`, R-6), each with a reason and the authenticator code, audited (`role.create` / `role.update` / `role.delete`, entity `roles`). `GET /staff/access/policy` adds `role_table`, `role_tab_choices` and `roles_stage`.
+
+### Not yet (by design, stages 2-3)
+- **A role you create is set up, not given to anyone yet.** The role door answers `409 role_not_assignable` and `users.role` still refuses a new name. Pages, staff counts and leave, claim and overtime approvals (by the Organisation chart up to the CEO, R-3) must read the role first. The users rebuild moves to that stage, so this release does not rebuild any account.
+- The 1.350.0 custom role on a base role still works and is one press inside the Create Role drawer ("Need it working today?").
+
+### Guards
+- New `roles-v2` (the whole worker against SQLite with 0208: 61 checks, 10 mutations) and browser `tests/browser/roles-v2.py` (30 checks, desktop and 390px).
+- `roles-permissions`, `custom-roles`, `matrix-edit`, `attendance4`, `hr4` and `staff4` follow the new shapes, and the browser `custom-roles.py` reaches the 1.350.0 drawer through the new one.
+
+## [1.354.0] - 2026-11-18 - Partner applications: staff only, the COO / CCO pre-approval and the CEO's final decision - BUILT, NOT DEPLOYED (MIGRATION 0207, ADDITIVE)
+
+The CEO's brief "A2Z OS - STAFF-ONLY PARTNER APPLICATION MANAGEMENT" (17-11-2026) and his picture of Agents > Requests. Supersedes the staff side of 1.353.0; the public form is unchanged.
+
+### Changed
+- **Agents > Overview is back exactly as before 1.353.0**: the Partner Recruitment panel and the Quotations / Verified paid columns added to Conversion Performance are gone; the Requests tab's badge counts client requests only. Recruitment never enters the Agent Pipeline or its figures.
+- **Agents > Requests > Partner Applications** follows the picture: one status row across the workspace - All Requests, New, Assigned, Screening, Shortlisted, Pre-Approved, Approved, Rejected, each with its count - then the list (Ref. ID, Name, Source with its mark, Status, Assigned To, Submitted as "Today, 10:24 AM" / "Yesterday" / "10 Nov") beside the selected application: name, gender and age range, phone, email, location, View Full Application and Quick Actions. With nothing selected the right side states every status and what it means. Search and a filter button (source, assigned to) sit on the list. On a phone, choosing an application opens it in full.
+- **The process and who decides** (server-enforced, `worker/src/partners.ts`): New -> Assigned -> Screening -> Shortlisted -> Pre-Approved -> Approved -> Activated, or Rejected.
+  - Sales / agent staff (`agent_requests_view`): Pick Up (once - a second person is refused), Contact, Add Notes, Shortlist (only after a contact is recorded, with the reason).
+  - The COO or CCO (new `partner_preapprove`): Pre-Approve, Return (back to the owner for more screening) or Reject a shortlisted one.
+  - The CEO alone (`partner_approve`, now the CEO only): the final Approve, Return or Reject of a pre-approved one, then Activate - recorded separately, and only with the signed agreement, an Agent account already given in Users & Security > Customers & Agents, and a responsible salesperson set in Agents > Agents.
+  - Staff can no longer put an application on hold or reject it themselves; On Hold is no longer a step.
+- **References** are now `AGT-APP-####` (an earlier application keeps its PIA- reference).
+- **Notifications and the Desk** follow the same steps: a new application -> the Sales / agent staff and management; shortlisted -> the COO and CCO; pre-approved -> the CEO; returned, rejected, approved or activated -> the owner. The hourly reminders do the same.
+
+### Security
+- **External agents are not staff**: the partner routes refuse an agent or a customer by role before reading anything, whatever a saved permission cell or custom role says - behind the existing agent gate. The Desk never lists an application for them and no recruitment notice is ever sent to them. The Agent Portal does not mount the partner screen or request its data.
+- **Fixed**: a signed-in agent or staff member without two-factor set up was refused (`twofa_required`) when sending the public form. The form now sends its request without the sign-in cookie (`credentials: "omit"`), so it is judged as the anonymous request it is; the 2FA exemption list is unchanged (authz-guard, audit A2).
+
+### Migration
+- `0207_partner_preapproval` (additive): `partner_applications.preapproved_by`, `preapproved_at`. A shortlisted row with `preapproved_at` reads Pre-Approved. 0206 is untouched.
+
+### Guards
+- `tests/partner-applications.mjs` 174 checks, 13 mutations (the authority split by direct request, agents refused even with a saved cell, the Desk asks the CEO only after the pre-approval). Browser `tests/browser/partner-application.py` 89/89 (the public form; Overview unchanged; the CEO, COO, CCO, Sales, editor and agent screens; the bell opening the exact application; phone).
 ## [1.353.0] - 2026-11-17 - Partner Interest Application: the public form and its home in Agents - BUILT, NOT DEPLOYED (MIGRATION 0206, ADDITIVE)
 
 The CEO's brief "A2Z OS - CREATE PARTNER INTEREST APPLICATION" (17-11-2026), drawn from his three pictures.

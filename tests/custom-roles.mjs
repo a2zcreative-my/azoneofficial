@@ -228,7 +228,7 @@ bundle(root, join(dir, "worker.mjs"));
 report(await runtime(join(dir, "worker.mjs")));
 const checks = n;
 const MUT = [
-  ["worker/src/permissions.ts", "a stored custom column on a protected cell is kept", "(isCustomKey(r) && !CUSTOM_FORBIDDEN.has(k))", "(isCustomKey(r))"],
+  ["worker/src/permissions.ts", "a stored custom column on a protected cell is kept", "(isExtraKey(r) && !CUSTOM_FORBIDDEN.has(k))", "(isExtraKey(r))"],
   ["worker/src/permissions.ts", "a custom role is ignored (the base role decides)", "  if (s.custom_role && isCustomKey(s.custom_role)) return !CUSTOM_FORBIDDEN.has(String(perm)) && rolesFor(perm).includes(s.custom_role as Role);", ""],
   ["worker/src/staff.ts", "anybody manages custom roles", '    if (!allows(user, "role_custom")) return err("forbidden", "Only the CEO and the super admin manage custom roles.", 403);', ""],
   ["worker/src/staff.ts", "the code is skipped on create", 'const su = await requireFreshTotp(env, user, body?.totp, err, cur ? "duplicate a custom role" : "create a custom role");', "const su = null;"],

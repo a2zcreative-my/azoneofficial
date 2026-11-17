@@ -156,7 +156,7 @@ const mutations = [
   ["the worker forgets the joiner rule", { staff: real.staff.replace("substr(${alias}joined_on, 1, 10) <= date('now', '+8 hours')", "1 = 1") }],
   ["the search label forgets re-joiners", { search: real.search.replace("OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours'))) THEN 1", ") THEN 1") }],
   ["leavers read as the status alone again", { order: real.order.replace("if (!isCurrentStaff(u, today)) return \"left\";", "if ([\"resigned\", \"terminated\"].includes(u.employment_status ?? \"\")) return \"left\";") }],
-  ["the Dashboard tile back on currentStaffSql", { staff: real.staff.replace("WHERE is_active = 1 AND ${headcountSql()} AND role NOT IN", "WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN") }],
+  ["the Dashboard tile back on currentStaffSql", { staff: real.staff.replace("WHERE is_active = 1 AND ${headcountSql()} AND (role NOT IN", "WHERE is_active = 1 AND ${currentStaffSql()} AND (role NOT IN") }],
 ];
 for (const [name, patch] of mutations) {
   n++;

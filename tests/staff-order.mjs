@@ -343,7 +343,7 @@ const page = readPortalSource(root);
      task picker happened to say until agents left Tasks. Agents are never
      staff (v1.249.0), so the body names them too. */
   ok("there is one predicate for it",
-     /export const staffRolesSql = \(alias = ""\) =>\s*`\$\{alias\}role NOT IN \('customer', 'agent', 'super_admin'\)`;/.test(staff));
+     /export const staffRolesSql = \(alias = ""\) =>\s*`\(\$\{alias\}role NOT IN \('customer', 'agent', 'super_admin'\) AND \$\{alias\}role NOT IN \(SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0\)\)`;/.test(staff));
   const uses = (staff.match(/\$\{staffRolesSql\(/g) ?? []).length;
   ok("every staff list uses it", uses >= 10,
      `${uses} — the shift resolver, the entitlement editor, the rest-day scan, the two ` +
@@ -424,7 +424,7 @@ const page = readPortalSource(root);
   ok("every picker and fan-out uses it", uses >= 10,
      `${uses} uses — the task assignee check, the staff pickers, the birthday lists, the counts and the notification fan-outs`);
   ok("work cannot be assigned to somebody who has left",
-     /WHERE id = \?1 AND is_active = 1 AND \$\{currentStaffSql\(\)\} AND role NOT IN \('customer', 'agent'\)/.test(w), // v1.249.0 - agents are never staff
+     /WHERE id = \?1 AND is_active = 1 AND \$\{currentStaffSql\(\)\} AND \(role NOT IN \('customer', 'agent'\) AND role NOT IN \(SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0\)\)/.test(w), // v1.249.0 - agents are never staff
      "hiding them from the dropdown is not the same as refusing the assignment");
 
   /* THE EXCEPTION THE CEO NAMED HIMSELF. */

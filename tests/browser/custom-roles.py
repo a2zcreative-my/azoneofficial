@@ -99,6 +99,8 @@ with sync_playwright() as p:
     check("...in the gold action style of the house", "erp-button-accent" in (btn.get_attribute("class") or ""))
     pg.screenshot(path=f"{S}/after-desktop-ceo.png")
     btn.click(); pg.wait_for_timeout(700)
+    # v1.354.0 - + Create Role opens an own role (no base role); the 1.350.0 custom role is one press inside it
+    pg.get_by_test_id("own-use-base").click(); pg.wait_for_timeout(700)
     dr = pg.get_by_test_id("cr-form")
     dlg = pg.get_by_role("dialog").filter(has=dr)
     box = dlg.bounding_box() if dlg.count() else None
@@ -218,6 +220,7 @@ with sync_playwright() as p:
     check("phone: + Create Role is in the directory heading", pg.get_by_test_id("role-create").is_visible())
     pg.screenshot(path=f"{S}/after-phone-ceo.png", full_page=True)
     pg.get_by_test_id("role-create").click(); pg.wait_for_timeout(700)
+    pg.get_by_test_id("own-use-base").click(); pg.wait_for_timeout(700)
     check("phone: the drawer opens and nothing spills sideways", pg.get_by_test_id("cr-form").is_visible() and pg.evaluate(FITS))
     pg.screenshot(path=f"{S}/after-phone-drawer.png")
     ctx.close()
@@ -226,6 +229,7 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs = open_roles(b, 4321)
     check("super admin: + Create Role", pg.get_by_test_id("role-create").is_visible())
     pg.get_by_test_id("role-create").click(); pg.wait_for_timeout(600)
+    pg.get_by_test_id("own-use-base").click(); pg.wait_for_timeout(600)
     pg.get_by_test_id("cr-name-input").fill("Stock Clerk"); pg.get_by_test_id("cr-base").select_option("editor")
     pg.get_by_test_id("cr-reason").fill("Receives and counts stock in the store")
     pg.get_by_test_id("cr-submit").click(); pg.wait_for_timeout(800); answer(pg, "authenticator", "654321")

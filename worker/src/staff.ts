@@ -6,7 +6,7 @@
 import type { Env } from "./index";
 import { buildEventIcs } from "../../lib/event-ics";
 import { reportingLine, type OrgPerson } from "../../lib/org-tree";
-import { ALL_TABS as PORTAL_TABS, ALWAYS_VISIBLE, PARKED_TABS, canSeeTab } from "../../lib/portal-tabs"; // v1.234.0 - the one visibility rule, read by the access policy
+import { ALL_TABS as PORTAL_TABS, ALWAYS_VISIBLE, PARKED_TABS, canSeeTab, setRoleTabs } from "../../lib/portal-tabs"; // v1.234.0 - the one visibility rule, read by the access policy
 import { isCurrentStaff } from "../../lib/staff-order"; // v1.233.0 - one reporting line, the chart's own tree
 import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remainingWindows, timeWindow, type LeaveCoverage, type TimeWindow } from "../../lib/leave-coverage";
 import { shiftEntry } from "./shift-entry";
@@ -76,7 +76,7 @@ const FROM_QT = `(SELECT q.doc_number FROM sales_documents q WHERE q.id = d.conv
 
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
-import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList, canUser, isCustomKey, CUSTOM_FORBIDDEN, CUSTOM_BASE_ROLES } from "./permissions";
+import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList, canUser, isCustomKey, isOwnKey, isExtraKey, PROTECTED_ROLE_KEYS, CUSTOM_FORBIDDEN, CUSTOM_BASE_ROLES } from "./permissions";
 import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, googleAuthSettings, legacyWindowOpen, LEGACY_CUSTOMER_SQL, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
 import { mailReady, sendMail, sendMailResult } from "./mail"; // v1.238.0 - Cloudflare Email Sending; v1.247.0 - the provider answer for the log
 
@@ -305,12 +305,12 @@ export async function isHourlyUserId(env: Env, userId: number): Promise<boolean>
  * because controlling the system is the job. It changes who the system
  * counts, pays, rosters and chases for a missing punch. */
 export const staffRolesSql = (alias = "") =>
-  `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;
+  `(${alias}role NOT IN ('customer', 'agent', 'super_admin') AND ${alias}role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`;
 /** v1.249.0 - the people WORK can be given to. v1.250.2 (the owner, 01-11-2026:
     "Remove Tasks" - an agent works through their requests only): staff, never
     agents. Agents are never staff (payroll, attendance, headcount, leave). */
 export const taskPeopleSql = (alias = "") =>
-  `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;
+  `(${alias}role NOT IN ('customer', 'agent', 'super_admin') AND ${alias}role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`;
 
 /** THE SAME STAFF ORDER AS THE SCREEN, in SQL — v1.78.0.
  *
@@ -1102,7 +1102,7 @@ export async function reconcileDerivedOt(env: Env, month: string): Promise<{ add
     .filter((h) => ["public", "replacement"].includes(h.kind ?? "public")).map((h) => h.holiday_date));
   const { results: people } = await env.DB.prepare(
     `SELECT id, role, employment_status FROM users
-      WHERE is_active = 1 AND role NOT IN ('customer', 'agent','super_admin','admin','ceo','coo','cco')`,
+      WHERE is_active = 1 AND (role NOT IN ('customer', 'agent','super_admin','admin','ceo','coo','cco') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
   ).all<{ id: number; role: string; employment_status: string | null }>();
   const salaried = new Set((people ?? [])
     .filter((p) => p.employment_status !== "part_time" && !isHourlyUser(p.role, p.employment_status))
@@ -2111,6 +2111,41 @@ export async function readCustomRoles(env: Env): Promise<CustomRoleRow[]> {
 }
 export async function customRoleKeys(env: Env): Promise<string[]> { return (await readCustomRoles(env)).map((c) => c.key); }
 
+/* v1.355.0 - ROLES V2, STAGE 1 (docs/ROLES-V2-PLAN.md, migration 0208). Every row of the roles
+   table: the twelve code roles (protected or builtin) and the owner's own roles (r_...); [] before
+   0208. `holders` counts every account whose users.role is the key - always 0 for an own role in
+   stage 1 (users.role still has its CHECK), and the database refuses to delete a held role. */
+export interface RoleRow { key: string; name: string; description: string | null; kind: "protected" | "builtin" | "own"; counts_as_staff: number; tabs: string[] | null; created_at: string; created_by_name: string | null; updated_at: string | null; holders: number }
+export async function readRoles(env: Env): Promise<RoleRow[]> {
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT r.key, r.name, r.description, r.kind, r.counts_as_staff, r.tabs, r.created_at, r.updated_at,
+              (SELECT COALESCE(NULLIF(TRIM(b.full_name), ''), b.name) FROM users b WHERE b.id = r.created_by) AS created_by_name,
+              (SELECT COUNT(*) FROM users u WHERE u.role = r.key) AS holders
+         FROM roles r ORDER BY CASE r.kind WHEN 'protected' THEN 0 WHEN 'builtin' THEN 1 ELSE 2 END, lower(r.name)`,
+    ).all<Omit<RoleRow, "tabs"> & { tabs: string | null }>()).results ?? [];
+    return rows.map((x) => {
+      let tabs: string[] | null = null;
+      try { const t = x.tabs ? JSON.parse(x.tabs) : null; tabs = Array.isArray(t) ? t.map(String) : null; } catch { tabs = null; }
+      return { ...x, tabs, holders: Number(x.holders) };
+    });
+  } catch { return []; }
+}
+/** the pages an own role may list (R-5): every live tab except the always-visible ones, which come with every role */
+export const ROLE_TAB_CHOICES: readonly string[] = (PORTAL_TABS as readonly string[]).filter((t) => !(PARKED_TABS as readonly string[]).includes(t) && !(ALWAYS_VISIBLE as readonly string[]).includes(t));
+/** v1.356.0 - Roles v2 stage 2: the page list of every own role, into the one registry canSeeTab reads
+    (lib/portal-tabs.ts). Returned too, so a route can hand a person their own role's list. */
+export async function loadRoleTabs(env: Env): Promise<Record<string, string[]>> {
+  const map: Record<string, string[]> = {};
+  for (const r of await readRoles(env)) if (r.kind === "own") map[r.key] = r.tabs ?? [];
+  setRoleTabs(map);
+  return map;
+}
+/** the keys of the owner's own roles - one more column of the cells, like a custom role's */
+export async function ownRoleKeys(env: Env): Promise<string[]> { return (await readRoles(env)).filter((x) => x.kind === "own").map((x) => x.key); }
+/** every role key that is not a code role: custom roles (cr_, 0205) and own roles (r_, 0208) */
+export async function extraRoleKeys(env: Env): Promise<string[]> { return [...await customRoleKeys(env), ...await ownRoleKeys(env)]; }
+
 /* v1.236.0 - the designated company owner record (system_meta), or null. */
 export async function readOwner(env: Env): Promise<{ user_id: number; set_by: number; set_by_name: string | null; set_at: string; reason: string } | null> {
   const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'company_owner'`).first<{ value: string }>().catch(() => null);
@@ -2297,7 +2332,7 @@ export async function notifyLeaveActors(env: Env, leaveId: number, stage: string
 export async function leaveOrgList(env: Env): Promise<OrgPerson[]> {
   return ((await env.DB.prepare(
     `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to
-       FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin')`,
+       FROM users WHERE (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
   ).all<OrgPerson>()).results ?? []);
 }
 /** The CEO's switch (business_settings.leave_routing): "legacy" until he
@@ -2912,7 +2947,7 @@ export async function revokePaidConfirmation(env: Env, invoiceId: number, userId
 async function closerEligible(env: Env, id: number | null | undefined): Promise<boolean> {
   if (!id || !Number.isInteger(id) || id <= 0) return false;
   return Boolean(await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'admin', 'super_admin') AND ${currentStaffSql()}`,
+    `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND (role NOT IN ('customer', 'agent', 'admin', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${currentStaffSql()}`,
   ).bind(id).first());
 }
 
@@ -3385,6 +3420,9 @@ async function handleStaffRoutes(
       await audit(env, user.id, "role.assign", "users", String(idC), { from: fromKey ?? tgt.role, to: cr.key, name: cr.name, base_role: cr.base_role, reason: reasonR, by_role: user.role });
       return json({ ok: true, role: cr.key, base_role: cr.base_role });
     }
+    /* v1.355.0 - an own role (Roles v2 stage 1) is set up, never given yet: pages, staff counts and
+       approvals do not read it until stages 2-3, and users.role still refuses it (its CHECK) */
+    if (typeof body?.role === "string" && isOwnKey(body.role)) return err("role_not_assignable", "This role is being set up. It can be given to people once its pages, staff counts and approvals are in place (Roles v2, stages 2 and 3).", 409);
     const OFFERED = ["editor", "marketing", "live_host", "hr_admin", "sales_marketing", "coo", "cco", "customer", "agent", "admin", "ceo"]; // v1.250.0 - agent (Grant Agent Access); it was offered on screen since 1.249.0 but refused here
     const EMP_STATUSES = ["permanent", "contract", "part_time", "probation"];
     const newRole = typeof body?.role === "string" ? body.role : "";
@@ -3571,7 +3609,7 @@ async function handleStaffRoutes(
     // available to every staff role, nothing sensitive.
     const { results } = await env.DB.prepare(
       `SELECT COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, birthday FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND birthday IS NOT NULL`,
+       WHERE is_active = 1 AND ${currentStaffSql()} AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND birthday IS NOT NULL`,
     ).all();
     return json({ birthdays: results });
   }
@@ -3683,7 +3721,7 @@ async function handleStaffRoutes(
          gesture rather than a control */
       lives_today: await n(`SELECT COUNT(*) AS c FROM live_sessions WHERE session_date = date('now', '+8 hours') AND status != 'cancelled'`),
       /* v1.230.0 - headcount (started, on staff today), the Staff tab's Active */
-      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${headcountSql()} AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`),
+      staff_total: await n(`SELECT COUNT(*) AS c FROM users WHERE is_active = 1 AND ${headcountSql()} AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`),
 
       pending_leave: await gated(people, `SELECT COUNT(*) AS c FROM leave_requests WHERE status = 'pending'`),
       pending_claims: await gated(canUser(user, "claims_decide"), `SELECT COUNT(*) AS c FROM claims WHERE status = 'pending'`),
@@ -3750,7 +3788,7 @@ async function handleStaffRoutes(
     // sensitive (no phone/IC/bank/salary).
     const { results } = await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.department, u.employment_status FROM users u
-       WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND u.role NOT IN ('customer', 'super_admin', 'admin')
+       WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND (u.role NOT IN ('customer', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
          AND u.role != 'agent'
        ORDER BY ${STAFF_ORDER_SQL}`,
     ).all(); // v1.250.2 - agents are in no picker (no tasks since the owner's answer of 01-11-2026, never a salesperson)
@@ -4184,7 +4222,7 @@ async function handleStaffRoutes(
     try {
       rows = ((await env.DB.prepare(
         `SELECT id, name, full_name, role, position, department, photo_key, employment_status, left_on, rejoined_on, reports_to
-           FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin')`,
+           FROM users WHERE (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
       ).all<OrgPerson>()).results ?? []);
     } catch (e) {
       if (e instanceof Error && e.message.includes("no such column")) return err("pending_migration", "Run the deploy so migration 0113 applies", 409);
@@ -5379,7 +5417,7 @@ async function handleStaffRoutes(
         const { results } = await env.DB.prepare(
           `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.photo_key
            FROM users u
-           WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin')
+           WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
              AND NOT EXISTS (SELECT 1 FROM live_sessions s2 WHERE s2.host_user_id = u.id
                                AND s2.session_date = ?1 AND s2.status != 'cancelled')
              AND NOT EXISTS (SELECT 1 FROM leave_requests l2 WHERE l2.user_id = u.id
@@ -5435,7 +5473,7 @@ async function handleStaffRoutes(
         const shiftAtW = await shiftResolver(env);
         const { results: people } = mgrR
           ? await env.DB.prepare(
-              `SELECT id FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`,
+              `SELECT id FROM users WHERE is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
             ).all<{ id: number }>()
           : { results: [{ id: user.id }] };
         for (const p of people ?? []) {
@@ -6087,7 +6125,7 @@ async function handleStaffRoutes(
                 ORDER BY a.created_at LIMIT 1) AS in_gps
        FROM users u
        WHERE u.is_active = 1
-         AND u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host')
+         AND (u.role IN ('ceo','coo','cco','hr_admin','sales_marketing','marketing','editor','live_host') OR u.role IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 1))
          AND ${headcountSql("u.")}
        ORDER BY ${STAFF_ORDER_SQL}`,
     ).bind(todayM).all(); // v1.243.0 (D9) - the headcount rule: a leaver past their last day and a future joiner are not on the monitor
@@ -8362,7 +8400,7 @@ async function handleStaffRoutes(
     let newPayee: number | null = null;
     if (pid > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent')`,
+        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
       ).bind(pid).first<{ id: number; role: string }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       /* v1.310.0 (C-1) - never a claim nobody could decide */
@@ -8793,7 +8831,7 @@ async function handleStaffRoutes(
     let payeeRole: string | null = null; // v1.4.175: drives conflict rerouting
     if (typeof body?.payee_user_id === "number" && body.payee_user_id > 0) {
       const pu = await env.DB.prepare(
-        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent')`,
+        `SELECT id, role FROM users WHERE id = ?1 AND is_active = 1 AND ${currentStaffSql()} AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
       ).bind(body.payee_user_id).first<{ id: number; role: string }>();
       if (!pu) return err("invalid_input", "Payee must be an active staff account", 400);
       payeeId = pu.id;
@@ -9062,7 +9100,7 @@ async function handleStaffRoutes(
                 p.worked_days, p.month_working_days, u.base_salary_cents, u.name AS uname
          FROM payroll_entries p JOIN users u ON u.id = p.user_id
          WHERE p.month = ?1 AND u.is_active = 1
-           AND u.role NOT IN ('customer', 'agent', 'super_admin')
+           AND (u.role NOT IN ('customer', 'agent', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
            AND NOT (u.left_on IS NOT NULL AND u.left_on < ?2
                     AND (u.rejoined_on IS NULL OR u.rejoined_on > ?3))`,
       ).bind(prevM, mStart, mEnd).all<{ user_id: number; basic_cents: number; commission_cents: number; allowance_cents: number; ot_cents: number; deduction_cents: number; net_cents: number | null; worked_days: number | null; month_working_days: number | null; base_salary_cents: number }>();
@@ -9814,11 +9852,15 @@ async function handleStaffRoutes(
     let overrides: Record<string, string[]> = {};
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
     const people = await readPeople();
+    /* v1.356.0 - Roles v2 stage 2: a person on an own role gets that role's page list (and only theirs) */
+    const roleTabs = await loadRoleTabs(env);
+    const myRoleTabs = roleTabs[user.role] ? { [user.role]: roleTabs[user.role]! } : {};
+    const myRoleName = roleTabs[user.role] ? { [user.role]: (await readRoles(env)).find((x) => x.key === user.role)?.name ?? user.role } : {};
     // v1.236.0 - the verified owner is pinned to every tab the CEO role sees
     if (user.is_owner) {
       return json({ overrides, mine: { allow: TAB_ACCESS_TABS.filter((t) => canSeeTab("ceo", t, {}, null)), deny: [] }, owner_pinned: true });
     }
-    return json({ overrides, mine: effective(people[String(user.id)]) });
+    return json({ overrides, mine: effective(people[String(user.id)]), role_tabs: myRoleTabs, role_names: myRoleName });
   }
 
   if (path === "/tabs/access/people" && method === "GET") {
@@ -12743,7 +12785,7 @@ async function handleStaffRoutes(
     }
     if (cur === toId) return err("invalid_input", "That person is already the closer.", 400);
     const person = await env.DB.prepare(
-      `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent') AND ${currentStaffSql()}`,
+      `SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${currentStaffSql()}`,
     ).bind(toId).first<{ id: number }>();
     if (!person) return err("invalid_input", "That person is not on the current staff list.", 400);
     if (!(await closerEligible(env, toId))) return err("closer_required", "The closer must be a salesperson, not a system account.", 400);
@@ -14717,7 +14759,7 @@ async function handleStaffRoutes(
     security: ["Security incident", "high"],
   };
   const supportAssignee = async (): Promise<{ id: number; name: string } | null> => {
-    const pick = async (id: number) => id ? await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`).bind(id).first<{ id: number; name: string }>() : null;
+    const pick = async (id: number) => id ? await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`).bind(id).first<{ id: number; name: string }>() : null;
     const set = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'support_assignee'`).first<{ value: string }>().catch(() => null);
     const a = await pick(Number(set?.value ?? 0)); if (a) return a;
     const o = await readOwner(env); const b = o ? await pick(o.user_id) : null; if (b) return b;
@@ -14726,13 +14768,13 @@ async function handleStaffRoutes(
   if (path === "/support/settings" && method === "GET") {
     const editor = user.role === "super_admin" || user.is_owner === true;
     const a = await supportAssignee();
-    const people = editor ? (await env.DB.prepare(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin') AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated') ORDER BY ${STAFF_ORDER_SQL}`).all()).results : [];
+    const people = editor ? (await env.DB.prepare(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND COALESCE(u.employment_status, '') NOT IN ('resigned', 'terminated') ORDER BY ${STAFF_ORDER_SQL}`).all()).results : [];
     return json({ assignee: a, can_edit: editor, people, kinds: Object.fromEntries(Object.entries(SUPPORT_KINDS).map(([k, v]) => [k, v[0]])) });
   }
   if (path === "/support/settings" && method === "POST") {
     if (!(user.role === "super_admin" || user.is_owner === true)) return err("forbidden", "The company owner or the super admin chooses who receives problem reports", 403);
     const id = Number(body?.user_id);
-    const ok = Number.isInteger(id) && id > 0 ? await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin')`).bind(id).first() : null;
+    const ok = Number.isInteger(id) && id > 0 ? await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`).bind(id).first() : null;
     if (!ok) return err("invalid_input", "Choose an active staff member", 400);
     await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('support_assignee', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(id)).run();
     await audit(env, user.id, "support.assignee_set", "users", String(id));
@@ -14849,7 +14891,7 @@ async function handleStaffRoutes(
     if (reasonP.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
     const resetAll = body?.reset_all === true;
     if (resetAll && !sysEditor) return err("forbidden", "Only the company owner or the super admin resets every role." + ownerOffHint(user), 403);
-    const crKeys = await customRoleKeys(env);
+    const crKeys = await extraRoleKeys(env); // v1.355.0 - custom (cr_) and own (r_) roles: one more column each
     const known = (r: string) => POLICY_ROLES.includes(r as Role) || crKeys.includes(r);
     const raw = Array.isArray(body?.changes) ? (body!.changes as unknown[]) : [];
     const changes: { cap: keyof typeof PERMS; roles: Role[] | null }[] = [];
@@ -14862,7 +14904,7 @@ async function handleStaffRoutes(
       const asked = (o.roles as unknown[]).map(String);
       const bad = asked.filter((r) => !known(r));
       if (bad.length) return err("invalid_input", `Not a staff role: ${bad.join(", ")}`, 400);
-      if (asked.some(isCustomKey) && CUSTOM_FORBIDDEN.has(cap)) return err("locked_cell", `${cap} is protected - a custom role can never hold it.`, 409);
+      if (asked.some(isExtraKey) && CUSTOM_FORBIDDEN.has(cap)) return err("locked_cell", `${cap} is protected - a custom or own role can never hold it.`, 409);
       const rolesC = [...POLICY_ROLES.filter((r) => asked.includes(r)), ...crKeys.filter((k) => asked.includes(k))] as Role[];
       const lockedC = lockedCellViolation(cap, rolesC); // v1.242.0 (A6 / D-6)
       if (lockedC) return err("locked_cell", `${cap} cannot be changed that way. ${lockedC}`, 409);
@@ -14923,7 +14965,8 @@ async function handleStaffRoutes(
     const roles = [...POLICY_ROLES];
     const permRec = await readPermRecord(env);
     const customs = await readCustomRoles(env); // v1.350.0 - their columns travel with the system roles' cells
-    const crKeysG = customs.map((c) => c.key);
+    const rolesTable = await readRoles(env); // v1.355.0 - Roles v2 stage 1
+    const crKeysG = [...customs.map((c) => c.key), ...rolesTable.filter((x) => x.kind === "own").map((x) => x.key)];
     const sysOf = (rs: readonly string[]) => POLICY_ROLES.filter((r) => rs.includes(r)).join();
     const sysEdited = (cap: keyof typeof PERMS) => permRec.perms[cap] !== undefined && sysOf(permRec.perms[cap]!) !== sysOf(PERMS[cap]!);
     const actions = ACTION_CATALOGUE.map((a) => {
@@ -14968,6 +15011,9 @@ async function handleStaffRoutes(
       edited_count: (Object.keys(permRec.perms) as (keyof typeof PERMS)[]).filter((c) => c in PERMS && sysEdited(c)).length,
       /* v1.350.0 - the custom roles (active and deactivated), who holds each, and who may manage them */
       custom_roles: customs, can_manage_custom: allows(user, "role_custom"), custom_bases: CUSTOM_BASE_ROLES,
+      /* v1.355.0 - Roles v2 stage 1: every row of the roles table (code roles and own roles) and the
+         pages an own role may list (the always-visible ones come with every role) */
+      role_table: rolesTable, role_tab_choices: ROLE_TAB_CHOICES, roles_stage: 1,
     });
   }
   /* ---- v1.350.0 - CUSTOM ROLES (the CEO, 17-11-2026, "A2Z OS - CUSTOM ROLE MANAGEMENT";
@@ -14977,6 +15023,133 @@ async function handleStaffRoutes(
      (role.create / role.update / role.disable / role.enable / role.duplicate / role.delete).
      A custom role is a column of the SAME cells the matrix edits; it stands on one working
      base role and never on a protected capability. ---- */
+  /* ---- v1.355.0 - ROLES V2, STAGE 1 (docs/ROLES-V2-PLAN.md; the CEO, 17-11-2026: "permission roles
+     that for me to create by myself or super admin without hardcoded"). The owner's OWN roles: no base
+     role. Create (name, description, counts as staff, pages, and permissions blank or copied from any
+     role), edit, delete - role_custom (the CEO and the super admin, the same door, R-6), each with a
+     reason and the authenticator code, each audited (role.create / role.update / role.delete, target
+     "roles"). The six protected roles (R-1) and the six code roles are never changed or deleted here
+     (stage 1); the database refuses it too (0208 triggers). An own role is never given to a person in
+     stage 1 (the role door answers 409 role_not_assignable). ---- */
+  const rlMatch = path.match(/^\/access\/roles(?:\/([a-z0-9_]{2,44})(\/delete)?)?$/);
+  if (rlMatch && method !== "GET") {
+    if (!allows(user, "role_custom")) return err("forbidden", "Only the CEO and the super admin manage roles.", 403);
+    const reasonR = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (reasonR.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    const table = await readRoles(env);
+    if (!table.length) return err("not_ready", "The roles table is not in the database yet (migration 0208).", 503);
+    const key = rlMatch[1] ?? null;
+    const cur = key ? table.find((x) => x.key === key) ?? null : null;
+    if (key && !cur) return err("not_found", "Role not found", 404);
+    if (cur && cur.kind !== "own") return err("role_protected", PROTECTED_ROLE_KEYS.includes(cur.key as Role)
+      ? `${cur.name} is protected: it is never renamed, re-paged or deleted.`
+      : `${cur.name} is a code role: it becomes yours to change once the later Roles v2 stages free it.`, 409);
+    const customs = await readCustomRoles(env);
+    const cleanName = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, 60) : "");
+    const cleanDesc = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 300) : "");
+    const nameTaken = (n: string, except?: string) => table.some((x) => x.key !== except && x.name.toLowerCase() === n.toLowerCase())
+      || customs.some((c) => c.name.toLowerCase() === n.toLowerCase())
+      || (POLICY_ROLES as readonly string[]).some((x) => x.replace(/_/g, " ") === n.toLowerCase());
+    const cleanTabs = (v: unknown): string[] | "bad" => {
+      if (!Array.isArray(v)) return "bad";
+      const ask = [...new Set(v.map(String))];
+      if (ask.some((t) => !ROLE_TAB_CHOICES.includes(t))) return "bad";
+      return ROLE_TAB_CHOICES.filter((t) => ask.includes(t));
+    };
+    const at = new Date().toISOString().slice(0, 19).replace("T", " ");
+    const extra = [...customs.map((c) => c.key), ...table.filter((x) => x.kind === "own").map((x) => x.key)];
+
+    if (!key && method === "POST") {
+      const name = cleanName(body?.name);
+      if (name.length < 3) return err("invalid_input", "Give the role a name (at least 3 characters).", 400);
+      if (nameTaken(name)) return err("name_taken", `A role called "${name}" already exists.`, 409);
+      const tabs = cleanTabs(body?.tabs ?? []);
+      if (tabs === "bad") return err("invalid_input", `Pages must be chosen from: ${ROLE_TAB_CHOICES.join(", ")}`, 400);
+      const staffOn = body?.counts_as_staff === false ? 0 : 1; // R-4: on by default
+      /* the permissions start blank, or as a copy of any role's (a code role, a custom role or an own role) */
+      const from = typeof body?.copy_from === "string" && body.copy_from ? body.copy_from : "";
+      if (from && !(POLICY_ROLES as readonly string[]).includes(from) && !extra.includes(from)) return err("invalid_input", `Unknown role to copy from: ${from}`, 400);
+      const su = await requireFreshTotp(env, user, body?.totp, err, "create a role");
+      if (su) return su;
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 36) || "role";
+      const baseKey = `r_${slug.length >= 2 ? slug : `${slug}_role`}`;
+      let nk = baseKey; let i = 2;
+      while (table.some((x) => x.key === nk)) nk = `${baseKey}_${i++}`;
+      await env.DB.prepare(
+        `INSERT INTO roles (key, name, description, kind, counts_as_staff, tabs, created_by, created_at) VALUES (?1, ?2, ?3, 'own', ?4, ?5, ?6, ?7)`,
+      ).bind(nk, name, cleanDesc(body?.description) || null, staffOn, JSON.stringify(tabs), user.id, at).run();
+      let cells = 0;
+      if (from) {
+        const rec = await readPermRecord(env);
+        for (const cap of Object.keys(PERMS) as (keyof typeof PERMS)[]) {
+          if (CUSTOM_FORBIDDEN.has(String(cap))) continue;
+          const now = (rec.perms[cap] ?? PERMS[cap]!) as readonly string[];
+          if (!now.includes(from)) continue;
+          rec.perms[cap] = [...now, nk] as Role[]; rec.meta[cap] = rec.meta[cap] ?? { by: user.id, by_name: user.name, at, reason: reasonR };
+          cells++;
+        }
+        await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(JSON.stringify(rec)).run();
+        setPermissionOverrides(rec.perms);
+      }
+      await audit(env, user.id, "role.create", "roles", nk, { key: nk, name, counts_as_staff: !!staffOn, tabs, from: from || null, cells, reason: reasonR, by_role: user.role });
+      return json({ ok: true, key: nk, cells }, 201);
+    }
+
+    if (cur && !rlMatch[2] && method === "PATCH") {
+      const name = body?.name !== undefined ? cleanName(body.name) : cur.name;
+      if (name.length < 3) return err("invalid_input", "Give the role a name (at least 3 characters).", 400);
+      if (nameTaken(name, cur.key)) return err("name_taken", `A role called "${name}" already exists.`, 409);
+      const desc = body?.description !== undefined ? cleanDesc(body.description) : cur.description ?? "";
+      const staffOn = typeof body?.counts_as_staff === "boolean" ? (body.counts_as_staff ? 1 : 0) : cur.counts_as_staff;
+      const tabs = body?.tabs !== undefined ? cleanTabs(body.tabs) : (cur.tabs ?? []);
+      if (tabs === "bad") return err("invalid_input", `Pages must be chosen from: ${ROLE_TAB_CHOICES.join(", ")}`, 400);
+      const was = cur.tabs ?? [];
+      const same = name === cur.name && desc === (cur.description ?? "") && staffOn === cur.counts_as_staff && tabs.join() === was.join();
+      if (same) return json({ ok: true, unchanged: true });
+      const su = await requireFreshTotp(env, user, body?.totp, err, "change a role");
+      if (su) return su;
+      await env.DB.prepare(`UPDATE roles SET name = ?1, description = ?2, counts_as_staff = ?3, tabs = ?4, updated_by = ?5, updated_at = ?6 WHERE key = ?7 AND kind = 'own'`)
+        .bind(name, desc || null, staffOn, JSON.stringify(tabs), user.id, at, cur.key).run();
+      await audit(env, user.id, "role.update", "roles", cur.key, {
+        key: cur.key, ...(name !== cur.name ? { name_from: cur.name, name_to: name } : { name }),
+        ...(desc !== (cur.description ?? "") ? { description: desc } : {}),
+        ...(staffOn !== cur.counts_as_staff ? { counts_as_staff: !!staffOn } : {}),
+        ...(tabs.join() !== was.join() ? { tabs_added: tabs.filter((t) => !was.includes(t)), tabs_removed: was.filter((t) => !tabs.includes(t)) } : {}),
+        reason: reasonR, by_role: user.role,
+      });
+      return json({ ok: true });
+    }
+
+    /* delete: only while nobody holds it (the database refuses otherwise); its cells go with it, the audit history stays */
+    if (cur && rlMatch[2] === "/delete" && method === "POST") {
+      if (cur.holders > 0) return err("in_use", `${cur.holders} account(s) hold "${cur.name}" - move them to another role first.`, 409);
+      const su = await requireFreshTotp(env, user, body?.totp, err, "delete a role");
+      if (su) return su;
+      const rec = await readPermRecord(env);
+      let cells = 0;
+      for (const cap of Object.keys(rec.perms)) {
+        const v = rec.perms[cap]!;
+        if (!v.includes(cur.key as Role)) continue;
+        cells++;
+        const next = v.filter((x) => x !== cur.key);
+        const def = POLICY_ROLES.filter((x) => PERMS[cap]!.includes(x));
+        if (next.join() === def.join()) { delete rec.perms[cap]; delete rec.meta[cap]; } else rec.perms[cap] = next;
+      }
+      try {
+        await env.DB.batch([
+          env.DB.prepare(`DELETE FROM roles WHERE key = ?1 AND kind = 'own'`).bind(cur.key),
+          env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(JSON.stringify(rec)),
+        ]);
+      } catch (e) {
+        if (/role_in_use/.test(String(e))) return err("in_use", `Someone was given "${cur.name}" a moment ago - move them to another role first.`, 409);
+        throw e;
+      }
+      setPermissionOverrides(rec.perms);
+      await audit(env, user.id, "role.delete", "roles", cur.key, { key: cur.key, name: cur.name, cells, reason: reasonR, by_role: user.role });
+      return json({ ok: true });
+    }
+    return err("not_found", "Unknown role action", 404);
+  }
   const crMatch = path.match(/^\/access\/custom-roles(?:\/(\d+)(\/duplicate|\/delete)?)?$/);
   if (crMatch && method !== "GET") {
     if (!allows(user, "role_custom")) return err("forbidden", "Only the CEO and the super admin manage custom roles.", 403);
@@ -15086,9 +15259,10 @@ async function handleStaffRoutes(
     const row = await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'tab_access'`).first<{ value: string }>().catch(() => null);
     let overrides: Record<string, string[]> = {};
     try { overrides = row?.value ? (JSON.parse(row.value) as Record<string, string[]>) : {}; } catch { overrides = {}; }
+    await loadRoleTabs(env); // v1.356.0 - an own role's people are reviewed against its own page list
     const people = await readPeople();
     const staffRows = ((await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, left_on, rejoined_on, employment_status FROM users WHERE role NOT IN ('customer', 'agent', 'super_admin') ORDER BY id`,
+      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, is_active, left_on, rejoined_on, employment_status FROM users WHERE (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) ORDER BY id`,
     ).all<{ id: number; name: string; role: string; is_active: number; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);
     const byId = new Map(staffRows.map((u) => [u.id, u]));
     const exceptions: unknown[] = [];
@@ -16092,7 +16266,7 @@ async function handleStaffRoutes(
     if (!canUser(user, "payroll_process")) return err("forbidden", "Payroll access required", 403);
     const { results } = await env.DB.prepare(
       `SELECT id AS user_id, base_salary_cents FROM users
-       WHERE role NOT IN ('customer', 'agent', 'super_admin') AND is_active = 1 AND ${payrollBaseStaffSql()}`,
+       WHERE (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND is_active = 1 AND ${payrollBaseStaffSql()}`,
     ).all();
     return json({ base: results });
   }
@@ -20494,7 +20668,7 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
 
     const { results: staff } = await env.DB.prepare(
       `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, photo_key FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`,
+       WHERE is_active = 1 AND ${currentStaffSql()} AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
     ).all<{ id: number; name: string; role: string; photo_key: string | null }>();
 
     let earners = 0;
@@ -20548,7 +20722,7 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
        uses, so the two screens name the same people. */
     const { results: staff } = await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.employment_status FROM users u
-       WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND ${payrollMonthStaffSql(month, "u.")} ORDER BY ${STAFF_ORDER_SQL}`,
+       WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${payrollMonthStaffSql(month, "u.")} ORDER BY ${STAFF_ORDER_SQL}`,
     ).all();
     return json({ month, company_target_cents: company, user_targets: users, team_targets: teams, staff });
   }
@@ -21096,7 +21270,7 @@ export async function attendanceRange(env: Env, from: string, to: string, nowMs 
   const people = ((await env.DB.prepare(
     `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.department, u.joined_on, u.left_on, u.rejoined_on, u.employment_status
        FROM users u
-      WHERE u.role IN (${ATTENDANCE_STAFF_ROLES.map((r) => `'${r}'`).join(", ")})
+      WHERE (u.role IN (${ATTENDANCE_STAFF_ROLES.map((r) => `'${r}'`).join(", ")}) OR u.role IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 1))
         AND (u.is_active = 1 OR (u.left_on IS NOT NULL AND u.left_on >= ?1))
       ORDER BY ${STAFF_ORDER_SQL}`,
   ).bind(from).all<{ id: number; name: string; role: string; position: string | null; department: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);
@@ -21229,7 +21403,7 @@ export async function handleAttendance4(env: Env, path: string, method: string, 
     const people = ((await env.DB.prepare(
       `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.position, u.department, u.joined_on, u.left_on, u.rejoined_on, u.employment_status
          FROM users u
-        WHERE u.role IN (${ATTENDANCE_STAFF_ROLES.map((r) => `'${r}'`).join(", ")}) AND (u.is_active = 1 OR (u.left_on IS NOT NULL AND u.left_on >= ?1))
+        WHERE (u.role IN (${ATTENDANCE_STAFF_ROLES.map((r) => `'${r}'`).join(", ")}) OR u.role IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 1)) AND (u.is_active = 1 OR (u.left_on IS NOT NULL AND u.left_on >= ?1))
           ${team ? "" : "AND u.id = ?2"}
         ORDER BY ${STAFF_ORDER_SQL}`,
     ).bind(...(team ? [from] : [from, user.id])).all<{ id: number; name: string; role: string; position: string | null; department: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; employment_status: string | null }>()).results ?? []);

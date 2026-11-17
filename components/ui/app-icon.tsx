@@ -45,6 +45,7 @@ import {
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
   RefreshCw, Save, ExternalLink, ChevronLeft, Plus, Users, Cloud, MonitorSmartphone, Building2, Ellipsis, type LucideIcon,
+  Facebook, Instagram, Linkedin, Music2, AtSign, Globe, House, Filter, X,
 } from "lucide-react";
 import type React from "react";
 
@@ -134,6 +135,17 @@ export const APP_ICON = {
   devices: MonitorSmartphone, // v1.345.0 - the sign-in page's "Web + PWA Ready"
   building: Building2, // v1.346.0 - a customer on the Sales Recovery Pipeline
   more: Ellipsis, // v1.346.0 - a row's "open" control drawn as the reference's three dots
+  /* v1.354.0 - where a partner application came from (Agents > Requests > Partner Applications);
+     the same marks the public form draws. "X" is a letter and WhatsApp the chat mark. */
+  facebook: Facebook,
+  instagram: Instagram,
+  linkedin: Linkedin,
+  tiktok: Music2,
+  threads: AtSign,
+  google: Globe,
+  website: House,
+  filter: Filter,
+  close: X,
 } satisfies Record<string, LucideIcon>;
 
 export type AppIconName = keyof typeof APP_ICON;

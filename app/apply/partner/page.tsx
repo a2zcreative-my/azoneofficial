@@ -106,11 +106,15 @@ const STEP_OF: Record<string, Step> = {
   time_available: 3, screening_window: 3, ack_independent: 3, ack_terms: 3, privacy_ack: 3,
 };
 
-/* One press, one POST: the server keeps one record per client_key. */
+/* One press, one POST: the server keeps one record per client_key. Sent without the sign-in cookie. */
 function sendApplication(body: Record<string, unknown>) {
   return api<{ ok?: boolean; ref?: string; existing?: boolean; error?: { code?: string; message?: string; fields?: Record<string, string> } }>("/public/partner-applications", {
     method: "POST",
     body: JSON.stringify(body),
+    /* v1.354.0 - the form needs no session, so it never sends one: a person who is also signed in
+       (an agent, or staff still setting up 2FA) applies like anyone else, and the 2FA gate - which
+       judges only a request that carries a session - stays exactly as the security audit set it */
+    credentials: "omit",
   });
 }
 

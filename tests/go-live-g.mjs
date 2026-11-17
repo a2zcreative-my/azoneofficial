@@ -226,7 +226,7 @@ function sourceChecks() {
   const tabs = readFileSync(join(root, "lib/portal-tabs.ts"), "utf8");
   ok(/AGENT_TABS: readonly string\[\] = \["Agents", "Profile"\]/.test(tabs) && /if \(role === "agent"\) return AGENT_TABS\.includes\(tab\);/.test(tabs), "an agent's menu is their Agent workspace and Profile (no Tasks since v1.250.2) - above every override");
   const staff = readFileSync(join(root, "worker/src/staff.ts"), "utf8");
-  ok(/export const staffRolesSql = \(alias = ""\) =>\s*`\$\{alias\}role NOT IN \('customer', 'agent', 'super_admin'\)`/.test(staff), "agents are never counted as staff (payroll, attendance, headcount)");
+  ok(/export const staffRolesSql = \(alias = ""\) =>\s*`\(\$\{alias\}role NOT IN \('customer', 'agent', 'super_admin'\) AND \$\{alias\}role NOT IN \(SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0\)\)`/.test(staff), "agents are never counted as staff (payroll, attendance, headcount)");
   return out;
 }
 
@@ -253,7 +253,7 @@ const MUT = [
   ["worker/src/staff.ts", "anybody sends a task update", "    if (!canUser(user, \"task_mail_send\")) return err(\"forbidden\", \"Sending a task update is for the CEO (Roles & Permissions decides)\", 403);", ""],
   ["worker/src/staff.ts", "HR creates agents", "    if (agentNew ? !mayGrant(user, \"agent\") : !canUser(user, \"hr_manage\"))", "    if (!canUser(user, \"hr_manage\"))"],
   ["worker/src/staff.ts", "agents become salespeople in the pickers", "         AND u.role != 'agent'\n       ORDER BY", "         AND 1 = 1\n       ORDER BY"],
-  ["worker/src/staff.ts", "agents can be given tasks again", "  `${alias}role NOT IN ('customer', 'agent', 'super_admin')`;\n\n/** THE SAME STAFF ORDER", "  `${alias}role NOT IN ('customer', 'super_admin')`;\n\n/** THE SAME STAFF ORDER"],
+  ["worker/src/staff.ts", "agents can be given tasks again", "  `(${alias}role NOT IN ('customer', 'agent', 'super_admin') AND ${alias}role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`;\n\n/** THE SAME STAFF ORDER", "  `(${alias}role NOT IN ('customer', 'super_admin') AND ${alias}role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`;\n\n/** THE SAME STAFF ORDER"],
   ["worker/src/index.ts", "agents reach Tasks again", "  /* v1.250.2 - no tasks (the owner, 01-11-2026: \"Remove Tasks\") - an agent works through their requests */\n  /^\\/agent(\\/|$)/,", "  /^\\/tasks$/, /^\\/tasks\\/\\d+$/,\n  /^\\/agent(\\/|$)/,"],
 ];
 for (const [file, name, from, to] of NOMUT ? [] : MUT) {

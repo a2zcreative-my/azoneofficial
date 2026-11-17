@@ -1380,7 +1380,7 @@ async function docNo(env: Env, id: number): Promise<string> {
 /** the people who decide a review (commission_settle), told once per ref */
 async function tellDeciders(env: Env, text: string, ref: string): Promise<void> {
   try {
-    const { results } = await env.DB.prepare(`SELECT id, role FROM users WHERE is_active = 1 AND role NOT IN ('customer', 'agent')`).all<{ id: number; role: string }>();
+    const { results } = await env.DB.prepare(`SELECT id, role FROM users WHERE is_active = 1 AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`).all<{ id: number; role: string }>();
     for (const u of (results ?? []).filter((x) => can(x.role, "commission_settle"))) await notify(env, u.id, "commission", text, ref, { once: true }).catch(() => false);
   } catch { /* notifications are best effort */ }
 }

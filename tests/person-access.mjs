@@ -127,7 +127,7 @@ const ok = (label, cond, extra = "") => {
      /if \(next\.allow\.length === 0 && next\.deny\.length === 0\) delete people\[String\(targetId\)\]/.test(route));
 
   const j = staff.indexOf('path === "/tabs/access" && method === "GET"');
-  const getRoute = j < 0 ? "" : staff.slice(j, j + 900);
+  const getRoute = j < 0 ? "" : staff.slice(j, j + 1600); // v1.356.0 - the route also hands an own role's page list (Roles v2 stage 2)
   ok("a staff member receives only their own entry", /mine: effective\(people\[String\(user\.id\)\]\)/.test(getRoute) /* v1.234.0 - ended exceptions removed */ && !/people\s*\}\)/.test(getRoute),
      "the whole map is a CEO read; handing it to everyone tells each person what the others were refused");
   const k = staff.indexOf('path === "/tabs/access/people"');

@@ -13,8 +13,12 @@ export const PERMS: Record<string, readonly Role[]> = {
   agent_portal: ["agent"],
   agent_requests_view: ["super_admin", "ceo", "coo", "cco", "sales_marketing"],
   agent_requests_manage: ["super_admin", "ceo", "coo", "cco"],
-  /* v1.351.0 - the FINAL approval and the separate activation of a partner (agent) application; Sales screens and recommends (agent_requests_view) */
-  partner_approve: ["super_admin", "ceo", "coo", "cco"],
+  /* v1.354.0 (the CEO, 17-11-2026) - partner applications: Sales screens and recommends
+     (agent_requests_view); the COO or CCO pre-approves, returns or rejects; the CEO alone gives
+     the final approval and records the activation. An agent or a customer never holds these,
+     whatever a saved cell says (partners.ts refuses them by role). */
+  partner_preapprove: ["coo", "cco"],
+  partner_approve: ["ceo"],
   /* v1.249.0 - the CEO writes to staff about their tasks; COO and CCO read the log (task_reports) */
   task_mail_send: ["super_admin", "ceo"],
   /* v1.350.0 - CUSTOM ROLES (the CEO, 17-11-2026: "Allow CEO and Super Admin identical effective access to
@@ -382,7 +386,8 @@ export function cleanOverrides(raw: unknown): Record<string, Role[]> {
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!(k in PERMS) || !Array.isArray(v)) continue;
     /* v1.350.0 - a custom role's key (cr_...) is a column of the same cells, never on a protected capability */
-    out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r) || (isCustomKey(r) && !CUSTOM_FORBIDDEN.has(k))))] as Role[];
+    /* v1.355.0 - and an OWN role's key (r_...), on the same terms */
+    out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r) || (isExtraKey(r) && !CUSTOM_FORBIDDEN.has(k))))] as Role[];
   }
   return out;
 }
@@ -458,6 +463,18 @@ export const TECHNICAL_ONLY: Readonly<Record<string, string>> = {
    One engine: no second permission list, no second check. */
 export const CUSTOM_ROLE_KEY_RE = /^cr_[a-z0-9_]{2,40}$/;
 export function isCustomKey(r: string): boolean { return CUSTOM_ROLE_KEY_RE.test(r); }
+/* v1.355.0 - ROLES V2, STAGE 1 (docs/ROLES-V2-PLAN.md; the CEO, 17-11-2026: "permission roles that for
+   me to create by myself or super admin without hardcoded"). An OWN role stands on NO base role: it is a
+   row of the roles table (migration 0208) and one more column of the same cells. Its key is r_<slug>,
+   never a code name, so no hard-coded check can ever match it. It can never hold a protected capability
+   (CUSTOM_FORBIDDEN, as a custom role). Stage 1 cannot give one to a person - users.role keeps its CHECK
+   until the stages that make pages, staff counts and approvals read the role (plan, stages 2-3). */
+export const OWN_ROLE_KEY_RE = /^r_[a-z0-9_]{2,40}$/;
+export function isOwnKey(r: string): boolean { return OWN_ROLE_KEY_RE.test(r); }
+/** a role key that is not a code role: a custom role (cr_) or an own role (r_) */
+export function isExtraKey(r: string): boolean { return isCustomKey(r) || isOwnKey(r); }
+/** the six roles nobody may delete or rename (R-1) */
+export const PROTECTED_ROLE_KEYS: readonly Role[] = ["super_admin", "ceo", "coo", "cco", "agent", "customer"];
 /** the working roles a custom role may stand on - never an executive, technical, external or customer role */
 export const CUSTOM_BASE_ROLES: readonly Role[] = ["hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
 /** what a custom role may never hold, whatever is saved */
@@ -475,6 +492,7 @@ export interface PermSubject { role: Role | string; custom_role?: string | null 
 export function canUser(s: PermSubject | null | undefined, perm: keyof typeof PERMS): boolean {
   if (!s) return false;
   if (s.custom_role && isCustomKey(s.custom_role)) return !CUSTOM_FORBIDDEN.has(String(perm)) && rolesFor(perm).includes(s.custom_role as Role);
+  if (isOwnKey(String(s.role))) return !CUSTOM_FORBIDDEN.has(String(perm)) && rolesFor(perm).includes(s.role as Role); // v1.355.0
   return can(s.role, perm);
 }
 
@@ -549,6 +567,9 @@ export const MANDATORY_2FA_ROLES: Role[] = [
   "editor", "marketing", "sales_marketing", "live_host",
   "agent", // v1.249.0 - an agent sees tasks, packages and clients
 ];
+/** v1.356.0 - Roles v2: every role the owner makes (r_...) signs in to the portal, so it needs 2FA like
+    every staff role, whether or not it counts as staff - a customer is the only account without it. */
+export function needs2fa(role: string): boolean { return (MANDATORY_2FA_ROLES as readonly string[]).includes(role) || isOwnKey(role); }
 
 /* ------------------------------------------------------------------ */
 /* v1.234.0 - THE ACCESS POLICY, PUBLISHED (the owner, 30-10-2026:
@@ -630,7 +651,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Tasks", key: "task_mail_send", en: "Send a task update email to staff", ms: "Hantar e-mel kemas kini tugasan kepada kakitangan", cap: "task_mail_send", note_en: "Each person gets their own open tasks; COO and CCO read the log", note_ms: "Setiap orang menerima tugasan terbuka sendiri; COO dan CCO membaca log" },
   { module: "Agents", key: "agent_requests_view", en: "See agents' package requests", ms: "Lihat permintaan pakej ejen", cap: "agent_requests_view" },
   { module: "Agents", key: "agent_requests_manage", en: "Edit agents' requests: status, follow-up person, notes", ms: "Sunting permintaan ejen: status, orang susulan, nota", cap: "agent_requests_manage" },
-  { module: "Agents", key: "partner_approve", en: "Approve partner applications and record their activation", ms: "Luluskan permohonan rakan kongsi dan rekod pengaktifannya", cap: "partner_approve" },
+  { module: "Agents", key: "partner_preapprove", en: "Pre-approve, return or reject shortlisted partner applications", ms: "Pra-lulus, pulangkan atau tolak permohonan rakan kongsi yang disenarai pendek", cap: "partner_preapprove" },
+  { module: "Agents", key: "partner_approve", en: "Final approval of partner applications and their activation", ms: "Kelulusan akhir permohonan rakan kongsi dan pengaktifannya", cap: "partner_approve" },
   { module: "Agents", key: "agent_portal", en: "Agent: own tasks, packages to promote, submit clients", ms: "Ejen: tugasan sendiri, pakej untuk dipromosi, hantar pelanggan", cap: "agent_portal", note_en: "No other module, no staff data", note_ms: "Tiada modul lain, tiada data kakitangan" },
   { module: "Tasks", key: "task_rename", en: "Rename a task given to someone else (with the reason)", ms: "Tukar tajuk tugasan orang lain (dengan sebab)", cap: "task_rename" },
   { module: "Tasks", key: "live_report_review", en: "Review, accept or return a Live Host Report", ms: "Semak, terima atau pulangkan Laporan Hos Live", cap: "live_report_review" },

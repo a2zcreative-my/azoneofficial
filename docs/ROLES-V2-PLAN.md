@@ -2,7 +2,7 @@
 
 **Asked:** the CEO, 17-11-2026, after 1.350.0: *"permission roles that for me to create by myself or super admin without hardcoded ... I need to make sure that I can add or remove the roles based on the operation needed!"*
 
-**Status:** PLAN, decisions taken, nothing built. Supersedes the "base role" model of `docs/CUSTOM-ROLES-STAGE-0-AUDIT.md` (option A, 1.350.0).
+**Status:** Stage 1 BUILT in 1.355.0, stage 2 BUILT in 1.356.0 (neither deployed). Stages 3-4 not started. Supersedes the "base role" model of `docs/CUSTOM-ROLES-STAGE-0-AUDIT.md` (option A, 1.350.0).
 
 ## The CEO's decisions (17-11-2026)
 
@@ -30,12 +30,12 @@
 
 ## Stages (each one released and tested before the next)
 
-1. **Foundation.**
-   - Migration: the `roles` table, the `users` rebuild, and moving the cr_ roles in.
+1. **Foundation.** *Built in 1.355.0.* The users rebuild and moving the cr_ roles in were moved to the stage that unlocks assigning (stage 3): with nobody able to hold an own role yet, rebuilding every account in stage 1 would carry the risk with none of the benefit. Stage 1 ships additive only (`0208_roles`).
+   - Migration: the `roles` table (and, moved to stage 3, the `users` rebuild and moving the cr_ roles in).
    - `/staff/access/roles` (create, rename, switches, tabs, delete).
    - Roles & Permissions gets a Create Role with **no base role**: name, description, counts-as-staff, pages, and permissions starting blank or copied from any role.
    - Guard: no protected role can be deleted, renamed away or granted a locked cell.
-2. **Pages and staff counts.**
+2. **Pages and staff counts.** *Built in 1.356.0* for the owner's own roles; the six code roles keep their code rules until stage 4 frees them. Also added: 2FA for every own role, so stage 3 cannot open a way round it.
    - `canSeeTab` and the worker's `TAB_READ` read the role's tab list for a non-protected role.
    - Every "who is staff" SQL list reads `counts_as_staff`.
    - Guard: one source for each.

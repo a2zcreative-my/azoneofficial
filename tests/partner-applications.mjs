@@ -72,7 +72,8 @@ async function runtime(workerBundle, sweepBundle) {
   let cfAnswer = null; // null = Cloudflare unreachable; else the siteverify JSON
   globalThis.fetch = async (u, o) => { if (String(u).includes("challenges.cloudflare.com")) { if (!cfAnswer) throw new Error("offline"); return new Response(JSON.stringify(cfAnswer), { status: 200 }); } return realFetch(u, o); };
   const worker = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`)).default;
-  const sweep = (await import(pathToFileURL(sweepBundle).href + `?v=${Math.random()}`)).partnerSweep;
+  const partnersMod = await import(pathToFileURL(sweepBundle).href + `?v=${Math.random()}`);
+  const sweep = partnersMod.partnerSweep;
   const tok = {};
   for (const id of [...Object.values(ID), 30, 31, 32]) {
     tok[id] = `t-${id}`;
@@ -104,7 +105,7 @@ async function runtime(workerBundle, sweepBundle) {
     const u0 = usersN();
     /* 1, 2, 3 */
     const s1 = await submit(form());
-    ok(s1.status === 201 && /^PIA-\d{6}-[2-9A-Z]{4}$/.test(s1.j?.ref ?? ""), "1 a complete application is accepted without signing in, with a reference", JSON.stringify(s1));
+    ok(s1.status === 201 && s1.j?.ref === "AGT-APP-1001", "1 a complete application is accepted without signing in, with an AGT-APP reference", JSON.stringify(s1));
     const a1 = db.prepare(`SELECT * FROM partner_applications WHERE ref = ?`).get(s1.j?.ref);
     ok(a1 && a1.status === "new" && a1.owner_id === null && a1.phone === "+60123456789" && a1.source === "facebook" && a1.utm_campaign === "partner_nov" && a1.utm_medium === "paid_social", "2 all three steps are one row: the source, the campaign and the phone as one number", JSON.stringify(a1));
     ok(JSON.parse(a1.customer_groups).join() === "sme,corporate" && a1.privacy_ack === 1 && a1.marketing_opt_in === 0 && a1.created_at, "2 the answers, the consents and the time are kept");
@@ -154,56 +155,90 @@ async function runtime(workerBundle, sweepBundle) {
     ok([p1.status, p2.status].sort().join() === "200,409" && row(a1.id).owner_id === ID.sales_marketing && row(a1.id).status === "assigned", "5 two people pressing Pick Up together: exactly one owns it", `${p1.status} ${p2.status} ${row(a1.id).owner_id}`);
     ok((await act(a1.id, 30, "pickup")).j?.error?.code === "already_claimed", "5 a second Pick Up says somebody already has it");
 
-    /* 6 screening */
+    /* 6 screening (Sales / agent staff: Pick Up, Contact, Screen, Add Notes, Shortlist) */
     ok((await act(a1.id, 30, "contact", { channel: "whatsapp", note: "Called" })).status === 403, "6 someone else cannot record the owner's contact");
+    ok((await act(a1.id, ID.sales_marketing, "shortlist", { reason: "Looks promising already" })).status === 403, "6 nothing is submitted for review before the applicant is contacted");
     const c1 = await act(a1.id, ID.sales_marketing, "contact", { channel: "whatsapp", note: "WhatsApp intro sent, call booked", next_follow_up_on: "2026-11-19" });
     ok(c1.status === 200 && row(a1.id).status === "screening" && row(a1.id).first_response_at && row(a1.id).next_follow_up_on === "2026-11-19", "6 the first contact is recorded and screening starts", JSON.stringify(c1.j));
     ok((await call(`/staff/partner-applications/${a1.id}/contact`, ID.sales_marketing, "POST", { version: 1, channel: "call", note: "late" })).j?.error?.code === "stale", "6 a screen that is out of date is refused, not overwritten");
     ok((await act(a1.id, ID.sales_marketing, "note", { note: "Strong SME network in Johor" })).status === 200, "6 a review note is kept");
-    ok((await act(a1.id, ID.sales_marketing, "status", { to: "shortlisted", reason: "" })).j?.error?.code === "reason_required", "6 a recommendation needs its reason");
-    ok((await act(a1.id, ID.sales_marketing, "approve", { decision: "approve", reason: "Looks good" })).status === 403, "7 Sales cannot give the final approval");
-    const sh = await act(a1.id, ID.sales_marketing, "status", { to: "shortlisted", reason: "Three SME introductions a week, clear approach" });
-    ok(sh.status === 200 && row(a1.id).status === "shortlisted" && row(a1.id).recommended_by === ID.sales_marketing, "6 shortlisting records who recommended it");
-    ok(notes(ID.ceo, `partner:${a1.id}:shortlisted:%`) === 1 && notes(ID.coo, `partner:${a1.id}:shortlisted:%`) === 1, "4 the approvers are told it waits on them");
-    /* 8 the desk */
-    const desk = await call("/staff/desk", ID.ceo);
-    ok(desk.j?.items?.some((i) => i.bucket === "partners" && i.id === `partner:${a1.id}` && i.kind === "decide" && i.tab === "Agents"), "8 the CEO's Desk lists the shortlisted application to decide", JSON.stringify(desk.j?.items?.filter((i) => i.bucket === "partners")));
-    const desk2 = await call("/staff/desk", 30);
-    ok(desk2.j?.items?.filter((i) => i.bucket === "partners" && i.next.startsWith("Pick it up")).length === n0 - 1, "8 Sales' Desk lists the applications nobody has picked up");
-    /* 7 approval and activation */
-    ok((await act(a1.id, ID.ceo, "activate", { agent_user_id: 31, agreement_signed_on: "2026-11-17", agreement_note: "Signed copy in HR file" })).j?.error?.code === "not_approved", "7 nothing is activated before it is approved");
+    ok((await act(a1.id, ID.sales_marketing, "shortlist", { reason: "" })).j?.error?.code === "reason_required", "6 a recommendation needs its reason");
+    const sh = await act(a1.id, ID.sales_marketing, "shortlist", { reason: "Three SME introductions a week, clear approach" });
+    ok(sh.status === 200 && row(a1.id).status === "shortlisted" && row(a1.id).recommended_by === ID.sales_marketing && row(a1.id).preapproved_at === null, "6 shortlisting records who recommended it");
+    ok(notes(ID.coo, `partner:${a1.id}:shortlisted:%`) === 1 && notes(ID.cco, `partner:${a1.id}:shortlisted:%`) === 1 && notes(ID.ceo, `partner:${a1.id}:shortlisted:%`) === 0, "4 the COO and the CCO are told it waits on their pre-approval - not yet the CEO");
+
+    /* 7 the authority split: COO / CCO pre-approve, the CEO decides and activates */
+    ok((await act(a1.id, ID.sales_marketing, "preapprove", { decision: "preapprove", reason: "Self-approval" })).status === 403, "7 Sales cannot pre-approve");
+    ok((await act(a1.id, ID.ceo, "preapprove", { decision: "preapprove", reason: "Skip the COO" })).status === 403, "7 the CEO does not pre-approve - that is the COO's or the CCO's");
+    ok((await act(a1.id, ID.ceo, "approve", { decision: "approve", reason: "Straight through" })).j?.error?.code === "not_pre_approved", "7 the CEO's final decision waits for the pre-approval");
+    for (const [uid, who] of [[ID.sales_marketing, "Sales"], [ID.coo, "the COO"], [ID.cco, "the CCO"], [ID.super_admin, "the super admin"]]) ok((await act(a1.id, uid, "approve", { decision: "approve", reason: "Final from the wrong desk" })).status === 403, `7 ${who} cannot give the final approval`);
+    let desk = await call("/staff/desk", ID.coo);
+    ok(desk.j?.items?.some((i) => i.bucket === "partners" && i.id === `partner:${a1.id}` && i.kind === "decide" && i.next.startsWith("Pre-approve")), "8 the COO's Desk lists it to pre-approve", JSON.stringify(desk.j?.items?.filter((i) => i.bucket === "partners")));
+    desk = await call("/staff/desk", ID.ceo);
+    ok(!desk.j?.items?.some((i) => i.id === `partner:${a1.id}` && i.kind === "decide"), "8 the CEO is not asked before the pre-approval");
+    /* return, then pre-approve */
+    const rt = await act(a1.id, ID.cco, "preapprove", { decision: "return", reason: "Ask about their referral pipeline first" });
+    ok(rt.status === 200 && row(a1.id).status === "screening" && row(a1.id).owner_id === ID.sales_marketing && notes(ID.sales_marketing, `partner:${a1.id}:screening:%`) === 1, "7 the CCO returns it to the owner for more screening, with the reason", JSON.stringify(rt.j));
+    await act(a1.id, ID.sales_marketing, "shortlist", { reason: "Pipeline confirmed: five SME owners this month" });
+    const pa = await act(a1.id, ID.coo, "preapprove", { decision: "preapprove", reason: "Eligible: network and availability confirmed" });
+    ok(pa.status === 200 && row(a1.id).status === "shortlisted" && row(a1.id).preapproved_by === ID.coo && row(a1.id).preapproved_at, "7 the COO pre-approves", JSON.stringify(pa.j));
+    ok((await call("/staff/partner-applications", ID.ceo)).j?.applications?.find((a) => a.id === a1.id)?.status === "pre_approved", "7 it now reads Pre-Approved");
+    ok((await act(a1.id, ID.cco, "preapprove", { decision: "preapprove", reason: "Twice" })).j?.error?.code === "not_shortlisted", "7 it is pre-approved once");
+    ok(notes(ID.ceo, `partner:${a1.id}:pre_approved:%`) === 1 && notes(ID.coo, `partner:${a1.id}:pre_approved:%`) === 0, "4 the CEO receives the final decision request");
+    desk = await call("/staff/desk", ID.ceo);
+    ok(desk.j?.items?.some((i) => i.bucket === "partners" && i.id === `partner:${a1.id}` && i.kind === "decide" && i.next.startsWith("Approve")), "8 the CEO's Desk lists the pre-approved application to decide");
+    ok((await act(a1.id, ID.ceo, "activate", { agent_user_id: 31, agreement_signed_on: "2026-11-17", agreement_note: "Signed copy in HR file" })).j?.error?.code === "not_approved", "7 nothing is activated before the CEO approves");
     const ap = await act(a1.id, ID.ceo, "approve", { decision: "approve", reason: "Approved after the screening call" });
     ok(ap.status === 200 && row(a1.id).status === "approved" && row(a1.id).approved_by === ID.ceo && row(a1.id).agent_user_id === null, "7 the CEO approves; approval alone grants nothing");
     ok(usersN() === u0 && db.prepare(`SELECT role FROM users WHERE email = ?`).get(a1.email) === undefined, "3 an approved application still has no account");
+    ok((await act(a1.id, ID.coo, "activate", { agent_user_id: 31, agreement_signed_on: "2026-11-17", agreement_note: "Signed copy in HR file" })).status === 403, "7 only the CEO activates");
     ok((await act(a1.id, ID.ceo, "activate", { agent_user_id: 31, agreement_signed_on: "", agreement_note: "" })).j?.error?.code === "agreement_required", "7 activation needs the signed agreement recorded");
     ok((await act(a1.id, ID.ceo, "activate", { agent_user_id: 32, agreement_signed_on: "2026-11-17", agreement_note: "Signed copy in HR file" })).j?.error?.code === "agent_account_required", "7 ...and an Agent account given through the role door, not a customer account");
+    ok((await act(a1.id, ID.ceo, "activate", { agent_user_id: 31, agreement_signed_on: "2026-11-17", agreement_note: "Signed copy in HR file" })).j?.error?.code === "salesperson_required", "7 ...and the responsible salesperson assigned");
+    db.prepare(`INSERT INTO agent_assignments (agent_id, salesperson_id, effective_from, set_by, reason) VALUES (31, ?, '2026-11-17', ?, 'Partner onboarding')`).run(ID.sales_marketing, ID.ceo);
     const ac = await act(a1.id, ID.ceo, "activate", { agent_user_id: 31, agreement_signed_on: "2026-11-17", agreement_note: "Signed copy in HR file" });
-    ok(ac.status === 200 && row(a1.id).status === "activated" && row(a1.id).agent_user_id === 31 && row(a1.id).activated_by === ID.ceo && row(a1.id).approved_at < row(a1.id).activated_at || row(a1.id).approved_at === row(a1.id).activated_at, "7 activation is its own recorded action", JSON.stringify(ac.j));
+    ok(ac.status === 200 && row(a1.id).status === "activated" && row(a1.id).agent_user_id === 31 && row(a1.id).activated_by === ID.ceo, "7 activation is its own recorded action", JSON.stringify(ac.j));
     ok(db.prepare(`SELECT role FROM users WHERE id = 31`).get().role === "agent" && usersN() === u0, "7 activation changes no account or role");
     const kinds = db.prepare(`SELECT kind FROM partner_application_events WHERE application_id = ? ORDER BY id`).all(a1.id).map((r) => r.kind).join(",");
-    ok(kinds === "submitted,picked_up,contacted,note,recommended,approved,activated", "6 every step is in the history, in order", kinds);
-    ok(["partner.pickup", "partner.contact", "partner.shortlisted", "partner.approve", "partner.activate"].every((a) => db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = ?`).get(a).n === 1), "6 every privileged step is in the audit log");
+    ok(kinds === "submitted,picked_up,contacted,note,recommended,returned,recommended,pre_approved,approved,activated", "6 every step is in the history, in order", kinds);
+    ok(["partner.pickup", "partner.contact", "partner.note", "partner.pre_approve", "partner.return", "partner.approve", "partner.activate"].every((a) => db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = ?`).get(a).n === 1)
+      && db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'partner.shortlisted'`).get().n === 2, "6 every step is in the audit log, with who did it");
     let rewrote = false; try { db.exec(`UPDATE partner_application_events SET body = 'x' WHERE application_id = ${a1.id}`); rewrote = true; } catch { /* refused */ }
     ok(!rewrote, "6 the history cannot be rewritten");
-    /* hold / reject / reopen */
-    const a2 = row(2);
+    /* reject */
     await act(2, 30, "pickup");
-    ok((await act(2, 30, "status", { to: "on_hold", reason: "Waiting for availability" })).status === 200 && row(2).status === "on_hold", "6 hold");
-    ok((await act(2, 30, "status", { to: "rejected", reason: "No referral network yet" })).status === 200 && row(2).status === "rejected", "6 reject");
-    ok((await act(2, 30, "status", { to: "screening", reason: "Changed mind" })).status === 403, "6 Sales cannot reopen a rejected application");
-    ok((await act(2, ID.coo, "status", { to: "screening", reason: "Reopened after a second look" })).status === 200, "6 management can reopen one");
-    void a2;
+    await act(2, 30, "contact", { channel: "call", note: "Spoke briefly" });
+    await act(2, 30, "shortlist", { reason: "Has a small network" });
+    ok((await act(2, 30, "preapprove", { decision: "reject", reason: "Mine to reject" })).status === 403, "7 Sales cannot reject at management review");
+    ok((await act(2, ID.cco, "preapprove", { decision: "reject", reason: "No referral network yet" })).status === 200 && row(2).status === "rejected", "7 the CCO rejects, with the reason kept");
+
+    /* 9 EXTERNAL AGENTS ARE NOT STAFF - by direct request, even if a cell is saved for them */
+    const grant = JSON.stringify({ perms: { agent_requests_view: ["ceo", "coo", "cco", "sales_marketing", "agent"], agent_requests_manage: ["ceo", "agent"], partner_preapprove: ["coo", "cco", "agent"], partner_approve: ["ceo", "agent"] }, meta: {} });
+    db.prepare(`INSERT INTO system_meta (key, value) VALUES ('role_permissions', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(grant);
+    for (const [path, method, body] of [["/staff/partner-applications", "GET"], [`/staff/partner-applications/${a1.id}`, "GET"], [`/staff/partner-applications/3/pickup`, "POST", { version: 1 }],
+      [`/staff/partner-applications/${a1.id}/approve`, "POST", { version: 1, decision: "approve", reason: "Agent approving" }], ["/staff/partner-applications/settings", "GET"]]) {
+      const r = await call(path, 31, method, body);
+      ok(r.status === 403 && !JSON.stringify(r.j).includes("applicant"), `9 an agent is refused ${method} ${path.replace(/\d+/, ":id")}`, `${r.status} ${JSON.stringify(r.j).slice(0, 120)}`);
+    }
+    const direct = await partnersMod.handlePartners(env, "/partner-applications", "GET", null, { id: 31, role: "agent", name: "Rashid" }, new URLSearchParams());
+    ok(direct?.status === 403 && (await direct.json()).error?.message === "Partner applications are for A2Z staff only", "9 ...and refused by the partner routes themselves, behind the agent gate");
+    const agDesk = await call("/staff/agent/desk", 31);
+    ok(!JSON.stringify(agDesk.j ?? {}).includes("AGT-APP") && notes(31, "partner:%") === 0, "9 an agent is never told of, or shown, an application");
+    db.prepare(`DELETE FROM system_meta WHERE key = 'role_permissions'`).run();
+    /* the public form sends no session (app/apply/partner: credentials "omit"), so a person who is also
+       signed in applies like anyone else, and the mandatory-2FA gate is left exactly as the audit set it */
+    const selfApply = await call("/public/partner-applications", null, "POST", form({ email: "rashid.again@example.test", phone: "0171112222" }), "5.5.5.5");
+    ok(selfApply.j?.ref?.startsWith("AGT-APP-") && usersN() === u0, "9 an agent applying through the public form gets a screening record, nothing else", JSON.stringify(selfApply));
+    ok(/"\/public\/partner-applications"[\s\S]{0,400}credentials: "omit"/.test(readFileSync(join(root, "app/apply/partner/page.tsx"), "utf8"))
+      && !/public\/partner-applications/.test((readFileSync(join(root, "worker/src/index.ts"), "utf8").match(/const TWOFA_EXEMPT_PATHS[\s\S]*?\]\);/) ?? [""])[0]), "9 the form sends no session and the 2FA exemptions are unchanged");
+
     /* 8 the hourly pass */
     fixed += 6 * 3600_000;
     const sw1 = await sweep(env);
     const sw2 = await sweep(env);
     const unclaimed = db.prepare(`SELECT id FROM partner_applications WHERE status = 'new' ORDER BY id LIMIT 1`).get().id;
     ok(sw1.escalated > 0 && sw2.escalated === 0 && notes(ID.coo, `partner:${unclaimed}:unclaimed:%`) === 1 && notes(ID.sales_marketing, `partner:${unclaimed}:unclaimed:%`) === 0, "8 an unclaimed application is escalated to management, once a day", JSON.stringify([sw1, sw2]));
-    /* 8 the overview figures */
-    const sm = await call("/staff/partner-applications/summary", ID.ceo);
-    ok(sm.j?.applications?.total === n0 && sm.j.applications.activated === 1 && sm.j.applications.by_source?.[0]?.key === "facebook" && sm.j.applications.by_campaign?.[0]?.key === "partner_nov" && sm.j.applications.avg_first_response_hours !== null, "8 Overview: totals, source, campaign, activated and the first-response time", JSON.stringify(sm.j?.applications));
-    ok(sm.j?.agents?.find((a) => a.id === 31)?.paid_cents === 0 && sm.j?.week?.agent_paid_cents === 0, "8 no sale is counted that the CEO has not verified");
-    ok(!JSON.stringify(sm.j).includes("gender") && !JSON.stringify(sm.j).includes("age_range"), "8 the figures never break applicants down by gender or age");
+    ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id IN (31, 32) AND ref LIKE 'partner:%'`).get().n === 0, "9 no recruitment notice ever reaches an agent or a customer");
     n = out.length;
   } catch (e) {
     out.push([false, `runtime: ${e?.stack ?? e}`]);
@@ -225,12 +260,18 @@ report(await runtime(...make(root)));
 const checks = n;
 const MUT = [
   ["worker/src/partners.ts", "a second Pick Up wins too", "WHERE id = ?3 AND status = 'new' AND owner_id IS NULL RETURNING version", "WHERE id = ?3 RETURNING version"],
-  ["worker/src/partners.ts", "Sales gives the final approval", '      if (!approver) return err("forbidden", "The final approval is management\'s', '      if (false) return err("forbidden", "The final approval is management\'s'],
+  ["worker/src/partners.ts", "the COO gives the final approval", `if (!approver) return err("forbidden", "The final approval is the CEO's"`, `if (!approver && !preapprover) return err("forbidden", "The final approval is the CEO's"`],
+  ["worker/src/partners.ts", "the CEO skips the pre-approval", `if (stage !== "pre_approved") return err("not_pre_approved"`, `if (stage !== "pre_approved" && stage !== "shortlisted") return err("not_pre_approved"`],
+  ["worker/src/partners.ts", "Sales pre-approves", `if (!preapprover) return err("forbidden", "Only the COO or the CCO`, `if (!preapprover && !viewer) return err("forbidden", "Only the COO or the CCO`],
+  ["worker/src/partners.ts", "an agent reaches the routes", `if (NEVER.includes(user.role)) return err(`, `if (false) return err(`],
+  ["worker/src/partners.ts", "submitted without a contact", "shortlist: works && screening && !!a.first_response_at,", "shortlist: works && screening,"],
   ["worker/src/partners.ts", "activation without an Agent account", "if (!acct || acct.role !== \"agent\" || acct.is_active !== 1) return err(", "if (!acct) return err("],
+  ["worker/src/partners.ts", "activation without a salesperson", "if (!sp?.salesperson_id) return err(", "if (false) return err("],
   ["worker/src/partners.ts", "the bot check skipped", 'const bot = await botCheck(env, request, body.bot_token, "partner_apply");', "const bot = { ok: true } as const;"],
   ["worker/src/partners.ts", "a retry makes a second application", "ON CONFLICT(client_key) DO NOTHING RETURNING id, ref", "RETURNING id, ref"],
   ["worker/src/partners.ts", "a stale screen overwrites", "WHERE id = ?3 AND version = ?4 AND status IN", "WHERE id = ?3 AND (?4 IS NOT NULL) AND status IN"],
   ["worker/src/partners.ts", "nobody is told", "  await tell(env, ids, `New partner application", "  if (0) await tell(env, ids, `New partner application"],
+  ["worker/src/desk.ts", "the CEO is asked before the pre-approval", `} else if (a.status === "shortlisted" && a.preapproved_at && approves) {`, `} else if (a.status === "shortlisted" && approves) {`],
 ];
 for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
@@ -246,4 +287,4 @@ for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   if (!res.some(([p]) => !p)) { fail++; console.error(`FAIL mutation not caught: ${name}`); }
 }
 if (fail) { console.error(`partner-applications: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`partner-applications: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - one public application, never an account; the team picks it up once, screens it, management approves and activates separately; told, reminded and escalated once`);
+console.log(`partner-applications: ${checks} checks passed (${process.env.NOMUT === "1" ? "mutations skipped" : `${MUT.length} mutations caught`}) - one public application, never an account; staff pick it up once and screen it, the COO or CCO pre-approves, the CEO alone approves and activates; no agent ever reaches it; told, reminded and escalated once`);

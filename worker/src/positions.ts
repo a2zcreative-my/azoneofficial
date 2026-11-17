@@ -66,7 +66,7 @@ export async function handlePositions(env: Env, path: string, method: string, bo
       /* the positions typed on working staff records that are not on the list (P-2) - names only */
       const off = manage ? ((await env.DB.prepare(
         `SELECT TRIM(u.position) AS name, COUNT(*) AS n FROM users u
-          WHERE u.is_active = 1 AND TRIM(COALESCE(u.position, '')) != '' AND u.role NOT IN ('customer', 'super_admin')
+          WHERE u.is_active = 1 AND TRIM(COALESCE(u.position, '')) != '' AND (u.role NOT IN ('customer', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
             AND NOT EXISTS (SELECT 1 FROM staff_positions p WHERE p.name = TRIM(u.position) COLLATE NOCASE)
           GROUP BY TRIM(u.position) COLLATE NOCASE ORDER BY n DESC, name`,
       ).all<{ name: string; n: number }>()).results ?? []) : [];
@@ -95,7 +95,7 @@ export async function handlePositions(env: Env, path: string, method: string, bo
       if (!manage) return refuse();
       const typed = (await env.DB.prepare(
         `SELECT TRIM(u.position) AS name, u.role, COUNT(*) AS n FROM users u
-          WHERE u.is_active = 1 AND TRIM(COALESCE(u.position, '')) != '' AND u.role NOT IN ('customer', 'super_admin')
+          WHERE u.is_active = 1 AND TRIM(COALESCE(u.position, '')) != '' AND (u.role NOT IN ('customer', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
             AND NOT EXISTS (SELECT 1 FROM staff_positions p WHERE p.name = TRIM(u.position) COLLATE NOCASE)
           GROUP BY TRIM(u.position) COLLATE NOCASE, u.role ORDER BY n DESC`,
       ).all<{ name: string; role: string; n: number }>()).results ?? [];

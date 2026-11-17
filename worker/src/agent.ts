@@ -234,7 +234,7 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
         const current: Record<number, unknown> = {};
         for (const r of results ?? []) if (r.effective_from <= today && !current[r.agent_id]) current[r.agent_id] = r;
         const people = manager ? ((await env.DB.prepare(
-          `SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin') ORDER BY name`,
+          `SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) ORDER BY name`,
         ).all()).results ?? []) : [];
         return json({ history: results ?? [], current, salespeople: people, can_manage: manager, today });
       } catch (e) {
@@ -251,7 +251,7 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
       if (reason.length < 10) return err("invalid_input", "Give the reason (at least 10 characters).", 400);
       const ag = await env.DB.prepare(`SELECT id FROM users WHERE id = ?1 AND role = 'agent'`).bind(agentId).first();
       if (!ag) return err("invalid_input", "Choose an agent", 400);
-      const sp = await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name FROM users u WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent', 'super_admin', 'admin')`).bind(spId).first<{ id: number; name: string }>();
+      const sp = await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name FROM users u WHERE id = ?1 AND is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`).bind(spId).first<{ id: number; name: string }>();
       if (!sp) return err("invalid_input", "Choose an active salesperson", 400);
       const r = await env.DB.prepare(`INSERT INTO agent_assignments (agent_id, salesperson_id, effective_from, set_by, reason) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`).bind(agentId, spId, from, user.id, reason).first<{ id: number }>();
       await audit(env, user.id, "agent.assign", "agent_assignments", String(r?.id), { agent_id: agentId, salesperson_id: spId, effective_from: from, reason });

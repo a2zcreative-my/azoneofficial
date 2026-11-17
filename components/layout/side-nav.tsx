@@ -22,7 +22,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, 
 import { ChevronDown, ChevronsUpDown } from "lucide-react";
 import css from "./side-nav.module.css";
 import { TabIcon, GroupIcon, LogOut } from "@/components/layout/nav-icons";
-import { NAV_GROUPS } from "@/lib/portal-tabs";
+import { NAV_GROUPS, roleWords } from "@/lib/portal-tabs";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { getLang } from "@/lib/i18n";
 
@@ -474,7 +474,7 @@ export function SideNav({
               <span className={css.meText}>
                 <span className={css.meName}>{userName}</span>
                 <span className={css.meRoleRow}>
-                  <span className={css.meRole}>{userRole.replace(/_/g, " ")}</span>
+                  <span className={css.meRole}>{roleWords(userRole)}</span>
                   {presence && (
                     <span className={`erp-chip erp-chip-sm ${presence === "online" ? "erp-chip-success" : "erp-chip-neutral"}`} data-testid="rail-presence" data-presence={presence}>
                       {presence === "online" ? (ms ? "Dalam talian" : "Online") : (ms ? "Luar talian" : "Offline")}
@@ -492,7 +492,7 @@ export function SideNav({
         {!collapsed && (
           <div className="erp-rail-user">
             <p className="erp-rail-user-name">{userName}</p>
-            <p className="erp-rail-user-role">{userRole.replace(/_/g, " ")}</p>
+            <p className="erp-rail-user-role">{roleWords(userRole)}</p>
           </div>
         )}
         <button

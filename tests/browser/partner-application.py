@@ -1,13 +1,16 @@
 """v1.351.0 - the public Partner Interest Application and its home in Agents ->
 Requests, on screen.
+v1.354.0 - STAFF ONLY, per role: Sales picks up, contacts and shortlists; the
+COO and the CCO pre-approve, return or reject; the CEO alone approves and
+activates; an external agent sees nothing. The bell opens the exact application.
 
 Servers: ROLE=ceo OWNER=1 on 4320, ROLE=sales_marketing on 4340, ROLE=editor
-on 4341 (serve.mjs over out/). The fixture (partner-fixture.mjs) keeps what the
+on 4341, ROLE=coo on 4342, ROLE=cco on 4343, ROLE=agent on 4344 (serve.mjs over out/). The fixture (partner-fixture.mjs) keeps what the
 browser posts; the worker's own rules - one record, no account, the claim lock,
 the approval - are proven by tests/partner-applications.mjs.
 
 SHOTS=dir writes the screenshots the brief asks for."""
-import json, os
+import json, os, re
 from playwright.sync_api import sync_playwright
 
 SHOTS = os.environ.get("SHOTS", "")
@@ -93,7 +96,7 @@ with sync_playwright() as p:
     step3(pg)
     shot(pg, "partner-step3-desktop.png")
     t(pg, "pa-submit").click(); pg.wait_for_timeout(1500)
-    check("submit: confirmation with a reference", t(pg, "pa-done").is_visible() and t(pg, "pa-ref").inner_text().startswith("PIA-"), pg.inner_text("body")[:300])
+    check("submit: confirmation with a reference", t(pg, "pa-done").is_visible() and t(pg, "pa-ref").inner_text().startswith("AGT-APP-"), pg.inner_text("body")[:300])
     shot(pg, "partner-confirmation-desktop.png")
     sent = [json.loads(r[2] or "{}") for r in reqs if r[0] == "POST" and "/public/partner-applications" in r[1]]
     check("submit: one POST", len(sent) == 1, len(sent))
@@ -132,91 +135,159 @@ with sync_playwright() as p:
     ctx.close()
 
     st = json.loads(urllib.request.urlopen("http://127.0.0.1:4320/__partners").read())
-    check("fixture: two new applications landed", len(st["apps"]) == 6, len(st["apps"]))
+    check("fixture: two new applications landed", len(st["apps"]) == 10, len(st["apps"]))
 
     # ---------- staff: Agents -> Requests -> Partner Applications ----------
-    urllib.request.urlopen("http://127.0.0.1:4340/__partners-reset").read()
-    ctx, pg, errs, reqs = ctx_page(b, 4340, 1440, 900, "/portal?tab=Agents")
-    pg.wait_for_timeout(1500)
-    rq = pg.get_by_role("tab", name="Requests").filter(visible=True)
-    if rq.count() == 0: rq = pg.get_by_role("button", name="Requests").filter(visible=True)
-    rq.first.click(); pg.wait_for_timeout(900)
-    check("staff: request-type switch present", t(pg, "request-type").count() == 1)
-    check("staff: client requests still default", t(pg, "partner-split").count() == 0 or not t(pg, "partner-split").is_visible())
-    pg.get_by_role("button", name="Partner Applications").filter(visible=True).first.click(); pg.wait_for_timeout(900)
-    check("staff: partner list beside the workflow", t(pg, "partner-inbox").is_visible() and t(pg, "partner-workflow").is_visible())
-    check("staff: 4 applications listed", t(pg, "partner-table").locator("tbody tr").count() == 4, t(pg, "partner-table").locator("tbody tr").count())
-    check("staff: source, age range, contact shown", all(x in t(pg, "partner-table").inner_text() for x in ("Facebook", "25-34", "+60123456789")))
-    check("staff desktop: no sideways scroll", fits(pg))
-    shot(pg, "partner-requests-desktop.png", full=False)
-    t(pg, "partner-flow-3").click(); pg.wait_for_timeout(300)
-    check("workflow: a step filters the list", t(pg, "partner-table").locator("tbody tr").count() == 1)
-    t(pg, "partner-flow-3").click(); pg.wait_for_timeout(300)
-    pg.get_by_text("Aina Rahman").first.click(); pg.wait_for_timeout(1200)
-    check("drawer: opens", t(pg, "partner-drawer").is_visible())
-    check("drawer: Pick Up offered for a new one", t(pg, "partner-pickup").is_visible())
-    check("drawer: sales cannot approve", t(pg, "partner-approve").count() == 0)
-    shot(pg, "partner-drawer-desktop.png", full=False)
-    t(pg, "partner-pickup").click(); pg.wait_for_timeout(1200)
-    check("pick up: then Contact is offered", t(pg, "partner-contact").is_visible())
-    t(pg, "partner-contact").click(); t(pg, "partner-contact-note").fill("WhatsApp sent, call booked for Thursday"); t(pg, "partner-contact-save").click(); pg.wait_for_timeout(1200)
-    st = json.loads(urllib.request.urlopen("http://127.0.0.1:4340/__partners").read())
-    a1 = next(a for a in st["apps"] if a["id"] == 1)
-    check("contact: application moved to screening with first response", a1["status"] == "screening" and a1["first_response_at"], a1)
-    pk = [json.loads(r[2] or "{}") for r in reqs if r[0] == "POST" and r[1].endswith("/1/pickup")]
-    check("pick up: sent with its version (no double claim)", pk and pk[0].get("version") == 1, pk)
-    # a second press (another tab, a retry) on an application already claimed is told
-    r = pg.evaluate("""async () => { const x = await fetch('/api/v1/staff/partner-applications/1/pickup', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({version: 1})}); return [x.status, await x.text()]; }""")
-    check("double claim: the second Pick Up is refused", r[0] == 409, r)
-    check("staff: no page error", not errs, errs)
-    ctx.close()
+    def reset(port): urllib.request.urlopen(f"http://127.0.0.1:{port}/__partners-reset").read()
+    def state(port): return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/__partners").read())
+    def app_of(port, i): return next(a for a in state(port)["apps"] if a["id"] == i)
+    def requests_tab(pg):
+        pg.get_by_test_id("agents-tab-requests").click(); pg.wait_for_timeout(600)
+    def partners(pg):
+        requests_tab(pg)
+        pg.get_by_role("button", name="Partner Applications").filter(visible=True).first.click(); pg.wait_for_timeout(800)
+    def select(pg, name):
+        t(pg, "partner-table").get_by_text(name, exact=True).first.click(); pg.wait_for_timeout(1000)
+    def reason(pg, text):
+        dlg = pg.get_by_role("dialog").filter(visible=True).last
+        dlg.locator("textarea, input").first.fill(text)
+        dlg.get_by_role("button").filter(has_not_text="Cancel").last.click(); pg.wait_for_timeout(1000)
+    def quick(pg): return [x.strip() for x in t(pg, "partner-quick").locator("button").all_inner_texts()]
+    def agents_page(port, w=1440, h=900):
+        return ctx_page(b, port, w, h, "/portal?tab=Agents")
 
-    # a second person claiming the same one is told
-    ctx, pg, errs, reqs = ctx_page(b, 4320, 1440, 900, "/portal?tab=Agents")
-    # the CEO approves the shortlisted one
-    pg.evaluate("history.replaceState(null,'','/portal?tab=Agents')")
-    rq = pg.get_by_role("tab", name="Requests").filter(visible=True)
-    if rq.count() == 0: rq = pg.get_by_role("button", name="Requests").filter(visible=True)
-    rq.first.click(); pg.wait_for_timeout(700)
-    pg.get_by_role("button", name="Partner Applications").filter(visible=True).first.click(); pg.wait_for_timeout(800)
-    pg.get_by_text("Mei Ling Tan").first.click(); pg.wait_for_timeout(1200)
-    check("CEO: Approve (final) offered on a shortlisted one", t(pg, "partner-approve").is_visible())
-    check("CEO: Activate not offered before approval", t(pg, "partner-activate").count() == 0)
-    t(pg, "partner-approve").click(); pg.wait_for_timeout(500)
-    dlg = pg.get_by_role("dialog").filter(visible=True).last
-    dlg.locator("textarea, input").first.fill("Strong SME network, screening call went well")
-    dlg.get_by_role("button", name="OK").or_(dlg.get_by_role("button", name="Confirm")).or_(dlg.get_by_role("button", name="Save")).first.click(); pg.wait_for_timeout(1400)
-    st = json.loads(urllib.request.urlopen("http://127.0.0.1:4320/__partners").read())
-    a3 = next(a for a in st["apps"] if a["id"] == 3)
-    check("approve: recorded, not activated", a3["status"] == "approved" and not a3.get("activated_at"), a3["status"])
-    check("approve: Activate now offered as a separate step", t(pg, "partner-activate").is_visible())
-    t(pg, "partner-activate").click(); pg.wait_for_timeout(400)
-    check("activate: needs an Agent account + agreement", t(pg, "partner-activate-save").is_disabled())
-    shot(pg, "partner-activate-desktop.png", full=False)
-    pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
-    ov = pg.get_by_role("tab", name="Overview").filter(visible=True)
-    if ov.count() == 0: ov = pg.get_by_role("button", name="Overview").filter(visible=True)
-    ov.first.click(); pg.wait_for_timeout(900)
-    check("overview: partner recruitment strip", t(pg, "partner-strip").is_visible())
-    check("overview: by source + campaign", t(pg, "partner-by-source").is_visible() and t(pg, "partner-by-campaign").is_visible())
-    check("overview: no sideways scroll", fits(pg))
-    t(pg, "partner-overview").scroll_into_view_if_needed(); shot(pg, "partner-overview-desktop.png", full=False)
+    # --- Overview, the pipeline and Conversion Performance are unchanged; recruitment is not on them
+    ctx, pg, errs, reqs = agents_page(4320)
+    ov = pg.get_by_test_id("agents-overview")
+    check("overview: no recruitment panel, no partner figures", "Partner" not in ov.inner_text() and t(pg, "partner-strip").count() == 0)
+    check("overview: Conversion Performance has its original columns", "Verified paid" not in ov.inner_text() and "Quotations" not in ov.locator("thead").first.inner_text() if ov.locator("thead").count() else True)
+    check("tabs: Overview, Requests, Agents, Packages - nothing added", [x.strip().split("\n")[0] for x in t(pg, "agents-tab-overview").locator("xpath=..").locator("[role=tab]").all_inner_texts()] == ["Overview", "Requests", "Agents", "Packages"])
+    requests_tab(pg)
+    check("requests: Client Requests still the default", t(pg, "requests-inbox").is_visible() and t(pg, "partner-split").count() == 0)
+    check("requests: the selector Client Requests | Partner Applications", t(pg, "request-type").is_visible())
+    partners(pg)
+    check("partner view: status row in the picture's order", [x.split(" (")[0] for x in t(pg, "partner-tab-all").locator("xpath=..").locator("[role=tab]").all_inner_texts()] == ["All Requests", "New", "Assigned", "Screening", "Shortlisted", "Pre-Approved", "Approved", "Rejected"])
+    heads = [x.strip() for x in t(pg, "partner-table").locator("thead th").all_inner_texts()]
+    check("partner view: Ref. ID, Name, Source, Status, Assigned To, Submitted", heads[:6] == ["Ref. ID", "Name", "Source", "Status", "Assigned To", "Submitted"], heads)
+    check("partner view: AGT-APP references", "AGT-APP-1008" in t(pg, "partner-table").inner_text())
+    check("partner view: the status definitions beside the list", t(pg, "partner-defs").is_visible() and "waiting for the CEO" in t(pg, "partner-defs").inner_text())
+    t(pg, "partner-tab-pre_approved").click(); pg.wait_for_timeout(300)
+    check("status tab filters", t(pg, "partner-table").locator("tbody tr").count() == 1)
+    t(pg, "partner-tab-all").click(); pg.wait_for_timeout(300)
+    check("desktop: no sideways scroll", fits(pg))
+    shot(pg, "partner-requests-ceo.png", full=False)
+    # the CEO: final decision on a pre-approved one only
+    select(pg, "Nadia Salleh")
+    check("CEO on Shortlisted: no Pre-Approve (that is the COO's / CCO's)", t(pg, "partner-quick-preapprove").count() == 0 and t(pg, "partner-quick-approve").count() == 0, quick(pg))
+    select(pg, "Faizal Karim")
+    check("CEO on Pre-Approved: Approve, Return, Reject", all(t(pg, f"partner-quick-{k}").is_visible() for k in ("approve", "return", "reject")), quick(pg))
+    shot(pg, "partner-preview-ceo.png", full=False)
+    t(pg, "partner-quick-approve").click(); pg.wait_for_timeout(400); reason(pg, "Strong network, the COO's pre-approval stands")
+    check("CEO approves: recorded, not activated", app_of(4320, 4)["status"] == "approved" and not app_of(4320, 4)["activated_at"])
+    check("CEO then sees Activate as a separate step", t(pg, "partner-quick-activate").is_visible())
+    t(pg, "partner-quick-activate").click(); pg.wait_for_timeout(1000)
+    check("activate: the drawer opens on the activation form", t(pg, "partner-activate-form").is_visible())
+    check("activate: needs account, salesperson and agreement", t(pg, "partner-activate-save").is_disabled())
+    t(pg, "partner-agent-account").select_option("9105"); pg.wait_for_timeout(200)
+    check("activate: the responsible salesperson is shown", "Hafiz Rahman" in t(pg, "partner-salesperson").inner_text())
+    t(pg, "partner-agreement-note").fill("Signed copy in the HR cabinet")
+    shot(pg, "partner-activate-ceo.png", full=False)
+    t(pg, "partner-activate-save").click(); pg.wait_for_timeout(1200)
+    check("CEO activates: recorded", app_of(4320, 4)["status"] == "activated")
     check("CEO: no page error", not errs, errs)
     ctx.close()
 
-    # phone, staff side
-    ctx, pg, errs, reqs = ctx_page(b, 4340, 390, 844, "/portal?tab=Agents")
-    rq = pg.get_by_role("tab", name="Requests").filter(visible=True)
-    if rq.count(): rq.first.click(); pg.wait_for_timeout(700)
-    pt = pg.get_by_role("button", name="Partner Applications").filter(visible=True)
-    if pt.count(): pt.first.click(); pg.wait_for_timeout(800)
-    check("staff phone: partner list fits 390px", t(pg, "partner-inbox").count() == 1 and fits(pg), pg.evaluate("document.documentElement.scrollWidth"))
-    shot(pg, "partner-requests-phone.png", full=False)
+    # --- the bell opens the exact application (CEO)
+    reset(4320)
+    ctx, pg, errs, reqs = ctx_page(b, 4320, 1440, 900, "/portal?tab=Dashboard")
+    pg.get_by_role("button", name=re.compile("^Notifications")).first.click(); pg.wait_for_timeout(800)
+    item = pg.get_by_text(re.compile("AGT-APP-1004.*final decision")).first
+    check("bell: the CEO is asked for the final decision", item.is_visible())
+    shot(pg, "partner-bell-ceo.png", full=False)
+    item.click(); pg.wait_for_timeout(2200)
+    check("bell: opens Agents > Requests > Partner Applications on that application", t(pg, "partner-preview").is_visible() and "AGT-APP-1004" in t(pg, "partner-preview").inner_text(), pg.url)
+    shot(pg, "partner-bell-opened.png", full=False)
     ctx.close()
 
-    # a role without the view gets no partner switch
+    # --- Sales / agent staff: Pick Up, Contact, Add Note, Shortlist - and nothing above that
+    reset(4340)
+    ctx, pg, errs, reqs = agents_page(4340); partners(pg)
+    select(pg, "Danial Hakim")
+    check("Sales: Pick Up on a new one", t(pg, "partner-pickup").is_visible())
+    shot(pg, "partner-preview-sales.png", full=False)
+    t(pg, "partner-pickup").click(); pg.wait_for_timeout(1200)
+    check("Sales: picked up - owner and Assigned", app_of(4340, 8)["owner_id"] == 9001 and app_of(4340, 8)["status"] == "assigned")
+    r = pg.evaluate("""async () => { const x = await fetch('/api/v1/staff/partner-applications/8/pickup', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({version: 1})}); return [x.status, await x.text()]; }""")
+    check("double claim: a second Pick Up is refused", r[0] == 409, r)
+    check("Sales: Shortlist waits for a recorded contact", t(pg, "partner-quick-shortlist").count() == 0 and "Record a contact" in t(pg, "partner-quick").inner_text())
+    t(pg, "partner-contact").click(); pg.wait_for_timeout(1000)
+    t(pg, "partner-contact-note").fill("WhatsApp sent, screening call booked for Thursday"); t(pg, "partner-contact-save").click(); pg.wait_for_timeout(1200)
+    check("Sales: contact recorded - Screening", app_of(4340, 8)["status"] == "screening" and app_of(4340, 8)["first_response_at"])
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+    select(pg, "Danial Hakim")
+    t(pg, "partner-quick-shortlist").click(); pg.wait_for_timeout(400); reason(pg, "Three SME introductions a week, clear approach")
+    check("Sales: shortlisted for management review", app_of(4340, 8)["status"] == "shortlisted")
+    check("Sales: no Pre-Approve, Approve or Activate anywhere", all(t(pg, f"partner-quick-{k}").count() == 0 for k in ("preapprove", "approve", "activate")), quick(pg))
+    r = pg.evaluate("""async () => { const x = await fetch('/api/v1/staff/partner-applications/8/preapprove', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({version: 4, decision:'preapprove', reason:'Self approving'})}); return x.status; }""")
+    check("Sales: pre-approve by direct request is refused", r == 403, r)
+    check("Sales: no page error", not errs, errs)
+    ctx.close()
+
+    # --- COO and CCO: pre-approve, return or reject a shortlisted one; never the final approval
+    for port, who in ((4342, "COO"), (4343, "CCO")):
+        reset(port)
+        ctx, pg, errs, reqs = agents_page(port); partners(pg)
+        select(pg, "Faizal Karim")
+        check(f"{who} on Pre-Approved: no final approval", t(pg, "partner-quick-approve").count() == 0 and "waiting for the CEO" in t(pg, "partner-quick").inner_text(), quick(pg))
+        select(pg, "Nadia Salleh")
+        check(f"{who} on Shortlisted: Pre-Approve, Return, Reject", all(t(pg, f"partner-quick-{k}").is_visible() for k in ("preapprove", "return", "reject")), quick(pg))
+        if who == "COO": shot(pg, "partner-preview-coo.png", full=False)
+        r = pg.evaluate("""async () => { const x = await fetch('/api/v1/staff/partner-applications/4/approve', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({version: 6, decision:'approve', reason:'Final from the COO'})}); return x.status; }""")
+        check(f"{who}: the final approval by direct request is refused", r == 403, r)
+        if who == "COO":
+            t(pg, "partner-quick-preapprove").click(); pg.wait_for_timeout(400); reason(pg, "Eligible: network and availability confirmed")
+            check("COO pre-approves - it now waits for the CEO", app_of(port, 5)["preapproved_at"] and app_of(port, 5)["status"] == "shortlisted")
+        else:
+            t(pg, "partner-quick-return").click(); pg.wait_for_timeout(400); reason(pg, "Ask about their referral pipeline first")
+            check("CCO returns it to screening with the reason", app_of(port, 5)["status"] == "screening")
+        check(f"{who}: no page error", not errs, errs)
+        ctx.close()
+    # the COO's bell
+    ctx, pg, errs, reqs = ctx_page(b, 4342, 1440, 900, "/portal?tab=Dashboard")
+    pg.get_by_role("button", name=re.compile("^Notifications")).first.click(); pg.wait_for_timeout(800)
+    check("bell: the COO is asked to pre-approve", pg.get_by_text(re.compile("AGT-APP-1005.*pre-approval")).first.is_visible())
+    check("bell: the COO is not asked for the CEO's decision", pg.get_by_text(re.compile("final decision")).count() == 0)
+    ctx.close()
+
+    # --- an external agent: nothing - no view, no switch, no data, no notice
+    ctx, pg, errs, reqs = ctx_page(b, 4344, 1440, 900, "/portal?tab=Agents")
+    body = pg.inner_text("body")
+    check("agent: no Partner Applications switch or list", t(pg, "request-type").count() == 0 and t(pg, "partner-inbox").count() == 0 and "Partner Applications" not in body)
+    check("agent: no applicant data in the page", "AGT-APP" not in body and "Danial Hakim" not in body)
+    check("agent: the screen never asked for applications", not any("/partner-applications" in r[1] for r in reqs))
+    for path, method in (("/api/v1/staff/partner-applications", "GET"), ("/api/v1/staff/partner-applications/8", "GET"), ("/api/v1/staff/partner-applications/8/pickup", "POST"), ("/api/v1/staff/partner-applications/4/approve", "POST")):
+        r = pg.evaluate("""async ([p, m]) => { const x = await fetch(p, {method: m, headers:{'content-type':'application/json'}, body: m === 'POST' ? JSON.stringify({version: 1, decision:'approve', reason:'Agent approving'}) : undefined}); return [x.status, await x.text()]; }""", [path, method])
+        check(f"agent: {method} {path.replace('/api/v1/staff', '')} refused", r[0] == 403 and "AGT-APP" not in r[1], r)
+    pg.goto("http://127.0.0.1:4344/portal?tab=Agents&view=requests&type=partners"); pg.wait_for_timeout(2000)
+    check("agent: a crafted link shows nothing either", t(pg, "partner-inbox").count() == 0 and "AGT-APP" not in pg.inner_text("body"))
+    pg.get_by_role("button", name=re.compile("^Notifications")).first.click(); pg.wait_for_timeout(800)
+    check("agent: no recruitment notification", "partner application" not in pg.inner_text("body").lower())
+    shot(pg, "partner-agent-view.png", full=False)
+    ctx.close()
+
+    # --- a role without the permission (editor): no switch
     ctx, pg, errs, reqs = ctx_page(b, 4341, 1440, 900, "/portal?tab=Agents")
     check("editor: no partner applications shown", t(pg, "partner-inbox").count() == 0)
+    ctx.close()
+
+    # --- phone (Sales): the list fits; choosing one opens the full application
+    reset(4340)
+    ctx, pg, errs, reqs = agents_page(4340, 390, 844); partners(pg)
+    check("phone: the partner view fits 390px", fits(pg), pg.evaluate("document.documentElement.scrollWidth"))
+    shot(pg, "partner-requests-phone.png", full=False)
+    t(pg, "partner-table").get_by_text("Danial Hakim").first.click(); pg.wait_for_timeout(1300)
+    check("phone: choosing one opens the full application", t(pg, "partner-drawer").is_visible())
+    shot(pg, "partner-drawer-phone.png", full=False)
     ctx.close()
     b.close()
 

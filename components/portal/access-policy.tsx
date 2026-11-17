@@ -63,7 +63,14 @@ export interface Policy {
   custom_roles?: CustomRole[];
   can_manage_custom?: boolean;
   custom_bases?: string[];
+  /* v1.355.0 - Roles v2 stage 1: every row of the roles table (code roles and the owner's own roles),
+     the pages an own role may list, and the stage the server is at */
+  role_table?: RoleTableRow[];
+  role_tab_choices?: string[];
+  roles_stage?: number;
 }
+/** v1.355.0 - a row of the roles table (migration 0208); kind "own" = made by the owner, no base role */
+export interface RoleTableRow { key: string; name: string; description: string | null; kind: "protected" | "builtin" | "own"; counts_as_staff: number; tabs: string[] | null; created_at: string; created_by_name: string | null; updated_at: string | null; holders: number }
 export interface CustomRole { id: number; key: string; name: string; description: string | null; base_role: string; active: number | boolean; created_at: string; created_by_name: string | null; updated_at: string | null; users: number[] }
 type Verdict = "shows_tab" | "hides_only" | "redundant" | "hollow" | "expired" | "no_account";
 interface Exception { user_id: number; name: string | null; role: string | null; active: boolean; tab: string; kind: "grant" | "refuse"; reason: string | null; by_name: string | null; at: string | null; expires_on: string | null; needs_review: boolean; verdict: Verdict }
@@ -90,6 +97,7 @@ export function usePolicy(enabled: boolean, tick = 0) {
     const c = new AbortController();
     void api<Policy>("/staff/access/policy", { signal: c.signal }).then((r) => {
       if (r.ok && r.data?.custom_roles) setCustomRoleNames(r.data.custom_roles); // v1.350.0 - every roleLabel() then reads a custom role by its name
+      if (r.ok && r.data?.role_table) setCustomRoleNames(r.data.role_table.filter((x) => x.kind === "own")); // v1.355.0 - and an own role by its name
       if (!c.signal.aborted) setGot({ d: r.ok && r.data ? r.data : null, e: r.ok ? "" : L("The access policy needs the latest server.", "Polisi akses memerlukan pelayan terkini.") });
     });
     return () => c.abort();

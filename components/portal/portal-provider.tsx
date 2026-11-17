@@ -52,6 +52,8 @@ import {
   canSeeTab,
   mobileNavStops,
   mobilePrimaryTabs,
+  setRoleNames,
+  setRoleTabs,
   type PersonAccess,
   type TabName,
 } from "@/lib/portal-tabs";
@@ -390,6 +392,8 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       .then(async (r) => (r.ok ? await r.json() : null))
       .then((d) => {
         if (d && typeof d === "object" && "overrides" in d) {
+          setRoleTabs((d as { role_tabs?: Record<string, string[]> }).role_tabs);
+          setRoleNames((d as { role_names?: Record<string, string> }).role_names); // v1.356.0 - an own role's pages (Roles v2 stage 2), set before the state below redraws the strip
           setTabOverrides(
             (d as { overrides: Record<string, string[]> }).overrides ?? {}
           );

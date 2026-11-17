@@ -531,3 +531,14 @@ partner_application_events; triggers refuse a deleted application or a
 rewritten event - no existing table is altered). A public application never
 creates a user; activation links an Agent account already given through Users
 & Security.
+1.354.0 (partner applications staff only, the CEO 17-11-2026) adds
+`0207_partner_preapproval` (additive: two nullable columns,
+partner_applications.preapproved_by and preapproved_at - 0206 is not edited).
+A shortlisted application the COO or CCO pre-approved waits for the CEO's final
+decision; nothing here reaches an agent.
+1.355.0 (Roles v2 stage 1, the CEO 17-11-2026) adds `0208_roles` (additive:
+a roles table seeded with the twelve code roles, and triggers that keep the
+code roles, held roles, protected names and keys - users and custom_roles are
+not altered). A role the owner creates has no base role and is set up only;
+it is given to people once the later stages make pages, staff counts and
+approvals read it.

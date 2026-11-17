@@ -504,6 +504,28 @@ export function defaultRolesFor(tab: string): readonly string[] | null {
  * `overrides` is the CEO's saved map from the card; a tab absent from it
  * falls back to the built-in default.
  */
+/* v1.356.0 - ROLES V2, STAGE 2 (docs/ROLES-V2-PLAN.md, R-5): the pages of a role the owner made
+   (an OWN role, r_<slug>, migration 0208) are a list on the role, not a rule in this file. The server
+   hands each person their own role's list (/staff/tabs/access role_tabs) and fills the same registry
+   for itself (staff.ts loadRoleTabs), so the sidebar and the access review read ONE list. A code
+   role is never in it - its pages stay the rules below, unchanged. */
+const ROLE_TABS: Record<string, readonly string[]> = {};
+export const OWN_ROLE_RE = /^r_[a-z0-9_]{2,40}$/;
+/** set the page lists of the own roles (only r_ keys are kept; a code role can never be re-paged here) */
+export function setRoleTabs(map: Record<string, readonly string[]> | null | undefined): void {
+  for (const k of Object.keys(ROLE_TABS)) delete ROLE_TABS[k];
+  for (const [k, v] of Object.entries(map ?? {})) if (OWN_ROLE_RE.test(k) && Array.isArray(v)) ROLE_TABS[k] = v.map(String);
+}
+const ROLE_NAMES: Record<string, string> = {};
+/** the names of the own roles, as the owner wrote them (only r_ keys) */
+export function setRoleNames(map: Record<string, string> | null | undefined): void {
+  for (const [k, v] of Object.entries(map ?? {})) if (OWN_ROLE_RE.test(k) && typeof v === "string" && v.trim()) ROLE_NAMES[k] = v.trim();
+}
+/** a role as a person reads it: an own role's name, otherwise the key in words */
+export const roleWords = (role: string): string => ROLE_NAMES[role] ?? role.replace(/_/g, " ");
+/** the page list of an own role, or null for a code role (its rules apply) */
+export const roleTabsOf = (role: string | null | undefined): readonly string[] | null => (role && ROLE_TABS[role]) || null;
+
 export function canSeeTab(
   role: string | null | undefined,
   tab: string,
@@ -532,6 +554,8 @@ export function canSeeTab(
      person without giving it to the role. */
   if (person?.deny?.includes(tab)) return false;
   if (person?.allow?.includes(tab)) return true;
+  /* v1.356.0 - an own role sees exactly its own list (R-5); an own role not in the registry sees no extra page */
+  if (OWN_ROLE_RE.test(role)) return (ROLE_TABS[role] ?? []).includes(tab);
   const ov = overrides[tab];
   if (ov !== undefined) return ov.includes(role);
   const allowed = defaultRolesFor(tab);

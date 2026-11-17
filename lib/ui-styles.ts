@@ -243,6 +243,9 @@ export const btnHdrDesktop =
 /** Small buttons for table rows and dense cards. */
 export const btnSm =
   "erp-button erp-button-secondary erp-button-compact";
+/** v1.354.0 - the gold compact button: the one claim action on a row (Partner Applications' Pick Up) */
+export const btnSmAccent =
+  "erp-button erp-button-accent erp-button-compact";
 export const btnSmPrimary =
   "erp-button erp-button-primary erp-button-compact";
 export const btnSmWarning =

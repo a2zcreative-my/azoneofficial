@@ -179,7 +179,7 @@ export async function securityStatus(env: Env, newestBackup: () => Promise<{ key
   /* active sessions: unexpired, staff accounts that are on */
   let sessions: SessionRow[] = [];
   let sessionsError: string | null = null;
-  const staffWhere = `s.expires_at > datetime('now') AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent')`;
+  const staffWhere = `s.expires_at > datetime('now') AND u.is_active = 1 AND (u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`;
   try {
     sessions = (await env.DB.prepare(
       `SELECT s.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, s.user_agent, s.last_seen_at, s.created_at, s.expires_at

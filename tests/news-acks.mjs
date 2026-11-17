@@ -78,6 +78,7 @@ try {
   db.exec(`INSERT INTO announcements (id, title, body, category, created_by, created_at) VALUES (7,'Old','Old body','news',1,'2026-10-01 02:00:00')`);
   db.exec(`INSERT INTO announcement_acks (announcement_id, user_id, acked_at) VALUES (7,2,'2026-10-02 03:00:00')`);
   apply(migs.find((x) => x.startsWith("0146")));
+  for (const f of migs.filter((x) => /^\d{4}_roles\.sql$/.test(x))) apply(f); // v1.356.0 - every staff list reads the roles table (Roles v2 stage 2)
   ok("0146 kept the old post, its id and its acknowledgement as version 1",
      db.prepare(`SELECT id, title, version FROM announcements WHERE id = 7`).get()?.version === 1
      && db.prepare(`SELECT acked_at FROM announcement_acks WHERE announcement_id = 7 AND user_id = 2 AND version = 1`).get()?.acked_at === "2026-10-02 03:00:00");

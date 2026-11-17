@@ -50,6 +50,7 @@ let twofaOn = false;
 const voided = new Map();
 const permSaved = new Map(); // v1.331.0 - cap -> { roles, reason }: Roles & Permissions saves, read back
 const roleSaved = new Map(); // v1.331.0 - user id -> role: the role door, read back
+const ownSaved = []; // v1.355.0 - Roles v2 stage 1: the own roles the browser created { key, name, description, kind, counts_as_staff, tabs, from, ... }
 const customSaved = []; // v1.350.0 - the custom roles the browser created: { id, key, name, description, base_role, active, users, created_at, created_by_name, from }
 const customUser = new Map(); // v1.350.0 - user id -> custom role id
 const converted = new Set();
@@ -125,7 +126,7 @@ let chunksBroken = false, breakOnce = false, portalLoads = 0, chunk404s = 0;
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
   /* v1.331.0 - a Roles & Permissions run starts from the defaults (ROLESX servers keep saves) */
-  if (url.pathname === "/__rolesx-reset" && process.env.ROLESX) { permSaved.clear(); roleSaved.clear(); customSaved.length = 0; customUser.clear(); res.writeHead(200, { "content-type": "application/json" }); res.end("{\"ok\":true}"); return; }
+  if (url.pathname === "/__rolesx-reset" && process.env.ROLESX) { permSaved.clear(); roleSaved.clear(); customSaved.length = 0; ownSaved.length = 0; customUser.clear(); res.writeHead(200, { "content-type": "application/json" }); res.end("{\"ok\":true}"); return; }
   if (url.pathname === "/__fixture-status") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", fa_posts: fa.posts, missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
@@ -512,12 +513,35 @@ const server = http.createServer((req, res) => {
           }
         }
       }
+      /* v1.355.0 - Roles v2 stage 1: own roles (no base role) - create, edit, delete, read back on the next policy read
+         (the worker's own rules are proven by tests/roles-v2.mjs) */
+      {
+        const mo = /^\/staff\/access\/roles(?:\/([a-z0-9_]{2,44})(\/delete)?)?$/.exec(p);
+        if (mo && process.env.ROLESX && ["POST", "PATCH"].includes(req.method)) {
+          let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
+          const send = (st, o) => { res.writeHead(st, { "content-type": "application/json" }); res.end(JSON.stringify(o)); };
+          if (String(b.reason ?? "").trim().length < 10) return send(400, { error: { code: "reason_required", message: "Give the reason (at least 10 characters) - it is kept in the audit history." } });
+          if (!b.totp) return send(401, { error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } });
+          if (!mo[1] && req.method === "POST") {
+            const name = String(b.name ?? "").trim();
+            if (ownSaved.some((c) => c.name.toLowerCase() === name.toLowerCase())) return send(409, { error: { code: "name_taken", message: `A role called "${name}" already exists.` } });
+            const o = { key: "r_" + name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 36), name, description: String(b.description ?? "") || null, kind: "own", counts_as_staff: b.counts_as_staff === false ? 0 : 1, tabs: Array.isArray(b.tabs) ? b.tabs : [], created_at: "2026-11-17 04:00:00", created_by_name: "Fixture Person", updated_at: null, holders: 0, from: b.copy_from || "" };
+            ownSaved.push(o); return send(201, { ok: true, key: o.key, cells: o.from ? 5 : 0 });
+          }
+          const cur = ownSaved.find((c) => c.key === mo[1]);
+          if (!cur) return send(409, { error: { code: "role_protected", message: "That role is not changed here." } });
+          if (req.method === "PATCH") { if (b.name) cur.name = String(b.name).trim(); if (b.description !== undefined) cur.description = String(b.description) || null; if (typeof b.counts_as_staff === "boolean") cur.counts_as_staff = b.counts_as_staff ? 1 : 0; if (Array.isArray(b.tabs)) cur.tabs = b.tabs; return send(200, { ok: true }); }
+          if (mo[2] === "/delete") { ownSaved.splice(ownSaved.indexOf(cur), 1); for (const [k, v] of permSaved) if (v.roles.includes(cur.key)) permSaved.set(k, { ...v, roles: v.roles.filter((x) => x !== cur.key) }); return send(200, { ok: true }); }
+        }
+        if (mo && process.env.ROLESX && req.method === "GET") { res.writeHead(404); res.end("{}"); return; }
+      }
       /* v1.331.0 - the role door: the new role comes back with the account list */
       {
         const mr = /^\/staff\/users\/(\d+)\/role$/.exec(p);
         if (mr && req.method === "POST" && process.env.ROLESX) {
           let b = {}; try { b = JSON.parse(body || "{}"); } catch { /* empty */ }
           if (!b.totp) { res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "totp_required", message: "Enter your 6-digit authenticator code" } })); return; }
+          if (/^r_/.test(String(b.role))) { res.writeHead(409, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "role_not_assignable", message: "This role is being set up." } })); return; } // v1.355.0
           const crGive = customSaved.find((c) => c.key === b.role); // v1.350.0 - a custom role: the base role + the link
           const uid = Number(mr[1]);
           for (const c of customSaved) c.users = c.users.filter((x) => x !== uid);
@@ -708,8 +732,17 @@ const server = http.createServer((req, res) => {
           return { ...a, roles: [...a.roles, ...extra.map((c) => c.key)] };
         });
       }
+      /* v1.355.0 - an own role is one more column: a copy starts with its source's cells, a blank one with none */
+      if (req.method === "GET" && p === "/staff/access/policy" && ownSaved.length && Array.isArray(data?.actions)) {
+        data.role_table = [...(data.role_table ?? []), ...ownSaved.map(({ from, ...o }) => o)];
+        data.actions = data.actions.map((a) => {
+          const saved = a.cap && permSaved.get(a.cap);
+          const extra = ownSaved.filter((o) => !a.custom_forbidden && (saved ? saved.roles.includes(o.key) : !!o.from && a.roles.includes(o.from)));
+          return { ...a, roles: [...a.roles, ...extra.map((o) => o.key)] };
+        });
+      }
       if (req.method === "GET" && p === "/staff/access/policy" && permSaved.size && Array.isArray(data?.actions)) {
-        data.actions = data.actions.map((a) => a.cap && permSaved.has(a.cap) ? { ...a, roles: [...data.roles.filter((r) => permSaved.get(a.cap).roles.includes(r)), ...permSaved.get(a.cap).roles.filter((r) => String(r).startsWith("cr_"))], owner_grant: a.owner_grant && !permSaved.get(a.cap).roles.includes("ceo"), edited: true, edit_meta: { by_name: "Fixture Person", at: "2026-11-17 01:00:00", reason: permSaved.get(a.cap).reason } } : a);
+        data.actions = data.actions.map((a) => a.cap && permSaved.has(a.cap) ? { ...a, roles: [...data.roles.filter((r) => permSaved.get(a.cap).roles.includes(r)), ...permSaved.get(a.cap).roles.filter((r) => /^c?r_/.test(String(r)))], owner_grant: a.owner_grant && !permSaved.get(a.cap).roles.includes("ceo"), edited: true, edit_meta: { by_name: "Fixture Person", at: "2026-11-17 01:00:00", reason: permSaved.get(a.cap).reason } } : a);
         data.edited_count = new Set(data.actions.filter((a) => a.edited && a.default_roles && data.roles.filter((r) => a.roles.includes(r)).join() !== a.default_roles.join()).map((a) => a.cap)).size; // v1.350.0 - custom columns are not "edited"
       }
       if (req.method === "GET" && p === "/staff/users" && roleSaved.size && Array.isArray(data?.users)) {

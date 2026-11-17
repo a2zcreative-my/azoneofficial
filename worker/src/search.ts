@@ -154,7 +154,7 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
                 CASE WHEN ((left_on IS NULL AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated'))
      OR left_on >= date('now', '+8 hours')
      OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours'))) THEN 1 ELSE 0 END AS here FROM users
-          WHERE is_active = 1 AND role NOT IN ('customer', 'agent')
+          WHERE is_active = 1 AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
             AND (name LIKE ?1 ESCAPE '\\' OR full_name LIKE ?1 ESCAPE '\\' OR position LIKE ?1 ESCAPE '\\' OR department LIKE ?1 ESCAPE '\\'
                  ${digits ? `OR ${DIGITS("phone")} LIKE ?2` : ""})
           ORDER BY name LIMIT ${per}`,

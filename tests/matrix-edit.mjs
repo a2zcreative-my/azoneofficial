@@ -169,7 +169,7 @@ const MUT = [
   ["worker/src/permissions.ts", "can() ignores the saved matrix", "  return rolesFor(perm).includes(role as Role);", "  return PERMS[perm]!.includes(role as Role);"],
   ["worker/src/staff.ts", "anyone may edit the matrix", 'const sysEditor = user.role === "super_admin" || user.is_owner === true;', "const sysEditor = true;"], // v1.348.0 - custom-role editors (role_custom) move only custom columns; a system cell is sysEditor's
   ["worker/src/staff.ts", "the editor's code is skipped", 'const su = await requireFreshTotp(env, user, body?.totp, err, "change what roles may do");', "const su = null;"],
-  ["worker/src/permissions.ts", "a customer can be named in a cell", "out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r) || (isCustomKey(r) && !CUSTOM_FORBIDDEN.has(k))))] as Role[];", "out[k] = [...new Set(v.map(String))] as Role[];"],
+  ["worker/src/permissions.ts", "a customer can be named in a cell", "out[k] = [...new Set(v.map(String).filter((r) => POLICY_ROLE_SET.includes(r) || (isExtraKey(r) && !CUSTOM_FORBIDDEN.has(k))))] as Role[];", "out[k] = [...new Set(v.map(String))] as Role[];"],
   ["worker/src/index.ts", "the saved matrix is not loaded for a request", "try { setPermissionOverrides(row.perm_meta ? (JSON.parse(row.perm_meta) as { perms?: unknown }).perms : null); } catch { setPermissionOverrides(null); }", "setPermissionOverrides(null);"],
   ["worker/src/staff.ts", "a changed cell is not audited", '      for (const d of done) await audit(env, user.id, "permissions.change"', '      for (const d of []) await audit(env, user.id, "permissions.change"'],
 ];

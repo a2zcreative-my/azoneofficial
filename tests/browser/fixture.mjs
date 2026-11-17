@@ -174,7 +174,10 @@ function baseFixture(p) {
      ELFIA web orders, so September's bar is higher than the month figure */
   if (p === "/staff/revenue") data = { month: "2026-09", last_month: "2026-08", tiktok: { this_cents: 125000, this_orders: 20, last_cents: 110000, last_orders: 18 }, invoiced: { this_cents: 200000, this_docs: 4, last_cents: 140000, last_docs: 3 },
     overall: { total_cents: 2_480_000, months: [["2025-12", 98000], ["2026-01", 121000], ["2026-02", 143000], ["2026-03", 187000], ["2026-04", 214000], ["2026-05", 196000], ["2026-06", 262000], ["2026-07", 301000], ["2026-08", 288000], ["2026-09", 352000]].map(([month, cents]) => ({ month, cents })) } };
-  if (p === "/staff/tabs/access") data = { overrides: {}, mine: { allow: [], deny: [] }, people: {} };
+  if (p === "/staff/tabs/access") data = { overrides: {}, mine: { allow: [], deny: [] }, people: {},
+    /* v1.356.0 - Roles v2 stage 2: a person on an own role gets that role's page list (ROLE=r_..., ROLE_TABS=Tab,Tab) */
+    role_tabs: /^r_/.test(ROLE) ? { [ROLE]: String(process.env.ROLE_TABS ?? "").split(",").filter(Boolean) } : {},
+    role_names: /^r_/.test(ROLE) ? { [ROLE]: "Packing Crew" } : {} };
   /* v1.234.0 - the access policy and the access review (worker: staff.ts
      /access/policy, /access/review). The role lists are the worker's own as
      of 1.234.0; the people, exceptions and history are invented. */
@@ -234,6 +237,11 @@ function baseFixture(p) {
       can_edit_actions: (OWNER && ROLE === "ceo") || ROLE === "super_admin", edited_count: 0,
       /* v1.350.0 - custom roles (worker: readCustomRoles); none until the browser creates one (serve.mjs holds them) */
       custom_roles: [], can_manage_custom: ["ceo", "super_admin"].includes(ROLE), custom_bases: ["hr_admin", "sales_marketing", "marketing", "editor", "live_host"],
+      /* v1.355.0 - Roles v2 stage 1 (worker: readRoles, ROLE_TAB_CHOICES); own roles appear once the browser creates one (serve.mjs) */
+      role_table: [["super_admin", "Super Admin", "protected", 0], ["ceo", "CEO", "protected", 1], ["coo", "COO", "protected", 1], ["cco", "CCO", "protected", 1], ["agent", "Agent", "protected", 0], ["customer", "Customer", "protected", 0],
+        ["admin", "Admin", "builtin", 0], ["hr_admin", "HR Admin", "builtin", 1], ["sales_marketing", "Sales & Marketing", "builtin", 1], ["marketing", "Marketing", "builtin", 1], ["editor", "Editor", "builtin", 1], ["live_host", "Live Host", "builtin", 1]]
+        .map(([key, name, kind, staff]) => ({ key, name, description: null, kind, counts_as_staff: staff, tabs: null, created_at: "2026-11-17 00:00:00", created_by_name: null, updated_at: null, holders: 1 })),
+      role_tab_choices: ["Announcements", "Sales", "Ecommerce", "Inventory", "Tasks", "Attendance", "Leave", "Claims", "Payroll", "Hotels", "Staff", "Users"], roles_stage: 1,
       counts: { ceo: 1, coo: 1, cco: 1, hr_admin: 1, sales_marketing: 3, marketing: 1, live_host: 2, admin: 1, super_admin: 1 },
       owner: OWNER ? { user_id: 9001, name: "Fixture Person", verified: true, set_at: "2026-10-30 02:00:00" } : null,
       me_owner: OWNER && ROLE === "ceo",
