@@ -10,6 +10,21 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.352.0] - 2026-11-17 - /admin Phase 4: one Website Content tab - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+Phase 4, the last of the /admin plan the CEO approved (17-11-2026). The console is now six tabs: Overview, Website Content, Users, Signatures, Security & Audit, My Account.
+
+### Changed
+- **Website Content** (`components/admin/admin-website.tsx`) replaces six tabs - Website, Posts, Portfolio, Testimonials, Media, Advanced. One strip (Content Keys, Posts, Portfolio, Testimonials, Media Files - each opens its view), then one underline tab row; every view stays mounted while hidden, so a half-written post survives a look at the media.
+  - **Website Text** (`site-editor.tsx`, restyled in place, new `site-editor.module.css`): each section of the live site is a pane, two across on a desk; a field's Save appears once it changed and saves that field only, as before.
+  - **Posts, Portfolio, Testimonials**: the list beside its editor; a row opens it; New, Save changes, Cancel and Delete. Same requests (GET, POST, PUT /:resource/:id, DELETE); **Delete now asks first**.
+  - **Media**: the library as tiles (preview, name, date, Copy URL, Delete), Upload file in the pane's head; images are still compressed first; **Delete now asks first**; Copy URL says whether the browser allowed it.
+  - **Advanced Keys**: the keys register (searchable) beside the key editor; same PUT /content/:key.
+- `app/admin/page.tsx` loses the old generic panels (CrudPanel, MediaPanel, ContentPanel).
+
+### Guards
+- `tests/admin-super-only.mjs` 14 checks, 12 mutations (P7-P8: one website tab; every view keeps its requests, deletes ask, views stay mounted). Browser `tests/browser/admin-console.py` 70/70 (adds Website Content: the strip, the rail, a post opened, saved and deleted, the media and the keys); the fixture answers the website's own `/content` (not the portal's content planner), `/posts`, `/portfolio`, `/testimonials` and `/media`.
+
 ## [1.351.0] - 2026-11-17 - /admin Phase 3: Security & Audit, My Account and Signatures on the portal's pages - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
 
 Phase 3 of the /admin plan the CEO approved (17-11-2026). The tabs now read Overview, Security & Audit and My Account on screen (their keys are unchanged).

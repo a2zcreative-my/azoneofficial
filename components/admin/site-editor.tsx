@@ -15,7 +15,9 @@
 
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import { useCallback, useEffect, useState } from "react";
-import { inputClass, btnClass } from "@/lib/ui-styles";
+import { inputClass, btnSmPrimary, textareaClass, chipSmSuccess } from "@/lib/ui-styles";
+import { SplitPane } from "@/components/ui/workspace-split"; // v1.352.0 - each website section is a pane
+import se from "./site-editor.module.css"; // v1.352.0 - the portal's pages, no utility classes
 import { useSaveToast } from "@/components/ui/save-toast";
 import { getLang } from "@/lib/i18n";
 import { Skel } from "@/components/ui/skeleton"; // v1.77.0
@@ -159,7 +161,7 @@ export function SiteEditor() {
     const res = await api<{ content: { key: string; value: string }[] }>("/content");
     if (res.ok && res.data) {
       const map: Record<string, string> = {};
-      for (const row of res.data.content) {
+      for (const row of (res.data.content ?? []).filter((r) => typeof r.key === "string" && typeof r.value === "string")) {
         // values are stored JSON-encoded; show strings without quotes
         try {
           const parsed: unknown = JSON.parse(row.value);
@@ -207,83 +209,60 @@ export function SiteEditor() {
     showToast(L("Saved", "Disimpan"), `${fieldLabel(field)} ${L("updated — live on the website now", "dikemas kini — kini dipaparkan di laman web")}`);
   };
 
+  /* v1.352.0 - Website Content > Website Text on the portal's pages: one note,
+     then each section of the live site as a pane; a field's Save appears only
+     once it changed, and saves just that field (PUT /content/:key), as before. */
   return (
-    <div className="space-y-8">
+    <div className={se.page}>
       {toastNode}
-      <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3">
-        <p className="text-sm font-medium">{L("This tab edits the live website.", "Tab ini menyunting laman web langsung.")}</p>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          {L(
-            "Each field controls the text named beside it. Save a field and the site picks it up on the next page load — no rebuild, no code change. An empty field means the site shows its built-in default, so nothing here can break the page.",
-            "Setiap medan mengawal teks yang dinamakan di sebelahnya. Simpan medan dan laman web mengambilnya pada muatan halaman seterusnya — tiada bina semula, tiada perubahan kod. Medan kosong bermakna laman memaparkan lalai terbina dalamnya, jadi tiada apa-apa di sini boleh merosakkan halaman.",
-          )}
-        </p>
-      </div>
-
-      {error && <p className="text-destructive text-sm">{error}</p>}
-
-      {GROUPS.map((group) => (
-        <section key={group.title}>
-          <h3 className="text-sm font-semibold tracking-tight">{L(group.title, GROUP_TITLE_MS[group.title] ?? group.title)}</h3>
-          <p className="text-muted-foreground mt-0.5 text-xs">{L(group.description, GROUP_DESC_MS[group.description] ?? group.description)}</p>
-          <div className="mt-3 space-y-4">
-            {group.fields.map((field) => {
-              const dirty = (values[field.key] ?? "") !== (initial[field.key] ?? "");
-              const justSaved = savedAt[field.key] && Date.now() - savedAt[field.key]! < 4000;
-              return (
-                <label key={field.key} className="block">
-                  <span className="mb-1 flex items-center gap-2 text-xs font-medium">
-                    {fieldLabel(field)}
-                    {justSaved && !dirty && (
-                      <span className="text-xs font-medium text-success">{L("Saved ✓","Disimpan ✓")}</span>
-                    )}
-                  </span>
-                  {/* v1.77.0 — skeleton until the first fetch lands: the group
-                      headings and field labels are real; each field is a block
-                      the size of the input it becomes, so nothing can be typed
-                      into a box the arriving value would then overwrite. */}
-                  {!loaded ? (
-                    <Skel className={field.multiline ? "h-20 w-full" : "h-[38px] w-full"} />
-                  ) : field.multiline ? (
-                    <textarea
-                      className={`${inputClass} min-h-20`}
-                      value={values[field.key] ?? ""}
-                      placeholder={fieldHint(field)}
-                      onChange={(e) =>
-                        setValues((s) => ({ ...s, [field.key]: e.target.value }))
-                      }
-                    />
-                  ) : (
-                    <input
-                      className={inputClass}
-                      value={values[field.key] ?? ""}
-                      placeholder={fieldHint(field)}
-                      onChange={(e) =>
-                        setValues((s) => ({ ...s, [field.key]: e.target.value }))
-                      }
-                    />
-                  )}
-                  {field.hint && field.multiline === undefined && (
-                    <span className="text-muted-foreground mt-0.5 block text-[11px]">
-                      {fieldHint(field)}
+      <p className={se.note}>
+        <strong>{L("This view edits the live website.", "Paparan ini menyunting laman web langsung.")}</strong>{" "}
+        {L(
+          "Each field controls the text named beside it. Save a field and the site picks it up on the next page load — no rebuild, no code change. An empty field means the site shows its built-in default, so nothing here can break the page.",
+          "Setiap medan mengawal teks yang dinamakan di sebelahnya. Simpan medan dan laman web mengambilnya pada muatan halaman seterusnya — tiada bina semula, tiada perubahan kod. Medan kosong bermakna laman memaparkan lalai terbina dalamnya, jadi tiada apa-apa di sini boleh merosakkan halaman.",
+        )}
+      </p>
+      {error && <p className={se.error} role="alert">{error}</p>}
+      <div className={se.groups}>
+        {GROUPS.map((group) => (
+          <SplitPane key={group.title} testid={`site-${group.fields[0]?.key ?? group.title}`} title={L(group.title, GROUP_TITLE_MS[group.title] ?? group.title)}
+            sub={L(group.description, GROUP_DESC_MS[group.description] ?? group.description)}>
+            <div className={se.fields}>
+              {group.fields.map((field) => {
+                const dirty = (values[field.key] ?? "") !== (initial[field.key] ?? "");
+                const justSaved = savedAt[field.key] && Date.now() - savedAt[field.key]! < 4000;
+                return (
+                  <label key={field.key} className={se.field}>
+                    <span className={se.label}>
+                      {fieldLabel(field)}
+                      {justSaved && !dirty && <span className={chipSmSuccess}>{L("Saved", "Disimpan")}</span>}
                     </span>
-                  )}
-                  {dirty && (
-                    <button
-                      type="button"
-                      className={`${btnClass} mt-2 h-8 px-3 text-xs`}
-                      disabled={saving === field.key}
-                      onClick={() => void save(field)}
-                    >
-                      {saving === field.key ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
-                    </button>
-                  )}
-                </label>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+                    {/* v1.77.0 - a block the size of the input it becomes until the content lands,
+                        so nothing can be typed into a box the arriving value would overwrite */}
+                    {!loaded ? (
+                      <Skel className={field.multiline ? se.skArea : se.skInput} />
+                    ) : field.multiline ? (
+                      <textarea className={textareaClass} rows={3} value={values[field.key] ?? ""} placeholder={fieldHint(field)}
+                        onChange={(e) => setValues((s) => ({ ...s, [field.key]: e.target.value }))} />
+                    ) : (
+                      <input className={inputClass} value={values[field.key] ?? ""} placeholder={fieldHint(field)}
+                        onChange={(e) => setValues((s) => ({ ...s, [field.key]: e.target.value }))} />
+                    )}
+                    {field.hint && field.multiline === undefined && <span className={se.hint}>{fieldHint(field)}</span>}
+                    {dirty && (
+                      <span className={se.saveRow}>
+                        <button type="button" className={btnSmPrimary} disabled={saving === field.key} onClick={() => void save(field)}>
+                          {saving === field.key ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
+                        </button>
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          </SplitPane>
+        ))}
+      </div>
     </div>
   );
 }

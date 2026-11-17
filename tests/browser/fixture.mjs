@@ -1200,6 +1200,29 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/staff/web-orders") data = { orders: q.get("status") ? webOrders.filter((o) => o.status === q.get("status")) : webOrders };
   if (p === "/stokis") data = { stokis, month: "2026-09" };
   if (p === "/content") data = { content };
+  /* v1.352.0 - /api/v1/content (the website's keys) is not the portal's content planner (/staff/content) */
+  if (p0 === "/content") data = { content: [
+    { key: "home.hero.headline", value: JSON.stringify("Build the brand. Sell it live."), updated_at: "2026-11-12 03:00:00" },
+    { key: "footer.slogan", value: JSON.stringify("LIVE . CONNECT . GROW."), updated_at: "2026-10-30 02:00:00" },
+    { key: "stats.items", value: JSON.stringify([{ value: "500+", label: "Live sessions hosted" }]), updated_at: "2026-10-01 01:00:00" },
+  ] };
+  /* v1.352.0 - /admin Website Content: the public site's lists (the super admin sees drafts too) */
+  if (p === "/posts") data = { items: [
+    { id: 3, slug: "live-commerce-basics", title: "Live commerce basics for SMEs", excerpt: "Five things to get right before your first session.", body: "...", status: "published", category: "Guides" },
+    { id: 2, slug: "tiktok-shop-checklist", title: "TikTok Shop launch checklist", excerpt: "From listing to first live.", body: "...", status: "draft", category: "Guides" },
+  ] };
+  if (p === "/portfolio") data = { items: [
+    { id: 4, client: "ELFIA Official Store", summary: "Weekly live sessions and catalogue.", result: "3x orders in 8 weeks", is_published: 1 },
+    { id: 3, client: "Klinik Gigi Senyum", summary: "Brand refresh and social content.", result: "Bookings up 40%", is_published: 0 },
+  ] };
+  if (p === "/testimonials") data = { items: [
+    { id: 2, author: "Puan Rahimah", company: "Aina Boutique", position: "Owner", review: "The live sessions changed how we sell.", rating: 5, is_published: 1 },
+  ] };
+  if (p === "/media") data = { media: [
+    { id: 12, r2_key: "media/2026/11/hero-studio.jpg", kind: "image", alt: "Studio", created_at: "2026-11-10 03:00:00" },
+    { id: 11, r2_key: "media/2026/10/company-profile.pdf", kind: "document", alt: null, created_at: "2026-10-28 02:00:00" },
+    { id: 10, r2_key: "media/2026/10/session-reel.mp4", kind: "video", alt: null, created_at: "2026-10-20 06:00:00" },
+  ] };
   if (p === "/commission") data = { entries: commission };
   if (p === "/commission/rates") data = { rates: [{ id: 1, host_id: 9003, host_name: "Farid Zul", percent: 5, per_hour_cents: 0, effective_from: "2026-01-01" }] };
   if (p === "/hosts") data = { hosts: [{ id: 9003, name: "Farid Zul" }, { id: 9002, name: "Nur Aisyah" }] };

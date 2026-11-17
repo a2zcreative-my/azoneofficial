@@ -162,3 +162,11 @@
   font-size: var(--type-body-sm-size);
   font-weight: 600;
 }
+/* a checkbox field in a form: the box beside its words (v1.352.0) */
+.form .checkRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--foreground);
+  font-size: var(--type-body-size);
+}
