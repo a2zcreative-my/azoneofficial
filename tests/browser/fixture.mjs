@@ -895,7 +895,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/staff/support/settings") data = {
     assignee: { id: 9001, name: "Fixture Person" }, can_edit: ROLE === "super_admin" || (OWNER && ROLE === "ceo"),
     people: [{ id: 9001, name: "Fixture Person", role: "ceo" }, { id: 9104, name: "Tech Support A2Z", role: "admin" }, { id: 9002, name: "Nur Aisyah binti Rahman", role: "sales_marketing" }],
-    kinds: { login: "Login problem", access: "Missing access", data: "Incorrect data", clock: "Clock-in failure", quotation: "Quotation error", system: "System error" },
+    kinds: { login: "Login problem", access: "Missing access", data: "Incorrect data", clock: "Clock-in failure", quotation: "Quotation error", system: "System error", security: "Security incident" }, // v1.341.0
   };
   if (/^\/staff\/users\/\d+\/handover$/.test(p)) data = {
     tasks: [{ id: 71, title: "Follow up Aina Boutique (Melaka) quotation", status: "open", deadline: "2026-11-05" }, { id: 72, title: "Prepare November live schedule", status: "in_progress", deadline: null }],
@@ -1076,6 +1076,35 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 981, action: "user.update", entity: "users", entity_id: "9003", detail: "{\"field\":\"role\",\"to\":\"marketing\"}", created_at: "2026-09-15 06:00:00", user_name: "Fixture Person" },
   ].filter((e) => !q.get("action") || e.action.startsWith(q.get("action"))) };
   /* v1.203.0 - what /system/health says (CEO and admin): a backup last night, nothing pending, one error today */
+  /* v1.341.0 - Security & Sessions: the status read and the reports register.
+     SECCF=1: a Cloudflare token is set (figures); BOTOFF=1: no Turnstile keys. */
+  if (p === "/system/security") {
+    const ago = (m) => new Date(Date.now() - m * 60_000).toISOString().replace("T", " ").slice(0, 19);
+    data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin or CEO required" } } : {
+      as_of: new Date().toISOString(),
+      sessions: { count: 5, active_30m: 3, people: 4, error: null, rows: [
+        { user_id: 9001, name: "Mohamad Izzudin bin Amdan", role: "cco", user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36", last_seen_at: ago(4), created_at: ago(300), expires_at: "2026-12-01 00:00:00" },
+        { user_id: 9002, name: "Nurfarin Suaidah binti Rahman", role: "sales_marketing", user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1", last_seen_at: ago(12), created_at: ago(900), expires_at: "2026-12-01 00:00:00" },
+        { user_id: 9003, name: "Zolkefli bin Sahdi", role: "coo", user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 Edg/131.0", last_seen_at: ago(25), created_at: ago(1500), expires_at: "2026-12-01 00:00:00" },
+        { user_id: 9004, name: "Siti Noraleeya Eliana binti Ahmad Nazri", role: "hr_admin", user_agent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36", last_seen_at: ago(190), created_at: ago(2000), expires_at: "2026-12-01 00:00:00" },
+        { user_id: 9001, name: "Mohamad Izzudin bin Amdan", role: "cco", user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", last_seen_at: null, created_at: ago(4000), expires_at: "2026-12-01 00:00:00" },
+      ] },
+      bot_check: { enabled: !process.env.BOTOFF, refused: { today: process.env.BOTOFF ? 0 : 7, yesterday: process.env.BOTOFF ? 0 : 19 }, outage: { today: 0, yesterday: 0 }, on_outage: "allow" },
+      cloudflare: process.env.SECCF ? { connected: true, ok: true, requests_24h: 12840, threats_24h: 3, firewall_24h: 128, firewall_by_action: [{ action: "managed_challenge", count: 96 }, { action: "block", count: 32 }] } : { connected: false },
+      files: { antivirus: false, type_signature: true, size_cap: true, note: "Every upload is checked for its size limit and that its first bytes match its declared type. Files are not scanned for viruses." },
+      platform: { errors_24h: 0 },
+      backup: { last: { uploaded: ago(60 * 11), size: 412000 }, retention_runs: 30, offsite_last: ago(60 * 24 * 3), bucket_bound: true },
+    };
+  }
+  if (p === "/staff/support/reports") data = !["super_admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "The report receiver, the company owner, the CEO or the super admin reads the reports" } } : {
+    receiver: { id: 9001, name: "Fixture Person" },
+    reports: [
+      { id: 148, title: "[Security incident] Suspicious login from a new location", priority: "high", status: "in_progress", stage: null, created_at: "2026-11-17 02:24:00", kind: "security", kind_label: "Security incident", reporter: "Nurfarin Suaidah", assignee: "Fixture Person", closed_at: null },
+      { id: 147, title: "[System error] Upload refused for a PDF quotation", priority: "normal", status: "completed", stage: null, created_at: "2026-11-16 04:12:00", kind: "system", kind_label: "System error", reporter: "Zolkefli bin Sahdi", assignee: "Fixture Person", closed_at: "2026-11-16 09:30:00" },
+      { id: 146, title: "[Login problem] 2FA setup help for a new staff member", priority: "high", status: "completed", stage: null, created_at: "2026-11-15 03:08:00", kind: "login", kind_label: "Login problem", reporter: "Siti Noraleeya", assignee: "Fixture Person", closed_at: "2026-11-15 10:20:00" },
+      { id: 140, title: "[Missing access] Cannot open Inventory after the move", priority: "normal", status: "open", stage: null, created_at: "2026-11-14 01:00:00", kind: "access", kind_label: "Missing access", reporter: "Mohamad Izzudin", assignee: "Fixture Person", closed_at: null },
+    ],
+  };
   if (p === "/system/health") data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin or CEO required" } } : {
     errors: [{ id: 41, created_at: "2026-09-18 00:12:00", source: "cron", message: "TikTok sync timed out once" },
       /* v1.326.0 - a page's own report from an OLDER version, two hours ago (the CEO's 16-11-2026 screenshot): it names its tab,

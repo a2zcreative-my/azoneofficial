@@ -20,6 +20,7 @@ import { type FormEvent, useEffect, useState, useSyncExternalStore, type ReactNo
 import { api } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { btnClassBlock, inputClassLg } from "@/lib/ui-styles";
+import { useBotCheck } from "@/components/security/bot-check"; // v1.341.0 - Cloudflare bot check
 import css from "./link-page.module.css";
 
 const tr = () => { const ms = getLang() === "ms"; return (en: string, m: string) => (ms ? m : en); };
@@ -111,13 +112,22 @@ export function SetPassword() {
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [state, setState] = useState<{ busy: boolean; done: boolean; error: string }>({ busy: false, done: false, error: "" });
+  /* v1.341.0 - the link alone is not enough for a bot: the same Cloudflare check as the sign-in page */
+  /* skeleton: none — the /auth/methods answer only switches on the Cloudflare check under the form; the form itself renders in full from the first frame */
+  const [botKey, setBotKey] = useState<string | null>(null);
+  useEffect(() => {
+    void api<{ bot_check?: { site_key: string } | null }>("/auth/methods").then((r) => { if (r.ok && r.data?.bot_check?.site_key) setBotKey(r.data.bot_check.site_key); });
+  }, []);
+  const bot = useBotCheck(botKey, "set_password");
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!tok) return;
+    if (!bot.canSend) { setState({ busy: false, done: false, error: L("Please wait - Cloudflare is still checking your browser.", "Sila tunggu - Cloudflare masih menyemak pelayar anda.") }); return; }
     if (pw.length < 10) { setState({ busy: false, done: false, error: L("Choose at least 10 characters.", "Pilih sekurang-kurangnya 10 aksara.") }); return; }
     if (pw !== pw2) { setState({ busy: false, done: false, error: L("The two passwords are not the same.", "Kedua-dua kata laluan tidak sama.") }); return; }
     setState({ busy: true, done: false, error: "" });
-    const r = await postLink<{ ok?: boolean }>("/auth/set-password", { token: tok, password: pw });
+    const r = await postLink<{ ok?: boolean }>("/auth/set-password", { token: tok, password: pw, bot_token: bot.token });
+    bot.spend();
     if (r.ok) { setPw(""); setPw2(""); setState({ busy: false, done: true, error: "" }); }
     else setState({ busy: false, done: false, error: r.status === 0 ? L(...NO_NET) : (r.data?.error?.message ?? L(...BAD)) });
   };
@@ -137,6 +147,7 @@ export function SetPassword() {
             <label htmlFor="pw2">{L("Type it again", "Taip sekali lagi")}</label>
             <input id="pw2" type="password" autoComplete="new-password" className={inputClassLg} value={pw2} minLength={10} maxLength={200} required onChange={(e) => setPw2(e.target.value)} />
           </div>
+          {bot.node}
           {state.error && <Note kind="error">{state.error}</Note>}
           <button type="submit" className={btnClassBlock} disabled={state.busy}>
             {state.busy ? L("Saving…", "Menyimpan…") : L("Set password", "Tetapkan kata laluan")}

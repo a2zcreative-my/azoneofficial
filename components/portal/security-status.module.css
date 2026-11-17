@@ -1,0 +1,35 @@
+/* v1.341.0 - Security & Sessions: the status surfaces (security-status.tsx).
+   Tokens, --type-* roles and the house breakpoints only. */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.muted { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.link { justify-self: start; padding: 0; border: 0; background: none; color: var(--info); font: inherit; font-size: var(--type-body-sm-size); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* the protection list: one line each, the state chip at the end */
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li { display: flex; align-items: center; gap: 0.5rem 0.75rem; min-width: 0; padding: 0.625rem 0.75rem; }
+.rowIcon { display: grid; place-items: center; flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: var(--radius-control); background: var(--secondary); color: var(--muted-foreground); }
+.rowIcon svg { width: 1rem; height: 1rem; }
+.rowText { display: grid; gap: 0.125rem; flex: 1 1 auto; min-width: 0; }
+.rowText strong { font-size: var(--type-body-sm-size); font-weight: 700; }
+.rowText small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.rows > li > :last-child { flex: 0 0 auto; }
+
+/* Cloudflare's three figures */
+.figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0 0 0.75rem; }
+.figs > div { display: grid; gap: 0.125rem; min-width: 0; }
+.figs dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.figs dd { margin: 0; font-size: var(--type-card-size); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* the active sessions */
+.sessions { list-style: none; margin: 0; padding: 0; }
+.sessions > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.25rem 0.75rem; min-width: 0; padding: 0.5rem 0.75rem; }
+.sessWho { display: grid; gap: 0.0625rem; min-width: 0; }
+.sessWho strong { font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.sessWho small { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: break-word; }
+.sessEnd { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+
+@media (max-width: 767px) {
+  .rows > li { align-items: flex-start; flex-wrap: wrap; }
+  .figs { grid-template-columns: minmax(0, 1fr); }
+}

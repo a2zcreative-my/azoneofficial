@@ -182,7 +182,8 @@ const server = http.createServer((req, res) => {
     if (req.method === "GET" && p === "/auth/methods") {
       const on = !process.env.GOOGLE_OFF;
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(JSON.stringify({ password: true, google: on, google_customer_signup: on, passkeys: !!process.env.PASSKEYS })); return;
+      /* v1.341.0 - BOTKEY=<site key>: the Cloudflare bot check is on (Cloudflare's public test key 1x00000000000000000000AA always passes) */
+      res.end(JSON.stringify({ password: true, google: on, google_customer_signup: on, passkeys: !!process.env.PASSKEYS, bot_check: process.env.BOTKEY ? { site_key: process.env.BOTKEY } : null })); return;
     }
     if (req.method === "GET" && p === "/auth/me" && !signedIn) {
       res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: { code: "unauthorized", message: "Sign in required" } })); return;

@@ -43,10 +43,11 @@ import { OwnerCard, useOwner } from "@/components/portal/owner-card";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { AccountSheet } from "@/components/portal/account-sheet";
 import { CustomerRecoverySheet } from "@/components/portal/customer-recovery-sheet"; // v1.266.0
-import { SupportCard } from "@/components/portal/support-card";
+import { ReportsRegister, SupportCard } from "@/components/portal/support-card";
 import { SystemHealthCard } from "@/components/admin/system-health";
 import { CustomersAgents } from "@/components/portal/customers-agents"; // v1.327.0
 import { SecuritySessions } from "@/components/portal/security-sessions"; // v1.327.0
+import { SecurityHealth, useSecurityStatus } from "@/components/portal/security-status"; // v1.341.0
 import { withStepUp } from "@/components/portal/page-shared";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { Avatar } from "@/components/ui/avatar";
@@ -472,6 +473,8 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const ownerState = useOwner(["ceo", "coo", "cco", "admin", "super_admin"].includes(role), ownerTick);
   const auditRead = ["ceo", "admin", "super_admin"].includes(role); // = PERMS.audit_read
   const geofence = holdsCap("geofence_admin", ["super_admin", "ceo", "coo"].includes(role));
+  /* v1.341.0 - the security status (sessions, bot check, Cloudflare, files, backup): read while Security & Sessions is open; the server keeps it to the CEO and the Super Admin */
+  const secStatus = useSecurityStatus(view === "security" && auditRead, secPart === "health" ? 1 : 0); // re-read on opening System health
   const adminDoor = ["super_admin", "admin"].includes(role);
   /* v1.252.1 (the owner, 02-11-2026: the Super Admin looked in /admin and
      could not find where to name the owner) - one Company owner zone, shown
@@ -645,7 +648,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
         <LineTabs value={secPart} onChange={setSecPart} label={L("Security parts", "Bahagian keselamatan")} testid="sec-part" tabs={secParts} />
         {secPart === "overview" && (
           <TabZone label={L("Security", "Keselamatan")}>
-            <SecuritySessions staff={allStaff} loaded={loaded} events={events} eventsLoaded={eventsLoaded} canSettings={holds}
+            <SecuritySessions staff={allStaff} loaded={loaded} events={events} eventsLoaded={eventsLoaded} canSettings={holds} status={secStatus} onHealth={auditRead ? () => setSecPart("health") : undefined}
               onManage={recovery ? (id) => setSheetId(id) : undefined} onStaffAccounts={() => openView("staff")} onAudit={auditTab ? () => openView("audit") : undefined} />
           </TabZone>
         )}
@@ -659,12 +662,16 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
             health (errors, backups, migrations) next to the audit trail */}
         {secPart === "reports" && holds && view === "security" && (
           <TabZone label={L("Problem reports", "Laporan masalah")}>
+            {/* v1.341.0 - the register (strip + every report, security incidents included) over the same report flow; who receives them stays below */}
+            <ReportsRegister />
             <SupportCard />
           </TabZone>
         )}
         {secPart === "health" && auditRead && view === "security" && (
           <TabZone label={L("System health", "Kesihatan sistem")}>
             {/* v1.326.0 - the Dashboard's alert opens Security & Sessions AT this card (revealAnchor) */}
+            {/* v1.341.0 - the security strip and the protection list read the one status (security-status.tsx); the errors and backups card below is unchanged */}
+            <SecurityHealth s={secStatus} onAudit={auditTab ? () => openView("audit") : undefined} />
             <div id="system-health"><SystemHealthCard /></div>
           </TabZone>
         )}

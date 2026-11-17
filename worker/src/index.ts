@@ -7,6 +7,7 @@ import { handleStaff, notify, requireFreshTotp, leaveEscalationSweep, lastRecove
 import { publicRateCard } from "./packages"; // v1.317.0 - the public Packages page reads the one package list
 import { runDueRecoveries } from "./recovery"; // v1.268.0 - Phase R
 import { handlePasskeys, passkeySettings, revokePasskeyStatements, passkeysMigrated } from "./passkeys"; // v1.269.0 - Phase 2A
+import { botCheck, botCheckPublic, securityStatus, BOT_REFUSED_MESSAGE } from "./security-status"; // v1.341.0
 import { googleDiscovery, pkcePair, verifyGoogleIdToken } from "./google-oidc"; // v1.265.0 - Google OpenID Connect
 import { mailReady, sendMail } from "./mail"; // v1.266.0 - the customer's emailed code
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, legacyWindowOpen, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
@@ -94,6 +95,16 @@ export interface Env {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  /** v1.341.0 - Cloudflare Turnstile before every sign-in (security-status.ts).
+      SITE_KEY is public (a [vars] entry); SECRET is a secret. Both, or the
+      check is off. */
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET?: string;
+  /** v1.341.0 - a READ-ONLY Cloudflare API token (Zone Analytics: Read) and the
+      zone id, for the firewall/traffic figures on System health. Optional:
+      without them those tiles say "Not connected". */
+  CF_API_TOKEN?: string;
+  CF_ZONE_ID?: string;
 }
 
 import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermissionOverrides, PERMS, MANDATORY_2FA_ROLES } from "./permissions";
@@ -3907,12 +3918,19 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   if (path === "/api/v1/auth/methods" && method === "GET") {
     const g = await googleAuthSettings(env);
     const pk = await passkeySettings(env);
-    return json({ password: true, google: g.enabled, google_customer_signup: g.enabled && g.customer_signup, passkeys: pk.stage !== "off" }, 200, { "Cache-Control": "no-store" });
+    /* v1.341.0 - bot_check: the PUBLIC Turnstile site key when the check is on (null = off) */
+    return json({ password: true, google: g.enabled, google_customer_signup: g.enabled && g.customer_signup, passkeys: pk.stage !== "off", bot_check: botCheckPublic(env) }, 200, { "Cache-Control": "no-store" });
   }
 
   /* v1.269.0 - SECURE AUTHENTICATION 2.0, PHASE 2A: passkeys, the company
      owner only, switched off until the owner turns stage A on (passkeys.ts) */
   if (path.startsWith("/api/v1/auth/passkey")) {
+    /* v1.341.0 - a passkey sign-in starts with the bot check too (the body is read from a copy) */
+    if (path === "/api/v1/auth/passkey/login/options" && method === "POST") {
+      const b = (await request.clone().json().catch(() => null)) as { bot_token?: unknown } | null;
+      const v = await botCheck(env, request, b?.bot_token, "signin");
+      if (!v.ok) return errorResponse(v.code, BOT_REFUSED_MESSAGE, 403);
+    }
     return handlePasskeys(request, env, path, method, {
       getSessionUser, createSession, sessionHeaders, getCookie, sha256Hex, clientIp,
       isRateLimited, bumpRateLimit, checkRateLimit,
@@ -3934,6 +3952,12 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const keyIp = `loginip:${clientIp(request)}`;
     if (await isRateLimited(env, keyAcct, 10, 900) || await isRateLimited(env, keyIp, 30, 900)) {
       return errorResponse("rate_limited", "Too many attempts — try again in 15 minutes", 429);
+    }
+    /* v1.341.0 - the bot check comes BEFORE any password work; a refused one counts against the IP */
+    const botV = await botCheck(env, request, body.bot_token, "signin");
+    if (!botV.ok) {
+      await bumpRateLimit(env, keyIp, 900);
+      return errorResponse(botV.code, BOT_REFUSED_MESSAGE, 403);
     }
     const user = await env.DB.prepare(
       `SELECT id, email, name, role, password_hash FROM users
@@ -4318,6 +4342,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!allowedReg) return errorResponse("rate_limited", "Too many registrations — try again later", 429);
 
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    /* v1.341.0 - no account is made for a bot */
+    const botR = await botCheck(env, request, body?.bot_token, "register");
+    if (!botR.ok) return errorResponse(botR.code, BOT_REFUSED_MESSAGE, 403);
     const emailOk =
       body && typeof body.email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.email);
     if (
@@ -4434,6 +4461,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!(await googleAuthSettings(env)).enabled) {
       return new Response(null, { status: 302, headers: { Location: GOOGLE_OFF } });
     }
+    /* v1.341.0 - the bot check rides on the link (?bt=), before Google is asked */
+    const botG = await botCheck(env, request, new URL(request.url).searchParams.get("bt"), "signin");
+    if (!botG.ok) return new Response(null, { status: 302, headers: { Location: "/login?error=bot" } });
     const g = await beginGoogle("signin");
     if (!g.ok) return new Response(null, { status: 302, headers: { Location: `/login?error=oauth&ref=G-${g.ref}` } });
     const h = new Headers({ Location: g.url });
@@ -4897,7 +4927,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
   if (path === "/api/v1/auth/set-password" && method === "POST") {
     if (!(await checkRateLimit(env, `acctlink:${clientIp(request)}`, 20, 900))) return errorResponse("rate_limited", "Too many attempts - wait 15 minutes", 429);
-    const b = (await request.json().catch(() => null)) as { token?: unknown; password?: unknown } | null;
+    const b = (await request.json().catch(() => null)) as { token?: unknown; password?: unknown; bot_token?: unknown } | null;
+    /* v1.341.0 - the link alone is not enough for a bot */
+    const botS = await botCheck(env, request, b?.bot_token, "set_password");
+    if (!botS.ok) return errorResponse(botS.code, BOT_REFUSED_MESSAGE, 403);
     const tok = typeof b?.token === "string" && /^[0-9a-f]{64}$/.test(b.token) ? b.token : null;
     const pw = typeof b?.password === "string" ? b.password : "";
     if (pw.length < 10 || pw.length > 200) return errorResponse("invalid_input", "Choose a password of at least 10 characters", 400);
@@ -5492,6 +5525,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 
   /* ---- system health (v1.4.72): error log + backup status ---- */
 
+  /* v1.341.0 - the Security & Sessions figures: one read, same door as System health */
+  if (path === "/api/v1/system/security" && method === "GET") {
+    if (!atLeast(user, "ceo")) return errorResponse("forbidden", "Admin or CEO required", 403);
+    return json(await securityStatus(env, async () => { const nb = await newestBackup(env); return nb ? { key: nb.key, size: nb.size, uploaded: nb.uploaded } : null; }), 200, { "Cache-Control": "no-store" });
+  }
   if (path === "/api/v1/system/health" && method === "GET") {
     if (!atLeast(user, "ceo")) return errorResponse("forbidden", "Admin or CEO required", 403);
     let errors: unknown[] = [];

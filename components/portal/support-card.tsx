@@ -12,7 +12,10 @@
    status, code and route - never a body, a message or a password. The
    worker (POST /staff/support/report) decides everything. */
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { CompactTaskTable, type TableCol } from "@/components/portal/task-table";
+import { useOptionalPortal } from "@/components/portal/portal-provider";
 import { AppIcon } from "@/components/ui/app-icon";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
@@ -21,7 +24,7 @@ import { L } from "@/components/portal/page-shared";
 import { roleLabel } from "@/components/portal/users-shared";
 import { api, lastApiError } from "@/lib/api";
 import { APP_VERSION } from "@/lib/version";
-import { btnClass, btnSm, card, selectClassSm, textareaClass } from "@/lib/ui-styles";
+import { btnClass, btnSm, btnSmPrimary, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, selectClassSm, textareaClass } from "@/lib/ui-styles";
 import ap from "./access-policy.module.css";
 import css from "./support-card.module.css";
 
@@ -34,6 +37,7 @@ interface Settings {
 const KIND_MS: Record<string, string> = {
   login: "Masalah log masuk", access: "Akses tiada", data: "Data salah",
   clock: "Gagal daftar masuk", quotation: "Ralat sebut harga", system: "Ralat sistem",
+  security: "Insiden keselamatan", // v1.341.0
 };
 /* the same rule the worker refuses on - said before sending, not after */
 const SECRETISH = /\b(password|kata laluan|passcode|pin)\s*[:=]/i;
@@ -109,7 +113,7 @@ export function SupportCard() {
 }
 
 /** The Desk's "Report a problem" button and its sheet. */
-export function ReportProblem({ tab, trigger }: { tab: string; trigger?: (open: () => void) => ReactNode }) {
+export function ReportProblem({ tab, trigger, onSent }: { tab: string; trigger?: (open: () => void) => ReactNode; onSent?: () => void }) {
   const [open, setOpen] = useState(false);
   const s = useSupport(open, 0);
   const { show: toast, node: toastNode } = useSaveToast();
@@ -131,6 +135,7 @@ export function ReportProblem({ tab, trigger }: { tab: string; trigger?: (open: 
     setBusy(false);
     if (r.ok && r.data?.task_id) {
       setDone({ task: r.data.task_id, to: r.data.assigned_to ?? "" });
+      onSent?.(); // v1.341.0 - the register re-reads
       setKind(""); setText("");
       toast(L("Sent", "Dihantar"), L("Your report is a task now", "Laporan anda kini satu tugasan"));
     } else setError(r.data?.error?.message ?? (r.status === 0 ? L("No connection - nothing was sent. Try again when you are online.", "Tiada sambungan - tiada apa dihantar. Cuba lagi apabila dalam talian.") : L("The report was not sent.", "Laporan tidak dihantar.")));
@@ -177,5 +182,87 @@ export function ReportProblem({ tab, trigger }: { tab: string; trigger?: (open: 
         )}
       </SideDrawer>
     </>
+  );
+}
+
+/* v1.341.0 - THE REPORTS REGISTER (the CEO's picture, 17-11-2026: "support
+   authorized security incident reporting and review without duplicating
+   existing reporting workflows"). Read-only, over GET /staff/support/reports:
+   every row IS the Task the report made, so its status and closing time are
+   the task's own and the review happens in that task (a row opens it). New
+   report is the same Report a problem sheet; a security incident is one of
+   its kinds (high priority, the same receiver). The receiver, the company
+   owner, the CEO and the Super Admin read it - the server decides. */
+interface ReportRow { id: number; title: string; priority: string; status: string; stage: string | null; created_at: string; kind: string | null; kind_label: string; reporter: string | null; assignee: string | null; closed_at: string | null }
+const STATUS_CHIP: Record<string, [string, string, string]> = {
+  open: [chipSmWarn, "Open", "Terbuka"], in_progress: [chipSmInfo, "In progress", "Dalam proses"], completed: [chipSmSuccess, "Resolved", "Selesai"],
+};
+const parseT = (s: string | null) => (s ? Date.parse(s.includes("T") ? s : `${s.replace(" ", "T")}Z`) : NaN);
+const myt = (s: string | null) => {
+  const t = parseT(s); if (!Number.isFinite(t)) return "—";
+  const d = new Date(t + 8 * 3600_000);
+  return `${String(d.getUTCDate()).padStart(2, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${d.getUTCFullYear()}`;
+};
+const critical = (r: ReportRow) => r.status !== "completed" && (r.kind === "security" || r.priority === "urgent");
+
+export function ReportsRegister() {
+  const [tick, setTick] = useState(0);
+  const [got, setGot] = useState<{ rows: ReportRow[] } | "denied" | "failed" | null>(null);
+  const [filter, setFilter] = useState<"all" | "open" | "in_progress" | "completed" | "critical">("all");
+  const [page, setPage] = useState(1);
+  const portal = useOptionalPortal();
+  useEffect(() => {
+    let live = true;
+    void api<{ reports: ReportRow[] }>("/staff/support/reports").then((r) => {
+      if (live) setGot(r.ok && r.data ? { rows: r.data.reports } : r.status === 403 ? "denied" : "failed");
+    });
+    return () => { live = false; };
+  }, [tick]);
+  const rows = useMemo(() => (got && typeof got === "object" ? got.rows : []), [got]);
+  const count = (st: string) => rows.filter((r) => r.status === st).length;
+  const done = rows.filter((r) => r.status === "completed" && Number.isFinite(parseT(r.closed_at)) && Number.isFinite(parseT(r.created_at)));
+  const avgH = done.length ? done.reduce((a, r) => a + (parseT(r.closed_at) - parseT(r.created_at)) / 3600_000, 0) / done.length : null;
+  const shown = useMemo(() => rows.filter((r) => filter === "all" || (filter === "critical" ? critical(r) : r.status === filter)), [rows, filter]);
+  const [seen, setSeen] = useState(filter);
+  if (seen !== filter) { setSeen(filter); setPage(1); }
+  const pick = (f: typeof filter) => setFilter((x) => (x === f ? "all" : f));
+  const cols: TableCol<ReportRow>[] = [
+    { key: "id", label: "#", cell: (r) => <span className="erp-nowrap">#{r.id}</span> },
+    { key: "subject", label: L("Subject", "Subjek"), main: true, cell: (r) => <span className={css.subject}><strong>{r.title.replace(/^\[[^\]]+\]\s*/, "")}</strong>{r.reporter && <small>{L(`by ${r.reporter}`, `oleh ${r.reporter}`)}</small>}</span> },
+    { key: "kind", label: L("Category", "Kategori"), cell: (r) => <span>{L(r.kind_label, KIND_MS[r.kind ?? ""] ?? r.kind_label)}</span> },
+    { key: "sev", label: L("Severity", "Keterukan"), cell: (r) => <span className={r.kind === "security" || r.priority === "urgent" ? chipSmDanger : r.priority === "high" ? chipSmWarn : chipSmNeutral}>{r.kind === "security" ? L("Critical", "Kritikal") : r.priority === "high" ? L("High", "Tinggi") : r.priority === "urgent" ? L("Urgent", "Segera") : L("Normal", "Biasa")}</span> },
+    { key: "status", label: L("Status", "Status"), cell: (r) => { const c = STATUS_CHIP[r.status] ?? [chipSmNeutral, r.status, r.status]; return <span className={c[0]}>{L(c[1], c[2])}</span>; } },
+    { key: "when", label: L("Reported", "Dilaporkan"), cell: (r) => <span className="erp-nowrap">{myt(r.created_at)}</span> },
+  ];
+  if (got === "denied") return <p className={ap.sub}>{L("The report receiver, the company owner, the CEO and the Super Admin see the reports.", "Penerima laporan, pemilik syarikat, CEO dan Super Admin melihat laporan.")}</p>;
+  return (
+    <section className={card} aria-label={L("Security and problem reports", "Laporan keselamatan dan masalah")} data-testid="reports-register">
+      <div className={ap.head}>
+        <div>
+          <h3 className={ap.title}>{L("Reports", "Laporan")}</h3>
+          <p className={ap.sub}>{L("Every report, security incidents included, is a task - it is reviewed and closed there. A row opens it.", "Setiap laporan, termasuk insiden keselamatan, ialah satu tugasan - ia disemak dan ditutup di sana. Satu baris membukanya.")}</p>
+        </div>
+        <ReportProblem tab="Users & Security" onSent={() => setTick((n) => n + 1)}
+          trigger={(open) => <button type="button" className={btnSmPrimary} onClick={open} data-testid="new-report"><AppIcon name="add" />{L("New report", "Laporan baharu")}</button>} />
+      </div>
+      {got === "failed" ? <p role="alert" className={ap.error}>{L("The reports could not be read - the server may need the latest release.", "Laporan tidak dapat dibaca - pelayan mungkin memerlukan keluaran terkini.")}</p> : (
+        <>
+          <KpiRow label={L("Report figures", "Angka laporan")} testid="reports-strip">
+            <KpiTile icon="warning" tone="gold" label={L("Open", "Terbuka")} busy={got === null} value={count("open")} onClick={() => pick("open")} pressed={filter === "open"} />
+            <KpiTile icon="pending" tone="blue" label={L("In Progress", "Dalam Proses")} busy={got === null} value={count("in_progress")} onClick={() => pick("in_progress")} pressed={filter === "in_progress"} />
+            <KpiTile icon="success" tone="green" label={L("Resolved", "Selesai")} busy={got === null} value={count("completed")} onClick={() => pick("completed")} pressed={filter === "completed"} />
+            <KpiTile icon="verify" tone="red" label={L("Critical", "Kritikal")} busy={got === null} value={rows.filter(critical).length} sub={L("Open security incidents", "Insiden keselamatan terbuka")} onClick={() => pick("critical")} pressed={filter === "critical"} />
+            <KpiTile icon="time" tone="purple" label={L("Avg Resolution", "Purata Penyelesaian")} busy={got === null}
+              value={avgH === null ? "—" : avgH < 48 ? L(`${avgH.toFixed(1)} hours`, `${avgH.toFixed(1)} jam`) : L(`${(avgH / 24).toFixed(1)} days`, `${(avgH / 24).toFixed(1)} hari`)}
+              sub={done.length ? L(`From ${done.length} closed report(s)`, `Daripada ${done.length} laporan ditutup`) : L("No closed report yet", "Belum ada laporan ditutup")} />
+          </KpiRow>
+          {got === null ? <SkelRows rows={4} /> : (
+            <CompactTaskTable rows={shown} cols={cols} label={L("Reports", "Laporan")} record="report" testid="reports-table"
+              onOpen={(id) => portal?.openRecord("Tasks", "task", id)} page={page} size={10} onPage={setPage}
+              empty={<p className={ap.sub}>{filter === "all" ? L("No reports yet.", "Belum ada laporan.") : L("Nothing in this filter.", "Tiada dalam penapis ini.")}</p>} />
+          )}
+        </>
+      )}
+    </section>
   );
 }

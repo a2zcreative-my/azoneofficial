@@ -59,3 +59,8 @@
 .done p {
   margin: 0;
 }
+
+/* v1.341.0 - the reports register: a subject and who reported it */
+.subject { display: grid; gap: 0.0625rem; min-width: 0; }
+.subject strong { font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.subject small { color: var(--muted-foreground); font-size: var(--type-caption-size); }

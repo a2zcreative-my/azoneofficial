@@ -14645,6 +14645,10 @@ async function handleStaffRoutes(
   const SUPPORT_KINDS: Record<string, [string, "high" | "normal"]> = {
     login: ["Login problem", "high"], access: ["Missing access", "normal"], data: ["Incorrect data", "normal"],
     clock: ["Clock-in failure", "high"], quotation: ["Quotation error", "normal"], system: ["System error", "normal"],
+    /* v1.341.0 - the CEO (17-11-2026): security incidents go through the SAME
+       report flow - a Task, high priority, to the same receiver - so there is
+       no second ticket system. Listed in the register below. */
+    security: ["Security incident", "high"],
   };
   const supportAssignee = async (): Promise<{ id: number; name: string } | null> => {
     const pick = async (id: number) => id ? await env.DB.prepare(`SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users WHERE id = ?1 AND is_active = 1 AND role NOT IN ('customer', 'agent') AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')`).bind(id).first<{ id: number; name: string }>() : null;
@@ -14667,6 +14671,32 @@ async function handleStaffRoutes(
     await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES ('support_assignee', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1`).bind(String(id)).run();
     await audit(env, user.id, "support.assignee_set", "users", String(id));
     return json({ ok: true });
+  }
+  /* v1.341.0 - THE REPORTS REGISTER (Users & Security -> Problem reports).
+     Read-only: every report is the Task the report made (audit support.report
+     names it), so its status, owner and closing time are the task's own. The
+     receiver, the company owner, the CEO and the super admin read it; review
+     happens in the Task, as before. */
+  if (path === "/support/reports" && method === "GET") {
+    const recv = await supportAssignee();
+    const may = user.role === "super_admin" || user.role === "ceo" || user.is_owner === true || (recv !== null && recv.id === user.id);
+    if (!may) return err("forbidden", "The report receiver, the company owner, the CEO or the super admin reads the reports", 403);
+    const rows = (await env.DB.prepare(
+      `SELECT t.id, t.title, t.priority, t.status, t.stage, t.created_at,
+              json_extract(a.detail, '$.kind') AS kind,
+              COALESCE(NULLIF(TRIM(r.full_name), ''), r.name) AS reporter,
+              COALESCE(NULLIF(TRIM(o.full_name), ''), o.name) AS assignee,
+              (SELECT MAX(u.created_at) FROM task_updates u WHERE u.task_id = t.id AND u.kind IN ('closed', 'closed_with_exception', 'review_approved')) AS closed_at
+         FROM audit_log a JOIN tasks t ON t.id = CAST(a.entity_id AS INTEGER)
+         LEFT JOIN users r ON r.id = a.user_id LEFT JOIN users o ON o.id = t.assigned_to
+        WHERE a.action = 'support.report'
+        ORDER BY t.id DESC LIMIT 300`,
+    ).all<{ id: number; title: string; priority: string; status: string; stage: string | null; created_at: string; kind: string | null; reporter: string | null; assignee: string | null; closed_at: string | null }>().catch(async () => await env.DB.prepare(
+      `SELECT t.id, t.title, t.priority, t.status, NULL AS stage, t.created_at, json_extract(a.detail, '$.kind') AS kind, NULL AS reporter, NULL AS assignee, NULL AS closed_at
+         FROM audit_log a JOIN tasks t ON t.id = CAST(a.entity_id AS INTEGER) WHERE a.action = 'support.report' ORDER BY t.id DESC LIMIT 300`,
+    ).all<{ id: number; title: string; priority: string; status: string; stage: string | null; created_at: string; kind: string | null; reporter: string | null; assignee: string | null; closed_at: string | null }>())).results;
+    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS).map(([k, v]) => [k, v[0]]));
+    return json({ reports: rows.map((r) => ({ ...r, kind_label: (r.kind && labels[r.kind]) || "Report" })), receiver: recv });
   }
   if (path === "/support/report" && method === "POST") {
     const kind = typeof body?.kind === "string" && SUPPORT_KINDS[body.kind] ? body.kind : "";

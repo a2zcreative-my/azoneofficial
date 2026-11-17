@@ -36,6 +36,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { inputClassLg, btnClassBlock } from "@/lib/ui-styles";
 import { getPasskey, passkeysSupported, cancelled, type GetOptionsJSON } from "@/lib/passkey"; // v1.269.0 - Phase 2A
+import { useBotCheck } from "@/components/security/bot-check"; // v1.341.0 - Cloudflare bot check before sign-in
 import css from "./login.module.css";
 
 const API = "/api/v1";
@@ -68,6 +69,8 @@ const tr = (lang: Lang) => (en: string, ms: string) => (lang === "ms" ? ms : en)
     password or by Google: it never says which part was wrong, or whether
     the account exists. */
 const FAILED: [string, string] = ["Unable to sign in with the provided credentials.", "Tidak dapat log masuk dengan maklumat yang diberikan."];
+/* v1.341.0 - the Cloudflare bot check refused this try; a fresh check is already running */
+const BOT_FAILED: [string, string] = ["The security check did not pass. Please wait for it to finish and try again.", "Semakan keselamatan tidak lulus. Sila tunggu ia selesai dan cuba lagi."];
 /* v1.264.0 - Google switched off by the owner: say so, and point at the way in that stays */
 const GOOGLE_OFF: [string, string] = ["Google sign-in is switched off for now. Sign in with your email and password.", "Log masuk Google dimatikan buat masa ini. Log masuk dengan e-mel dan kata laluan anda."];
 const EXPIRED: [string, string] = ["This sign-in attempt expired — please sign in again.", "Percubaan log masuk ini telah tamat tempoh — sila log masuk semula."];
@@ -170,6 +173,9 @@ export default function LoginPage() {
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  /* v1.341.0 - the Cloudflare bot check (the worker sends the public site key; none = off) */
+  const [botKey, setBotKey] = useState<string | null>(null);
+  const bot = useBotCheck(botKey, "signin");
   const [helpOpen, setHelpOpen] = useState(false);
   /* v1.264.0 - the worker says which ways in are on (GET /auth/methods);
      until it answers the Google button shows, as it always has */
@@ -259,7 +265,8 @@ export default function LoginPage() {
        reads the device language directly rather than closing over "en". */
     const LE = tr(getLang());
     const q = new URLSearchParams(window.location.search);
-    void api<{ google?: boolean; passkeys?: boolean }>("/auth/methods").then((r) => {
+    void api<{ google?: boolean; passkeys?: boolean; bot_check?: { site_key: string } | null }>("/auth/methods").then((r) => {
+      if (r.ok && r.data?.bot_check?.site_key) setBotKey(r.data.bot_check.site_key);
       if (r.ok && r.data && r.data.google === false) setGoogleOn(false);
       if (r.ok && r.data?.passkeys === true && passkeysSupported()) setPasskeyOn(true);
     });
@@ -275,6 +282,7 @@ export default function LoginPage() {
     /* v1.211.0 - every Google sign-in that did not end in a session comes
        back here (worker: OAUTH_FAILED), and says the one sentence */
     const why = q.get("error");
+    if (why === "bot") requestAnimationFrame(() => setError(LE(...BOT_FAILED))); // v1.341.0 - the Google door refused the bot check
     if (why === "oauth" || why === "google_off") requestAnimationFrame(() => {
       if (why === "google_off") setGoogleOn(false);
       else {
@@ -298,12 +306,17 @@ export default function LoginPage() {
       return;
     }
 
+    if (!bot.canSend) {
+      setError(L("Please wait - Cloudflare is still checking your browser.", "Sila tunggu - Cloudflare masih menyemak pelayar anda."));
+      return;
+    }
     setBusy(true);
     setError("");
     const res = await api<{ user: User; twofa_required?: boolean; challenge?: string }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, bot_token: bot.token }),
     });
+    bot.spend(); // a token is good for one try
     setBusy(false);
     if (res.ok && res.data?.twofa_required && res.data.challenge) {
       // Password accepted; no session yet — ask for the authenticator code.
@@ -315,6 +328,8 @@ export default function LoginPage() {
       window.location.replace(destinationFor(res.data.user.role));
     } else if (res.status === 429) {
       setError(L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit."));
+    } else if (res.status === 403 && /^bot_check/.test(String((res.data as { error?: { code?: string } } | undefined)?.error?.code ?? ""))) {
+      setError(L(...BOT_FAILED));
     } else if (res.status === 0) {
       setError(L(
         "Can't reach the server just now — please try again shortly.",
@@ -330,11 +345,13 @@ export default function LoginPage() {
      browser (an HttpOnly cookie), the device asks for Face ID, a fingerprint
      or its PIN, and the worker decides. Any refusal is the same one sentence. */
   const passkeySignIn = async () => {
+    if (!bot.canSend) { setError(L("Please wait - Cloudflare is still checking your browser.", "Sila tunggu - Cloudflare masih menyemak pelayar anda.")); return; }
     setBusy(true); setError("");
-    const o = await api<{ publicKey: GetOptionsJSON }>("/auth/passkey/login/options", { method: "POST", body: "{}" });
+    const o = await api<{ publicKey: GetOptionsJSON }>("/auth/passkey/login/options", { method: "POST", body: JSON.stringify({ bot_token: bot.token }) });
+    bot.spend();
     if (!o.ok || !o.data) {
       setBusy(false);
-      setError(o.status === 429 ? L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit.") : L(...FAILED));
+      setError(o.status === 429 ? L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit.") : o.status === 403 ? L(...BOT_FAILED) : L(...FAILED));
       return;
     }
     let credential: Record<string, unknown>;
@@ -418,7 +435,9 @@ export default function LoginPage() {
             <p className={css.lede}>{L("Securely access your account.", "Akses akaun anda dengan selamat.")}</p>
 
             {googleOn && (
-              <a href={`${API}/auth/google`} className={css.google}>
+              <a href={`${API}/auth/google${bot.token ? `?bt=${encodeURIComponent(bot.token)}` : ""}`} className={css.google}
+                aria-disabled={!bot.canSend || undefined}
+                onClick={(e) => { if (!bot.canSend) { e.preventDefault(); setError(L("Please wait - Cloudflare is still checking your browser.", "Sila tunggu - Cloudflare masih menyemak pelayar anda.")); } }}>
                 <GoogleMark />
                 {L("Continue with Google", "Teruskan dengan Google")}
               </a>
@@ -429,6 +448,7 @@ export default function LoginPage() {
               </button>
             )}
 
+            {bot.node}
             <hr className={css.divider} />
 
             <form className={css.form} noValidate onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }}>

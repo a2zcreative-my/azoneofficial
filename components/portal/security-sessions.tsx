@@ -20,7 +20,15 @@
                     is no company-wide session list, so none is invented
 
    Nothing here writes: every action is the existing panel's, with its own
-   reason, authenticator code and audit entry. */
+   reason, authenticator code and audit entry.
+
+   v1.341.0 (the CEO's picture, 17-11-2026) - the strip is the photo's six:
+   2FA, recent sign-ins, ACTIVE SESSIONS (the sessions table, a drawer of who
+   and on what), the BOT CHECK before sign-in (Cloudflare Turnstile), the
+   BACKUP and the alerts - the last three from GET /system/security
+   (security-status.tsx), so nothing is assumed. The recovery panel stays in
+   Authentication Controls. The principles pane gives way to Active Sessions
+   (its one rule is kept as the pane's note); no card is added. */
 
 import { useEffect, useMemo, useState } from "react";
 import { L } from "@/components/portal/page-shared";
@@ -38,14 +46,15 @@ import { api } from "@/lib/api";
 import { properName } from "@/lib/names";
 import { btnSm, listBox, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, selectClassSm } from "@/lib/ui-styles";
 import { eventLabel, eventTone, mytStamp2, type Account, type AuthEvent } from "@/components/portal/users-shared";
+import { SessionsList, backupWord, botWord, type StatusRead } from "@/components/portal/security-status";
 import css from "./security-sessions.module.css";
 
 type Stage = "off" | "A" | "B" | "C";
 type Recovery = { panel: { id: number; name: string; role: string; active: boolean }[]; available: boolean; requests: { id: number; target_name: string; status: string }[] };
 const TONE = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
-type Drawer = "recovery" | "passkeys" | "signin" | null;
+type Drawer = "recovery" | "passkeys" | "signin" | "sessions" | null;
 
-export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSettings, onManage, onStaffAccounts, onAudit }: {
+export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSettings, onManage, onStaffAccounts, onAudit, status = null, onHealth }: {
   /** the staff accounts the Users tab already holds */
   staff: Account[];
   loaded: boolean;
@@ -57,6 +66,10 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
   onManage?: (id: number) => void;
   onStaffAccounts: () => void;
   onAudit?: () => void;
+  /** v1.341.0 - GET /system/security, read by the Users panel (null while reading) */
+  status?: StatusRead;
+  /** v1.341.0 - System health, for the protection line's View details */
+  onHealth?: () => void;
 }) {
   const [stage, setStage] = useState<Stage | null>(null);
   const [rec, setRec] = useState<Recovery | "denied" | null>(null);
@@ -75,8 +88,13 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
   const no2fa = active.filter((u) => !u.totp_enabled);
   const alerts = events.filter((e) => eventTone(e.action) === "warn");
   const signins = events.filter((e) => /^auth\.login/.test(e.action));
-  const panelActing = rec && rec !== "denied" ? rec.panel.filter((m) => m.active).length : 0;
   const openRequests = rec && rec !== "denied" ? rec.requests.filter((r) => ["requested", "approved"].includes(r.status)) : [];
+  const st = status && typeof status === "object" ? status : null;
+  const botOff = st ? !st.bot_check.enabled : false;
+  const bk = st ? backupWord(st) : null;
+  const backupLate = bk ? bk.tone === "red" : false;
+  const alertCount = alerts.length + no2fa.length + openRequests.length + (botOff ? 1 : 0) + (backupLate ? 1 : 0);
+  const notShown = status === "denied" ? L("The CEO and the Super Admin see it", "CEO dan Super Admin melihatnya") : status === "failed" ? L("Could not be read", "Tidak dapat dibaca") : "";
   const stageWord = stage === null ? "…" : stage === "off" ? L("Not enabled", "Belum dihidupkan") : stage === "A" ? L("Owner only", "Pemilik sahaja") : stage === "B" ? L("Pilot", "Perintis") : L("Everyone", "Semua");
   const recWord = rec === null ? "…" : rec === "denied" ? L("Not shown to you", "Tidak dipaparkan kepada anda") : rec.available ? L("Ready", "Sedia") : L("Not ready", "Belum sedia");
 
@@ -108,10 +126,16 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
           sub={no2fa.length === 0 ? L("Every active staff account", "Setiap akaun kakitangan aktif") : L(`${no2fa.length} active without 2FA`, `${no2fa.length} aktif tanpa 2FA`)} />
         <KpiTile icon="access" tone="blue" label={L("Recent Sign-ins", "Log Masuk Terkini")} busy={!eventsLoaded} value={signins.length}
           sub={L("In the last 60 account events", "Dalam 60 peristiwa akaun terakhir")} onClick={() => setKind("signin")} pressed={kind === "signin"} />
-        <KpiTile icon="access" tone="gold" label={L("Recovery Panel", "Panel Pemulihan")} busy={rec === null} value={recWord}
-          sub={rec && rec !== "denied" ? L(`${panelActing} member(s) can act`, `${panelActing} ahli boleh bertindak`) : L("The owner, the panel and the Super Admin see it", "Pemilik, panel dan Super Admin melihatnya")} />
-        <KpiTile icon="warning" tone="red" label={L("Security Alerts", "Amaran Keselamatan")} busy={!eventsLoaded || !loaded} value={alerts.length + no2fa.length + openRequests.length}
-          sub={alerts.length + no2fa.length + openRequests.length ? L("Requires review", "Perlu disemak") : L("Nothing to review", "Tiada untuk disemak")} />
+        <KpiTile icon="users" tone="purple" label={L("Active Sessions", "Sesi Aktif")} busy={status === null}
+          value={st ? st.sessions.count : "—"} testid="tile-sessions"
+          sub={st ? L(`${st.sessions.people} people · ${st.sessions.active_30m} active in 30 min`, `${st.sessions.people} orang · ${st.sessions.active_30m} aktif dalam 30 min`) : notShown}
+          onClick={st ? () => setOpen("sessions") : undefined} pressed={open === "sessions"} />
+        <KpiTile icon="verify" tone={st ? botWord(st).tone : "navy"} label={L("Bot Check", "Semakan Bot")} busy={status === null} testid="tile-bot"
+          value={st ? botWord(st).value : "—"} sub={st ? botWord(st).sub : notShown} onClick={onHealth} />
+        <KpiTile icon="database" tone={bk ? bk.tone : "navy"} label={L("Backup Status", "Status Sandaran")} busy={status === null} testid="tile-backup"
+          value={bk ? bk.value : "—"} sub={bk ? bk.sub : notShown} onClick={onHealth} />
+        <KpiTile icon="warning" tone="red" label={L("Security Alerts", "Amaran Keselamatan")} busy={!eventsLoaded || !loaded} value={alertCount}
+          sub={alertCount ? L("Requires review", "Perlu disemak") : L("Nothing to review", "Tiada untuk disemak")} />
       </KpiRow>
 
       <WorkspaceSplit testid="security-split" ratio="60-40">
@@ -148,11 +172,31 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
           </SplitPane>
         </SplitColumn>
         <SplitColumn>
-          <SplitPane testid="security-attention" title={L("Security Attention", "Perhatian Keselamatan")} sub={L("What needs an authorised decision.", "Apa yang memerlukan keputusan yang diberi kuasa.")} label={L("Security attention", "Perhatian keselamatan")}>
-            {(!loaded || !eventsLoaded) ? <SkelRows rows={3} /> : no2fa.length + alerts.length + openRequests.length === 0 ? (
+          <SplitPane testid="security-attention" title={L("Security Attention", "Perhatian Keselamatan")} sub={L("What needs an authorised decision.", "Apa yang memerlukan keputusan yang diberi kuasa.")} label={L("Security attention", "Perhatian keselamatan")}
+            foot={st ? (
+              /* v1.341.0 - the protection line (the picture's "System protected by Cloudflare"), pinned under the list, from the status read: never "protected" unless the bot check is on */
+              <p className={st.bot_check.enabled ? css.note : css.noteWarn} data-testid="protection-line">
+                <AppIcon name={st.bot_check.enabled ? "verify" : "warning"} />
+                <span>{st.bot_check.enabled
+                  ? L("Cloudflare bot check on every sign-in.", "Semakan bot Cloudflare pada setiap log masuk.")
+                  : L("No Cloudflare bot check on sign-in yet.", "Belum ada semakan bot Cloudflare pada log masuk.")}</span>
+                {onHealth && <button type="button" className={css.link} onClick={onHealth}>{L("View details", "Lihat butiran")}</button>}
+              </p>
+            ) : undefined}>
+            {(!loaded || !eventsLoaded) ? <SkelRows rows={3} /> : alertCount === 0 ? (
               <p className={css.calm}><AppIcon name="success" />{L("Nothing needs a decision.", "Tiada apa yang memerlukan keputusan.")}</p>
             ) : (
               <ul className={`${listBox} ${css.attention}`} data-testid="attention-list">
+                {botOff && (
+                  <li key="bot"><span className={css.attIcon}><AppIcon name="verify" /></span>
+                    <span className={css.controlText}><strong>{L("Bot check before sign-in is off", "Semakan bot sebelum log masuk dimatikan")}</strong><small>{L("Set the Cloudflare Turnstile site key and secret on the server to turn it on", "Tetapkan kunci tapak dan rahsia Cloudflare Turnstile pada pelayan untuk menghidupkannya")}</small></span>
+                    {onHealth ? <button type="button" className={btnSm} onClick={onHealth}>{L("Details", "Butiran")}</button> : <span className={chipSmWarn}>{L("Review", "Semak")}</span>}</li>
+                )}
+                {backupLate && bk && (
+                  <li key="backup"><span className={css.attIcon}><AppIcon name="database" /></span>
+                    <span className={css.controlText}><strong>{L("The nightly backup is late", "Sandaran malam lewat")}</strong><small>{bk.sub}</small></span>
+                    {onHealth ? <button type="button" className={btnSm} onClick={onHealth}>{L("Details", "Butiran")}</button> : <span className={chipSmWarn}>{L("Review", "Semak")}</span>}</li>
+                )}
                 {openRequests.map((r) => (
                   <li key={`r${r.id}`}><span className={css.attIcon}><AppIcon name="access" /></span>
                     <span className={css.controlText}><strong>{L(`Recovery for ${properName(r.target_name)}`, `Pemulihan untuk ${properName(r.target_name)}`)}</strong><small>{r.status === "requested" ? L("Waiting for a second member", "Menunggu ahli kedua") : L("Approved - runs after the wait", "Diluluskan - berjalan selepas menunggu")}</small></span>
@@ -171,18 +215,19 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
               </ul>
             )}
           </SplitPane>
-          <SplitPane testid="security-principles" title={L("Security Principles", "Prinsip Keselamatan")} label={L("Security principles", "Prinsip keselamatan")}>
-            <p className={css.text}>{L("The CEO keeps administrative capability; the server checks every request, and authentication and recovery safeguards stay mandatory for every role.", "CEO mengekalkan keupayaan pentadbiran; pelayan menyemak setiap permintaan, dan perlindungan pengesahan dan pemulihan kekal wajib untuk setiap peranan.")}</p>
-            <p className={css.note}>{L("Role permissions never bypass identity verification.", "Kebenaran peranan tidak sekali-kali memintas pengesahan identiti.")}</p>
-            <ul className={css.owners} aria-label={L("Who owns what", "Siapa memiliki apa")}>
-              <li><strong>{L("Module access", "Akses modul")}</strong> → {L("Roles & Permissions", "Peranan & Kebenaran")}</li>
-              <li><strong>{L("A person's devices and 2FA (Manage account → Devices signed in)", "Peranti dan 2FA seseorang (Urus akaun → Peranti yang log masuk)")}</strong> → <button type="button" className={css.link} onClick={onStaffAccounts}>{L("Staff Accounts", "Akaun Kakitangan")}</button></li>
-              <li><strong>{L("Your own sign-in", "Log masuk anda sendiri")}</strong> → {L("Profile → Security", "Profil → Keselamatan")}</li>
-            </ul>
+          <SplitPane testid="active-sessions" title={st ? L(`Active Sessions (${st.sessions.count})`, `Sesi Aktif (${st.sessions.count})`) : L("Active Sessions", "Sesi Aktif")}
+            sub={L("Staff signed in now, newest activity first.", "Kakitangan yang log masuk sekarang, aktiviti terbaru dahulu.")} label={L("Active sessions", "Sesi aktif")}
+            actions={st && st.sessions.count > 3 ? <button type="button" className={btnSm} onClick={() => setOpen("sessions")} data-testid="sessions-all">{L("View all", "Lihat semua")}</button> : undefined}
+            foot={<span className={css.footNote}>{L("Role permissions never bypass identity verification. A person's devices are signed out from Staff Accounts → Manage account.", "Kebenaran peranan tidak sekali-kali memintas pengesahan identiti. Peranti seseorang dilog keluar dari Akaun Kakitangan → Urus akaun.")} <button type="button" className={css.link} onClick={onStaffAccounts}>{L("Staff Accounts", "Akaun Kakitangan")}</button></span>}>
+            {status === null ? <SkelRows rows={3} /> : st ? <SessionsList rows={st.sessions.rows} limit={3} onManage={onManage} /> : <p className={css.muted}>{notShown}</p>}
           </SplitPane>
         </SplitColumn>
       </WorkspaceSplit>
 
+      <SideDrawer open={open === "sessions"} onClose={() => setOpen(null)} wide title={st ? L(`Active sessions (${st.sessions.count})`, `Sesi aktif (${st.sessions.count})`) : L("Active sessions", "Sesi aktif")}
+        subtitle={L("Unexpired sign-ins of staff accounts that are on. Device from the browser's own description; no location is stored.", "Log masuk yang belum tamat bagi akaun kakitangan yang aktif. Peranti daripada keterangan pelayar; tiada lokasi disimpan.")}>
+        {st ? <SessionsList rows={st.sessions.rows} onManage={onManage ? (id) => { setOpen(null); onManage(id); } : undefined} /> : null}
+      </SideDrawer>
       <SideDrawer open={open === "recovery"} onClose={() => setOpen(null)} wide title={L("Executive Recovery Panel", "Panel Pemulihan Eksekutif")} subtitle={L("Every rule is the server's: two members, a second approval, a 12-hour wait", "Setiap peraturan adalah pelayan: dua ahli, kelulusan kedua, menunggu 12 jam")}>
         <RecoveryPanel />
       </SideDrawer>

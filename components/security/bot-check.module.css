@@ -1,0 +1,6 @@
+/* v1.341.0 - the Cloudflare bot check on the sign-in pages. The widget draws
+   itself (interaction-only: usually nothing at all); this only places it. */
+.wrap { min-width: 0; display: flex; flex-direction: column; gap: 0.375rem; }
+.box { min-width: 0; }
+.box:empty { display: none; }
+.note { margin: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); }

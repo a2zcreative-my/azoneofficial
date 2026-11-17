@@ -398,7 +398,8 @@ async function runtime(workerBundle) {
     /* ---------- the switches: only the owner, with a code and a reason ---------- */
     const m0 = await raw("/auth/methods");
     ok(m0.status === 200 && m0.j?.google === true && m0.j.password === true && m0.j.google_customer_signup === true && m0.j.passkeys === false, "GET /auth/methods: password, Google and customer sign-up on, no passkeys yet", m0.text);
-    ok(Object.keys(m0.j ?? {}).sort().join() === "google,google_customer_signup,passkeys,password", "...and says nothing else (no account, no setting detail)", m0.text);
+    /* v1.341.0 - plus bot_check: the PUBLIC Turnstile site key, or null - never the secret */
+    ok(Object.keys(m0.j ?? {}).sort().join() === "bot_check,google,google_customer_signup,passkeys,password" && (m0.j?.bot_check === null || Object.keys(m0.j.bot_check).join() === "site_key"), "...and says nothing else (no account, no setting detail)", m0.text);
     ok((await call("/staff/auth/settings", 10)).status === 403, "an editor cannot read the sign-in settings");
     const rs = await call("/staff/auth/settings", 8);
     ok(rs.status === 200 && rs.j?.google?.enabled === true && rs.j.can_set === false, "the super admin reads them, cannot change them", rs.text);
