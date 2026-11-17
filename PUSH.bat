@@ -173,7 +173,6 @@ if defined SECRETS_MODE (
   if errorlevel 1 set "VP_MISSING=1"
   findstr /C:"VAPID_SUBJECT" "%TEMP%\azone-secrets.txt" >nul
   if errorlevel 1 set "VP_MISSING=1"
-  del "%TEMP%\azone-secrets.txt" >nul 2>&1
   if "!VP_MISSING!"=="" (
     echo         push keys are set - phones can subscribe.
   ) else (
@@ -182,6 +181,59 @@ if defined SECRETS_MODE (
     call :askvapid
   )
 )
+cd ..
+
+REM  v1.341.0 - THE CLOUDFLARE BOT CHECK BEFORE SIGN-IN (the CEO, 17-11-2026:
+REM  "can you update the PUSH.bat for me to do it at once?"). Two keys from
+REM  Cloudflare Turnstile, both stored as SECRETS on the engine (the site key is
+REM  public, but storing it here too means no file is edited and the release
+REM  tree stays clean). Same rules as the steps above: runs inside worker\,
+REM  asks Cloudflare which names exist, prompts only for what is missing,
+REM  nothing pasted is written to any file or shown. Press Enter alone to skip:
+REM  with either key missing the check stays OFF and sign-in works as before.
+REM  PUSH.bat secrets asks for both again (to replace them).
+echo   [2c/7] Cloudflare bot check keys ^(Turnstile^) on the ENGINE...
+cd worker
+if defined SECRETS_MODE (
+  call :askturnstile
+) else (
+  if not exist "%TEMP%\azone-secrets.txt" call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
+  set "TS_MISSING="
+  findstr /C:"TURNSTILE_SITE_KEY" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "TS_MISSING=1"
+  findstr /C:"TURNSTILE_SECRET" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "TS_MISSING=1"
+  if "!TS_MISSING!"=="" (
+    echo         bot check keys are set - every sign-in asks Cloudflare first.
+  ) else (
+    call :askturnstile
+  )
+)
+cd ..
+
+REM  v1.341.0 - CLOUDFLARE FIREWALL ^(WAF^) EVENTS ON SYSTEM HEALTH. A READ-ONLY
+REM  API token ^(Zone - Analytics - Read, this zone only^) and the zone id, both
+REM  stored as secrets on the engine. Without them System health says "Not
+REM  connected" and shows no number. Same rules: inside worker\, only what is
+REM  missing, nothing written to a file, Enter alone skips.
+echo   [2d/7] Cloudflare firewall figures ^(read-only token^) on the ENGINE...
+cd worker
+if defined SECRETS_MODE (
+  call :askcfread
+) else (
+  if not exist "%TEMP%\azone-secrets.txt" call npx wrangler secret list > "%TEMP%\azone-secrets.txt" 2>&1
+  set "CF_MISSING="
+  findstr /C:"CF_API_TOKEN" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "CF_MISSING=1"
+  findstr /C:"CF_ZONE_ID" "%TEMP%\azone-secrets.txt" >nul
+  if errorlevel 1 set "CF_MISSING=1"
+  if "!CF_MISSING!"=="" (
+    echo         firewall read is set - System health shows Cloudflare's figures.
+  ) else (
+    call :askcfread
+  )
+)
+del "%TEMP%\azone-secrets.txt" >nul 2>&1
 cd ..
 
 echo   [3/7] Installing what the build needs...
@@ -531,6 +583,48 @@ echo         And the contact address, as  mailto:you@a2zcreative.com.my
 call npx wrangler secret put VAPID_SUBJECT
 if errorlevel 1 echo         VAPID_SUBJECT was NOT saved ^(skipped or refused^).
 echo         Done. Every phone turns push on once, from the bell in the app.
+exit /b 0
+
+:askturnstile
+REM  v1.341.0 - Runs INSIDE worker\. Both values come from the Cloudflare
+REM  dashboard: Turnstile - Add widget ^(or open the existing one^) - hostnames
+REM  a2zcreative.my and www.a2zcreative.my, mode Managed.
+echo.
+echo         The Cloudflare bot check needs two keys from Turnstile:
+echo           dash.cloudflare.com - Turnstile - your A2Z widget
+echo           ^(hostnames a2zcreative.my and www.a2zcreative.my, mode Managed^)
+echo         Paste each one when asked and press Enter. Nothing is shown
+echo         while you paste. Press Enter alone to skip - the check stays OFF
+echo         and sign-in works as it does today.
+echo.
+echo         1 of 2 - the SITE KEY:
+call npx wrangler secret put TURNSTILE_SITE_KEY
+if errorlevel 1 echo         TURNSTILE_SITE_KEY was NOT saved ^(skipped or refused^).
+echo         2 of 2 - the SECRET KEY:
+call npx wrangler secret put TURNSTILE_SECRET
+if errorlevel 1 echo         TURNSTILE_SECRET was NOT saved ^(skipped or refused^).
+echo         Done. Once this release is live, check Users and Security -
+echo         Security and Sessions: the Bot Check tile says On.
+exit /b 0
+
+:askcfread
+REM  v1.341.0 - Runs INSIDE worker\.
+echo.
+echo         System health can show Cloudflare's firewall events, requests
+echo         and threats with a READ-ONLY token:
+echo           dash.cloudflare.com - My Profile - API Tokens - Create Token -
+echo           Custom token: Permissions  Zone - Analytics - Read
+echo                         Zone Resources  Include - Specific zone - a2zcreative.my
+echo         The zone id is on the a2zcreative.my Overview page ^(API - Zone ID^).
+echo         Nothing is shown while you paste. Enter alone skips - System
+echo         health keeps saying "Not connected".
+echo.
+echo         1 of 2 - the API TOKEN:
+call npx wrangler secret put CF_API_TOKEN
+if errorlevel 1 echo         CF_API_TOKEN was NOT saved ^(skipped or refused^).
+echo         2 of 2 - the ZONE ID:
+call npx wrangler secret put CF_ZONE_ID
+if errorlevel 1 echo         CF_ZONE_ID was NOT saved ^(skipped or refused^).
 exit /b 0
 
 :asksecret
