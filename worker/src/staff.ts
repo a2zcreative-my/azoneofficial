@@ -14698,6 +14698,28 @@ async function handleStaffRoutes(
     const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS).map(([k, v]) => [k, v[0]]));
     return json({ reports: rows.map((r) => ({ ...r, kind_label: (r.kind && labels[r.kind]) || "Report" })), receiver: recv });
   }
+  /* v1.344.0 - ONE report's resolution trail (Problem reports > Selected incident):
+     the report itself (audit support.report) and its task's own updates, read-only,
+     same readers as the register */
+  const trailM = path.match(/^\/support\/reports\/(\d+)\/trail$/);
+  if (trailM && method === "GET") {
+    const recvT = await supportAssignee();
+    const mayT = user.role === "super_admin" || user.role === "ceo" || user.is_owner === true || (recvT !== null && recvT.id === user.id);
+    if (!mayT) return err("forbidden", "The report receiver, the company owner, the CEO or the super admin reads the reports", 403);
+    const tid = Number(trailM[1]);
+    const isReport = await env.DB.prepare(`SELECT 1 AS x FROM audit_log WHERE action = 'support.report' AND entity_id = ?1`).bind(String(tid)).first().catch(() => null);
+    if (!isReport) return err("not_found", "No such report", 404);
+    const name = `COALESCE(NULLIF(TRIM(u.full_name), ''), u.name)`;
+    const fromAudit = (await env.DB.prepare(
+      `SELECT a.action AS kind, a.created_at, ${name} AS actor, NULL AS text FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.entity = 'tasks' AND a.entity_id = ?1 ORDER BY a.id LIMIT 100`,
+    ).bind(String(tid)).all<{ kind: string; created_at: string; actor: string | null; text: string | null }>().catch(() => ({ results: [] as { kind: string; created_at: string; actor: string | null; text: string | null }[] }))).results;
+    const fromUpdates = (await env.DB.prepare(
+      `SELECT t.kind, t.created_at, ${name} AS actor, t.body AS text FROM task_updates t LEFT JOIN users u ON u.id = t.author_id WHERE t.task_id = ?1 ORDER BY t.id LIMIT 100`,
+    ).bind(tid).all<{ kind: string; created_at: string; actor: string | null; text: string | null }>().catch(() => ({ results: [] as { kind: string; created_at: string; actor: string | null; text: string | null }[] }))).results;
+    const trail = [...fromAudit, ...fromUpdates].sort((x, y) => x.created_at.localeCompare(y.created_at));
+    return json({ trail });
+  }
   if (path === "/support/report" && method === "POST") {
     const kind = typeof body?.kind === "string" && SUPPORT_KINDS[body.kind] ? body.kind : "";
     const text = typeof body?.description === "string" ? body.description.trim() : "";

@@ -44,7 +44,7 @@ import {
   ReceiptText, Rocket, Scale, Send, ShieldCheck, ShoppingCart, Store, Tag,
   Plane, QrCode, Target, Timer, TrendingDown, TrendingUp, TriangleAlert, Trophy, Truck, Tv, Undo2,
   Upload, UserRound, Video, Wrench, Zap, CircleCheck, CircleX, Pencil, Search,
-  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, Users, type LucideIcon,
+  RefreshCw, Save, ExternalLink, ChevronLeft, Plus, Users, Cloud, MonitorSmartphone, type LucideIcon,
 } from "lucide-react";
 import type React from "react";
 
@@ -130,6 +130,8 @@ export const APP_ICON = {
   fast: Zap,
   balance: Scale,
   puzzle: Puzzle,
+  cloud: Cloud, // v1.345.0 - the sign-in page's "Cloud Protected"
+  devices: MonitorSmartphone, // v1.345.0 - the sign-in page's "Web + PWA Ready"
 } satisfies Record<string, LucideIcon>;
 
 export type AppIconName = keyof typeof APP_ICON;

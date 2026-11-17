@@ -33,3 +33,16 @@
   .rows > li { align-items: flex-start; flex-wrap: wrap; }
   .figs { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* v1.344.0 - System health: the event register's event cell, the note and the seven-day bars */
+.evText { display: grid; gap: 0.0625rem; min-width: 0; }
+.evText strong { font-size: var(--type-body-sm-size); }
+.evText small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.note { margin: 0; padding: 0.625rem 0.75rem; border-radius: var(--radius-control); background: var(--info-soft); color: var(--foreground); font-size: var(--type-body-sm-size); }
+.bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 0.5rem; height: 100%; min-height: 9rem; }
+.barCol { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; justify-items: center; gap: 0.25rem; height: 100%; min-width: 0; }
+.bar { align-self: end; width: 100%; max-width: 3rem; border-radius: var(--radius-control) var(--radius-control) 0 0; background: color-mix(in srgb, var(--danger, var(--destructive)) 55%, var(--card)); }
+.barVal, .barDay { color: var(--muted-foreground); font-size: var(--type-caption-size); font-variant-numeric: tabular-nums; }
+
+/* v1.344.0 - inside a held pane the body scrolls: lists and notes keep their height */
+.rows, .note, .okNote, .warnNote, .facts, .form, .thread { flex-shrink: 0; overflow: visible; }

@@ -64,3 +64,19 @@
 .subject { display: grid; gap: 0.0625rem; min-width: 0; }
 .subject strong { font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
 .subject small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+
+/* v1.344.0 - Problem reports (image 03): the stack, a card head, the selected incident's facts */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.head { display: grid; gap: 0.125rem; margin-bottom: 0.75rem; min-width: 0; }
+.head h3 { margin: 0; color: var(--foreground); font-size: var(--type-section-size); line-height: var(--type-section-lh); font-weight: 700; }
+.head p { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.facts { list-style: none; margin: 0; padding: 0; }
+.facts > li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; padding: 0.75rem; min-width: 0; }
+.factText { display: grid; gap: 0.125rem; flex: 1 1 12rem; min-width: 0; }
+.factText strong { font-size: var(--type-body-sm-size); }
+.factText small { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: anywhere; }
+.factChips { display: inline-flex; flex-wrap: wrap; gap: 0.375rem; }
+.footRow { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* v1.344.0 - inside a held pane the body scrolls: lists and notes keep their height */
+.rows, .note, .okNote, .warnNote, .facts, .form, .thread { flex-shrink: 0; overflow: visible; }

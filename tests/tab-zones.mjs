@@ -311,7 +311,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     /const holds = \["ceo", "super_admin"\]\.includes\(role\)/.test(usersPanel)
     && /const geofence = holdsCap\("geofence_admin", \["super_admin", "ceo", "coo"\]\.includes\(role\)\)/.test(usersPanel)
     && /const superAdmin = role === "super_admin";\s*const canEdit = superAdmin \|\| owner;/.test(usersPanel) /* v1.236.0 - the verified company owner changes roles too (the owner, 30-10-2026) */
-    && /<ExceptionsCard bare review=\{review\} canEdit=\{holds\}/.test(usersPanel) /* v1.331.0 - in its drawer */ && /\{secPart === "location" && geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(usersPanel) /* v1.327.0 - Security & Sessions' Office location part */
+    && /<ExceptionsCard bare review=\{review\} canEdit=\{holds\}/.test(usersPanel) /* v1.331.0 - in its drawer */ && /\{secPart === "location" && geofence && \(\s*<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard onAudit=\{auditTab \? \(\) => openView\("audit"\) : undefined\} \/>/.test(usersPanel) /* v1.327.0 - Security & Sessions' Office location part */
     && /<TabAccessCard canEdit=\{holds\}/.test(usersPanel));
 }
 

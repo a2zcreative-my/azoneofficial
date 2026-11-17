@@ -78,15 +78,17 @@ const i18n = read("lib/i18n.ts");
 {
   /* v1.211.0 - the layout is the page's own module (app/login/login.module.css) */
   ok("from lg up the page is a two-column grid", /<div className=\{css\.page\}>/.test(src) && /@media \(min-width: 1024px\) \{\s*\.page \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/.test(css));
-  ok("the brand panel is beside the form and a phone never draws it", /function BrandPanel\(/.test(src) && /\.brand \{\s*display: none;\s*\}\s*@media \(min-width: 1024px\) \{\s*\.brand \{\s*display: flex;/.test(css) && /<BrandPanel lang=\{lang\} \/>/.test(src));
+  ok("the brand panel is beside the form and a phone never draws it", /function BrandPanel\(/.test(src) && /\.brand \{\s*display: none;\s*\}\s*@media \(min-width: 1024px\) \{\s*\.brand \{\s*position: relative;\s*display: flex;/.test(css) && /<BrandPanel lang=\{lang\} \/>/.test(src));
   ok("nothing needed to sign in lives in the brand panel", (() => {
     const panel = src.slice(src.indexOf("function BrandPanel("), src.indexOf("/* ── the page ──"));
     return !/<input|<form|type="submit"|auth\/google/.test(panel);
   })());
   /* the v1.29.2 phone fix, kept verbatim: svh, not vh, and the home indicator */
-  ok("the form column is a centred svh column with the safe-area inset (v1.29.2 kept)",
-    /<main className=\{css\.formSide\}>/.test(src) && /\.formSide \{[^}]*justify-content: center;[^}]*min-height: 100svh;[^}]*padding: 1\.5rem 1\.5rem max\(1\.5rem, env\(safe-area-inset-bottom\)\);/.test(css));
-  ok("and it is not capped at phone width on a desk", /@media \(min-width: 1024px\) \{\s*\.formSide \{[^}]*max-width: 28rem;/.test(css));
+  /* v1.345.0 - the iPhone PWA: the status bar's inset on top, the home indicator and the navy wave below */
+  ok("the form column is a centred svh column with the safe-area insets (v1.29.2 kept, v1.345.0 top and wave)",
+    /<main className=\{css\.formSide\}>/.test(src) && /\.formSide \{[^}]*justify-content: center;[^}]*min-height: 100svh;[^}]*padding: max\(1\.25rem, calc\(env\(safe-area-inset-top\) \+ 0\.75rem\)\) 1\.5rem calc\(5\.75rem \+ env\(safe-area-inset-bottom\)\);/.test(css)
+    && /\.phoneWave \{[^}]*height: calc\(4\.75rem \+ env\(safe-area-inset-bottom\)\);/.test(css) && /\.page \{[^}]*overflow-x: clip;/.test(css));
+  ok("and it is not capped at phone width on a desk", /@media \(min-width: 1024px\) \{\s*\.formSide \{[^}]*max-width: 39rem;/.test(css));
 }
 
 /* ---- 2. a real form ---- */
@@ -174,8 +176,18 @@ const i18n = read("lib/i18n.ts");
   const code = strip(src);
   ok("no build number on the page", !/APP_VERSION|lib\/version/.test(code));
   ok("no list of what is inside, no 'staff and customer portal'", !/Clock in, shifts|Sales, orders|payroll|payslips|targets|staff and customer portal|One login for everyone|your own area/i.test(code));
-  ok("the brand panel is the mark, the welcome and the copyright", /Welcome to A2Z\./.test(src) && /A connected experience, designed for you\./.test(src) && /© A2Z Creative Marketing/.test(src));
-  ok("the right side says Sign in / Securely access your account", /L\("Sign in", "Log masuk"\)/.test(src) && /Securely access your account\./.test(src) && /Akses akaun anda dengan selamat\./.test(src));
+  /* v1.345.0 - the CEO's two references (17-11-2026): the welcome, three GENERIC security highlights, the wave */
+  const panel = code.slice(code.indexOf("function BrandPanel("), code.indexOf("function CloudflareNotice("));
+  ok("the brand panel is the mark, the welcome, three security highlights and the copyright", /\{L\("Welcome to", "Selamat datang ke"\)\}<span className=\{css\.brandName\}>A2Z OS<\/span>/.test(src) && /A connected workspace, designed for you\./.test(src) && /© A2Z Creative Marketing/.test(src)
+     && (panel.match(/<Highlight /g) ?? []).length === 3 && /"Secure Access"/.test(panel) && /"Cloud Protected"/.test(panel) && /"Web \+ PWA Ready"/.test(panel));
+  ok("the right side says Sign in / Securely access your A2Z OS account", /L\("Sign in", "Log masuk"\)/.test(src) && /Securely access your A2Z OS account\./.test(src) && /Akses akaun A2Z OS anda dengan selamat\./.test(src));
+  /* the Cloudflare notice: the words are fixed, the status is the bot check's own state - never a made-up one */
+  const notice = code.slice(code.indexOf("function CloudflareNotice("), code.indexOf("/* ── the page ──"));
+  ok("Protected by Cloudflare: a status only from the bot check's real state, verified only with a token",
+    /const status = state === "checking" \? L\("Checking your browser…"[^\n]*\n\s*: state === "ready" \? L\("Browser verified\."[^\n]*\n\s*: state === "unavailable" \? L\([^\n]*\n\s*: null;/.test(notice)
+    && (notice.match(/verified/gi) ?? []).length === 1 + 0 && /<CloudflareNotice lang=\{lang\} state=\{bot\.state\} widget=\{bot\.widgetNode\} \/>/.test(src)
+    && !/setTimeout|setInterval/.test(notice) && /const canSend = state === "off" \|\| state === "unavailable" \|\| token !== null;/.test(read("components/security/bot-check.tsx"))
+    && /callback: \(t: string\) => \{ setToken\(t\); setState\("ready"\); \}/.test(read("components/security/bot-check.tsx")));
   ok("no Create account on the page, and no register call", !/auth\/register|Create account|Buat akaun/.test(code));
   ok("every failed sign-in says the one sentence", /const FAILED: \[string, string\] = \["Unable to sign in with the provided credentials\.", "Tidak dapat log masuk dengan maklumat yang diberikan\."\];/.test(src)
      && /\} else \{\s*setError\(L\(\.\.\.FAILED\)\);/.test(code) && /if \(why === "oauth" \|\| why === "google_off"\)/.test(code) && /setError\(LE\(\.\.\.\(why === "google_off" \? GOOGLE_OFF : FAILED\)\)\)/.test(code) /* v1.264.0 - after the first paint; Google off says so */

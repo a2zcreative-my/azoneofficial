@@ -46,7 +46,7 @@ import { api } from "@/lib/api";
 import { properName } from "@/lib/names";
 import { btnSm, listBox, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, selectClassSm } from "@/lib/ui-styles";
 import { eventLabel, eventTone, mytStamp2, type Account, type AuthEvent } from "@/components/portal/users-shared";
-import { SessionsList, backupWord, botWord, type StatusRead } from "@/components/portal/security-status";
+import { SessionsList, backupWord, type StatusRead } from "@/components/portal/security-status";
 import css from "./security-sessions.module.css";
 
 type Stage = "off" | "A" | "B" | "C";
@@ -126,15 +126,10 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
           sub={no2fa.length === 0 ? L("Every active staff account", "Setiap akaun kakitangan aktif") : L(`${no2fa.length} active without 2FA`, `${no2fa.length} aktif tanpa 2FA`)} />
         <KpiTile icon="access" tone="blue" label={L("Recent Sign-ins", "Log Masuk Terkini")} busy={!eventsLoaded} value={signins.length}
           sub={L("In the last 60 account events", "Dalam 60 peristiwa akaun terakhir")} onClick={() => setKind("signin")} pressed={kind === "signin"} />
-        <KpiTile icon="users" tone="purple" label={L("Active Sessions", "Sesi Aktif")} busy={status === null}
-          value={st ? st.sessions.count : "—"} testid="tile-sessions"
-          sub={st ? L(`${st.sessions.people} people · ${st.sessions.active_30m} active in 30 min`, `${st.sessions.people} orang · ${st.sessions.active_30m} aktif dalam 30 min`) : notShown}
-          onClick={st ? () => setOpen("sessions") : undefined} pressed={open === "sessions"} />
-        <KpiTile icon="verify" tone={st ? botWord(st).tone : "navy"} label={L("Bot Check", "Semakan Bot")} busy={status === null} testid="tile-bot"
-          value={st ? botWord(st).value : "—"} sub={st ? botWord(st).sub : notShown} onClick={onHealth} />
-        <KpiTile icon="database" tone={bk ? bk.tone : "navy"} label={L("Backup Status", "Status Sandaran")} busy={status === null} testid="tile-backup"
-          value={bk ? bk.value : "—"} sub={bk ? bk.sub : notShown} onClick={onHealth} />
-        <KpiTile icon="warning" tone="red" label={L("Security Alerts", "Amaran Keselamatan")} busy={!eventsLoaded || !loaded} value={alertCount}
+        <KpiTile icon="users" tone="gold" label={L("Recovery Panel", "Panel Pemulihan")} busy={rec === null} value={recWord} testid="tile-recovery"
+          sub={rec && rec !== "denied" ? L(`${rec.panel.filter((m) => m.active).length} of ${rec.panel.length} member(s) can act`, `${rec.panel.filter((m) => m.active).length} daripada ${rec.panel.length} ahli boleh bertindak`) : L("The owner, the panel and the Super Admin see it", "Pemilik, panel dan Super Admin melihatnya")}
+          onClick={rec && rec !== "denied" ? () => setOpen("recovery") : undefined} />
+        <KpiTile icon="warning" tone="red" label={L("Security Alerts", "Amaran Keselamatan")} busy={!eventsLoaded || !loaded} value={alertCount} testid="tile-alerts"
           sub={alertCount ? L("Requires review", "Perlu disemak") : L("Nothing to review", "Tiada untuk disemak")} />
       </KpiRow>
 
@@ -172,17 +167,9 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
           </SplitPane>
         </SplitColumn>
         <SplitColumn>
-          <SplitPane testid="security-attention" title={L("Security Attention", "Perhatian Keselamatan")} sub={L("What needs an authorised decision.", "Apa yang memerlukan keputusan yang diberi kuasa.")} label={L("Security attention", "Perhatian keselamatan")}
-            foot={st ? (
-              /* v1.341.0 - the protection line (the picture's "System protected by Cloudflare"), pinned under the list, from the status read: never "protected" unless the bot check is on */
-              <p className={st.bot_check.enabled ? css.note : css.noteWarn} data-testid="protection-line">
-                <AppIcon name={st.bot_check.enabled ? "verify" : "warning"} />
-                <span>{st.bot_check.enabled
-                  ? L("Cloudflare bot check on every sign-in.", "Semakan bot Cloudflare pada setiap log masuk.")
-                  : L("No Cloudflare bot check on sign-in yet.", "Belum ada semakan bot Cloudflare pada log masuk.")}</span>
-                {onHealth && <button type="button" className={css.link} onClick={onHealth}>{L("View details", "Lihat butiran")}</button>}
-              </p>
-            ) : undefined}>
+          <SplitPane testid="security-attention" title={L("Security Attention", "Perhatian Keselamatan")} sub={L("What needs an authorised decision.", "Apa yang memerlukan keputusan yang diberi kuasa.")} label={L("Security attention", "Perhatian keselamatan")}>
+            {/* v1.344.0 (image 01) - only confirmed items (the server's own state), never an inferred threat; each opens its record */}
+            <p className={css.note}>{L("Confirmed items only; each opens its record.", "Perkara disahkan sahaja; setiap satu membuka rekodnya.")}</p>
             {(!loaded || !eventsLoaded) ? <SkelRows rows={3} /> : alertCount === 0 ? (
               <p className={css.calm}><AppIcon name="success" />{L("Nothing needs a decision.", "Tiada apa yang memerlukan keputusan.")}</p>
             ) : (
@@ -214,12 +201,25 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
                 ))}
               </ul>
             )}
+            <ul className={css.controls} data-testid="attention-links">
+              {control("connection", L("Cloudflare, file protection and backups", "Cloudflare, perlindungan fail dan sandaran"), st ? L(`Bot check ${st.bot_check.enabled ? "on" : "off"} · backup ${bk ? bk.value : "—"} · details on System health`, `Semakan bot ${st.bot_check.enabled ? "hidup" : "mati"} · sandaran ${bk ? bk.value : "—"} · butiran pada Kesihatan sistem`) : L("Detailed monitoring belongs on System health", "Pemantauan terperinci di Kesihatan sistem"),
+                null, onHealth ? <button type="button" className={btnSm} onClick={onHealth} data-testid="open-health">{L("Open System health", "Buka Kesihatan sistem")}</button> : undefined, "att-health")}
+              {control("access", L("Role and permission changes", "Perubahan peranan dan kebenaran"), L("Reviewed in the existing Audit History", "Disemak dalam Sejarah Audit sedia ada"),
+                null, onAudit ? <button type="button" className={btnSm} onClick={onAudit}>{L("View audit", "Lihat audit")}</button> : undefined, "att-audit")}
+            </ul>
           </SplitPane>
-          <SplitPane testid="active-sessions" title={st ? L(`Active Sessions (${st.sessions.count})`, `Sesi Aktif (${st.sessions.count})`) : L("Active Sessions", "Sesi Aktif")}
-            sub={L("Staff signed in now, newest activity first.", "Kakitangan yang log masuk sekarang, aktiviti terbaru dahulu.")} label={L("Active sessions", "Sesi aktif")}
-            actions={st && st.sessions.count > 3 ? <button type="button" className={btnSm} onClick={() => setOpen("sessions")} data-testid="sessions-all">{L("View all", "Lihat semua")}</button> : undefined}
-            foot={<span className={css.footNote}>{L("Role permissions never bypass identity verification. A person's devices are signed out from Staff Accounts → Manage account.", "Kebenaran peranan tidak sekali-kali memintas pengesahan identiti. Peranti seseorang dilog keluar dari Akaun Kakitangan → Urus akaun.")} <button type="button" className={css.link} onClick={onStaffAccounts}>{L("Staff Accounts", "Akaun Kakitangan")}</button></span>}>
-            {status === null ? <SkelRows rows={3} /> : st ? <SessionsList rows={st.sessions.rows} limit={3} onManage={onManage} /> : <p className={css.muted}>{notShown}</p>}
+          {/* v1.344.0 (image 01) - Security Principles: the rule, then where each review lives (the active sessions open in their drawer) */}
+          <SplitPane testid="security-principles" title={L("Security Principles", "Prinsip Keselamatan")} sub={L("Existing safeguards remain enforced", "Perlindungan sedia ada kekal dikuatkuasakan")} label={L("Security principles", "Prinsip keselamatan")}>
+            <p className={css.note}>{L("CEO rights never bypass identity checks, recovery safeguards or the server.", "Hak CEO tidak memintas semakan identiti, perlindungan pemulihan atau pelayan.")}</p>
+            <ul className={css.controls}>
+              {control("document", L("Review security events", "Semak peristiwa keselamatan"), L("Every sign-in, refusal and change is in Audit History", "Setiap log masuk, penolakan dan perubahan ada dalam Sejarah Audit"),
+                null, onAudit ? <button type="button" className={btnSm} onClick={onAudit}>{L("Audit History", "Sejarah Audit")}</button> : undefined, "pr-audit")}
+              {control("users", st ? L(`Review active sessions (${st.sessions.count})`, `Semak sesi aktif (${st.sessions.count})`) : L("Review active sessions", "Semak sesi aktif"),
+                st ? L(`${st.sessions.people} people signed in · ${st.sessions.active_30m} active in the last 30 min`, `${st.sessions.people} orang log masuk · ${st.sessions.active_30m} aktif dalam 30 min`) : notShown || L("Reading…", "Membaca…"),
+                null, st ? <button type="button" className={btnSm} onClick={() => setOpen("sessions")} data-testid="open-sessions">{L("Open sessions", "Buka sesi")}</button> : undefined, "pr-sessions")}
+              {control("person", L("A person's devices and 2FA", "Peranti dan 2FA seseorang"), L("Staff Accounts → Manage account → Devices signed in", "Akaun Kakitangan → Urus akaun → Peranti yang log masuk"),
+                null, <button type="button" className={btnSm} onClick={onStaffAccounts}>{L("Staff Accounts", "Akaun Kakitangan")}</button>, "pr-devices")}
+            </ul>
           </SplitPane>
         </SplitColumn>
       </WorkspaceSplit>

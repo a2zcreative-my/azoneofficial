@@ -1,0 +1,33 @@
+/* v1.344.0 - Users & Security > Office location (image 05). Tokens only. */
+.page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.muted { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; min-width: 0; }
+.field { display: grid; gap: 0.25rem; min-width: 0; }
+.wide { grid-column: 1 / -1; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.danger { padding: 0; border: 0; background: none; color: var(--destructive); font: inherit; font-size: var(--type-body-sm-size); text-decoration: underline; cursor: pointer; }
+.msg { margin: 0; font-size: var(--type-caption-size); font-weight: 600; }
+.msgOk { color: var(--success); }
+.msgBad { color: var(--destructive); }
+.rows { list-style: none; margin: 0; padding: 0; }
+.rows > li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; padding: 0.625rem 0.75rem; min-width: 0; }
+.rowIcon { display: grid; place-items: center; flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: var(--radius-control); background: var(--secondary); color: var(--muted-foreground); }
+.rowIcon svg { width: 1rem; height: 1rem; }
+.rowText { display: grid; gap: 0.125rem; flex: 1 1 12rem; min-width: 0; }
+.rowText strong { font-size: var(--type-body-sm-size); font-weight: 700; }
+.rowText small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+
+/* the map: tiles placed around the point, the radius to scale */
+.map { position: relative; overflow: hidden; height: 100%; min-height: 14rem; border-radius: var(--radius-control); background: var(--secondary); isolation: isolate; }
+.tile { position: absolute; width: 256px; height: 256px; max-width: none; user-select: none; }
+.circle { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid var(--info); background: color-mix(in srgb, var(--info) 18%, transparent); }
+.pin { position: absolute; left: 50%; top: 50%; width: 0.875rem; height: 0.875rem; transform: translate(-50%, -50%); border-radius: 50%; border: 3px solid var(--card); background: var(--info); box-shadow: 0 0 0 1px var(--info); }
+.attrib { position: absolute; right: 0.375rem; bottom: 0.375rem; padding: 0.125rem 0.375rem; border-radius: var(--radius-xs); background: color-mix(in srgb, var(--card) 85%, transparent); color: var(--muted-foreground); font-size: 0.6875rem; }
+
+@media (max-width: 767px) {
+  .form { grid-template-columns: minmax(0, 1fr); }
+  .map { min-height: 16rem; }
+}
+
+/* v1.344.0 - inside a held pane the body scrolls: lists and notes keep their height */
+.rows, .note, .okNote, .warnNote, .facts, .form, .thread { flex-shrink: 0; overflow: visible; }

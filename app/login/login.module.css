@@ -1,101 +1,187 @@
-/* v1.211.0 - THE SIGN-IN PAGE, NEUTRAL (the owner's brief, 25-10-2026:
-   "MINIMAL PUBLIC INFORMATION"). The split screen is kept: the navy brand
-   panel beside the form from 1024px, one centred column on a phone. Brand
-   tokens only - navy (--brand-primary), gold (--brand-accent), white and
-   the greys - so the light and dark themes and the Plum preset all follow. */
+/* v1.345.0 - THE SIGN-IN PAGE, ON THE CEO'S TWO REFERENCES (17-11-2026).
+   Desk: one rounded white card on the page's grey - the navy panel (mark,
+   welcome, three security highlights, the gold wave) beside the form. Phone
+   and the iPhone PWA: one column - mark, EN/BM, the form, the navy wave at the
+   foot, the status bar's strip navy. Brand tokens only - navy
+   (--brand-primary), gold (--brand-accent), white and the greys.
+   v1.211.0 is kept: no list of what is inside, one sentence for any failure. */
 
 .page {
+  position: relative;
   min-height: 100svh;
+  overflow-x: clip;
   background: var(--background);
   color: var(--foreground);
+}
+/* the iPhone PWA draws under the status bar: that strip is navy, as in the reference */
+.page::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: env(safe-area-inset-top);
+  background: var(--brand-primary);
 }
 @media (min-width: 1024px) {
   .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 1rem;
-    padding: 1rem;
+    min-height: calc(100svh - 3rem);
+    /* top, not margin-top: a margin here collapses through <body> and adds a scrollbar */
+    top: 1.5rem;
+    margin: 0 1.5rem;
+    border-radius: var(--radius-shell);
+    background: var(--card);
+    box-shadow: var(--shadow-soft);
   }
+  .page::before { display: none; }
 }
 
-/* ---- the navy half: the mark, one welcome, the copyright ---- */
+/* ---- the navy half ---- */
 .brand {
   display: none;
 }
 @media (min-width: 1024px) {
   .brand {
+    position: relative;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    min-height: calc(100svh - 2rem);
-    padding: 3rem;
-    border-radius: 20px;
-    background: var(--brand-primary);
+    gap: 2rem;
+    min-height: calc(100svh - 3rem);
+    padding: 3.25rem 3.5rem 2.5rem;
+    overflow: hidden;
+    border-radius: var(--radius-shell);
+    background: linear-gradient(160deg, var(--brand-primary-soft) 0%, var(--brand-primary) 55%);
     color: #fff;
   }
 }
 @media (min-width: 1280px) {
   .brand {
-    padding: 4rem;
+    padding: 4rem 4.75rem 3rem;
   }
 }
+.brandTop { position: relative; z-index: 1; }
 .brandLogo {
   display: block;
-  height: 2.5rem;
+  height: 3.5rem;
   width: auto;
 }
 .brandRule {
   display: block;
-  width: 3.5rem;
+  width: 4.5rem;
   height: 3px;
   margin-top: 1rem;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--brand-accent);
 }
 .welcome {
-  max-width: 28rem;
+  position: relative;
+  z-index: 1;
+  max-width: 34rem;
 }
 .welcome h2 {
   margin: 0;
-  font-size: clamp(1.875rem, 2.6vw, 2.5rem);
-  line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  text-wrap: balance;
+  font-size: clamp(2.5rem, 3.7vw, 3.5rem);
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.brandName {
+  display: block;
+  color: var(--brand-accent);
 }
 .welcome p {
-  margin: 0.875rem 0 0;
-  font-size: 1rem;
-  line-height: 1.6;
-  color: rgb(255 255 255 / 0.8);
+  margin: 1rem 0 0;
+  font-size: clamp(1.0625rem, 1.35vw, 1.3125rem);
+  line-height: 1.5;
+  color: rgb(255 255 255 / 0.88);
+}
+.highlights {
+  display: grid;
+  gap: 1.25rem;
+  margin: 2.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.highlight {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.highlightIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: var(--radius-overlay);
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+  color: var(--brand-accent);
+}
+.highlightIcon svg {
+  width: 1.875rem;
+  height: 1.875rem;
+}
+.highlightText {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.highlightText strong {
+  font-size: 1.1875rem;
+  font-weight: 700;
+}
+.highlightText span {
+  font-size: 0.9375rem;
+  color: rgb(255 255 255 / 0.82);
 }
 .copyright {
+  position: relative;
+  z-index: 1;
   margin: 0;
-  font-size: 0.75rem;
-  color: rgb(255 255 255 / 0.6);
+  font-size: 0.875rem;
+  color: rgb(255 255 255 / 0.82);
 }
+/* the wave: soft navy swells and one gold line, at the foot of the panel */
+.panelWave {
+  position: absolute;
+  inset: auto 0 0;
+  width: 100%;
+  height: 45%;
+  pointer-events: none;
+}
+.softWave { fill: rgb(255 255 255 / 0.035); }
+.goldStop { stop-color: var(--brand-accent); }
+.goldLine { fill: none; stroke-width: 2; stroke-linecap: round; }
+.goldGlow { fill: none; stroke-width: 8; stroke-linecap: round; opacity: 0.35; filter: blur(4px); }
 
 /* ---- the form half ---- */
 .formSide {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   width: 100%;
-  max-width: 26rem;
+  max-width: 30rem;
   min-height: 100svh;
   margin-inline: auto;
-  padding: 1.5rem 1.5rem max(1.5rem, env(safe-area-inset-bottom));
+  padding: max(1.25rem, calc(env(safe-area-inset-top) + 0.75rem)) 1.5rem calc(5.75rem + env(safe-area-inset-bottom));
 }
 @media (min-width: 1024px) {
   .formSide {
-    min-height: calc(100svh - 2rem);
-    max-width: 28rem;
-    padding-inline: 2.5rem;
+    min-height: calc(100svh - 3rem);
+    max-width: 39rem;
+    padding: 1.75rem 3rem;
   }
 }
 .topRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
 }
@@ -106,8 +192,9 @@
 }
 .phoneLogo {
   display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   min-height: 44px;
+  text-decoration: none;
 }
 /* the panel carries the mark from 1024px; the phone's own mark steps aside */
 @media (min-width: 1024px) {
@@ -117,38 +204,64 @@
 }
 .phoneLogo img {
   display: block;
-  height: 2rem;
+  height: 2.75rem;
   width: auto;
+}
+.phoneLogo .brandRule {
+  width: 3.5rem;
+  margin-top: 0.875rem;
 }
 .title {
   margin: 1.75rem 0 0;
-  font-size: 1.75rem;
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  color: var(--brand-primary);
+  font-size: clamp(2.25rem, 9vw, 2.75rem);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+@media (min-width: 1024px) {
+  .title {
+    margin-top: 0.75rem;
+    font-size: clamp(2.5rem, 3.2vw, 3.125rem);
+  }
 }
 .lede {
-  margin: 0.375rem 0 0;
-  font-size: 0.9375rem;
+  margin: 0.5rem 0 0;
+  font-size: 1.0625rem;
   color: var(--muted-foreground);
+}
+@media (min-width: 1024px) {
+  .lede { font-size: 1.1875rem; }
+}
+
+/* Google + the Cloudflare notice: Google first on a desk, the notice first on a phone */
+.lead {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1.5rem 0 1.25rem;
+}
+@media (max-width: 1023px) {
+  .lead > .notice { order: -1; }
 }
 .google {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.625rem;
+  gap: 0.875rem;
   width: 100%;
-  min-height: 48px;
-  margin-top: 1.5rem;
+  min-height: 3.5rem;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-overlay);
   background: var(--card);
-  color: var(--foreground);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  box-shadow: var(--shadow-soft);
+  color: var(--brand-primary);
+  font-size: 1.0625rem;
+  font-weight: 700;
   text-decoration: none;
   transition: background-color 150ms ease;
 }
+.google svg { width: 1.5rem; height: 1.5rem; }
 .google:hover {
   background: var(--secondary);
 }
@@ -156,10 +269,7 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-/* v1.269.0 - "Continue with passkey", under the Google button when both show */
-.google + .passkey {
-  margin-top: 0.75rem;
-}
+.google[aria-disabled="true"] { opacity: 0.7; }
 .passkey {
   cursor: pointer;
   font-family: inherit;
@@ -168,6 +278,57 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* Protected by Cloudflare: the words, and the bot check's own state */
+.notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--brand-accent) 32%, transparent);
+  border-radius: var(--radius-overlay);
+  background: color-mix(in srgb, var(--brand-accent-soft) 26%, var(--card));
+}
+.noticeIcon {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 1.25rem;
+  border-right: 1px solid color-mix(in srgb, var(--brand-accent) 45%, transparent);
+  color: var(--brand-accent);
+  align-self: stretch;
+}
+.noticeIcon svg {
+  width: 2.75rem;
+  height: 2.75rem;
+  stroke-width: 1.5;
+}
+.noticeText {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.noticeText strong {
+  color: var(--brand-primary);
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+.noticeText > span {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+.noticeText > .noticeStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+  color: var(--brand-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.noticeStatus[data-state="ready"] { color: var(--success); }
+
 .divider {
   height: 1px;
   margin: 1.5rem 0;
@@ -176,13 +337,27 @@
 }
 .form {
   display: grid;
-  gap: 1rem;
+  gap: 1.125rem;
 }
 .field label {
   display: block;
-  margin-bottom: 0.375rem;
-  font-size: 0.875rem;
-  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--brand-primary);
+  font-size: 1rem;
+  font-weight: 700;
+}
+.field input {
+  min-height: 3.5rem;
+  font-size: 1rem;
+  border-radius: var(--radius-control);
+  padding-inline: 1.125rem;
+}
+.form > button[type="submit"] {
+  min-height: 3.5rem;
+  margin-top: 0.25rem;
+  border-radius: var(--radius-full);
+  font-size: 1.125rem;
+  font-weight: 700;
 }
 .hint {
   margin: 0.375rem 0 0;
@@ -193,7 +368,7 @@
   position: relative;
 }
 .pwWrap input {
-  padding-right: 3rem;
+  padding-right: 3.5rem;
 }
 .eye {
   position: absolute;
@@ -201,13 +376,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 3rem;
+  width: 3.5rem;
   border: 0;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   background: none;
-  color: var(--muted-foreground);
+  color: var(--brand-primary);
   cursor: pointer;
 }
+.eye svg { width: 1.375rem; height: 1.375rem; }
 .eye:hover {
   color: var(--foreground);
 }
@@ -221,7 +397,7 @@
   gap: 0.5rem;
   margin: 0;
   padding: 0.625rem 0.75rem;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--danger-soft);
   color: var(--danger);
   font-size: 0.875rem;
@@ -231,7 +407,7 @@
   margin-top: 2px;
 }
 .help {
-  margin-top: 1.25rem;
+  margin-top: 0.75rem;
   text-align: center;
 }
 .linkBtn {
@@ -241,8 +417,8 @@
   background: none;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 1.0625rem;
+  font-weight: 600;
   cursor: pointer;
 }
 .linkBtn:hover {
@@ -253,12 +429,12 @@
 .linkBtn:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .helpNote {
   margin: 0.25rem 0 0;
   padding: 0.625rem 0.75rem;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--secondary);
   color: var(--muted-foreground);
   font-size: 0.8125rem;
@@ -271,26 +447,80 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A2Z PWA | Mobile experience - the phone's foot label */
+.pwaTag {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 0.625rem;
+  margin: 1.25rem 0 0;
+  padding: 0.625rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
+  font-size: 0.9375rem;
+}
+.pwaTag svg { width: 1.25rem; height: 1.25rem; color: var(--brand-accent); }
+.pwaTag strong { color: var(--brand-primary); font-weight: 700; }
+.pwaTag span {
+  padding-left: 0.625rem;
+  border-left: 1px solid var(--brand-accent);
+  color: var(--muted-foreground);
+}
+.phoneWave {
+  position: absolute;
+  inset: auto 0 0;
+  width: 100%;
+  height: calc(4.75rem + env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+.navyWave { fill: var(--brand-primary); }
+.navyWaveSoft { fill: var(--brand-primary-soft); }
+@media (min-width: 1024px) {
+  .pwaTag, .phoneWave { display: none; }
+}
+/* the phone: one screen of an iPhone, keyboard or not (the page scrolls when it must) */
+@media (max-width: 1023px) {
+  .phoneLogo img { height: 2.5rem; }
+  .title { margin-top: 1.25rem; }
+  .lede { margin-top: 0.375rem; }
+  .lead { gap: 0.875rem; margin: 1.25rem 0 1rem; }
+  .notice { padding: 0.875rem 1rem; gap: 1rem; }
+  .noticeIcon { padding-right: 1rem; }
+  .noticeIcon svg { width: 2.5rem; height: 2.5rem; }
+  .noticeText > span { font-size: 0.8125rem; }
+  .noticeText > .noticeStatus { margin-top: 0; }
+  .google { min-height: 3.25rem; }
+  .form { gap: 0.875rem; }
+  .field label { margin-bottom: 0.375rem; }
+  .field input, .form > button[type="submit"] { min-height: 3.25rem; }
+  .help { margin-top: 0.25rem; }
+  .pwaTag { margin-top: 0.5rem; }
+}
+
 /* EN | BM */
 .lang {
   display: inline-flex;
   align-items: center;
   gap: 0.125rem;
-  padding: 0.1875rem;
+  padding: 0.25rem;
   border: 1px solid var(--border);
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
 }
 .lang button {
-  min-width: 2.75rem;
-  min-height: 2rem;
-  padding: 0 0.75rem;
+  min-width: 3.5rem;
+  min-height: 2.5rem;
+  padding: 0 0.875rem;
   border: 0;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   background: none;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.9375rem;
+  font-weight: 700;
   cursor: pointer;
 }
 .lang button[aria-pressed="true"] {

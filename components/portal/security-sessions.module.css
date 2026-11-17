@@ -38,3 +38,8 @@
 .note > span, .noteWarn > span { flex: 1 1 14rem; min-width: 0; }
 .noteWarn { margin: 0; padding: 0.625rem 0.75rem; border-radius: var(--radius-control); background: var(--warning-soft); color: var(--foreground); font-size: var(--type-body-sm-size); }
 .footNote { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+
+/* v1.344.0 - the Overview's notes sit above their lists, as one block each */
+.note { display: block; margin: 0 0 0.5rem; padding: 0.625rem 0.75rem; }
+/* v1.344.0 - inside a held pane the body scrolls: its lists and notes keep their own height instead of being squeezed */
+.controls, .attention, .note, .calm { flex-shrink: 0; overflow: visible; }

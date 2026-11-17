@@ -1063,6 +1063,15 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 994, action: "staff.role_change", entity: "users", entity_id: q.get("target"), detail: "{\"from\":\"marketing\",\"to\":\"sales_marketing\"}", created_at: "2026-09-02 03:00:00", user_name: "Fixture Person" },
   ] };
   /* v1.327.0 - the Audit History register: ?action= narrows by prefix as the worker does (asset. keeps its own list below) */
+  /* v1.344.0 - the audit reads of Company owner and Office location */
+  else if (p === "/audit" && ["owner.", "auth.exec_", "attendance.geofence"].includes(q.get("action") ?? "")) data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: ({
+    "owner.": [{ id: 1201, action: "owner.designate", entity: "users", entity_id: "9001", detail: null, created_at: "2026-11-02 03:00:00", user_name: "Super Admin" }],
+    "auth.exec_": [
+      { id: 1260, action: "auth.exec_panel_accepted", entity: "users", entity_id: "9010", detail: null, created_at: "2026-11-05 02:10:00", user_name: "Zolkefli bin Sahdi" },
+      { id: 1250, action: "auth.exec_panel_added", entity: "users", entity_id: "9010", detail: null, created_at: "2026-11-04 08:00:00", user_name: "Fixture Person" },
+    ],
+    "attendance.geofence": [{ id: 1301, action: "attendance.geofence_set", entity: "system_meta", entity_id: "attendance_geofence", detail: "{\"lat\":1.56,\"lng\":103.72,\"radius_m\":150,\"label\":\"Setia Tropika office\"}", created_at: "2026-10-30 02:30:00", user_name: "Fixture Person" }],
+  })[q.get("action") ?? ""] };
   else if (p === "/audit" && (q.get("action") ?? "") !== "asset.") data = !["super_admin", "admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Admin required" } } : { entries: [
     { id: 990, action: "auth.login", entity: "users", entity_id: "9001", detail: null, created_at: "2026-09-18 01:58:00", user_name: "Fixture Person" },
     { id: 989, action: "hotel.update", entity: "hotels", entity_id: "1", detail: "{\"hotel_name\":\"Casa del Rio\",\"state\":\"MELAKA\"}", created_at: "2026-09-18 01:50:00", user_name: "Nur Aisyah" },
@@ -1076,6 +1085,25 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 981, action: "user.update", entity: "users", entity_id: "9003", detail: "{\"field\":\"role\",\"to\":\"marketing\"}", created_at: "2026-09-15 06:00:00", user_name: "Fixture Person" },
   ].filter((e) => !q.get("action") || e.action.startsWith(q.get("action"))) };
   /* v1.203.0 - what /system/health says (CEO and admin): a backup last night, nothing pending, one error today */
+  /* v1.343.0 - the client area (ROLE=customer): a customer's own orders and enquiries. ORDERS_LOCKED=1: email not verified yet. */
+  if (p === "/account/orders") data = process.env.ORDERS_LOCKED ? { locked: true, docs: [], lives: [], brand: null } : {
+    locked: false,
+    brand: { company: "Kedai Runcit Pak Ali", website: "https://kedaipakali.my", logo_key: null },
+    docs: [
+      { doc_number: "INV-A2Z161126-3", doc_type: "INV", total_cents: 185000, payment_status: "unpaid", due_date: "2026-11-30", paid_at: null, share_token: "tok-inv-3", created_at: "2026-11-16 02:00:00" },
+      { doc_number: "QT-A2Z101126-7", doc_type: "QT", total_cents: 185000, payment_status: null, due_date: null, paid_at: null, share_token: "tok-qt-7", created_at: "2026-11-10 03:00:00" },
+      { doc_number: "INV-A2Z201026-1", doc_type: "INV", total_cents: 92000, payment_status: "paid", due_date: "2026-10-31", paid_at: "2026-10-25 04:00:00", share_token: "tok-inv-1", created_at: "2026-10-20 03:00:00" },
+      { doc_number: "DO-A2Z221026-1", doc_type: "DO", total_cents: 0, payment_status: null, delivery_status: "delivered", due_date: null, paid_at: null, share_token: null, created_at: "2026-10-22 03:00:00" },
+    ],
+    lives: [
+      { session_date: "2026-11-24", start_time: "20:00", end_time: "22:00", platform: "tiktok", status: "scheduled" },
+      { session_date: "2026-11-03", start_time: "20:00", end_time: "22:00", platform: "tiktok", status: "completed" },
+    ],
+  };
+  if (p === "/account/enquiries") data = { enquiries: [
+    { id: 31, message: "Can we add a second live session in December?", category: "live_commerce", status: "new", reply: null, replied_at: null, created_at: "2026-11-16 05:00:00" },
+    { id: 28, message: "What does the Growth package include?", category: "package_pricing", status: "contacted", reply: "Growth includes four live sessions a month and the content plan - we will send the full list today.", replied_at: "2026-11-12 03:00:00", created_at: "2026-11-11 08:00:00" },
+  ] };
   /* v1.341.0 - Security & Sessions: the status read and the reports register.
      SECCF=1: a Cloudflare token is set (figures); BOTOFF=1: no Turnstile keys. */
   if (p === "/system/security") {
@@ -1093,13 +1121,23 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       /* v1.341.2 - SECCF=1: both figures read; SECCF=partial: the firewall dataset refused (the CEO's zone, 17-11-2026), traffic read */
       cloudflare: process.env.SECCF ? { connected: true,
         traffic: { ok: true, value: { requests_24h: 12840, threats_24h: 3 } },
+        daily: { ok: true, value: [["2026-11-11", 9800, 2], ["2026-11-12", 11200, 5], ["2026-11-13", 10400, 1], ["2026-11-14", 12900, 7], ["2026-11-15", 8700, 0], ["2026-11-16", 13100, 4], ["2026-11-17", 12840, 3]].map(([date, requests, threats]) => ({ date, requests, threats })) },
         firewall: process.env.SECCF === "partial" ? { ok: false, error: "zone 'b9e50b3cc3f7e32d187f8fb7691c8cd2' does not have access to the path. Refer to this page for more details about access controls: https://developers.cloudflare.com" }
           : { ok: true, value: { total_24h: 128, by_action: [{ action: "managed_challenge", count: 96 }, { action: "block", count: 32 }] } } } : { connected: false },
       files: { antivirus: false, type_signature: true, size_cap: true, note: "Every upload is checked for its size limit and that its first bytes match its declared type. Files are not scanned for viruses." },
       platform: { errors_24h: 0 },
+      events: [
+        { id: 7001, action: "security.denied", created_at: ago(95), user_name: "Nur Aisyah binti Rahman", entity_id: "/staff/payroll" },
+        { id: 6990, action: "auth.passkey_refused", created_at: ago(60 * 20), user_name: null, entity_id: null },
+        { id: 6950, action: "auth.exec_panel_accepted", created_at: ago(60 * 50), user_name: "Zolkefli bin Sahdi", entity_id: "9010" },
+      ],
       backup: { last: { uploaded: ago(60 * 11), size: 412000 }, retention_runs: 30, offsite_last: ago(60 * 24 * 3), bucket_bound: true },
     };
   }
+  if (/^\/staff\/support\/reports\/\d+\/trail$/.test(p)) data = { trail: [
+    { kind: "support.report", created_at: "2026-11-17 02:24:00", actor: "Nurfarin Suaidah", text: null },
+    { kind: "progress", created_at: "2026-11-17 03:05:00", actor: "Fixture Person", text: "Checked the sign-in log: one sign-in from a new network, 2FA passed. Asked her to confirm the device." },
+  ] };
   if (p === "/staff/support/reports") data = !["super_admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "The report receiver, the company owner, the CEO or the super admin reads the reports" } } : {
     receiver: { id: 9001, name: "Fixture Person" },
     reports: [

@@ -88,7 +88,13 @@ export function useBotCheck(siteKey: string | null, action: "signin" | "set_pass
     </div>
   ) : null;
 
+  /** v1.345.0 - the widget alone, for a page that words the state itself (the sign-in page's
+      Cloudflare notice). Render EITHER node OR widgetNode - one box per page. */
+  const widgetNode = siteKey ? (
+    <div className={css.wrap} data-testid="bot-check" data-state={state}><div ref={box} className={css.box} /></div>
+  ) : null;
+
   /** may the form be sent now? (off, a token in hand, or the check could not load) */
   const canSend = state === "off" || state === "unavailable" || token !== null;
-  return { node, token, canSend, state, spend };
+  return { node, widgetNode, token, canSend, state, spend };
 }

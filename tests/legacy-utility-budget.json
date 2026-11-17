@@ -1,6 +1,5 @@
 {
   "app/about/page.tsx": 43,
-  "app/account/page.tsx": 75,
   "app/admin/page.tsx": 110,
   "app/admin/permissions/page.tsx": 46,
   "app/blog/[slug]/page.tsx": 1,

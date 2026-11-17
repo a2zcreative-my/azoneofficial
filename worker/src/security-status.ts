@@ -110,7 +110,9 @@ export const BOT_REFUSED_MESSAGE = "Please complete the security check and try a
 type Part<T> = { ok: true; value: T } | { ok: false; error: string };
 type CfFigures =
   | { connected: false }
-  | { connected: true; traffic: Part<{ requests_24h: number; threats_24h: number }>; firewall: Part<{ total_24h: number; by_action: { action: string; count: number }[] }> };
+  | { connected: true; traffic: Part<{ requests_24h: number; threats_24h: number }>; firewall: Part<{ total_24h: number; by_action: { action: string; count: number }[] }>;
+      /* v1.344.0 - the last seven days, one bar a day (httpRequests1dGroups) - its own read too */
+      daily: Part<{ date: string; requests: number; threats: number }[]> };
 
 async function cfQuery(env: Env, query: string, variables: Record<string, unknown>): Promise<Part<Record<string, unknown>>> {
   try {
@@ -136,13 +138,17 @@ export async function cloudflareFigures(env: Env): Promise<CfFigures> {
   const until = new Date();
   const since = new Date(until.getTime() - 24 * 3600_000);
   const hour = (d: Date) => new Date(Math.floor(d.getTime() / 3600_000) * 3600_000).toISOString();
-  const [http, fw] = await Promise.all([
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const [http, fw, days] = await Promise.all([
     cfQuery(env, `query($zone: String!, $since: Time!, $until: Time!) { viewer { zones(filter: { zoneTag: $zone }) {
       http: httpRequests1hGroups(limit: 25, filter: { datetime_geq: $since, datetime_lt: $until }) { sum { requests threats } } } } }`,
       { since: hour(since), until: hour(until) }),
     cfQuery(env, `query($zone: String!, $since: Time!, $until: Time!) { viewer { zones(filter: { zoneTag: $zone }) {
       fw: firewallEventsAdaptiveGroups(limit: 20, filter: { datetime_geq: $since, datetime_leq: $until }) { count dimensions { action } } } } }`,
       { since: since.toISOString(), until: until.toISOString() }),
+    cfQuery(env, `query($zone: String!, $since: Date!, $until: Date!) { viewer { zones(filter: { zoneTag: $zone }) {
+      days: httpRequests1dGroups(limit: 7, orderBy: [date_ASC], filter: { date_geq: $since, date_leq: $until }) { dimensions { date } sum { requests threats } } } } }`,
+      { since: day(new Date(until.getTime() - 6 * 86_400_000)), until: day(until) }),
   ]);
   const traffic: Part<{ requests_24h: number; threats_24h: number }> = http.ok
     ? { ok: true, value: ((http.value.http ?? []) as { sum: { requests: number; threats: number } }[]).reduce((a, g) => ({ requests_24h: a.requests_24h + Number(g.sum.requests || 0), threats_24h: a.threats_24h + Number(g.sum.threats || 0) }), { requests_24h: 0, threats_24h: 0 }) }
@@ -153,7 +159,10 @@ export async function cloudflareFigures(env: Env): Promise<CfFigures> {
     for (const g of (fw.value.fw ?? []) as { count: number; dimensions: { action: string } }[]) byAction.set(g.dimensions.action, (byAction.get(g.dimensions.action) ?? 0) + Number(g.count || 0));
     firewall = { ok: true, value: { total_24h: [...byAction.values()].reduce((a, n) => a + n, 0), by_action: [...byAction].map(([action, count]) => ({ action, count })).sort((a, b) => b.count - a.count) } };
   } else firewall = fw;
-  return { connected: true, traffic, firewall };
+  const daily: Part<{ date: string; requests: number; threats: number }[]> = days.ok
+    ? { ok: true, value: ((days.value.days ?? []) as { dimensions: { date: string }; sum: { requests: number; threats: number } }[]).map((g) => ({ date: g.dimensions.date, requests: Number(g.sum.requests || 0), threats: Number(g.sum.threats || 0) })) }
+    : days;
+  return { connected: true, traffic, firewall, daily };
 }
 
 /** The upload rules as they are in shared.ts (MAGIC + the per-route size caps) - no antivirus */
@@ -200,6 +209,19 @@ export async function securityStatus(env: Env, newestBackup: () => Promise<{ key
   let errors24h = 0;
   try { errors24h = Number((await env.DB.prepare(`SELECT COUNT(*) AS n FROM error_log WHERE created_at >= datetime('now', '-1 day')`).first<{ n: number }>())?.n ?? 0); } catch { /* pre-0024 */ }
 
+  /* v1.344.0 - recent security events: what the server itself refused or recorded
+     (audit_log), last seven days - refused requests, refused sign-ins, recovery steps */
+  let events: { id: number; action: string; created_at: string; user_name: string | null; entity_id: string | null }[] = [];
+  try {
+    events = (await env.DB.prepare(
+      `SELECT a.id, a.action, a.created_at, a.entity_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS user_name
+         FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.created_at >= datetime('now', '-7 days')
+          AND (a.action LIKE 'security.%' OR a.action LIKE '%refused%' OR a.action LIKE '%denied%' OR a.action LIKE 'auth.exec_recovery%' OR a.action LIKE 'auth.exec_panel%' OR a.action LIKE 'owner.%')
+        ORDER BY a.id DESC LIMIT 20`,
+    ).all<{ id: number; action: string; created_at: string; user_name: string | null; entity_id: string | null }>()).results;
+  } catch { /* pre-audit */ }
+
   let backup: { uploaded: string; size: number } | null = null;
   try { const b = await newestBackup(); if (b) backup = { uploaded: b.uploaded, size: b.size }; } catch { /* null */ }
   let offsite: string | null = null;
@@ -212,6 +234,7 @@ export async function securityStatus(env: Env, newestBackup: () => Promise<{ key
     cloudflare: await cloudflareFigures(env),
     files: FILE_CHECKS,
     platform: { errors_24h: errors24h },
+    events,
     backup: { last: backup, retention_runs: 30, offsite_last: offsite, bucket_bound: !!env.BACKUPS },
   };
 }

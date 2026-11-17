@@ -158,15 +158,21 @@ function source(s) {
     /script-src [^;]*https:\/\/challenges\.cloudflare\.com/.test(csp) && /frame-src [^;]*https:\/\/challenges\.cloudflare\.com/.test(csp));
   /* the screens */
   t("U1 the sign-in page and the set-password page use the one hook and send the token", /useBotCheck\(botKey, "signin"\)/.test(s.login) && /bot_token: bot\.token/.test(s.login) && /\?bt=\$\{encodeURIComponent\(bot\.token\)\}/.test(s.login) && /useBotCheck\(botKey, "set_password"\)/.test(s.link) && /bot_token: bot\.token/.test(s.link));
-  t("U2 Overview: one KPI strip of six, recovery kept in the controls",
-    (s.sess.slice(s.sess.indexOf('<KpiRow label={L("Security figures"'), s.sess.indexOf("</KpiRow>")).match(/<KpiTile /g) ?? []).length === 6 && /"control-recovery"/.test(s.sess) && /"control-passkeys"/.test(s.sess) && /"control-2fa"/.test(s.sess));
-  t("U3 the protection line never says protected unless the server says the bot check is on", /st\.bot_check\.enabled\s*\? L\("Cloudflare bot check on every sign-in\."/.test(s.sess));
-  t("U4 each Cloudflare figure shown only from its own read answer - otherwise Not connected / Not available, never a number",
-    /const cfTile[^=]*= !fw\s*\? \{ value: L\("Not connected"/.test(s.status) && /: !fw\.ok \? \{ value: L\("Not available"/.test(s.status) && /value=\{tr\?\.ok \? fmt\(tr\.value\.threats_24h\) : "—"\}/.test(s.status)
-      && /<dd>\{fw\?\.ok \? fmt\(fw\.value\.total_24h\) : "—"\}<\/dd>/.test(s.status));
+  /* v1.344.0 - the five sub-tabs follow the owner's five reference images (17-11-2026) */
+  t("U2 Overview: one KPI strip of four, the 2FA, passkey and recovery controls kept",
+    (s.sess.slice(s.sess.indexOf('<KpiRow label={L("Security figures"'), s.sess.indexOf("</KpiRow>")).match(/<KpiTile /g) ?? []).length === 4 && /"control-recovery"/.test(s.sess) && /"control-passkeys"/.test(s.sess) && /"control-2fa"/.test(s.sess));
+  t("U3 the protection row never says Active unless the server says the bot check is on", /<span className=\{s\.bot_check\.enabled \? chipSmSuccess : chipSmWarn\}>\{s\.bot_check\.enabled \? L\("Active", "Aktif"\) : L\("Off", "Mati"\)\}<\/span>/.test(s.status));
+  t("U4 each Cloudflare figure shown only from its own read answer - otherwise Not connected / Read failed, never a number",
+    /const waf[^=]*= !cf\.connected\s*\? \{ value: L\("Not connected"/.test(s.status) && /: \{ value: L\("Read failed", "Gagal dibaca"\)/.test(s.status) && /value=\{tr\?\.ok \? fmt\(tr\.value\.threats_24h\) : "—"\}/.test(s.status)
+      && /fw\?\.ok \? \{ value: L\("Reading", "Dibaca"\), sub: L\(`\$\{fmt\(fw\.value\.total_24h\)\}/.test(s.status)
+      && /value=\{L\("Not scanning", "Tiada imbasan"\)\}/.test(s.status) /* no antivirus exists: never a scan figure */);
   t("U5 System health keeps the existing errors-and-backups card under the new strip", /<SecurityHealth s=\{secStatus\}[^\n]*\/>\s*<div id="system-health"><SystemHealthCard \/><\/div>/.test(s.users));
-  t("U6 Problem reports: the register over the SAME report sheet, the receiver card kept", /<ReportsRegister \/>\s*<SupportCard \/>/.test(s.users) && /<ReportProblem tab="Users & Security" onSent=/.test(s.support) && /onOpen=\{\(id\) => portal\?\.openRecord\("Tasks", "task", id\)\}/.test(s.support));
-  t("U7 Company owner and Office location are unchanged", /\{secPart === "owner" && ownerState && ownerZone\}/.test(s.users) && /<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard \/>/.test(s.users));
+  t("U6 Problem reports: the register over the SAME report sheet, the receiver card kept, records open in Tasks", /<ReportsRegister \/>\s*<SupportCard \/>/.test(s.users) && /<ReportProblem tab="Users & Security" onSent=/.test(s.support) && /const openTask = \(id: number\) => portal\?\.openRecord\("Tasks", "task", id\);/.test(s.support)
+    && (() => { const tr = s.staff.slice(s.staff.indexOf("const trailM = path.match"), s.staff.indexOf('if (path === "/support/report" && method === "POST")'));
+      /* the resolution trail is a read: the register's own gate, never a write */
+      return tr.length > 0 && !/INSERT|UPDATE|DELETE/.test(tr) && /const mayT = user\.role === "super_admin" \|\| user\.role === "ceo" \|\| user\.is_owner === true \|\| \(recvT !== null && recvT\.id === user\.id\);\s*if \(!mayT\) return err\("forbidden"/.test(tr); })());
+  t("U7 Company owner and Office location: the same owner card and geofence save, now as pages", /\{secPart === "owner" && ownerState && ownerZone\}/.test(s.users) && /<OwnerPage state=\{ownerState\}/.test(s.users)
+    && /<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard onAudit=/.test(s.users));
   /* the register */
   const reg = s.staff.slice(s.staff.indexOf('if (path === "/support/reports" && method === "GET")'), s.staff.indexOf('if (path === "/support/report" && method === "POST")'));
   t("R1 a security incident is a kind of the existing report (a Task, high priority)", /security: \["Security incident", "high"\],/.test(s.staff));
@@ -183,8 +189,10 @@ const MUT = [
   ["the password door skips the check", "idx", 'const botV = await botCheck(env, request, body.bot_token, "signin");', 'const botV = { ok: true } as const;'],
   ["the Google door asks Google first", "idx", 'const botG = await botCheck(env, request, new URL(request.url).searchParams.get("bt"), "signin");\n    if (!botG.ok) return new Response(null, { status: 302, headers: { Location: "/login?error=bot" } });\n    const g = await beginGoogle("signin");', 'const g = await beginGoogle("signin");'],
   ["the secret sent to the page", "idx", "bot_check: botCheckPublic(env)", "bot_check: { site_key: env.TURNSTILE_SITE_KEY, secret: env.TURNSTILE_SECRET }"],
-  ["a seventh tile stacked on the Overview", "sess", '<KpiTile icon="warning" tone="red" label={L("Security Alerts"', '<KpiTile icon="warning" label="x" value={0} /><KpiTile icon="warning" tone="red" label={L("Security Alerts"'],
-  ["the WAF shown as protected without a read", "status", '= !fw\n    ? { value: L("Not connected"', '= !fw\n    ? { value: L("Active", "Aktif"), sub: "", tone: "green" } as never ?? { value: L("Not connected"'],
+  ["a fifth tile stacked on the Overview", "sess", '<KpiTile icon="warning" tone="red" label={L("Security Alerts"', '<KpiTile icon="warning" label="x" value={0} /><KpiTile icon="warning" tone="red" label={L("Security Alerts"'],
+  ["the WAF shown as protected without a read", "status", '= !cf.connected\n    ? { value: L("Not connected"', '= !cf.connected\n    ? { value: L("Active", "Aktif"), sub: "", tone: "green" } as never ?? { value: L("Not connected"'],
+  ["a malware scan figure invented", "status", 'value={L("Not scanning", "Tiada imbasan")}', 'value={L("Clean", "Bersih")}'],
+  ["the trail opened to every staff member", "staff", "    if (!mayT) return err(", "    if (false) return err("],
   ["the register may write", "staff", "    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)", "    await env.DB.prepare(`UPDATE tasks SET status = 'completed'`).run();\n    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)"],
   ["the CSP blocks Cloudflare's script again", "headers", " https://static.cloudflareinsights.com https://challenges.cloudflare.com;", " https://static.cloudflareinsights.com;"],
   ["the old errors card dropped from System health", "users", '<div id="system-health"><SystemHealthCard /></div>', '<div id="system-health" />'],

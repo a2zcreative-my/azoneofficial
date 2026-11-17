@@ -36,7 +36,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { inputClassLg, btnClassBlock } from "@/lib/ui-styles";
 import { getPasskey, passkeysSupported, cancelled, type GetOptionsJSON } from "@/lib/passkey"; // v1.269.0 - Phase 2A
-import { useBotCheck } from "@/components/security/bot-check"; // v1.341.0 - Cloudflare bot check before sign-in
+import { useBotCheck, type BotState } from "@/components/security/bot-check"; // v1.341.0 - Cloudflare bot check before sign-in
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import css from "./login.module.css";
 
 const API = "/api/v1";
@@ -141,24 +142,97 @@ function ErrorNote({ id, message }: { id: string; message: string }) {
   );
 }
 
-/** The navy half, from 1024px. The mark, one welcome, the copyright - and
-    nothing about what is inside (v1.211.0). Decorative only, which is why a
-    phone never draws it. */
+/** v1.345.0 - the gold wave (the CEO's two references, 17-11-2026). Decoration only:
+    "panel" sits at the foot of the navy half, "phone" at the foot of the phone page. */
+function Waves({ variant }: { variant: "panel" | "phone" }) {
+  const g = `login-gold-${variant}`;
+  return variant === "panel" ? (
+    <svg className={css.panelWave} viewBox="0 0 600 300" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={g} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" className={css.goldStop} stopOpacity="0" />
+          <stop offset="0.55" className={css.goldStop} stopOpacity="1" />
+          <stop offset="1" className={css.goldStop} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path className={css.softWave} d="M0 190 C 160 130, 320 170, 600 70 L600 300 L0 300 Z" />
+      <path className={css.softWave} d="M0 250 C 210 190, 390 270, 600 160 L600 300 L0 300 Z" />
+      <path className={css.goldGlow} d="M250 300 C 360 240, 450 140, 600 95" stroke={`url(#${g})`} />
+      <path className={css.goldLine} d="M250 300 C 360 240, 450 140, 600 95" stroke={`url(#${g})`} />
+    </svg>
+  ) : (
+    <svg className={css.phoneWave} viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id={g} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" className={css.goldStop} stopOpacity="0" />
+          <stop offset="0.6" className={css.goldStop} stopOpacity="1" />
+          <stop offset="1" className={css.goldStop} stopOpacity="0.6" />
+        </linearGradient>
+      </defs>
+      <path className={css.navyWaveSoft} d="M0 52 C 110 28, 210 70, 400 14 L400 120 L0 120 Z" />
+      <path className={css.navyWave} d="M0 70 C 120 40, 230 96, 400 34 L400 120 L0 120 Z" />
+      <path className={css.goldLine} d="M170 84 C 250 82, 330 48, 400 22" stroke={`url(#${g})`} />
+    </svg>
+  );
+}
+
+/** One security highlight on the navy half: generic words about protection,
+    never what is inside (v1.211.0). */
+function Highlight({ icon, title, sub }: { icon: AppIconName; title: string; sub: string }) {
+  return (
+    <li className={css.highlight}>
+      <span className={css.highlightIcon}><AppIcon name={icon} /></span>
+      <span className={css.highlightText}><strong>{title}</strong><span>{sub}</span></span>
+    </li>
+  );
+}
+
+/** The navy half, from 1024px. The mark, the welcome, three security
+    highlights, the wave and the copyright - and nothing about what is inside
+    (v1.211.0). Decorative only, which is why a phone never draws it. */
 function BrandPanel({ lang }: { lang: Lang }) {
   const L = tr(lang);
   return (
     <aside className={css.brand} aria-label="A2Z CREATIVE MARKETING">
-      <div>
+      <div className={css.brandTop}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-white.png" alt="A2Z CREATIVE MARKETING" className={css.brandLogo} />
         <span className={css.brandRule} aria-hidden />
       </div>
       <div className={css.welcome}>
-        <h2>{L("Welcome to A2Z.", "Selamat datang ke A2Z.")}</h2>
-        <p>{L("A connected experience, designed for you.", "Pengalaman yang bersambung, direka untuk anda.")}</p>
+        <h2>{L("Welcome to", "Selamat datang ke")}<span className={css.brandName}>A2Z OS</span></h2>
+        <p>{L("A connected workspace, designed for you.", "Ruang kerja yang bersambung, direka untuk anda.")}</p>
+        <ul className={css.highlights}>
+          <Highlight icon="verify" title={L("Secure Access", "Akses Selamat")} sub={L("Keep your account and data protected.", "Akaun dan data anda kekal dilindungi.")} />
+          <Highlight icon="cloud" title={L("Cloud Protected", "Dilindungi Awan")} sub={L("Verified and secured by Cloudflare.", "Disahkan dan dilindungi oleh Cloudflare.")} />
+          <Highlight icon="devices" title={L("Web + PWA Ready", "Sedia Web + PWA")} sub={L("A smooth experience on desktop and mobile.", "Pengalaman lancar di desktop dan telefon.")} />
+        </ul>
       </div>
       <p className={css.copyright}>© A2Z Creative Marketing</p>
+      <Waves variant="panel" />
     </aside>
+  );
+}
+
+/** v1.345.0 - Protected by Cloudflare. The status line is the bot check's REAL state
+    (useBotCheck): nothing while the check is off, "Checking" only while Cloudflare is
+    checking, "Verified" only once Cloudflare has handed a token. Never a made-up state. */
+function CloudflareNotice({ lang, state, widget }: { lang: Lang; state: BotState; widget: ReactNode }) {
+  const L = tr(lang);
+  const status = state === "checking" ? L("Checking your browser…", "Menyemak pelayar anda…")
+    : state === "ready" ? L("Browser verified.", "Pelayar disahkan.")
+    : state === "unavailable" ? L("The security check could not load. You can still try to sign in.", "Semakan keselamatan tidak dapat dimuatkan. Anda masih boleh cuba log masuk.")
+    : null;
+  return (
+    <section className={css.notice} aria-label={L("Protected by Cloudflare", "Dilindungi oleh Cloudflare")} data-testid="cf-notice" data-state={state}>
+      <span className={css.noticeIcon}><AppIcon name="verify" /></span>
+      <div className={css.noticeText}>
+        <strong>{L("Protected by Cloudflare", "Dilindungi oleh Cloudflare")}</strong>
+        <span>{L("A security check may occur, such as browser verification or bot protection, to keep your account safe.", "Semakan keselamatan mungkin berlaku, seperti pengesahan pelayar atau perlindungan bot, untuk memastikan akaun anda selamat.")}</span>
+        {status && <span className={css.noticeStatus} role="status" data-state={state}>{state === "ready" && <AppIcon name="success" />}{status}</span>}
+        {widget}
+      </div>
+    </section>
   );
 }
 
@@ -379,6 +453,7 @@ export default function LoginPage() {
           <Link href="/" className={css.phoneLogo} aria-label="A2Z CREATIVE MARKETING">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.png" alt="A2Z CREATIVE MARKETING" />
+            <span className={css.brandRule} aria-hidden />
           </Link>
           <LangSwitch lang={lang} onPick={pickLang} />
         </div>
@@ -432,8 +507,10 @@ export default function LoginPage() {
         ) : (
           <>
             <h1 className={css.title}>{L("Sign in", "Log masuk")}</h1>
-            <p className={css.lede}>{L("Securely access your account.", "Akses akaun anda dengan selamat.")}</p>
+            <p className={css.lede}>{L("Securely access your A2Z OS account.", "Akses akaun A2Z OS anda dengan selamat.")}</p>
 
+            {/* v1.345.0 - Google, then the Cloudflare notice on a desk; the notice first on a phone (CSS order) */}
+            <div className={css.lead}>
             {googleOn && (
               <a href={`${API}/auth/google${bot.token ? `?bt=${encodeURIComponent(bot.token)}` : ""}`} className={css.google}
                 aria-disabled={!bot.canSend || undefined}
@@ -448,8 +525,8 @@ export default function LoginPage() {
               </button>
             )}
 
-            {bot.node}
-            <hr className={css.divider} />
+            <CloudflareNotice lang={lang} state={bot.state} widget={bot.widgetNode} />
+            </div>
 
             <form className={css.form} noValidate onSubmit={(e) => { e.preventDefault(); if (!busy) void submit(); }}>
               <Field id="email" label={L("Email", "E-mel")}>
@@ -527,9 +604,11 @@ export default function LoginPage() {
                 </p>
               )}
             </div>
+            <p className={css.pwaTag}><AppIcon name="devices" /><strong>{L("A2Z PWA", "A2Z PWA")}</strong><span>{L("Mobile experience", "Pengalaman mudah alih")}</span></p>
           </>
         )}
       </main>
+      <Waves variant="phone" />
     </div>
   );
 }

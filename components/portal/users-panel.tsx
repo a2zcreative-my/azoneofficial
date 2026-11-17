@@ -39,7 +39,7 @@ import { UsersOverview, type UsersView } from "@/components/portal/users-overvie
 import { GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
 import { AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
 import { RolesPermissions } from "@/components/portal/roles-permissions"; // v1.331.0 - replaces the AccessPolicyCard matrix
-import { OwnerCard, useOwner } from "@/components/portal/owner-card";
+import { OwnerPage, useOwner } from "@/components/portal/owner-card";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { AccountSheet } from "@/components/portal/account-sheet";
 import { CustomerRecoverySheet } from "@/components/portal/customer-recovery-sheet"; // v1.266.0
@@ -482,7 +482,8 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const ownerFirst = !ownerState?.d?.owner?.verified;
   const ownerZone = (
     <TabZone label={L("Company owner", "Pemilik syarikat")}>
-      <div data-testid="owner-zone"><OwnerCard state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} /></div>
+      {/* v1.344.0 (image 04) - the Company owner page: strip, ownership and control, protected actions, the recovery panel and its audit; OwnerCard is inside it (first, until an owner is verified) */}
+      <OwnerPage state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} onRoles={() => openView("roles")} onStaff={() => openView("staff")} onAudit={auditTab ? () => openView("audit") : undefined} />
     </TabZone>
   );
 
@@ -655,7 +656,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
         {secPart === "owner" && ownerState && ownerZone}
         {secPart === "location" && geofence && (
           <TabZone label={L("Office location", "Lokasi pejabat")}>
-            <GeofenceCard />
+            <GeofenceCard onAudit={auditTab ? () => openView("audit") : undefined} />
           </TabZone>
         )}
         {/* v1.238.0 - who receives Report a problem, and the system's

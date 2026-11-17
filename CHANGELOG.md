@@ -10,6 +10,58 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.345.0] - 2026-11-17 - Sign-in page redesigned on the CEO's two references (web and PWA) - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, with a desktop and an iPhone PWA reference: one A2Z identity on both, a modern Protected by Cloudflare notice that shows the check's REAL state, every existing sign-in path kept.
+
+### Changed (app/login/page.tsx + app/login/login.module.css)
+- **Desktop (from 1024px)**: one rounded white card on the page's grey. The navy half carries the white mark and gold rule, "Welcome to **A2Z OS**", "A connected workspace, designed for you.", three security highlights (Secure Access, Cloud Protected, Web + PWA Ready - generic words, nothing about what is inside, so the v1.211.0 minimal-information rule holds), a soft navy wave with one gold line, and the copyright. The form half: EN/BM, Sign in, "Securely access your A2Z OS account.", Continue with Google, the Cloudflare notice, Email, Password with show/hide, the navy pill Sign in, Forgot password?.
+- **Phone and iPhone PWA**: one column - the mark with its gold rule, EN/BM, the Cloudflare notice above Google (as in the reference), the fields and button, Forgot password?, an "A2Z PWA | Mobile experience" label and the navy wave with a gold line at the foot. The status-bar strip is navy under the PWA (safe-area-inset-top); the home indicator and the wave keep their room (safe-area-inset-bottom); fields stay 16px so iOS never zooms; no horizontal overflow at 375 and 390.
+- **Protected by Cloudflare**: the words are fixed; the status line is the bot check's own state - "Checking your browser…" only while Cloudflare checks, "Browser verified." only once Cloudflare has handed a token, "could not load" when its script fails, and nothing when the check is off. Turnstile's widget sits inside the notice (`useBotCheck(...).widgetNode`, new: the widget without the hook's own words).
+- Password, Google, passkey, two-factor (code screen unchanged), the one-sentence failure, Caps Lock, Forgot password and the server's checks are untouched.
+
+### Added
+- `AppIcon` names `cloud` and `devices` (lucide Cloud, MonitorSmartphone).
+
+### Fixed
+- `design-tokens`: the sign-in page, the Office location map (1.344.0) and the client area's logo frame (1.343.0) use the radius and colour tokens - no raw radius, hex or odd breakpoint.
+
+### Guards
+- `tests/login-ux.mjs` (50 checks): the new welcome and three highlights, the new lede, the safe-area padding and the wave, and the Cloudflare status from the bot check's real state only. `tests/browser/security-sessions.py` 46/46 (the sign-in token paths).
+
+## [1.344.0] - 2026-11-17 - Users → Security & Sessions: five sub-tabs, five pages, each from its reference image - BUILT, NOT DEPLOYED (NO MIGRATION; TWO READ-ONLY WORKER READS)
+
+The CEO, with five reference images, one per sub-tab: implement each as its own page, keep the navigation, security logic and permissions, one Tasks-style KPI strip each, and never show an invented security figure.
+
+### Changed (screens)
+- **Overview** (`security-sessions.tsx`): a strip of four - 2FA Protection, Recent Sign-ins, Recovery Panel (from `/staff/recovery`; opens the panel), Security Alerts. Authentication Controls (2FA, passkeys, the recovery panel, sensitive changes, sign-in methods) and the Sign-in Log on the left; Security Attention (confirmed items only, each opens its record, plus links to System health and Audit History) and Security Principles (with Open sessions, the sessions drawer) on the right.
+- **System health** (`security-status.tsx`, `SecurityHealth`): a strip of five - Cloudflare WAF, Threat Events, API Health, Malware Scan, Backup & Restore. Infrastructure & Protection rows and Recent Security Events (the server's own refusals and recovery changes, last 7 days) on the left; Threat Monitoring (seven daily bars from Cloudflare) and File Protection & Recovery on the right; the existing errors-and-backups card stays below. No antivirus exists, so the malware tile says **Not scanning**; no restore test is recorded, so it says **Not recorded**; a refused Cloudflare dataset says so, never a number.
+- **Problem reports** (`support-card.tsx`, `ReportsRegister`): a strip of five; the register with search, severity and status filters and New report (the same Report a problem sheet) beside the Selected Incident (state, owner, evidence - each opens the task in Tasks); below, the Resolution & Audit Trail. The receiver card is kept.
+- **Company owner** (`owner-card.tsx`, new `OwnerPage`): a strip of four - owner, the two recovery members, panel readiness (Ready only from the server's `available`). Ownership & Control (the same `OwnerCard`, inline when no owner is verified, otherwise in a drawer) and Protected Security Actions on the left; the Executive Recovery Panel and the Ownership & Recovery Audit on the right.
+- **Office location** (`geofence-card.tsx`): a strip of four - office, radius, GPS verification, last updated. The same form and save (validation unchanged) and the Attendance Location Rules on the left (worded from the server's punch rules, which are unchanged); a map with the radius to scale (OpenStreetMap tiles) and the Location Change History on the right.
+- `WorkspaceSplit` takes `hold={false}` for a page where another card follows the split (System health): each pane keeps its height and the page scrolls.
+
+### Added (worker, read-only)
+- `GET /api/v1/system/security` adds `events` (last 7 days of refusals, recovery and owner changes from `audit_log`) and `cloudflare.daily` (seven days of requests and threats, a separate read).
+- `GET /staff/support/reports/:id/trail` - the report's audit rows and task updates, behind the register's own gate (receiver, owner, CEO, super admin). Writes nothing.
+
+### Guards
+- `tests/security-sessions.mjs` rewritten for the five pages (26 checks, 10 mutations, including an invented malware figure and an open trail); `tests/browser/security-sessions.py` 46/46 at 1440 and 390; `access-policy` and `tab-zones` follow `GeofenceCard onAudit` and `OwnerPage`.
+
+## [1.343.0] - 2026-11-17 - The client area (/account) is the portal's pages, not only its chrome - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
+
+The CEO, with a screenshot of /account: "for customer account, make it standardize as my /portal interface UI/UX!". Since v1.228.0 the client area wore the portal's chrome (ConsoleShell) but its pages were still hand-built cards and utility classes.
+
+### Changed (app/account/page.tsx + app/account/account.module.css)
+- **My Account**: a KPI strip (Documents, Unpaid invoices, Open enquiries, Next live session - each opens its section), then **Sign-in & password** beside **My details** and **Your brand** (a WhatsApp button in its head), then the Connected Google account card.
+- **My Orders**: a KPI strip (Documents, Unpaid, Paid invoices, Live sessions), then **Orders & invoices** in the portal's register (document, date, due/paid, amount, status, PDF - a row opens the PDF) and **Live sessions** in the same register. The "verify your email" state is one card with the lock icon.
+- **My Enquiries**: a KPI strip (Enquiries, Awaiting reply, Replied), then **Ask A2Z CREATIVE MARKETING** (WhatsApp as the pane's foot) beside **My enquiries** (the thread, the team's reply in green, category and status chips).
+- Every section is a `TabPage` of captioned `TabZone`s with ONE `KpiRow`, `WorkspaceSplit`/`SplitPane` and `CompactTaskTable`; the page's utility classes are gone (its legacy budget, 75, is now 0).
+- Unchanged: the same three reads and the one send (`GET /account/orders`, `GET /account/enquiries`, `POST /account/enquiries`), the customer-only redirect, the password form (none for a Google sign-in), Connect Google, the brand card's rule (only this client's own mark), the PDPA link.
+
+### Guards
+- New `tests/account-portal.mjs` (7 checks, 5 mutations). Browser fixtures for `/account/orders` (`ORDERS_LOCKED=1` for the locked state) and `/account/enquiries` (tests/browser/fixture.mjs).
+
 ## [1.342.0] - 2026-11-17 - Sales → Overview: the Sales Pipeline is one row of joined chevrons - BUILT, NOT DEPLOYED (NO MIGRATION, SCREEN ONLY)
 
 The CEO, with a picture: "For sales pipeline, please enhance to this styles instead. only for Sales Pipeline".

@@ -19,13 +19,17 @@ import type { ReactNode } from "react";
 import { FillPanel } from "@/components/ui/fill-panel";
 import css from "./workspace-split.module.css";
 
-export function WorkspaceSplit({ children, testid, ratio = "60-40" }: {
+export function WorkspaceSplit({ children, testid, ratio = "60-40", hold = true }: {
   children: ReactNode;
   testid?: string;
   /** the register's share : the detail's share */
   ratio?: "60-40" | "55-45" | "50-50" | "35-65";
+  /** v1.344.0 - false when another card follows the split (System health): each pane keeps its height and the page scrolls */
+  hold?: boolean;
 }) {
-  return <FillPanel exact className={`${css.split} ${css[`r${ratio.replace("-", "_")}`] ?? ""}`} testid={testid}>{children}</FillPanel>;
+  const cls = `${css.split} ${css[`r${ratio.replace("-", "_")}`] ?? ""}`;
+  if (!hold) return <div className={cls} data-testid={testid} data-fill="off">{children}</div>;
+  return <FillPanel exact className={cls} testid={testid}>{children}</FillPanel>;
 }
 
 /** a column of panes inside the split (two panes stacked on one side): each takes an equal share of the held height */

@@ -146,7 +146,7 @@ function source() {
   const users = read("components/portal/users-panel.tsx");
   /* v1.331.0 - the wide AccessPolicyCard matrix is REPLACED by the role-at-a-time editor (the CEO, 17-11-2026); the exceptions stay in Roles & Permissions, in its drawer */
   ok(!/<AccessReviewCard/.test(users) && /<ExceptionsCard bare/.test(users) && /<RolesPermissions /.test(users) && !/<AccessPolicyCard|function AccessPolicyCard/.test(users + read("components/portal/access-policy.tsx")), "Who sees what is gone from Security & Settings; exceptions live in Roles & Permissions (its drawer); the old matrix is gone");
-  ok(/<GeofenceCard \/>/.test(users), "the office geofence stays in Users (the owner's answer)");
+  ok(/<GeofenceCard( onAudit=\{[^}]*\}[^/]*)? \/>/.test(users) /* v1.344.0 - the page, with its audit link */, "the office geofence stays in Users (the owner's answer)");
   /* v1.237.0 - the owner, 31-10-2026: the action matrix is editable by the company owner and the super admin - through ONE route, /staff/access/policy (audited, reason + code) - and the exceptions route; nothing else */
   ok(!/method: "(POST|PUT|PATCH|DELETE)"/.test((read("components/portal/access-policy.tsx") + read("components/portal/roles-permissions.tsx")).replace(/\/staff\/tabs\/access\/person", \{ method: "POST"/g, "").replace(/api\("\/staff\/access\/policy", \{ method: "POST"/g, "")), "the policy view writes only through the matrix route and the exceptions route (v1.331.0: the role editor too; a role change goes through the caller's role door)");
   return out;

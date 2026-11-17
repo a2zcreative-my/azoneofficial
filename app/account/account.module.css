@@ -1,0 +1,49 @@
+/* v1.343.0 - the client area's pages, in the portal's concept (app/account/page.tsx).
+   Tokens, --type-* roles and the house breakpoints only; the shell is ConsoleShell. */
+.muted { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.text { margin: 0; color: var(--foreground); font-size: var(--type-body-sm-size); line-height: var(--type-body-lh); }
+.link { color: var(--info); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.cap { text-transform: capitalize; }
+.money { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+
+/* a card's own head (a register card) */
+.head { display: grid; gap: 0.125rem; margin-bottom: 0.75rem; min-width: 0; }
+.head h3 { margin: 0; color: var(--foreground); font-size: var(--type-section-size); line-height: var(--type-section-lh); font-weight: 700; }
+.head p { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+
+/* My details */
+.facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; margin: 0; }
+.facts > div { display: grid; grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr); gap: 0.75rem; align-items: baseline; }
+.facts dt { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.facts dd { margin: 0; font-size: var(--type-body-sm-size); font-weight: 600; overflow-wrap: anywhere; }
+
+/* Your brand */
+.brand { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; min-width: 0; }
+.logo { display: block; height: 2.5rem; width: auto; }
+.logoLink, .logoFrame { display: inline-flex; padding: 0.375rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--brand-background); }
+.logoLink:hover { border-color: var(--gold-solid); }
+.brandText { display: grid; gap: 0.125rem; min-width: 0; font-size: var(--type-body-sm-size); }
+
+/* orders */
+.docName { display: grid; gap: 0.0625rem; min-width: 0; }
+.docName strong { font-size: var(--type-body-sm-size); }
+.docName small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.open { display: inline-flex; align-items: center; gap: 0.25rem; color: var(--info); font-size: var(--type-caption-size); white-space: nowrap; }
+.open svg { width: 0.875rem; height: 0.875rem; }
+.locked { display: flex; gap: 0.875rem; align-items: flex-start; min-width: 0; }
+.lockIcon { display: grid; place-items: center; flex: 0 0 auto; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-control); background: var(--secondary); color: var(--muted-foreground); }
+.lockText { display: grid; gap: 0.5rem; justify-items: start; min-width: 0; }
+.lockText h3 { margin: 0; color: var(--foreground); font-size: var(--type-section-size); line-height: var(--type-section-lh); font-weight: 700; }
+.lockText p { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+
+/* enquiries */
+.form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; min-width: 0; }
+.field { display: grid; gap: 0.25rem; min-width: 0; }
+.footRow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.thread { list-style: none; margin: 0; padding: 0; }
+.thread > li { display: grid; gap: 0.375rem; padding: 0.75rem; min-width: 0; }
+.msg { margin: 0; font-size: var(--type-body-sm-size); overflow-wrap: anywhere; white-space: pre-line; }
+.reply { margin: 0; padding: 0.5rem 0.625rem; border-radius: var(--radius-control); background: var(--success-soft); color: var(--foreground); font-size: var(--type-body-sm-size); overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; margin: 0; color: var(--muted-foreground); font-size: var(--type-caption-size); }
+
+.privacy { margin: 1.5rem 0 0.5rem; text-align: center; font-size: var(--type-caption-size); color: var(--muted-foreground); }
