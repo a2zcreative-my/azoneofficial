@@ -254,11 +254,16 @@ export default function PortalPage() {
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel focus={focusOf("Hotels")} />}
           {activeTab === "Agents" && (
-            <TabPage>
-              <TabZone label={user.role === "agent" ? L("Packages and my clients", "Pakej dan pelanggan saya") : L("Agents' clients", "Pelanggan ejen")}>
-                <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
-              </TabZone>
-            </TabPage>
+            /* v1.347.0 - Sales & management: the panel is its own page (the CEO's four
+               pictures: the tab row first, each tab its own layout, no zone caption above
+               it); the agent's own workspace keeps its zone */
+            user.role === "agent" ? (
+              <TabPage>
+                <TabZone label={L("Packages and my clients", "Pakej dan pelanggan saya")}>
+                  <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
+                </TabZone>
+              </TabPage>
+            ) : <AgentsPanel role={user.role} owner={user.is_owner === true} initialView={startOf("Agents")} />
           )}
           {/* v1.284.0 - Financial Advisory: TAB_ROLES draws it for the fa_view
               holders; every route checks fa_view and the case scope itself */}

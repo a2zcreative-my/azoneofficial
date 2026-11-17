@@ -16,18 +16,41 @@
      "+ Add Status Update": one form for every report (progress, client
      feedback, shared, interested, revision, declined, acceptance with
      evidence). Reports are events; Sales decides the official records.
-   - SALES & MANAGEMENT: Overview, Requests, Agents (the real agent accounts,
-     verified email, active or suspended, scope, requests, latest activity)
-     and "Manage Agent Access" for the owner and the super admin - it opens
-     Users > Customer Accounts, the one place agent access is given.
+   - SALES & MANAGEMENT: v1.347.0 - the CEO's four pictures (17-11-2026,
+     "A2Z OS - AGENTS MODULE UI REDESIGN"), one layout per tab, never the
+     same screen twice:
+       Overview  the connected KPI strip, the Agent Pipeline (the Sales
+                 Pipeline's chevron row, FlowStrip arrows) and Conversion
+                 Performance per agent, with Important Follow-Ups and Recent
+                 Agent Activity in the rail
+       Requests  the Requests Inbox (one compact table: client, agent, Sales
+                 assignment, quotation progress, follow-up) beside the
+                 Request-to-Sale Workflow, whose steps filter the inbox
+       Agents    the Agent Directory beside the chosen agent's Profile &
+                 Ownership: verified access, company scope, the standing
+                 salesperson (the existing append-only assignment), the
+                 agent's figures and the commission rule
+       Packages  the Package Catalogue (the active packages at their current
+                 version and price, each with the company that issues it)
+                 beside Package Governance
+     Every figure is counted from the rows the server already sends
+     (/staff/agent/requests, /agents, /assignments, /packages); nothing new
+     is stored and no rule moves. "Manage Agent Access" for the owner and
+     the super admin opens Users > Customer Accounts, the one place agent
+     access is given.
 
    The quotation stays in Sales: nothing here prices, issues, signs or marks
-   paid. The server decides every action (worker/src/agent.ts). */
+   paid. The server decides every action (worker/src/agent.ts). The agent's
+   own commission (7%) is calculated in Commission and read only by that
+   agent; the salesperson's internal share (3%) is never drawn on any agent
+   screen. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, csrfFetch } from "@/lib/api";
 import { L } from "@/components/portal/page-shared";
 import { usePortal } from "@/components/portal/portal-provider";
+import { TabPage } from "@/components/portal/tab-concept";
+import { CompactTaskTable, TaskRowSub, TaskRowTitle, TaskToolbar, type TableCol } from "@/components/portal/task-table";
 import { fmtRM } from "@/lib/format";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -35,12 +58,16 @@ import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelCard, SkelRows } from "@/components/ui/skeleton";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
-import { AppIcon } from "@/components/ui/app-icon";
-import { btnClass, btnSm, btnSmPrimary, btnSmQuiet, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { FlowStrip, type FlowStep, type FlowTone } from "@/components/ui/flow-strip";
+import { Panel, WorkspaceGrid } from "@/components/ui/panel";
+import { SplitPane, WorkspaceSplit } from "@/components/ui/workspace-split";
+import { Avatar } from "@/components/ui/avatar";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { btnClass, btnSm, btnSmPrimary, btnSmQuiet, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import css from "./agents-panel.module.css";
 
 type Status = "draft" | "submitted" | "under_review" | "more_info" | "preparing" | "quotation_ready" | "with_client" | "revision_requested" | "acceptance_pending" | "won" | "not_proceeding";
-interface Pkg { id: number; name: string; category: string | null; description: string | null; issuers: string[]; total_cents: number; lines: { name: string; qty: number }[] }
+interface Pkg { id: number; name: string; category: string | null; description: string | null; kind?: string | null; version?: number; issuers: string[]; total_cents: number; lines: { name: string; qty: number }[] }
 interface Row {
   id: number; ref: string; agent_id: number; agent_name?: string | null; client_name: string; contact_person: string | null; company: string | null; client_phone: string | null; client_email: string | null;
   package_name: string | null; custom: number; status: Status; assigned_name: string | null; assigned_to?: number | null; published_number: string | null; published_revision: number | null;
@@ -56,8 +83,11 @@ interface Detail {
   linked?: { id: number; doc_number: string; revision: number; total_cents: number; valid_until: string | null; voided_at: string | null; customer: string | null; acceptance: { accepted_name: string; accepted_at: string; channel: string | null } | null } | null;
   can: { edit?: boolean; share?: boolean; feedback?: boolean; handle?: boolean; manage?: boolean; to?: Status[]; publish?: boolean; verify?: boolean };
 }
+interface AgentRow { id: number; name: string; email: string; is_active: number; email_verified: number; requests: number; open_requests: number; won: number; last_activity: string | null; scope: string }
 
 const ISSUER: Record<string, string> = { a2z: "A2Z CREATIVE MARKETING", azoo: "AZ ONE OFFICIAL" };
+/* the company as the pictures write it in a sentence (the legal names stay in capitals on the chips) */
+const COMPANY: Record<string, string> = { a2z: "A2Z Creative Marketing", azoo: "AZ ONE OFFICIAL" };
 const WORD: Record<Status, [string, string]> = {
   draft: ["Draft", "Draf"], submitted: ["Submitted", "Dihantar"], under_review: ["Under review", "Dalam semakan"], more_info: ["More info needed", "Perlu maklumat"],
   preparing: ["Preparing quotation", "Menyediakan sebut harga"], quotation_ready: ["Quotation ready", "Sebut harga sedia"], with_client: ["With client", "Dengan pelanggan"],
@@ -73,10 +103,43 @@ const day = (v: string | null | undefined) => (v ? v.slice(0, 10).split("-").rev
 const when = (v: string | null | undefined) => (v ? `${day(v)} ${v.slice(11, 16)}` : "");
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 const Chip = ({ s }: { s: Status }) => <span className={`${css.chip} ${TONE[s]}`}>{word(s)}</span>;
+/* today in Malaysia (the server's overdue rule is MYT), and a day k days on */
+const mytToday = () => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+const addDays = (d: string, k: number) => new Date(Date.parse(`${d}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
 
 /* The four steps a request walks, for the progress line on its Overview */
 const STEPS: [string, string][] = [["Submitted", "Dihantar"], ["Quotation ready", "Sebut harga sedia"], ["With client", "Dengan pelanggan"], ["Closed", "Ditutup"]];
 const stepOf = (s: Status) => (s === "won" || s === "not_proceeding" ? 3 : ["with_client", "revision_requested", "acceptance_pending"].includes(s) ? 2 : s === "quotation_ready" ? 1 : 0);
+
+/* v1.347.0 - THE AGENT PIPELINE: the request statuses the server keeps, read
+   as the six stages of picture 01. A stage is only a group of statuses - it
+   stores nothing and moves nothing. The first five are also the Requests
+   tab's Request-to-Sale Workflow (picture 02), with the words of who acts. */
+type StageKey = "submitted" | "review" | "quotation" | "client" | "acceptance" | "won";
+const STAGES: { k: StageKey; s: Status[]; icon: AppIconName; tone: FlowTone; en: string; ms: string; who: [string, string]; what: [string, string] }[] = [
+  { k: "submitted", s: ["submitted"], icon: "chat", tone: "neutral", en: "Agent Request", ms: "Permintaan Ejen",
+    who: ["Agent submits client details", "Ejen menghantar butiran pelanggan"], what: ["The agent cannot open or edit the Sales quotation", "Ejen tidak boleh membuka atau mengubah sebut harga Jualan"] },
+  { k: "review", s: ["under_review", "more_info"], icon: "search", tone: "gold", en: "In Review", ms: "Dalam Semakan",
+    who: ["Sales reviews & takes ownership", "Jualan menyemak & mengambil alih"], what: ["Assign the salesperson and the follow-up date", "Tugaskan jurujual dan tarikh susulan"] },
+  { k: "quotation", s: ["preparing", "revision_requested"], icon: "document", tone: "gold", en: "Quotation", ms: "Sebut Harga",
+    who: ["Sales prepares the quotation", "Jualan menyediakan sebut harga"], what: ["The quotation is created in the existing Sales module", "Sebut harga dibuat dalam modul Jualan sedia ada"] },
+  { k: "client", s: ["quotation_ready", "with_client"], icon: "person", tone: "blue", en: "To Client", ms: "Kepada Pelanggan",
+    who: ["Agent presents to the client", "Ejen membentangkan kepada pelanggan"], what: ["Shares the approved quotation, records the response", "Berkongsi sebut harga diluluskan, merekod maklum balas"] },
+  { k: "acceptance", s: ["acceptance_pending"], icon: "verify", tone: "purple", en: "Acceptance", ms: "Penerimaan",
+    who: ["Sales verifies the acceptance", "Jualan mengesahkan penerimaan"], what: ["Payment verification remains with the CEO", "Pengesahan bayaran kekal dengan CEO"] },
+  { k: "won", s: ["won"], icon: "success", tone: "green", en: "Won", ms: "Berjaya", who: ["", ""], what: ["", ""] },
+];
+const stageWord = (k: StageKey) => { const s = STAGES.find((x) => x.k === k)!; return L(s.en, s.ms); };
+/* a filter is a status, a stage ("stage:review"), a group, or the overdue follow-ups */
+type Filter = "" | Status | "open" | "overdue" | "awaiting" | `stage:${StageKey}`;
+const AWAITING: Status[] = ["under_review", "more_info", "preparing", "revision_requested"];
+const GROUP: Record<string, Status[]> = {
+  open: OPEN, awaiting: AWAITING,
+  ...Object.fromEntries(STAGES.map((s) => [`stage:${s.k}`, s.s])),
+};
+const matches = (r: Row, f: Filter) => !f || (f === "overdue" ? !!r.overdue : GROUP[f] ? GROUP[f].includes(r.status) : r.status === f);
+const filterWord = (f: Filter) => !f ? "" : f === "overdue" ? L("Overdue follow-up", "Susulan lewat") : f === "open" ? L("Open", "Terbuka") : f === "awaiting" ? L("Awaiting quotation", "Menunggu sebut harga")
+  : f.startsWith("stage:") ? stageWord(f.slice(6) as StageKey) : word(f as Status);
 
 type View = "overview" | "packages" | "requests" | "quotations" | "agents" | "commission";
 const AGENT_VIEWS: View[] = ["overview", "packages", "requests", "quotations", "commission"];
@@ -86,7 +149,7 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
   const isAgent = role === "agent";
   const views = isAgent ? AGENT_VIEWS : STAFF_VIEWS;
   const canGrant = owner || role === "super_admin"; // the server decides; this only offers the way there
-  const pick = (v?: string): View => (views.includes(v as View) ? v as View : isAgent ? "overview" : "requests");
+  const pick = (v?: string): View => (views.includes(v as View) ? v as View : "overview");
   const [view, setView] = useState<View>(() => pick(initialView));
   /* the phone bar asked for another view: follow it (adjusted while rendering, not in an effect) */
   const [seenStart, setSeenStart] = useState(initialView);
@@ -97,10 +160,17 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
   const [tick, setTick] = useState(0);
   const [submit, setSubmit] = useState<{ pkg: Pkg | null } | null>(null);
   const [open, setOpen] = useState<number | null>(null);
-  const [statusF, setStatusF] = useState<"" | Status | "open" | "overdue">("");
+  const [statusF, setStatusF] = useState<Filter>("");
+  const [agentF, setAgentF] = useState(0);
   const [q, setQ] = useState("");
+  /* v1.255.0 / v1.347.0 - staff: the agent accounts and the standing salesperson of each (read once, here, for every tab) */
+  const [agents, setAgents] = useState<AgentRow[] | null>(null);
+  const [agentsFailed, setAgentsFailed] = useState("");
+  const [asg, setAsg] = useState<AssignRes | null>(null);
+  const [aTick, setATick] = useState(0);
+  const [picked, setPicked] = useState<number | null>(null);
   const { show, node: toastNode } = useSaveToast();
-  const { setTab, setTabStart } = usePortal();
+  const { setTab, setTabStart, canOpen } = usePortal();
   useEffect(() => {
     const c = new AbortController();
     void api<{ packages?: Pkg[]; error?: { message?: string } }>("/staff/agent/packages", { signal: c.signal }).then((r) => {
@@ -114,21 +184,73 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
     });
     return () => c.abort();
   }, [tick]);
+  useEffect(() => {
+    if (isAgent) return;
+    const c = new AbortController();
+    void api<{ agents?: AgentRow[]; error?: { message?: string } }>("/staff/agent/agents", { signal: c.signal }).then((r) => {
+      if (c.signal.aborted) return;
+      if (r.ok) setAgents(r.data?.agents ?? []); else setAgentsFailed(r.data?.error?.message ?? L("The agents could not be loaded.", "Ejen tidak dapat dimuatkan."));
+    });
+    return () => c.abort();
+  }, [isAgent, tick]);
+  useEffect(() => {
+    if (isAgent) return;
+    const c = new AbortController();
+    void api<AssignRes>("/staff/agent/assignments", { signal: c.signal }).then((r) => { if (!c.signal.aborted && r.ok && r.data) setAsg(r.data); });
+    return () => c.abort();
+  }, [isAgent, aTick]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   const rows = useMemo(() => list?.requests ?? [], [list]);
-  const shown = useMemo(() => rows.filter((r) => (!statusF || (statusF === "open" ? OPEN.includes(r.status) : statusF === "overdue" ? !!r.overdue : r.status === statusF))
-    && (!q || `${r.ref} ${r.client_name} ${r.company ?? ""} ${r.agent_name ?? ""} ${r.package_name ?? ""}`.toLowerCase().includes(q.toLowerCase()))), [rows, statusF, q]);
+  const shown = useMemo(() => rows.filter((r) => matches(r, statusF) && (!agentF || r.agent_id === agentF)
+    && (!q || `${r.ref} ${r.client_name} ${r.company ?? ""} ${r.agent_name ?? ""} ${r.package_name ?? ""} ${r.assigned_name ?? ""} ${r.published_number ?? ""}`.toLowerCase().includes(q.toLowerCase()))), [rows, statusF, agentF, q]);
   const cnt = (...s: Status[]) => s.reduce((n, k) => n + (list?.counts?.[k] ?? 0), 0);
   /* keep the phone bar's stop in step with the view shown */
-  const go = (v: View, f: typeof statusF = "") => { setStatusF(f); setView(v); setTabStart({ tab: "Agents", view: v }); };
+  const go = (v: View, f: Filter = "", agent = 0) => { setStatusF(f); setAgentF(agent); setView(v); setTabStart({ tab: "Agents", view: v }); };
   const manageAccess = () => { setTabStart({ tab: "Users", view: "customers" }); setTab("Users"); };
+  const toSalesPackages = canOpen("Sales") ? () => { setTabStart({ tab: "Sales", view: "packages" }); setTab("Sales"); } : undefined;
 
   if (failed) return <p className={css.warn} role="alert">{failed}</p>;
-  const tabs: readonly (readonly [View, string])[] = isAgent
-    ? [["overview", L("Overview", "Ringkasan")], ["packages", L("Packages", "Pakej")], ["requests", L("My Requests", "Permintaan Saya")], ["quotations", L("My Quotations", "Sebut Harga Saya")], ["commission", L("My Commission", "Komisen Saya")]]
-    : [["overview", L("Overview", "Ringkasan")], ["requests", L("Requests", "Permintaan")], ["agents", L("Agents", "Ejen")], ["packages", L("Packages", "Pakej")]];
-  const submitBig = isAgent && list?.can_submit ? (
+  const drawers = (<>
+    {submit && pkgs && <SubmitSheet pkgs={pkgs} initial={submit.pkg} onClose={() => setSubmit(null)} onDone={(draft) => { setSubmit(null); go("requests"); reload(); show(draft ? L("Draft saved", "Draf disimpan") : L("Sent to the sales team", "Dihantar kepada pasukan jualan")); }} />}
+    {open !== null && <RequestDrawer id={open} isAgent={isAgent} canManage={!!list?.can_manage} onClose={() => setOpen(null)} onChanged={(msg) => { reload(); if (msg) show(msg); }} />}
+  </>);
+
+  /* ------------------------------------------------ Sales & management */
+  if (!isAgent) {
+    const waiting = cnt("submitted");
+    const tabs: readonly (readonly [View, string] | readonly [View, string, number | null])[] = [
+      ["overview", L("Overview", "Ringkasan")], ["requests", L("Requests", "Permintaan"), waiting || null], ["agents", L("Agents", "Ejen")], ["packages", L("Packages", "Pakej")],
+    ];
+    const pickAgent = (id: number) => { setPicked(id); go("agents"); };
+    return (
+      <TabPage className={css.page}>
+        <div className={css.staff} data-testid="agents-panel">
+          {toastNode}
+          <LineTabs value={view} onChange={(v) => go(v)} tabs={tabs} label={L("Agents", "Ejen")} testid="agents-tab" />
+          <div hidden={view !== "overview"} className={css.view} data-testid="agents-overview">
+            <StaffOverview rows={rows} loaded={!!list} cnt={cnt} agents={agents} asg={asg} onFilter={(f) => go("requests", f)} onOpen={setOpen} onAgent={pickAgent} onAgents={() => go("agents")} />
+          </div>
+          <div hidden={view !== "requests"} className={css.view} data-testid="agents-requests">
+            <RequestsInbox rows={rows} shown={shown} loaded={!!list} agents={agents} filter={statusF} onFilter={setStatusF} agentF={agentF} onAgentF={setAgentF} q={q} onQ={setQ}
+              onOpen={setOpen} canGrant={canGrant} onManage={manageAccess} onAgents={() => go("agents")} />
+          </div>
+          <div hidden={view !== "agents"} className={css.view} data-testid="agents-directory">
+            <AgentDirectory agents={agents} failed={agentsFailed} rows={rows} asg={asg} picked={picked} onPick={setPicked} canGrant={canGrant} onManage={manageAccess}
+              onRequests={(id) => go("requests", "", id)} onAssigned={(name) => { setATick((t) => t + 1); show(L(`Assigned to ${name}`, `Ditugaskan kepada ${name}`), L("New requests go to them; past requests keep whom they had", "Permintaan baharu pergi kepada mereka; permintaan lama kekal")); }} />
+          </div>
+          <div hidden={view !== "packages"} className={css.view} data-testid="agents-packages">
+            <PackageCatalogue pkgs={pkgs} isAgent={false} toSales={toSalesPackages} onRequests={() => go("requests")} />
+          </div>
+          {drawers}
+        </div>
+      </TabPage>
+    );
+  }
+
+  /* ------------------------------------------------ the agent's own portal */
+  const tabs: readonly (readonly [View, string])[] = [["overview", L("Overview", "Ringkasan")], ["packages", L("Packages", "Pakej")], ["requests", L("My Requests", "Permintaan Saya")], ["quotations", L("My Quotations", "Sebut Harga Saya")], ["commission", L("My Commission", "Komisen Saya")]];
+  const submitBig = list?.can_submit ? (
     <button type="button" className={css.bigBtn} data-testid="submit-client-request" onClick={() => setSubmit({ pkg: null })}><AppIcon name="add" />{L("Submit Client Request", "Hantar Permintaan Pelanggan")}</button>
   ) : null;
   const emptyAgent = (
@@ -137,89 +259,49 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
       {submitBig}
     </div>
   );
-  const emptyStaff = (
-    <div className={css.empty} data-testid="staff-empty">
-      <p>{L("No Agent submissions have been received yet.", "Belum ada permintaan daripada ejen.")}</p>
-      <div className={css.row}>
-        {canGrant && <button type="button" className={btnSmPrimary} onClick={manageAccess}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button>}
-        <button type="button" className={btnSm} onClick={() => go("agents")}>{L("See the agents", "Lihat ejen")}</button>
-      </div>
-      <p className={css.muted}>{L("How it works: the owner gives a verified customer account Agent access; the agent submits a client; Sales prepares the quotation in Sales and publishes it to the agent; the agent shares it and reports back; Sales verifies the acceptance.", "Cara ia berfungsi: pemilik memberi akses Ejen kepada akaun pelanggan yang disahkan; ejen menghantar pelanggan; Jualan menyediakan sebut harga dan menerbitkannya kepada ejen; ejen berkongsi dan melapor; Jualan mengesahkan penerimaan.")}</p>
-    </div>
-  );
-
   return (
     <div className={css.wrap} data-testid="agents-panel">
       {toastNode}
       <header className={css.head}>
         <div>
-          <h2 className={css.title}>{isAgent ? L("Agent workspace", "Ruang kerja ejen") : L("Agents", "Ejen")}</h2>
-          <p className={css.sub}>{isAgent
-            ? L("Bring us clients for the packages below. Sales prepares the official quotation; you share it and tell us what the client says.", "Bawa pelanggan untuk pakej di bawah. Jualan menyediakan sebut harga rasmi; anda kongsikan dan beritahu kami maklum balas pelanggan.")
-            : L("Clients the agents bring in. Sales prepares the quotation in Sales, publishes it to the agent, and verifies the client's acceptance.", "Pelanggan yang dibawa ejen. Jualan menyediakan sebut harga dalam Jualan, menerbitkannya kepada ejen, dan mengesahkan penerimaan pelanggan.")}</p>
+          <h2 className={css.title}>{L("Agent workspace", "Ruang kerja ejen")}</h2>
+          <p className={css.sub}>{L("Bring us clients for the packages below. Sales prepares the official quotation; you share it and tell us what the client says.", "Bawa pelanggan untuk pakej di bawah. Jualan menyediakan sebut harga rasmi; anda kongsikan dan beritahu kami maklum balas pelanggan.")}</p>
         </div>
-        {!isAgent && canGrant && <button type="button" className={btnSm} data-testid="manage-agent-access" onClick={manageAccess}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button>}
       </header>
       <LineTabs value={view} onChange={(v) => go(v)} tabs={tabs} label={L("Agents", "Ejen")} />
-      {isAgent && view !== "packages" && view !== "commission" && list && rows.length > 0 && submitBig}
+      {view !== "packages" && view !== "commission" && list && rows.length > 0 && submitBig}
 
       {view === "overview" && (!list ? <SkelCard lines={3} /> : (
         <>
           <KpiRow label={L("Requests by status", "Permintaan mengikut status")}>
-            {isAgent ? (<>
-              <KpiTile icon="assignment" tone="navy" label={L("Open requests", "Permintaan terbuka")} value={cnt(...OPEN)} onClick={() => go("requests", "open")} />
-              <KpiTile icon="warning" tone="gold" label={L("Need your reply", "Perlu jawapan anda")} value={cnt("more_info")} onClick={() => go("requests", "more_info")} />
-              <KpiTile icon="document" tone="green" label={L("Quotations ready", "Sebut harga sedia")} value={cnt("quotation_ready")} onClick={() => go("quotations")} />
-              <KpiTile icon="chat" tone="blue" label={L("With clients", "Dengan pelanggan")} value={cnt("with_client", "revision_requested", "acceptance_pending")} onClick={() => go("quotations")} />
-              <KpiTile icon="trophy" tone="purple" label={L("Won", "Berjaya")} value={cnt("won")} onClick={() => go("requests", "won")} />
-            </>) : (<>
-              <KpiTile icon="assignment" tone="navy" label={L("New", "Baharu")} value={cnt("submitted")} onClick={() => go("requests", "submitted")} />
-              <KpiTile icon="search" tone="blue" label={L("Under review", "Dalam semakan")} value={cnt("under_review", "more_info")} onClick={() => go("requests", "under_review")} />
-              <KpiTile icon="document" tone="purple" label={L("Preparing quotation", "Menyediakan sebut harga")} value={cnt("preparing", "revision_requested")} onClick={() => go("requests", "preparing")} />
-              <KpiTile icon="chat" tone="green" label={L("With client", "Dengan pelanggan")} value={cnt("quotation_ready", "with_client")} onClick={() => go("requests", "with_client")} />
-              <KpiTile icon="verify" tone="gold" label={L("Acceptance to verify", "Penerimaan untuk disahkan")} value={cnt("acceptance_pending")} onClick={() => go("requests", "acceptance_pending")} />
-              <KpiTile icon="time" tone="red" label={L("Overdue follow-up", "Susulan lewat")} value={rows.filter((r) => r.overdue).length} onClick={() => go("requests", "overdue")} />
-            </>)}
+            <KpiTile icon="assignment" tone="navy" label={L("Open requests", "Permintaan terbuka")} value={cnt(...OPEN)} onClick={() => go("requests", "open")} />
+            <KpiTile icon="warning" tone="gold" label={L("Need your reply", "Perlu jawapan anda")} value={cnt("more_info")} onClick={() => go("requests", "more_info")} />
+            <KpiTile icon="document" tone="green" label={L("Quotations ready", "Sebut harga sedia")} value={cnt("quotation_ready")} onClick={() => go("quotations")} />
+            <KpiTile icon="chat" tone="blue" label={L("With clients", "Dengan pelanggan")} value={cnt("with_client", "revision_requested", "acceptance_pending")} onClick={() => go("quotations")} />
+            <KpiTile icon="trophy" tone="purple" label={L("Won", "Berjaya")} value={cnt("won")} onClick={() => go("requests", "won")} />
           </KpiRow>
           <section className={css.panel} aria-label={L("Latest", "Terkini")}>
             <h3 className={css.h3}>{L("Latest updates", "Kemas kini terkini")}</h3>
-            {rows.filter((r) => r.status !== "draft").length === 0 && rows.length === 0 ? (isAgent ? emptyAgent : emptyStaff)
-              : <RequestList rows={[...rows].filter((r) => r.status !== "draft" || isAgent).slice(0, 6)} isAgent={isAgent} onOpen={setOpen} />}
+            {rows.length === 0 ? emptyAgent : <RequestList rows={rows.slice(0, 6)} onOpen={setOpen} />}
           </section>
         </>
       ))}
 
-      {view === "packages" && (
-        !pkgs ? <SkelCard lines={4} /> : pkgs.length === 0 ? <p className={css.muted}>{L("No active packages yet.", "Belum ada pakej aktif.")}</p> : (
-          <ul className={css.grid}>
-            {pkgs.map((p) => (
-              <li key={p.id} className={css.card} data-testid={`agent-pkg-${p.id}`}>
-                <div className={css.cardHead}><span className={css.cat}>{p.category ?? L("Package", "Pakej")}</span><span className={css.price}>{fmtRM(p.total_cents)}</span></div>
-                <h3 className={css.pkgName}>{p.name}</h3>
-                {p.description && <p className={css.desc}>{p.description}</p>}
-                {p.lines.length > 0 && <ul className={css.lines}>{p.lines.slice(0, 6).map((l, i) => <li key={i}>{l.qty > 1 ? `${l.qty} × ` : ""}{l.name}</li>)}</ul>}
-                <p className={css.muted}>{p.issuers.map((i) => ISSUER[i] ?? i).join(" · ")}</p>
-                {isAgent && <button type="button" className={btnSmPrimary} onClick={() => setSubmit({ pkg: p })}>{L("Submit a client", "Hantar pelanggan")}</button>}
-              </li>
-            ))}
-          </ul>
-        )
-      )}
+      {view === "packages" && <PackageCatalogue pkgs={pkgs} isAgent onSubmit={(p) => setSubmit({ pkg: p })} />}
 
       {view === "requests" && (
-        !list ? <SkelRows rows={5} /> : rows.length === 0 ? (isAgent ? emptyAgent : emptyStaff) : (
+        !list ? <SkelRows rows={5} /> : rows.length === 0 ? emptyAgent : (
           <section className={css.panel} aria-label={L("Requests", "Permintaan")}>
             <div className={css.toolbar}>
-              <input className={inputClassSm} value={q} onChange={(e) => setQ(e.target.value)} placeholder={isAgent ? L("Find a client or request", "Cari pelanggan atau permintaan") : L("Find a client, agent or request", "Cari pelanggan, ejen atau permintaan")} aria-label={L("Find", "Cari")} />
-              <select className={selectClassSm} value={statusF} onChange={(e) => setStatusF(e.target.value as typeof statusF)} aria-label={L("Status", "Status")}>
+              <input className={inputClassSm} value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Find a client or request", "Cari pelanggan atau permintaan")} aria-label={L("Find", "Cari")} />
+              <select className={selectClassSm} value={statusF} onChange={(e) => setStatusF(e.target.value as Filter)} aria-label={L("Status", "Status")}>
                 <option value="">{L("All statuses", "Semua status")}</option>
                 <option value="open">{L("Open", "Terbuka")}</option>
-                {!isAgent && <option value="overdue">{L("Overdue follow-up", "Susulan lewat")}</option>}
-                {(Object.keys(WORD) as Status[]).filter((s) => isAgent || s !== "draft").map((s) => <option key={s} value={s}>{word(s)}</option>)}
+                {(Object.keys(WORD) as Status[]).map((s) => <option key={s} value={s}>{word(s)}</option>)}
               </select>
               <span className={css.muted}>{L(`${shown.length} shown`, `${shown.length} dipaparkan`)}</span>
             </div>
-            {shown.length === 0 ? <p className={css.muted}>{L("No requests match this filter.", "Tiada permintaan sepadan dengan penapis ini.")}</p> : <RequestList rows={shown} isAgent={isAgent} onOpen={setOpen} />}
+            {shown.length === 0 ? <p className={css.muted}>{L("No requests match this filter.", "Tiada permintaan sepadan dengan penapis ini.")}</p> : <RequestList rows={shown} onOpen={setOpen} />}
           </section>
         )
       )}
@@ -237,40 +319,31 @@ export function AgentsPanel({ role, owner = false, initialView }: { role: string
         </section>
       ))}
 
-      {view === "agents" && !isAgent && <AgentsList canGrant={canGrant} onManage={manageAccess} />}
-      {view === "commission" && isAgent && <MyCommission />}
-
-      {submit && pkgs && <SubmitSheet pkgs={pkgs} initial={submit.pkg} onClose={() => setSubmit(null)} onDone={(draft) => { setSubmit(null); go("requests"); reload(); show(draft ? L("Draft saved", "Draf disimpan") : L("Sent to the sales team", "Dihantar kepada pasukan jualan")); }} />}
-      {open !== null && <RequestDrawer id={open} isAgent={isAgent} canManage={!!list?.can_manage} onClose={() => setOpen(null)} onChanged={(msg) => { reload(); if (msg) show(msg); }} />}
+      {view === "commission" && <MyCommission />}
+      {drawers}
     </div>
   );
 }
 
-/* A table on a desk; touch cards on a phone (the module's own CSS). */
-function RequestList({ rows, isAgent, onOpen }: { rows: Row[]; isAgent: boolean; onOpen: (id: number) => void }) {
+/* The agent's own requests: a table on a desk; touch cards on a phone (the module's own CSS). */
+function RequestList({ rows, onOpen }: { rows: Row[]; onOpen: (id: number) => void }) {
   return (
     <>
       <div className={`${css.tableWrap} ${css.deskOnly}`}>
         <table className={css.table}>
           <thead><tr>
             <th>{L("Request", "Permintaan")}</th>
-            {!isAgent && <th>{L("Agent", "Ejen")}</th>}
             <th>{L("Client · package", "Pelanggan · pakej")}</th>
-            {!isAgent && <th>{L("Sales", "Jualan")}</th>}
             <th>{L("Status", "Status")}</th>
             <th>{L("Latest update", "Kemas kini terkini")}</th>
-            {!isAgent && <th>{L("Follow-up", "Susulan")}</th>}
           </tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} data-testid={`agent-req-${r.id}`}>
                 <td><button type="button" className={css.linkBtn} onClick={() => onOpen(r.id)}>{r.ref}</button><span className={css.muted}>{day(r.created_at)}</span></td>
-                {!isAgent && <td>{r.agent_name ?? "—"}</td>}
                 <td><span className={css.strong}>{r.company || r.client_name}</span><span className={css.muted}>{r.package_name ?? L("Custom requirement", "Keperluan khas")}</span></td>
-                {!isAgent && <td>{r.assigned_name ?? <span className={css.muted}>{L("Not assigned", "Belum ditugaskan")}</span>}</td>}
                 <td><Chip s={r.status} />{r.published_number && <span className={css.muted}>{r.published_number}</span>}</td>
                 <td><span className={css.clamp}>{r.last_text ?? "—"}</span><span className={css.muted}>{[r.last_by, when(r.last_at)].filter(Boolean).join(" · ")}</span></td>
-                {!isAgent && <td className={r.overdue ? css.late : undefined}>{r.next_follow_up_on ? day(r.next_follow_up_on) : "—"}</td>}
               </tr>
             ))}
           </tbody>
@@ -282,7 +355,7 @@ function RequestList({ rows, isAgent, onOpen }: { rows: Row[]; isAgent: boolean;
             <button type="button" className={css.reqCard} data-testid={`agent-card-${r.id}`} onClick={() => onOpen(r.id)}>
               <span className={css.cardTop}><span className={css.strong}>{r.ref}</span><Chip s={r.status} /></span>
               <span className={css.strong}>{r.company || r.client_name}</span>
-              <span className={css.muted}>{r.package_name ?? L("Custom requirement", "Keperluan khas")}{!isAgent && r.agent_name ? ` · ${r.agent_name}` : ""}</span>
+              <span className={css.muted}>{r.package_name ?? L("Custom requirement", "Keperluan khas")}</span>
               {r.last_text && <span className={css.clamp}>{r.last_text}</span>}
               <span className={css.muted}>{L("Updated", "Dikemas kini")} {when(r.last_at ?? r.created_at)}</span>
               <span className={css.chev} aria-hidden><AppIcon name="next" /></span>
@@ -294,63 +367,422 @@ function RequestList({ rows, isAgent, onOpen }: { rows: Row[]; isAgent: boolean;
   );
 }
 
-interface AgentRow { id: number; name: string; email: string; is_active: number; email_verified: number; requests: number; open_requests: number; won: number; last_activity: string | null; scope: string }
-function AgentsList({ canGrant, onManage }: { canGrant: boolean; onManage: () => void }) {
-  const [agents, setAgents] = useState<AgentRow[] | null>(null);
-  const [failed, setFailed] = useState("");
-  const [asg, setAsg] = useState<AssignRes | null>(null);
-  const [aTick, setATick] = useState(0);
-  const [editing, setEditing] = useState<number | null>(null);
-  const { show, node: toastNode } = useSaveToast();
-  useEffect(() => {
-    const c = new AbortController();
-    void api<{ agents?: AgentRow[]; error?: { message?: string } }>("/staff/agent/agents", { signal: c.signal }).then((r) => {
-      if (c.signal.aborted) return;
-      if (r.ok) setAgents(r.data?.agents ?? []); else setFailed(r.data?.error?.message ?? L("The agents could not be loaded.", "Ejen tidak dapat dimuatkan."));
-    });
-    return () => c.abort();
-  }, []);
-  /* v1.255.0 - the standing salesperson of each agent (append-only history) */
-  useEffect(() => {
-    const c = new AbortController();
-    void api<AssignRes>("/staff/agent/assignments", { signal: c.signal }).then((r) => { if (!c.signal.aborted && r.ok && r.data) setAsg(r.data); });
-    return () => c.abort();
-  }, [aTick]);
-  if (failed) return <p className={css.warn} role="alert">{failed}</p>;
-  if (!agents) return <SkelRows rows={3} />;
-  const manageBtn = canGrant ? <button type="button" className={btnSmPrimary} onClick={onManage}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button> : null;
+/* ================================================================
+   v1.347.0 - Sales & management: picture 01, the Overview
+   ================================================================ */
+interface AgentPerf { id: number; name: string; email: string; active: boolean; verified: boolean; requests: number; open: number; won: number; lost: number; salesperson: string | null }
+function StaffOverview({ rows, loaded, cnt, agents, asg, onFilter, onOpen, onAgent, onAgents }: {
+  rows: Row[]; loaded: boolean; cnt: (...s: Status[]) => number; agents: AgentRow[] | null; asg: AssignRes | null;
+  onFilter: (f: Filter) => void; onOpen: (id: number) => void; onAgent: (id: number) => void; onAgents: () => void;
+}) {
+  const today = mytToday();
+  const weekOn = addDays(today, 7);
+  const active = agents?.filter((a) => a.is_active) ?? [];
+  const overdue = rows.filter((r) => r.overdue).length;
+  const dueSoon = rows.filter((r) => !r.overdue && r.next_follow_up_on && r.next_follow_up_on >= today && r.next_follow_up_on <= weekOn && OPEN.includes(r.status)).length;
+  const closed = cnt("won", "not_proceeding");
+  /* the pipeline: each stage's count is how many requests stand on it now */
+  const steps: FlowStep[] = STAGES.map((s) => ({ key: s.k, icon: s.icon, label: L(s.en, s.ms), tone: s.tone, count: loaded ? cnt(...s.s) : null, onClick: () => onFilter(`stage:${s.k}`) }));
+  /* conversion per agent: every agent account (none hidden for having no request), counted from the requests themselves */
+  const by = new Map<number, AgentPerf>();
+  for (const a of agents ?? []) by.set(a.id, { id: a.id, name: a.name, email: a.email, active: !!a.is_active, verified: !!a.email_verified, requests: 0, open: 0, won: 0, lost: 0, salesperson: asg?.current?.[a.id]?.salesperson_name ?? null });
+  for (const r of rows) {
+    const p = by.get(r.agent_id) ?? { id: r.agent_id, name: r.agent_name ?? `#${r.agent_id}`, email: "", active: false, verified: false, requests: 0, open: 0, won: 0, lost: 0, salesperson: asg?.current?.[r.agent_id]?.salesperson_name ?? null };
+    p.requests++; if (OPEN.includes(r.status)) p.open++; if (r.status === "won") p.won++; if (r.status === "not_proceeding") p.lost++;
+    by.set(r.agent_id, p);
+  }
+  const perf = [...by.values()].sort((a, b) => b.won - a.won || b.requests - a.requests || a.name.localeCompare(b.name));
+  const rate = (p: { requests: number; won: number }) => (p.requests ? Math.round((p.won / p.requests) * 100) : 0);
+  const cols: TableCol<AgentPerf>[] = [
+    { key: "agent", label: L("Agent", "Ejen"), main: true, cell: (p) => <><TaskRowTitle title={p.name} onOpen={() => onAgent(p.id)} /><TaskRowSub>{p.active ? L("Active", "Aktif") : L("Suspended", "Digantung")}{p.email ? ` · ${p.email}` : ""}</TaskRowSub></> },
+    { key: "sales", label: L("Salesperson", "Jurujual"), cell: (p) => p.salesperson ?? <span className={css.mutedInline}>{L("Not assigned", "Belum ditugaskan")}</span> },
+    { key: "req", label: L("Requests", "Permintaan"), cell: (p) => <span className={css.num}>{p.requests}</span> },
+    { key: "open", label: L("Open", "Terbuka"), cell: (p) => <span className={css.num}>{p.open}</span> },
+    { key: "won", label: L("Won", "Berjaya"), cell: (p) => <span className={css.num}>{p.won}</span> },
+    { key: "conv", label: L("Conversion", "Penukaran"), cell: (p) => (
+      <span className={css.conv} title={L(`${p.won} won of ${p.requests} request(s)`, `${p.won} berjaya daripada ${p.requests} permintaan`)}>
+        <span className={css.convBar} aria-hidden><span style={{ width: `${rate(p)}%` }} /></span><span className={css.num}>{rate(p)}%</span>
+      </span>) },
+  ];
+  const follow = rows.filter((r) => r.next_follow_up_on && OPEN.includes(r.status) && r.next_follow_up_on <= weekOn).sort((a, b) => (a.next_follow_up_on ?? "").localeCompare(b.next_follow_up_on ?? ""));
+  const recent = [...rows].filter((r) => r.last_at).sort((a, b) => (b.last_at ?? "").localeCompare(a.last_at ?? "")).slice(0, 4);
+  /* overdue is the server's word (MYT, open requests only); today is only for "Due today" */
+  const due = (r: Row) => { const d = r.next_follow_up_on!; return r.overdue ? <span className={css.dueLate}>{L(`Overdue · ${day(d)}`, `Lewat · ${day(d)}`)}</span> : d === today ? <span className={css.dueLate}>{L("Due today", "Hari ini")}</span> : <span className={chipSmNeutral}>{day(d)}</span>; };
   return (
-    <section className={css.panel} aria-label={L("Agents", "Ejen")}>
-      {toastNode}
-      {agents.length === 0 ? (
-        <div className={css.empty} data-testid="agents-empty">
-          <p>{L("No active agents yet.", "Belum ada ejen aktif.")}</p>
-          {manageBtn}
-          <p className={css.muted}>{canGrant
-            ? L("Agent access is given in Users › Customer Accounts to a customer account whose email is verified - the same account becomes an agent.", "Akses ejen diberi dalam Pengguna › Akaun Pelanggan kepada akaun pelanggan yang e-melnya disahkan - akaun yang sama menjadi ejen.")
-            : L("The company owner gives Agent access in Users › Customer Accounts.", "Pemilik syarikat memberi akses Ejen dalam Pengguna › Akaun Pelanggan.")}</p>
-        </div>
-      ) : (<>
-        <div className={css.row}>{manageBtn}<span className={css.muted}>{L("Taking access away keeps every request with its agent.", "Menarik akses kekalkan setiap permintaan bersama ejennya.")}</span></div>
-        <ul className={css.agentList}>
-          {agents.map((a) => (
-            <li key={a.id} className={css.agentRow} data-testid={`agent-acct-${a.id}`}>
-              <div className={css.qmain}>
-                <span className={css.strong}>{a.name}</span>
-                <span className={css.muted}>{a.email} <span className={`${css.chip} ${a.email_verified ? css.ok : css.wait}`}>{a.email_verified ? L("Verified email", "E-mel disahkan") : L("Email not verified", "E-mel belum disahkan")}</span></span>
-                <span className={css.muted}>{L("Scope", "Skop")}: {a.scope}</span>
+    <>
+      <KpiRow label={L("Agents at a glance", "Ejen sepintas lalu")} testid="agents-strip">
+        <KpiTile icon="users" tone="navy" label={L("Active Agents", "Ejen Aktif")} busy={!agents} value={active.length}
+          sub={agents ? L(`${agents.filter((a) => a.email_verified).length} verified email · ${agents.length - active.length} suspended`, `${agents.filter((a) => a.email_verified).length} e-mel disahkan · ${agents.length - active.length} digantung`) : undefined} onClick={onAgents} />
+        <KpiTile icon="assignment" tone="blue" label={L("Open Requests", "Permintaan Terbuka")} busy={!loaded} value={cnt(...OPEN)}
+          sub={L(`${cnt("submitted")} new · not yet reviewed`, `${cnt("submitted")} baharu · belum disemak`)} onClick={() => onFilter("open")} />
+        <KpiTile icon="document" tone="gold" label={L("Awaiting Quotation", "Menunggu Sebut Harga")} busy={!loaded} value={cnt(...AWAITING)}
+          sub={L(`${cnt("more_info")} waiting on the agent`, `${cnt("more_info")} menunggu ejen`)} onClick={() => onFilter("awaiting")} />
+        <KpiTile icon="chat" tone="green" label={L("With Client", "Dengan Pelanggan")} busy={!loaded} value={cnt("quotation_ready", "with_client")}
+          sub={L("Quotations published to agents", "Sebut harga diterbitkan kepada ejen")} onClick={() => onFilter("stage:client")} />
+        <KpiTile icon="verify" tone="purple" label={L("Acceptance to verify", "Penerimaan untuk disahkan")} busy={!loaded} value={cnt("acceptance_pending")}
+          sub={L("Sales verifies · the CEO verifies payment", "Jualan mengesahkan · CEO mengesahkan bayaran")} onClick={() => onFilter("stage:acceptance")} />
+        <KpiTile icon="time" tone="red" label={L("Overdue follow-up", "Susulan lewat")} busy={!loaded} value={overdue}
+          sub={L(`${dueSoon} more due within 7 days`, `${dueSoon} lagi dalam 7 hari`)} onClick={() => onFilter("overdue")} />
+      </KpiRow>
+
+      <Panel icon="person" tone="navy" title={L("Agent Pipeline", "Saluran Ejen")} testid="agent-pipeline-panel"
+        sub={L("Track agent leads from submission to a won sale. Each count is the number of agent requests at that stage now; press a stage to open them.", "Jejak petunjuk ejen dari penghantaran hingga jualan berjaya. Setiap kiraan ialah bilangan permintaan ejen pada peringkat itu sekarang; tekan untuk membukanya.")}
+        aside={loaded ? <span className={css.asideNote}>{L(`${cnt("won")} won · ${cnt("not_proceeding")} not proceeding${closed ? ` · ${Math.round((cnt("won") / closed) * 100)}% of closed` : ""}`, `${cnt("won")} berjaya · ${cnt("not_proceeding")} tidak diteruskan${closed ? ` · ${Math.round((cnt("won") / closed) * 100)}% daripada yang ditutup` : ""}`)}</span> : undefined}>
+        <FlowStrip steps={steps} label={L("Agent pipeline", "Saluran ejen")} testid="agent-pipeline" compact arrows />
+      </Panel>
+
+      <WorkspaceGrid testid="agents-overview-grid"
+        main={
+          <Panel icon="chart" tone="gold" title={L("Conversion Performance", "Prestasi Penukaran")} count={agents ? perf.length : null} testid="agent-conversion" flush
+            sub={L("Requests each agent brought in, still open and won. Conversion = won ÷ requests submitted.", "Permintaan yang dibawa setiap ejen, masih terbuka dan berjaya. Penukaran = berjaya ÷ permintaan dihantar.")}
+            aside={<button type="button" className={btnSm} onClick={onAgents}>{L("Agent directory", "Direktori ejen")}<AppIcon name="next" /></button>}>
+            <CompactTaskTable rows={perf} cols={cols} label={L("Conversion by agent", "Penukaran mengikut ejen")} loading={!agents && !loaded} record="agent" testid="agent-conversion-table"
+              onOpen={onAgent} empty={<p className={css.calm}><AppIcon name="info" />{L("No agent accounts yet - the owner gives Agent access in Users › Customer Accounts.", "Belum ada akaun ejen - pemilik memberi akses Ejen dalam Pengguna › Akaun Pelanggan.")}</p>} />
+          </Panel>
+        }
+        rail={<>
+          <Panel icon="date" tone="red" title={L("Important Follow-Ups", "Susulan Penting")} count={loaded ? follow.length : null} level={3} testid="agent-followups"
+            aside={<button type="button" className={btnSm} onClick={() => onFilter("overdue")}>{L("View all", "Lihat semua")}<AppIcon name="next" /></button>}>
+            {!loaded ? <SkelRows rows={3} /> : follow.length === 0 ? <p className={css.calm}><AppIcon name="success" />{L("No follow-up is due this week.", "Tiada susulan perlu minggu ini.")}</p> : (
+              <ul className={css.feed}>
+                {follow.slice(0, 4).map((r) => (
+                  <li key={r.id}>
+                    <button type="button" className={css.feedItem} onClick={() => onOpen(r.id)}>
+                      <span className={css.dot} data-late={r.overdue || undefined} aria-hidden />
+                      <span className={css.feedText}><strong>{r.company || r.client_name}</strong><small>{r.ref} · {r.agent_name ?? "—"} · {r.assigned_name ?? L("not assigned", "belum ditugaskan")}</small></span>
+                      {due(r)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+          <Panel icon="chat" tone="blue" title={L("Recent Agent Activity", "Aktiviti Ejen Terkini")} level={3} testid="agent-activity">
+            {!loaded ? <SkelRows rows={3} /> : recent.length === 0 ? <p className={css.calm}><AppIcon name="info" />{L("No Agent submissions have been received yet.", "Belum ada permintaan daripada ejen.")}</p> : (
+              <ul className={css.feed}>
+                {recent.map((r) => (
+                  <li key={r.id}>
+                    <button type="button" className={css.feedItem} onClick={() => onOpen(r.id)}>
+                      <AppIcon name="document" className={css.feedIcon} />
+                      <span className={css.feedText}><strong>{r.ref} · {r.company || r.client_name}</strong><small className={css.clampOne}>{r.last_text ?? "—"}</small><small>{[r.last_by, when(r.last_at)].filter(Boolean).join(" · ")}</small></span>
+                      <Chip s={r.status} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </>} />
+    </>
+  );
+}
+
+/* the head of a staff tab (pictures 02-04): its title, one line, its one command */
+function Intro({ title, sub, action }: { title: ReactNode; sub: ReactNode; action?: ReactNode }) {
+  return (
+    <header className={css.intro}>
+      <div className={css.introText}><h2 className={css.introTitle}>{title}</h2><p className={css.introSub}>{sub}</p></div>
+      {action}
+    </header>
+  );
+}
+
+/* ================================================================
+   picture 02: Requests - the inbox beside the Request-to-Sale Workflow
+   ================================================================ */
+function RequestsInbox({ rows, shown, loaded, agents, filter, onFilter, agentF, onAgentF, q, onQ, onOpen, canGrant, onManage, onAgents }: {
+  rows: Row[]; shown: Row[]; loaded: boolean; agents: AgentRow[] | null;
+  filter: Filter; onFilter: (f: Filter) => void; agentF: number; onAgentF: (id: number) => void; q: string; onQ: (v: string) => void;
+  onOpen: (id: number) => void; canGrant: boolean; onManage: () => void; onAgents: () => void;
+}) {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
+  const key = `${filter}|${agentF}|${q}`;
+  const [seen, setSeen] = useState(key);
+  if (key !== seen) { setSeen(key); setPage(1); }
+  const today = mytToday();
+  const weekOn = addDays(today, 7);
+  const overdue = rows.filter((r) => r.overdue).length;
+  const dueSoon = rows.filter((r) => !r.overdue && r.next_follow_up_on && r.next_follow_up_on >= today && r.next_follow_up_on <= weekOn && OPEN.includes(r.status)).length;
+  /* the agent filter: every account, and anyone who brought a request before they were removed */
+  const people = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const a of agents ?? []) m.set(a.id, a.name);
+    for (const r of rows) if (!m.has(r.agent_id)) m.set(r.agent_id, r.agent_name ?? `#${r.agent_id}`);
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [agents, rows]);
+  const cols: TableCol<Row>[] = [
+    { key: "client", label: L("Client · request", "Pelanggan · permintaan"), main: true, cell: (r) => <><TaskRowTitle title={r.company || r.client_name} onOpen={() => onOpen(r.id)} /><TaskRowSub><span data-testid={`agent-req-${r.id}`}>{r.ref}</span><span>{r.package_name ?? L("Custom requirement", "Keperluan khas")}</span></TaskRowSub></> },
+    { key: "agent", label: L("Agent", "Ejen"), cell: (r) => r.agent_name ?? "—" },
+    { key: "sales", label: L("Sales", "Jualan"), cell: (r) => r.assigned_name ?? <span className={chipSmWarn}>{L("Not assigned", "Belum ditugaskan")}</span> },
+    { key: "status", label: L("Quotation progress", "Kemajuan sebut harga"), cell: (r) => <span className={css.stack}><Chip s={r.status} />{(r.published_number || r.quotation_number) && <small className={css.mutedInline}>{r.published_number ?? r.quotation_number}</small>}</span> },
+    { key: "follow", label: L("Follow-up", "Susulan"), cell: (r) => r.next_follow_up_on ? <span className={r.overdue ? css.dueLate : css.mutedInline}>{day(r.next_follow_up_on)}</span> : <span className={css.mutedInline}>—</span> },
+  ];
+  const empty = rows.length === 0 ? (
+    <div className={css.emptyBox} data-testid="staff-empty">
+      <span className={css.emptyIcon} aria-hidden><AppIcon name="chat" /></span>
+      <strong>{L("No Agent submissions have been received yet.", "Belum ada permintaan daripada ejen.")}</strong>
+      <p>{L("Once an agent submits a client, the request appears here for Sales to review and assign. No duplicate enquiry is created.", "Sebaik ejen menghantar pelanggan, permintaan itu muncul di sini untuk Jualan menyemak dan menugaskan. Tiada pertanyaan berganda dibuat.")}</p>
+      <span className={css.row}>
+        <button type="button" className={btnSmPrimary} onClick={onAgents}>{L("View active agents", "Lihat ejen aktif")}</button>
+        {canGrant && <button type="button" className={btnSm} onClick={onManage}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button>}
+      </span>
+    </div>
+  ) : <p className={css.calm}><AppIcon name="search" />{L("No requests match this filter.", "Tiada permintaan sepadan dengan penapis ini.")}</p>;
+  return (
+    <>
+      <Intro title={L("Agent Requests", "Permintaan Ejen")} sub={L("A focused intake queue. Every request stays linked to its original agent and assigned salesperson.", "Barisan masuk yang fokus. Setiap permintaan kekal dipaut kepada ejen asal dan jurujual yang ditugaskan.")}
+        action={canGrant ? <button type="button" className={btnSm} data-testid="manage-agent-access" onClick={onManage}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button> : undefined} />
+      <WorkspaceSplit testid="agent-requests-split" ratio="60-40">
+        <SplitPane testid="requests-inbox" title={L("Requests Inbox", "Peti Permintaan")} label={L("Requests inbox", "Peti permintaan")}
+          sub={L("Incoming clients, Sales assignment, quotation progress and follow-up.", "Pelanggan masuk, tugasan Jualan, kemajuan sebut harga dan susulan.")}
+          actions={<span className={chipSmNeutral} data-testid="inbox-count">{loaded ? (filter || agentF || q ? L(`${shown.length} of ${rows.length}`, `${shown.length} daripada ${rows.length}`) : L(`${rows.length} request${rows.length === 1 ? "" : "s"}`, `${rows.length} permintaan`)) : "…"}</span>}
+          toolbar={<TaskToolbar q={q} onQ={onQ} placeholder={L("Search client, request ID or agent", "Cari pelanggan, ID permintaan atau ejen")} testid="requests-toolbar">
+            <select className={selectClassSm} value={filter} onChange={(e) => onFilter(e.target.value as Filter)} aria-label={L("Status", "Status")}>
+              <option value="">{L("All statuses", "Semua status")}</option>
+              <option value="open">{L("Open", "Terbuka")}</option>
+              <option value="overdue">{L("Overdue follow-up", "Susulan lewat")}</option>
+              {filter.startsWith("stage:") || filter === "awaiting" ? <option value={filter}>{filterWord(filter)}</option> : null}
+              {(Object.keys(WORD) as Status[]).filter((s) => s !== "draft").map((s) => <option key={s} value={s}>{word(s)}</option>)}
+            </select>
+            <select className={selectClassSm} value={agentF} onChange={(e) => onAgentF(Number(e.target.value))} aria-label={L("Agent", "Ejen")}>
+              <option value={0}>{L("All agents", "Semua ejen")}</option>
+              {people.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </TaskToolbar>}>
+          <CompactTaskTable rows={shown} cols={cols} label={L("Agent requests", "Permintaan ejen")} loading={!loaded} record="agent-request" testid="requests-table" dense fill
+            onOpen={onOpen} rowClass={(r) => (r.overdue ? css.lateRow ?? "" : "")} empty={empty} page={page} size={size} onPage={setPage} onSize={(s) => { setSize(s); setPage(1); }} />
+        </SplitPane>
+        <SplitPane testid="request-workflow" title={L("Request-to-Sale Workflow", "Aliran Permintaan-ke-Jualan")} label={L("Request-to-sale workflow", "Aliran permintaan ke jualan")}
+          sub={L("For management and the assigned Sales team. Press a step to see its requests.", "Untuk pengurusan dan pasukan Jualan yang ditugaskan. Tekan langkah untuk melihat permintaannya.")}>
+          <ol className={css.flow}>
+            {STAGES.filter((s) => s.k !== "won").map((s, i) => {
+              const n = rows.filter((r) => s.s.includes(r.status)).length;
+              const on = filter === `stage:${s.k}`;
+              return (
+                <li key={s.k}>
+                  <button type="button" className={css.flowStep} aria-pressed={on} onClick={() => onFilter(on ? "" : `stage:${s.k}`)} data-testid={`flow-${s.k}`}>
+                    <span className={css.flowNo} aria-hidden>{i + 1}</span>
+                    <span className={css.flowText}><strong>{L(s.who[0], s.who[1])}</strong><small>{L(s.what[0], s.what[1])}</small></span>
+                    <span className={css.flowCount} aria-label={L(`${n} request(s)`, `${n} permintaan`)}>{loaded ? n : "…"}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <div className={css.goldNote} data-testid="followup-note">
+            <AppIcon name="time" />
+            <span><strong>{L("Follow-up controls:", "Kawalan susulan:")}</strong> {L(`${overdue} overdue · ${dueSoon} due within 7 days, each linked to its request. Nothing here approves an acceptance or a payment.`, `${overdue} lewat · ${dueSoon} dalam 7 hari, setiap satu dipaut kepada permintaannya. Tiada apa di sini meluluskan penerimaan atau bayaran.`)}</span>
+            {overdue > 0 && <button type="button" className={btnSmQuiet} onClick={() => onFilter("overdue")}>{L("Show overdue", "Tunjuk lewat")}</button>}
+          </div>
+        </SplitPane>
+      </WorkspaceSplit>
+    </>
+  );
+}
+
+/* ================================================================
+   picture 03: Agents - the directory beside the chosen agent
+   ================================================================ */
+function AgentDirectory({ agents, failed, rows, asg, picked, onPick, canGrant, onManage, onRequests, onAssigned }: {
+  agents: AgentRow[] | null; failed: string; rows: Row[]; asg: AssignRes | null; picked: number | null; onPick: (id: number) => void;
+  canGrant: boolean; onManage: () => void; onRequests: (agentId: number) => void; onAssigned: (name: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [state, setState] = useState<"active" | "suspended" | "all">("all");
+  const [editing, setEditing] = useState<number | null>(null);
+  const list = (agents ?? []).filter((a) => (state === "all" || (state === "active" ? !!a.is_active : !a.is_active)) && (!q || `${a.name} ${a.email}`.toLowerCase().includes(q.toLowerCase())));
+  const a = (agents ?? []).find((x) => x.id === picked) ?? list[0] ?? null;
+  const manageBtn = canGrant ? <button type="button" className={btnSmPrimary} data-testid="manage-agent-access-dir" onClick={onManage}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button> : null;
+  const cur = a ? asg?.current?.[a.id] : undefined;
+  /* the scope the server states for every agent: all active packages, both companies (agents have no company restriction) */
+  const scope = a ? Object.entries(ISSUER).filter(([, name]) => a.scope.toUpperCase().includes(name)).map(([code]) => code) : [];
+  const theirs = a ? rows.filter((r) => r.agent_id === a.id) : [];
+  return (
+    <>
+      <Intro title={L("Agent Directory", "Direktori Ejen")} sub={L("Verified access, the assigned Sales owner and each agent's performance - on the existing user accounts, never a second user system.", "Akses disahkan, pemilik Jualan yang ditugaskan dan prestasi setiap ejen - pada akaun pengguna sedia ada, tiada sistem pengguna kedua.")} action={manageBtn} />
+      {failed ? <p className={css.warn} role="alert">{failed}</p> : (
+        <WorkspaceSplit testid="agent-directory-split" ratio="50-50">
+          <SplitPane testid="agent-list" title={<>{L("Agents", "Ejen")} {agents && <span className={css.titleCount}>({agents.length})</span>}</>} label={L("Agents", "Ejen")}
+            sub={L("Customer accounts given Agent access by the owner.", "Akaun pelanggan yang diberi akses Ejen oleh pemilik.")}
+            actions={agents ? <span className={chipSmSuccess}>{L(`${agents.filter((x) => x.is_active).length} active`, `${agents.filter((x) => x.is_active).length} aktif`)}</span> : undefined}
+            toolbar={<TaskToolbar q={q} onQ={setQ} placeholder={L("Search agent name or email", "Cari nama atau e-mel ejen")} testid="agents-toolbar">
+              <select className={selectClassSm} value={state} onChange={(e) => setState(e.target.value as typeof state)} aria-label={L("Access", "Akses")}>
+                <option value="all">{L("All", "Semua")}</option><option value="active">{L("Active", "Aktif")}</option><option value="suspended">{L("Suspended", "Digantung")}</option>
+              </select>
+            </TaskToolbar>}
+            foot={agents && agents.length > 0 ? <span className={css.mutedInline}>{L("Select an agent to review ownership, submissions and permissions. Taking access away keeps every request with its agent.", "Pilih ejen untuk menyemak pemilikan, penghantaran dan kebenaran. Menarik akses kekalkan setiap permintaan bersama ejennya.")}</span> : undefined}>
+            {!agents ? <SkelRows rows={3} /> : agents.length === 0 ? (
+              <div className={css.emptyBox} data-testid="agents-empty">
+                <span className={css.emptyIcon} aria-hidden><AppIcon name="users" /></span>
+                <strong>{L("No active agents yet.", "Belum ada ejen aktif.")}</strong>
+                <p>{canGrant
+                  ? L("Agent access is given in Users › Customer Accounts to a customer account whose email is verified - the same account becomes an agent.", "Akses ejen diberi dalam Pengguna › Akaun Pelanggan kepada akaun pelanggan yang e-melnya disahkan - akaun yang sama menjadi ejen.")
+                  : L("The company owner gives Agent access in Users › Customer Accounts.", "Pemilik syarikat memberi akses Ejen dalam Pengguna › Akaun Pelanggan.")}</p>
+                {canGrant && <button type="button" className={btnSmPrimary} onClick={onManage}><AppIcon name="users" />{L("Manage Agent Access", "Urus Akses Ejen")}</button>}
               </div>
-              <span className={`${css.chip} ${a.is_active ? css.ok : css.off}`}>{a.is_active ? L("Active", "Aktif") : L("Suspended", "Digantung")}</span>
-              <span className={css.stat}><strong>{a.requests}</strong> {L("requests", "permintaan")} · {a.open_requests} {L("open", "terbuka")} · {a.won} {L("won", "berjaya")}</span>
-              <span className={css.muted}>{L("Latest activity", "Aktiviti terkini")}: {a.last_activity ? when(a.last_activity) : L("none yet", "belum ada")}</span>
-              <span className={css.muted} data-testid={`agent-assigned-${a.id}`}>{L("Assigned salesperson", "Jurujual ditugaskan")}: {asg?.current?.[a.id] ? `${asg.current[a.id]!.salesperson_name} · ${L("from", "mulai")} ${day(asg.current[a.id]!.effective_from)}` : L("none - Sales assigns each request", "tiada - Jualan menugaskan setiap permintaan")}
-                {asg?.can_manage && editing !== a.id && <> <button type="button" className={btnSmQuiet} onClick={() => setEditing(a.id)}>{asg.current?.[a.id] ? L("Change", "Tukar") : L("Assign", "Tugaskan")}</button></>}</span>
-              {asg?.can_manage && editing === a.id && <AssignForm agentId={a.id} people={asg.salespeople} today={asg.today ?? ""} onClose={() => setEditing(null)} onDone={(name) => { setEditing(null); setATick((t) => t + 1); show(L(`Assigned to ${name}`, `Ditugaskan kepada ${name}`), L("New requests go to them; past requests keep whom they had", "Permintaan baharu pergi kepada mereka; permintaan lama kekal")); }} />}
-            </li>
-          ))}
-        </ul>
-      </>)}
-    </section>
+            ) : list.length === 0 ? <p className={css.calm}><AppIcon name="search" />{L("No agent matches.", "Tiada ejen sepadan.")}</p> : (
+              <ul className={css.agentList} aria-label={L("Agent accounts", "Akaun ejen")}>
+                {list.map((x) => (
+                  <li key={x.id}>
+                    <button type="button" className={css.agentRow} aria-pressed={a?.id === x.id} onClick={() => { onPick(x.id); setEditing(null); }} data-testid={`agent-acct-${x.id}`}>
+                      <Avatar name={x.name} photoKey={null} size="md" />
+                      <span className={css.agentText}><strong>{x.name}</strong><small>{x.email_verified ? L("Verified email", "E-mel disahkan") : L("Email not verified", "E-mel belum disahkan")} · {L("Agent portal access", "Akses portal ejen")}</small></span>
+                      <span className={x.is_active ? chipSmSuccess : chipSmNeutral}>{x.is_active ? L("Active", "Aktif") : L("Suspended", "Digantung")}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SplitPane>
+          <SplitPane testid="agent-profile" title={L("Agent Profile & Ownership", "Profil & Pemilikan Ejen")} label={L("Agent profile and ownership", "Profil dan pemilikan ejen")}
+            sub={L("Only authorised actions for the selected agent.", "Hanya tindakan yang dibenarkan untuk ejen dipilih.")}
+            actions={a ? <span className={a.email_verified ? chipSmSuccess : chipSmWarn}>{a.email_verified ? L("Verified", "Disahkan") : L("Not verified", "Belum disahkan")}</span> : undefined}>
+            {!a ? <p className={css.calm}><AppIcon name="info" />{agents ? L("No agent is selected.", "Tiada ejen dipilih.") : L("Reading the agents…", "Membaca ejen…")}</p> : (
+              <div className={css.profile} data-testid={`agent-profile-${a.id}`}>
+                <section className={css.fact}>
+                  <span className={css.factLabel}>{L("Account", "Akaun")}</span>
+                  <strong className={css.factName}>{a.name}</strong>
+                  <span className={css.mutedInline}>{L("Agent portal", "Portal ejen")}: {a.is_active ? L("Active", "Aktif") : L("Suspended", "Digantung")} · {a.email_verified ? L("Verified email", "E-mel disahkan") : L("Email not verified", "E-mel belum disahkan")} · {a.email}</span>
+                  <span className={css.mutedInline}>{L("Latest activity", "Aktiviti terkini")}: {a.last_activity ? when(a.last_activity) : L("none yet", "belum ada")}</span>
+                </section>
+                <section className={css.fact}>
+                  <span className={css.factLabel}>{L("Approved company scope", "Skop syarikat diluluskan")}</span>
+                  <span className={css.row}>{scope.length ? scope.map((c) => <span key={c} className={css.scopeChip}>{COMPANY[c]}</span>) : <span className={css.mutedInline}>{a.scope}</span>}</span>
+                  <span className={css.mutedInline}>{L("All active packages; each request keeps the company that issues its package.", "Semua pakej aktif; setiap permintaan kekal dengan syarikat yang mengeluarkan pakejnya.")}</span>
+                </section>
+                <section className={css.fact}>
+                  <span className={css.factLabel}>{L("Assigned salesperson", "Jurujual ditugaskan")}</span>
+                  {cur ? (
+                    <span className={css.ownerBox} data-testid={`agent-assigned-${a.id}`}><strong>{cur.salesperson_name}</strong><small>{L(`From ${day(cur.effective_from)} · set by ${cur.set_by_name}`, `Mulai ${day(cur.effective_from)} · ditetapkan oleh ${cur.set_by_name}`)}{cur.reason ? ` · ${cur.reason}` : ""}</small></span>
+                  ) : (
+                    <span className={css.warnBox} data-testid={`agent-assigned-${a.id}`}><strong>{L("Not assigned", "Belum ditugaskan")}</strong><small>{L("Assign ownership so no incoming client is left unhandled. Until then Sales assigns each request.", "Tugaskan pemilikan supaya tiada pelanggan masuk terbiar. Sehingga itu Jualan menugaskan setiap permintaan.")}</small></span>
+                  )}
+                  {asg?.can_manage && editing === a.id && <AssignForm agentId={a.id} people={asg.salespeople} today={asg.today ?? ""} onClose={() => setEditing(null)} onDone={(name) => { setEditing(null); onAssigned(name); }} />}
+                </section>
+                <KpiRow label={L("This agent's requests", "Permintaan ejen ini")} testid="agent-figures">
+                  <KpiTile icon="assignment" tone="navy" label={L("Requests", "Permintaan")} value={a.requests} />
+                  <KpiTile icon="pending" tone="blue" label={L("Open", "Terbuka")} value={a.open_requests} />
+                  <KpiTile icon="trophy" tone="green" label={L("Won", "Berjaya")} value={a.won} sub={a.requests ? L(`${Math.round((a.won / a.requests) * 100)}% conversion`, `${Math.round((a.won / a.requests) * 100)}% penukaran`) : undefined} />
+                </KpiRow>
+                <span className={css.row}>
+                  {asg?.can_manage && editing !== a.id && <button type="button" className="erp-button erp-button-accent erp-button-compact" onClick={() => setEditing(a.id)} data-testid="assign-salesperson">{cur ? L("Change Salesperson", "Tukar Jurujual") : L("Assign Salesperson", "Tugaskan Jurujual")}</button>}
+                  {canGrant && <button type="button" className={btnSm} onClick={onManage}>{L("Manage Access", "Urus Akses")}</button>}
+                  <button type="button" className={btnSm} onClick={() => onRequests(a.id)} disabled={theirs.length === 0} title={theirs.length === 0 ? L("No request from this agent yet", "Belum ada permintaan daripada ejen ini") : undefined}>{L(`View Requests (${theirs.length})`, `Lihat Permintaan (${theirs.length})`)}</button>
+                </span>
+                <p className={css.goldNote} data-testid="commission-rule"><AppIcon name="lock" /><span>{L("An agent's commission becomes eligible only after the invoice is paid in full and that payment is verified by the CEO. The salesperson's internal share is never shown in the agent portal.", "Komisen ejen hanya layak selepas invois dibayar penuh dan bayaran itu disahkan oleh CEO. Bahagian dalaman jurujual tidak pernah dipaparkan dalam portal ejen.")}</span></p>
+              </div>
+            )}
+          </SplitPane>
+        </WorkspaceSplit>
+      )}
+    </>
+  );
+}
+
+/* ================================================================
+   picture 04: Packages - the catalogue beside its governance. The agent's
+   own Packages tab is the same catalogue, without the governance pane.
+   ================================================================ */
+const pkgIcon = (p: Pkg): AppIconName => {
+  const t = `${p.category ?? ""} ${p.kind ?? ""} ${p.name}`.toLowerCase();
+  return /web|site|laman/.test(t) ? "content" : /review|ulasan/.test(t) ? "star" : /design|reka|poster|promosi/.test(t) ? "idea" : /video|live/.test(t) ? "video" : "package";
+};
+function PackageCatalogue({ pkgs, isAgent, onSubmit, toSales, onRequests }: { pkgs: Pkg[] | null; isAgent: boolean; onSubmit?: (p: Pkg) => void; toSales?: () => void; onRequests?: () => void }) {
+  const [q, setQ] = useState("");
+  const [co, setCo] = useState("");
+  const [cat, setCat] = useState("");
+  const [viewing, setViewing] = useState<Pkg | null>(null);
+  const cats = useMemo(() => [...new Set((pkgs ?? []).map((p) => p.category).filter((c): c is string => !!c))].sort(), [pkgs]);
+  const list = (pkgs ?? []).filter((p) => (!co || p.issuers.includes(co)) && (!cat || p.category === cat)
+    && (!q || `${p.name} ${p.category ?? ""} ${p.description ?? ""}`.toLowerCase().includes(q.toLowerCase())));
+  const body = !pkgs ? <SkelRows rows={4} /> : pkgs.length === 0 ? <p className={css.calm}><AppIcon name="info" />{L("No active packages yet.", "Belum ada pakej aktif.")}</p>
+    : list.length === 0 ? <p className={css.calm}><AppIcon name="search" />{L("No package matches.", "Tiada pakej sepadan.")}</p> : (
+      <ul className={css.pkgList}>
+        {list.map((p) => (
+          <li key={p.id} className={css.pkgRow} data-testid={`agent-pkg-${p.id}`}>
+            <span className={css.pkgIcon} aria-hidden><AppIcon name={pkgIcon(p)} /></span>
+            <span className={css.pkgText}>
+              <small className={css.pkgCat}>{p.category ?? L("Package", "Pakej")}</small>
+              <strong>{p.name}</strong>
+              <small>{[p.description, p.issuers.map((i) => COMPANY[i] ?? i).join(" · ")].filter(Boolean).join(" · ")}</small>
+            </span>
+            <span className={css.pkgPrice}>{fmtRM(p.total_cents)}</span>
+            <span className={css.pkgCmds}>
+              <button type="button" className={btnSm} onClick={() => setViewing(p)}>{L("View", "Lihat")}</button>
+              {isAgent && onSubmit && <button type="button" className={btnSmPrimary} onClick={() => onSubmit(p)}>{L("Submit a client", "Hantar pelanggan")}</button>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  const toolbar = (
+    <TaskToolbar q={q} onQ={setQ} placeholder={L("Search package name or category", "Cari nama atau kategori pakej")} testid="packages-toolbar">
+      <select className={selectClassSm} value={co} onChange={(e) => setCo(e.target.value)} aria-label={L("Company", "Syarikat")}>
+        <option value="">{L("All companies", "Semua syarikat")}</option>
+        {Object.keys(ISSUER).map((c) => <option key={c} value={c}>{COMPANY[c]}</option>)}
+      </select>
+      <select className={selectClassSm} value={cat} onChange={(e) => setCat(e.target.value)} aria-label={L("Category", "Kategori")}>
+        <option value="">{L("All categories", "Semua kategori")}</option>
+        {cats.map((c) => <option key={c} value={c}>{c}</option>)}
+      </select>
+    </TaskToolbar>
+  );
+  const listPane = (
+    <SplitPane testid="package-list" title={<>{L("Available Packages", "Pakej Tersedia")} {pkgs && <span className={css.titleCount}>({pkgs.length})</span>}</>} label={L("Available packages", "Pakej tersedia")}
+      sub={isAgent ? L("The approved packages you can offer, at their current price.", "Pakej diluluskan yang boleh anda tawarkan, pada harga semasa.") : L("The active packages at their current version and price - no duplicate pricing engine.", "Pakej aktif pada versi dan harga semasa - tiada enjin harga berganda.")}
+      actions={pkgs ? <span className={chipSmWarn}>{L(`${pkgs.length} listed`, `${pkgs.length} disenaraikan`)}</span> : undefined} toolbar={toolbar}>
+      {body}
+    </SplitPane>
+  );
+  const drawer = viewing && (
+    <SideDrawer open onClose={() => setViewing(null)} title={viewing.name} subtitle={viewing.category ?? L("Package", "Pakej")}
+      footer={isAgent && onSubmit ? <div className={css.footer}><button type="button" className={btnClass} onClick={() => { const p = viewing; setViewing(null); onSubmit(p); }}>{L("Submit a client", "Hantar pelanggan")}</button></div>
+        : toSales ? <div className={css.footer}><button type="button" className={btnSm} onClick={toSales}>{L("Open in Sales", "Buka dalam Jualan")}<AppIcon name="external" /></button></div> : undefined}>
+      <div className={css.drawer} data-testid="package-detail">
+        <dl className={css.dl}>
+          <dt>{L("Approved price", "Harga diluluskan")}</dt><dd className={css.strong}>{fmtRM(viewing.total_cents)}</dd>
+          <dt>{L("Issuing company", "Syarikat pengeluar")}</dt><dd>{viewing.issuers.map((i) => ISSUER[i] ?? i).join(" · ") || "—"}</dd>
+          {viewing.version ? <><dt>{L("Version", "Versi")}</dt><dd>{viewing.version}</dd></> : null}
+          {viewing.description && <><dt>{L("Description", "Keterangan")}</dt><dd className={css.pre}>{viewing.description}</dd></>}
+        </dl>
+        {viewing.lines.length > 0 && (
+          <section className={css.block} aria-label={L("What is included", "Apa yang termasuk")}>
+            <h3 className={css.h3}>{L("What is included", "Apa yang termasuk")}</h3>
+            <ul className={css.lines}>{viewing.lines.map((l, i) => <li key={i}>{l.qty > 1 ? `${l.qty} × ` : ""}{l.name}</li>)}</ul>
+          </section>
+        )}
+        <p className={css.lock}>{L("Sales prepares the official quotation from this package; the agent cannot change its price or terms.", "Jualan menyediakan sebut harga rasmi daripada pakej ini; ejen tidak boleh mengubah harga atau terma.")}</p>
+      </div>
+    </SideDrawer>
+  );
+  if (isAgent) return <div className={css.agentPkgs}>{listPane}{drawer}</div>;
+  const principle = (icon: AppIconName, t: [string, string], s: [string, string]) => (
+    <li className={css.rule}><span className={css.ruleIcon} aria-hidden><AppIcon name={icon} /></span><span className={css.flowText}><strong>{L(t[0], t[1])}</strong><small>{L(s[0], s[1])}</small></span></li>
+  );
+  return (
+    <>
+      <Intro title={L("Package Catalogue", "Katalog Pakej")} sub={L("Agents can present only approved packages. Sales owns official quotations and final prices.", "Ejen hanya boleh membentangkan pakej yang diluluskan. Jualan memiliki sebut harga rasmi dan harga akhir.")}
+        action={toSales ? <button type="button" className={btnSm} onClick={toSales} data-testid="open-sales-packages">{L("Open Master Packages in Sales", "Buka Pakej Induk dalam Jualan")}<AppIcon name="external" /></button> : undefined} />
+      <WorkspaceSplit testid="package-split" ratio="60-40">
+        {listPane}
+        <SplitPane testid="package-governance" title={L("Package Governance", "Tadbir Urus Pakej")} label={L("Package governance", "Tadbir urus pakej")}
+          sub={L("Keep agent offers accurate, sellable and easy to convert.", "Pastikan tawaran ejen tepat, boleh dijual dan mudah ditukar.")}>
+          <ul className={css.rules}>
+            {principle("success", ["One source of truth", "Satu sumber kebenaran"], ["Prices, versions and availability come from the packages in Sales - this list only reads them.", "Harga, versi dan ketersediaan datang daripada pakej dalam Jualan - senarai ini hanya membacanya."])}
+            {principle("success", ["Company ownership retained", "Pemilikan syarikat dikekalkan"], ["Each package names its issuing company: A2Z Creative Marketing or AZ ONE OFFICIAL.", "Setiap pakej menamakan syarikat pengeluarnya: A2Z Creative Marketing atau AZ ONE OFFICIAL."])}
+            {principle("success", ["Agent shares a package, never edits a quotation", "Ejen berkongsi pakej, tidak mengubah sebut harga"], ["The agent chooses a package for the client; Sales prepares the official quotation.", "Ejen memilih pakej untuk pelanggan; Jualan menyediakan sebut harga rasmi."])}
+            {principle("success", ["Only approved prices and terms", "Hanya harga dan terma diluluskan"], ["Draft and archived packages are never listed, so no outdated offer or unapproved discount reaches a client.", "Pakej draf dan diarkibkan tidak disenaraikan, jadi tiada tawaran lapuk atau diskaun tidak diluluskan sampai kepada pelanggan."])}
+          </ul>
+          <p className={css.goldNote}><AppIcon name="idea" /><span><strong>{L("Revenue principle:", "Prinsip hasil:")}</strong> {L("every request stays linked to its package, its agent, the assigned salesperson and the Sales quotation; commission follows only a verified payment.", "setiap permintaan kekal dipaut kepada pakejnya, ejennya, jurujual yang ditugaskan dan sebut harga Jualan; komisen hanya mengikut bayaran yang disahkan.")}</span></p>
+          <span className={css.row}>
+            {toSales && <button type="button" className="erp-button erp-button-accent erp-button-compact" onClick={toSales}>{L("Review Package Visibility", "Semak Keterlihatan Pakej")}</button>}
+            {onRequests && <button type="button" className={btnSm} onClick={onRequests}>{L("View Agent Requests", "Lihat Permintaan Ejen")}</button>}
+          </span>
+        </SplitPane>
+      </WorkspaceSplit>
+      {drawer}
+    </>
   );
 }
 

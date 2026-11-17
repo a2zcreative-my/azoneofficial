@@ -688,12 +688,15 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const [custFilter, setCustFilter] = useState<CustFilter>("action");
   const [fileTick, setFileTick] = useState(0); // v1.292.0 - a customer file closed from the worklist: reload
   const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts" | "packages">(initialView);
+  /* v1.347.0 - Agents › Packages opens the master packages here (startView "packages"), once, adjusted while rendering */
+  const [pkgStart, setPkgStart] = useState(startView === "packages" && initialView !== "create");
+  if (pkgStart) { setPkgStart(false); setWorkTab("packages"); }
   /* v1.214.0 - THE SALES WORKSPACE: one panel, five tabs over the same
      records (sales-workspace.tsx). The bodies stay mounted and are hidden,
      so a half-written quotation survives a look at another tab. "Mine" is
      the screen's filter over records every sales role may already read: a
      consultant opens on their own sales, management on everyone's. */
-  const [wsView, setWsView] = useState<SalesView>(initialView === "create" ? "documents" : isSalesView(startView) ? startView : "overview");
+  const [wsView, setWsView] = useState<SalesView>(initialView === "create" || startView === "packages" ? "documents" : isSalesView(startView) ? startView : "overview");
   useSalesViewHistory(wsView, setWsView); // v1.292.0 (S2) - the view is in the address: Back and Forward move between the six
   const [scope, setScope] = useState<WsScope>(MANAGE_ROLES.includes(user.role) ? "all" : "mine");
   /* v1.216.0 - the figures over the whole table (GET /staff/docs/summary),
