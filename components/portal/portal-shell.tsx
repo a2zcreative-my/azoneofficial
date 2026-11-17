@@ -56,7 +56,7 @@ import css from "@/app/portal/portal.module.css";
 
 export function PortalShell({ children }: { children: ReactNode }) {
   const {
-    user, setUser, navCollapsed, toggleNavCollapsed,
+    user, setUser, navCollapsed, toggleNavCollapsed, presence,
     tab, setTab, activeTab, canOpen, deskStop, setDeskStop, openRecord, searchQ, setSearchQ, tabStart, setTabStart,
     setSalesStart, setSalesCreateRequest,
     dark, setDark, theme, setTheme, lang, setLangState, dashDate, setDashDate,
@@ -178,6 +178,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
           onToggleCollapsed={toggleNavCollapsed}
           userName={user.name}
           userRole={user.role}
+          presence={presence}
           onSelect={(t) => setTab(t as TabName)}
           onSignOut={signOut}
           accountMenu={accountActions}

@@ -120,6 +120,29 @@
   font-weight: 600;
   object-fit: cover;
 }
+/* v1.335.0 - the presence dot sits on the photo's corner (the global .erp-dot,
+   ringed in the card's own colour so it reads on any photo) */
+.face {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.faceDot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  box-shadow: 0 0 0 2px var(--card);
+}
+.meRoleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.meRoleRow > :global(.erp-chip) {
+  flex: none;
+}
 .meText {
   display: grid;
   min-width: 0;

@@ -10,6 +10,15 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.335.0] - 2026-11-17 - The rail's name card shows Online / Offline from the live session and the connection - BUILT, NOT DEPLOYED (NO MIGRATION, SCREENS ONLY)
+
+The CEO, 17-11-2026, with a reference picture: "Add a real-time Online Status Badge to the A2Z OS sidebar user profile ... Automatically update to Offline when the session is no longer active, based on actual session/presence data ... Do not change existing authentication or session security logic. No hardcoded status, no new styling".
+
+- **Where:** the name card at the foot of the portal rail, for every account: a dot on the photo's corner (the global `.erp-dot`, green when online) and a compact chip beside the role (the global `.erp-chip-sm`: "Online" green, "Offline" neutral; BM "Dalam talian" / "Luar talian"). Collapsed, the dot stays and the card's spoken label carries the word. The /admin and /account rails draw none.
+- **What it reads (portal-provider, `presence`):** two real signals, nothing stored. The device's connection - the same store the offline banner already reads (now exported from offline-banner.tsx, unchanged). And the session - every authenticated answer the portal already gets (the sign-in read, the notifications read, the live stream opening, the version catch-up) marks it live; a 401 marks it ended. A stream that fails before it opens asks one cheap authenticated read to tell an ended session from a dropped line; a normal stream close asks nothing.
+- **Not changed:** sign-in, sign-out, session lifetime and every security rule. Presence only reads answers.
+- Guards: tests/navigation.mjs 37 checks (new: presence is derived from the connection and the session's answers, never fixed; the rail draws it with the global classes; nothing in sign-in or sign-out moved - a hard-coded "online" fails). The full guard run and the browser checks were not run in this session - PUSH.bat runs the guards.
+
 ## [1.334.0] - 2026-11-17 - Payments: the CEO can verify a November payment that was marked paid in Sales without a report - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO, 17-11-2026, on Payment History's "Recorded in Sales" rows: "for november month, I want to have an option for me to verified it since I should verify it".

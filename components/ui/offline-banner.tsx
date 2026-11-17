@@ -40,7 +40,7 @@ import { getLang } from "@/lib/i18n";
  * snapshot is a module constant, because a static export renders this on a
  * machine that has no navigator and React requires the same value every call.
  */
-function subscribeConnection(fn: () => void): () => void {
+export function subscribeConnection(fn: () => void): () => void { // v1.335.0 - also read by the rail's presence (portal-provider)
   window.addEventListener("online", fn);
   window.addEventListener("offline", fn);
   return () => {
@@ -48,8 +48,8 @@ function subscribeConnection(fn: () => void): () => void {
     window.removeEventListener("offline", fn);
   };
 }
-const isOfflineNow = () => typeof navigator !== "undefined" && navigator.onLine === false;
-const ASSUME_ONLINE = () => false;
+export const isOfflineNow = () => typeof navigator !== "undefined" && navigator.onLine === false;
+export const ASSUME_ONLINE = () => false;
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 

@@ -109,5 +109,23 @@ ok("Workspace has its BM heading", /Workspace: "Ruang Kerja"/.test(nav));
 const shell = strip(read("components/portal/portal-shell.tsx"));
 ok("the phone's More shows Projects in Operations, for the same people as the rail's shortcut", /section\.title === "Operations" && showProjects &&/.test(shell) && /setTabStart\(\{ tab: "Tasks", view: "projects" \}\); setTab\("Tasks"\); setMoreOpen\(false\);/.test(shell));
 
+
+/* v1.335.0 - the rail's presence (the CEO, 17-11-2026): from real signals only */
+{
+  const prov = strip(read("components/portal/portal-provider.tsx"));
+  const rail = strip(read("components/layout/side-nav.tsx"));
+  ok("presence is derived from the device's connection and the session's answers, never stored or fixed",
+    /const deviceOffline = useSyncExternalStore\(subscribeConnection, isOfflineNow, ASSUME_ONLINE\);/.test(prov)
+    && /else if \(status === 401\) setSessionLive\(false\);/.test(prov)
+    && /presence: !deviceOffline && sessionLive !== false \? "online" : "offline",/.test(prov)
+    && (prov.match(/noteSession\(r\.status\)/g) ?? []).length >= 4
+    && /es\.onopen = \(\) => \{ opened = true; setSessionLive\(true\); \};/.test(prov));
+  ok("the rail draws the dot and the badge from that value with the global classes, and the console rails draw none",
+    /presence === "online" \? "erp-dot-success" : ""/.test(rail) && /presence === "online" \? "erp-chip-success" : "erp-chip-neutral"/.test(rail)
+    && /presence=\{presence\}/.test(strip(read("components/portal/portal-shell.tsx"))) && !/presence=\{"online"\}|presence="online"/.test(rail + read("components/portal/portal-shell.tsx")));
+  ok("no sign-in, sign-out or session rule moved: presence only reads answers",
+    !/setUser\(null\)[^\n]*presence|signOut\([^)]*presence/.test(prov) && !/setSessionLive\([^)]*\)[^\n]*setUser/.test(prov));
+}
+
 if (fail) { console.error(`navigation: ${fail} of ${n} failed`); process.exit(1); }
 console.log(`navigation: ${n} checks passed - seven groups in the CEO's order, one home per module, no desktop More, group flyouts when collapsed, routes and access unchanged`);

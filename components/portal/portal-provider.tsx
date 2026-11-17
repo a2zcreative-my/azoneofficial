@@ -37,6 +37,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { subscribeConnection, isOfflineNow, ASSUME_ONLINE } from "@/components/ui/offline-banner"; // v1.335.0 - one connection store
 import Link from "next/link";
 import type { RecordFocus } from "@/lib/record-focus";
 import { installViewportSettle } from "@/lib/viewport-settle";
@@ -89,6 +90,10 @@ const CONTENT_ONLY_ROLES: string[] = [];
 /** Exactly the closure page.tsx used to be, named. */
 export interface PortalContextValue {
   user: User;
+  /** v1.335.0 - this person's own presence: "online" while this device is connected AND
+      the session still answers authenticated requests; "offline" otherwise. Derived, never
+      stored or hard-coded. */
+  presence: "online" | "offline";
   setUser: Dispatch<SetStateAction<User | null>>;
   checked: boolean;
   entryReady: boolean;
@@ -165,6 +170,22 @@ export function useOptionalPortal(): PortalContextValue | null {
 export function PortalProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
+  /* v1.335.0 - PRESENCE (the CEO, 17-11-2026: "a real-time Online Status Badge ...
+     Automatically update to Offline when the session is no longer active, based
+     on actual session/presence data"). Two real signals, nothing stored:
+       - the device's connection - the same store the offline banner reads;
+       - the session - every authenticated answer the portal already gets
+         (sign-in read, notifications, the live stream opening, the version
+         catch-up) says yes; a 401 says the session has ended.
+     Nothing here signs anybody in or out: authentication and the session
+     rules are untouched. */
+  const deviceOffline = useSyncExternalStore(subscribeConnection, isOfflineNow, ASSUME_ONLINE);
+  const [sessionLive, setSessionLive] = useState<boolean | null>(null);
+  const noteSession = useCallback((status: number) => {
+    if (status >= 200 && status < 300) setSessionLive(true);
+    else if (status === 401) setSessionLive(false);
+    /* 0 (no network) and every other refusal say nothing about the session */
+  }, []);
   const [navCollapsed, setNavCollapsed] = useState(true);
   /* v1.181.4 - after the phone keyboard closes, put the layout viewport back
      under the visual one, so the bottom bar and the topbar return to the
@@ -458,6 +479,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      then the per-account scopes. */
   async function loadMe() {
     const r = await api<{ user: User }>("/auth/me");
+    noteSession(r.status); // v1.335.0 - presence
     if (r.ok && r.data) {
       setCaps(r.data.user.caps); // v1.237.0 - before anything draws from them
       setUser(r.data.user);
@@ -634,6 +656,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     const fetchNotifs = () =>
       void api<{ notifications: Notification[] }>("/staff/notifications").then(
         (r) => {
+          noteSession(r.status); // v1.335.0 - presence
           if (r.data?.notifications) applyList(r.data.notifications);
         }
       );
@@ -682,9 +705,17 @@ export function PortalProvider({ children }: { children: ReactNode }) {
             /* ignore malformed frame */
           }
         });
+        /* v1.335.0 - presence: the stream route authenticates, so an open
+           stream is a live session. A stream that fails BEFORE it opens may be
+           an ended session (EventSource hides the status): one cheap
+           authenticated read then says which. A normal close after ~20 s
+           opened first, so it asks nothing. */
+        let opened = false;
+        es.onopen = () => { opened = true; setSessionLive(true); };
         es.onerror = () => {
           es?.close();
           es = null;
+          if (!opened) void api<unknown>("/staff/versions").then((r) => noteSession(r.status));
         };
       } catch {
         /* EventSource unsupported — the poll below carries it */
@@ -708,6 +739,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "hidden") return;
       fetchNotifs();
       void api<{ versions: Record<string, number> }>("/staff/versions").then((r) => {
+        noteSession(r.status); // v1.335.0 - presence
         if (r.data?.versions) applyVersions(r.data.versions);
         pokeVersions();
       });
@@ -980,6 +1012,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     <PortalCtx.Provider
       value={{
         user, setUser, checked, entryReady, navCollapsed, toggleNavCollapsed,
+        presence: !deviceOffline && sessionLive !== false ? "online" : "offline",
   tab, setTab, activeTab, tabs, canOpen, deskStop, setDeskStop,
   salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
   tabStart, setTabStart, dashDate, setDashDate, focus, openRecord, searchQ, setSearchQ,

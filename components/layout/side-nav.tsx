@@ -137,7 +137,7 @@ export const NAV_COLLAPSED_KEY = "azone-nav-collapsed";
 
 export function SideNav({
   items, active, onSelect, onSignOut, collapsed, onToggleCollapsed, userName, userRole, sections = SECTIONS,
-  accountMenu, userPhoto, onProjects,
+  accountMenu, userPhoto, onProjects, presence,
 }: {
   items: NavItem[];
   active: string;
@@ -157,6 +157,9 @@ export function SideNav({
   accountMenu?: AccountAction[];
   /** v1.279.0 - the photo on the person's badge card, if any */
   userPhoto?: string | null;
+  /** v1.335.0 - the person's own presence (portal-provider: the device's connection
+      and the live session). Left out on the console rails: no badge is drawn. */
+  presence?: "online" | "offline";
   /** v1.279.0 - the Projects shortcut (Tasks > Projects); drawn only when
       the portal passes it, i.e. the person may open Tasks and its projects */
   onProjects?: () => void;
@@ -471,16 +474,30 @@ export function SideNav({
             </div>
           )}
           <button type="button" ref={menuButtonRef} className={css.me} aria-expanded={menuOpen} aria-controls="rail-account-menu"
-            aria-label={ms ? `Akaun anda: ${userName}` : `Your account: ${userName}`} title={collapsed ? userName : undefined}
+            aria-label={(ms ? `Akaun anda: ${userName}` : `Your account: ${userName}`) + (presence ? (presence === "online" ? (ms ? " · dalam talian" : " · online") : (ms ? " · luar talian" : " · offline")) : "")}
+            title={collapsed ? userName : undefined}
             onClick={() => setMenuOpen((v) => !v)}>
-            {userPhoto
-              /* eslint-disable-next-line @next/next/no-img-element */
-              ? <img src={userPhoto} alt="" className={css.avatar} />
-              : <span aria-hidden className={css.avatar}>{initials}</span>}
+            {/* v1.335.0 - the presence dot on the photo and the badge beside the
+                role (the CEO's reference, 17-11-2026): the global .erp-dot and
+                .erp-chip, coloured by the live presence, never a fixed word */}
+            <span className={css.face}>
+              {userPhoto
+                /* eslint-disable-next-line @next/next/no-img-element */
+                ? <img src={userPhoto} alt="" className={css.avatar} />
+                : <span aria-hidden className={css.avatar}>{initials}</span>}
+              {presence && <span className={`erp-dot ${presence === "online" ? "erp-dot-success" : ""} ${css.faceDot}`} aria-hidden data-testid="rail-presence-dot" />}
+            </span>
             {!collapsed && (
               <span className={css.meText}>
                 <span className={css.meName}>{userName}</span>
-                <span className={css.meRole}>{userRole.replace(/_/g, " ")}</span>
+                <span className={css.meRoleRow}>
+                  <span className={css.meRole}>{userRole.replace(/_/g, " ")}</span>
+                  {presence && (
+                    <span className={`erp-chip erp-chip-sm ${presence === "online" ? "erp-chip-success" : "erp-chip-neutral"}`} data-testid="rail-presence" data-presence={presence}>
+                      {presence === "online" ? (ms ? "Dalam talian" : "Online") : (ms ? "Luar talian" : "Offline")}
+                    </span>
+                  )}
+                </span>
               </span>
             )}
             {!collapsed && <ChevronsUpDown aria-hidden className={css.meChevron} />}
