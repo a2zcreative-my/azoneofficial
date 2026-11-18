@@ -95,6 +95,8 @@ const watchers = read("worker/src/watchers.ts");
 
 /* ---- 6. off the staff list, only once the list is known ---- */
 ok("'not on the staff list' waits for the list", /const offList = \(a: Asset\) => people\.data != null && a\.assigned_to != null/.test(code));
+/* v1.363.0 - the CEO: "Assets Needing Attention" showed 1, its View all opened Maintenance & Disposal, and nothing was there - the off-list holder was counted and shown nowhere else */
+ok("an asset held off the staff list is listed on Maintenance & Disposal too (where View all goes)", /const offHeld = assets\.filter\(offList\);/.test(code) && /\{offHeld\.length > 0 && \(\s*<section className=\{card\}[^>]*data-testid="assets-off-list"/.test(code) && code.indexOf('data-testid="assets-off-list"') < code.indexOf("<CareBoard") && /head\("warning", av\.redWell, L\("Assets Needing Attention"[\s\S]{0,400}onClick=\{\(\) => go\("care"\)\}/.test(code));
 
 ok("no sample data from the reference", !/MacBook Pro 14|A2Z-LPT|Dell Latitude 5440|HP LaserJet|Perodua Myvi|WXX1234|Sony A7 IV|284,500|210,800|73,700/.test(src));
 ok("the guard is registered", /\["assets-module", "/.test(read("scripts/run-guards.mjs")));

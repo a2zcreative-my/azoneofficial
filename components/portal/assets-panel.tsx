@@ -432,6 +432,7 @@ export function AssetsPanel({ focus, startView }: { focus?: RecordFocus | null; 
   const offList = (a: Asset) => people.data != null && a.assigned_to != null && a.status !== "lost" && a.status !== "disposed"
     && !(people.data.staff ?? []).some((u) => u.id === a.assigned_to);
   const attention = assets.filter((a) => a.status === "repair" || a.status === "lost" || a.status === "disposed" || offList(a));
+  const offHeld = assets.filter(offList); // v1.363.0 - shown on Maintenance & Disposal too
   const active = (a: Asset) => a.status !== "disposed" && a.status !== "lost";
   const valueOf = (list: Asset[]) => lineOf("", list).active_cost_cents;
   const holders = useMemo(() => {
@@ -1050,6 +1051,32 @@ export function AssetsPanel({ focus, startView }: { focus?: RecordFocus | null; 
 
       {/* ======================== MAINTENANCE & DISPOSAL ======================== */}
       <TabZone label={L("Maintenance and disposal", "Penyelenggaraan dan pelupusan")} className={view !== "care" ? av.off : ""}>
+        {/* v1.363.0 - the Overview's "Assets Needing Attention" also counts an asset held by someone no
+            longer on the staff list; its "View all" opens this tab, so that list lives here too (it was
+            counted and then shown nowhere). The same offList rule, the same rows; the tag opens the asset. */}
+        {offHeld.length > 0 && (
+          <section className={card} aria-label={L("Held by someone not on the staff list", "Dipegang oleh seseorang yang tiada dalam senarai kakitangan")} data-testid="assets-off-list">
+            {head("warning", av.redWell, L("Held by Someone Not on the Staff List", "Dipegang oleh Seseorang Tiada dalam Senarai Kakitangan"),
+              L("The holder has left or their account is off the staff list. Collect the asset and give it to someone else, or mark it Spare.", "Pemegang telah berhenti atau akaunnya tiada dalam senarai kakitangan. Kutip aset dan berikan kepada orang lain, atau tanda Simpanan."),
+              <button type="button" className={btnSm} onClick={() => go("assign")}>{L("Open Assignments", "Buka Tugasan")}</button>)}
+            <div className={`erp-table-scroll erp-mt-2 ${av.tableWrap}`}>
+              <table className={av.plain} aria-label={L("Assets held by someone not on the staff list", "Aset dipegang oleh seseorang yang tiada dalam senarai kakitangan")}>
+                <thead><tr><th>{L("Tag", "Tag")}</th><th>{L("Item", "Barang")}</th><th>{L("Held by", "Dipegang oleh")}</th><th>{L("Status", "Status")}</th><th>{L("Date", "Tarikh")}</th></tr></thead>
+                <tbody>
+                  {offHeld.map((a) => (
+                    <tr key={a.id}>
+                      <td>{tagBtn(a)}</td>
+                      <td className={av.strong}>{a.name}</td>
+                      <td><span className={av.warnText}>{a.assigned_name ?? `#${a.assigned_to}`}</span></td>
+                      <td>{chip(a.status)}</td>
+                      <td>{stamp(a) ? dmyMYT(stamp(a)) : <span className={av.muted}>—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
         {/* v1.305.0 - phase 3: the records (0195); before it is applied, the status lists as they were */}
         {careLive && view === "care" && <CareBoard toast={showToast} refreshKey={careTick} assets={assets} onChanged={load} openAsset={(id) => { const x = assets.find((y) => y.id === id); if (x) { setDTab("care"); showAsset(x); } }} />}
         {!careLive && (["repair", "lost", "disposed"] as const).map((k) => {

@@ -10,6 +10,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.363.0] - 2026-11-18 - Assets: the attention count and its list now agree - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, a screenshot): the Assets Overview said 1 asset needed attention, but "View all" opened Maintenance & Disposal and it was empty.
+
+### Fixed
+- **An asset held by someone no longer on the staff list** is counted in "Assets Needing Attention" (since 1.210.0), but Maintenance & Disposal only lists In Repair, Lost and Disposed, so it showed nothing. That tab now opens with a "Held by Someone Not on the Staff List" card listing exactly those assets (the tag opens the asset), with Open Assignments to give it to someone else. Same rule as the Overview, no new request, nothing in the register changes.
+
+### Guards
+- `tests/assets-module.mjs` +1 check.
+
 ## [1.362.0] - 2026-11-18 - Your photo opens the account menu on the phone, the same as on the desktop - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, a phone screenshot): tapping his photo in the phone header went straight to Profile; "allow user to sign out or any similarity as in the desktop ... standardize and globally".
