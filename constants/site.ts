@@ -64,4 +64,4 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { label: "Contact", href: "/contact" },
 ] as const;
 
-export const CTA_LABEL = "Get a free live audit" as const;
+export const CTA_LABEL = "Get a Free Consultation" as const;

@@ -132,6 +132,8 @@ export const MS_DICT: Record<string, string> = {
   "Fast support": "Sokongan pantas",
   "Follow us": "Ikuti kami",
   "From first call to first sale": "Dari panggilan pertama ke jualan pertama",
+  /* Website restructure (18-11-2026, unreleased) - the new call to action (navbar, footer, every page) */
+  "Get a Free Consultation": "Dapatkan Konsultasi Percuma",
   "Get a free live audit": "Dapatkan audit live percuma",
   "Governing law": "Undang-undang yang mentadbir",
   "Host rotation + dedicated live manager": "Rotasi host + live manager khusus",

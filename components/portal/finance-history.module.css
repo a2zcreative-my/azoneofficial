@@ -35,3 +35,8 @@
   .assign > select { min-width: 0; width: 100%; }
   .foot > button { flex: 1 1 auto; justify-content: center; }
 }
+/* v1.376 - the account step in the verify drawer */
+.acctStep { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--secondary); }
+.acctStep .note { margin: 0; }
+.stepHead { margin: 0; font-size: var(--type-body-sm-size); font-weight: 600; color: var(--foreground); }
+.acctStep .assign > select { flex: 1 1 12rem; min-width: 0; }

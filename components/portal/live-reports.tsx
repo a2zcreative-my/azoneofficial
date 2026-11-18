@@ -507,6 +507,13 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
     const draft = d.can.edit;
     const next: Record<string, string> = {};
     for (const [k, , unit, dcol, vcol] of FIGS) next[k] = toForm(unit, draft ? r[dcol] : v?.[vcol]);
+    /* v1.386.0 - the CEO: "AI should filled the textbox instead!" - a draft's empty box shows what the AI read
+       (the worker now also saves it into the draft); a figure a person typed is never replaced */
+    const rd0 = d.readings.find((x) => x.outcome === "read" && x.figures);
+    if (draft && rd0?.figures) {
+      const ai0 = JSON.parse(rd0.figures) as Record<string, number | null>;
+      for (const [k] of FIGS) if ((next[k] ?? "") === "" && ai0[k] !== null && ai0[k] !== undefined) next[k] = String(ai0[k]);
+    }
     next.highlights = String((draft ? r.draft_highlights : v?.highlights) ?? "");
     next.blockers = String((draft ? r.draft_blockers : v?.blockers) ?? "");
     next.next_actions = String((draft ? r.draft_next_actions : v?.next_actions) ?? "");
@@ -541,7 +548,7 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
       const why: Record<string, string> = { off: L("The screenshot AI is off", "AI tangkapan skrin dimatikan"), not_bound: L("The screenshot AI is not connected", "AI tangkapan skrin tidak disambung"), cap_reached: L("Today's AI cap is reached", "Had AI hari ini telah dicapai"), ceiling_reached: L("The free AI allowance guard is reached", "Had peruntukan AI percuma dicapai"), unreadable: L("The AI could not find figures on this screenshot", "AI tidak menemui angka pada tangkapan skrin ini"), timeout: L("The AI was too slow", "AI terlalu perlahan"), failed: L("The AI failed", "AI gagal") };
       const cf = res.data.reason === "failed" && res.data.detail ? ` (Cloudflare: ${res.data.detail.slice(0, 120)})` : "";
       fb.notice(`${why[res.data.reason ?? "failed"] ?? why.failed} - ${L("type the figures below", "isi angka di bawah")}${cf}`);
-    } else fb.done(L("Figures read - check and confirm each one", "Angka dibaca - semak dan sahkan setiap satu"));
+    } else fb.done(L("Figures read and filled in - check each one before you submit", "Angka dibaca dan diisi - semak setiap satu sebelum hantar"));
     refresh();
   };
   const useAi = () => setForm((fm) => { const n = { ...fm }; for (const [k] of FIGS) if (aiFig[k] !== null && aiFig[k] !== undefined) n[k] = String(aiFig[k]); return n; });
@@ -637,6 +644,7 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
                 <label key={k} className={css.fig}>
                   <span>{label}</span>
                   <input className="erp-input" inputMode="decimal" type="number" min={0} step={unit === "rm" || unit === "percent" ? "0.01" : "1"} value={form[k] ?? ""} disabled={!edit}
+                    placeholder={!edit && aiFig[k] !== undefined && aiFig[k] !== null ? L(`AI: ${aiFig[k]} (not confirmed)`, `AI: ${aiFig[k]} (belum disahkan)`) : undefined}
                     onChange={(e) => setForm({ ...form, [k]: e.target.value })} data-testid={`live-fig-${k}`} />
                   {aiFig[k] !== undefined && aiFig[k] !== null && <small className={String(aiFig[k]) === (form[k] ?? "") ? css.aiSame : css.aiDiff}>{L("AI read", "Bacaan AI")}: {aiFig[k]}</small>}
                 </label>

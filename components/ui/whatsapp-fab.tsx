@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { whatsappUrl } from "@/constants/content";
+import { isMsPath, serviceForPath, serviceWhatsApp } from "@/constants/services";
 import { TEAM } from "@/constants/team";
 
 /* v1.71.0 — a digital business card carries the CARD HOLDER's own WhatsApp.
@@ -54,9 +54,14 @@ export function WhatsAppFab() {
 
   if (hidden) return null;
 
+  /* Website restructure (18-11-2026, unreleased) - one number, with the message of the page's service (or the
+     consultation message), in the page's language */
+  const here = serviceForPath(pathname);
+  const href = serviceWhatsApp(here?.s ?? null, isMsPath(pathname) ? "ms" : "en");
+
   return (
     <a
-      href={whatsappUrl()}
+      href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Chat with A2Z CREATIVE MARKETING on WhatsApp"

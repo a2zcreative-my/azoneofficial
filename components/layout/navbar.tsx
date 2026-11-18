@@ -19,7 +19,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { LangToggle } from "@/components/live/lang-runtime";
-import { SERVICES, serviceSlug, whatsappUrl } from "@/constants/content";
+import { SERVICE_PAGES, isMsPath, serviceForPath, servicePath, serviceWhatsApp } from "@/constants/services";
 import { CTA_LABEL, NAV_ITEMS, SITE_CONFIG } from "@/constants/site";
 
 import nav from "./navbar.module.css";
@@ -35,6 +35,14 @@ function isHere(pathname: string, href: string) {
 
 export function Navbar() {
   const pathname = usePathname() ?? "/";
+  /* Website restructure (18-11-2026, unreleased) - on a Bahasa Melayu page (/ms, /ms/services/...) the menu
+     links to the BM service pages and Home is /ms; the call to action opens
+     WhatsApp with the service of the page you are on. */
+  const ms = isMsPath(pathname);
+  const lang = ms ? "ms" : "en";
+  const here0 = serviceForPath(pathname);
+  const ctaHref = serviceWhatsApp(here0?.s ?? null, lang);
+  const homeHref = ms ? "/ms" : "/";
   const [open, setOpen] = useState(false);
   const [svc, setSvc] = useState(false);
   const svcRef = useRef<HTMLLIElement>(null);
@@ -57,7 +65,7 @@ export function Navbar() {
   return (
     <header className={nav.bar}>
       <nav aria-label="Main" className={nav.inner}>
-        <Link href="/" onClick={() => setOpen(false)} className={nav.brand} aria-label={SITE_CONFIG.name}>
+        <Link href={homeHref} onClick={() => setOpen(false)} className={nav.brand} aria-label={SITE_CONFIG.name}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.png" alt="" className={nav.logo} width={991} height={547} />
           <span className={nav.wordmark} data-no-translate aria-hidden="true">
@@ -88,11 +96,11 @@ export function Navbar() {
                     </button>
                   </span>
                   <ul id="nav-services" className={nav.menu}>
-                    {SERVICES.map((s) => (
-                      <li key={s.title}>
-                        <Link href={`/services#${serviceSlug(s.title)}`} className={nav.menuItem} onClick={() => setSvc(false)}>
+                    {SERVICE_PAGES.map((s) => (
+                      <li key={s.key}>
+                        <Link href={servicePath(s, lang)} className={nav.menuItem} onClick={() => setSvc(false)}>
                           <s.icon aria-hidden="true" />
-                          <span>{s.title}</span>
+                          <span>{s[lang].name}</span>
                         </Link>
                       </li>
                     ))}
@@ -100,9 +108,11 @@ export function Navbar() {
                 </li>
               );
             }
+            const href = item.href === "/" ? homeHref : item.href;
+            const isHome = item.href === "/" && (pathname === "/" || pathname === "/ms");
             return (
               <li key={item.href}>
-                <Link href={item.href} className={`${nav.link} ${here ? nav.here : ""}`} aria-current={here ? "page" : undefined}>
+                <Link href={href} className={`${nav.link} ${here || isHome ? nav.here : ""}`} aria-current={here || isHome ? "page" : undefined}>
                   {item.label}
                 </Link>
               </li>
@@ -115,7 +125,7 @@ export function Navbar() {
           <Link href="/login" className={nav.login} aria-label="Login" title="Login">
             <UserRound aria-hidden="true" />
           </Link>
-          <a href={whatsappUrl()} target="_blank" rel="noopener noreferrer" className={nav.cta}>
+          <a href={ctaHref} target="_blank" rel="noopener noreferrer" className={nav.cta}>
             <span>{CTA_LABEL}</span>
             <ArrowRight aria-hidden="true" />
           </a>
@@ -143,7 +153,7 @@ export function Navbar() {
             return (
               <li key={item.href}>
                 <Link
-                  href={item.href}
+                  href={item.href === "/" ? homeHref : item.href}
                   className={`${nav.sheetLink} ${here ? nav.sheetHere : ""}`}
                   aria-current={here ? "page" : undefined}
                   onClick={() => setOpen(false)}
@@ -160,7 +170,7 @@ export function Navbar() {
           </li>
           <li className={nav.sheetCta}>
             <a
-              href={whatsappUrl()}
+              href={ctaHref}
               target="_blank"
               rel="noopener noreferrer"
               className={`${nav.cta} ${nav.ctaBlock}`}

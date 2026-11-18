@@ -156,6 +156,14 @@ try {
   await call(`/docs/205/confirm-paid`, 1, "POST", { amount_cents: 10000, checked: true });
   const earn205 = db.prepare(`SELECT amount_cents FROM commission_ledger WHERE invoice_id = 205 AND kind = 'earn'`).get();
   ok(earn205?.amount_cents === 1000, "GAP (approved rule today): an invoice CREATED 28-10 but PAID 05-11 earns 10% - the gate is the paid day, not the invoice date", JSON.stringify(earn205));
+
+  /* v1.376 - the account step in the verify drawer (the CEO, 18-11-2026) */
+  const fh = readFileSync(join(root, "components/portal/finance-history.tsx"), "utf8");
+  const step = fh.slice(fh.indexOf('data-testid="history-assign"') - 1500, fh.indexOf('data-testid="history-assign"') + 3000);
+  ok(/!opened\.bank_id && live\(opened\) && v\.can_correct/.test(fh) && /\/cashbook\/assign-bank/.test(step + fh), "H6: the verify drawer offers an account only for an unassigned receipt, to those who may correct, through the existing assign-bank route");
+  ok(/b\.company === i\.company/.test(fh) && !/cash-verify/.test(fh.slice(fh.indexOf("const assignBank"), fh.indexOf("const addPrinted"))), "H6: only the receipt's own company's accounts are offered, and assigning does not verify");
+  const banks = (await book("2026-06-01", "2026-11-18", "a2z")).j.banks ?? [];
+  ok(banks.length > 0 && banks.every((b) => "number_masked" in b && "company" in b), "H6: the history read gives each account its masked number and company (the printed one is chosen first)");
 } catch (e) { ok(false, `the run threw: ${e?.stack ?? e}`); }
 
 let failed = 0;

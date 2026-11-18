@@ -1,71 +1,82 @@
+import { ArrowRight } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 
-import { PageShell } from "@/components/layout/page-shell";
-import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
-import { SERVICES, serviceSlug, whatsappUrl } from "@/constants/content";
+import css from "@/components/landing/landing.module.css";
+import { Footer } from "@/components/layout/footer";
+import { Navbar } from "@/components/layout/navbar";
+import { PAGE_WORDS } from "@/constants/home-copy";
+import { SERVICE_PAGES, servicePath } from "@/constants/services";
 
+/* Website restructure (18-11-2026, unreleased) - the services hub: the eight official services, each linking to
+   its own page. The old /services anchors are kept on the nearest card (or
+   on the consultancy note), so a bookmarked /services#live-host-service
+   still lands on the right thing. */
 export const metadata: Metadata = {
-  title: "Services",
+  title: { absolute: "Services — Live Commerce, Studio, Video & Websites | A2Z" },
   description:
-    "Creative marketing, digital marketing, live commerce management, live host service, content creation and video, plus consultancy and business development.",
+    "A2Z Creative Marketing's eight services in Johor Bahru: live host, live commerce management, studio rental, product video, creative design, mobilegraphy, websites and affiliate marketing.",
   alternates: { canonical: "/services" },
 };
 
+/* the anchors the old /services page had, by service */
+const OLD_ANCHORS: Partial<Record<string, string>> = {
+  "live-host": "live-host-service",
+  "live-commerce": "live-commerce-management",
+  video: "content-creation-and-video",
+  design: "creative-marketing",
+};
+
 export default function ServicesPage() {
+  const w = PAGE_WORDS.en;
   return (
-    <PageShell
-      eyebrow="Services"
-      title="Everything a brand needs to grow"
-      intro="Creative marketing, digital marketing, content, live commerce, and consultancy. Pick a single service or hand us the whole thing — every engagement starts with a free consultation, so we recommend only what your brand actually needs."
-    >
-      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-        {SERVICES.map(({ title, description, icon: Icon }) => (
-          <article
-            key={title}
-            id={serviceSlug(title)}
-            className="flex items-start gap-4 rounded-xl border border-border p-5"
-          >
-            <span className="bg-brand text-gold inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl">
-              <Icon className="h-[22px] w-[22px]" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-              <p className="mt-1 text-sm">{description}</p>
+    <>
+      <Navbar />
+      <main>
+        <section className={css.svcHero} aria-labelledby="hub-title">
+          <div className={css.wrap}>
+            <nav aria-label="Breadcrumb">
+              <ol className={css.crumbs}>
+                <li><Link href="/">{w.home}</Link></li>
+                <li aria-current="page">{w.services}</li>
+              </ol>
+            </nav>
+            <p className={css.svcName}>{w.services}</p>
+            <h1 id="hub-title" className={css.svcH1}>Everything your brand needs to be seen and to sell</h1>
+            <p className={css.svcIntro}>{w.hubIntro}</p>
+          </div>
+        </section>
+        <section className={`${css.section} ${css.grey}`}>
+          <div className={css.wrap}>
+            <ul className={css.cards}>
+              {SERVICE_PAGES.map((s) => {
+                const Icon = s.icon;
+                return (
+                  <li key={s.key} id={OLD_ANCHORS[s.key]}>
+                    <Link className={css.card} href={servicePath(s, "en")}>
+                      <span className={css.cardIcon} aria-hidden="true"><Icon /></span>
+                      <h2 className={css.cardTitle}>{s.en.name}</h2>
+                      <p className={css.cardText}>{s.en.card}</p>
+                      <span className={css.cardMore} aria-hidden="true">Learn more<ArrowRight /></span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </section>
+        <section className={css.section} id="digital-marketing">
+          <div className={css.wrap} id="consultancy-and-business-development">
+            <h2 className={css.h3}>{w.consultancyTitle}</h2>
+            <p className={css.body}>{w.consultancyText}</p>
+            <div className={`${css.btnRow} ${css.heroCtas}`}>
+              <Link className={css.btnNavy} href="/consultancy">{w.seeConsultancy}</Link>
+              <Link className={css.btnLine} href="/packages">{w.seePackages}</Link>
             </div>
-          </article>
-        ))}
-      </section>
-
-      <section>
-        <p>
-          Not sure where to start?{" "}
-          <a
-            href={whatsappUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-foreground underline"
-          >
-            Book a free consultation on WhatsApp
-          </a>{" "}
-          and we&apos;ll map it out together.
-        </p>
-      </section>
-      <section>
-        <h2>How we package this</h2>
-        <p className="mt-3 mb-6">
-          These services are bundled into four tiers — Starter, Growth, Scale,
-          and Enterprise — so you can start at the cadence that fits and move up
-          when live starts pulling its weight. Pricing is quoted per brand.
-        </p>
-        <ButtonGroup>
-          <Button href="/packages">Compare packages</Button>
-          <Button href="/consultancy" variant="outline">
-            See our consultancy
-          </Button>
-        </ButtonGroup>
-      </section>
-
-    </PageShell>
+          </div>
+        </section>
+      </main>
+      <Footer />
+    </>
   );
 }

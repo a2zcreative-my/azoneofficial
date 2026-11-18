@@ -748,7 +748,23 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       const row = await env.DB.prepare(`INSERT INTO live_report_ai_readings (report_id, file_id, figures, model, neurons, outcome, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`)
         .bind(r.id, f.id, res.figures ? JSON.stringify(res.figures) : null, res.model, res.neurons, outcome, user.id).first<{ id: number }>();
       await audit(env, user.id, "live_report.ai_read", "live_reports", String(r.id), { file_id: f.id, reading_id: row?.id, outcome, neurons: res.neurons });
-      return json({ manual: outcome !== "read", reason: outcome === "read" ? null : "unreadable", reading_id: row?.id, figures: res.figures, usage: await aiUsageToday(env) });
+      /* v1.386.0 - the CEO (18-11-2026): "AI should filled the textbox instead!" - what the AI read goes into the
+         DRAFT boxes that are still empty (never over a figure a person typed). It stays a draft: staff check it
+         and the figures freeze only when they submit. */
+      let filled = 0;
+      if (res.figures) {
+        const sets: string[] = []; const vals: unknown[] = [];
+        for (const [dcol, , key, unit] of FIGURES) {
+          const v = figure(res.figures[key], unit);
+          if (typeof v === "number" && Number.isFinite(v)) { vals.push(v); sets.push(`${dcol} = COALESCE(${dcol}, ?${vals.length})`); }
+        }
+        if (sets.length) {
+          vals.push(r.id);
+          await env.DB.prepare(`UPDATE live_reports SET ${sets.join(", ")} WHERE id = ?${vals.length} AND state IN ('draft', 'returned')`).bind(...vals).run();
+          filled = sets.length;
+        }
+      }
+      return json({ manual: outcome !== "read", reason: outcome === "read" ? null : "unreadable", reading_id: row?.id, figures: res.figures, filled, usage: await aiUsageToday(env) });
     }
 
     /* ---------------- a participant submits: the figures freeze as a new version ---------------- */

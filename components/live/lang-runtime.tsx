@@ -43,10 +43,11 @@
  * ("azone-lang"), so someone who works in BM inside the portal gets BM on the
  * public site too.
  */
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { MS_DICT } from "@/constants/ms";
+import { isMsPath, twinPath } from "@/constants/services";
 
 export type PublicLang = "en" | "ms";
 
@@ -168,14 +169,30 @@ export function LangRuntime() {
       return;
     }
 
+    /* Website restructure (18-11-2026, unreleased) - the homepage and the eight service pages have REAL BM
+       pages (/ms, /ms/services/...). On one of those the words are already
+       BM and the shared chrome (menu, footer) is put in BM too, whatever was
+       chosen before; a visitor who chose BM and opens the English twin is
+       sent to the BM page instead of a runtime swap. */
     const sync = () => {
+      const path = window.location.pathname;
+      if (isMsPath(path)) {
+        applyLang(true);
+        lift();
+        return;
+      }
+      const twin = twinPath(path);
+      if (readLang() === "ms" && twin) {
+        window.location.replace(twin + window.location.search + window.location.hash);
+        return;
+      }
       applyLang(readLang() === "ms");
       lift();
     };
     sync();
 
     const observer = new MutationObserver(() => {
-      if (readLang() === "ms") applyLang(true);
+      if (readLang() === "ms" || isMsPath(window.location.pathname)) applyLang(true);
     });
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener(EVENT, sync);
@@ -191,7 +208,10 @@ export function LangRuntime() {
 /** The EN | BM control itself. Lives in the navbar, desktop and mobile. */
 export function LangToggle({ className = "" }: { className?: string }) {
   const pathname = usePathname() ?? "/";
-  const [lang, setLang] = useState<PublicLang>("en");
+  const router = useRouter();
+  const [stored, setLang] = useState<PublicLang>("en");
+  /* a BM page is BM whatever is stored; elsewhere the stored choice shows */
+  const lang: PublicLang = isMsPath(pathname) ? "ms" : twinPath(pathname) ? "en" : stored;
 
   useEffect(() => {
     setLang(readLang());
@@ -207,8 +227,14 @@ export function LangToggle({ className = "" }: { className?: string }) {
       /* private mode — the choice just does not persist */
     }
     setLang(next);
+    /* Website restructure (18-11-2026, unreleased) - a page with a twin in the other language goes there */
+    const twin = twinPath(window.location.pathname);
+    if (twin && (next === "ms") !== isMsPath(window.location.pathname)) {
+      router.push(twin);
+      return;
+    }
     window.dispatchEvent(new Event(EVENT));
-  }, []);
+  }, [router]);
 
   if (APP_SURFACES.test(pathname)) return null;
 

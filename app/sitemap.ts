@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { BLOG_POSTS } from "@/constants/pages";
+import { SERVICE_PAGES } from "@/constants/services";
 import { SITE_CONFIG } from "@/constants/site";
 import { TEAM } from "@/constants/team";
 
@@ -40,5 +41,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     lastModified: new Date(),
   }));
 
-  return [...staticRoutes, ...cardRoutes, ...blogRoutes];
+  /* Website restructure (18-11-2026, unreleased) - the homepage and the eight service pages exist in English and
+     Bahasa Melayu; each entry names its twin (hreflang in the sitemap, the
+     same pairs the pages declare in their own <head>). */
+  const pair = (en: string, ms: string, priority: number) => {
+    const languages = { "en-MY": `${base}${en}`, "ms-MY": `${base}${ms}` };
+    return [
+      { url: `${base}${en}`, lastModified: new Date(), priority, alternates: { languages } },
+      { url: `${base}${ms}`, lastModified: new Date(), priority, alternates: { languages } },
+    ];
+  };
+  const home = pair("", "/ms", 1);
+  const services = SERVICE_PAGES.flatMap((s) => pair(`/services/${s.slug}`, `/ms/services/${s.slug}`, 0.9));
+
+  return [...home, ...staticRoutes.filter((r) => r.url !== base), ...services, ...cardRoutes, ...blogRoutes];
 }

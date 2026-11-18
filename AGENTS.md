@@ -177,6 +177,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | /admin Phase 2 (1.349.0) | Overview and Users on the portal's pages; figures from existing reads only, every Users action on its old route. Guard `admin-super-only`, browser `admin-console.py`. |
 | /admin Phase 3 (1.351.0) | Security & Audit, My Account, Signatures on the portal's pages; each one KpiRow from existing reads; every save unchanged. Guard `admin-super-only`. |
 | /admin Phase 4 (1.352.0) | Six website tabs merged into Website Content; same requests, deletes confirm first. /admin is six tabs. Guard `admin-super-only`. |
+| Live Report AI fill (1.386.0) | No migration. The AI reading fills only empty draft figure boxes; typed figures and submitted versions untouched. Guard `live-reports-v2`. |
 | Public forms hero QR (1.385.0) | No migration. Hero QR of the form's own address, company logo (never "A2Z OS"), tighter footer. Guard `public-trust`. |
 | Payroll schedule + test accounts (1.384.0) | No migration. Payslip day = 5th or the working day before; live dated timeline; `notStaffSql` keeps a test account off every staff list. Guard `payroll-schedule`. |
 | Project side panel short (1.383.0) | No migration. Action first, the record folded under More details. Browser `tasks5.py`. |

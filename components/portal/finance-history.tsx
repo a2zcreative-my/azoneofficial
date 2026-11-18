@@ -27,6 +27,7 @@ import { AppIcon } from "@/components/ui/app-icon";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { withStepUp } from "@/components/portal/page-shared";
 import { makeApi } from "@/lib/api";
+import { resolveIssuer } from "@/lib/issuers"; // the account printed on the receipt's invoice
 import { downloadCsv } from "@/lib/csv";
 import { fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
@@ -45,7 +46,7 @@ export interface HItem {
   counts: "in" | "out" | null; sign: 1 | -1; payment_ref: string | null; company: Company | null; awaiting: boolean;
   historical?: boolean; cash_verified?: boolean; link: { kind: string; id: number | string } | null;
 }
-interface HBank { id: number; name: string; active: number; company: Company | null }
+interface HBank { id: number; name: string; active: number; company: Company | null; bank?: string | null; number_masked?: string | null }
 interface HView {
   items: HItem[]; banks: HBank[]; history_end?: string; can_cash_verify?: boolean; cash_verify_ready?: boolean; can_correct: boolean;
   exceptions: { kind: string; item_key: string }[];
@@ -56,6 +57,19 @@ const monthWord = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1] ?? ym} $
 const dmy = (iso: string | null) => (iso && iso.length >= 10 ? `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}` : "—");
 const isReceipt = (i: HItem) => i.source === "sales" || i.source === "part";
 const live = (i: HItem) => i.status !== "reversal" && i.status !== "reversed";
+const last4 = (t: string | null | undefined) => String(t ?? "").replace(/\D/g, "").slice(-4);
+/* v1.376 - the account step inside the verify drawer (the CEO, 18-11-2026:
+   "I cant assigned account since I want to verify it"). The choices are the
+   active accounts of the receipt's OWN company (the server refuses the other
+   company's account anyway); the one printed on the invoice is chosen first.
+   With none set up, the drawer adds that printed account - the same POST
+   /banks the Manage accounts drawer uses (masked number, no balance). */
+const printedAccount = (co: Company) => {
+  const i = resolveIssuer(co);
+  const w = i.bank.split(/\s+/)[0] ?? "";
+  const bank = `${w.charAt(0)}${w.slice(1).toLowerCase()}`;
+  return { name: `${i.name} - ${bank}`, bank, number_masked: `•••• ${last4(i.bank)}`, company: co, last4: last4(i.bank) };
+};
 
 /** one read of everything since 01-06-2026, for one company (or all) */
 export function useHistoryRead(company: Company | "all", tick: number) {
@@ -87,7 +101,10 @@ export function HistoryView({ company, toast, onOpen, onChanged }: { company: Co
   const [checked, setChecked] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [bankPick, setBankPick] = useState("");
   const { prompt, node: promptNode } = usePrompt();
+  /* after a change, the drawer shows the item as the server now holds it */
+  useEffect(() => { if (opened && v) { const fresh = v.items.find((i) => i.key === opened.key); if (fresh && fresh !== opened) setOpened(fresh); } }, [v]); // eslint-disable-line react-hooks/exhaustive-deps
   const end = v?.history_end ?? "2026-11-01";
   const receipts = useMemo(() => (v?.items ?? []).filter((i) => isReceipt(i) && i.date >= HISTORY_FROM), [v]);
   const months = [...new Set(receipts.map((i) => i.date.slice(0, 7)))].sort().reverse();
@@ -100,7 +117,7 @@ export function HistoryView({ company, toast, onOpen, onChanged }: { company: Co
   const noBank = (v?.items ?? []).filter((i) => i.date >= HISTORY_FROM && (i.counts || i.awaiting) && !i.bank_id && live(i)).length;
   const dups = (v?.exceptions ?? []).filter((x) => x.kind === "duplicate").length;
   const reset = () => setPage(1);
-  const openOne = (i: HItem) => { setOpened(i); setChecked(false); setNote(""); };
+  const openOne = (i: HItem) => { setOpened(i); setChecked(false); setNote(""); setBankPick(""); };
   const reload = () => { setTick((n) => n + 1); onChanged(); };
 
   const verify = async (i: HItem) => {
@@ -110,6 +127,24 @@ export function HistoryView({ company, toast, onOpen, onChanged }: { company: Co
     setBusy(false);
     if (r.ok) { toast(L("Receipt verified", "Penerimaan disahkan"), L(`${fmtRM(i.amount_cents)} now counts as Money In for ${monthWord(i.date.slice(0, 7))} - the month it was paid. No commission.`, `${fmtRM(i.amount_cents)} kini dikira Tunai Masuk bagi ${monthWord(i.date.slice(0, 7))} - bulan ia dibayar. Tiada komisen.`)); setOpened(null); reload(); }
     else toast(L("Not verified", "Tidak disahkan"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
+  };
+  const choicesFor = (i: HItem) => (v?.banks ?? []).filter((b) => b.active && b.company && (!i.company || b.company === i.company));
+  const printedFor = (i: HItem) => (i.company ? choicesFor(i).find((b) => last4(b.number_masked) === printedAccount(i.company!).last4) ?? null : null);
+  const assignBank = async (i: HItem, bankId: number) => {
+    setBusy(true);
+    const r = await api<{ error?: { message?: string } }>(`/cashbook/assign-bank`, { method: "POST", body: JSON.stringify({ item_key: i.key, bank_id: bankId }) });
+    setBusy(false);
+    if (r.ok) { const b = v?.banks.find((x) => x.id === bankId); toast(L("Account assigned", "Akaun ditetapkan"), L(`${b?.name ?? "The account"} - recorded with your name. You can verify it now.`, `${b?.name ?? "Akaun"} - direkod dengan nama anda. Anda boleh mengesahkannya sekarang.`)); setBankPick(""); reload(); }
+    else toast(L("Not assigned", "Tidak ditetapkan"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
+  };
+  const addPrinted = async (i: HItem) => {
+    if (!i.company) return;
+    const a = printedAccount(i.company);
+    setBusy(true);
+    const r = await api<{ error?: { message?: string } }>(`/banks`, { method: "POST", body: JSON.stringify({ name: a.name, bank: a.bank, number_masked: a.number_masked, company: a.company }) });
+    setBusy(false);
+    if (r.ok) { toast(L("Account added", "Akaun ditambah"), L(`${a.name} (${a.number_masked}) - now assign it below`, `${a.name} (${a.number_masked}) - tetapkan di bawah`)); reload(); }
+    else toast(L("Not added", "Tidak ditambah"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "notice");
   };
   const takeBack = async (i: HItem) => {
     const r0 = await prompt({ title: L("Take back this verification?", "Tarik balik pengesahan ini?"), message: L(`${i.description}. It returns to awaiting verification; the verification and your reason stay in its history.`, `${i.description}. Ia kembali menunggu pengesahan; pengesahan dan sebab anda kekal dalam sejarahnya.`), label: L("Reason (at least 10 characters)", "Sebab (sekurang-kurangnya 10 aksara)"), required: true, confirmLabel: L("Take back", "Tarik balik"), variant: "danger" });
@@ -199,12 +234,37 @@ export function HistoryView({ company, toast, onOpen, onChanged }: { company: Co
               <div><dt>{L("This receipt", "Penerimaan ini")}</dt><dd><strong>{fmtRM(opened.amount_cents)}</strong>{opened.source === "part" ? L(" (a part payment)", " (bayaran separa)") : L(" (the invoice balance)", " (baki invois)")}</dd></div>
               <div><dt>{L("Paid on", "Dibayar pada")}</dt><dd>{dmy(opened.date)}</dd></div>
               <div><dt>{L("Payment reference", "Rujukan bayaran")}</dt><dd>{opened.payment_ref?.trim() || L("None recorded", "Tiada direkod")}</dd></div>
-              <div><dt>{L("Account", "Akaun")}</dt><dd>{opened.bank_name ?? L("Not assigned", "Belum ditetapkan")}</dd></div>
+              <div><dt>{L("Account", "Akaun")}</dt><dd data-testid="history-account">{opened.bank_name ?? L("Not assigned", "Belum ditetapkan")}</dd></div>
               <div><dt>{L("Status", "Status")}</dt><dd>{opened.awaiting ? L("Awaiting verification - not Money In", "Menunggu pengesahan - bukan Tunai Masuk") : opened.cash_verified ? L("Verified as cash (historical)", "Disahkan sebagai tunai (lampau)") : L("Verified", "Disahkan")}</dd></div>
             </dl>
             {hist
               ? <p className={hx.band} data-testid="history-commission"><AppIcon name="info" />{L(`Commission: not eligible - paid before ${dmy(end)}. Verifying writes no commission and does not change the invoice.`, `Komisen: tidak layak - dibayar sebelum ${dmy(end)}. Pengesahan tidak menulis komisen dan tidak mengubah invois.`)}</p>
               : opened.awaiting && <p className={hx.band}><AppIcon name="info" />{L(`Paid on or after ${dmy(end)}: it is verified with Confirm paid (Sales > Closed Sales) or payment verification, as usual.`, `Dibayar pada atau selepas ${dmy(end)}: ia disahkan dengan Sahkan dibayar (Jualan > Jualan Ditutup) atau pengesahan bayaran, seperti biasa.`)}</p>}
+            {!opened.bank_id && live(opened) && v.can_correct && (() => {
+              const choices = choicesFor(opened);
+              const printed = printedFor(opened);
+              const pick = bankPick || String(printed?.id ?? (choices.length === 1 ? choices[0]!.id : ""));
+              return (
+                <div className={hx.acctStep} data-testid="history-assign">
+                  <p className={hx.stepHead}>{L("Which account did it go into?", "Ke akaun mana ia masuk?")}</p>
+                  {choices.length > 0 ? (
+                    <span className={hx.assign}>
+                      <select className={selectClassSm} aria-label={L("Account", "Akaun")} value={pick} onChange={(e) => setBankPick(e.target.value)} data-testid="history-bank">
+                        <option value="">{L("Choose an account", "Pilih akaun")}</option>
+                        {choices.map((b) => <option key={b.id} value={b.id}>{b.name}{b.number_masked ? ` · ${b.number_masked}` : ""}{printed?.id === b.id ? L(" (on the invoice)", " (pada invois)") : ""}</option>)}
+                      </select>
+                      <button type="button" className={btnSm} disabled={busy || !pick} onClick={() => void assignBank(opened, Number(pick))} data-testid="history-assign-bank">{L("Assign", "Tetapkan")}</button>
+                    </span>
+                  ) : opened.company ? (
+                    <>
+                      <p className={hx.note}>{L(`No ${COMPANY[opened.company]} account is set up yet. Add the one printed on its invoices (${printedAccount(opened.company).number_masked}), then assign it.`, `Belum ada akaun ${COMPANY[opened.company]}. Tambah akaun yang tercetak pada invoisnya (${printedAccount(opened.company).number_masked}), kemudian tetapkan.`)}</p>
+                      <button type="button" className={btnSm} disabled={busy} onClick={() => void addPrinted(opened)} data-testid="history-add-account"><AppIcon name="add" />{L(`Add ${printedAccount(opened.company).name}`, `Tambah ${printedAccount(opened.company).name}`)}</button>
+                    </>
+                  ) : <p className={hx.note}>{L("This receipt has no company - set it in Unassigned.", "Penerimaan ini tiada syarikat - tetapkan dalam Tanpa syarikat.")}</p>}
+                  <p className={hx.note}>{L("Assigning an account does not verify the receipt and does not change the invoice.", "Menetapkan akaun tidak mengesahkan penerimaan dan tidak mengubah invois.")}</p>
+                </div>
+              );
+            })()}
             {opened.awaiting && hist && v.can_cash_verify && (
               <>
                 {!v.cash_verify_ready && <p className={hx.warn}>{L("Migration 0214 is not applied yet - run PUSH.bat.", "Migrasi 0214 belum digunakan - jalankan PUSH.bat.")}</p>}

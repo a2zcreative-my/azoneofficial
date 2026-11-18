@@ -580,7 +580,9 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       project: { id: 2, title: r.project_title, client: r.project_client, company: r.company, status: "in_progress" }, participants: r.participants,
       versions: r.current_version ? [{ version: 1, gmv_cents: r.gmv_cents ?? 0, duration_min: 135, viewers: 12430, orders: 186, highlights: "12.4K viewers", blockers: "Stream lag at 8:50 PM", next_actions: "Recheck stock sync", company: r.company, by_name: r.host_name, submitted_at: td + " 01:00:00" }] : [],
       files: r.current_version ? [{ id: 1, version: 1, file_name: "gmv.png", created_at: td + " 01:00:00" }] : [],
-      readings: [],
+      /* v1.386.0 - what the AI read: report 13 (a returned draft) fills its empty boxes, never the typed duration;
+         report 11 (submitted) shows the reading in the reviewer's empty box as "not confirmed" */
+      readings: id === 13 || id === 11 ? [{ id: 40 + id, file_id: 1, figures: JSON.stringify({ viewers: 408, orders: 3, items_sold: 1, duration_min: 90, gmv: null }), outcome: "read", neurons: 1200, created_at: td + " 01:30:00" }] : [],
       reviews: r.state === "returned" ? [{ id: 5, version: 1, action: "return", note: "The GMV screenshot is cut off - attach the full one", actor_role: "coo", by_name: "Fixture COO", created_at: td + " 03:00:00" }] : r.state === "accepted" ? [{ id: 6, version: 1, action: "accept", note: null, actor_role: "ceo", by_name: "Fixture CEO", created_at: td + " 03:00:00" }] : [],
       analysis: r.current_version ? analysis : null, ai: mine ? { ...ai, can_set: undefined } : null,
       can: { edit: mine && ["draft", "returned"].includes(r.state), participate: mine, review: rev && !mine },

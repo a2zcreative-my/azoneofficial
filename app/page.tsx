@@ -1,40 +1,23 @@
-import { About } from "@/components/home/about";
-import { Cta } from "@/components/home/cta";
-import { Faq } from "@/components/home/faq";
-import { Hero } from "@/components/home/hero";
-import { LiveShowcase } from "@/components/home/live-showcase";
-import { Packages } from "@/components/home/packages";
-import { Problems } from "@/components/home/problems";
-import { Process } from "@/components/home/process";
-import { Services } from "@/components/home/services";
-import { Showcase } from "@/components/home/showcase";
-import { Work } from "@/components/home/work";
-import { Footer } from "@/components/layout/footer";
-import { Navbar } from "@/components/layout/navbar";
+import type { Metadata } from "next";
 
-export default function HomePage() {
-  return (
-    <>
-      <Navbar />
-      <main>
-        {/* v1.197.0 - the owner's mockup order: the hero, the services and
-            selected work first; then who we are, the problems we solve, live
-            commerce and its channels, the packages, the process, the
-            questions and the final call to action - each kept short on a
-            phone (swipe rows, the first About paragraph). */}
-        <Hero />
-        <Services />
-        <Work />
-        <About />
-        <Problems />
-        <Showcase />
-        <LiveShowcase />
-        <Packages />
-        <Process />
-        <Faq />
-        <Cta />
-      </main>
-      <Footer />
-    </>
-  );
+import { HomePage } from "@/components/landing/home-page";
+import { HOME_COPY } from "@/constants/home-copy";
+
+/* Website restructure (18-11-2026, unreleased) - the homepage on the owner's brief (18-11-2026): six sections on
+   the original A2Z identity. The previous homepage's components are kept in
+   components/home/ (unused) so this is one import to undo. */
+const t = HOME_COPY.en.meta;
+
+export const metadata: Metadata = {
+  title: { absolute: t.title },
+  description: t.description,
+  alternates: {
+    canonical: "/",
+    languages: { "en-MY": "/", "ms-MY": "/ms", "x-default": "/" },
+  },
+  openGraph: { title: t.title, description: t.description, url: "/", locale: "en_MY", alternateLocale: ["ms_MY"] },
+};
+
+export default function Page() {
+  return <HomePage lang="en" />;
 }
