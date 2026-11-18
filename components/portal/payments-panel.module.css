@@ -272,15 +272,6 @@
   font-weight: 700;
   overflow-wrap: anywhere;
 }
-.co {
-  padding: 0.0625rem 0.375rem;
-  border-radius: var(--radius-sm);
-  background: var(--secondary);
-  color: var(--text-secondary);
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-}
 .link {
   padding: 0;
   border: 0;

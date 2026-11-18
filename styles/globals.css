@@ -352,6 +352,12 @@ body:has(.erp-workspace) {
   --brand-primary-soft: #243759;  /* navy +12% L — rail hover, on-navy fills */
   --tint-navy: rgba(26, 41, 70, 0.05);    /* soft fills, calendar blocks */
   --tint-gold: rgba(200, 169, 106, 0.16); /* "today" column, accent fills */
+  /* v1.366.0 - the company badge beside a document number (the CEO, 18-11-2026): A2Z soft gold with
+     dark gold ink, AZ ONE navy with white ink - the same in every theme (a company is not a theme) */
+  --co-badge-a2z-bg: var(--tint-gold);
+  --co-badge-a2z-ink: var(--brand-accent-deep);
+  --co-badge-azoo-bg: #1a2946;
+  --co-badge-azoo-ink: #ffffff;
 
   /* Chart steps — VALIDATED, do not hand-tune. Attendance ring and the
      ordinal bar ramp were run through the dataviz validator against the real
@@ -486,6 +492,7 @@ body:has(.erp-workspace) {
 
   /* the small-caps caption over a zone or a field */
   --type-label-size: 0.6875rem;   --type-label-weight: 600;
+  --type-badge-size: 9px;         /* v1.366.0 - the company badge beside a document number */
   --type-label-lh: 1rem;          --type-label-tracking: 0.08em;
 
   /* A FIGURE IS NOT A HEADING. KPI roles are tabular by rule (the class sets

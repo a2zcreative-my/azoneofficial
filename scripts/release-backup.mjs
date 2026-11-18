@@ -31,6 +31,7 @@ const worker = join(root, "worker");
 const backups = join(root, "backups");
 const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
 const BUCKET = "azoneofficial-backups";
+const CHAT_BUCKET = "a2z-chat-temp"; // v1.364.0 - staff chat files (never backed up)
 const DB = "azoneofficial";
 const KEEP_SITES = 5;
 const [mode, ...rest] = process.argv.slice(2);
@@ -64,8 +65,21 @@ if (mode === "check-bucket") {
     releaseLog(`check-bucket: ${BUCKET} does not exist yet - stopped`);
     process.exit(1);
   }
-  releaseLog(`check-bucket: ${BUCKET} exists`);
-  console.log(`  [OK] backups bucket ${BUCKET} exists`);
+  /* v1.364.0 - staff chat's private file bucket (worker/wrangler.toml CHAT_FILES).
+     Never the backups bucket: chat files must be gone 12 hours after sending. */
+  if (!new RegExp(`(^|\\s|")${CHAT_BUCKET}($|\\s|")`, "m").test(out)) {
+    console.error(`  [X] The staff chat bucket "${CHAT_BUCKET}" does not exist yet.`);
+    console.error(`      This release binds it (worker/wrangler.toml), so publishing would fail half way.`);
+    console.error(`      Create it once, with its one-day safety net, then run PUSH.bat again:`);
+    console.error(`          cd worker`);
+    console.error(`          npx wrangler r2 bucket create ${CHAT_BUCKET}`);
+    console.error(`          npx wrangler r2 bucket lifecycle add ${CHAT_BUCKET} chat-1-day --expire-days 1 --force`);
+    console.error(`      Nothing was applied or published.`);
+    releaseLog(`check-bucket: ${CHAT_BUCKET} does not exist yet - stopped`);
+    process.exit(1);
+  }
+  releaseLog(`check-bucket: ${BUCKET} and ${CHAT_BUCKET} exist`);
+  console.log(`  [OK] backups bucket ${BUCKET} and chat bucket ${CHAT_BUCKET} exist`);
   process.exit(0);
 }
 

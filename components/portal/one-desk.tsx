@@ -56,7 +56,7 @@ import css from "./one-desk.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners"; // v1.351.0 partners
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments"; // v1.351.0 partners; v1.365.0 payments to verify
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
@@ -89,6 +89,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   quotes: ["Quotations to approve", "Sebut harga untuk diluluskan"], // v1.181.17
   advisory: ["DSR assessments to review", "Penilaian DSR untuk disemak"], // v1.288.0
   partners: ["Partner applications", "Permohonan rakan kongsi"], // v1.351.0
+  payments: ["Payments to verify", "Bayaran untuk disahkan"], // v1.365.0
 };
 
 /** v1.291.0 - the module a Desk item comes from, in words (the Dashboard's decision queue) */
@@ -97,7 +98,7 @@ export const deskBucketWord = (b: DeskItem["bucket"]): string => (BUCKET[b] ? L(
 /* v1.175.0 - a desk cached by an older build, or served by a worker that has
    not been deployed yet, has no `kind`. Rather than dropping every approval
    into the wrong list, read it from the bucket the same way the worker does. */
-const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "quotes", "advisory"];
+const DECIDE_BUCKETS: readonly string[] = ["leave", "claims", "ot", "punches", "quotes", "advisory", "payments"];
 export const kindOf = (i: DeskItem): "decide" | "do" =>
   i.kind ?? (DECIDE_BUCKETS.includes(i.bucket) || i.id.startsWith("task-close:") ? "decide" : "do");
 

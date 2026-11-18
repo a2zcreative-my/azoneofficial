@@ -48,6 +48,7 @@ export const NOTIF_WHERE: Record<string, { tab: string; anchor?: string }> = {
   watch: { tab: "Desk" },
   stock: { tab: "Inventory" },
   live: { tab: "Attendance" },
+  payment: { tab: "Sales" }, // v1.365.0 - a payment report (its ref opens the report itself)
   /* v1.183.0 - "enquiry" and "commission" kinds have no tab any more: an
      old row of either kind opens nothing. */
 };
@@ -72,6 +73,7 @@ const KIND_HEAD: Record<string, [string, string, AppIconName]> = {
   birthday: ["Birthday", "Hari jadi", "cake"],
   sales: ["Sales", "Jualan", "chart"],
   brief: ["Brief", "Taklimat", "documents"],
+  payment: ["Payment", "Bayaran", "money"], // v1.365.0 - was headed "Update"
 };
 const headOf = (kind: string): [string, AppIconName] => {
   const h = KIND_HEAD[kind];

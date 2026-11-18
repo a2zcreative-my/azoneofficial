@@ -103,6 +103,7 @@ export const APP_ICON = {
   video: Video,
   live: Tv,
   chat: MessageCircle,
+  send: Send, // v1.364.0 - the staff chat's send button
   person: UserRound,
   place: MapPin,
   date: CalendarDays,

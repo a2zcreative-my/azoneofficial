@@ -899,7 +899,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   /* v1.282.0 - View pending payment / Review payment open that invoice's sheet in Payments; the header's Report payment */
   const [viewInv, setViewInv] = useState<number | null>(null);
   const [payReport, setPayReport] = useState(0);
-  const clearViewInv = useCallback(() => setViewInv(null), []);
+  const [viewReport, setViewReport] = useState<number | null>(null); // v1.365.0
+  const clearViewInv = useCallback(() => { setViewInv(null); setViewReport(null); }, []);
   const [loaded, setLoaded] = useState(false);
   /* v1.205.0 - a search hit opens the document (the list narrowed to its
      number, its panel open) or the customer (its record open on the
@@ -911,6 +912,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocPage(1);
       setDocQuery(d ? d.doc_number : "");
       if (d) setOpenDoc(d.id);
+    } else if (f.kind === "payment_report") {
+      /* v1.365.0 - a payment to verify, from the Desk or the bell: Payments, on that report's invoice */
+      setViewReport(f.id); setWsView("payments");
     } else if (f.kind === "client") {
       setWsView("customers");
       setCustTab("clients"); setTagFilter("");
@@ -1859,7 +1863,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       {/* v1.292.0 - ONE report at a time; only the chosen one is mounted */}
       {wsView === "reports" && <ReportPicker reports={reportDefs} />}
       {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
-      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} reportTick={payReport} />}
+      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} viewReportId={viewReport} reportTick={payReport} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the

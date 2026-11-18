@@ -36,7 +36,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useRecordFocus, useScrollToRecord, type RecordFocus } from "@/lib/record-focus";
 import { api } from "@/lib/api"; // v1.23.1: raw fetch here missed the CSRF header — saves 403'd
 import { useSaveToast } from "@/components/ui/save-toast";
-import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClassSm, th, td, thR2, tdR2 } from "@/lib/ui-styles";
+import { btnClass, btnSm, card, chipDanger, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClassSm, th, td, thR2, tdR2, companyBadge } from "@/lib/ui-styles";
 import { rowBtn, rowBtnDanger, rowActions } from "@/components/ui/row-button";
 import { useConfirm } from "@/components/ui/confirm-dialog"; // v1.153.0 - the removal asks first
 import { Skel, SkelRows, StaleHint } from "@/components/ui/skeleton";
@@ -899,7 +899,7 @@ export function AssetsPanel({ focus, startView }: { focus?: RecordFocus | null; 
                       <span className={av.muted}> · {catLabel(a.category)}</span>
                       {a.condition_note && <span className={av.note}>{a.condition_note}</span>}</td>
                     <td>{a.brand_model ?? <span className={av.muted}>—</span>}</td>
-                    <td>{a.issuer_code ? <span className={av.coChip}>{a.issuer_code === "a2z" ? "A2Z" : "AZ ONE"}</span> : <span className={av.muted}>{L("Not set", "Belum")}</span>}</td>
+                    <td>{a.issuer_code ? <span className={companyBadge(a.issuer_code)}>{a.issuer_code === "a2z" ? "A2Z" : "AZ ONE"}</span> : <span className={av.muted}>{L("Not set", "Belum")}</span>}</td>
                     <td>{a.assigned_name ?? (a.shared_label ? <span className={av.muted}>{L(`Shared · ${a.shared_label}`, `Dikongsi · ${a.shared_label}`)}</span> : <span className={av.muted}>—</span>)}
                       {a.pending_custody_id ? <span className={`${chipWarn} ${av.ackChip}`}>{L("Waiting for acknowledgement", "Menunggu pengesahan")}</span> : null}</td>
                     <td>{a.location ?? <span className={av.muted}>—</span>}</td>

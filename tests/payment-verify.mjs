@@ -169,6 +169,14 @@ async function runtime(workerBundle) {
     ok(parts(101) === 0 && inv(101).payment_status === "unpaid" && cashRows(101) === 0 && earn(101).length === 0, "the report is not money: no payment row, no cash, no commission");
     ok(r1.j?.verified_cents === 0 && r1.j?.pending_cents === 60000 && r1.j?.outstanding_cents === 120000 && r1.j?.status === "reported", "verified RM 0.00, pending RM 600.00, outstanding RM 1,200.00", JSON.stringify(r1.j ?? {}).slice(0, 200));
     ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND ref LIKE 'pay_report:%'`) === 1, "the CEO is told there is a payment to verify");
+    /* v1.365.0 - the CEO, 18-11-2026: "On desk should appear for the invoice for me to verify right?" */
+    const deskOf = async (uid) => ((await call("/desk", uid)).j?.items ?? []);
+    const onDesk = (items, id) => items.find((x) => x.id === `pay_report:${id}`);
+    const desk1 = onDesk(await deskOf(1), rid1);
+    ok(desk1 && desk1.bucket === "payments" && desk1.kind === "decide" && desk1.tab === "Sales", "the payment waits on the CEO's Desk as a decision, opening in Sales", JSON.stringify(desk1));
+    ok(!onDesk(await deskOf(3), rid1) && !onDesk(await deskOf(9), rid1), "...and on nobody else's (the reporter and the COO do not verify)");
+    /* user 12 holds the CEO role but is not the verified company owner: no verify, no row */
+    ok(!onDesk(await deskOf(12), rid1), "...nor on a CEO-role account that is not the verified company owner");
     const again = await report(101, 9, 60000, "MBB 0001");
     ok(again.j?.repeated === true && again.j?.id === rid1 && n(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE invoice_id = 101`) === 1, "the same report sent twice is the first one");
     ok((await proof(rid1, 3)).status === 403, "only the reporter attaches its proof");
@@ -290,6 +298,7 @@ async function runtime(workerBundle) {
     ok((await call(`/payment-reports/${j1.j.id}/evidence`, 3, "POST", { checked: true, note: "Seen in the statement", totp: code() })).status === 409 && state(j1.j.id) === "reported", "a salesperson's report needs no COO evidence check - the CEO verifies it");
     ok((await call(`/payment-reports/${j1.j.id}/clarify`, 1, "POST", { question: "Which account did it go to?" })).status === 200 && state(j1.j.id) === "clarify", "the CEO asks a question");
     ok(n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 9 AND ref LIKE 'pay_q:%'`) === 1, "...the reporter is told");
+    ok(onDesk(await deskOf(9), j1.j.id)?.kind === "do" && !onDesk(await deskOf(1), j1.j.id), "a question moves it to the reporter's Desk (their work) and off the CEO's until answered");
     ok((await verify(j1.j.id)).status === 409, "a payment with an open question cannot be verified");
     ok((await call(`/payment-reports/${j1.j.id}/answer`, 15, "POST", { answer: "Not mine" })).status === 403, "only the reporter answers");
     ok((await call(`/payment-reports/${j1.j.id}/answer`, 9, "POST", { answer: "The A2Z Maybank account" })).status === 200 && state(j1.j.id) === "reported", "the reporter answers; it is back for review");
@@ -475,8 +484,12 @@ bundle(root, "worker/src/index.ts", join(dir, "worker.mjs"));
 report(await runtime(join(dir, "worker.mjs")));
 const checks = n;
 
-const V = "worker/src/payment-verify.ts", S = "worker/src/staff.ts";
+const V = "worker/src/payment-verify.ts", S = "worker/src/staff.ts", D = "worker/src/desk.ts";
 const MUT = [
+  /* v1.365.0 - payments to verify on the Desk */
+  [D, "a payment to verify never reaches the Desk", [["        } else if (verifiesPayments) {", "        } else if (false) {"]]],
+  [D, "every CEO-role account gets payments to verify", [["const verifiesPayments = canUser(user, \"payment_verify\") && user.role === \"ceo\" && (user as { is_owner?: boolean }).is_owner === true;", "const verifiesPayments = canUser(user, \"payment_verify\");"]]],
+  [D, "a question stays on the CEO's Desk", [["WHERE r.state IN ('reported', 'evidence_checked') OR (r.state = 'clarify' AND r.reported_by = ?1)", "WHERE r.state IN ('reported', 'evidence_checked', 'clarify') OR (r.state = 'clarify' AND r.reported_by = ?1)"]]],
   /* v1.285.0 - the CEO's own Paid is final; whose sale it is, is recorded */
   [V, "every CEO Paid is recorded as his own sale", [["    const ownSale = inv.salesperson_id === user.id;", "    const ownSale = true;"]]],
   [V, "any CEO-role account verifies", [["const verifier = (u: StaffUser) => can(u.role, \"payment_verify\") && isExecutiveOwner(u);", "const verifier = (u: StaffUser) => can(u.role, \"payment_verify\");"]]],

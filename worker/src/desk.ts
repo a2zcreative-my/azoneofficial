@@ -52,7 +52,7 @@ import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners"; // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments"; // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -446,6 +446,44 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           items.push({ ...base, title: `${a.ref} - partner application pre-approved`, sub: "pre-approved by the COO / CCO · final decision", since: a.preapproved_at, overdue: ageDays(a.preapproved_at) > 2, kind: "decide", next: "Approve, return or reject" });
         } else if (a.status === "approved" && approves) {
           items.push({ ...base, title: `${a.ref} - approved partner to activate`, sub: "agreement, Agent access and salesperson", since: a.approved_at, overdue: ageDays(a.approved_at) > 3, kind: "do", next: "Record the agreement, then activate" });
+        }
+      }
+    });
+  }
+  /* v1.365.0 - PAYMENTS TO VERIFY (the CEO, 18-11-2026: "On desk should appear for the invoice for me to
+     verify right?"). A payment report (payment-verify.ts) waited only as a bell notice. It is a decision:
+     the same one person verifies it as the route allows - payment_verify AND the verified company owner
+     (payment-verify.ts `verifier`) - so reported / evidence_checked rows are his. A report sent back with
+     a question (clarify) waits on whoever reported it: their own work. Read only; the row opens the
+     report in Sales > Payments, where the verify, reject and clarify actions live. */
+  const verifiesPayments = canUser(user, "payment_verify") && user.role === "ceo" && (user as { is_owner?: boolean }).is_owner === true;
+  if (verifiesPayments || canUser(user, "payment_report")) {
+    await guard("payments", async () => {
+      const { results } = await env.DB.prepare(
+        `SELECT r.id, r.amount_cents, r.state, r.reported_by, r.reported_at, r.over_cents, r.dup_of, r.question, d.doc_number, cu.company AS customer,
+                COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS reporter
+           FROM invoice_payment_reports r JOIN sales_documents d ON d.id = r.invoice_id
+           LEFT JOIN customers cu ON cu.id = d.customer_id LEFT JOIN users u ON u.id = r.reported_by
+          WHERE r.state IN ('reported', 'evidence_checked') OR (r.state = 'clarify' AND r.reported_by = ?1)
+          ORDER BY r.id ASC LIMIT 100`,
+      ).bind(user.id).all<{ id: number; amount_cents: number; state: string; reported_by: number; reported_at: string; over_cents: number | null; dup_of: number | null; question: string | null; doc_number: string; customer: string | null; reporter: string | null }>();
+      const money = (c: number) => `RM ${(c / 100).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      for (const p of results) {
+        if (p.state === "clarify") {
+          items.push({
+            bucket: "payments", id: `pay_report:${p.id}`, tab: "Sales",
+            title: `${p.doc_number} - payment of ${money(p.amount_cents)} needs your answer`,
+            sub: p.question ? `asked: ${p.question.slice(0, 80)}` : "the CEO asked a question",
+            since: p.reported_at, overdue: ageDays(p.reported_at) > 1, kind: "do", who: p.customer, next: "Answer the question on the payment",
+          });
+        } else if (verifiesPayments) {
+          const flags = [p.dup_of ? "possible duplicate" : "", Number(p.over_cents ?? 0) > 0 ? "more than the balance" : ""].filter(Boolean);
+          items.push({
+            bucket: "payments", id: `pay_report:${p.id}`, tab: "Sales",
+            title: `${p.doc_number} - payment of ${money(p.amount_cents)} to verify`,
+            sub: [`reported by ${p.reporter ?? "staff"}`, p.customer ?? "", ...flags].filter(Boolean).join(" · "),
+            since: p.reported_at, overdue: ageDays(p.reported_at) > 2, kind: "decide", who: p.reporter, next: "Check the bank, then verify, ask, or reject",
+          });
         }
       }
     });

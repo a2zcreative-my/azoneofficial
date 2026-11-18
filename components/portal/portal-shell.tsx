@@ -46,6 +46,7 @@ import { properName } from "@/lib/names";
 import type { TabName } from "@/lib/portal-tabs";
 import { usePortal } from "@/components/portal/portal-provider";
 import { NotificationsPanel } from "@/components/portal/notifications-panel";
+import { ChatButton } from "@/components/portal/chat/chat-panel"; // v1.364.0 - staff chat, beside the bell
 import { GlobalSearch } from "@/components/portal/global-search";
 import { TAB_OF_KIND } from "@/lib/record-focus";
 import { mytToday } from "@/lib/format";
@@ -338,6 +339,11 @@ export function PortalShell({ children }: { children: ReactNode }) {
               taps — on phones they live in the More sheet's Preferences row.
               v1.279.0 - on desktop they live on the rail's name card menu
               with the colour theme and Sign out (the photo's header). */}
+            {/* v1.364.0 - STAFF CHAT (the CEO, 18-11-2026): one icon in the existing
+                header, with the unread count; a drawer on a desktop, the whole
+                screen on a phone. Never for an agent (or a customer, who never
+                reaches the portal); the server decides on every call. */}
+            {!isAgent && <ChatButton role={user.role} />}
             <button
               type="button"
               className={`${btnHdr} ${css.bellAnchor}`}

@@ -732,6 +732,11 @@
   .erp-chip-danger { background: var(--danger-soft); color: var(--danger); }
   .erp-chip-info { background: var(--info-soft); color: var(--info); }
   .erp-chip-gold { background: var(--tint-gold); color: var(--brand-accent-deep); }
+  /* v1.366.0 - THE COMPANY BADGE (the CEO, 18-11-2026): the compact tag beside an invoice number -
+     at most 16px tall, 9px type, 6px side padding, no icon, no shadow, no border. Colour by company. */
+  .erp-co-badge { display: inline-block; max-height: 16px; padding: 0 6px; border: 0; border-radius: var(--radius-sm); box-shadow: none; font-size: var(--type-badge-size); font-weight: 700; line-height: 14px; letter-spacing: 0.03em; white-space: nowrap; vertical-align: middle; }
+  .erp-co-a2z { background: var(--co-badge-a2z-bg); color: var(--co-badge-a2z-ink); }
+  .erp-co-azoo { background: var(--co-badge-azoo-bg); color: var(--co-badge-azoo-ink); }
   /* a count riding inside a pill or a title: tight, bold, tabular */
   .erp-chip-count { margin-left: 0.375rem; padding: 0 0.4rem; font-size: 0.625rem; font-weight: 700; line-height: 1rem; font-variant-numeric: tabular-nums; }
   /* The count badge on an icon command (unread notifications): pinned to

@@ -56,6 +56,27 @@ bucket_name = "azoneofficial"
 binding = "BACKUPS"
 bucket_name = "azoneofficial-backups"
 
+# v1.364.0 - STAFF CHAT (the CEO, 18-11-2026; docs/STAFF-CHAT-STAGE-0-AUDIT.md).
+# One Durable Object (SQLite storage) holds every chat message for 12 hours;
+# nothing of chat is written to D1. Files go to their OWN private bucket,
+# never MEDIA (MEDIA is copied to BACKUPS within 30 minutes and kept 90 days).
+# The OWNER creates the bucket once, before the first deploy of 1.362.0:
+#   cd worker
+#   npx wrangler r2 bucket create a2z-chat-temp
+#   npx wrangler r2 bucket lifecycle add a2z-chat-temp chat-1-day --expire-days 1 --force
+# PUSH.bat checks that it exists and stops before any migration if it does not.
+[[durable_objects.bindings]]
+name = "CHAT"
+class_name = "ChatHub"
+
+[[migrations]]
+tag = "chat-v1"
+new_sqlite_classes = ["ChatHub"]
+
+[[r2_buckets]]
+binding = "CHAT_FILES"
+bucket_name = "a2z-chat-temp"
+
 [vars]
 # Non-secret vars kept out of source: set them in the Cloudflare dashboard
 # (Workers & Pages → your Worker → Settings → Variables) or via

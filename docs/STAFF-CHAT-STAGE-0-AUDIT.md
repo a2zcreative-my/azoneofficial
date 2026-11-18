@@ -127,3 +127,27 @@ npx wrangler r2 bucket lifecycle add a2z-chat-temp ...   # delete after 1 day
 | Phone and video call buttons, emoji button | No calls; no stickers or extras | **Leave out** (emoji still type from the phone keyboard). |
 | Chat as a full page on desktop | Right-side drawer on web | **Drawer** (list and conversation side by side from 1024 px; one pane at a time below); full screen on the PWA. |
 | Three images promised (01-03) | Two attached; the PWA conversation screen is not among them | Draw it from the conversation pane of image 01. |
+
+## 8. CEO decisions (18-11-2026)
+
+1. **Files:** JPG, PNG, WebP and PDF, with type and signature checks. The chat states that files are not virus-scanned.
+2. **Conflicts:** follow the brief. Header icon only (no sidebar or phone-bar item), 2 MB JPG/PNG/WebP/PDF, no call or emoji buttons, right-side drawer on web, full screen on the PWA.
+3. **Groups:** any staff member may create one (2-8 staff).
+4. **Rollout:** all staff at once. No pilot, so cost is measured from the first week's live figures; the System health counters plus the Cloudflare dashboard.
+
+Implementation waits for the CEO's explicit go-ahead.
+
+## 9. Built: 1.364.0 (18-11-2026, local, not deployed)
+
+Built as proposed above, with the decisions in section 8. Measured, not estimated, on a real local worker (real migrations, Durable Object and R2):
+- `tests/browser/chat-e2e.mjs`: **73/73**. Covers staff-only access (agent, customer, leaver, no-2FA refused), same-origin socket, 1-to-1 and groups (max 8), the 1,500 limit, file type, signature, size and count checks, refused active PDFs, read ticks, rate limit, server-set expiry, the API hiding a message the second it expires, alarm deletion of rows and R2 objects with counters, logout revoking at once, and suspension revoking within the minute.
+- `tests/browser/chat.py`: **22/22** in Chrome, desktop and phone, including expiry leaving an open screen without a reload.
+- Guard `tests/chat.mjs`: 38 checks, 12 mutations caught.
+
+Owner steps before release:
+
+```
+cd worker
+npx wrangler r2 bucket create a2z-chat-temp
+npx wrangler r2 bucket lifecycle add a2z-chat-temp chat-1-day --expire-days 1 --force
+```

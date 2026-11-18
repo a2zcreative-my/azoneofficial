@@ -31,6 +31,8 @@
 #               srcDoc + generated PDFs), google.com for the office map on
 #               /contact.
 #   connect-src 'self' + the beacon endpoint. The API is same-origin.
+#               v1.364.0: + wss:// of our own domain for staff chat's live
+#               connection (older Safari does not read 'self' as wss).
 #   frame-ancestors 'none' — with X-Frame-Options: DENY, this portal can
 #               never be framed. That is how a fake login is built on top of
 #               a real one.
@@ -59,7 +61,7 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(self)
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://static.cloudflareinsights.com; frame-src 'self' blob: data: https://www.google.com https://challenges.cloudflare.com; media-src 'self' blob:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' wss://a2zcreative.my wss://www.a2zcreative.my https://static.cloudflareinsights.com; frame-src 'self' blob: data: https://www.google.com https://challenges.cloudflare.com; media-src 'self' blob:; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests
   Cache-Control: no-cache
 
 /_next/static/*

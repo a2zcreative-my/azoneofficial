@@ -39,7 +39,7 @@ import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { csvStampMyt, downloadCsv } from "@/lib/csv";
 import { A2Z_CREATIVE, AZ_ONE } from "@/lib/issuers";
-import { btnSm, btnSmDanger, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass } from "@/lib/ui-styles";
+import { btnSm, btnSmDanger, btnSmPrimary, btnSmQuiet, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm, textareaClass, companyBadge } from "@/lib/ui-styles";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { SideDrawer } from "@/components/ui/side-drawer";
@@ -131,7 +131,7 @@ async function uploadProof(reportId: number, f: File): Promise<string | null> {
   return j?.error?.message ?? L("The proof was not attached.", "Bukti tidak dilampirkan.");
 }
 
-export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened, viewInvoiceId, onViewOpened, reportTick = 0 }: {
+export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened, viewInvoiceId, onViewOpened, viewReportId = null, reportTick = 0 }: {
   userId: number; onChanged?: () => void;
   /** v1.278.0 - opened from an invoice's Report payment in the documents list: its sheet opens at once */
   recordInvoiceId?: number | null; onRecordOpened?: () => void;
@@ -139,6 +139,8 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
   viewInvoiceId?: number | null; onViewOpened?: () => void;
   /** v1.282.0 - the header's gold Report payment: each press opens the report sheet with its invoice picker */
   reportTick?: number;
+  /** v1.365.0 - opened from the Desk or the bell (pay_report:<id>): that report's invoice sheet, once the list has it */
+  viewReportId?: number | null;
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState(false);
@@ -186,7 +188,9 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
      list: that invoice's sheet is open until it is closed or saved */
   const sheetFor = recordFor ?? (recordInvoiceId != null ? data.invoices.find((i) => i.id === recordInvoiceId && i.can_report) ?? null : null);
   /* v1.282.0 - opened from View pending payment elsewhere in Sales: that invoice's sheet, until it is closed */
-  const drawerInv = openInv ?? viewInvoiceId ?? null;
+  /* v1.365.0 - a payment report opened from the Desk or the bell: its invoice's sheet (reports carry their invoice) */
+  const reportInv = viewReportId != null ? (data.reports.find((r) => r.id === viewReportId)?.invoice_id ?? null) : null;
+  const drawerInv = openInv ?? viewInvoiceId ?? reportInv ?? null;
 
   /* what is waiting for THIS person */
   const mineToAct = (r: Rep) =>
@@ -287,7 +291,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
                 return (
                   <div key={r.id} role="row" className={`${css.tr} ${mine ? css.act : ""}`} data-testid="payment-row">
                     <Cell k={L("Invoice", "Invois")} className={css.cMain}>
-                      <span className={css.title}>{r.doc_number} <span className={css.co}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span>
+                      <span className={css.title}>{r.doc_number} <span className={companyBadge(r.issuer_code)}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span>
                       <span className={css.sub}>{r.customer ?? "-"}{r.reference ? ` · ${L("ref", "ruj")} ${r.reference}` : ""}</span>
                     </Cell>
                     <Cell k={L("Reported", "Dilapor")} num><b>{fmtRM(r.amount_cents)}</b></Cell>
@@ -346,7 +350,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
                 return (
                   <div key={i.id} role="row" className={css.tr} data-testid="inv-row">
                     <Cell k={L("Invoice", "Invois")} className={css.cMain}>
-                      <span className={css.title}><button type="button" className={css.link} onClick={() => setOpenInv(i.id)}>{i.doc_number}</button><span className={css.co}>{COMPANY[i.company] ?? i.company}</span></span>
+                      <span className={css.title}><button type="button" className={css.link} onClick={() => setOpenInv(i.id)}>{i.doc_number}</button><span className={companyBadge(i.company)}>{COMPANY[i.company] ?? i.company}</span></span>
                       <span className={css.sub}>{i.customer ?? "-"}{i.salesperson ? ` · ${i.salesperson}` : ""}</span>
                     </Cell>
                     <Cell k={L("Total", "Jumlah")} num>{fmtRM(i.total_cents)}</Cell>
@@ -378,7 +382,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
               </div>
               {history.map(({ rep: r, dir: d }) => r ? (
                 <div key={`rep:${r.id}`} role="row" className={css.tr} data-testid="payment-row">
-                  <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{r.doc_number} <span className={css.co}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span><span className={css.sub}>{r.customer ?? "-"}</span></Cell>
+                  <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{r.doc_number} <span className={companyBadge(r.issuer_code)}>{COMPANY[r.issuer_code] ?? r.issuer_code}</span></span><span className={css.sub}>{r.customer ?? "-"}</span></Cell>
                   <Cell k={L("Amount", "Amaun")} num><b>{fmtRM(r.state === "verified" ? r.verified_cents ?? r.amount_cents : r.amount_cents)}</b></Cell>
                   <Cell k={L("Status", "Status")}><ReviewChip r={reviewOf(r)} /></Cell>
                   <Cell k={L("Submitted by", "Dihantar oleh")}>{whoWord(r)}</Cell>
@@ -387,7 +391,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
                 </div>
               ) : d ? (
                 <div key={d.key} role="row" className={css.tr} data-testid="payment-row-direct">
-                  <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{d.doc_number} <span className={css.co}>{COMPANY[d.issuer_code ?? ""] ?? d.issuer_code ?? ""}</span></span><span className={css.sub}>{d.customer ?? "-"}</span></Cell>
+                  <Cell k={L("Invoice", "Invois")} className={css.cMain}><span className={css.title}>{d.doc_number} <span className={companyBadge(d.issuer_code)}>{COMPANY[d.issuer_code ?? ""] ?? d.issuer_code ?? ""}</span></span><span className={css.sub}>{d.customer ?? "-"}</span></Cell>
                   <Cell k={L("Amount", "Amaun")} num><b>{fmtRM(d.amount_cents)}</b></Cell>
                   <Cell k={L("Status", "Status")}>
                     <span className={`${chipSmNeutral} ${css.chip}`}>{d.kind === "marked_paid" ? L("Recorded in Sales", "Direkod dalam Jualan") : L("Part recorded in Sales", "Bahagian direkod dalam Jualan")}</span>

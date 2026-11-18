@@ -358,3 +358,7 @@ export const tabPill =
   "erp-button erp-button-secondary erp-button-compact erp-tab-pill";
 export const tabPillOn =
   "erp-button erp-button-primary erp-button-compact";
+
+/** v1.366.0 - the company badge beside a document number: A2Z soft gold, AZ ONE navy (erp-v3.css .erp-co-*) */
+export const companyBadge = (code: string | null | undefined) =>
+  `erp-co-badge ${code === "a2z" ? "erp-co-a2z" : "erp-co-azoo"}`;

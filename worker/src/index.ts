@@ -1,3 +1,4 @@
+import { handleChat, chatRecheck, chatCronSweep } from "./chat"; // v1.364.0 - staff chat
 import { exportPaged, gzipText, type PagedManifest } from "./backup-manifest";
 import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, runMediaReconcile, pruneMediaBackups } from "./backup-store";
 // v1.5.0: notify imported too — the "client gone quiet" cron called it
@@ -40,11 +41,17 @@ import { threadsAuthUrl, threadsCompleteAuth, threadsConfigured, threadsSetupRep
  * See API.md, DATABASE.md, SECURITY.md.
  */
 
+export { ChatHub } from "./chat"; // v1.364.0 - the staff chat hub (wrangler.toml [[durable_objects.bindings]])
+
 export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
   /** v1.244.0 (D-4) - azoneofficial-backups: the database export and the media copy */
   BACKUPS?: R2Bucket;
+  /** v1.364.0 - staff chat: the hub (one Durable Object, SQLite) and the private file bucket a2z-chat-temp.
+      Both optional: unset = the chat routes answer 503 and nothing else changes. */
+  CHAT?: DurableObjectNamespace;
+  CHAT_FILES?: R2Bucket;
   ALLOWED_ORIGIN: string;
   /** v1.29.0 — comma-separated origin list for the domain transition
       (primary FIRST). When set it supersedes ALLOWED_ORIGIN; each entry
@@ -248,6 +255,9 @@ function errorResponse(code: string, message: string, status: number): Response 
     ALLOWED_ORIGINS (comma list, primary first — a2zcreative.my during the
     transition) or the legacy single ALLOWED_ORIGIN; every entry also admits
     its www./apex twin (v1.5.0 fix for "sign-in fails on www."). */
+/** v1.364.0 - writes after which the chat hub re-checks its open connections. */
+const CHAT_RECHECK = /\/(auth\/logout|auth\/2fa\/disable|auth\/password|users(\/|$)|staff\/users\/|staff\/accounts\/|staff\/recovery|staff\/access\/policy|staff\/tabs\/access|staff\/roles|offboard|sessions|passkey)/;
+
 function allowedOrigins(env: Env): string[] {
   const bases = (env.ALLOWED_ORIGINS ?? env.ALLOWED_ORIGIN)
     .split(",").map((s) => s.trim()).filter(Boolean);
@@ -2279,6 +2289,8 @@ export default {
       try { await drainMailOutbox(env); } catch (e) { await logError(env, "task_mail", e instanceof Error ? e.message : String(e)); }
       /* v1.268.0 - Phase R: an approved executive recovery runs once its 12 hours are over */
       try { await runDueRecoveries(env); } catch (e) { await logError(env, "exec_recovery", e instanceof Error ? e.message : String(e)); }
+      /* v1.364.0 - staff chat: recovery for a missed expiry alarm, and R2 objects with no record */
+      try { await chatCronSweep(env); } catch (e) { await logError(env, "chat_sweep", e instanceof Error ? e.message : String(e)); }
       /* The cron does not pass through the staff dispatch, so the topics it
          writes are bumped by hand. A web order that lands while the ops map
          is open should move the map, not wait for somebody to reload. */
@@ -2806,6 +2818,15 @@ export default {
         await logError(env, "api", detail, path);
         res = json({ error: { code: "internal", message: "Something went wrong. The error has been logged.", error_id } }, 500);
       }
+    }
+    /* v1.364.0 - a WebSocket upgrade (staff chat) is handed back as it is:
+       a 101 cannot be rebuilt with new Response(). */
+    if (res.status === 101) return res;
+    /* v1.364.0 - after a sign-out, an offboarding, a deactivation, a role or
+       a session change, the chat hub re-checks every open connection now
+       (it also re-checks every minute while anyone is connected). */
+    if (request.method !== "GET" && res.status < 400 && CHAT_RECHECK.test(path)) {
+      try { await chatRecheck(env); } catch { /* the minute check covers it */ }
     }
     // attach CORS + baseline security headers to every response (v1.5.0)
     const headers = new Headers(res.headers);
@@ -5038,6 +5059,15 @@ async function route(request: Request, env: Env, path: string): Promise<Response
   }
 
   /* ---- staff portal (all routes require auth) ---- */
+
+  /* v1.364.0 - staff chat: its own door, ahead of the staff dispatch (no
+     data-version bump, no replay store - chat is not a business record).
+     chatEligible decides who may use it on every call. */
+  if (path === "/api/v1/staff/chat" || path.startsWith("/api/v1/staff/chat/")) {
+    if (!user) return errorResponse("unauthenticated", "Sign in required", 401);
+    return handleChat(request, env, path.slice("/api/v1/staff/chat".length) || "/", user,
+      await sha256Hex(getCookie(request, SESSION_COOKIE) ?? ""), allowedOrigins(env));
+  }
 
   if (path.startsWith("/api/v1/staff/")) {
     if (!user) return errorResponse("unauthenticated", "Sign in required", 401);

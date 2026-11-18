@@ -10,6 +10,60 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.366.0] - 2026-11-18 - The company badge: A2Z soft gold, AZ ONE navy - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, a Payment History screenshot): colour the company badge beside invoice numbers - A2Z soft gold with dark gold text, AZ ONE navy with white text - at the same compact size, everywhere, changing nothing else.
+
+### Changed
+- **One global company badge** (`styles/erp-v3.css` `.erp-co-badge` + `.erp-co-a2z` / `.erp-co-azoo`, `lib/ui-styles.ts` `companyBadge(code)`): at most 16px tall (14px as drawn), 9px type (`--type-badge-size`), 6px side padding, no icon, shadow or border. Colours are tokens in `styles/globals.css` (`--co-badge-*`); AZ ONE stays navy with white text in every theme.
+- Used by every place that showed the short company badge beside a document: Sales > Payments (Needs My Verification, Invoice Balances, Payment History, Audit Trail) and the Assets register's company column. Their local badge styles (`.co`, `.coChip`) are removed. No table, spacing, layout or data changed.
+
+## [1.365.0] - 2026-11-18 - A payment waiting for the CEO is on his Desk - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, a Desk screenshot): "On desk should appear for the invoice for me to verify right?" A reported payment (RM 20.00 on INV-AZOO181126-1) only reached him as a bell notice headed "Update" under System, which opened nothing; his Desk said 0 decisions. He chose two fixes (of four suggested): payments on the Desk, and the notice that opens it.
+
+### Fixed
+- **Payments to verify are Desk decisions.** Every payment report waiting for verification is a row on the verified company owner's Desk ("INV-... - payment of RM ... to verify", who reported it, flagged when it may be a duplicate or is more than the balance). It counts in Pending My Decisions, the Action Inbox, the bell's Approvals list and the Dashboard's decision queue, because they all read the Desk. Only the person the route lets verify sees it (payment_verify AND the verified company owner) - not the COO, the reporter, or another CEO-role account.
+- **A payment the CEO asked a question about** moves to the reporter's Desk (their work: answer it) and off the CEO's until they answer.
+- **Opening it lands on the payment**: the Desk row and the bell notice both open Sales > Payments with that invoice's verification sheet (Verify / Ask a question / Reject). The notice is headed "Payment" (was "Update").
+- Not changed (not chosen): other bell-only approvals (asset disposals, Live Host reports, Financial Advisory criteria) and the hourly system-error notices.
+
+### Guards
+- `tests/payment-verify.mjs` +5 checks (on the owner's Desk as a decision opening in Sales; on nobody else's, including a CEO-role account that is not the owner; a question moves it to the reporter) and +3 mutations.
+
+## [1.364.0] - 2026-11-18 - Staff Chat: messages expire after 12 hours - BUILT, NOT DEPLOYED (NO MIGRATION; NEW BUCKET + DURABLE OBJECT)
+
+The CEO (18-11-2026): "A2Z OS - Internal Staff Chat (12H auto-delete)", with two reference pictures. Audit and decisions: docs/STAFF-CHAT-STAGE-0-AUDIT.md (files: JPG/PNG/WebP/PDF, not virus-scanned; follow the brief where the pictures differ; any staff member makes a group; all staff at once).
+
+### Added
+- **A chat icon in the existing header**, beside the bell, with the unread count. On a desktop it opens a wide drawer (the conversation list beside the conversation); on a phone or the installed app it is the whole screen, one pane at a time with Back. No new sidebar item, phone-bar stop or tab.
+- **One-to-one chats and groups of up to 8 staff** (anyone may start one; only its maker removes people; anyone may leave). Staff search, times, unread counts, read ticks, online status. 1,500 characters a message. No calls, video, stickers, reactions or emoji picker.
+- **Files: JPG, PNG, WebP or PDF**, 2 MB each, 3 a message, 5 MB together. Pictures are compressed first. The server checks the type and the file's own signature before anything is stored, and refuses a PDF carrying script, a launch action or embedded files. Files are **not virus-scanned** (the drawer says so).
+- **Every message expires 12 hours after it is sent**: the server sets the time, nothing ever extends it, and every read hides an expired message from that second. A timer deletes the messages and their files (the R2 objects too) and clears open screens; the 5-minute schedule is the recovery and also removes stray files. The screen keeps chat in memory only (no browser storage, no offline queue).
+- **Staff only**: active staff on staff today with 2FA done (CEO, COO and CCO included), and the new matrix row "Use staff chat" (`chat_use`, every staff role by default). Customers, agents, applicants, leavers and suspended accounts get nothing, on every call and on the live connection. Signing out, offboarding, deactivation or a role change closes an open chat at once; a check every minute catches the rest.
+- **Pushes name nothing**: "New message on A2Z Chat", no sender, no text, and only to someone with no chat open.
+
+### Where it lives
+- `worker/src/chat.ts`: the routes (`/api/v1/staff/chat/*`) and the ChatHub Durable Object (SQLite storage, WebSocket hibernation, alarm). **Nothing of chat is written to D1**: no table, no migration, nothing in the notifications or the nightly export.
+- Files go to a **new private R2 bucket `a2z-chat-temp`**, never MEDIA (MEDIA is copied to the backups bucket within 30 minutes and kept 90 days).
+- `lib/chat-client.ts`, `components/portal/chat/` (the shared SideDrawer in its form size); a `send` icon; `wss://` of our own domain in the CSP.
+
+### Before the first release (the owner, once)
+```
+cd worker
+npx wrangler r2 bucket create a2z-chat-temp
+npx wrangler r2 bucket lifecycle add a2z-chat-temp chat-1-day --expire-days 1 --force
+```
+PUSH.bat checks the bucket exists and stops before any migration if it does not.
+
+### Not promised
+Cloudflare keeps its own 30-day recovery copies of Durable Object storage, which the app cannot purge; screenshots and downloaded files are outside the system. Chat is never the official record: approvals, payments, payroll and HR decisions stay in their modules.
+
+### Checks
+- `tests/chat.mjs` (38 checks, 12 mutations), registered.
+- `tests/browser/chat-e2e.mjs`: 73 checks against a real local worker (real migrations, Durable Object and R2); expiry proven with a test lifetime that only works on 127.0.0.1.
+- `tests/browser/chat.py`: 22 checks in a real browser, desktop and phone (sending, files, unread, read ticks, groups, an agent refused, expiry on screen without a reload, suspension).
+
 ## [1.363.0] - 2026-11-18 - Assets: the attention count and its list now agree - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, a screenshot): the Assets Overview said 1 asset needed attention, but "View all" opened Maintenance & Disposal and it was empty.
