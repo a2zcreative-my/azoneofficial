@@ -54,7 +54,8 @@ function checks(src) {
   ok("Report and I took part open the 'Check this is the right live' card first, never the report", /setConfirm\(\{ live: s, join: false \}\)/.test(src.ui) && /setConfirm\(\{ live: s, join: true \}\)/.test(src.ui) && !/onClick=\{\(\) => void (start|join)\(s\.id\)\}/.test(src.ui));
   ok("the lists send each live's project and document for its tags", /s\.unplanned, s\.project_id, pj\.title AS project_title, \$\{DOC_COLS\("pj"\)\}/.test(s));
   /* v1.370.0 - the image is a base64 data URL (Cloudflare's own Llama 3.2 Vision tutorial); the array of numbers was refused */
-  ok("the screenshot goes to Workers AI as a base64 data URL, never an array of numbers", /data:\$\{type \|\| "image\/png"\};base64,/.test(s) && /image, max_tokens: 300/.test(s) && !/Array\.from\(bytes\)/.test(s));
+  ok("the screenshot goes to Workers AI as a base64 data URL, never an array of numbers", /data:\$\{type \|\| "image\/png"\};base64,/.test(s) && /image_url: \{ url: image \}/.test(s) && !/Array\.from\(bytes\)/.test(s));
+  ok("three request layouts, the next tried only when Cloudflare refuses the input itself (v1.372.0)", /name: "content-parts"/.test(s) && /name: "prompt\+image"/.test(s) && /name: "messages\+image"/.test(s) && /if \(!refusedInput\(e\) \|\| i === layouts\.length - 1\) throw/.test(s));
   ok("a failed read is written to System health's error log", /logError\(env, "live_ai"/.test(s));
   /* v1.369.0 - the platform and document tags (the CEO, 18-11-2026) */
   ok("every live shows its platform as a tag", /function PlatformTag/.test(src.ui) && (src.ui.match(/<PlatformTag /g) ?? []).length >= 6);
@@ -75,7 +76,8 @@ const MUT = [
   ["roster", "the old card back", "<div id=\"live-host-card\"><LiveReports /></div>", "<div id=\"live-host-card\"><LiveHostCard /></div>"],
   ["tabs", "a new Live Reports tab", '"Roster & Scheduling",', '"Roster & Scheduling",\n  "Live Reports",'],
   ["srv", "a voided invoice tagged", "AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS inv_number", "ORDER BY i.id DESC LIMIT 1) AS inv_number"],
-  ["srv", "the image sent as numbers again", "ai!.run(AI_MODEL, { messages: [{ role: \"user\", content: PROMPT }], image, max_tokens: 300", "ai!.run(AI_MODEL, { messages: [{ role: \"user\", content: PROMPT }], image: Array.from(bytes), max_tokens: 300"],
+  ["srv", "the image sent as numbers again", "image_url: { url: image }", "image_url: { url: Array.from(bytes) }"],
+  ["srv", "every error retried with the next layout", "if (!refusedInput(e) || i === layouts.length - 1) throw", "if (i === layouts.length - 1) throw"],
   ["ui", "the GMV disclaimer dropped", "never verified sales, cash, an invoice or commission", "verified sales"],
 ];
 let caught = 0;

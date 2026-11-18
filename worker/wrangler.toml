@@ -85,6 +85,8 @@ bucket_name = "a2z-chat-temp"
 binding = "AI"
 
 [vars]
+# v1.372.0 - the From of every portal email (worker/src/mail.ts); a2zcreative.my is onboarded in Email Sending
+MAIL_FROM = "A2Z Creative Marketing <hello@a2zcreative.my>"
 # Non-secret vars kept out of source: set them in the Cloudflare dashboard
 # (Workers & Pages → your Worker → Settings → Variables) or via
 # `wrangler secret put` for the sensitive ones below. Nothing here is hardcoded.
@@ -169,7 +171,7 @@ crons = ["*/5 * * * *", "*/30 * * * *", "20 19 * * *", "0 1 * * *", "0 0 * * *",
 # v1.247.0 - TASK EMAILS (the owner, 01-11-2026): the sender is the company
 # address. Until these two are live nothing is queued (the settings page under
 # Tasks > Reports & Archive says so); the day they are, task emails start.
-# [[send_email]]
-# name = "EMAIL"
-# [vars] entry to add beside the others:
-# MAIL_FROM = "A2Z Creative Marketing <hello@a2zcreative.my>"
+# v1.372.0 - ON (the CEO onboarded a2zcreative.my in Email Sending, 18-11-2026). The sender
+# MAIL_FROM is in [vars] below. Sending to anyone needs the Workers Paid plan.
+[[send_email]]
+name = "EMAIL"

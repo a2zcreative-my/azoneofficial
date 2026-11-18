@@ -10,6 +10,39 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.373.0] - 2026-11-18 - Shift Templates: one pattern to many staff, reviewed before it is saved - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO's brief "A2Z OS - SHIFT TEMPLATES BULK ASSIGNMENT" and his three pictures (desktop selection, review drawer, phone). His answers: a bulk assignment starts tomorrow or later; the existing editor, single assign and history stay, in a drawer.
+
+### Changed
+- **Roster & Scheduling -> Shift Templates** (`components/portal/shift-templates.tsx`): the working-hour patterns are compact selectable cards (hours, the Friday exception, Default) with New Pattern; the staff are one searchable table with checkboxes (department and status filters, select all visible / all matching, clear), the selected count, ONE pattern and ONE effective date (tomorrow at the earliest), and Review & Assign.
+- **Review before assigning**: a drawer with the staff, the pattern with its hours, the date and "existing history preserved", then each person - the pattern before -> after, and Change, No change, Conflict or Not assigned, with the reason and warnings (a later planned assignment still takes over; approved leave on a new rest day is kept). Nothing is saved until Confirm, which counts only the changes.
+- **The old tools are unchanged**, in a drawer from the cards and the "Patterns, single assign & history" button: the pattern editor (new, edit, remove), single-staff assign and the assignment history (move a date, withdraw).
+- Phone: the wide columns step aside (the pattern rides under the name), the count, pattern and date are one compact bar, no sideways scroll.
+
+### Added
+- `POST /api/v1/staff/staff-shifts/bulk` (`worker/src/shift-bulk.ts`), hr_manage only, the same `staff_shifts` history every reader uses. `dry_run` previews and writes nothing. Confirm writes only the changes, each one conditional insert ("only if nothing starts that day for that person"), so a retry or a double press adds nothing. Refused: a date before tomorrow, a retired pattern, more than 100 staff, anyone not on staff (agents, admins, a leaver after their last day). Conflict: another assignment on the same day, or a month whose payslips are released. Each person changed is told and audited (actor, old and new pattern, date, batch); the batch has its own audit row.
+
+### Not changed
+- Shift Roster, Live Reports, Attendance, Leave, Payroll and the Attendance tab's own Working hours card. No Import / Export and no KPI cards were added.
+
+### Guards
+- New `tests/shift-bulk.mjs` (34 checks, 8 mutations). Browser: `tests/browser/shift-templates.py` (37 checks, desktop and phone). `tab-zones` names ShiftTemplates in the Roster & Scheduling order.
+
+## [1.372.0] - 2026-11-18 - Live Reports: the screenshot AI request layout; Sales status pills fit their column - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, System health): `live_ai` "Live report screenshot AI failed (61135 bytes, image/jpeg): 3030: Unable to add image when there are no user-supplied nor system-supplied messages."
+
+### Fixed
+- **The screenshot read tries the three request layouts Workers AI vision models take**, in order: the image as an `image_url` part of the user message (with a system message), then `prompt` + `image`, then `messages` + `image`. It moves to the next ONLY when Cloudflare refuses the request itself (a 3xxx / 5006 input error, before any inference runs); any other error stops at once. Meta's licence is agreed once if asked. A model answer given as an object is read too.
+- When every layout is refused, System health's `live_ai` line lists each layout with Cloudflare's reason, so the next step is never guessed. Manual entry is unchanged and always allowed.
+
+- **Sales > Quotations & Invoices: status pills ran over the Actions column** (the CEO's screenshot, "text overflow from the pills"). A pill is one line by rule, so the long half moves under it on a small line that wraps: **Partly invoiced · 33%** with "RM 100.00 left to invoice" below, and **Invoiced (2)** with the invoice numbers below. Same data, same buttons.
+
+### Guards
+- `live-reports-v2` +1 check, +1 mutation (every error retried with the next layout).
+- `qt-once` reads the invoice list under the pill; `tests/browser/deposit-billing.py` checks the amount left under it and that no status pill runs past its column.
+
 ## [1.371.0] - 2026-11-18 - One reference for the public forms: A2Z-DDMM + running number - BUILT, NOT DEPLOYED (MIGRATION 0212)
 
 The CEO: "number rujukan bagi /apply/business dan /apply/partner mestilah mengunakan A2Z-DDMM Running Number iaitu contoh: A2Z-181101".

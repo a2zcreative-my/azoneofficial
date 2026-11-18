@@ -134,6 +134,16 @@
 .cActions {
   justify-content: flex-start;
 }
+/* v1.372.0 - the long half of a status (which invoices, how much is left) sits under its pill and wraps on
+   words; the pill itself stays one line (.erp-chip is nowrap by rule) */
+.statusNote {
+  flex-basis: 100%;
+  min-width: 0;
+  font-size: var(--type-caption-size);
+  line-height: 1.3;
+  color: var(--muted-foreground);
+  overflow-wrap: break-word;
+}
 /* v1.191.0 - the foot as the owner's photo: the count, numbered pages in
    the middle, the page size at the right; stacked and centred on a phone */
 .foot {

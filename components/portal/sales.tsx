@@ -3019,16 +3019,20 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   {partly(d) && (
                     <span className={chipSmWarn} data-testid="qt-partly"
                       title={L(`${d.invoice_count ?? 1} invoice(s) so far: ${d.invoiced_list ?? d.invoiced_as}. ${fmtRM(leftToInvoice(d))} of ${fmtRM(d.total_cents)} is not invoiced yet.`, `${d.invoice_count ?? 1} invois setakat ini: ${d.invoiced_list ?? d.invoiced_as}. ${fmtRM(leftToInvoice(d))} daripada ${fmtRM(d.total_cents)} belum diinvois.`)}>
-                      {L("Partly invoiced", "Diinvois sebahagian")} · {Math.round((Number(d.invoiced_cents ?? 0) / Math.max(1, d.total_cents)) * 100)}% · {fmtRM(leftToInvoice(d))} {L("left", "baki")}
+                      {L("Partly invoiced", "Diinvois sebahagian")} · {Math.round((Number(d.invoiced_cents ?? 0) / Math.max(1, d.total_cents)) * 100)}%
                     </span>
                   )}
+                  {/* v1.372.0 - the CEO's screenshot (18-11-2026, "text overflow from the pills"): a chip is one line by
+                      rule, so the long part moves OUT of the pill onto a small line under it that may wrap */}
+                  {partly(d) && <span className={sc.statusNote} data-testid="qt-partly-left">{fmtRM(leftToInvoice(d))} {L("left to invoice", "baki untuk diinvois")}</span>}
                   {d.doc_type === "QT" && d.invoiced_as && !partly(d) && (
                     /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded...") - EVERY invoice it became, not only the latest */
                     <span className={chipSmSuccess} data-testid="qt-invoiced"
                       title={L(`Invoiced as ${invList(d)} — this quotation is a sale now. Undo on an invoice reopens it.`, `Diinvois sebagai ${invList(d)} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
-                      <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")}{(d.invoice_count ?? 1) > 1 ? ` (${d.invoice_count})` : ""} · {invList(d)}
+                      <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")}{(d.invoice_count ?? 1) > 1 ? ` (${d.invoice_count})` : ""}
                     </span>
                   )}
+                  {d.doc_type === "QT" && d.invoiced_as && !partly(d) && <span className={sc.statusNote} data-testid="qt-invoiced-list">{invList(d)}</span>}
                   {d.doc_type === "QT" && !d.invoiced_as && (
                     <span className={chipSmNeutral}>
                       {L("Open", "Terbuka")}

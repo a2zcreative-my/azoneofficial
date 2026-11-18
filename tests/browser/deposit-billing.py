@@ -55,14 +55,18 @@ with sync_playwright() as p:
         pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
         sales_view(pg, "Quotations & Invoices", "Documents"); pg.wait_for_timeout(1200)
         chip = pg.get_by_test_id("qt-partly").first
-        check(f"{tag}: the half-invoiced quotation says Partly invoiced, 50%, RM 2,250.00 left", chip.count() == 1 and "Partly invoiced" in chip.inner_text() and "50%" in chip.inner_text() and "2,250.00" in chip.inner_text(), chip.inner_text() if chip.count() else "no chip")
+        left = pg.get_by_test_id("qt-partly-left").first
+        # v1.372.0 - the pill says Partly invoiced and the %, the amount left sits on the line under it
+        check(f"{tag}: the half-invoiced quotation says Partly invoiced, 50%, RM 2,250.00 left", chip.count() == 1 and "Partly invoiced" in chip.inner_text() and "50%" in chip.inner_text() and left.count() == 1 and "2,250.00" in left.inner_text(), chip.inner_text() if chip.count() else "no chip")
+        check(f"{tag}: no status pill runs past its column", pg.evaluate("[...document.querySelectorAll('[data-testid=qt-partly],[data-testid=qt-invoiced]')].every(c => { const cell = c.closest('[role=cell]'); return !cell || c.getBoundingClientRect().right <= cell.getBoundingClientRect().right + 1; })"))
         bal = pg.get_by_role("button", name="Invoice balance RM 2,250.00").first
         qrow = lambda: pg.locator("[role=row]").filter(has=pg.get_by_test_id("qt-partly")).first
         open_more(qrow()); part = pg.get_by_role("button", name="Invoice part").first
         check(f"{tag}: it offers Invoice balance and Invoice part", bal.count() == 1 and part.count() == 1)
         # v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear")
         both = pg.locator("[role=row]").filter(has_text="QT-AZOO091126-1").get_by_test_id("qt-invoiced")
-        bt = both.first.inner_text() if both.count() else ""
+        bl = pg.locator("[role=row]").filter(has_text="QT-AZOO091126-1").get_by_test_id("qt-invoiced-list")
+        bt = (both.first.inner_text() + " " + bl.first.inner_text()) if both.count() and bl.count() else ""
         check(f"{tag}: a quotation billed in two invoices names BOTH, oldest first", "INV-AZOO091126-1" in bt and "INV-AZOO111126-1" in bt and bt.index("INV-AZOO091126-1") < bt.index("INV-AZOO111126-1") and "(2)" in bt, bt)
         check(f"{tag}: no sideways page", pg.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1"))
         bal.scroll_into_view_if_needed(); bal.click(); pg.wait_for_timeout(900)

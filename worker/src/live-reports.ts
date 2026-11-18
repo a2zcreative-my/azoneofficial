@@ -322,20 +322,36 @@ async function readScreenshot(env: Env, bytes: Uint8Array, type = "image/png"): 
       raw = fake; usage = { prompt_tokens: 2000, completion_tokens: 120 };
     } else {
       const image = dataUrl(bytes, type);
-      const call = () => Promise.race([
-        ai!.run(AI_MODEL, { messages: [{ role: "user", content: PROMPT }], image, max_tokens: 300, temperature: 0 }),
+      /* v1.372.0 - Cloudflare refused 1.370.0's request with 3030 "Unable to add image when there are no
+         user-supplied nor system-supplied messages" (System health, 18-11-2026 18:25). The model's page does
+         not document the image layout, so the read tries the three layouts Workers AI vision models take,
+         in order, and moves on ONLY when Cloudflare refuses the request itself (a 3xxx/5006 input error,
+         before any inference runs); a licence request is agreed once. Anything else stops at once. */
+      const layouts: { name: string; input: Record<string, unknown> }[] = [
+        { name: "content-parts", input: { messages: [{ role: "system", content: "You read live-selling summary screens and reply with JSON only." }, { role: "user", content: [{ type: "text", text: PROMPT }, { type: "image_url", image_url: { url: image } }] }], max_tokens: 300, temperature: 0 } },
+        { name: "prompt+image", input: { prompt: PROMPT, image, max_tokens: 300, temperature: 0 } },
+        { name: "messages+image", input: { messages: [{ role: "system", content: "You read live-selling summary screens and reply with JSON only." }, { role: "user", content: PROMPT }], image, max_tokens: 300, temperature: 0 } },
+      ];
+      const call = (input: Record<string, unknown>) => Promise.race([
+        ai!.run(AI_MODEL, input),
         new Promise((_, no) => setTimeout(() => no(new Error("timeout")), AI_TIMEOUT_MS)),
-      ]) as Promise<{ response?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>;
-      let res: { response?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
-      try { res = await call(); }
-      catch (e) {
-        /* the model asks for Meta's licence once per account: agree (the CEO accepted it when he turned
-           the AI on) and try ONCE more; any other error is not retried */
-        if (!/agree|licen[cs]e|5016/i.test(String(e))) throw e;
-        await ai!.run(AI_MODEL, { prompt: "agree" });
-        res = await call();
+      ]) as Promise<{ response?: unknown; usage?: { prompt_tokens?: number; completion_tokens?: number } }>;
+      const refusedInput = (e: unknown) => /\b(3\d{3}|5006)\b|unable to add image|invalid input|required properties/i.test(String((e as Error)?.message ?? e));
+      let res: { response?: unknown; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null = null;
+      const tried: string[] = [];
+      let agreed = false;
+      for (let i = 0; i < layouts.length && !res; i++) {
+        try { res = await call(layouts[i]!.input); }
+        catch (e) {
+          const m = String((e as Error)?.message ?? e);
+          if (!agreed && /agree|licen[cs]e|5016/i.test(m)) { agreed = true; await ai!.run(AI_MODEL, { prompt: "agree" }); i--; continue; }
+          tried.push(`${layouts[i]!.name}: ${m.slice(0, 120)}`);
+          if (!refusedInput(e) || i === layouts.length - 1) throw new Error(tried.join(" | "));
+        }
       }
-      raw = String(res?.response ?? ""); usage = res?.usage;
+      /* a model may answer with an object rather than text (JSON mode) */
+      const out = res?.response;
+      raw = typeof out === "string" ? out : out == null ? "" : JSON.stringify(out); usage = res?.usage;
     }
     /* Neurons from the model's published rates ($0.049 per M input, $0.676 per M output; $0.011 per 1,000 Neurons);
        no usage reported = the reservation stands */

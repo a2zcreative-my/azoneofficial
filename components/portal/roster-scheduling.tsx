@@ -25,11 +25,12 @@
    The components moved WHOLE, with their own reads, writes and gates. A view
    mounts the first time it is opened and then stays mounted, hidden. */
 
+import { ShiftTemplates } from "@/components/portal/shift-templates"; // v1.373.0
 import { useCallback, useEffect, useState } from "react";
 import { PersonDayDrawer } from "@/components/portal/attendance-records";
 import { TodayAssignmentsCard } from "@/components/portal/dashboard-cards";
 import { ViewSwitch } from "@/components/portal/executive-cards";
-import { AttendanceAdminPanel, RosterBoard } from "@/components/portal/lazy-panels";
+import { RosterBoard } from "@/components/portal/lazy-panels";
 import { L, MANAGE_ROLES, revealAnchor, type User } from "@/components/portal/page-shared";
 import { ShiftRoster } from "@/components/portal/shift-roster";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
@@ -140,7 +141,9 @@ export function RosterScheduling({ user, go, startView }: { user: User; go: (t: 
               <button type="button" className={btnSm} onClick={() => setView("shifts")}><AppIcon name="date" />{L("See the roster", "Lihat roster")}</button>
             </div>
           </section>
-          <AttendanceAdminPanel role={user.role} areas={["hours"]} showPending={false} bare />
+          {/* v1.373.0 - the pattern cards, the multi-select staff table and the review drawer; the old
+              editor, single assign and history open from it, unchanged (shift-templates.tsx) */}
+          <ShiftTemplates role={user.role} />
         </div>
       )}
 

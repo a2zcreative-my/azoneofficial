@@ -22,6 +22,7 @@ import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
 import { handlePartners } from "./partners"; // v1.351.0
 import { handleGrowth } from "./growth"; // v1.369.0
+import { handleShiftBulk } from "./shift-bulk"; // v1.373.0
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
@@ -13794,6 +13795,12 @@ async function handleStaffRoutes(
       if (!String(eD).includes("no such table")) throw eD;
       return err("migration_missing", "Migration 0099 is not applied - run: npx wrangler d1 migrations apply azoneofficial --remote, then try again.", 500);
     }
+  }
+
+  /* v1.373.0 - one pattern to many staff from one date (shift-bulk.ts), the same history table */
+  if (path === "/staff-shifts/bulk") {
+    const sb = await handleShiftBulk(env, path, method, body, user);
+    if (sb) return sb;
   }
 
   if (path === "/staff-shifts" && method === "POST") {

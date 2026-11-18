@@ -303,7 +303,8 @@ function sourceChecks() {
   const panel = readFileSync(join(root, "components/portal/task-mail-panel.tsx"), "utf8");
   ok(!/api_key|secret|password/i.test(panel) && /sandbox=""/.test(panel), "the settings screen holds no credential, and the preview iframe is sandboxed");
   const toml = readFileSync(join(root, "worker/wrangler.toml"), "utf8");
-  ok(/# MAIL_FROM = "A2Z Creative Marketing <hello@a2zcreative\.my>"/.test(toml) && /"30 0 \* \* \*"/.test(toml), "wrangler.toml carries the sender line (commented until the owner onboards the domain) and the 08:30 digest cron");
+  /* v1.372.0 - the CEO onboarded a2zcreative.my (18-11-2026): the binding and the sender are live */
+  ok(/^\[\[send_email\]\]\nname = "EMAIL"/m.test(toml.replace(/\r\n/g, "\n")) && /^MAIL_FROM = "A2Z Creative Marketing <hello@a2zcreative\.my>"/m.test(toml) && /"30 0 \* \* \*"/.test(toml), "wrangler.toml binds EMAIL and sets the sender (a2zcreative.my onboarded), and carries the 08:30 digest cron");
   return out;
 }
 
