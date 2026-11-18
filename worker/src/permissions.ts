@@ -36,6 +36,7 @@ export const PERMS: Record<string, readonly Role[]> = {
   team_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   task_rename: ["ceo", "coo", "cco"], // v1.315.0 (Tasks 5.0 TK-4) - rename a task given to someone else, with the reason
   live_report_review: ["ceo", "coo", "cco"], // v1.315.0 (TK-14, L3) - review a Live Host Report, never the host of the session
+  live_ai_settings: ["ceo"], // v1.368.0 - Live Reports screenshot AI: on/off, daily cap (the CEO alone, 18-11-2026)
   positions_manage: ["super_admin", "ceo"], // v1.322.0 (the CEO, 16-11-2026) - keep the positions list; a position never changes anybody's role
   events_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   claims_submit: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"],
@@ -662,6 +663,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Agents", key: "partner_approve", en: "Final approval of partner applications and their activation", ms: "Kelulusan akhir permohonan rakan kongsi dan pengaktifannya", cap: "partner_approve" },
   { module: "Agents", key: "agent_portal", en: "Agent: own tasks, packages to promote, submit clients", ms: "Ejen: tugasan sendiri, pakej untuk dipromosi, hantar pelanggan", cap: "agent_portal", note_en: "No other module, no staff data", note_ms: "Tiada modul lain, tiada data kakitangan" },
   { module: "Tasks", key: "task_rename", en: "Rename a task given to someone else (with the reason)", ms: "Tukar tajuk tugasan orang lain (dengan sebab)", cap: "task_rename" },
+  { module: "Tasks", key: "live_ai_settings", en: "Turn the Live Reports screenshot AI on or off and set its daily cap", ms: "Hidup/matikan AI tangkapan skrin Laporan Live dan tetapkan had harian", cap: "live_ai_settings", note_en: "Cloudflare Workers AI, free daily allocation only", note_ms: "Cloudflare Workers AI, peruntukan harian percuma sahaja" },
   { module: "Tasks", key: "live_report_review", en: "Review, accept or return a Live Host Report", ms: "Semak, terima atau pulangkan Laporan Hos Live", cap: "live_report_review" },
   { module: "Tasks", key: "task_reports", en: "Read task reports", ms: "Baca laporan tugasan", cap: "task_reports" },
   { module: "Tasks", key: "task_delete", en: "Delete a task", ms: "Padam tugasan", cap: "task_delete", note_en: "Never a project task (reassign or complete it)", note_ms: "Bukan tugasan projek (agih semula atau selesaikan)" },

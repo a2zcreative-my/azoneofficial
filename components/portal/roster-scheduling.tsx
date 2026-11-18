@@ -19,7 +19,8 @@
      Shift Roster     ShiftRoster, moved from Attendance; staff see their row
      Shift Templates  the pattern editor (it was a drawer inside Shift Roster);
                       the four roles that edited it before
-     Live Reports     LiveHostCard, moved from Tasks > Reports (R-4)
+     Live Reports     LiveReports (v1.368.0, the CEO's picture of 18-11-2026; it
+                      replaced LiveHostCard, which came from Tasks > Reports, R-4)
 
    The components moved WHOLE, with their own reads, writes and gates. A view
    mounts the first time it is opened and then stays mounted, hidden. */
@@ -32,7 +33,7 @@ import { AttendanceAdminPanel, RosterBoard } from "@/components/portal/lazy-pane
 import { L, MANAGE_ROLES, revealAnchor, type User } from "@/components/portal/page-shared";
 import { ShiftRoster } from "@/components/portal/shift-roster";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
-import { LiveHostCard } from "@/components/portal/tasks5";
+import { LiveReports } from "@/components/portal/live-reports"; // v1.368.0 - replaces LiveHostCard (the CEO's picture, 18-11-2026)
 import { AppIcon } from "@/components/ui/app-icon";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -145,7 +146,7 @@ export function RosterScheduling({ user, go, startView }: { user: User; go: (t: 
 
       {on("reports") && (
         <div hidden={view !== "reports"} className={css.body}>
-          <div id="live-host-card"><LiveHostCard today={mytToday()} /></div>
+          <div id="live-host-card"><LiveReports /></div>
         </div>
       )}
 

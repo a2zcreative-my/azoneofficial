@@ -336,7 +336,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
               <Search aria-hidden className="erp-icon" strokeWidth={1.75} />
             </button>
             {/* v1.10.0: sound, push and EN/BM are set-once switches, not daily
-              taps — on phones they live in the More sheet's Preferences row.
+              taps — on phones they live in the profile menu (v1.368.0: no longer in the More sheet).
               v1.279.0 - on desktop they live on the rail's name card menu
               with the colour theme and Sign out (the photo's header). */}
             {/* v1.364.0 - STAFF CHAT (the CEO, 18-11-2026): one icon in the existing
@@ -499,7 +499,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
             );
           })}
           {/* v1.10.0 review fix: More renders UNCONDITIONALLY — the mobile
-            Preferences (sound/push/language/theme) live in its sheet, and a
+            Preferences (sound/push/language/theme) live in the profile menu (v1.368.0), and a
             role trimmed to ≤4 tabs would otherwise lose them entirely. */}
           {(() => {
             const active = moreOpen || mobileMore.includes(activeTab);
@@ -603,96 +603,9 @@ export function PortalShell({ children }: { children: ReactNode }) {
                   </div>
                 </section>
               ))}
-              {/* v1.10.0: the set-once switches displaced from the app bar —
-                sound, push alerts, language, colour theme. Same handlers as
-                the desktop header buttons. */}
-              <p className={`${css.moreLabel} ${css.moreLabelPrefs}`}>
-                {tr("Preferences", lang)}
-              </p>
-              <div
-                className={`${css.moreGrid} ${pushState !== "unsupported" ? css.moreGrid4 : ""}`}
-              >
-                <button
-                  type="button"
-                  className={css.morePref}
-                  onClick={toggleSound}
-                >
-                  <span aria-hidden className="erp-center">
-                    {sound ? (
-                      <Volume2
-                        className="erp-icon-md"
-                        strokeWidth={1.75}
-                      />
-                    ) : (
-                      <VolumeX
-                        className="erp-icon-md"
-                        strokeWidth={1.75}
-                      />
-                    )}
-                  </span>
-                  {sound
-                    ? lang === "ms"
-                      ? "Bunyi"
-                      : "Sound on"
-                    : lang === "ms"
-                      ? "Senyap"
-                      : "Muted"}
-                </button>
-                {pushState !== "unsupported" && (
-                  <button
-                    type="button"
-                    className={css.morePref}
-                    onClick={() => void togglePush()}
-                  >
-                    <span aria-hidden className="erp-center">
-                      {pushState === "granted" ? (
-                        <BellRing
-                          className="erp-icon-md"
-                          strokeWidth={1.75}
-                        />
-                      ) : (
-                        <BellOff
-                          className="erp-icon-md"
-                          strokeWidth={1.75}
-                        />
-                      )}
-                    </span>
-                    {pushState === "granted"
-                      ? lang === "ms"
-                        ? "Push aktif"
-                        : "Push on"
-                      : lang === "ms"
-                        ? "Push tutup"
-                        : "Push off"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={css.morePref}
-                  onClick={toggleLang}
-                >
-                  <span aria-hidden className={css.moreLang}>
-                    {lang === "ms" ? "BM" : "EN"}
-                  </span>
-                  {lang === "ms" ? "Bahasa" : "English"}
-                </button>
-                <button
-                  type="button"
-                  className={css.morePref}
-                  onClick={() => setTheme(theme === "plum" ? "navy" : "plum")}
-                >
-                  <span aria-hidden className="erp-center">
-                    <Palette className="erp-icon-md" strokeWidth={1.75} />
-                  </span>
-                  {theme === "plum"
-                    ? lang === "ms"
-                      ? "Ungu"
-                      : "Plum"
-                    : lang === "ms"
-                      ? "Biru"
-                      : "Navy"}
-                </button>
-              </div>
+              {/* v1.368.0 - the Preferences row (sound, push, language, colours) is gone from
+                  the More sheet: the CEO, 18-11-2026 - the profile icon already holds them
+                  (accountActions above), so the phone keeps ONE place for them. */}
               {/* v1.170.0 - these two carry LABELS, so they are pills, not
                   the 44px icon circles btnHdr became in v1.169.0: on the
                   CEO's phone the words "Toggle dark mode" and "Sign out"

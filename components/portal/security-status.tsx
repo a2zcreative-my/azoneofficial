@@ -158,8 +158,18 @@ export const eventWord = (a: string): { text: string; sev: "high" | "medium" | "
 const SEV_CHIP = { high: chipSmDanger, medium: chipSmWarn, low: chipSmNeutral } as const;
 const SEV_WORD = { high: ["High", "Tinggi"], medium: ["Medium", "Sederhana"], low: ["Low", "Rendah"] } as const;
 
+/* v1.368.0 - the Live Reports screenshot AI's use today (decision C2: shown HERE, in the
+   existing System health, from GET /staff/live-reports/ai - the server's own counters) */
+type LiveAi = { enabled: boolean; bound: boolean; cap: number; ceiling: number; free_neurons_a_day: number; screenshots: number; neurons: number; refused: number; failed: number; fallback: string | null };
+
 export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => void }) {
   const [evPage, setEvPage] = useState(1);
+  const [liveAi, setLiveAi] = useState<LiveAi | null | "none">(null);
+  useEffect(() => {
+    let live = true;
+    void api<LiveAi>("/staff/live-reports/ai").then((r) => { if (live) setLiveAi(r.ok && r.data ? r.data : "none"); });
+    return () => { live = false; };
+  }, []);
   if (s === null) return <SkelRows rows={4} />;
   if (s === "denied") return <p className={css.muted}>{L("The CEO and the Super Admin see the security status.", "CEO dan Super Admin melihat status keselamatan.")}</p>;
   if (s === "failed") return <p className={css.muted} role="alert">{L("The security status could not be read - the server may need the latest release.", "Status keselamatan tidak dapat dibaca - pelayan mungkin memerlukan keluaran terkini.")}</p>;
@@ -212,6 +222,11 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
                 <span className={chipSmWarn}>{L("Not scanning", "Tiada imbasan")}</span>, "infra-files")}
               {row("database", L("Database backup and restore", "Sandaran dan pemulihan pangkalan data"), L(`Nightly, newest ${s.backup.retention_runs} kept. Last: ${mytWhen(s.backup.last?.uploaded)}. Off-site copy: ${s.backup.offsite_last ? mytWhen(s.backup.offsite_last) : "none recorded"}.`, `Setiap malam, ${s.backup.retention_runs} terbaru disimpan. Terakhir: ${mytWhen(s.backup.last?.uploaded)}. Salinan luar: ${s.backup.offsite_last ? mytWhen(s.backup.offsite_last) : "tiada direkodkan"}.`),
                 <span className={bk.tone === "green" ? chipSmSuccess : chipSmWarn}>{bk.value}</span>, "infra-backup")}
+              {liveAi && liveAi !== "none" && row("cloud", L("Live screenshot AI (Cloudflare Workers AI)", "AI tangkapan skrin live (Cloudflare Workers AI)"),
+                !liveAi.bound ? L("Not connected on this server - staff type the figures.", "Tidak disambung pada pelayan ini - staf isi angka sendiri.")
+                  : L(`Today: ${liveAi.screenshots} of ${liveAi.cap} screenshots, ${fmt(liveAi.neurons)} of ${fmt(liveAi.ceiling)} Neurons (free allowance ${fmt(liveAi.free_neurons_a_day)} a day). Refused ${liveAi.refused}, failed ${liveAi.failed}. Manual entry is always allowed.`,
+                      `Hari ini: ${liveAi.screenshots} daripada ${liveAi.cap} tangkapan skrin, ${fmt(liveAi.neurons)} daripada ${fmt(liveAi.ceiling)} Neuron (peruntukan percuma ${fmt(liveAi.free_neurons_a_day)} sehari). Ditolak ${liveAi.refused}, gagal ${liveAi.failed}. Isi sendiri sentiasa dibenarkan.`),
+                <span className={!liveAi.bound || !liveAi.enabled ? chipSmNeutral : liveAi.fallback ? chipSmWarn : chipSmSuccess}>{!liveAi.bound ? L("Not connected", "Tidak disambung") : !liveAi.enabled ? L("Off", "Mati") : liveAi.fallback ? L("Manual today", "Manual hari ini") : L("On", "Hidup")}</span>, "infra-live-ai")}
             </ul>
           </SplitPane>
           <SplitPane fit testid="security-events" title={L("Recent Security Events", "Peristiwa Keselamatan Terkini")} sub={L("What the server refused or recorded, last 7 days", "Apa yang pelayan tolak atau rekod, 7 hari terakhir")} label={L("Recent security events", "Peristiwa keselamatan terkini")}

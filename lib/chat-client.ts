@@ -228,13 +228,16 @@ export async function refreshInbox(): Promise<void> {
   if (r.status === 503) { set({ status: "unavailable", error: "chat_off" }); return; }
   if (!r.ok || !r.data) { set({ error: "inbox" }); return; }
   noteNow(r.data.now);
-  set({ convs: r.data.conversations, total: r.data.total, ttl: r.data.ttl_ms, error: null });
+  /* v1.368.0 - an answer without its list (an old worker, a test fixture) is an empty inbox, never a crash in the expiry timer */
+  set({ convs: Array.isArray(r.data.conversations) ? r.data.conversations : [], total: Number(r.data.total ?? 0), ttl: r.data.ttl_ms, error: null });
   purgeExpired();
 }
 
 export async function loadPeople(): Promise<void> {
   const r = await api<{ me: number; people: ChatPerson[] }>("/staff/chat/people");
-  if (r.ok && r.data) set({ me: r.data.me, people: r.data.people, online: r.data.people.filter((p) => p.online).map((p) => p.id) });
+  if (!r.ok || !r.data) return;
+  const people = Array.isArray(r.data.people) ? r.data.people : []; /* v1.368.0 - an answer without the list is no one, never a crash */
+  set({ me: r.data.me, people, online: people.filter((p) => p.online).map((p) => p.id) });
 }
 
 export async function openConversation(conv: number | null): Promise<void> {

@@ -76,7 +76,11 @@ ok("a setting in the menu says On / Off and stays open; Sign out closes it first
   && /<AccountMenuList items=\{foot\?\.items \?\? \[\]\} accountMenu=\{accountMenu\} active=\{active\} onSelect=\{onSelect\} onClose=\{closeMenu\} \/>/.test(nav)
   && /<AccountMenuList items=\{accountItems\} accountMenu=\{accountActions\}/.test(shell));
 for (const k of ["sound", "push", "lang", "theme", "signout"]) ok(`the account menu carries "${k}"`, new RegExp(`key: "${k}"`).test(shell));
-ok("the More sheet and the account menu share ONE set of handlers", ["toggleSound", "togglePush", "toggleLang", "signOut"].every((h) => new RegExp(`const ${h} = `).test(shell) && (shell.match(new RegExp(`\\b${h}\\b`, "g")) ?? []).length >= 3)
+/* v1.368.0 - the CEO (18-11-2026): sound, push, language and colours live in the profile menu
+   only; the More sheet no longer repeats them, so each preference handler is defined once and
+   used by the account menu (sign-out is still used by both). */
+ok("the account menu holds the preferences; the More sheet does not repeat them; ONE set of handlers", ["toggleSound", "togglePush", "toggleLang", "signOut"].every((h) => new RegExp(`const ${h} = `).test(shell) && (shell.match(new RegExp(`\\b${h}\\b`, "g")) ?? []).length >= 2)
+  && !/className=\{css\.morePref\}/.test(shell) && (shell.match(/\bsignOut\b/g) ?? []).length >= 3
   && (shell.match(/localStorage\.setItem\("azone-notif-sound"/g) ?? []).length === 1 && (shell.match(/await enablePush\(\)/g) ?? []).length === 1 && (shell.match(/signOutRequest\(\)/g) ?? []).length === 1);
 
 /* ---- the header ---- */

@@ -545,29 +545,45 @@ const accounts = [
 export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   let data = baseFixture(p0);
   const q = url ? new URL(url).searchParams : new URLSearchParams();
-  /* v1.315.0 - Tasks 5.0 Gate 4: the Live Host Reports (invented). A reviewer
-     (CEO, COO, CCO) sees one submitted and one accepted report of Farid's; a
-     live host (the signed-in 9001) has a returned report and a live to report. */
+  /* v1.315.0 - Tasks 5.0 Gate 4, reshaped for v1.368.0 Live Reports (invented):
+     one report per live shared by everyone who took part. A reviewer (CEO,
+     COO, CCO) sees Farid's submitted and accepted reports; the signed-in 9001
+     took part in a returned one and has a live (72) to report. */
   if (p0 === "/staff/live-reports" || p0.startsWith("/staff/live-reports/")) {
     const td = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const rev = ["ceo", "coo", "cco"].includes(ROLE);
-    const R = (o) => ({ company: "a2z", current_version: 1, start_time: "20:00", end_time: "22:15", platform: "tiktok", client_name: "ELFIA", draft_gmv_cents: null, file_count: 2, updated_at: td + " 02:00:00", ...o });
+    const who = (id, name, role) => ({ user_id: id, name, role, photo_key: null });
+    const R = (o) => ({ company: "a2z", current_version: 1, start_time: "20:00", end_time: "22:15", platform: "tiktok", client_name: "ELFIA", project_id: 2, project_title: "ELFIA Live Selling", project_client: "ELFIA Official", unplanned: 0, draft_gmv_cents: null, duration_min: 135, viewers: 12430, orders: 186, thumb_file_id: 1, file_count: 2, updated_at: td + " 02:00:00", ...o });
     const all = [
-      R({ id: 11, session_id: 61, host_user_id: 9003, host_name: "Farid Zul", state: "submitted", session_date: td, gmv_cents: 248050 }),
-      R({ id: 12, session_id: 62, host_user_id: 9003, host_name: "Farid Zul", state: "accepted", session_date: td, gmv_cents: 120000, start_time: "14:00", end_time: "15:30" }),
-      R({ id: 13, session_id: 63, host_user_id: 9001, host_name: "Fixture Person", state: "returned", session_date: td, gmv_cents: 90000, draft_gmv_cents: 90000, file_count: 0 }),
+      R({ id: 11, session_id: 61, host_user_id: 9003, host_name: "Farid Zul", participants: [who(9003, "Farid Zul", "host"), who(9004, "Aina Sofea", "co_host")], state: "submitted", session_date: td, gmv_cents: 248050 }),
+      R({ id: 12, session_id: 62, host_user_id: 9003, host_name: "Farid Zul", participants: [who(9003, "Farid Zul", "host")], state: "accepted", session_date: td, gmv_cents: 120000, start_time: "14:00", end_time: "15:30", unplanned: 1, company: "azoo", project_title: "AZ ONE Financing Live" }),
+      R({ id: 13, session_id: 63, host_user_id: 9003, host_name: "Farid Zul", participants: [who(9003, "Farid Zul", "host"), who(9001, "Fixture Person", "assistant")], state: "returned", session_date: td, gmv_cents: 90000, draft_gmv_cents: 90000, thumb_file_id: null, file_count: 0 }),
     ];
-    if (p0 === "/staff/live-reports") return { reports: rev ? all.filter((r) => r.host_user_id !== 9001) : all.filter((r) => r.host_user_id === 9001), sessions_to_report: rev ? [] : [{ id: 72, session_date: td, start_time: "14:00", end_time: "15:30", platform: "tiktok", client_name: "Fixture Client", status: "scheduled" }], can_review: rev, me: 9001 };
+    const mineIds = (r) => r.participants.some((x) => x.user_id === 9001);
+    const ai = { day: td, model: "@cf/meta/llama-3.2-11b-vision-instruct", enabled: false, bound: true, cap: 30, ceiling: 8000, free_neurons_a_day: 10000, screenshots: 0, neurons: 0, refused: 0, failed: 0, fallback: "off", manual_entry: true, can_set: ROLE === "ceo" };
+    const analysis = { gmv_per_hour_cents: 110244, conversion: 0.015, aov_cents: 1333, flags: [{ key: "viewers_high_orders_low", title: "High viewers, low orders", detail: "Viewers were above this host's usual, but conversion was below it.", tips: ["Pin the best-selling product earlier", "Repeat the offer every 10 minutes"] }] };
+    if (p0 === "/staff/live-reports/ai") return rev ? ai : { error: { code: "forbidden" } };
+    if (p0 === "/staff/live-reports/projects") return { projects: [{ id: 2, title: "ELFIA Live Selling", client: "ELFIA Official", company: "a2z", status: "in_progress" }] };
+    if (p0 === "/staff/live-reports/people") return { people: [{ id: 9004, name: "Aina Sofea" }, { id: 9003, name: "Farid Zul" }] };
+    if (p0 === "/staff/live-reports/recent-lives") return { sessions: [] };
+    if (p0 === "/staff/live-reports/overview") {
+      const f = { lives: 3, reported: 2, gmv_cents: 368050, viewers: 24860, orders: 372, conversion: 0.015, avg_watch_sec: 156 };
+      return { month: td.slice(0, 7), figures: f, previous: { ...f, gmv_cents: 300000, viewers: 20000, orders: 300, conversion: 0.012, avg_watch_sec: 140 }, latest_report_id: 11, latest_analysis: analysis, waiting_review: rev ? 1 : null, can_review: rev };
+    }
+    if (p0 === "/staff/live-reports") return { reports: rev ? all : all.filter(mineIds), sessions_to_report: rev ? [] : [{ id: 72, session_date: td, start_time: "14:00", end_time: "15:30", platform: "tiktok", client_name: "Fixture Client", project_title: null, unplanned: 0 }], can_review: rev, me: 9001 };
     const id = Number(p0.split("/")[3]);
-    const r = all.find((x) => x.id === id) ?? R({ id, session_id: 72, host_user_id: 9001, host_name: "Fixture Person", state: "draft", session_date: td, gmv_cents: null, current_version: 0, file_count: 0 });
-    const mine = r.host_user_id === 9001;
+    const r = all.find((x) => x.id === id) ?? R({ id, session_id: 72, host_user_id: 9003, host_name: "Farid Zul", participants: [who(9003, "Farid Zul", "host"), who(9001, "Fixture Person", "co_host")], state: "draft", session_date: td, gmv_cents: null, current_version: 0, file_count: 0, thumb_file_id: null });
+    const mine = mineIds(r);
     return {
       report: { ...r, draft_duration_min: 135, draft_highlights: "12.4K viewers", draft_blockers: null, draft_next_actions: null },
-      session: { session_date: r.session_date, start_time: r.start_time, end_time: r.end_time, platform: r.platform, client_name: r.client_name }, host: r.host_name,
-      versions: r.current_version ? [{ version: 1, gmv_cents: r.gmv_cents ?? 0, duration_min: 135, highlights: "12.4K viewers", blockers: "Stream lag at 8:50 PM", next_actions: "Recheck stock sync", company: "a2z", by_name: r.host_name, submitted_at: td + " 01:00:00" }] : [],
+      session: { id: r.session_id, session_date: r.session_date, start_time: r.start_time, end_time: r.end_time, platform: r.platform, host_user_id: r.host_user_id, project_id: 2, unplanned: r.unplanned },
+      project: { id: 2, title: r.project_title, client: r.project_client, company: r.company, status: "in_progress" }, participants: r.participants,
+      versions: r.current_version ? [{ version: 1, gmv_cents: r.gmv_cents ?? 0, duration_min: 135, viewers: 12430, orders: 186, highlights: "12.4K viewers", blockers: "Stream lag at 8:50 PM", next_actions: "Recheck stock sync", company: r.company, by_name: r.host_name, submitted_at: td + " 01:00:00" }] : [],
       files: r.current_version ? [{ id: 1, version: 1, file_name: "gmv.png", created_at: td + " 01:00:00" }] : [],
-      reviews: r.state === "returned" ? [{ id: 5, version: 1, action: "return", note: "The GMV screenshot is cut off - attach the full one", actor_role: "coo", by_name: "Fixture COO", created_at: td + " 03:00:00" }] : r.state === "accepted" ? [{ id: 6, version: 1, action: "accept", note: null, actor_role: "ceo", by_name: "Fixture Person", created_at: td + " 03:00:00" }] : [],
-      can: { edit: mine && ["draft", "returned"].includes(r.state), review: rev && !mine },
+      readings: [],
+      reviews: r.state === "returned" ? [{ id: 5, version: 1, action: "return", note: "The GMV screenshot is cut off - attach the full one", actor_role: "coo", by_name: "Fixture COO", created_at: td + " 03:00:00" }] : r.state === "accepted" ? [{ id: 6, version: 1, action: "accept", note: null, actor_role: "ceo", by_name: "Fixture CEO", created_at: td + " 03:00:00" }] : [],
+      analysis: r.current_version ? analysis : null, ai: mine ? { ...ai, can_set: undefined } : null,
+      can: { edit: mine && ["draft", "returned"].includes(r.state), participate: mine, review: rev && !mine },
     };
   }
   /* v1.313.0 - Tasks 5.0: today's agenda and the work calendar read the

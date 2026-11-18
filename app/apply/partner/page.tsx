@@ -303,8 +303,7 @@ export default function PartnerApplicationPage() {
           <div className={css.heroText}>
             <p className={css.eyebrow}>{L("A2Z Business Referral Network", "Rangkaian Rujukan Perniagaan A2Z")}</p>
             <h1 id="pa-title" className={css.title}>{L("Partner Interest Application", "Permohonan Minat Rakan Kongsi")}</h1>
-            <p className={css.lead}>{L("Interested in referring potential customers? Tell us about your network and referral approach.", "Berminat merujuk bakal pelanggan? Beritahu kami tentang rangkaian dan pendekatan rujukan anda.")}<br />
-              {L("Applications are reviewed first. No portal account is created by submitting this form.", "Permohonan disemak terlebih dahulu. Tiada akaun portal dibuat dengan menghantar borang ini.")}</p>
+            <p className={css.lead}>{L("Interested in referring potential customers? Tell us about your network and referral approach.", "Berminat merujuk bakal pelanggan? Beritahu kami tentang rangkaian dan pendekatan rujukan anda.")}</p>
           </div>
           <div className={css.badge}>
             <strong>{L("Independent referral opportunity", "Peluang rujukan bebas")}</strong>

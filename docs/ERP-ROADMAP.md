@@ -548,3 +548,8 @@ checked by triggers against the roles table instead of a fixed CHECK, so an
 own role can be held; and claims gains `line_approver_id` (nullable), the
 manager on the Organisation chart a claim from an own role waits on before
 the CEO. Nothing else changes for the existing roles.
+1.368.0 (Live Reports, the CEO 18-11-2026) adds `0210_live_participants`:
+additive only - a project and an Unplanned flag on a roster live, who took
+part in it, the eight extra staff-confirmed figures on a report's draft and
+versions, the append-only screenshot AI readings and the AI's daily budget.
+Reported GMV stays outside every money, pay and commission table.

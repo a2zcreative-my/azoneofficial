@@ -10,6 +10,31 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.368.0] - 2026-11-18 - Live Reports: one report per live, any staff who took part - BUILT, NOT DEPLOYED (MIGRATION 0210, NEW AI BINDING)
+
+The CEO's directive "A2Z OS - Live Reports Audit Revision 18 Nov 2026" and his picture ("Follow exactly the photo and the prompt"); decisions C1 (inside Roster & Scheduling), C2 (AI use in the existing System health), C3 (one review by the CEO, COO or CCO who did not take part). Audit: claude/LIVE-REPORTS-AUDIT-REV-18NOV.md.
+
+### Added
+- **Roster & Scheduling -> Live Reports is the picture**: the month's figures (Total Lives, GMV, Viewers, Orders, Conversion, Avg. Watch Time, each against last month), the reports table (first screenshot, date and time, project with the company badge and an Unplanned tag, platform, who took part, GMV, status), the latest live and its rule-based analysis, then the workflow, the screenshot AI and the key rules. Cards on a phone. It replaces the Live Host Report card there; no new tab or sidebar item.
+- **One report per live, for everyone who took part**: host, co-host, assistant or sales (`live_participants`; the roster host counts without a row). Someone who took part but is not on the roster adds themselves from New Report; a participant adds a colleague. GMV is counted once.
+- **Unplanned lives**: chosen from an active project; the system adds them to the roster marked Unplanned. The same project, platform, day and overlapping time is refused and offered to join instead.
+- **A project is required**: the client and the company come from it.
+- **Ten figures** (GMV, viewers, peak viewers, average watch time, orders, items sold, product clicks, CTR, conversion, duration), confirmed by staff. Reported GMV is never sales, cash, an invoice or commission.
+- **Optional screenshot reading by Cloudflare Workers AI only** (`[ai] binding = "AI"`, model `@cf/meta/llama-3.2-11b-vision-instruct`, no other provider, no API key): off until the CEO turns it on and accepts the model licence; a daily cap set by the CEO (30) and a Neuron ceiling kept under the free 10,000 a day, reserved before each call in one conditional write so two reads at once cannot pass it; a timeout, failure or cap means typing the figures, which is always allowed. The reading is stored apart from the confirmed figures, append-only.
+- **Rule-based analysis**: GMV per hour, conversion and average order value against the same host, project and platform; three flags (many viewers few orders, conversion under the project average, GMV down three lives running) with fixed suggestions. No AI.
+- **Review**: one step by the CEO, COO or CCO, never by someone who took part (`self_approval`).
+- **System health** shows the screenshot AI's use today.
+
+### Changed
+- **The phone's More sheet has no Preferences row** (the CEO: the profile photo's menu already holds sound, push, language and colours). Dark mode, Help and Sign out stay.
+- **The partner application page** no longer says "Applications are reviewed first. No portal account is created by submitting this form." under its heading (the CEO).
+
+### Migration
+- `0210_live_participants` (additive): `live_sessions.project_id`, `unplanned`; `live_participants`; the eight extra draft and version figures, `project_id` and the participant list on each version; `live_report_ai_readings` (append-only); `ai_budget`.
+
+### Guards
+- New `tests/live-reports-v2.mjs` (21 checks, 5 mutations). `tasks-gate4` follows the new rules (a project on the report; participant checks); `tab-zones`, `tasks5` name LiveReports. Browser: `tests/browser/live-e2e.mjs` (API, 66 checks), `tests/browser/live-reports.py` (desktop and phone, 13 checks).
+
 ## [1.367.0] - 2026-11-18 - The push alert screen no longer overflows the window - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, System health): `ui_overflow` reported from the push alert screen ("Turn on alerts to continue") - the card's foot at 789px in a 749px window, the page taller than the window.

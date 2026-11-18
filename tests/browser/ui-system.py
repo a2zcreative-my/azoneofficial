@@ -367,7 +367,7 @@ with sync_playwright() as p:
         ctx, pg, errs = open_tab(b, "Roster & Scheduling", w, h, phone)
         check(f"Roster & Scheduling {w}: opens on Today - the figures, today's assignments, who works today", pg.get_by_test_id("roster-today").count() == 1 and pg.get_by_test_id("today-people").count() == 1
               and "Assignments today" in pg.get_by_test_id("roster-today").inner_text() and "Scheduled Today" in pg.get_by_test_id("roster-today").inner_text(), pg.locator("main").inner_text()[:300])
-        for v, sel in [("board", "#roster-board"), ("shifts", "[data-testid=roster]"), ("templates", "[data-testid=roster-templates-view]"), ("reports", "[data-testid=live-host-card]")]:
+        for v, sel in [("board", "#roster-board"), ("shifts", "[data-testid=roster]"), ("templates", "[data-testid=roster-templates-view]"), ("reports", "[data-testid=live-reports]")]:
             pg.goto(f"{RS}&view={v}"); pg.wait_for_timeout(2800)
             check(f"Roster & Scheduling {w}: the {v} view draws its card", pg.locator(sel).count() >= 1 and pg.locator(sel).first.is_visible(), v)
         pg.goto(f"{RS}&view=shifts"); pg.wait_for_timeout(2800)

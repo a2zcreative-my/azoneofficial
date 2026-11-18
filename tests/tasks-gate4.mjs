@@ -155,6 +155,9 @@ async function runtime(workerBundle, migDir) {
       (3, '2026-11-08', '14:00', '16:00', 'shopee', 5, 'completed', 1),
       (4, '2026-11-07', '20:00', '22:00', 'tiktok', 7, 'cancelled', 1),
       (5, '2026-11-08', '10:00', '11:00', 'tiktok', 1, 'completed', 1)`);
+    /* v1.368.0 - a live report names its project (client and company come from it) */
+    db.exec(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents, created_at, created_by, salesperson_id, kind, issuer_code) VALUES (302, 'QT', 'QT-T-302', 4, '[]', 0, 0, 50000, '2026-10-01 01:00:00', 5, 5, 'service', 'a2z')`);
+    db.exec(`INSERT INTO projects (id, quotation_id, customer_id, owner_id, status, title, deliverables, version, created_by) VALUES (2, 302, 4, 5, 'in_progress', 'Live Selling', '[]', 1, 1)`);
     const m0 = money();
     ok((await call("/live-reports", U.host, "POST", { session_id: 3 })).status === 403, "L2 a host reports only their own session");
     ok((await call("/live-reports", U.host, "POST", { session_id: 2 })).status === 409, "…that has happened");
@@ -167,7 +170,7 @@ async function runtime(workerBundle, migDir) {
     ok((await call(`/live-reports/${L}/submit`, U.host, "POST", {})).status === 400, "nothing is submitted without the GMV");
     ok((await call(`/live-reports/${L}/draft`, U.host, "PUT", { gmv: -5 })).status === 400, "GMV is zero or more");
     ok((await call(`/live-reports/${L}/draft`, U.aina, "PUT", { gmv: 10 })).status === 403, "only the host keeps the draft");
-    ok((await call(`/live-reports/${L}/draft`, U.host, "PUT", { gmv: "2480.50", duration_min: 135, highlights: "12.4K viewers", blockers: "Stream lag at 8:50 PM", next_actions: "Recheck stock sync", company: "a2z" })).status === 200, "the host saves the draft");
+    ok((await call(`/live-reports/${L}/draft`, U.host, "PUT", { gmv: "2480.50", duration_min: 135, highlights: "12.4K viewers", blockers: "Stream lag at 8:50 PM", next_actions: "Recheck stock sync", project_id: 2 })).status === 200, "the host saves the draft");
     ok((await call(`/live-reports/${L}/submit`, U.host, "POST", {})).j?.error?.code === "evidence_required", "TK-14 no submission without a GMV screenshot");
     ok(await upload(L, U.host, "text/plain") === 400, "a screenshot is an image");
     ok(await upload(L, U.aina) === 403, "only the host attaches it");
@@ -182,7 +185,7 @@ async function runtime(workerBundle, migDir) {
     ok((await call(`/live-reports/${L}/review`, U.coo, "POST", { action: "return", note: "The GMV screenshot is cut off - attach the full one" })).j?.state === "returned", "the COO returns it for correction");
     ok((await call(`/live-reports/${L}/submit`, U.host, "POST", {})).j?.error?.code === "evidence_required", "a correction carries its own screenshot");
     await upload(L, U.host);
-    await call(`/live-reports/${L}/draft`, U.host, "PUT", { gmv: "2510.00", duration_min: 135, company: "a2z" });
+    await call(`/live-reports/${L}/draft`, U.host, "PUT", { gmv: "2510.00", duration_min: 135 });
     ok((await call(`/live-reports/${L}/submit`, U.host, "POST", {})).j?.version === 2, "the corrected report is version 2");
     ok(row(`SELECT gmv_cents FROM live_report_versions WHERE report_id = ? AND version = 1`, L)?.gmv_cents === 248050 && row(`SELECT gmv_cents FROM live_report_versions WHERE report_id = ? AND version = 2`, L)?.gmv_cents === 251000, "both versions are kept with their own figures");
     ok((await call(`/live-reports/${L}/review`, U.cco, "POST", { action: "review", note: "Looked at it" })).j?.state === "reviewed", "the CCO reviews it");
@@ -197,7 +200,7 @@ async function runtime(workerBundle, migDir) {
       const get = async (uid) => (await app.fetch(new Request(`https://api.a2z.test/api/v1/staff/live-reports/${L}/files/${f}`, { headers: hdr(uid) }), env, { waitUntil() {} })).status;
       ok(await get(U.host) === 200 && await get(U.ceo) === 200 && await get(U.aina) === 403, "a screenshot is the host's and the reviewers' only"); }
     const C = (await call("/live-reports", U.ceo, "POST", { session_id: 5 })).j?.id;
-    await call(`/live-reports/${C}/draft`, U.ceo, "PUT", { gmv: 100, company: "azoo" }); await upload(C, U.ceo); await call(`/live-reports/${C}/submit`, U.ceo, "POST", {});
+    await call(`/live-reports/${C}/draft`, U.ceo, "PUT", { gmv: 100, project_id: 2 }); await upload(C, U.ceo); await call(`/live-reports/${C}/submit`, U.ceo, "POST", {});
     ok((await call(`/live-reports/${C}/review`, U.ceo, "POST", { action: "accept" })).status === 403, "L3 the CEO never reviews a live the CEO hosted");
     ok(money() === m0, "reported GMV touches no sales, payment, cash, journal, payroll or commission row", `${m0} -> ${money()}`);
     { const l = (await call("/live-reports", U.host)).j; ok((l?.reports ?? []).every((r) => r.host_user_id === U.host) && (l?.reports ?? []).length === 1, "the host lists only their own reports", fmt(l?.reports?.map((r) => r.id))); }
@@ -243,11 +246,11 @@ const MUT = [
   ["worker/src/staff.ts", "TK-4 any manager renames", 'if (!projOfTask && !canUser(user, "task_rename")) return err(', 'if (false) return err('],
   ["worker/src/staff.ts", "TK-4 no reason needed", 'if (titleReason.length < 5) return err("invalid_input", "Say why the title changes', 'if (false) return err("invalid_input", "Say why the title changes'],
   ["worker/src/staff.ts", "a report reviewed by its author", 'if (rep.created_by === user.id) return err("self_approval"', 'if (false) return err("self_approval"'],
-  ["worker/src/live-reports.ts", "L2 another host's session reported", 'if (s.host_user_id !== user.id) return err("forbidden", "Only the host of this live reports it", 403);', ''],
+  ["worker/src/live-reports.ts", "L2 another host's session reported", 'if (!(await isParticipant(env, sid, user.id))) return err("forbidden", "Only someone who took part in this live reports it', 'if (false) return err("forbidden", "Only someone who took part in this live reports it'],
   ["worker/src/live-reports.ts", "TK-14 submitted without a screenshot", 'if (!Number(n?.n ?? 0)) return err("evidence_required"', 'if (false) return err("evidence_required"'],
-  ["worker/src/live-reports.ts", "L3 a host reviews their own report", 'if (r.host_user_id === user.id) return err("self_approval"', 'if (false) return err("self_approval"'],
+  ["worker/src/live-reports.ts", "L3 a host reviews their own report", 'if (await isParticipant(env, r.session_id, user.id)) return err("self_approval"', 'if (false) return err("self_approval"'],
   ["worker/src/live-reports.ts", "a returned report needs no correction note", 'return: { from: ["submitted", "reviewed"], to: "returned", need: 10 },', 'return: { from: ["submitted", "reviewed"], to: "returned", need: 0 },'],
-  ["worker/src/live-reports.ts", "a screenshot open to every staff member", 'if (r.host_user_id !== user.id && !reviewer) return err("forbidden", "Not your report", 403);\n      const f = ', 'const f = '],
+  ["worker/src/live-reports.ts", "a screenshot open to every staff member", 'if (!reviewer && !(await isParticipant(env, r.session_id, user.id))) return err("forbidden", "Not a live you took part in", 403);\n      const f = ', 'const f = '],
   ["worker/src/projects.ts", "TK-15 completed without acceptance", 'if (acc !== null && acc.length === 0) return err("acceptance_required"', 'if (false) return err("acceptance_required"'],
   ["worker/src/projects.ts", "a removed deliverable deleted", "stmts.push(env.DB.prepare(`UPDATE project_deliverables SET removed_at = datetime('now'), removed_by = ?1 WHERE id = ?2`).bind(by, r.id));", "stmts.push(env.DB.prepare(`UPDATE project_deliverables SET title = title WHERE id = ?1`).bind(r.id));"],
 ];

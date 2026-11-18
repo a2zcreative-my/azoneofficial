@@ -5,7 +5,7 @@ the figures, the register columns, the preview beside My Tasks, the four
 cards under it, the All Tasks side column with Edit, the Project Register
 and the project beside it, the work calendar (Sunday first, no Client
 Meetings - TK-10), Reports & Archive with the Live Host card marked for
-Gate 4 (no pretended form), the phone's view switch and agenda, and the
+Gate 4 (since v1.368.0 Live Reports in Roster & Scheduling) (no pretended form), the phone's view switch and agenda, and the
 eight widths with no sideways page. Fixture data is invented
 (tests/browser/fixture.mjs); no production figure is used.
 
@@ -179,30 +179,33 @@ with sync_playwright() as p:
     check("Gate 4: an operational report shows its status and management can mark it reviewed", "Reviewed" in rep.inner_text() and "Submitted" in rep.inner_text() and rep.get_by_test_id("report-review").count() >= 1)
     check("the archive of closed tasks is kept", pg.locator("#task-archive").count() == 1)
     ctx.close()
-    # v1.328.0 - R-4: the Live Host Report is Roster & Scheduling > Live Reports
+    # v1.328.0 - R-4: the live report is Roster & Scheduling > Live Reports
+    # v1.368.0 - now the CEO's picture: one report per live, shared by everyone who took part
     ctx, pg, errs = open_page(b, CEO, view="reports", tab="Roster & Scheduling")
-    check("the Live Host card is in Roster & Scheduling > Live Reports", vis(pg, "live-host-card"))
-    lh = pg.get_by_test_id("live-host-card").inner_text()
-    check("Gate 4: the Live Host card says reported GMV is never sales, cash, commission or payroll", "never verified sales, cash" in lh, lh[:300])
-    check("Gate 4: the reviewer has the reports to review", vis(pg, "lh-review-list") and "Farid Zul" in pg.get_by_test_id("lh-review-list").inner_text())
-    pg.get_by_test_id("lh-review-list").locator("button").first.click(); pg.wait_for_timeout(1200)
-    det = pg.get_by_test_id("lh-detail")
-    check("…opening one shows the GMV, the screenshot and Accept / Return", det.count() == 1 and "RM 2,480.50" in det.inner_text() and vis(pg, "lh-accept") and vis(pg, "lh-return") and det.locator("img").count() >= 1, det.inner_text()[:300] if det.count() else "")
+    pg.wait_for_selector("[data-testid=live-table]", timeout=15000)
+    check("Live Reports is in Roster & Scheduling > Live Reports (figures, table, analysis)", vis(pg, "live-reports") and vis(pg, "live-kpis") and vis(pg, "live-table") and vis(pg, "live-analysis"))
+    check("Gate 4: the page says reported GMV is never verified sales, cash, an invoice or commission", "not verified sales, cash" in pg.get_by_test_id("live-reports").inner_text())
+    check("Gate 4: the reviewer sees the reports, Farid's submitted one first", vis(pg, "live-row-11") and "RM 2,480.50" in pg.get_by_test_id("live-row-11").inner_text())
+    pg.get_by_test_id("live-view-11").click(); pg.wait_for_selector("[data-testid=live-detail]", timeout=10000); pg.wait_for_timeout(600)
+    det = pg.get_by_test_id("live-detail")
+    check("…opening one shows the GMV, the screenshot and Accept", pg.get_by_test_id("live-fig-gmv").input_value() == "2480.5" and vis(pg, "live-accept") and det.locator("a[href*='/live-reports/11/files/']").count() >= 1, det.inner_text()[:300])
+    check("…who took part, host and co-host", "Farid Zul" in pg.get_by_test_id("live-participants").inner_text() and "Co-host" in pg.get_by_test_id("live-participants").inner_text())
     before = len(json.loads(urllib.request.urlopen(f"http://127.0.0.1:{CEO}/__tasks").read())["posts"])
-    pg.get_by_test_id("lh-accept").click(); pg.wait_for_timeout(900)
+    pg.get_by_test_id("live-accept").click(); pg.wait_for_timeout(900)
     posts = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{CEO}/__tasks").read())["posts"][before:]
     check("…Accept sends the one review to that report", any(x["p"] == "/staff/live-reports/11/review" and '"accept"' in str(x["body"]) for x in posts), posts)
-    pg.get_by_test_id("lh-history-btn").first.click(); pg.wait_for_timeout(300)
-    check("…View History shows the submitted version", "Version 1 submitted" in pg.get_by_test_id("lh-history").inner_text())
+    check("…the history shows the submitted version", "Version 1 submitted" in det.inner_text())
     ctx.close()
-    # ---- the host (a live host on a phone): report a live with a screenshot ----
+    # ---- someone who took part (a live host on a phone): a returned report, then a new one ----
     ctx, pg, errs3 = open_page(b, HOST, w=390, view="reports", tab="Roster & Scheduling")
-    lhc = pg.get_by_test_id("live-host-card")
-    check("host: a returned report says what to correct", vis(pg, "lh-mine"))
-    pg.get_by_test_id("lh-mine").locator("button").first.click(); pg.wait_for_timeout(1200)
-    check("…the correction asked for is shown", "cut off" in pg.get_by_test_id("lh-feedback").inner_text() if pg.get_by_test_id("lh-feedback").count() else False)
-    check("…the form: GMV, duration, company, screenshot (camera), highlights, Submit / Save Draft", all(vis(pg, k) for k in ["lh-gmv", "lh-duration", "lh-company", "lh-submit", "lh-save"]) and pg.get_by_test_id("lh-upload").get_attribute("capture") == "environment")
-    pg.get_by_test_id("lh-session").select_option("72"); pg.wait_for_timeout(1200)
+    pg.wait_for_selector("[data-testid=live-reports]", timeout=15000); pg.wait_for_timeout(800)
+    check("host: cards on a phone, not the table", vis(pg, "live-card-13") and not vis(pg, "live-table"))
+    pg.get_by_test_id("live-card-13").click(); pg.wait_for_selector("[data-testid=live-detail]", timeout=10000); pg.wait_for_timeout(600)
+    check("…the correction asked for is shown", "cut off" in pg.get_by_test_id("live-detail").inner_text())
+    check("…the form: project, figures, screenshot, Submit / Save draft", all(vis(pg, k) for k in ["live-project", "live-fig-gmv", "live-fig-duration_min", "live-submit", "live-save"]) and pg.get_by_test_id("live-upload").count() == 1)
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+    pg.get_by_test_id("live-new").click(); pg.wait_for_timeout(600)
+    pg.get_by_test_id("live-start-72").click(); pg.wait_for_timeout(1200)
     posts = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HOST}/__tasks").read())["posts"]
     check("host: choosing a live on the roster starts its report (the session, never the host's id)", any(x["p"] == "/staff/live-reports" and '"session_id": 72' in str(x["body"]).replace('"session_id":72', '"session_id": 72') for x in posts), posts[-3:])
     check("no sideways page (host, phone)", no_hscroll(pg))
