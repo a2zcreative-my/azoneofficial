@@ -64,6 +64,7 @@ import { NAV_COLLAPSED_KEY, SECTIONS } from "@/components/layout/side-nav";
 import { getLang, t as tr, type Lang } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
+import { PushGate, usePushGate } from "@/components/portal/push-gate"; // v1.360.0 - push alerts required for staff
 import { btnClass, card } from "@/lib/ui-styles";
 import { L, type Notification, type User } from "@/components/portal/page-shared";
 import { syncThemeColor } from "@/lib/theme-color";
@@ -908,6 +909,11 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      Staff saw a white screen through the whole JS download and the auth
      round-trip. The skeleton below ships inside portal.html and paints
      immediately, with zero JavaScript. */
+  /* v1.360.0 - push alerts are required for every staff role on every device (the CEO, 18-11-2026).
+     Checked in the background: the portal draws at once, and the gate takes over only if this device
+     has no push for this person. A hook, so it sits above every early return. */
+  const onPushOn = useCallback(() => setPushState("granted"), []);
+  const pushGate = usePushGate(user && !user.requires_2fa ? user.role : null, onPushOn);
   if (!checked || (user && !entryReady && !user.requires_2fa)) return <PortalSkeleton />;
   if (user?.role === "customer") {
     if (typeof window !== "undefined") window.location.replace("/account");
@@ -992,6 +998,9 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         </div>
       </div>
     );
+  }
+  if (pushGate.state !== "ok" && pushGate.state !== "checking") {
+    return <PushGate state={pushGate.state} check={pushGate.check} onOn={onPushOn} />;
   }
   /* v1.4.232: render-time clamp — effects run AFTER a render, so the guard
      alone still allowed one frame; every panel below renders off activeTab,

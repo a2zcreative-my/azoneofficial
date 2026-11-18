@@ -569,3 +569,42 @@
     display: none;
   }
 }
+
+/* v1.362.0 - the phone's account menu (the photo in the header): who is signed in, then the rail's list */
+.meHead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0.25rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.meFace {
+  position: relative;
+  flex: none;
+  width: 3rem;
+  height: 3rem;
+}
+.meText {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 0.125rem;
+}
+.meName {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meRole {
+  color: var(--muted-foreground);
+  text-transform: capitalize;
+  font-size: 0.8125rem;
+}
+.meMenu {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+  padding-top: 0.5rem;
+}

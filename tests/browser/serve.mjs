@@ -184,6 +184,13 @@ const server = http.createServer((req, res) => {
       res.end(readFileSync(join(dir, "icon-192.png")));
       return;
     }
+    /* v1.360.0 - PUSHKEY=1: the server has push keys, so the staff push gate applies (this device has none) */
+    if (process.env.PUSHKEY && req.method === "GET" && p === "/staff/push/public-key") {
+      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ key: "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U" })); return;
+    }
+    if (process.env.PUSHKEY && req.method === "POST" && p === "/staff/push/device") {
+      res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ device: process.env.PUSHKEY === "on" })); return;
+    }
     /* v1.264.0 - which ways in are on (GOOGLE_OFF=1: the owner turned Google off) */
     if (req.method === "GET" && p === "/auth/methods") {
       const on = !process.env.GOOGLE_OFF;

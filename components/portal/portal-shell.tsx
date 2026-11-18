@@ -25,9 +25,11 @@ import type { ReactNode } from "react";
 
 import { api } from "@/lib/api";
 import { enablePush, disablePush, signOutRequest } from "@/lib/push-client";
+import { pushRequiredFor } from "@/components/portal/push-gate"; // v1.360.0
 import { AppIcon } from "@/components/ui/app-icon";
 import { AppShell } from "@/components/layout/app-shell";
-import { SideNav, sectionTitle, type AccountAction } from "@/components/layout/side-nav";
+import { SideNav, sectionTitle, AccountMenuList, FOOT_SECTION, SECTIONS, type AccountAction } from "@/components/layout/side-nav";
+import { roleWords } from "@/lib/portal-tabs";
 import { HelpSheet } from "@/components/portal/help-sheet";
 import { useState } from "react";
 import { TabIcon, LogOut, Search, Bell, BellRing, BellOff, Moon, Sun, Volume2, VolumeX, Palette, CloseX, Ellipsis, CircleHelp, ChevronDown, CalendarDays } from "@/components/layout/nav-icons";
@@ -120,6 +122,11 @@ export function PortalShell({ children }: { children: ReactNode }) {
   };
   const togglePush = async () => {
     if (pushState === "granted") {
+      /* v1.360.0 - push alerts are required for staff (the CEO, 18-11-2026): staff cannot switch them off here */
+      if (pushRequiredFor(user?.role)) {
+        window.alert(L("Push alerts are required for staff, so they stay on. To stop them on this device, sign out.", "Makluman push diwajibkan untuk kakitangan, jadi ia kekal hidup. Untuk menghentikannya pada peranti ini, log keluar."));
+        return;
+      }
       await disablePush();
       setPushState("default");
     } else {
@@ -153,6 +160,10 @@ export function PortalShell({ children }: { children: ReactNode }) {
       setUser(null);
       setMoreOpen(false);
     });
+  /* v1.362.0 - the phone's photo opens the SAME account menu as the rail's name card (the CEO, 18-11-2026) */
+  const [meOpen, setMeOpen] = useState(false);
+  const accountTabs = SECTIONS.find((g) => g.title === FOOT_SECTION)?.tabs ?? [];
+  const accountItems = navItems.filter((n) => accountTabs.includes(n.name));
   const accountActions: AccountAction[] = [
     { key: "sound", icon: sound ? <Volume2 aria-hidden className="erp-icon" strokeWidth={1.75} /> : <VolumeX aria-hidden className="erp-icon" strokeWidth={1.75} />,
       label: L("Notification sound", "Bunyi pemberitahuan"), pressed: sound, onSelect: toggleSound },
@@ -366,8 +377,9 @@ export function PortalShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               className={`${btnHdr} erp-phone-only ${css.hdrFace}`}
-              onClick={() => setTab("Profile")}
-              aria-label={`${L("Your profile", "Profil anda")}: ${user.name} · ${presence === "online" ? L("online", "dalam talian") : L("offline", "luar talian")}`}
+              onClick={() => { setMoreOpen(false); setMeOpen(true); }}
+              aria-haspopup="dialog" aria-expanded={meOpen}
+              aria-label={`${L("Your account", "Akaun anda")}: ${user.name} · ${presence === "online" ? L("online", "dalam talian") : L("offline", "luar talian")}`}
               data-testid="phone-profile"
             >
               {user.photo_key
@@ -488,7 +500,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
             return (
               <button
                 type="button"
-                onClick={() => setMoreOpen((v) => !v)}
+                onClick={() => { setMeOpen(false); setMoreOpen((v) => !v); }}
                 aria-expanded={moreOpen}
                 aria-controls="portal-more-menu"
                 data-active={active || undefined}
@@ -509,18 +521,44 @@ export function PortalShell({ children }: { children: ReactNode }) {
           })()}
         </nav>
 
-        {moreOpen && (
+        {(moreOpen || meOpen) && (
+          /* v1.362.0 - ONE sheet frame: More, or (the phone's photo) the account menu - the rail's list */
           <div className={css.moreBackdrop}>
             <button
               type="button"
               aria-label={L("Close menu", "Tutup menu")}
               className={css.moreScrim}
-              onClick={() => setMoreOpen(false)}
+              onClick={() => { setMoreOpen(false); setMeOpen(false); }}
             />
             {/* v1.10.0 review fix: bottom padding clears the taller nav PLUS the
               phone's home-indicator inset — the old pb-16 left the Preferences
               row half-covered and untappable on notched iPhones. */}
-            <div id="portal-more-menu" role="dialog" aria-modal="true" aria-label={tr("More", lang)} className={sheetCard}>
+            <div id={meOpen ? "portal-account-menu" : "portal-more-menu"} role="dialog" aria-modal="true" aria-label={meOpen ? L("Your account", "Akaun anda") : tr("More", lang)} className={sheetCard} data-testid={meOpen ? "phone-account-menu" : undefined}>
+              {meOpen ? (<>
+              <div className={css.moreHead}>
+                <span className={css.moreSpacer} />
+                <span aria-hidden className={css.moreGrip} />
+                <button type="button" aria-label={L("Close", "Tutup")} className={`erp-icon-button ${css.moreClose}`} onClick={() => setMeOpen(false)}>
+                  <CloseX aria-hidden className="erp-icon" strokeWidth={1.75} />
+                </button>
+              </div>
+              <div className={css.meHead}>
+                <span className={css.meFace}>
+                  {user.photo_key
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    ? <img src={`/api/v1/media/file/${encodeURIComponent(user.photo_key)}`} alt="" className={css.hdrFaceImg} />
+                    : <span aria-hidden className={css.hdrFaceImg}>{user.name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("")}</span>}
+                  <span aria-hidden className={`erp-dot ${presence === "online" ? "erp-dot-success" : ""} ${css.hdrFaceDot}`} />
+                </span>
+                <span className={css.meText}>
+                  <strong className={css.meName}>{properName(user.name) || user.name}</strong>
+                  <span className={css.meRole}>{roleWords(user.role)} · {presence === "online" ? L("Online", "Dalam talian") : L("Offline", "Luar talian")}</span>
+                </span>
+              </div>
+              <div className={css.meMenu}>
+                <AccountMenuList items={accountItems} accountMenu={accountActions} active={activeTab} onSelect={(n) => setTab(n as TabName)} onClose={() => setMeOpen(false)} />
+              </div>
+              </>) : (<>
               <div className={css.moreHead}>
                 <span className={css.moreSpacer} />
                 <span aria-hidden className={css.moreGrip} />
@@ -677,6 +715,7 @@ export function PortalShell({ children }: { children: ReactNode }) {
                   `Portal kakitangan A2Z CREATIVE MARKETING · v${APP_VERSION}`
                 )}
               </p>
+              </>)}
             </div>
           </div>
         )}

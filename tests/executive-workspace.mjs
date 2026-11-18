@@ -71,7 +71,10 @@ ok("rail rows are 34px for a mouse and 44px for a touch screen", /min-height: 2\
 /* ---- the name card and its menu ---- */
 ok("the name card opens the account menu (aria-expanded, Escape and a click outside close it)",
   /aria-expanded=\{menuOpen\} aria-controls="rail-account-menu"/.test(nav) && /e\.key === "Escape"\) \{ setMenuOpen\(false\); menuButtonRef\.current\?\.focus\(\); \}/.test(nav) && /addEventListener\("mousedown", onDown\)/.test(nav));
-ok("a setting in the menu says On / Off and stays open; Sign out closes it first", /aria-pressed=\{a\.pressed\}/.test(nav) && /if \(a\.pressed === undefined\) closeMenu\(\);/.test(nav) && /onClick=\{\(\) => \{ closeMenu\(\); a\.onSelect\(\); \}\}/.test(nav));
+ok("a setting in the menu says On / Off and stays open; Sign out closes it first", /aria-pressed=\{a\.pressed\}/.test(nav) && /if \(a\.pressed === undefined\) onClose\(\);/.test(nav) && /onClick=\{\(\) => \{ onClose\(\); a\.onSelect\(\); \}\}/.test(nav)
+  /* v1.362.0 - one list (AccountMenuList) for the rail and the phone's photo */
+  && /<AccountMenuList items=\{foot\?\.items \?\? \[\]\} accountMenu=\{accountMenu\} active=\{active\} onSelect=\{onSelect\} onClose=\{closeMenu\} \/>/.test(nav)
+  && /<AccountMenuList items=\{accountItems\} accountMenu=\{accountActions\}/.test(shell));
 for (const k of ["sound", "push", "lang", "theme", "signout"]) ok(`the account menu carries "${k}"`, new RegExp(`key: "${k}"`).test(shell));
 ok("the More sheet and the account menu share ONE set of handlers", ["toggleSound", "togglePush", "toggleLang", "signOut"].every((h) => new RegExp(`const ${h} = `).test(shell) && (shell.match(new RegExp(`\\b${h}\\b`, "g")) ?? []).length >= 3)
   && (shell.match(/localStorage\.setItem\("azone-notif-sound"/g) ?? []).length === 1 && (shell.match(/await enablePush\(\)/g) ?? []).length === 1 && (shell.match(/signOutRequest\(\)/g) ?? []).length === 1);
@@ -83,8 +86,9 @@ ok("the header no longer carries sound, push, colour theme, language or Sign out
 ok("the header draws no avatar (the photo is on the name card)", !/css\.avatar/.test(strip(hdr)));
 /* v1.336.0 - the CEO, 17-11-2026: on the PHONE the header ends with the person's photo and presence dot
    (no rail there); it is phone-only, opens Profile, and its dot is the live presence, never fixed */
-ok("v1.336.0: the phone header's profile photo is phone-only, opens Profile, and its dot is the live presence",
-  /className=\{`\$\{btnHdr\} erp-phone-only \$\{css\.hdrFace\}`\}/.test(hdr) && /onClick=\{\(\) => setTab\("Profile"\)\}/.test(hdr)
+/* v1.362.0 - the photo opens the account menu (the CEO, 18-11-2026), the same list as the rail's name card */
+ok("v1.336.0: the phone header's profile photo is phone-only, opens the account menu, and its dot is the live presence",
+  /className=\{`\$\{btnHdr\} erp-phone-only \$\{css\.hdrFace\}`\}/.test(hdr) && /onClick=\{\(\) => \{ setMoreOpen\(false\); setMeOpen\(true\); \}\}/.test(hdr)
   && /presence === "online" \? "erp-dot-success" : ""/.test(hdr) && !/data-presence="online"/.test(hdr));
 ok("Help opens the Help sheet, from the header and from the phone's More sheet", /<HelpSheet open=\{helpOpen\}/.test(shell) && /setMoreOpen\(false\); setHelpOpen\(true\);/.test(shell));
 const help = read("components/portal/help-sheet.tsx");

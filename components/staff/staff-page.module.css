@@ -455,6 +455,22 @@
 .rowGone td {
   color: var(--muted-foreground);
 }
+/* v1.361.0 - a person who has left reads grey all the way across: the row's
+   ground, the name, the photo. The status chip keeps its own colour (it says
+   why), and Profile / Record stay pressable - the record is kept. */
+.rowGone td {
+  background: color-mix(in srgb, var(--secondary) 70%, transparent);
+}
+.rowGone td strong,
+.rowGone td span:not([class*="chip"]):not([class*="erp-chip"]) {
+  color: var(--muted-foreground);
+}
+.rowGone img,
+.tileGone img,
+.pickGone img {
+  filter: grayscale(1);
+  opacity: 0.75;
+}
 .checkCell {
   width: 1%;
 }
@@ -631,6 +647,15 @@
 }
 .tileGone {
   opacity: 0.7;
+  background: color-mix(in srgb, var(--secondary) 70%, transparent);
+}
+/* v1.361.0 - the same grey in Staff Records' list */
+.pickGone {
+  background: color-mix(in srgb, var(--secondary) 60%, transparent);
+}
+.pickGone strong,
+.pickGone span {
+  color: var(--muted-foreground);
 }
 .tick {
   position: absolute;

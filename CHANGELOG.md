@@ -10,6 +10,40 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.362.0] - 2026-11-18 - Your photo opens the account menu on the phone, the same as on the desktop - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, a phone screenshot): tapping his photo in the phone header went straight to Profile; "allow user to sign out or any similarity as in the desktop ... standardize and globally".
+
+### Changed
+- **On a phone, the photo in the header opens the account menu**: who is signed in (photo, name, role, online), then Cards and Profile, the settings (notification sound, push alerts, Bahasa Melayu, colours) and Sign out - exactly the list the desktop shows when you click your name card. It is one list in the code (`AccountMenuList` in `components/layout/side-nav.tsx`), drawn by both, so the two can never drift apart. Profile is one tap away inside it. Every staff role and agents get it (same header).
+
+### Guards
+- `tests/executive-workspace.mjs` now holds the one shared list and the photo opening it; new browser `tests/browser/account-menu.py` (the phone's list equals the desktop's, Profile one tap away, Sign out signs out).
+
+## [1.361.0] - 2026-11-18 - Leavers sit at the bottom of Staff, greyed - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, two Staff screenshots): "resigned staff should be in grey and also at the bottom of the list since it is inactive, same goes to staff records".
+
+### Changed
+- **Staff → Directory (list and grid) and Staff → Staff Records** now list working staff first, inactive accounts next and people who have left last, whatever sort is chosen (the chosen sort still holds inside each group).
+- Inactive accounts and leavers are drawn grey: the row or tile ground, the name and the photo. The status chip keeps its own colour, and Profile / Record stay pressable - nobody is hidden and no record changes.
+- Order and colour only: no route, permission, status rule or figure changed. The one status rule (`staffState`) decides who has left.
+
+### Checks
+- New guard `staff-leavers-last` (9 checks); staff4, staff-order, staff-headcount, tab-zones, design-tokens, ui-system and tailwind-retired pass; browser check of the Directory and Staff Records at 1440px.
+
+## [1.360.0] - 2026-11-18 - Push alerts are required for staff - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "Push notifications should enforce since my staff requires to alert on any updates". His answers: block until on; every staff role.
+
+### Changed
+- **Every staff role must have push alerts on, on every device they use.** After sign-in (and after the 2FA screen), if this device has no push alerts for this person, the portal waits behind one screen: "Turn on alerts to continue" with a Turn on button. A website cannot switch alerts on by itself - each device taps Allow once - so the screen explains what to do when it cannot: alerts blocked (how to allow them in the phone or browser settings, then Check again), an iPhone in Safari (add A2Z to the Home Screen and open it from there), or an app's built-in browser (open in Chrome, Safari or Edge). Sign out always works. The check runs again whenever the app comes back to the front, so switching alerts off in the phone's settings brings the screen back.
+- **Push off is gone for staff.** The Push button in the menu no longer switches alerts off for a staff role; it says they are required. Signing out still stops alerts on that device, as before.
+- Agents and customers are not held. Nobody is held while the server has no push keys (so a missing setting can never lock the company out).
+
+### Guards
+- New `tests/push-gate.mjs` (8 checks, 6 mutations caught); browser `tests/browser/push-gate.py` (fixture `PUSHKEY=1`).
+
 ## [1.359.0] - 2026-11-18 - Management's Dashboard opens on the CEO View at once - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, two phone screenshots a minute apart): the Dashboard showed "Sales this month", "Welcome back" and the shift pill, then turned into the CEO View with the weekly My Performance.
@@ -37,6 +71,8 @@ Plan: `docs/ROLES-V2-PLAN.md`, stage 3 (decisions R-3 and R-6).
 - Migration `0209_roles_assignable` rebuilds the `users` table with every row and column kept, so `users.role` is checked against the roles table (triggers) instead of a fixed list - that is what lets a person hold a role you made. It also adds `claims.line_approver_id` (empty for every existing claim). Tested on a copy: same rows, foreign keys intact, sessions kept, an unknown role refused, a held role cannot be deleted.
 
 ### Fixed
+- **Staff > Staff Records > Role & Access: the roles you made are in the System role list.** It offered only the code roles. For the CEO and the Super Admin it now also lists every role made in Roles & Permissions, by name; choosing one asks for a reason (10+ characters) and your authenticator code, the same rule the server applies on the Users tab. Someone already on a role you made can be moved off it here too. Executive accounts stay locked. Guard `role-assign`.
+- **/admin > Users: the roles you made are in the Role lists** (the filter and the chosen account). Choosing one, or moving someone off one, goes through the same staff role door (a reason of 10+ characters and the authenticator code, audited); the code roles still change exactly as before. Guard `admin-super-only`.
 - **Dashboard Quick Actions** no longer squeezes its tiles letter by letter when the card sits in a narrow column (seen at 1440px for roles with few actions). The card measures its own width and stacks the heading above a 2-by-2 grid when it is narrow; wide layouts are unchanged. Guard `ecc4`.
 
 ### Guards

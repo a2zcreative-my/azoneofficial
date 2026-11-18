@@ -41,6 +41,43 @@ export interface AccountAction {
   danger?: boolean;
 }
 
+/** v1.362.0 - THE ACCOUNT MENU, ONE COPY (the CEO, 18-11-2026: tapping his photo on the phone opened
+    Profile; "allow user to sign out or any similarity as in the desktop ... standardize and globally").
+    The rail's name card and the phone header's photo both draw THIS list: the Account pages (Profile,
+    Cards), the set-once settings, then Sign out apart in the danger ink. A setting stays open after a
+    press so its new state shows; anything else closes the menu. */
+export function AccountMenuList({ items, accountMenu, active, onSelect, onClose }: {
+  items: NavItem[]; accountMenu: AccountAction[]; active?: string; onSelect: (name: string) => void; onClose: () => void;
+}) {
+  const ms = getLang() === "ms";
+  return (
+    <>
+      {items.length > 0 && <ul className={css.menuItems}>{items.map((it) => (
+        <li key={it.name}>
+          <button type="button" className={css.menuItem} aria-current={it.name === active ? "page" : undefined}
+            onClick={() => { onSelect(it.name); onClose(); }}>
+            <TabIcon name={it.name} className="erp-icon" />{it.label}
+          </button>
+        </li>
+      ))}</ul>}
+      <ul className={css.menuItems}>{accountMenu.filter((a) => !a.danger).map((a) => (
+        <li key={a.key}>
+          <button type="button" className={css.menuItem} aria-pressed={a.pressed}
+            onClick={() => { a.onSelect(); if (a.pressed === undefined) onClose(); }}>
+            {a.icon}<span className={css.menuLabel}>{a.label}</span>
+            {a.pressed !== undefined && <span aria-hidden className={a.pressed ? css.menuOn : css.menuOff}>{a.pressed ? (ms ? "Hidup" : "On") : (ms ? "Mati" : "Off")}</span>}
+          </button>
+        </li>
+      ))}</ul>
+      {accountMenu.filter((a) => a.danger).map((a) => (
+        <button key={a.key} type="button" className={`${css.menuItem} ${css.menuDanger}`} onClick={() => { onClose(); a.onSelect(); }} data-testid={`account-${a.key}`}>
+          {a.icon}{a.label}
+        </button>
+      ))}
+    </>
+  );
+}
+
 /**
  * Presentation grouping only — see the note above. Order defines display order.
  *
@@ -432,28 +469,7 @@ export function SideNav({
         <div className={`erp-rail-foot ${css.foot}`} ref={footRef}>
           {menuOpen && (
             <div id="rail-account-menu" className={css.menu} role="group" aria-label={ms ? "Akaun anda" : "Your account"}>
-              {foot && <ul className={css.menuItems}>{foot.items.map((it) => (
-                <li key={it.name}>
-                  <button type="button" className={css.menuItem} aria-current={it.name === active ? "page" : undefined}
-                    onClick={() => { onSelect(it.name); closeMenu(); }}>
-                    <TabIcon name={it.name} className="erp-icon" />{it.label}
-                  </button>
-                </li>
-              ))}</ul>}
-              <ul className={css.menuItems}>{accountMenu.filter((a) => !a.danger).map((a) => (
-                <li key={a.key}>
-                  <button type="button" className={css.menuItem} aria-pressed={a.pressed}
-                    onClick={() => { a.onSelect(); if (a.pressed === undefined) closeMenu(); }}>
-                    {a.icon}<span className={css.menuLabel}>{a.label}</span>
-                    {a.pressed !== undefined && <span aria-hidden className={a.pressed ? css.menuOn : css.menuOff}>{a.pressed ? (ms ? "Hidup" : "On") : (ms ? "Mati" : "Off")}</span>}
-                  </button>
-                </li>
-              ))}</ul>
-              {accountMenu.filter((a) => a.danger).map((a) => (
-                <button key={a.key} type="button" className={`${css.menuItem} ${css.menuDanger}`} onClick={() => { closeMenu(); a.onSelect(); }}>
-                  {a.icon}{a.label}
-                </button>
-              ))}
+              <AccountMenuList items={foot?.items ?? []} accountMenu={accountMenu} active={active} onSelect={onSelect} onClose={closeMenu} />
             </div>
           )}
           <button type="button" ref={menuButtonRef} className={css.me} aria-expanded={menuOpen} aria-controls="rail-account-menu"

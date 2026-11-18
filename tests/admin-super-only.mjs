@@ -63,7 +63,7 @@ function checks(s) {
     && (s.overview.match(/L\("Not available", "Tiada data"\)/g) ?? []).length >= 4 && /<KpiRow /.test(s.overview) && (s.overview.match(/<KpiRow /g) ?? []).length === 1);
   t("P3 Users keeps every action on the same routes, the server deciding each",
     /api\("\/users", \{\s*method: "POST"/.test(s.usersPage) && (s.usersPage.match(/api(?:<[^>]*>)?\(`\/users\/\$\{u\.id\}`, \{\s*method: "PATCH"/g) ?? []).length === 3
-    && /api\(`\/users\/\$\{u\.id\}\/revoke-sessions`, \{ method: "POST" \}\)/.test(s.usersPage) && (s.usersPage.match(/withStepUp</g) ?? []).length === 2
+    && /api\(`\/users\/\$\{u\.id\}\/revoke-sessions`, \{ method: "POST" \}\)/.test(s.usersPage) && (s.usersPage.match(/withStepUp</g) ?? []).length === 3 /* v1.358.0 - the third gives a role you made, on the staff role door */ && /api\(`\/staff\/users\/\$\{u\.id\}\/role`, \{\s*method: "POST", body: JSON\.stringify\(\{ role: to, reason: why\.value\.trim\(\)/.test(s.usersPage)
     && /<OwnerCard state=\{ownerState\}/.test(s.usersPage) && /if \(u\.is_active && !\(await confirm\(/.test(s.usersPage) && /if \(!\(await confirm\(\{ title: L\("Confirm Role Change"/.test(s.usersPage)
     && /disabled=\{self\}/.test(s.usersPage));
   /* v1.351.0 - Phase 3: Security & Audit, My Account and Signatures */

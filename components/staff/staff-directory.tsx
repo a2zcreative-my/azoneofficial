@@ -1036,12 +1036,23 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
   const needle = query.trim().toLowerCase();
   /* v1.204.0 - two more orders: by staff ID, and by department (company
      order inside each) */
-  const ranked = sortBy === "rank"
+  const sorted = sortBy === "rank"
     ? staff
     : [...staff].sort((a, b) => sortBy === "az" ? displayName(a).localeCompare(displayName(b))
       : sortBy === "za" ? displayName(b).localeCompare(displayName(a))
       : sortBy === "id" ? (a.employee_id || "~").localeCompare(b.employee_id || "~", undefined, { numeric: true })
       : (deptName(a) || "~").localeCompare(deptName(b) || "~"));
+  /* v1.361.0 (the CEO, 18-11-2026: "resigned staff should be in grey and at
+     the bottom of the list since it is inactive, same goes to staff
+     records") - whatever the order, working staff come first, inactive
+     accounts next and the people who have left (staffState "left": a past
+     last day, or Resigned / Terminated with no last day) last, each group in
+     the chosen order. The last two are drawn grey. Nothing is hidden or
+     changed. */
+  const dimRank = (u: Staff) => (isGone(u) ? 2 : stateOf(u) === "inactive" ? 1 : 0);
+  const isDim = (u: Staff) => dimRank(u) > 0;
+  const leaversLast = <T extends Staff>(list: T[]): T[] => [0, 1, 2].flatMap((r) => list.filter((u) => dimRank(u) === r));
+  const ranked = leaversLast(sorted);
   const dirList = ranked
     .filter((u) => !needle || [displayName(u), u.email, u.employee_id, u.position, u.department, u.role]
       .some((value) => (value ?? "").toLowerCase().includes(needle)))
@@ -1050,7 +1061,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
     .filter((u) => !typeF || (typeF === NO_TYPE ? !typeOf(u) : typeOf(u) === typeF));
   const allShownTicked = dirList.length > 0 && dirList.every((u) => selected.has(u.id));
   const recNeedle = recQuery.trim().toLowerCase();
-  const recList = staff.filter((u) => !recNeedle || [displayName(u), u.employee_id, u.position, u.department]
+  const recList = leaversLast(staff).filter((u) => !recNeedle || [displayName(u), u.employee_id, u.position, u.department]
     .some((value) => (value ?? "").toLowerCase().includes(recNeedle)))
     .filter((u) => !recOnlyIncomplete || (isHead(u) && missingOf(u).length > 0));
   /* v1.308.0 - THE STATUS VOCABULARY (S-4): employment, never today's
@@ -1588,7 +1599,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                     <tr><td colSpan={selectMode ? 8 : 7}><p className={sp.empty}><AppIcon name="search" />{query || deptF || stateF || typeF ? L("No staff matches that search.", "Tiada kakitangan sepadan dengan carian itu.") : L("No staff records yet.", "Belum ada rekod kakitangan.")}</p></td></tr>
                   )}
                   {loaded && dirList.map((u) => (
-                    <tr key={u.id} className={`${selected.has(u.id) ? sp.rowOn : ""} ${isGone(u) ? sp.rowGone : ""}`}>
+                    <tr key={u.id} className={`${selected.has(u.id) ? sp.rowOn : ""} ${isDim(u) ? sp.rowGone : ""}`}>
                       {selectMode && (
                         <td className={sp.checkCell}>
                           <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggleSelect(u.id)}
@@ -1624,7 +1635,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
               {loaded && dirList.map((u) => (
                 <li key={u.id}>
                   <button type="button" onClick={() => press(u)} aria-pressed={selectMode ? selected.has(u.id) : undefined}
-                    className={`${sp.tile} ${selected.has(u.id) ? sp.tileOn : ""} ${isGone(u) ? sp.tileGone : ""}`}>
+                    className={`${sp.tile} ${selected.has(u.id) ? sp.tileOn : ""} ${isDim(u) ? sp.tileGone : ""}`}>
                     {selectMode && <span className={`${sp.tick} ${selected.has(u.id) ? sp.tickOn : ""}`} aria-hidden>{selected.has(u.id) ? "✓" : ""}</span>}
                     <Avatar name={displayName(u)} photoKey={u.photo_key} size="lg" />
                     <strong>{displayName(u)}</strong>
@@ -1869,7 +1880,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
             {loaded && recList.length === 0 && <li><p className={sp.empty}>{L("No record matches that search.", "Tiada rekod sepadan dengan carian itu.")}</p></li>}
             {loaded && recList.map((u) => (
               <li key={u.id}>
-                <button type="button" className={sp.pick} aria-pressed={open.has(u.id)} data-testid="rec-pick"
+                <button type="button" className={`${sp.pick} ${isDim(u) ? sp.pickGone : ""}`} aria-pressed={open.has(u.id)} data-testid="rec-pick"
                   onClick={() => openRecordHere(u.id)}>
                   <Avatar name={displayName(u)} photoKey={u.photo_key} size="md" />
                   <span className={sp.personText}>

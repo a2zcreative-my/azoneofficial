@@ -43,7 +43,10 @@ export interface AdminUser { id: number; email: string; name: string; role: stri
    live_host_part_time = role live_host with employment_status part_time (v1.4.180, v1.157.0). */
 const ROLES = ["super_admin", "admin", "editor", "marketing", "live_host", "live_host_part_time", "hr_admin", "sales_marketing", "ceo", "coo", "cco", "agent", "customer"] as const;
 const roleOf = (u: AdminUser) => (u.role === "live_host" && u.employment_status === "part_time" ? "live_host_part_time" : u.role);
-const roleWord = (r: string) => (r === "live_host_part_time" ? L("Live host (part time)", "Hos live (separuh masa)") : roleLabel(r));
+/* v1.358.0 - ROLES V2: the roles made in Roles & Permissions (key -> name), read once from the policy */
+let OWN_NAMES: Record<string, string> = {};
+const roleWord = (r: string) => (r === "live_host_part_time" ? L("Live host (part time)", "Hos live (separuh masa)") : OWN_NAMES[r] ?? roleLabel(r));
+const isOwn = (r: string) => /^r_[a-z0-9_]+$/.test(r);
 /** staff accounts must have 2FA; customers and agents sign in otherwise */
 const needs2fa = (r: string) => !["customer", "agent"].includes(r);
 
@@ -56,6 +59,22 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
   const [totp, setTotp] = useState<Map<number, boolean> | null>(null);
   const [q, setQ] = useState("");
   const [roleF, setRoleF] = useState("all");
+  /* v1.358.0 - the roles you made are listed beside the code roles. Only the Super Admin and the CEO give
+     them (role_custom); the server's role door asks for a reason and the code, and checks the key. */
+  const [ownKeys, setOwnKeys] = useState<string[]>([]);
+  const canGiveOwn = ["super_admin", "ceo"].includes(me.role);
+  useEffect(() => {
+    if (!canGiveOwn) return;
+    let live = true;
+    void api<{ role_table?: { key: string; name: string; kind: string }[] }>("/staff/access/policy").then((res) => {
+      if (!live || !res.ok) return;
+      const own = (res.data?.role_table ?? []).filter((x) => x.kind === "own");
+      OWN_NAMES = Object.fromEntries(own.map((x) => [x.key, x.name]));
+      setOwnKeys(own.map((x) => x.key));
+    });
+    return () => { live = false; };
+  }, [canGiveOwn]);
+  const roleChoices = (cur?: string) => [...ROLES, ...ownKeys, ...(cur && isOwn(cur) && !ownKeys.includes(cur) ? [cur] : [])];
   const [statusF, setStatusF] = useState("all");
   const [page, setPage] = useState(1);
   const [picked, setPicked] = useState<number | null>(null);
@@ -117,6 +136,19 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
   };
 
   const changeRole = async (u: AdminUser, to: string) => {
+    if (isOwn(to) || isOwn(u.role)) {
+      /* v1.358.0 - a role you made, given or taken away: the staff role door (reason 10+, the code, audited) */
+      const why = await ask({ title: L(`${u.name} → ${roleWord(to)}`, `${u.name} → ${roleWord(to)}`),
+        label: L(`Why (at least 10 characters, kept in the audit history). ${roleWord(roleOf(u))} becomes ${roleWord(to)}; what they may do and see changes at once.`, `Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit). ${roleWord(roleOf(u))} menjadi ${roleWord(to)}; apa yang mereka boleh lakukan dan lihat berubah serta-merta.`), required: true });
+      if (!why) { void load(); return; }
+      if (why.value.trim().length < 10) { toast(L("No changes", "Tiada perubahan"), L("Give a reason of at least 10 characters.", "Beri sebab sekurang-kurangnya 10 aksara."), "notice"); void load(); return; }
+      const ro = await withStepUp<{ error?: { message?: string } }>((totpCode) => api(`/staff/users/${u.id}/role`, {
+        method: "POST", body: JSON.stringify({ role: to, reason: why.value.trim(), ...(totpCode ? { totp: totpCode } : {}) }),
+      }), ask, stepUp);
+      toast(ro.ok ? L("Saved", "Disimpan") : L("No changes", "Tiada perubahan"), ro.ok ? L(`Role changed to ${roleWord(to)}`, `Peranan ditukar kepada ${roleWord(to)}`) : (ro.data?.error?.message ?? L("The role was not changed", "Peranan tidak ditukar")), ro.ok ? undefined : "notice");
+      void load();
+      return;
+    }
     const wasPart = u.employment_status === "part_time", toPart = to === "live_host_part_time";
     const statusNote = toPart && !wasPart ? L(" Their employment status becomes part time.", " Status pekerjaan mereka menjadi separuh masa.")
       : !toPart && wasPart && to !== "customer" ? L(" They stop being part time: status becomes permanent (set contract or probation in portal Staff if that is wrong).", " Mereka tidak lagi separuh masa: status menjadi tetap (tetapkan kontrak atau percubaan dalam Kakitangan portal jika itu salah).") : "";
@@ -172,7 +204,7 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
                 <input className={inputClassSm} type="search" placeholder={L("Search name or email", "Cari nama atau e-mel")} aria-label={L("Search accounts", "Cari akaun")} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} data-testid="users-search" />
                 <select className={selectClassSm} aria-label={L("Role", "Peranan")} value={roleF} onChange={(e) => { setRoleF(e.target.value); setPage(1); }} data-testid="users-role">
                   <option value="all">{L("Every role", "Semua peranan")}</option>
-                  {ROLES.map((r) => <option key={r} value={r}>{roleWord(r)}</option>)}
+                  {roleChoices().map((r) => <option key={r} value={r}>{roleWord(r)}</option>)}
                 </select>
                 <select className={selectClassSm} aria-label={L("Status", "Status")} value={statusF} onChange={(e) => { setStatusF(e.target.value); setPage(1); }} data-testid="users-status">
                   <option value="all">{L("Any status", "Semua status")}</option>
@@ -203,7 +235,7 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
                       <select className={selectClassSm} value={roleOf(sel)} disabled={self} aria-label={L("Role", "Peranan")} data-testid="user-role"
                         title={self ? L("You cannot change your own role", "Anda tidak boleh menukar peranan sendiri") : undefined}
                         onChange={(e) => void changeRole(sel, e.target.value)}>
-                        {ROLES.map((r) => <option key={r} value={r}>{roleWord(r)}</option>)}
+                        {roleChoices(sel.role).map((r) => <option key={r} value={r}>{roleWord(r)}</option>)}
                       </select>
                     </dd></div>
                     <div className={css.fact}><dt>{L("Two-factor", "Dua faktor")}</dt><dd>{twoFa(sel)}</dd></div>
