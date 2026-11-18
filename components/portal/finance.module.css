@@ -691,3 +691,20 @@
   margin: 0 0.5rem 0 0;
   vertical-align: -0.1875rem;
 }
+
+/* 18-11-2026 - awaiting receipts drawn beside Money In, never added to it */
+.dotAwait {
+  display: inline-block;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--gold-solid);
+}
+.lineAwait {
+  fill: none;
+  stroke: var(--gold-solid);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}

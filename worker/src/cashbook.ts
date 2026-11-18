@@ -32,6 +32,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { audit, cents, err, glCodeFor, json, logError, postJournal, str } from "./shared";
 import { can, canUser } from "./permissions";
+import { requireFreshTotp } from "./staff"; // 18-11-2026 - the historical cash verification asks for a fresh code (the cycle is harmless: used at call time)
 
 /* ------------------------------------------------------------------ *
  * Booking and reversing - used by every module that moves money.
@@ -304,7 +305,19 @@ export interface CashItem {
   /** v1.312.0 (CEO-1) - a receipt recorded but not yet verified by the CEO:
       shown, and summed as "awaiting verification", never as Money In */
   awaiting: boolean;
+  /** 18-11-2026 (the CEO's Finance Historical Recovery, docs/FINANCE-HISTORY-GATE.md) - a receipt
+      paid before HISTORY_END: verified as CASH only (a Finance mark), never through Confirm paid */
+  historical?: boolean;
+  /** true when that cash-only verification is what makes it Money In */
+  cash_verified?: boolean;
 }
+
+/* 18-11-2026 - THE HISTORICAL LINE. A receipt paid before this day is history: the CEO verifies it
+   as cash only, with a mark in cashbook_marks (0214). The mark is a Finance fact and nothing else:
+   invoice_paid_confirmations - the table commission reads - is never written for it, so a
+   historical receipt can never reach the commission ledger. Equal to commission.ts
+   COMMISSION_START_DAY (tests/finance-history.mjs holds the two equal). */
+export const HISTORY_END = "2026-11-01";
 
 const sourceOfRef = (ref: string): Source =>
   ref.startsWith("INV-") ? "sales"
@@ -344,7 +357,7 @@ function groupOf(source: Source, category: string, type: "in" | "out"): string {
    tab. The live Finance tab answered "could not be read" on 28-10-2026; the
    cause was not visible from the screen, so the read no longer depends on
    every source being there, and a failure now says what it was. */
-interface Has { v2: boolean; claims: boolean; expenses: boolean; payroll: boolean; web: boolean; customers: boolean; parts: boolean; confirm: boolean; reports: boolean; issuer: boolean; company: boolean }
+interface Has { v2: boolean; claims: boolean; expenses: boolean; payroll: boolean; web: boolean; customers: boolean; parts: boolean; confirm: boolean; reports: boolean; issuer: boolean; company: boolean; cashv: boolean }
 const RAW_ROW_SQL = (h: Has) => `
   SELECT c.id, c.entry_date, c.type, c.category, c.bank_id, c.amount_cents, c.description, c.ref,
          ${h.v2 ? "c.effective_date, c.source_key, c.reversal_of, c.reverse_reason, c.transfer_id" : "NULL AS effective_date, NULL AS source_key, NULL AS reversal_of, NULL AS reverse_reason, NULL AS transfer_id"},
@@ -375,7 +388,8 @@ interface RawRow {
 }
 
 interface Bank { id: number; name: string; bank: string; number_masked: string; active: number; opening_balance_cents: number | null; opening_on: string | null; company: string | null }
-interface Mark { item_key: string; bank_id: number | null; bank_note: string | null; reviewed_note: string | null; reviewed_at: string | null; reviewed_by: number | null; accepted_note: string | null; accepted_at: string | null; accepted_by: number | null }
+interface Mark { item_key: string; bank_id: number | null; bank_note: string | null; reviewed_note: string | null; reviewed_at: string | null; reviewed_by: number | null; accepted_note: string | null; accepted_at: string | null; accepted_by: number | null;
+  cash_verified_at?: string | null; cash_verified_by?: number | null; cash_revoked_at?: string | null }
 
 /** A first-pass read of everything the view is computed from. Sources that a
     database does not have yet contribute nothing (the tab still opens). */
@@ -395,6 +409,7 @@ async function loadAll(env: Env) {
     reports: await probe(`SELECT payment_id, state FROM invoice_payment_reports LIMIT 1`),
     issuer: await probe(`SELECT issuer_code FROM sales_documents LIMIT 1`),
     company: await probe(`SELECT company FROM cashflow_entries LIMIT 1`) && await probe(`SELECT company FROM bank_accounts LIMIT 1`) && await probe(`SELECT accepted_at FROM cashbook_marks LIMIT 1`), // v1.312.0 - 0197
+    cashv: await probe(`SELECT cash_verified_at, cash_revoked_at FROM cashbook_marks LIMIT 1`), // 18-11-2026 - 0214
   };
   const v2 = h.v2;
   /* text columns are NOT NULL in the schema; a row written some other way
@@ -406,7 +421,7 @@ async function loadAll(env: Env) {
     ? ((await env.DB.prepare(`SELECT id, name, bank, number_masked, active, opening_balance_cents, opening_on, ${CO} FROM bank_accounts ORDER BY active DESC, name`).all<Bank>()).results ?? [])
     : ((await env.DB.prepare(`SELECT id, name, bank, number_masked, active, NULL AS opening_balance_cents, NULL AS opening_on, NULL AS company FROM bank_accounts ORDER BY active DESC, name`).all<Bank>()).results ?? []);
   let marks: Mark[] = [];
-  if (v2) marks = (await env.DB.prepare(`SELECT item_key, bank_id, bank_note, reviewed_note, reviewed_at, reviewed_by, ${h.company ? "accepted_note, accepted_at, accepted_by" : "NULL AS accepted_note, NULL AS accepted_at, NULL AS accepted_by"} FROM cashbook_marks`).all<Mark>()).results ?? [];
+  if (v2) marks = (await env.DB.prepare(`SELECT item_key, bank_id, bank_note, reviewed_note, reviewed_at, reviewed_by, ${h.company ? "accepted_note, accepted_at, accepted_by" : "NULL AS accepted_note, NULL AS accepted_at, NULL AS accepted_by"}, ${h.cashv ? "cash_verified_at, cash_verified_by, cash_revoked_at" : "NULL AS cash_verified_at, NULL AS cash_verified_by, NULL AS cash_revoked_at"} FROM cashbook_marks`).all<Mark>()).results ?? [];
   const hasParts = h.parts;
   const hasConfirm = h.confirm;
   const CUST = h.customers ? "cu.company" : "NULL AS company";
@@ -455,6 +470,8 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
   const bankName = new Map(data.banks.map((b) => [b.id, b.name]));
   const bankCo = new Map(data.banks.map((b) => [b.id, companyOf(b.company)]));
   const markOf = new Map(data.marks.map((m) => [m.item_key, m]));
+  /* 18-11-2026 - a historical receipt's cash-only verification, live unless taken back */
+  const cashVerified = (key: string) => { const m = markOf.get(key); return Boolean(m?.cash_verified_at && !m.cash_revoked_at); };
   const byId = new Map(data.rows.map((r) => [r.id, r]));
   const reversedBy = new Map<number, number>();
   for (const r of data.rows) if (r.reversal_of) reversedBy.set(r.reversal_of, r.id);
@@ -512,14 +529,17 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
     if (amount <= 0 || !ISO_DAY.test(inv.paid_day ?? "")) continue;
     const key = `INV:${inv.id}`;
     const bInv = withBank(key, null);
+    const histI = inv.paid_day < HISTORY_END;
+    const cashI = histI && cashVerified(key);
+    const okInv = Boolean(inv.confirmed) || cashI;
     items.push({
       key, row_id: null, date: inv.paid_day, booked_on: null, type: "in", amount_cents: amount, category: "sales", group: "sales",
-      source: "sales", status: inv.confirmed ? "verified" : "unverified",
+      source: "sales", status: okInv ? "verified" : "unverified", historical: histI, cash_verified: cashI && !inv.confirmed,
       description: `${inv.doc_number}${inv.company ? ` - ${inv.company}` : ""}${inv.parts_cents > 0 ? " (balance)" : ""}`,
       ref: inv.doc_number, link: { kind: "invoice", id: inv.id }, ...bInv,
       /* v1.312.0 (CEO-1) - Money In is what the CEO verified; the rest waits, shown */
-      counts: inv.confirmed ? "in" : null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: inv.payment_ref,
-      issuer: inv.issuer_code ?? null, company: coOf(bInv.bank_id, issuerCompany(inv.issuer_code)), awaiting: !inv.confirmed,
+      counts: okInv ? "in" : null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: inv.payment_ref,
+      issuer: inv.issuer_code ?? null, company: coOf(bInv.bank_id, issuerCompany(inv.issuer_code)), awaiting: !okInv,
     });
   }
   for (const p of data.parts) {
@@ -528,10 +548,13 @@ function buildItems(data: Awaited<ReturnType<typeof loadAll>>) {
     const key = `PART:${p.id}`;
     const bPart = withBank(key, null);
     /* verified: the CEO verified this payment (payment verification), or confirmed the invoice paid in full */
-    const okPart = Boolean(p.verified_report) || (p.payment_status === "paid" && Boolean(p.confirmed));
+    const okNormal = Boolean(p.verified_report) || (p.payment_status === "paid" && Boolean(p.confirmed));
+    const histP = p.received_on < HISTORY_END;
+    const cashP = histP && cashVerified(key);
+    const okPart = okNormal || cashP;
     items.push({
       key, row_id: null, date: p.received_on, booked_on: null, type: "in", amount_cents: p.amount_cents, category: "sales", group: "sales",
-      source: "part", status: okPart ? "verified" : "unverified",
+      source: "part", status: okPart ? "verified" : "unverified", historical: histP, cash_verified: cashP && !okNormal,
       description: `${p.doc_number}${p.company ? ` - ${p.company}` : ""} (part payment)`,
       ref: p.doc_number, link: { kind: "invoice", id: p.invoice_id }, ...bPart,
       counts: okPart ? "in" : null, sign: 1, reversal_of: null, reversed_by: null, reverse_reason: null, transfer_id: null, payment_ref: p.reference,
@@ -557,7 +580,7 @@ export interface Exception {
   type: "in" | "out";
   row_id: number | null;
   link: CashItem["link"];
-  actions: ("bank" | "reverse" | "review" | "book" | "confirm" | "accept")[];
+  actions: ("bank" | "reverse" | "review" | "book" | "confirm" | "accept" | "cash_verify")[];
   /** v1.312.0 (F-2) - the source record's amount, the cash book's, and
       DIFFERENCE = SOURCE - CASH BOOK (negative: the cash book holds more).
       Set where the two records are compared; null for the other checks. */
@@ -611,7 +634,9 @@ async function exceptionsOf(env: Env, data: Awaited<ReturnType<typeof loadAll>>,
   for (const it of items) {
     if (!inPeriod(it.date)) continue;
     if ((it.source === "sales" || it.source === "part") && it.status === "unverified") {
-      add({ kind: "unverified", key: it.key, item_key: it.key, date: it.date, title: it.description, detail: "Recorded as received; awaiting the CEO's verification. It is not counted as Money In until verified.", amount_cents: it.amount_cents, type: "in", row_id: null, link: it.link, actions: ["confirm", "review"] });
+      add({ kind: "unverified", key: it.key, item_key: it.key, date: it.date, title: it.description, detail: it.historical
+        ? "Paid before 01-11-2026 and not yet verified. Verify it as cash in Reconciliation > History - it is not counted as Money In until then, and it never earns commission."
+        : "Recorded as received; awaiting the CEO's verification. It is not counted as Money In until verified.", amount_cents: it.amount_cents, type: "in", row_id: null, link: it.link, actions: it.historical ? ["cash_verify", "review"] : ["confirm", "review"] });
     }
     if (anyAccount && (it.counts || it.awaiting) && !it.bank_id && it.status !== "reversal" && it.status !== "reversed") {
       add({ kind: "no_bank", key: it.key, item_key: it.key, date: it.date, title: it.description || it.category, detail: "Which account did this money move through?", amount_cents: it.amount_cents, type: it.type, row_id: it.row_id, link: it.link, actions: ["bank", "review"] });
@@ -770,7 +795,8 @@ export async function handleCashbook(
     const span = Number.isFinite(months) && months >= 3 && months <= 24 ? months : 6;
     const trend = Array.from({ length: span }, (_, k) => monthStart(to, span - 1 - k).slice(0, 7)).map((m) => {
       const list = all.filter((i) => i.date.slice(0, 7) === m);
-      return { month: m, in_cents: sum(list, "in"), out_cents: sum(list, "out") };
+      /* 18-11-2026 - awaiting receipts drawn BESIDE Money In, never added to it */
+      return { month: m, in_cents: sum(list, "in"), out_cents: sum(list, "out"), awaiting_cents: list.filter((i) => i.awaiting).reduce((a, i) => a + i.amount_cents, 0) };
     });
     /* a BOOK balance (not bank-verified): from an opening balance a person
        entered, plus every verified movement through the account since */
@@ -784,6 +810,14 @@ export async function handleCashbook(
     const exceptions = (await exceptionsOf(env, data, everything, from, to)).filter((x) => !company || x.company === company);
     const moneyIn = sum(items, "in"), moneyOut = sum(items, "out");
     const waiting = items.filter((i) => i.awaiting);
+    /* 18-11-2026 (the CEO's Finance Historical Recovery, section 2) - what is still open from BEFORE
+       the period, whatever period is chosen: the same checks as Reconciliation, over every earlier
+       day, for this company. And the movements that belong to no company (every period), which
+       neither company view counts - one number, reachable from both views, never in a total. */
+    const dayBefore = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+    const olderEx = (await exceptionsOf(env, data, everything, "2000-01-01", dayBefore(from))).filter((x) => !company || x.company === company);
+    const olderAwaiting = all.filter((i) => i.date < from && i.awaiting);
+    const unassignedAll = everything.filter((i) => !i.company && (i.counts || i.awaiting) && i.status !== "reversal" && i.status !== "reversed");
     return json({
       period: { from, to, today }, company: coQ, consolidated: !company,
       totals: {
@@ -793,6 +827,19 @@ export async function handleCashbook(
         /* movements in the period that belong to no company yet (consolidated view only) */
         no_company: company ? 0 : items.filter((i) => !i.company && (i.counts || i.awaiting)).length,
       },
+      older: {
+        exceptions: olderEx.length,
+        awaiting_count: olderAwaiting.length, awaiting_cents: olderAwaiting.reduce((a, i) => a + i.amount_cents, 0),
+        by_kind: olderEx.reduce<Record<string, number>>((m, x) => { m[x.kind] = (m[x.kind] ?? 0) + 1; return m; }, {}),
+      },
+      unassigned: {
+        count: unassignedAll.length,
+        in_cents: unassignedAll.filter((i) => i.counts === "in").reduce((a, i) => a + i.sign * i.amount_cents, 0),
+        out_cents: unassignedAll.filter((i) => i.counts === "out").reduce((a, i) => a + i.sign * i.amount_cents, 0),
+      },
+      history_end: HISTORY_END,
+      can_cash_verify: canUser(user, "confirm_paid") && user.is_owner === true,
+      cash_verify_ready: data.has.cashv,
       groups: { in: groups("in"), out: groups("out") },
       trend,
       items,
@@ -842,6 +889,46 @@ export async function handleCashbook(
         ORDER BY a.id DESC LIMIT 50`,
     ).bind(...list).all();
     return json({ key, events: results ?? [] });
+  }
+
+  /* ---- 18-11-2026 (the CEO's Finance Historical Recovery, sections 1 and 4) - A HISTORICAL RECEIPT
+     VERIFIED AS CASH ONLY. The CEO owner, a fresh authenticator code, "I checked the bank", one
+     receipt at a time (no bulk). Only a receipt paid before HISTORY_END and not already verified
+     either way. It writes ONE Finance mark - never invoice_paid_confirmations, never a commission
+     row, never the invoice's dates or amounts. Taking it back keeps the mark with its reason. ---- */
+  if ((path === "/cashbook/cash-verify" || path === "/cashbook/cash-verify/revoke") && method === "POST") {
+    if (!(canUser(user, "confirm_paid") && user.is_owner === true)) return err("forbidden", "Only the CEO (the company owner) verifies a historical receipt.", 403);
+    const key = typeof body?.key === "string" && /^(INV|PART):\d+$/.test(body.key) ? body.key : null;
+    if (!key) return err("validation", "Choose a receipt", 400);
+    const revoke = path.endsWith("/revoke");
+    const note = str(body?.note ?? body?.reason, 300) ? String(body!.note ?? body!.reason).trim() : "";
+    if (revoke ? note.length < 10 : note.length > 300) return err("validation", revoke ? "Give the reason (at least 10 characters)" : "The note is too long", 400);
+    if (!revoke && body?.checked !== true) return err("validation", "Tick that you checked the money arrived in the bank on that day.", 400);
+    const data = await loadAll(env);
+    if (!data.has.cashv) return err("pending_migration", "Run PUSH.bat so migration 0214 applies, then retry", 409);
+    const item = buildItems(data).find((i) => i.key === key);
+    if (!item) return err("not_found", "That receipt is not in the cash book", 404);
+    if (!item.historical) return err("not_historical", `This receipt was paid on ${item.date}. Receipts from ${HISTORY_END} are verified with Confirm paid or payment verification.`, 409);
+    if (!revoke && item.status === "verified") return err("conflict", item.cash_verified ? "This receipt is already verified." : "This receipt is already verified through Confirm paid or payment verification.", 409);
+    if (revoke && !item.cash_verified) return err("conflict", "Only a cash-only verification can be taken back here.", 409);
+    const su = await requireFreshTotp(env, user, body?.totp, err, revoke ? "take back a receipt verification" : "verify a historical receipt");
+    if (su) return su;
+    const r = revoke
+      ? await env.DB.prepare(
+          `UPDATE cashbook_marks SET cash_revoked_at = datetime('now'), cash_revoked_by = ?2, cash_revoke_reason = ?3
+            WHERE item_key = ?1 AND cash_verified_at IS NOT NULL AND cash_revoked_at IS NULL`,
+        ).bind(key, user.id, note).run()
+      : await env.DB.prepare(
+          `INSERT INTO cashbook_marks (item_key, cash_verified_at, cash_verified_by, cash_verified_note) VALUES (?1, datetime('now'), ?2, ?3)
+           ON CONFLICT(item_key) DO UPDATE SET cash_verified_at = excluded.cash_verified_at, cash_verified_by = excluded.cash_verified_by,
+             cash_verified_note = excluded.cash_verified_note, cash_revoked_at = NULL, cash_revoked_by = NULL, cash_revoke_reason = NULL
+            WHERE cashbook_marks.cash_verified_at IS NULL OR cashbook_marks.cash_revoked_at IS NOT NULL`,
+        ).bind(key, user.id, note || null).run();
+    if (!(r.meta?.changes ?? 0)) return err("conflict", revoke ? "It was already taken back." : "It was verified a moment ago - reload.", 409);
+    await audit(env, user.id, revoke ? "cashbook.cash_verify_revoke" : "cashbook.cash_verify", "cashbook_marks", key, {
+      amount_cents: item.amount_cents, paid_day: item.date, ref: item.ref, company: item.company, ...(note ? { note } : {}), commission: "not_eligible_historical",
+    });
+    return json({ ok: true, key, verified: !revoke });
   }
 
   /* ---- v1.312.0 (CEO-6) - a mismatch the CEO accepts as it is: the only

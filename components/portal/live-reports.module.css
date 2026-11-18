@@ -144,7 +144,7 @@
 .pfOther { background: var(--secondary); color: var(--foreground); }
 .docInv { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
 .docQt { background: color-mix(in srgb, var(--info, var(--primary)) 12%, transparent); color: var(--info, var(--primary)); border-color: color-mix(in srgb, var(--info, var(--primary)) 30%, transparent); }
-.docNone { background: color-mix(in srgb, var(--destructive, var(--warning)) 12%, transparent); color: var(--destructive, var(--warning)); border-color: color-mix(in srgb, var(--destructive, var(--warning)) 35%, transparent); }
+.docOwn { background: var(--secondary); color: var(--foreground); border-color: var(--border); }
 .check { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; margin: 0.75rem 0 0; font-size: var(--type-body-sm-size); }
 
 /* v1.370.0 - "Check this is the right live" before a report starts */

@@ -27,8 +27,14 @@ function checks(src) {
   ok("one report per live (a second start returns the same report)", /ON CONFLICT\(session_id\) DO NOTHING/.test(s));
   ok("anyone who took part may start it - host or a participant row", /const tookPart = \(n: number, s = "s"\) => `\(\$\{s\}\.host_user_id = \?\$\{n\} OR EXISTS \(SELECT 1 FROM live_participants/.test(s));
   ok("an unplanned live is refused when the same live is already recorded", /existing: true/.test(s) && /unplanned/.test(s));
-  /* project required; client and company from it */
-  ok("submit needs a project", /project_required/.test(s));
+  /* v1.385.0 - the project is OPTIONAL (the CEO, 18-11-2026); the company never is */
+  ok("submit no longer needs a project", !/submit[\s\S]{0,600}if \(!s\?\.project_id\) return err\("project_required"/.test(code));
+  ok("submit needs a company (from the project, or chosen for an own live)", /if \(!r\.company\) return err\("company_required"/.test(s));
+  ok("an own live names its company - never inferred", /if \(own && !ownCompany\) return err\("company_required"/.test(s));
+  ok("a live for a project still needs an active project", /if \(!own && \(!p \|\| !ACTIVE_PROJECT\.includes\(p\.status\)\)\) return err\("project_required"/.test(s));
+  ok("an own live is matched as the same live only with the same company", /\?\$\{n\} IS NULL AND s\.project_id IS NULL AND COALESCE\(\(SELECT lr\.company FROM live_reports lr WHERE lr\.session_id = s\.id\), \?\$\{c\}\) = \?\$\{c\}/.test(s));
+  ok("the unplanned form offers Own live and Live for a project", /data-testid="live-u-kind-own"/.test(src.ui) && /data-testid="live-u-kind-project"/.test(src.ui) && /data-testid="live-u-company"/.test(src.ui));
+  ok("a report can take its project off, and an own live chooses its company", /No project - own live/.test(src.ui) && /data-testid="live-company"/.test(src.ui));
   ok("the company comes from the project's quotation, never typed when a project is set", /issuer_code === "a2z" \? "a2z" : "azoo"/.test(s));
   /* review */
   ok("a reviewer who took part cannot review (self_approval)", /self_approval/.test(s));
@@ -59,7 +65,7 @@ function checks(src) {
   ok("a failed read is written to System health's error log", /logError\(env, "live_ai"/.test(s));
   /* v1.369.0 - the platform and document tags (the CEO, 18-11-2026) */
   ok("every live shows its platform as a tag", /function PlatformTag/.test(src.ui) && (src.ui.match(/<PlatformTag /g) ?? []).length >= 6);
-  ok("every live shows its project's document: the live invoice, else the quotation, else 'no project yet'", /function DocTag/.test(src.ui) && (src.ui.match(/<DocTag /g) ?? []).length >= 6 && /No project yet/.test(src.ui));
+  ok("every live shows its project's document: the live invoice, else the quotation, else 'Own live'", /function DocTag/.test(src.ui) && (src.ui.match(/<DocTag /g) ?? []).length >= 6 && /L\("Own live", "Live sendiri"\)/.test(src.ui));
   ok("the invoice tag never names a voided invoice", /i\.doc_type = 'INV' AND i\.converted_from = \$\{pj\}\.quotation_id AND COALESCE\(i\.payment_status, ''\) != 'void'/.test(s));
   ok("an unplanned live shows its tags before it is recorded", /data-testid="live-u-check"/.test(src.ui));
   return out;
@@ -78,6 +84,9 @@ const MUT = [
   ["srv", "a voided invoice tagged", "AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS inv_number", "ORDER BY i.id DESC LIMIT 1) AS inv_number"],
   ["srv", "the image sent as numbers again", "image_url: { url: image }", "image_url: { url: Array.from(bytes) }"],
   ["srv", "every error retried with the next layout", "if (!refusedInput(e) || i === layouts.length - 1) throw", "if (i === layouts.length - 1) throw"],
+  ["srv", "an own live without a company", 'if (own && !ownCompany) return err("company_required"', 'if (false) return err("company_required"'],
+  ["srv", "a submit with no company", 'if (!r.company) return err("company_required"', 'if (false) return err("company_required"'],
+  ["srv", "an AZ ONE own live merged into an A2Z one", "COALESCE((SELECT lr.company FROM live_reports lr WHERE lr.session_id = s.id), ?${c}) = ?${c}", "1 = 1"],
   ["ui", "the GMV disclaimer dropped", "never verified sales, cash, an invoice or commission", "verified sales"],
 ];
 let caught = 0;
@@ -89,4 +98,4 @@ if (!process.env.NOMUT) {
   }
 }
 if (failed) { console.log(`live-reports-v2: ${failed} failed`); process.exit(1); }
-console.log(`PASS - live reports: one report per live shared by its participants; project required; a participant never reviews; Workers AI only, capped under the free allowance, never needed; rule-based analysis; inside Roster & Scheduling (${base.length} checks${process.env.NOMUT ? "" : `, ${caught} mutations caught`})`);
+console.log(`PASS - live reports: one report per live shared by its participants; project optional, the company never; a participant never reviews; Workers AI only, capped under the free allowance, never needed; rule-based analysis; inside Roster & Scheduling (${base.length} checks${process.env.NOMUT ? "" : `, ${caught} mutations caught`})`);

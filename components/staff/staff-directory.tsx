@@ -729,7 +729,7 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
     /* v1.78.0 - the rank order that used to be written out here now lives in
        lib/staff-order.ts, because the Payroll tab needed the same one and two
        copies of an order drift. */
-    setStaff(list.filter((u) => isStaffRole(u.role) && !(u as { not_staff?: number }).not_staff /* v1.384.0 - a test account is not staff */).sort(bySeniority));
+    setStaff(list.filter((u) => isStaffRole(u.role)).filter((u) => !(u as { not_staff?: number }).not_staff /* v1.384.0 - a test account is not staff */).sort(bySeniority));
   }, [users.data]);
   const refreshView = users.refresh;
   const load = useCallback(async () => { refreshView(); }, [refreshView]);

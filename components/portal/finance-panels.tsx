@@ -53,6 +53,7 @@ import { fmtRM, mytToday } from "@/lib/format";
 import { resolveIssuer } from "@/lib/issuers"; // v1.220.2 - the account printed on each invoice
 import { getLang } from "@/lib/i18n";
 import { btnClass, btnSm, btnSmPrimary, card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
+import { HistoryReport, HistoryView, UnassignedView } from "@/components/portal/finance-history"; // 18-11-2026 - Finance Historical Recovery
 import css from "./finance.module.css";
 import fx from "./finance5.module.css";
 
@@ -80,7 +81,7 @@ interface Bank { id: number; name: string; bank: string; number_masked: string; 
 type ExKind = "unverified" | "no_bank" | "no_reference" | "out_of_step" | "duplicate" | "elfia_cancelled" | "not_booked";
 interface Exception {
   kind: ExKind; key: string; item_key: string; date: string; title: string; detail: string; amount_cents: number; type: "in" | "out";
-  row_id: number | null; link: CashItem["link"]; actions: ("bank" | "reverse" | "review" | "book" | "confirm" | "accept")[];
+  row_id: number | null; link: CashItem["link"]; actions: ("bank" | "reverse" | "review" | "book" | "confirm" | "accept" | "cash_verify")[];
   source_cents: number | null; booked_cents: number | null; difference_cents: number | null; mismatch: "amount" | "status" | null;
   state: "open" | "reviewed"; reviewed: { note: string | null; at: string | null; by: number | null } | null; company: Company | null;
 }
@@ -89,7 +90,11 @@ interface CashbookView {
   company: CompanyPick; consolidated: boolean;
   totals: { in_cents: number; out_cents: number; net_cents: number; count: number; awaiting_cents: number; awaiting_count: number; difference_cents: number; no_company: number };
   groups: { in: { group: string; cents: number }[]; out: { group: string; cents: number }[] };
-  trend: { month: string; in_cents: number; out_cents: number }[];
+  trend: { month: string; in_cents: number; out_cents: number; awaiting_cents?: number }[];
+  /* 18-11-2026 (Finance Historical Recovery) - open items from BEFORE the period, and the movements of no company */
+  older?: { exceptions: number; awaiting_count: number; awaiting_cents: number; by_kind: Record<string, number> };
+  unassigned?: { count: number; in_cents: number; out_cents: number };
+  history_end?: string; can_cash_verify?: boolean; cash_verify_ready?: boolean;
   items: CashItem[];
   banks: Bank[];
   exceptions: Exception[];
@@ -267,6 +272,9 @@ export function FinancePage({ startView }: { startView?: string }) {
   const [opened, setOpened] = useState<CashItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [accounts, setAccounts] = useState(false);
+  /* 18-11-2026 - Reconciliation shows this period, the history since 01-06-2026, or the movements of no company */
+  const [reconPart, setReconPart] = useState<"period" | "history" | "unassigned">("period");
+  const openHistory = (part: "history" | "unassigned") => { setReconPart(part); open("reconciliation"); };
   const { show: toast, node: toastNode } = useSaveToast();
   const { prompt, node: promptNode } = usePrompt();
 
@@ -388,10 +396,17 @@ export function FinancePage({ startView }: { startView?: string }) {
       {v?.pending_company && <p className={css.warn}>{L("Migrations 0197 and 0198 are not applied yet - run PUSH.bat. Until then movements have no company and expenses cannot move through their steps.", "Migrasi 0197 dan 0198 belum digunakan - jalankan PUSH.bat. Sehingga itu pergerakan tiada syarikat dan perbelanjaan tidak boleh melalui langkahnya.")}</p>}
       {failed && !v && <p className={css.warn}>{failed} <button type="button" className={btnSm} onClick={reload}>{L("Retry", "Cuba lagi")}</button></p>}
 
-      {view === "overview" && <Overview v={v} onOpenItem={setOpened} open={open} openSales={() => { if (canOpen("Sales")) setTab("Sales"); }} onAccounts={() => setAccounts(true)} />}
+      {view === "overview" && <Overview v={v} onOpenItem={setOpened} open={open} openSales={() => { if (canOpen("Sales")) setTab("Sales"); }} onAccounts={() => setAccounts(true)} openHistory={openHistory} />}
       {view === "transactions" && <Transactions v={v} periodPick={periodPick} period={period} onOpen={setOpened} onAdd={() => setAdding(true)} />}
       {view === "expenses" && <Expenses v={v} period={period} company={company} toast={toast} onChanged={reload} />}
       {view === "reconciliation" && (
+        <PillSwitch value={reconPart} onChange={setReconPart} label={L("Reconciliation view", "Paparan penyelarasan")} testid="recon-part"
+          options={[["period", L("This period", "Tempoh ini")], ["history", L("History (from 01-06-2026)", "Sejarah (dari 01-06-2026)")], ["unassigned", L("Unassigned", "Tanpa syarikat")]] as const}
+          counts={{ history: v?.older ? v.older.awaiting_count : null, unassigned: v?.unassigned ? v.unassigned.count : null }} />
+      )}
+      {view === "reconciliation" && reconPart === "history" && <HistoryView company={company} toast={toast} onOpen={(l) => openSource(l as CashItem["link"])} onChanged={reload} />}
+      {view === "reconciliation" && reconPart === "unassigned" && <UnassignedView toast={toast} onChanged={reload} canCorrect={Boolean(v?.can_correct)} />}
+      {view === "reconciliation" && reconPart === "period" && (
         !v ? <SkelRows rows={4} /> : (
           <Reconciliation v={v} onReverse={(x) => x.row_id && void reverse(x.row_id, x.title)} onReview={(x) => void review(x)} onAccept={(x) => void accept(x)}
             onBank={(x, b) => void assignBank(x.item_key, b)} onBulk={(keys, b) => void assignMany(keys, b)} onSetup={() => setAccounts(true)}
@@ -432,7 +447,7 @@ function CardHead({ icon, title, aside, sub }: { icon: AppIconName; title: React
  * 01 Overview (reference 01).
  * ================================================================== */
 
-function Overview({ v, onOpenItem, open, openSales, onAccounts }: { v: CashbookView | null; onOpenItem: (i: CashItem) => void; open: (v: FinanceView) => void; openSales: () => void; onAccounts: () => void }) {
+function Overview({ v, onOpenItem, open, openSales, onAccounts, openHistory }: { v: CashbookView | null; onOpenItem: (i: CashItem) => void; open: (v: FinanceView) => void; openSales: () => void; onAccounts: () => void; openHistory: (part: "history" | "unassigned") => void }) {
   const busy = !v;
   const mism = v ? v.exceptions.filter((x) => MISMATCH.includes(x.kind)) : [];
   const attention: { key: string; icon: AppIconName; tone: string | undefined; text: string; on: () => void }[] = v ? [
@@ -440,18 +455,30 @@ function Overview({ v, onOpenItem, open, openSales, onAccounts }: { v: CashbookV
     ...(mism.length ? [{ key: "mismatch", icon: "warning" as AppIconName, tone: fx.toneBad, text: L(`${mism.length} record(s) out of step - difference ${fmtSigned(v.totals.difference_cents)}`, `${mism.length} rekod tidak sepadan - perbezaan ${fmtSigned(v.totals.difference_cents)}`), on: () => open("reconciliation") }] : []),
     ...(["no_bank", "no_reference", "duplicate"] as ExKind[]).map((k) => ({ k, n: v.exceptions.filter((x) => x.kind === k).length })).filter((r) => r.n > 0)
       .map((r) => ({ key: r.k, icon: "info" as AppIconName, tone: fx.toneInfo, text: `${r.n} · ${L(EX[r.k][0], EX[r.k][1])}`, on: () => open("reconciliation") })),
+    /* 18-11-2026 - what is still open from earlier periods, and the movements of no company */
+    ...(v.older && v.older.awaiting_count > 0 ? [{ key: "older_awaiting", icon: "pending" as AppIconName, tone: fx.toneWarn, text: L(`Earlier periods: ${v.older.awaiting_count} receipt(s) awaiting verification - ${fmtRM(v.older.awaiting_cents)}`, `Tempoh terdahulu: ${v.older.awaiting_count} penerimaan menunggu pengesahan - ${fmtRM(v.older.awaiting_cents)}`), on: () => openHistory("history") }] : []),
+    ...(v.unassigned && v.unassigned.count > 0 ? [{ key: "unassigned", icon: "info" as AppIconName, tone: fx.toneInfo, text: L(`${v.unassigned.count} movement(s) belong to no company - counted in neither company`, `${v.unassigned.count} pergerakan tiada syarikat - tidak dikira dalam mana-mana syarikat`), on: () => openHistory("unassigned") }] : []),
   ] : [];
+  const older = v?.older?.exceptions ?? 0;
   const banks = v ? v.banks.filter((b) => b.active) : [];
   return (
     <div className={fx.stack} data-testid="finance-overview">
       <Banner><strong>{L("Cash Basis View", "Paparan Asas Tunai")}</strong> — {L("This view follows actual money moved (cash in/out), not profit and loss. It shows cash received, cash paid, the net cash movement, and items that need your attention.", "Paparan ini mengikut wang sebenar yang bergerak (tunai masuk/keluar), bukan untung rugi. Ia menunjukkan tunai diterima, tunai dibayar, pergerakan tunai bersih dan perkara yang perlu perhatian anda.")}</Banner>
       <KpiRow label={L("Cash in the period", "Tunai dalam tempoh")}>
         <KpiTile icon="up" tone="green" label={L("Money In", "Tunai Masuk")} value={v ? fmtRM(v.totals.in_cents) : ""} busy={busy} sub={L("Actual receipts (verified)", "Penerimaan sebenar (disahkan)")} />
+        <KpiTile icon="pending" tone="gold" label={L("Awaiting verification", "Menunggu pengesahan")} value={v ? fmtRM(v.totals.awaiting_cents) : ""} busy={busy} sub={L(`${v?.totals.awaiting_count ?? 0} receipt(s) · not counted`, `${v?.totals.awaiting_count ?? 0} penerimaan · tidak dikira`)} />
         <KpiTile icon="down" tone="red" label={L("Money Out", "Tunai Keluar")} value={v ? fmtRM(v.totals.out_cents) : ""} busy={busy} sub={L("Actual payments", "Pembayaran sebenar")} />
         <KpiTile icon="balance" tone="blue" label={L("Net Cash Movement", "Pergerakan Tunai Bersih")} value={v ? fmtSigned(v.totals.net_cents) : ""} busy={busy} sub={L("Inflow – Outflow", "Masuk – Keluar")} />
-        <KpiTile icon="warning" tone="gold" label={L("Needs Attention", "Perlu Perhatian")} value={v ? String(v.exceptions.length) : ""} busy={busy} sub={L("Items to review", "Perkara untuk disemak")}
+        <KpiTile icon="warning" tone="gold" label={L("Needs Attention", "Perlu Perhatian")} value={v ? (older > 0 ? L(`${v.exceptions.length} · ${older} older`, `${v.exceptions.length} · ${older} lama`) : String(v.exceptions.length)) : ""} busy={busy} sub={older > 0 ? L("This period · earlier periods", "Tempoh ini · tempoh terdahulu") : L("Items to review", "Perkara untuk disemak")}
           onClick={() => open("reconciliation")} title={L("Open Reconciliation", "Buka Penyelarasan")} />
       </KpiRow>
+      {v && ((v.older?.awaiting_count ?? 0) > 0 || (v.unassigned?.count ?? 0) > 0) && (
+        <p className={fx.olderBand} data-testid="finance-older">
+          <AppIcon name="warning" />
+          <span>{L("Earlier periods: ", "Tempoh terdahulu: ")}<strong>{L(`${v.older?.awaiting_count ?? 0} receipt(s) awaiting verification (${fmtRM(v.older?.awaiting_cents ?? 0)})`, `${v.older?.awaiting_count ?? 0} penerimaan menunggu pengesahan (${fmtRM(v.older?.awaiting_cents ?? 0)})`)}</strong>{L(` and ${v.unassigned?.count ?? 0} movement(s) with no company.`, ` dan ${v.unassigned?.count ?? 0} pergerakan tanpa syarikat.`)}</span>
+          <button type="button" className={btnSm} onClick={() => openHistory("history")} data-testid="finance-open-history">{L("Open Historical Reconciliation", "Buka Penyelarasan Sejarah")} <AppIcon name="next" /></button>
+        </p>
+      )}
       <div className={fx.split21}>
         <section className={card} aria-label={L("Cash Trend (Monthly)", "Trend Tunai (Bulanan)")} data-testid="finance-trend">
           <CardHead icon="chart" title={L("Cash Trend (Monthly)", "Trend Tunai (Bulanan)")} />
@@ -529,12 +556,13 @@ function Overview({ v, onOpenItem, open, openSales, onAccounts }: { v: CashbookV
 function TrendChart({ months }: { months: CashbookView["trend"] }) {
   const [hover, setHover] = useState<number | null>(null);
   const W = 560, H = 190, PL = 66, PR = 14, PT = 12, PB = 28;
-  const max = Math.max(1, ...months.flatMap((m) => [m.in_cents, m.out_cents]));
+  const max = Math.max(1, ...months.flatMap((m) => [m.in_cents, m.out_cents, m.awaiting_cents ?? 0]));
+  const anyAwait = months.some((m) => (m.awaiting_cents ?? 0) > 0);
   const step = (() => { const raw = max / 3; const p = 10 ** Math.floor(Math.log10(raw)); return Math.ceil(raw / p) * p; })();
   const top = step * 3;
   const x = (i: number) => PL + (months.length <= 1 ? 0 : (i / (months.length - 1)) * (W - PL - PR));
   const y = (val: number) => PT + (1 - Math.max(0, val) / top) * (H - PT - PB);
-  const path = (k: "in_cents" | "out_cents") => months.map((m, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(m[k]).toFixed(1)}`).join("");
+  const path = (k: "in_cents" | "out_cents" | "awaiting_cents") => months.map((m, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(m[k] ?? 0).toFixed(1)}`).join("");
   const area = (k: "in_cents" | "out_cents") => months.length ? `${path(k)}L${x(months.length - 1).toFixed(1)} ${y(0)}L${x(0).toFixed(1)} ${y(0)}Z` : "";
   const h = hover != null ? months[hover] : null;
   return (
@@ -542,6 +570,7 @@ function TrendChart({ months }: { months: CashbookView["trend"] }) {
       <ul className={css.legend}>
         <li><span className={css.dotIn} />{L("Money In", "Tunai Masuk")}</li>
         <li><span className={css.dotOut} />{L("Money Out", "Tunai Keluar")}</li>
+        {anyAwait && <li><span className={css.dotAwait} />{L("Awaiting verification (not counted)", "Menunggu pengesahan (tidak dikira)")}</li>}
       </ul>
       <div className={css.chartWrap}>
         <svg viewBox={`0 0 ${W} ${H}`} className={css.chart} role="img"
@@ -555,6 +584,7 @@ function TrendChart({ months }: { months: CashbookView["trend"] }) {
           <path d={area("in_cents")} className={css.areaIn} />
           <path d={path("in_cents")} className={css.lineIn} />
           <path d={path("out_cents")} className={css.lineOut} />
+          {anyAwait && <path d={path("awaiting_cents")} className={css.lineAwait} data-testid="trend-awaiting" />}
           {months.map((m, i) => (
             <g key={m.month}>
               <text x={x(i)} y={H - 8} textAnchor="middle" className={css.tick}>{MONTHS[Number(m.month.slice(5, 7)) - 1]}</text>
@@ -574,6 +604,7 @@ function TrendChart({ months }: { months: CashbookView["trend"] }) {
             <strong>{monthWord(h.month)}</strong>
             <span><i className={css.dotIn} />{fmtRM(h.in_cents)}</span>
             <span><i className={css.dotOut} />{fmtRM(h.out_cents)}</span>
+            {(h.awaiting_cents ?? 0) > 0 && <span><i className={css.dotAwait} />{fmtRM(h.awaiting_cents ?? 0)} {L("awaiting", "menunggu")}</span>}
             <span className={css.tipNet}>{L("Net", "Bersih")} {fmtSigned(h.in_cents - h.out_cents)}</span>
           </div>
         )}
@@ -1382,10 +1413,11 @@ function Reconciliation({ v, onReverse, onReview, onAccept, onBank, onBulk, onSe
  * 05 Reports (reference 05).
  * ================================================================== */
 
-type ReportKind = "monthly" | "in_category" | "out_category" | "accounts" | "sources" | "detail";
+type ReportKind = "monthly" | "in_category" | "out_category" | "accounts" | "sources" | "detail" | "history";
 const REPORTS: [ReportKind, string, string][] = [
   ["monthly", "Monthly Cash Flow", "Aliran Tunai Bulanan"], ["in_category", "Money In by Category", "Tunai Masuk ikut Kategori"], ["out_category", "Money Out by Category", "Tunai Keluar ikut Kategori"],
   ["accounts", "Account Summary", "Ringkasan Akaun"], ["sources", "Source Summary", "Ringkasan Sumber"], ["detail", "Detailed Transaction Export", "Eksport Transaksi Terperinci"],
+  ["history", "Monthly Reconciliation (from 01-06-2026)", "Penyelarasan Bulanan (dari 01-06-2026)"],
 ];
 
 function Reports({ v, period, periodPick }: { v: CashbookView | null; period: { from: string; to: string }; periodPick: ReactNode }) {
@@ -1460,6 +1492,16 @@ function Reports({ v, period, periodPick }: { v: CashbookView | null; period: { 
     </div>
   );
   const rk = REPORTS.find((r) => r[0] === kind)!;
+  /* 18-11-2026 - the historical monthly reconciliation has its own read (from 01-06-2026, every company) */
+  if (kind === "history") return (
+    <div className={fx.stack} data-testid="finance-reports">
+      <section className={`${card} ${fx.reportBar}`} aria-label={L("Report", "Laporan")}>
+        <label className={fx.reportPick}><span>{L("Report", "Laporan")}</span>
+          <select className={selectClassSm} value={kind} onChange={(e) => setKind(e.target.value as ReportKind)} data-testid="report-select">{REPORTS.map(([k, en, ms]) => <option key={k} value={k}>{L(en, ms)}</option>)}</select></label>
+      </section>
+      <HistoryReport />
+    </div>
+  );
   return (
     <div className={fx.stack} data-testid="finance-reports">
       <section className={`${card} ${fx.reportBar}`} aria-label={L("Report", "Laporan")}>

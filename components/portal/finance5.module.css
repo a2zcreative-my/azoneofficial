@@ -210,3 +210,9 @@
 @media (max-width: 639px) {
   .drawerForm .formRow { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 18-11-2026 - the earlier-periods band on the Overview (Finance Historical Recovery) */
+.olderBand { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0; padding: 0.5rem 0.75rem; border-radius: var(--radius-control); background: var(--warning-soft); color: var(--warning); font-size: var(--type-caption-size); }
+.olderBand > span { flex: 1 1 18rem; min-width: 0; }
+.olderBand strong { font-weight: 700; }
+@media (max-width: 767px) { .olderBand > button { width: 100%; justify-content: center; } }

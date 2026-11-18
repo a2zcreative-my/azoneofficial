@@ -4,6 +4,15 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Finance Historical Recovery, steps H1-H5 (18-11-2026, the CEO: "proceed as per recommend" on docs/FINANCE-HISTORY-GATE.md) - MIGRATION 0214 (ADDITIVE)
+- **H1 - visible.** Overview: one strip Money In · Awaiting verification · Money Out · Net · Needs Attention "n · n older"; a band for earlier periods ("n receipts awaiting verification, n movements with no company" -> Open Historical Reconciliation); the Cash Trend draws awaiting receipts as a dashed gold line beside Money In, never added to it. The read (`GET /erp/cashbook`) adds `older` (every check before the period, this company), `unassigned` (movements of no company, every period), `trend[].awaiting_cents`.
+- **H2 - History.** Finance -> Reconciliation is This period · History (from 01-06-2026) · Unassigned (a PillSwitch inside the tab, no new tab): the receipts by the month they were PAID, filters month / status / account, 10 a page, a Review drawer (receipt, paid on, reference, account, status, the commission line).
+- **H3 - historical cash verification.** `POST /erp/cashbook/cash-verify` (and `/revoke`): the CEO owner, a fresh code, "I checked the bank", one receipt at a time, only a receipt paid before 01-11-2026 (`HISTORY_END` = commission's `COMMISSION_START_DAY`) and not already verified. It writes a mark in `cashbook_marks` (0214: `cash_verified_*`, `cash_revoked_*`) - never `invoice_paid_confirmations`, never a commission row, never an invoice or payment date. A part payment is verified on its own. Taking it back keeps the mark with its reason. Audited (`cashbook.cash_verify`, `cashbook.cash_verify_revoke`). No bulk.
+- **H4 - Unassigned.** The movements of no company, from either company view, in neither company's total; Assign account is the existing mark (the company comes from the account only).
+- **H5 - report.** Reports -> Monthly Reconciliation (from 01-06-2026): month x company and Unassigned - verified receipts, awaiting, Money In, Money Out, transfers, no account; CSV.
+- Unchanged: the commission rule (the paid-day gate - the invoice-date option in the gate doc was not chosen), Confirm paid, payment verification, every stored record.
+- Guard `tests/finance-history.mjs` (40 checks, the real worker on every migration). End to end on a local worker: a September receipt verified from the drawer moved to September's Money In; confirmations and commission rows unchanged.
+
 ### Attendance -> Attendance Records: the Team Attendance Report (18-11-2026, the CEO's approved reference) - NO MIGRATION, NO API CHANGE
 - The day register is now one compact card, "Team Attendance Report": ONE connected KPI strip (Present, Late, Missing clock-in, Missing clock-out, On leave, Off day - the day's statuses from THE verdict, each the filter it names), one toolbar (previous / date / next, All teams, All staff, search, Export (CSV)), the table No. | Staff | Team / Role | Shift | Clock In | Clock Out | Working Hours | Status | Location | View in tighter rows, 10 a page with the shared pager and page-size choice (10/15/25/50; the numbering runs on across pages), and a foot with the note and the grace rule.
 - Export (CSV) offers "This day (CSV)" and "Month for Payroll" (the existing /attendance/export) to the roles that had both; others get the day's CSV as before.
@@ -21,6 +30,19 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Rechecked the user's committed AZ ONE service-document changes and preserved them. Local and GitHub main match 3e42644; public API/login report 1.181.9.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
+
+## [1.385.0] - 2026-11-18 - The public forms: a QR in the hero, the company logo, a tighter footer - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "why no adding the QR into the form instead? replace this to QR instead much professional looks! ... should not use A2ZOS A2Z CREATIVE MARKETING since this will expose to my portal. it is require to fetch my official company logo instead for both and the link still /apply/partner and /apply/business" and "the footer too much white space/gap!"
+
+### Changed
+- **/apply/partner and /apply/business**: the hero badge ("Independent referral opportunity" / "Free first review") is replaced by the form's own **QR code** on a white tile with "Scan to open on your phone" and the address. The same facts stay in the form (the step-3 acknowledgement; "Free first review · No budget question · No obligation to buy").
+- **The header shows the official A2Z Creative Marketing logo** (`public/logo.png`), not the portal's "A2Z OS" name.
+- **The QR codes point at the forms' own addresses**, a2zcreative.my/apply/partner and /apply/business (were the short links); the cards and the print SVGs in `public/qr/` are remade (`scripts/make-form-qr.py`). All decode back to the right address, also at the on-screen size (104 px). The short links /partner and /business still work.
+- **The company footer is tighter**: smaller padding and gaps; the extra room for the back-to-top button is kept on phones only.
+
+### Guards
+- `tests/public-trust.mjs` 21 checks (the hero QR, the logo, the QR addresses, the footer).
 
 ## [1.384.0] - 2026-11-18 - Payroll on a live schedule; payslips the working day BEFORE a weekend or holiday 5th; test accounts are not staff - BUILT, NOT DEPLOYED (NO MIGRATION)
 

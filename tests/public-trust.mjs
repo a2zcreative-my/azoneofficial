@@ -20,8 +20,15 @@ const red = R("public/_redirects");
 ok("short link /partner -> /apply/partner (302)", /^\/partner\s+\/apply\/partner\s+302\s*$/m.test(red));
 ok("short link /business -> /apply/business (302)", /^\/business\s+\/apply\/business\s+302\s*$/m.test(red));
 const gen = R("scripts/make-form-qr.py");
-ok("the QR codes point at the SHORT links", /"https:\/\/a2zcreative\.my\/partner"/.test(gen) && /"https:\/\/a2zcreative\.my\/business"/.test(gen) && !/apply\/(partner|business)"/.test(gen));
+ok("the QR codes point at the forms' own addresses (v1.385.0, the CEO: /apply/partner and /apply/business)", /"https:\/\/a2zcreative\.my\/apply\/partner"/.test(gen) && /"https:\/\/a2zcreative\.my\/apply\/business"/.test(gen));
 ok("the QR codes use the highest error correction (the logo sits on it)", /ERROR_CORRECT_H/.test(gen));
 for (const f of ["partner-qr.svg", "partner-qr.png", "partner-card.png", "business-qr.svg", "business-qr.png", "business-card.png"]) ok(`public/qr/${f} exists`, existsSync(new URL(`../public/qr/${f}`, import.meta.url)));
+/* v1.385.0 - the CEO: the QR in the hero instead of the badge, and the official company logo, never the portal's "A2Z OS" name */
+for (const [f, n] of [["app/apply/partner/page.tsx", "partner"], ["app/apply/business/page.tsx", "business"]]) {
+  const s = R(f);
+  ok(`${f}: the hero carries the QR of its own form`, new RegExp(`<img src="/qr/${n}-qr\\.svg"`).test(s) && !/className=\{css\.badge\}/.test(s));
+  ok(`${f}: the header shows the company logo, not "A2Z OS"`, /<img src="\/logo\.png" alt="A2Z Creative Marketing"/.test(s) && !/<span className=\{css\.(wordName|wordOs)\}|aria-label="A2Z OS/.test(s));
+}
+ok("the footer keeps its back-to-top room for phones only", /@media \(max-width: 767px\) \{ \.foot \{ padding-block-end/.test(R("components/public/company-footer.module.css")));
 if (bad) { console.error(`public-trust: ${bad} of ${n} failed`); process.exit(1); }
-console.log(`public-trust: ${n} checks passed - both forms show the registered company and an anti-scam line; short links and QR codes in place`);
+console.log(`public-trust: ${n} checks passed - both forms show the registered company and an anti-scam line; short links; QR codes of the forms' own addresses in the hero and in public/qr; the company logo`);

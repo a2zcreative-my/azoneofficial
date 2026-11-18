@@ -9,13 +9,17 @@
  *         start, fill and submit its ONE report (live_reports.session_id is
  *         UNIQUE: a second participant works on the same report, never a new
  *         one, so a live's GMV is counted once).
- *   WHERE A live not on the roster is reported by choosing an ACTIVE PROJECT:
- *         the server creates the roster entry as unplanned first. If a live of
+ *   WHERE A live not on the roster is reported as an OWN live (the company's
+ *         own channel - the company is chosen, A2Z or AZ ONE) or as a live FOR
+ *         an ACTIVE PROJECT (v1.385.0, the CEO 18-11-2026: "Project is option
+ *         if require"). The server creates the roster entry as unplanned first. If a live of
  *         the same project and platform overlaps that time on that day - or
  *         one the reporter already takes part in - the existing live is used,
  *         never a second one.
- *   WHAT  Every report names an active project (client and company come from
- *         it) and holds ten figures confirmed by staff. A screenshot may be
+ *   WHAT  A report MAY name an active project (client and company then come
+ *         from it); without one it names its company itself - never guessed,
+ *         a submit with no company is refused. It holds ten figures confirmed
+ *         by staff. A screenshot may be
  *         read by Cloudflare Workers AI ONLY (no other provider, no key): the
  *         reading is stored apart (live_report_ai_readings) and staff confirm
  *         or correct every figure. The AI is off until the CEO turns it on,
@@ -542,9 +546,15 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
 
     /* ---------------- a live that was not on the roster: project first, the roster entry made unplanned ---------------- */
     if (path === "/live-reports/unplanned" && method === "POST") {
-      const pid = Number(body?.project_id);
-      const p = Number.isInteger(pid) && pid > 0 ? await projectOf(env, pid) : null;
-      if (!p || !ACTIVE_PROJECT.includes(p.status)) return err("project_required", "Choose an active project", 400);
+      /* v1.385.0 - a live FOR a project (the project sets client and company), or an OWN live
+         (no project: the company is chosen - A2Z or AZ ONE - never inferred) */
+      const own = body?.project_id === undefined || body?.project_id === null || body?.project_id === "" || Number(body?.project_id) === 0;
+      const pid = own ? 0 : Number(body?.project_id);
+      const p = own ? null : Number.isInteger(pid) && pid > 0 ? await projectOf(env, pid) : null;
+      if (!own && (!p || !ACTIVE_PROJECT.includes(p.status))) return err("project_required", "Choose an active project, or report it as an own live", 400);
+      const ownCompany = own ? (["a2z", "azoo"].includes(String(body?.company)) ? String(body?.company) as "a2z" | "azoo" : null) : null;
+      if (own && !ownCompany) return err("company_required", "Choose the company of this own live: A2Z Creative Marketing or AZ ONE Official", 400);
+      const company = p ? p.company : ownCompany!;
       const d = typeof body?.session_date === "string" ? body.session_date : "";
       const st = typeof body?.start_time === "string" ? body.start_time : "";
       const et = typeof body?.end_time === "string" ? body.end_time : "";
@@ -557,13 +567,15 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       const role = (ROLES as readonly string[]).includes(String(body?.role)) ? String(body?.role) : "host";
       const me = await staffOk(env, user.id);
       if (!me) return err("forbidden", "Only current staff report a live", 403);
-      /* the same live already exists: same day and platform, overlapping time, and the same project or with me in it */
+      /* the same live already exists: same day and platform, overlapping time, and the same project
+         (an own live: no project and the same company) or with me in it */
+      const sameLive = (n: number, c: number) => `(s.project_id = ?${n} OR (?${n} IS NULL AND s.project_id IS NULL AND COALESCE((SELECT lr.company FROM live_reports lr WHERE lr.session_id = s.id), ?${c}) = ?${c}))`;
       const dup = await env.DB.prepare(
         `SELECT s.id FROM live_sessions s
           WHERE s.status != 'cancelled' AND s.session_date = ?1 AND s.platform = ?2 AND s.start_time < ?4 AND COALESCE(s.end_time, '23:59') > ?3
-            AND (s.project_id = ?5 OR ${tookPart(6)})
+            AND (${sameLive(5, 7)} OR ${tookPart(6)})
           ORDER BY s.id LIMIT 1`,
-      ).bind(d, platform, st, et, p.id, user.id).first<{ id: number }>();
+      ).bind(d, platform, st, et, p?.id ?? null, user.id, company).first<{ id: number }>();
       if (dup) {
         const rep = await env.DB.prepare(`SELECT id FROM live_reports WHERE session_id = ?1`).bind(dup.id).first<{ id: number }>();
         return json({ existing: true, session_id: dup.id, id: rep?.id ?? null, message: "This live is already recorded - join it instead of adding another" }, 409);
@@ -574,20 +586,21 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       await env.DB.batch([
         env.DB.prepare(
           `INSERT INTO live_sessions (session_date, start_time, end_time, platform, client_id, client_name, host_user_id, notes, status, created_by, project_id, unplanned)
-           SELECT ?1, ?2, ?3, ?4, pj.customer_id, ?5, ?6, ?7, 'completed', ?6, ?8, 1 FROM projects pj WHERE pj.id = ?8
-              AND NOT EXISTS (SELECT 1 FROM live_sessions s WHERE s.status != 'cancelled' AND s.session_date = ?1 AND s.platform = ?4 AND s.start_time < ?3 AND COALESCE(s.end_time, '23:59') > ?2 AND s.project_id = ?8)`,
-        ).bind(d, st, et, platform, p.client, user.id, marker, p.id),
+           SELECT ?1, ?2, ?3, ?4, (SELECT pj.customer_id FROM projects pj WHERE pj.id = ?8), ?5, ?6, ?7, 'completed', ?6, ?8, 1
+            WHERE (?8 IS NULL OR EXISTS (SELECT 1 FROM projects pj WHERE pj.id = ?8))
+              AND NOT EXISTS (SELECT 1 FROM live_sessions s WHERE s.status != 'cancelled' AND s.session_date = ?1 AND s.platform = ?4 AND s.start_time < ?3 AND COALESCE(s.end_time, '23:59') > ?2 AND ${sameLive(8, 9)})`,
+        ).bind(d, st, et, platform, p?.client ?? null, user.id, marker, p?.id ?? null, company),
         /* the reporter is the roster host of an unplanned live; a different role of theirs is kept as a participant row */
         env.DB.prepare(`INSERT INTO live_participants (session_id, user_id, role, added_by) SELECT id, ?1, ?2, ?1 FROM live_sessions WHERE notes = ?3 AND ?2 != 'host'`).bind(user.id, role, marker),
-        env.DB.prepare(`INSERT INTO live_reports (session_id, host_user_id, company) SELECT id, ?1, ?2 FROM live_sessions WHERE notes = ?3`).bind(user.id, p.company, marker),
+        env.DB.prepare(`INSERT INTO live_reports (session_id, host_user_id, company) SELECT id, ?1, ?2 FROM live_sessions WHERE notes = ?3`).bind(user.id, company, marker),
         env.DB.prepare(`UPDATE live_sessions SET notes = NULL WHERE notes = ?1`).bind(marker),
       ]);
       const made = await env.DB.prepare(
         `SELECT s.id AS session_id, r.id FROM live_sessions s JOIN live_reports r ON r.session_id = s.id
-          WHERE s.created_by = ?1 AND s.unplanned = 1 AND s.session_date = ?2 AND s.start_time = ?3 AND s.project_id = ?4 ORDER BY s.id DESC LIMIT 1`,
-      ).bind(user.id, d, st, p.id).first<{ session_id: number; id: number }>();
+          WHERE s.created_by = ?1 AND s.unplanned = 1 AND s.session_date = ?2 AND s.start_time = ?3 AND s.project_id IS ?4 AND r.company = ?5 ORDER BY s.id DESC LIMIT 1`,
+      ).bind(user.id, d, st, p?.id ?? null, company).first<{ session_id: number; id: number }>();
       if (!made) return err("conflict", "Someone recorded this live at the same moment - reload and join it", 409);
-      await audit(env, user.id, "live_report.unplanned", "live_sessions", String(made.session_id), { project_id: p.id, session_date: d, start_time: st, end_time: et, platform, report_id: made.id });
+      await audit(env, user.id, "live_report.unplanned", "live_sessions", String(made.session_id), { project_id: p?.id ?? null, own, company, session_date: d, start_time: st, end_time: et, platform, report_id: made.id });
       return json({ id: made.id, session_id: made.session_id }, 201);
     }
 
@@ -652,14 +665,22 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
         sets.push(`${col} = ?`); vals.push(v);
       }
       for (const k of ["highlights", "blockers", "next_actions"] as const) if (body && k in body) { sets.push(`draft_${k} = ?`); vals.push(text(body[k], 2000)); }
-      /* the project: an active one; client and company follow from it */
-      if (body?.project_id !== undefined) {
+      /* the project: an active one; client and company follow from it.
+         v1.385.0 - null takes the project off (an own live); the company stays as it was until staff choose it */
+      if (body?.project_id === null || body?.project_id === "" || body?.project_id === 0) {
+        await env.DB.prepare(`UPDATE live_sessions SET project_id = NULL WHERE id = ?1`).bind(r.session_id).run();
+        if (body?.company !== undefined) {
+          const company = body.company === null || body.company === "" ? null : String(body.company);
+          if (company !== null && !["a2z", "azoo"].includes(company)) return err("invalid_input", "The company is A2Z Creative Marketing or AZ ONE Official", 400);
+          sets.push("company = ?"); vals.push(company);
+        }
+      } else if (body?.project_id !== undefined) {
         const p = await projectOf(env, Number(body.project_id));
         if (!p || !ACTIVE_PROJECT.includes(p.status)) return err("project_required", "Choose an active project", 400);
         await env.DB.prepare(`UPDATE live_sessions SET project_id = ?1, client_name = COALESCE(?2, client_name) WHERE id = ?3`).bind(p.id, p.client, r.session_id).run();
         sets.push("company = ?"); vals.push(p.company);
       } else if (body?.company !== undefined) {
-        /* a live with no project yet (before 0210) may still name the company, as before */
+        /* an own live (no project) names its company itself */
         const s = await sessionOf(env, r.session_id);
         const company = body.company === null || body.company === "" ? null : String(body.company);
         if (s?.project_id) return err("invalid_input", "The company comes from the project", 400);
@@ -738,9 +759,10 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       if (!(await isParticipant(env, r.session_id, user.id))) return err("forbidden", "Only someone who took part submits this report", 403);
       if (!["draft", "returned"].includes(r.state)) return err("invalid_state", `This report is already ${r.state}`, 409);
       const s = await sessionOf(env, r.session_id);
-      if (!s?.project_id) return err("project_required", "Choose the project this live was for", 400);
+      if (!s) return err("not_found", "That live is not on the roster", 404);
       if (r.draft_gmv_cents == null) return err("invalid_input", "Enter the GMV reported (RM) first", 400);
-      if (!r.company) return err("invalid_input", "Choose the project (it sets the company)", 400);
+      /* v1.385.0 - the project is optional; the company never is (a project sets it, an own live chooses it) */
+      if (!r.company) return err("company_required", s.project_id ? "Choose the project again (it sets the company)" : "Choose the company of this own live: A2Z or AZ ONE", 400);
       const n = await env.DB.prepare(`SELECT COUNT(*) AS n FROM live_report_files WHERE report_id = ?1 AND version IS NULL`).bind(r.id).first<{ n: number }>();
       if (!Number(n?.n ?? 0)) return err("evidence_required", "Attach at least one screenshot of the GMV", 400);
       const people = await participantsOf(env, r.session_id);

@@ -141,6 +141,14 @@
 }
 .badge strong { font-size: var(--type-section-size); font-weight: 700; }
 .badge span { font-size: var(--type-caption-size); opacity: 0.9; }
+/* v1.385.0 - the hero QR (the form's own address) and the company logo in the header */
+.qr { position: relative; z-index: 1; justify-self: start; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 0.75rem; margin: 0; padding: 0.5rem; padding-inline-end: 0.875rem; border-radius: var(--radius-control); background: var(--card); color: var(--foreground); box-shadow: var(--shadow-soft); }
+.qr > img { display: block; inline-size: 6.5rem; block-size: 6.5rem; } /* 104 px: decoded at that size */
+.qr > figcaption { display: grid; gap: 0.125rem; font-size: var(--type-caption-size); font-weight: 700; color: var(--brand-primary); }
+.qr > figcaption > span { font-weight: 500; color: var(--muted-foreground); overflow-wrap: break-word; }
+.logoLink { display: inline-flex; align-items: center; text-decoration: none; }
+.logoLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: var(--radius-control); }
+.logo { display: block; block-size: 2.25rem; inline-size: auto; }
 
 /* ---- the step bar ---- */
 .stepper {

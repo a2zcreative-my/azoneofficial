@@ -115,6 +115,43 @@ try {
   ok(a2z.j.totals.in_cents === 14500, "R1: this month's Money In does not take the historical receipts (verified today, paid earlier)", String(a2z.j.totals.in_cents));
   ok(tr(await book("2026-11-01", "2026-11-18", "azoo"), "2026-06").in_cents === 30000, "R4: June's verified receipt is AZ ONE OFFICIAL's");
 
+  /* H1 - visibility: awaiting drawn beside Money In, older items counted whatever the period */
+  inv.run(206, "INV-AUG", items(40000), 40000, "2026-08-21 04:00:00", "2026-08-20 02:00:00", "a2z");
+  db.exec(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents, payment_status, created_at, created_by, salesperson_id, kind, issuer_code) VALUES (207,'INV','INV-OPEN',1,'${items(60000)}',0,0,60000,'unpaid','2026-10-01 02:00:00',1,4,'service','a2z')`);
+  db.exec(`INSERT INTO invoice_payments (invoice_id, amount_cents, received_on, method, created_by) VALUES (207, 25000, '2026-10-05', 'bank_transfer', 1)`);
+  const partId = db.prepare(`SELECT id FROM invoice_payments WHERE invoice_id = 207`).get().id;
+  inv.run(208, "INV-NOV2", items(9000), 9000, "2026-11-12 04:00:00", "2026-11-11 02:00:00", "a2z");
+  let v = (await book("2026-11-01", "2026-11-18", "a2z")).j; const trv = (m) => v.trend.find((x) => x.month === m) ?? {};
+  ok(trv("2026-08").awaiting_cents === 40000 && trv("2026-08").in_cents === 0 && trv("2026-10").awaiting_cents === 25000, "H1: the trend draws awaiting receipts beside Money In, never inside it", JSON.stringify(v.trend));
+  ok(v.older?.awaiting_count === 2 && v.older.awaiting_cents === 65000 && (v.older.by_kind?.unverified ?? 0) === 2, "H1: 'older' counts the earlier unverified receipts whatever the period (Aug invoice, Oct part)", JSON.stringify(v.older));
+  ok(v.unassigned?.count === 1 && v.unassigned.out_cents === 420000 && v.totals.out_cents === 0, "H4: the movement with no company is counted once, apart, reachable from a company view - and in neither company's total", JSON.stringify(v.unassigned));
+  ok(v.history_end === "2026-11-01" && v.can_cash_verify === true && v.cash_verify_ready === true, "H3: the read says where history ends and that the CEO owner may verify it");
+  const cb = readFileSync(join(root, "worker/src/cashbook.ts"), "utf8"), cm = readFileSync(join(root, "worker/src/commission.ts"), "utf8");
+  const route = cb.slice(cb.indexOf('path === "/cashbook/cash-verify"'), cb.indexOf("a mismatch the CEO accepts as it is"));
+  ok(route.length > 500 && !/invoice_paid_confirmations|ensureLedger|commission_ledger|UPDATE sales_documents|UPDATE invoice_payments|UPDATE cashflow_entries/.test(route), "H3: the cash-verify route touches no confirmation, commission, invoice, payment or cash-book row (static)");
+  ok(/export const HISTORY_END = "2026-11-01";/.test(cb) && /export const COMMISSION_START_DAY = "2026-11-01";/.test(cm), "H3: the historical line equals the commission start day");
+
+  /* H3 - historical cash verification, one at a time, cash only */
+  const confBefore = db.prepare(`SELECT COUNT(*) n FROM invoice_paid_confirmations`).get().n, ledBefore = ledger(), atBefore = attrib();
+  const cv = (key, who = 1, extra = {}) => call(`/erp/cashbook/cash-verify`, who, "POST", { key, checked: true, note: "Checked on the Maybank statement", ...extra });
+  ok((await cv("INV:206", 2)).status === 403, "H3: the COO cannot verify a historical receipt (the CEO owner only)");
+  ok((await cv("INV:206", 1, { checked: false })).status === 400, "H3: the bank check tick is required");
+  const v206 = await cv("INV:206");
+  ok(v206.status === 200, "H3: the CEO verifies the August receipt as cash", `${v206.status} ${JSON.stringify(v206.j)}`);
+  ok((await cv("INV:206")).status === 409, "H3: a second verification is refused");
+  ok((await cv(`PART:${partId}`)).status === 200, "H3: a historical part payment of an open invoice is verified on its own");
+  ok((await cv("INV:208")).status === 409, "H3: a receipt paid on/after 01-11-2026 is refused here (it uses Confirm paid)");
+  ok((await cv("INV:202")).status === 409, "H3: a receipt already verified through Confirm paid is refused (counted once)");
+  ok(db.prepare(`SELECT COUNT(*) n FROM invoice_paid_confirmations`).get().n === confBefore && ledger() === ledBefore && attrib() === atBefore, "H3: cash verification writes NO confirmation and NO commission row");
+  ok(db.prepare(`SELECT paid_at, total_cents, payment_status FROM sales_documents WHERE id = 206`).get().paid_at === "2026-08-21 04:00:00" && db.prepare(`SELECT amount_cents, received_on FROM invoice_payments WHERE id = ?`).get(partId).received_on === "2026-10-05", "H3: the invoice and the part payment keep their dates and amounts");
+  v = (await book("2026-11-01", "2026-11-18", "a2z")).j;
+  ok(trv("2026-08").in_cents === 40000 && trv("2026-10").in_cents === 20000 + 25000 && v.totals.in_cents === 14500, "H3: verified history lands in the month it was paid; this month's Money In is unchanged", JSON.stringify(v.trend) + " " + v.totals.in_cents);
+  ok(v.older.awaiting_count === 0, "H3: nothing older is awaiting once verified");
+  ok((await call(`/erp/cashbook/cash-verify/revoke`, 1, "POST", { key: "INV:206", reason: "Wrong account on the statement" })).status === 200, "H3: the CEO takes a verification back, with a reason");
+  v = (await book("2026-11-01", "2026-11-18", "a2z")).j;
+  ok(trv("2026-08").in_cents === 0 && trv("2026-08").awaiting_cents === 40000 && db.prepare(`SELECT cash_revoked_at FROM cashbook_marks WHERE item_key = 'INV:206'`).get()?.cash_revoked_at, "H3: taken back, it waits again; the mark keeps its history");
+  ok((await cv("INV:206")).status === 200 && db.prepare(`SELECT COUNT(*) n FROM audit_log WHERE action LIKE 'cashbook.cash_verify%'`).get().n === 4, "H3: verified again; every step is in the audit history");
+
   /* the one gap against the CEO's new rule (reported, not changed) */
   await call(`/docs/205/confirm-paid`, 1, "POST", { amount_cents: 10000, checked: true });
   const earn205 = db.prepare(`SELECT amount_cents FROM commission_ledger WHERE invoice_id = 205 AND kind = 'earn'`).get();

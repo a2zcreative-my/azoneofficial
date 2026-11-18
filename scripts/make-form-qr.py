@@ -4,9 +4,8 @@
 
 Each form gets: <name>-qr.svg (the code alone, vector, for print), <name>-qr.png
 (the code alone, 1200 px) and <name>-card.png (1080 x 1350: title, code, the
-short address printed under it, the registered company). The code points at the
-SHORT link (a2zcreative.my/partner, /business - public/_redirects), so a printed
-card keeps working if the form ever moves. Error correction H; the logo covers
+address printed under it, the registered company). v1.385.0 (the CEO): the code
+points at the form's own address, a2zcreative.my/apply/partner and /apply/business. Error correction H; the logo covers
 under 7% of the code, well inside what H recovers. Brand navy #1a2946 / gold #c9a227."""
 import base64, io, os, sys
 import qrcode
@@ -19,8 +18,8 @@ NAVY, GOLD, WHITE, MUTED = (26, 41, 70), (201, 162, 39), (255, 255, 255), (90, 1
 FONTS = ["/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf", "C:/Windows/Fonts/arialbd.ttf"]
 FONTS_REG = ["/usr/share/fonts/truetype/google-fonts/Poppins-Regular.ttf", "C:/Windows/Fonts/arial.ttf"]
 FORMS = [
-    ("partner", "https://a2zcreative.my/partner", "a2zcreative.my/partner", "Become an A2Z Partner", "Jadi Rakan Kongsi A2Z", "Partner Interest Application · Permohonan Minat Rakan Kongsi"),
-    ("business", "https://a2zcreative.my/business", "a2zcreative.my/business", "Free Business Growth Check", "Semakan Pertumbuhan Bisnes Percuma", "A free first review · Semakan awal percuma"),
+    ("partner", "https://a2zcreative.my/apply/partner", "a2zcreative.my/apply/partner", "Become an A2Z Partner", "Jadi Rakan Kongsi A2Z", "Partner Interest Application · Permohonan Minat Rakan Kongsi"),
+    ("business", "https://a2zcreative.my/apply/business", "a2zcreative.my/apply/business", "Free Business Growth Check", "Semakan Pertumbuhan Bisnes Percuma", "A free first review · Semakan awal percuma"),
 ]
 COMPANY = "A2Z CREATIVE MARKETING · SSM 202603003468 (CA0414729-A)"
 
@@ -73,7 +72,7 @@ def card(name, url, short, en, ms, sub):
     q = qr_png(url, 700); img.alpha_composite(q, ((W - q.width) // 2, 290))
     y = 290 + q.height + 40
     centred(d, y, "Scan or visit · Imbas atau layari", font(FONTS_REG, 30), MUTED, W)
-    centred(d, y + 50, short, font(FONTS, 54), NAVY, W)
+    centred(d, y + 50, short, font(FONTS, 46 if len(short) > 24 else 54), NAVY, W)
     d.rectangle([W // 2 - 60, y + 135, W // 2 + 60, y + 141], fill=GOLD)
     centred(d, y + 165, sub, font(FONTS_REG, 26), MUTED, W)
     centred(d, H - 70, COMPANY, font(FONTS_REG, 24), MUTED, W)

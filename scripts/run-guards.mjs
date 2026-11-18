@@ -296,10 +296,12 @@ const GUARDS = [
   ["pay-records", "a salary advance names its request on the payslip and is recovered from the request month or later, an unpaid day is edited only by the CEO and only if the company recorded it, and the attendance donut's names follow the donut's own rules"],
   ["claim-categories", "the claim form, the API and the claims table allow the same categories - a category the table refuses is a claim silently never saved (stationery, 29-09-2026)"],
   ["quotation-revisions", "a quotation revised at the customer's request keeps its number, prints REV n dated the day it was revised, and keeps every version it replaced (20-10-2026)"],
+  ["finance-history", "Finance history: a receipt paid before 01-11-2026 is verified as cash only (a mark, never Confirm paid) - no commission row, no re-dating, once; awaiting never in Money In; older items and the movements of no company counted whatever the period (18-11-2026)"],
   ["os-mail", "task emails and every staff account email share one A2Z OS frame (mail.ts osMailHtml); client and customer emails stay plain (18-11-2026)"],
   ["restore-test", "the monthly restore test (PUSH.bat restore-test) loads and deletes only a temporary database, writes production one status row, and System health shows only what it recorded (18-11-2026)"],
   ["error-history", "a fixed error is history, not an alarm: every server error row carries the engine version, and the Dashboard alert and API Health count only live faults (18-11-2026)"],
-  ["live-reports-v2", "live reports: one report per live shared by everyone who took part, a project required, a participant never reviews, the screenshot AI is Workers AI only and capped under the free allowance and never needed, rule-based analysis, inside Roster & Scheduling (18-11-2026)"],
+  ["live-reports-v2", "live reports: one report per live shared by everyone who took part, the project optional and the company never (an own live chooses A2Z or AZ ONE, v1.385.0), a participant never reviews, the screenshot AI is Workers AI only and capped under the free allowance and never needed, rule-based analysis, inside Roster & Scheduling (18-11-2026)"],
+  ["live-own", "live reports by direct request (whole worker, every migration): an own live (no project) is recorded and submitted with its company chosen - never guessed, never merged into the other company's live, joined not duplicated; a live for a project still needs an active project; a project is linked and unlinked on the draft (18-11-2026)"],
   ["business-joins", "the ERP roadmap only adds: no phase writes to a table that carries today's money, pay or people, part payments never mark an invoice paid, and each join keeps its source screen's authority (20-10-2026)"],
 ];
 
@@ -344,7 +346,7 @@ if (process.env.NOMUT === "1") console.log("(mutation pass skipped - NOMUT=1; it
    hangs is still killed and still stops the release. */
 const GUARD_TIMEOUT_MS = 300_000;
 const SLOW_GUARD_TIMEOUT_MS = 900_000;
-const SLOW_GUARDS = new Set(["partner-applications", "payroll-schedule", "staff-email-move", "business-growth", "shift-bulk", "go-live-a", "go-live-b", "go-live-c", "go-live-d", "go-live-p", "go-live-t", "go-live-m", "go-live-s", "go-live-g", "go-live-h", "go-live-i", "go-live-l", "go-live-k", "go-live-n", "go-live-o", "go-live-v", "go-live-w", "go-live-x", "go-live-y", "go-live-z", "self-approval", "payment-verify", "deposit-billing", "fa-api", "fa-registry", "fa-dsr", "task-title", "fa-banker-pic", "commission5", "finance5", "tasks-gate4", "accounting-b", "duplicates"]);
+const SLOW_GUARDS = new Set(["live-own", "partner-applications", "payroll-schedule", "staff-email-move", "business-growth", "shift-bulk", "go-live-a", "go-live-b", "go-live-c", "go-live-d", "go-live-p", "go-live-t", "go-live-m", "go-live-s", "go-live-g", "go-live-h", "go-live-i", "go-live-l", "go-live-k", "go-live-n", "go-live-o", "go-live-v", "go-live-w", "go-live-x", "go-live-y", "go-live-z", "self-approval", "payment-verify", "deposit-billing", "fa-api", "fa-registry", "fa-dsr", "task-title", "fa-banker-pic", "commission5", "finance5", "tasks-gate4", "accounting-b", "duplicates"]);
 
 /* v1.245.1 - SIDE BY SIDE. The guards are independent processes: each reads
    the source, bundles into its own mkdtemp() folder and runs against its own

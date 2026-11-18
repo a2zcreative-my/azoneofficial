@@ -287,9 +287,9 @@ export default function PartnerApplicationPage() {
     <div className={css.page} data-testid="partner-application">
       <header className={css.top}>
         <div className={css.topIn}>
-          <Link href="/" className={css.wordmark} aria-label="A2Z OS - A2Z Creative Marketing">
-            <span className={css.wordName}>A2Z<span className={css.wordOs}>OS</span></span>
-            <span className={css.wordSub}>A2Z CREATIVE MARKETING</span>
+          {/* v1.385.0 - the CEO: the official company logo, not the portal name */}
+          <Link href="/" className={css.logoLink} aria-label="A2Z Creative Marketing - home">
+            <img src="/logo.png" alt="A2Z Creative Marketing" className={css.logo} width={991} height={547} />
           </Link>
           <div className={css.lang} role="group" aria-label="Language / Bahasa">
             <button type="button" aria-pressed={lang === "en"} onClick={() => pickLang("en")} data-testid="pa-lang-en">EN</button>
@@ -306,10 +306,11 @@ export default function PartnerApplicationPage() {
             <h1 id="pa-title" className={css.title}>{L("Partner Interest Application", "Permohonan Minat Rakan Kongsi")}</h1>
             <p className={css.lead}>{L("Interested in referring potential customers? Tell us about your network and referral approach.", "Berminat merujuk bakal pelanggan? Beritahu kami tentang rangkaian dan pendekatan rujukan anda.")}</p>
           </div>
-          <div className={css.badge}>
-            <strong>{L("Independent referral opportunity", "Peluang rujukan bebas")}</strong>
-            <span>{L("Not an employment application", "Bukan permohonan pekerjaan")}</span>
-          </div>
+          {/* v1.385.0 - the CEO: "replace this to QR instead much professional looks" - the form's own address as a QR */}
+          <figure className={css.qr} data-testid="pa-qr">
+            <img src="/qr/partner-qr.svg" alt={L("QR code for a2zcreative.my/apply/partner", "Kod QR untuk a2zcreative.my/apply/partner")} width={132} height={132} />
+            <figcaption>{L("Scan to open on your phone", "Imbas untuk buka di telefon")}<span>a2zcreative.my/<wbr />apply/<wbr />partner</span></figcaption>
+          </figure>
         </section>
 
         {stepper}

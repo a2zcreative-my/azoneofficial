@@ -565,3 +565,7 @@ A2Z-DDMM + the running number. No existing reference is renumbered.
 additive only - two nullable columns on `projects` (completion_verified_at,
 completion_verified_by) for the COO or CCO pre-verification before the CEO
 confirms a completion. No money, pay or people table is touched.
+Finance historical recovery (the CEO 18-11-2026, docs/FINANCE-HISTORY-GATE.md) adds `0214_finance_cash_verify`:
+additive only - six nullable columns on `cashbook_marks` (cash verified / revoked, by whom, why).
+A receipt paid before 01-11-2026 is verified as cash only; it is never an invoice_paid_confirmations
+row, so commission cannot see it.
