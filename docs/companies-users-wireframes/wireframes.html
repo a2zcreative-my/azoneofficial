@@ -1,0 +1,212 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#f2f4f8;--card:#fff;--fg:#1a2946;--mut:#5d6778;--bd:#e8ebf1;--gold:#c8a96a;--gold2:#c9a227;--goldsoft:#fbf3df;--ok:#15803d;--oksoft:#dcfce7;--warn:#946300;--warnsoft:#fef3c7;--info:#0369a1;--infosoft:#e0f2fe;--red:#dc2626;--redsoft:#fee2e2;--r:14px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Poppins,sans-serif;color:var(--fg);background:var(--bg);font-size:13px}
+svg.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.app{display:flex;min-height:100vh}
+.rail{width:232px;background:#fff;border-right:1px solid var(--bd);padding:18px 14px;flex:none}
+.brand{font-weight:800;font-size:24px;letter-spacing:-.5px;line-height:1}.brand b{color:var(--gold2)}
+.brand small{display:block;font-size:9px;font-weight:700;letter-spacing:.3px;margin-top:4px}
+.grp{font-size:10px;font-weight:600;color:var(--mut);margin:12px 6px 3px;letter-spacing:.4px;text-transform:uppercase}
+.nav{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:9px;font-size:12.5px}
+.nav.on{background:var(--gold2);color:#fff;font-weight:600}
+.main{flex:1;min-width:0;padding:18px 24px 28px}
+.top{display:flex;align-items:flex-start;gap:12px}
+.crumb{font-size:12px;color:var(--mut)}.crumb b{color:var(--gold2);font-weight:600}
+h1{font-size:26px;font-weight:700;letter-spacing:-.4px;margin-top:2px}
+.sub{color:var(--mut);font-size:12.5px;margin-top:2px}
+.tools{margin-left:auto;display:flex;gap:10px;align-items:center}
+.search{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--bd);border-radius:999px;padding:9px 14px;width:300px;color:var(--mut)}
+.search kbd{margin-left:auto;font-size:10px;background:var(--bg);border-radius:6px;padding:2px 6px;font-family:inherit}
+.round{width:38px;height:38px;border-radius:50%;background:#fff;border:1px solid var(--bd);display:grid;place-items:center}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--bd);margin:16px 0 14px;overflow:auto}
+.tab{display:flex;align-items:center;gap:8px;padding:10px 16px;font-size:13px;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--fg)}
+.tab.on{font-weight:600;border-bottom-color:var(--gold2);background:var(--goldsoft);border-radius:10px 10px 0 0}
+.tab .badge{background:var(--gold2);color:#fff;border-radius:999px;font-size:10px;padding:0 6px}
+.card{background:#fff;border:1px solid var(--bd);border-radius:var(--r);box-shadow:0 1px 2px rgba(26,41,70,.04)}
+.pad{padding:16px 18px}
+.h2{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px}
+.h2 svg{color:var(--gold2);width:18px;height:18px}
+.mut{color:var(--mut)}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;font-size:11px;padding:2px 9px;font-weight:600;white-space:nowrap}
+.c-ok{background:var(--oksoft);color:var(--ok)}.c-warn{background:var(--warnsoft);color:var(--warn)}.c-info{background:var(--infosoft);color:var(--info)}.c-n{background:var(--bg);color:var(--fg);font-weight:500}.c-gold{background:var(--goldsoft);color:#8a6a12}.c-red{background:var(--redsoft);color:var(--red)}
+.c-dash{border:1px dashed #9aa6bb;color:var(--mut);background:#fff;font-weight:500}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;border:1px solid var(--bd);background:#fff;padding:8px 16px;font-weight:500;font-size:12.5px;white-space:nowrap;font-family:inherit;color:var(--fg)}
+.btn.gold{background:var(--gold2);border-color:var(--gold2);color:#fff;font-weight:600}
+.btn.out{border-color:var(--gold);color:var(--fg);background:var(--goldsoft)}
+/* KPI strip: one connected card, tiles are segments */
+.kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid var(--bd);border-radius:var(--r)}
+.kpi>div{display:flex;gap:14px;align-items:center;padding:14px 18px;border-left:1px solid var(--bd);min-width:0}
+.kpi>div:first-child{border-left:0}
+.well{width:48px;height:48px;border-radius:12px;background:var(--bg);display:grid;place-items:center;flex:none}
+.well svg{width:22px;height:22px}
+.kpi .l{font-size:12px;font-weight:500}.kpi .v{font-size:22px;font-weight:700;line-height:1.2}.kpi .s{font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .tag{margin-left:auto;align-self:flex-start}
+table{width:100%;border-collapse:collapse}
+th{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);font-weight:600;text-align:left;padding:9px 10px;border-bottom:1px solid var(--bd);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:middle;font-size:12.5px}
+tr:last-child td{border-bottom:0}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.who{display:flex;align-items:center;gap:10px}.who b{display:block;font-size:13px}.who small{color:var(--mut);font-size:11.5px}
+.av{width:32px;height:32px;border-radius:50%;background:#dfe4ee;display:grid;place-items:center;font-weight:600;font-size:12px;color:var(--fg);flex:none}
+.ck{width:16px;height:16px;border:1.5px solid #b8c0cf;border-radius:4px;display:inline-block}
+.sel{display:flex;align-items:center;gap:6px;border:1px solid var(--bd);border-radius:10px;padding:8px 12px;background:#fff;font-size:12.5px;white-space:nowrap}
+.sel svg:last-child{margin-left:auto}
+.filters{display:flex;gap:10px;margin:12px 0}
+.notice{display:flex;gap:10px;align-items:flex-start;background:var(--warnsoft);color:#6b4a00;border-radius:12px;padding:10px 14px;font-size:12.5px}
+.sample{position:fixed;left:50%;transform:translateX(-50%);top:6px;background:#1a2946;color:#fff;font-size:11px;padding:5px 10px;border-radius:999px;opacity:.9;z-index:9}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.co{padding:18px 22px}.co.on{border:1.5px solid var(--gold)}
+.co .row1{display:flex;gap:22px;align-items:center}
+.co img{height:56px;width:150px;object-fit:contain}
+.co h3{font-size:19px;font-weight:700;margin-top:4px}
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--bd);margin-top:16px;padding-top:12px}
+.facts>div{display:flex;gap:8px;font-size:11.5px}.facts b{display:block;font-weight:500;font-size:12px}
+.facts svg{width:20px;height:20px;color:var(--mut);margin-top:2px}
+.qa{display:flex;align-items:center;gap:12px;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-top:8px;font-weight:500}
+.qa svg:last-child{margin-left:auto;color:var(--mut)}
+.link{display:flex;gap:16px;padding:18px 20px}
+.link .well{background:var(--goldsoft);color:#8a6a12}
+.notes{background:#eef5fd;border:1px solid #d7e7f8;padding:16px 18px;border-radius:var(--r)}
+.notes li{margin:4px 0 0 16px;font-size:12px}
+.pager{display:flex;align-items:center;gap:6px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--bd);font-size:12px;color:var(--mut)}
+.pg{min-width:28px;height:28px;border-radius:8px;border:1px solid var(--bd);display:grid;place-items:center;color:var(--fg)}
+.pg.on{background:var(--gold2);color:#fff;border-color:var(--gold2)}
+.pill{display:inline-flex;background:var(--bg);border-radius:999px;padding:3px}
+.pill span{padding:6px 14px;border-radius:999px;font-size:12.5px}
+.pill span.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.08);font-weight:600}
+.mini{font-size:11px;color:var(--mut)}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:400px;background:#fff;border-left:1px solid var(--bd);box-shadow:-8px 0 30px rgba(26,41,70,.12);padding:18px}
+.phonebar{display:none}
+@media (max-width:767px){
+ .sample{right:12px;top:auto;bottom:70px}
+ .hact{margin-left:0!important;width:100%}.hact .pill{width:100%}.hact .pill span{flex:1;text-align:center}
+ .pill span{padding:6px 10px;font-size:11.5px}
+ .rail,.tools .search,.tools .round:not(.keep){display:none}
+ .main{padding:14px 14px 90px}
+ h1{font-size:21px}.sub{font-size:12px}
+ .kpi{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .kpi>div{padding:12px;gap:10px}.kpi>div:nth-child(3){border-left:0}.kpi>div:nth-child(n+3){border-top:1px solid var(--bd)}
+ .kpi .well{display:none}.kpi .tag{display:none}.kpi .v{font-size:19px}
+ .grid2,.g-ov,.g-links{grid-template-columns:minmax(0,1fr)!important}
+ .facts{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:10px}
+ .filters{flex-wrap:wrap}.filters>*{flex:1 1 45%}
+ .desk{display:none!important}
+ .cards-ph{display:block!important}
+ .phonebar{display:flex;position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--bd);justify-content:space-around;padding:8px 0 14px;font-size:10px}
+ .phonebar div{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--mut)}.phonebar .on{color:var(--gold2);font-weight:600}
+ .co img{width:110px;height:44px}.co h3{font-size:16px}.co .row1{gap:12px}
+}
+.cards-ph{display:none}
+.pc{border-bottom:1px solid var(--bd);padding:12px 14px}.pc:last-child{border-bottom:0}
+.pc .r{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+</style></head><body>
+<div id="root"></div>
+<div class="sample">Sample data, illustrative only</div>
+<script>
+const P={home:'<path d="M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',mega:'<path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a3 3 0 0 1 0 6"/>',chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',cart:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12h11l2-8H6"/>',users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',brief:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/>',check:'<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/>',box:'<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',hotel:'<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M9 7h1M14 7h1M9 11h1M14 11h1M10 21v-4h4v4"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',receipt:'<path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/>',wallet:'<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/>',bank:'<path d="M3 21h18M4 10h16M12 3l9 5H3zM6 10v8M10 10v8M14 10v8M18 10v8"/>',book:'<path d="M4 4h10a4 4 0 0 1 4 4v13H8a4 4 0 0 1-4-4z"/><path d="M4 17a4 4 0 0 1 4-4h10"/>',pct:'<circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/><path d="M19 5L5 19"/>',store:'<path d="M3 9l1.5-5h15L21 9M4 9v11h16V9M3 9h18"/><path d="M9 20v-6h6v6"/>',building:'<rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/>',shield:'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',shieldck:'<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',slider:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h0"/>',moon:'<path d="M20 14A8 8 0 1 1 10 4a6 6 0 0 0 10 10z"/>',file:'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',pen:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',sign:'<path d="M3 17c3-1 4-8 6-8s0 8 2 8 3-4 4-4 1 3 3 3 3-1 3-1"/>',hist:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',dl:'<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',plus:'<path d="M12 5v14M5 12h14"/>',more:'<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',mon:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',ph:'<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',okc:'<circle cx="12" cy="12" r="9" fill="#15803d" stroke="#15803d"/><path d="M8 12l3 3 5-6" stroke="#fff"/>',offc:'<circle cx="12" cy="12" r="9" fill="#c5ccd8" stroke="#c5ccd8"/><path d="M8 12h8" stroke="#fff"/>',chev:'<path d="M9 6l6 6-6 6"/>',down:'<path d="M6 9l6 6 6-6"/>',arrow:'<path d="M5 12h14M13 6l6 6-6 6"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h0"/>',warn:'<path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17h0"/>',crown:'<path d="M3 8l4 4 5-7 5 7 4-4-2 11H5z"/>',layers:'<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',refresh:'<path d="M20 11a8 8 0 0 0-14-5L3 9M4 13a8 8 0 0 0 14 5l3-3"/><path d="M3 3v6h6M21 21v-6h-6"/>',pending:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5h4"/>',verify:'<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>',flag:'<path d="M5 21V4h11l-2 4 2 4H5"/>',gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'};
+const I=(n,st='')=>`<svg class="i" viewBox="0 0 24 24" style="${st}">${P[n]||''}</svg>`;
+const s=new URLSearchParams(location.search).get('s')||'1';
+const NAV=[['Workspace',[['Dashboard','home'],['Desk','inbox'],['News','mega']]],['Revenue',[['Sales','chart'],['Ecommerce','cart'],['Agents','users'],['Financial Advisory','brief']]],['Operations',[['Tasks','check'],['Assets','box'],['Hotels','hotel']]],['People',[['HR','user'],['Staff Details','users'],['Attendance','clock'],['On Shift','clock'],['Roster & Scheduling','cal'],['Leave','cal'],['Claims','receipt'],['Payroll','wallet']]],['Finance',[['Finance','bank'],['Accounting','book'],['Commission','pct']]],['ELFIA',[['ELFIA Store','store'],['ELFIA Traffic','chart'],['Inventory','box']]],['System',[['Companies','building'],['Users & Security','shield'],['Automation & Rules','slider']]]];
+const active=s==='1'?'Companies':'Users & Security';
+const rail=`<aside class="rail"><div class="brand">A2Z <b>OS</b><small>A2Z CREATIVE MARKETING</small></div>${NAV.map(([g,t])=>`<div class="grp">${g}</div>`+t.map(([n,ic])=>`<div class="nav ${n===active?'on':''}">${I(ic)}${n}</div>`).join('')).join('')}</aside>`;
+const head=(crumb,title,sub)=>`<div class="top"><div><div class="crumb"><b>A2Z OS</b> / ${crumb}</div><h1>${title}</h1><div class="sub">${sub}</div></div><div class="tools"><div class="search">${I('search')}Search anything...<kbd>Ctrl K</kbd></div><div class="round keep">${I('bell')}</div><div class="round">${I('help')}</div><div class="round">${I('moon')}</div></div></div>`;
+const tabs=(list,on)=>`<div class="tabs">${list.map(([k,n,ic,b])=>`<div class="tab ${k===on?'on':''}">${I(ic)}${n}${b?`<span class="badge">${b}</span>`:''}</div>`).join('')}</div>`;
+const pbar=`<div class="phonebar">${[['Home','home'],['Desk','inbox'],['Tasks','check'],[s==='1'?'Companies':'Users','building'],['More','more']].map(([n,ic],i)=>`<div class="${i===3?'on':''}">${I(ic)}${n}</div>`).join('')}</div>`;
+
+/* ---------- 1. Companies overview ---------- */
+function companies(){
+ const fact=(ic,l,v)=>`<div>${I(ic)}<div><span class="mut">${l}</span><b>${v}</b></div></div>`;
+ const co=(on,img,chip,name,reg,f)=>`<div class="card co ${on?'on':''}"><div class="row1"><img src="${img}"><div><span class="chip ${chip[1]}">${chip[0]}</span><h3>${name}</h3><div class="mut">${reg}</div></div></div><div class="facts">${f}</div></div>`;
+ return head('System','Companies','Manage company profiles, corporate details, documents and authorised signatories.')+
+ tabs([['ov','Company Overview','building'],['cd','Corporate Details','file'],['od','Ownership & Directors','users'],['ds','Documents & Signing','sign'],['ah','Audit & History','hist'],['as','Access Summary','shield']],'ov')+
+ `<div class="grid2">${co(1,'a2z.png',['Operating issuer','c-ok'],'A2Z CREATIVE MARKETING','SSM 202603003468 (CA0414729-A)',fact('cal','Issuing since','19 Aug 2026')+fact('brief','Business type','Creative Marketing Agency')+fact('bank','Bank accounts','2 accounts')+fact('users','Proposed members','11 · not enforced'))}
+ ${co(0,'azone.png',['Legacy issuer','c-n'],'AZ ONE OFFICIAL','SSM 202603168673 (JM1046169-H)',fact('cal','Issued until','18 Aug 2026')+fact('brief','Business type','Live Commerce Agency')+fact('bank','Bank accounts','1 account')+fact('users','Proposed members','6 · not enforced'))}</div>
+ <div class="g-ov" style="display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;margin-top:14px">
+  <div class="card pad"><div class="h2" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center">${I('chart')}Company at a Glance</span><span class="btn" style="padding:5px 12px">Open Finance ${I('arrow')}</span></div>
+   <div class="mini" style="margin-top:4px">This month · from Finance (verified receipts only). Read-only.</div>
+   <div class="desk" style="margin-top:10px"><table><thead><tr><th>Company</th><th class="num">Invoices</th><th class="num">Sales (RM)</th><th class="num">Money In (RM)</th><th class="num">Money Out (RM)</th><th class="num">Outstanding (RM)</th></tr></thead><tbody>
+   <tr><td><b>A2Z CREATIVE MARKETING</b></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><span class="chip c-gold">—</span></td></tr>
+   <tr><td><b>AZ ONE OFFICIAL</b></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num"><span class="chip c-gold">—</span></td></tr></tbody></table>
+   <div class="mini" style="margin-top:8px">Figures fill from Finance. Invoices, Sales and Outstanding need decision D3.</div></div>
+   <div class="cards-ph"><div class="pc"><b>A2Z CREATIVE MARKETING</b><div class="r mut">Money In — · Money Out — · Outstanding —</div></div><div class="pc"><b>AZ ONE OFFICIAL</b><div class="r mut">Money In — · Money Out — · Outstanding —</div></div></div></div>
+  <div class="card pad"><div class="h2">${I('flag')}Quick Actions</div>
+   ${[['sign','Manage signatories'],['file','Letterheads & stamps'],['shield','View access summary'],['lock','Open Company Access']].map(([ic,n])=>`<div class="qa">${I(ic)}${n}${I('chev')}</div>`).join('')}</div>
+ </div>
+ <div class="g-links" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px">
+  <div class="card link"><div class="well">${I('users')}</div><div><div class="h2" style="font-size:15px">Company Access & Roles</div><div class="mut" style="margin:4px 0 12px">Who can open each company, roles and permissions.</div><span class="btn out">Go to Users & Security ${I('arrow')}</span></div></div>
+  <div class="card link"><div class="well">${I('brief')}</div><div><div class="h2" style="font-size:15px">Employment & Staff</div><div class="mut" style="margin:4px 0 12px">Legal employer, department, position and reporting.</div><span class="btn out">Go to HR / Staff ${I('arrow')}</span></div></div>
+  <div class="notes"><div class="h2" style="font-size:14px">${I('info','color:#0369a1')}Important Notes</div><ul>
+   <li>Companies manages the two legal entities, their details, documents and signatories.</li>
+   <li>Accounts, roles and company access are managed in Users & Security.</li>
+   <li>Employment and legal employer are managed in HR / Staff.</li>
+   <li>Financial records and their company are managed in Finance.</li></ul></div>
+ </div>`;
+}
+
+/* ---------- 2. Users & Security: Users ---------- */
+const PEOPLE=[['Aina Rahman','aina','CEO','crown','A2Z|AZ ONE','View · Create · Edit · Approve',1,'mon','Today, 9:42 PM'],['Hafiz Omar','hafiz','CCO','','A2Z|AZ ONE','View · Create · Edit · Approve',1,'ph','Today, 6:18 PM'],['Syafiq Latif','syafiq','COO','','A2Z|AZ ONE','View · Create · Edit · Approve',1,'mon','Today, 5:47 PM'],['Nadia Ismail','nadia','Sales & Marketing','','A2Z|AZ ONE','View · Create · Edit',1,'ph','Today, 4:21 PM'],['Farah Zainal','farah','Graphic & Multimedia','','A2Z|AZ ONE','View · Create · Edit',1,'mon','Today, 3:05 PM'],['Liyana Yusof','liyana','Digital Marketing','','A2Z|AZ ONE','View · Create · Edit',1,'mon','Today, 1:27 PM'],['Rizal Hakim','rizal','HR Admin','','A2Z|AZ ONE','View · Create · Edit',0,'mon','12 Nov 2026, 9:11 PM'],['Dina Amir','dina','Live Host','','A2Z|AZ ONE','View · Create · Edit',1,'ph','11 Nov 2026, 8:36 PM']];
+function users(){
+ return head('System','Users & Security','Manage user accounts, roles, company access, permissions and security settings.')+
+ tabs([['u','Users','user'],['r','Roles & Permissions','layers'],['c','Company Access','building'],['s','Security & MFA','shieldck'],['a','Audit Logs','file']],'u')+
+ `<div class="kpi"><div><div class="well">${I('users')}</div><div><div class="l">Active Users</div><div class="v">11</div><div class="s">of 15 accounts</div></div><span class="chip c-ok tag">✓ Active</span></div>
+  <div><div class="well">${I('layers')}</div><div style="min-width:0"><div class="l">Roles in use</div><div class="v">8</div><div class="s">CEO, COO, CCO, Sales, Live Host…</div></div></div>
+  <div><div class="well">${I('building')}</div><div style="min-width:0"><div class="l">Companies</div><div class="v">2</div><div class="s">Restrictions not active · by role</div></div></div>
+  <div><div class="well" style="color:#c9a227">${I('shield')}</div><div><div class="l">MFA (Two-Factor)</div><div class="v">8 / 11</div><div class="s">Users with MFA enabled</div></div><span class="chip c-ok tag">73%</span></div></div>
+ <div class="card" style="margin-top:14px"><div class="pad" style="padding-bottom:0">
+  <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap"><div><div class="h2" style="font-size:18px">User Accounts</div><div class="mut">Staff accounts, roles, company access and sign-in security.</div></div>
+  <div class="hact" style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="pill"><span class="on">Staff</span><span>Customers & Agents</span></div><span class="btn">${I('dl')}Export</span><span class="btn gold">${I('plus')}Add User</span></div></div>
+  <div class="filters"><div class="sel" style="flex:1.3">${I('search')}<span class="mut">Search by name or email...</span></div><div class="sel" style="flex:1">Status: <b>Active</b>${I('down')}</div><div class="sel" style="flex:1">Role: <b>All</b>${I('down')}</div><div class="sel" style="flex:1.4">Company (proposed): <b>All</b>${I('down')}</div><span class="btn" style="border:0">${I('refresh')}Reset</span></div></div>
+  <div class="desk"><table><thead><tr><th style="padding-left:18px">User</th><th>Role</th><th>Company access <span class="mini" style="text-transform:none">(effective)</span></th><th>Permissions (role)</th><th>MFA</th><th>Last login</th><th>Status</th><th style="text-align:right;padding-right:18px">Actions</th></tr></thead><tbody>
+  ${PEOPLE.map(p=>`<tr><td style="padding-left:18px"><div class="who"><div class="av">${p[0].split(' ').map(x=>x[0]).join('')}</div><div><b>${p[0]}</b><small>${p[1]}@a2zcreative.my</small></div></div></td>
+   <td><span class="chip ${p[3]?'c-gold':'c-n'}">${p[3]?I('crown','width:12px;height:12px'):''}${p[2]}</span></td>
+   <td>${p[4]==='—'?'<span class="chip c-info">AZ ONE</span> <span class="mini">agent portal</span>':'<span class="chip c-info">A2Z</span> <span class="chip c-info">AZ ONE</span>'}</td>
+   <td>${p[5]}</td><td>${p[6]?I('okc')+' On':I('offc')+' <span class="mut">Off</span>'}</td><td><span style="display:inline-flex;gap:6px;align-items:center">${I(p[7],'color:#5d6778')}${p[8]}</span></td><td><span class="chip c-ok">Active</span></td><td style="text-align:right;padding-right:18px">${I('more')}</td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="cards-ph">${PEOPLE.slice(0,5).map(p=>`<div class="pc"><div class="who"><div class="av">${p[0].split(' ').map(x=>x[0]).join('')}</div><div style="min-width:0"><b>${p[0]}</b><small>${p[1]}@a2zcreative.my</small></div><span style="margin-left:auto">${I('more')}</span></div><div class="r"><span class="chip ${p[3]?'c-gold':'c-n'}">${p[2]}</span><span class="chip c-info">A2Z</span><span class="chip c-info">AZ ONE</span>${p[6]?'<span class="chip c-ok">MFA on</span>':'<span class="chip c-warn">MFA off</span>'}<span class="mini">${p[8]}</span></div></div>`).join('')}</div>
+  <div class="pager"><span style="margin-right:auto">1–8 of 11</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">›</span></div>
+ </div>`;
+}
+
+/* ---------- 3. Company Access ---------- */
+const MAT=[['Aina Rahman','CEO','—','A2Z · payslip Oct','—','—','Not reviewed','c-warn',''],['Syafiq Latif','COO','A2Z','A2Z · payslip Oct','write','write','Proposed','c-info','Both · write'],['Hafiz Omar','CCO','AZ ONE','A2Z · payslip Oct','write','read','Proposed','c-info','A2Z write · AZ ONE read'],['Nadia Ismail','Sales & Marketing','A2Z','A2Z · payslip Oct','write','—','Changed','c-red','A2Z write'],['Farah Zainal','Graphic & Multimedia','—','A2Z · payslip Oct','—','—','Not reviewed','c-warn',''],['Liyana Yusof','Digital Marketing','A2Z','A2Z · payslip Oct','write','—','Settled','c-ok','A2Z write'],['Dina Amir','Live Host','A2Z','A2Z · payslip Sep','write','read','Deferred','c-n','—'],['Imran Saad','Sales & Marketing','—','No payslip yet','—','—','Not reviewed','c-warn','']];
+function access(){
+ const m=v=>v==='—'?'<span class="mut">—</span>':`<span class="chip c-dash">${v}</span>`;
+ return head('System','Users & Security','Manage user accounts, roles, company access, permissions and security settings.')+
+ tabs([['u','Users','user'],['r','Roles & Permissions','layers'],['c','Company Access','building'],['s','Security & MFA','shieldck'],['a','Audit Logs','file']],'c')+
+ `<div class="notice">${I('warn')}<span><b>Reconciliation only.</b> Company access restrictions are not active - roles still decide what each person can open. Proposals never change a record, an invoice's Paid status or commission.</span></div>
+ <div class="kpi" style="margin-top:12px"><div><div class="well">${I('store')}</div><div style="min-width:0"><div class="l">Companies</div><div class="v">2</div><div class="s">A2Z Creative Marketing · AZ One Official</div></div></div>
+  <div><div class="well" style="color:#946300">${I('pending')}</div><div><div class="l">Not yet reviewed</div><div class="v">195</div><div class="s">across 9 registers</div></div></div>
+  <div><div class="well" style="color:#0369a1">${I('verify')}</div><div style="min-width:0"><div class="l">Reviewed, not settled</div><div class="v">53</div><div class="s">proposed · deferred · changed</div></div></div>
+  <div><div class="well" style="color:#dc2626">${I('lock')}</div><div style="min-width:0"><div class="l">Company access readiness</div><div class="v">0 / 9</div><div class="s">Not active - roles decide</div></div></div></div>
+ <div class="card" style="margin-top:14px;position:relative;overflow:hidden"><div class="pad" style="padding-bottom:0">
+  <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap"><div><div class="h2" style="font-size:18px">Company Permission Review</div><div class="mut">Effective access today against the proposed plan. Saving a proposal never changes access.</div></div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center"><div class="pill"><span class="on">Staff access</span><span>Record ownership · 9 registers</span></div><span class="btn">${I('hist')}History</span></div></div>
+  <div class="filters"><div class="sel" style="flex:1.4">${I('search')}<span class="mut">Search staff...</span></div><div class="sel" style="flex:1">Review: <b>All</b>${I('down')}</div><div class="sel" style="flex:1">Employer (proposed): <b>All</b>${I('down')}</div><div class="sel" style="flex:1">Role: <b>All</b>${I('down')}</div><label class="sel" style="flex:.9"><span class="ck"></span>Show former staff</label></div></div>
+  <div class="desk"><table><thead><tr><th style="width:34px;padding-left:18px"><span class="ck"></span></th><th>Staff</th><th>Role</th><th>Legal employer<br><span class="mini" style="text-transform:none">proposed · evidence</span></th><th>Current effective</th><th style="border-left:1px solid #e8ebf1">Proposed · A2Z</th><th>Proposed · AZ ONE</th><th>Review</th><th style="padding-right:18px">History</th></tr></thead><tbody>
+  ${MAT.map(r=>`<tr><td style="padding-left:18px"><span class="ck"></span></td><td><div class="who"><div class="av">${r[0].split(' ').map(x=>x[0]).join('')}</div><b>${r[0]}</b></div></td><td><span class="chip c-n">${r[1]}</span></td>
+   <td>${r[2]==='—'?'<span class="mut">Not set</span>':`<b>${r[2]==='A2Z'?'A2Z CREATIVE':'AZ ONE'}</b>`}<div class="mini">${r[3]}</div></td><td><span class="chip c-info">Both · by role</span></td><td style="border-left:1px solid #e8ebf1">${m(r[4])}</td><td>${m(r[5])}</td><td><span class="chip ${r[7]}">${r[6]}</span></td><td style="padding-right:18px"><span class="btn" style="padding:4px 10px">${I('hist')}View</span></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="cards-ph">${MAT.slice(0,5).map(r=>`<div class="pc"><div class="who"><div class="av">${r[0].split(' ').map(x=>x[0]).join('')}</div><div><b>${r[0]}</b><small>${r[1]}</small></div><span class="chip ${r[7]}" style="margin-left:auto">${r[6]}</span></div><div class="r"><span class="mini">Employer:</span><b style="font-size:12px">${r[2]==='—'?'Not set':r[2]}</b><span class="mini">· ${r[3]}</span></div><div class="r"><span class="chip c-info">Now: both · by role</span><span class="mini">Proposed:</span>${m(r[4]==='—'?'—':'A2Z '+r[4])}${m(r[5]==='—'?'—':'AZ ONE '+r[5])}</div></div>`).join('')}</div>
+  <div class="pager"><span style="margin-right:auto">1–8 of 15 staff · select rows to review several with a preview</span><span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">›</span></div>
+ </div>`;
+}
+
+/* ---------- 3b. drawer view ---------- */
+function drawer(){
+ return access().replace('<div class="pager">',`<div class="drawer"><div style="display:flex;align-items:center"><div class="h2" style="font-size:16px">${I('building')}Hafiz Omar</div><span class="mut" style="margin-left:auto">✕</span></div><div class="mini" style="margin-top:2px">CCO · revision 2 · proposed by the CEO, 12 Nov 2026</div>
+ <div class="notice" style="margin-top:12px;font-size:11.5px">${I('info')}<span>Effective today: both companies, by role. This review is a plan only.</span></div>
+ <div style="margin-top:14px;font-weight:600">1 · Proposed legal employer</div><div class="mini">Evidence: last payslip (Oct 2026) issued by A2Z CREATIVE MARKETING. HR owns employment.</div>
+ <div class="sel" style="margin-top:6px">AZ ONE OFFICIAL${I('down')}</div><span class="btn" style="margin-top:8px">Save employer only</span>
+ <div style="margin-top:16px;font-weight:600">2 · Proposed company access</div>
+ <table style="margin-top:4px"><tr><td>A2Z CREATIVE MARKETING</td><td><div class="pill"><span>None</span><span>Read</span><span class="on">Write</span></div></td></tr><tr><td>AZ ONE OFFICIAL</td><td><div class="pill"><span>None</span><span class="on">Read</span><span>Write</span></div></td></tr></table>
+ <div class="sel" style="margin-top:8px;height:58px;align-items:flex-start;color:#5d6778">Reason (8 characters or more)</div>
+ <div style="display:flex;gap:8px;margin-top:10px"><span class="btn gold">Save access proposal</span><span class="btn">Cancel</span></div>
+ <div style="margin-top:16px;font-weight:600">History</div>
+ <div class="mini" style="margin-top:4px">12 Nov 2026 · CEO · A2Z write · AZ ONE read · "Commercial lead for both"</div><div class="mini" style="margin-top:4px">03 Nov 2026 · CEO · employer A2Z · "From the payslip"</div></div><div class="pager">`);
+}
+
+document.getElementById('root').innerHTML=`<div class="app">${rail}<main class="main">${s==='1'?companies():s==='2'?users():s==='4'?drawer():access()}</main></div>${pbar}`;
+</script></body></html>
