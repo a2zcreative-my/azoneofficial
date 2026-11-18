@@ -22,7 +22,6 @@ import { Avatar } from "@/components/ui/avatar";
 import { SkelRows } from "@/components/ui/skeleton";
 import { L } from "@/components/portal/page-shared";
 import { btnHdr } from "@/lib/ui-styles";
-import { holds } from "@/lib/caps";
 import {
   useChat, chatStart, chatStop, openConversation, loadOlder, sendMessage, uploadFile, startDirect,
   createGroup, editGroup, leaveGroup, pictureUrl, fileHref, serverNow, CHAT_LIMITS, CHAT_ACCEPT,
@@ -30,12 +29,12 @@ import {
 } from "@/lib/chat-client";
 import css from "./chat.module.css";
 
-const STAFF_ROLES = ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "editor", "marketing", "live_host"];
-
 /* ---------------- the header button ---------------- */
 
 export function ChatButton({ role }: { role: string }) {
-  const may = role !== "agent" && role !== "customer" && holds("chat_use", STAFF_ROLES.includes(role));
+  /* every staff role, custom roles included: the server decides on every call,
+     and the icon goes away by itself if it says no (status "unavailable") */
+  const may = role !== "agent" && role !== "customer";
   const chat = useChat();
   /* a push opens the portal at /portal?chat=1: the chat opens once (the shell
      draws after sign-in, in the browser, so the address is there to read) */
@@ -171,7 +170,7 @@ function Inbox({ active, onOpen, onNew }: { active: number | null; onOpen: (id: 
           return (
             <li key={c.id}>
               <button type="button" className={css.row} aria-current={c.id === active ? "true" : undefined} onClick={() => onOpen(c.id)} data-testid={`chat-conv-${c.id}`}>
-                {o ? <Avatar name={o.name} photoKey={o.photo_key} userId={o.id} online={chat.online.includes(o.id)} />
+                {o ? <Face name={o.name} photoKey={o.photo_key} userId={o.id} online={chat.online.includes(o.id)} dot={o.can_chat} />
                   : <span className={css.groupMark} aria-hidden><AppIcon name="users" /></span>}
                 <span className={css.rowText}>
                   <span className={css.rowTop}><strong>{title(c)}</strong>{c.last && <time>{listTime(c.last.at)}</time>}</span>
@@ -187,10 +186,27 @@ function Inbox({ active, onOpen, onNew }: { active: number | null; onOpen: (id: 
   );
 }
 
+/** A photo with its presence dot: green online, grey offline (the CEO, 18-11-2026).
+    Online means the person has the portal open right now. */
+function Face({ name, photoKey, userId, online, size = "md", dot = true }: { name: string; photoKey: string | null; userId: number; online: boolean; size?: "md" | "lg"; dot?: boolean }) {
+  return (
+    <span className={css.face}>
+      <Avatar name={name} photoKey={photoKey} userId={userId} size={size} />
+      {dot && <span className={`${css.dot} ${online ? css.dotOn : ""}`} role="img" aria-label={online ? L("Online", "Dalam talian") : L("Offline", "Luar talian")} data-testid="chat-presence" data-online={online ? "1" : "0"} />}
+    </span>
+  );
+}
+
+const whyWord = (why: ChatPerson["why"]) =>
+  why === "no_2fa" ? L("Can chat once they turn on 2FA", "Boleh bersembang selepas 2FA dihidupkan")
+    : why === "off" ? L("Chat is switched off for their role", "Sembang dimatikan untuk peranan mereka")
+      : L("Cannot use chat", "Tidak boleh guna sembang");
+
 function PeoplePicker({ picked, onPick, multi, exclude = [] }: { picked: number[]; onPick: (p: ChatPerson) => void; multi: boolean; exclude?: number[] }) {
   const chat = useChat();
   const [q, setQ] = useState("");
-  const people = chat.people.filter((p) => p.can_chat && p.id !== chat.me && !exclude.includes(p.id))
+  /* every current colleague; one who cannot chat yet is shown, greyed, with why */
+  const people = chat.people.filter((p) => p.on_staff && p.id !== chat.me && !exclude.includes(p.id))
     .filter((p) => !q.trim() || `${p.name} ${p.position ?? ""}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <>
@@ -202,11 +218,12 @@ function PeoplePicker({ picked, onPick, multi, exclude = [] }: { picked: number[
         {people.length === 0 && <li className={css.empty}>{L("Nobody matches.", "Tiada padanan.")}</li>}
         {people.map((p) => (
           <li key={p.id}>
-            <button type="button" className={css.row} aria-pressed={multi ? picked.includes(p.id) : undefined} onClick={() => onPick(p)} data-testid={`chat-person-${p.id}`}>
-              <Avatar name={p.name} photoKey={p.photo_key} userId={p.id} online={chat.online.includes(p.id)} />
+            <button type="button" className={css.row} aria-pressed={multi ? picked.includes(p.id) : undefined} onClick={() => onPick(p)} data-testid={`chat-person-${p.id}`}
+              disabled={!p.can_chat} title={p.can_chat ? undefined : whyWord(p.why)}>
+              <Face name={p.name} photoKey={p.photo_key} userId={p.id} online={chat.online.includes(p.id)} dot={p.can_chat} />
               <span className={css.rowText}>
-                <span className={css.rowTop}><strong>{p.name}</strong>{chat.online.includes(p.id) && <small className={css.on}>{L("Online", "Dalam talian")}</small>}</span>
-                <span className={css.rowBottom}><span className={css.preview}>{p.position ?? p.role.replace(/_/g, " ")}</span>{multi && picked.includes(p.id) && <span className={css.tick} aria-hidden>✓</span>}</span>
+                <span className={css.rowTop}><strong>{p.name}</strong>{p.can_chat && (chat.online.includes(p.id) ? <small className={css.on}>{L("Online", "Dalam talian")}</small> : <small className={css.off}>{L("Offline", "Luar talian")}</small>)}</span>
+                <span className={css.rowBottom}><span className={css.preview}>{p.can_chat ? (p.position ?? p.role.replace(/_/g, " ")) : whyWord(p.why)}</span>{multi && picked.includes(p.id) && <span className={css.tick} aria-hidden>✓</span>}</span>
               </span>
             </button>
           </li>
@@ -279,10 +296,10 @@ function Conversation({ id, onBack }: { id: number; onBack: () => void }) {
     <div className={css.conv} data-testid="chat-conversation">
       <header className={css.convHead}>
         <button type="button" className={`erp-icon-button ${css.back}`} onClick={onBack} aria-label={L("Back to chats", "Kembali ke sembang")} data-testid="chat-back"><AppIcon name="previous" /></button>
-        {o ? <Avatar name={o.name} photoKey={o.photo_key} userId={o.id} size="lg" online={chat.online.includes(o.id)} />
+        {o ? <Face name={o.name} photoKey={o.photo_key} userId={o.id} size="lg" online={chat.online.includes(o.id)} dot={o.can_chat} />
           : <span className={css.groupMark} aria-hidden><AppIcon name="users" /></span>}
         <span className={css.convTitle}><strong>{title(conv)}</strong>
-          <small className={o && chat.online.includes(o.id) ? css.on : undefined}>{sub}</small></span>
+          <small className={o && chat.online.includes(o.id) ? css.on : css.off} data-testid="chat-status">{sub}</small></span>
         {conv.kind === "group" && <button type="button" className="erp-icon-button" aria-expanded={info} onClick={() => setInfo((v) => !v)} aria-label={L("Group members", "Ahli kumpulan")} data-testid="chat-group-info"><AppIcon name="info" /></button>}
       </header>
       {info && conv.kind === "group" ? <GroupInfo conv={conv} onLeft={onBack} /> : (
@@ -451,7 +468,7 @@ function GroupInfo({ conv, onLeft }: { conv: ChatConv; onLeft: () => void }) {
           const p = byId.get(m.id);
           return (
             <li key={m.id} className={css.memberRow}>
-              <Avatar name={p?.name ?? "?"} photoKey={p?.photo_key ?? null} userId={m.id} online={chat.online.includes(m.id)} />
+              <Face name={p?.name ?? "?"} photoKey={p?.photo_key ?? null} userId={m.id} online={chat.online.includes(m.id)} dot={Boolean(p?.can_chat)} />
               <span className={css.rowText}><strong>{p?.name ?? L("Former staff", "Bekas staf")}{m.id === chat.me ? L(" (you)", " (anda)") : ""}</strong>
                 <small className="erp-meta">{m.id === conv.created_by ? L("Made the group", "Pencipta kumpulan") : p?.position ?? ""}</small></span>
               {maker && m.id !== chat.me && <button type="button" className="erp-button erp-button-secondary erp-button-compact" onClick={async () => setErr(await editGroup(conv.id, { remove: [m.id] }))}>{L("Remove", "Buang")}</button>}

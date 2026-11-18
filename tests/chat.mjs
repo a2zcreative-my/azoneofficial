@@ -53,7 +53,7 @@ function checks(src) {
   ok("the CSP lets the live connection reach our own domain", /connect-src 'self' wss:\/\/a2zcreative\.my wss:\/\/www\.a2zcreative\.my /.test(src.headers));
 
   /* who may chat */
-  ok("eligibility: never customer or agent, 2FA done, chat_use, active and on staff today", /if \(!user \|\| user\.role === "customer" \|\| user\.role === "agent" \|\| user\.requires_2fa\) return false;/.test(c) && /allows\(user as Parameters<typeof allows>\[0\], "chat_use"\)/.test(c) && /WHERE u\.id = \?1 AND u\.is_active = 1 AND \$\{currentStaffSql\("u\."\)\}/.test(c));
+  ok("eligibility: never customer or agent, 2FA done, chat_use, active and on staff today", /if \(!user \|\| user\.role === "customer" \|\| user\.role === "agent" \|\| user\.requires_2fa\) return false;/.test(c) && /if \(!roleMayChat\(user, true\)\) return false;/.test(c) && /return can\(u\.role, "chat_use"\) \? null : "off";/.test(c) && /WHERE u\.id = \?1 AND u\.is_active = 1 AND \$\{currentStaffSql\("u\."\)\}/.test(c));
   ok("every chat route is behind that check", /export async function handleChat\([\s\S]{0,200}?\n  const method = request\.method;\n  if \(!\(await chatEligible\(env, user\)\)\) return fail\("forbidden"/.test(c));
   const chatUse = /chat_use: \[([^\]]*)\]/.exec(src.perms)?.[1] ?? "";
   ok("chat_use is a matrix row that never holds a customer or an agent", chatUse && !/customer|agent/.test(chatUse) && /key: "chat_use"/.test(src.perms));
@@ -73,7 +73,7 @@ function checks(src) {
   ok("the browser keeps chat in memory only", !/localStorage|sessionStorage|indexedDB|caches\./.test(strip(src.client)));
   ok("chat is never queued offline", !/chat/.test(src.outbox.slice(src.outbox.indexOf("QUEUEABLE"), src.outbox.indexOf("];", src.outbox.indexOf("QUEUEABLE")))) && !/chat/.test(src.workerOutbox));
   ok("the screen drops each message at its expiry, and on the hub's word", /function purgeExpired\(\)/.test(src.client) && /case "expired":\n\s+dropIds/.test(src.client));
-  ok("the header icon is the only way in, never for an agent", /\{!isAgent && <ChatButton role=\{user\.role\} \/>\}/.test(src.shell) && /role !== "agent" && role !== "customer" && holds\("chat_use"/.test(src.panel));
+  ok("the header icon is the only way in, never for an agent", /\{!isAgent && <ChatButton role=\{user\.role\} \/>\}/.test(src.shell) && /const may = role !== "agent" && role !== "customer";/.test(src.panel));
   ok("the drawer is the shared SideDrawer, drawn on the page (not in the header)", /createPortal\(\n\s+<SideDrawer open=\{open\} onClose=\{\(\) => setOpen\(false\)\} form icon="chat"/.test(src.panel));
   ok("'Messages expire after 12 hours' is always on screen", /L\("Messages expire after 12 hours"/.test(src.panel) && /<Notice \/>/.test(src.panel));
   ok("no calls, no video, no emoji picker, no reactions", !/name="(video|phone|call)"|emoji|reaction/i.test(strip(src.panel)));
@@ -93,6 +93,7 @@ const MUT = [
   ["chat", "reading extends the life", "this.sql.exec(`UPDATE members SET last_read = MAX(last_read, ?) WHERE conv_id = ? AND user_id = ?`, upto, conv, uid);", "this.sql.exec(`UPDATE members SET last_read = MAX(last_read, ?) WHERE conv_id = ? AND user_id = ?`, upto, conv, uid); this.sql.exec(`UPDATE messages SET expires_at = expires_at + 3600000 WHERE conv_id = ?`, conv);"],
   ["chat", "the push carries the text", '"New message on A2Z Chat"', "text"],
   ["chat", "an agent may chat", 'user.role === "customer" || user.role === "agent" || user.requires_2fa', 'user.role === "customer" || user.requires_2fa'],
+  ["chat", "a custom role judged by its own (empty) cells again", 'return can(u.role, "chat_use") ? null : "off";', 'return allows(u as never, "chat_use") ? null : "off";'],
   ["chat", "a leaver may chat", 'WHERE u.id = ?1 AND u.is_active = 1 AND ${currentStaffSql("u.")}', "WHERE u.id = ?1 AND u.is_active = 1"],
   ["chat", "files go to MEDIA", "await bucket.put(key, bytes,", "await env.MEDIA.put(key, bytes,"],
   ["chat", "no signature check", "if (!signatureOk(type, bytes)) return", "if (false) return"],

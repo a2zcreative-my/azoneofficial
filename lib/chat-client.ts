@@ -33,7 +33,7 @@ export interface ChatConv {
   members: { id: number; last_read: number }[]; unread: number;
   last: { id: number; sender_id: number; preview: string; files: number; at: number; expires_at: number } | null;
 }
-export interface ChatPerson { id: number; name: string; role: string; position: string | null; photo_key: string | null; can_chat: boolean; online: boolean }
+export interface ChatPerson { id: number; name: string; role: string; position: string | null; photo_key: string | null; on_staff: boolean; can_chat: boolean; why: "role" | "no_2fa" | "off" | "left" | null; online: boolean }
 export type ChatStatus = "idle" | "connecting" | "live" | "offline" | "revoked" | "unavailable";
 
 interface State {

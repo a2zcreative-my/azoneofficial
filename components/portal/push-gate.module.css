@@ -1,8 +1,12 @@
 /* v1.362.0 - the push gate in the CEO's style (18-11-2026): the wordmark bar, one centred card with the
    gold bell tile and the gold corner arc, the gold action with an arrow, Sign out set apart at the foot.
    Tokens only. */
+/* v1.367.0 - the page is its own scroller, exactly the window's height: the document never grows past
+   the viewport (portal-provider's ui_overflow probe reported the card's foot at 789px in a 749px window) */
 .page {
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--secondary);
 }
 .bar {
@@ -36,7 +40,7 @@
 .wrap {
   display: flex;
   justify-content: center;
-  padding: clamp(1.5rem, 8vh, 6.5rem) 1rem 2rem;
+  padding: clamp(1rem, 6vh, 5rem) 1rem 2rem;
 }
 .card {
   position: relative;

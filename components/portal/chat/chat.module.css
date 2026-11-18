@@ -92,6 +92,8 @@
   min-height: 3.5rem;
 }
 .row:hover { background: var(--secondary); }
+.row:disabled { cursor: not-allowed; opacity: 0.6; background: transparent; }
+.row:disabled img { filter: grayscale(1); }
 .row[aria-current="true"], .row[aria-pressed="true"] { background: var(--tint-gold); box-shadow: inset 3px 0 0 var(--accent); }
 .row:focus-visible { outline: 2px solid var(--ring, var(--accent)); outline-offset: -2px; }
 .rowText { display: flex; flex-direction: column; gap: 0.125rem; flex: 1 1 auto; min-width: 0; }
@@ -107,6 +109,15 @@
 }
 .tick { color: var(--brand-accent-deep); font-weight: 700; }
 .on { color: var(--success); }
+.off { color: var(--muted-foreground); }
+/* the photo and its presence dot: green online, grey offline */
+.face { position: relative; display: inline-flex; flex: none; }
+.dot {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 0.75rem; height: 0.75rem; border-radius: var(--radius-full);
+  background: var(--muted-foreground); box-shadow: 0 0 0 2px var(--card);
+}
+.dotOn { background: var(--success); }
 .groupMark {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 2.75rem; height: 2.75rem; border-radius: var(--radius-full);
@@ -127,6 +138,15 @@
 .convTitle strong { font-size: var(--type-card-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .convTitle small { font-size: var(--type-caption-size); color: var(--muted-foreground); }
 .convTitle small.on { color: var(--success); }
+.off { color: var(--muted-foreground); }
+/* the photo and its presence dot: green online, grey offline */
+.face { position: relative; display: inline-flex; flex: none; }
+.dot {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 0.75rem; height: 0.75rem; border-radius: var(--radius-full);
+  background: var(--muted-foreground); box-shadow: 0 0 0 2px var(--card);
+}
+.dotOn { background: var(--success); }
 @media (min-width: 1024px) { .back { display: none; } }
 
 .msgs {

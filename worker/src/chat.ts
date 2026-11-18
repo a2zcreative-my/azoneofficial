@@ -28,7 +28,7 @@
    NOT THE OFFICIAL RECORD: nothing in chat feeds approvals, payments, payroll,
    HR or any other module, and no module reads chat. */
 import type { Env } from "./index";
-import { allows, needs2fa, setPermissionOverrides } from "./permissions";
+import { allows, can, isOwnKey, needs2fa, setPermissionOverrides } from "./permissions";
 import { currentStaffSql, pushToUser } from "./staff";
 
 export const CHAT_TTL_MS = 12 * 60 * 60 * 1000;
@@ -69,16 +69,23 @@ const fail = (code: string, message: string, status: number) => j({ error: { cod
 /* ------------------------------------------------------------------ */
 
 /** A role that may hold chat: never a customer or an agent, never somebody
-    who still owes the company a second factor, and the matrix says yes. */
-function roleMayChat(u: { id: number; role: string; custom_role?: string | null; is_owner?: boolean }, totpOn: boolean): boolean {
-  if (u.role === "customer" || u.role === "agent") return false;
-  if (!totpOn && needs2fa(u.role)) return false;
-  return allows({ ...u, custom_role: u.custom_role ?? undefined } as Parameters<typeof allows>[0], "chat_use");
+    who still owes the company a second factor. Then the matrix row chat_use of
+    the person's CODE role - for a custom role, its base role (a custom role
+    made before chat existed has no chat cell of its own, and leaving its
+    holders out was the CEO's "missing 1 staff", 18-11-2026); an own role
+    (Roles v2, no base role) that counts as staff may chat (the SQL already
+    keeps out an own role that does not count as staff). */
+function chatBlock(u: { role: string }, totpOn: boolean): "role" | "no_2fa" | "off" | null {
+  if (u.role === "customer" || u.role === "agent") return "role";
+  if (!totpOn && needs2fa(u.role)) return "no_2fa";
+  if (isOwnKey(u.role)) return null;
+  return can(u.role, "chat_use") ? null : "off";
 }
+function roleMayChat(u: { role: string }, totpOn: boolean): boolean { return chatBlock(u, totpOn) === null; }
 
 export async function chatEligible(env: Env, user: ChatUser | null): Promise<boolean> {
   if (!user || user.role === "customer" || user.role === "agent" || user.requires_2fa) return false;
-  if (!allows(user as Parameters<typeof allows>[0], "chat_use")) return false;
+  if (!roleMayChat(user, true)) return false;
   const row = await env.DB.prepare(
     `SELECT 1 AS ok FROM users u WHERE u.id = ?1 AND u.is_active = 1 AND ${currentStaffSql("u.")}
         AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)`,
@@ -212,9 +219,12 @@ export async function handleChat(
     const rows = await staffRows(env);
     const pres = await call(env, "presence", uid);
     const online = pres.ok ? new Set(((await pres.json()) as { online: number[] }).online) : new Set<number>();
+    /* every current staff member is listed; one who cannot chat yet says why
+       (no 2FA yet, or chat switched off for the role) instead of vanishing */
     return j({ me: uid, people: rows.map((r) => ({
       id: r.id, name: r.name, role: r.role, position: r.position, photo_key: r.photo_key,
-      can_chat: mayChat(r), online: mayChat(r) && online.has(r.id),
+      on_staff: r.here === 1, can_chat: mayChat(r), why: r.here === 1 ? chatBlock(r, r.totp === 1) : "left",
+      online: mayChat(r) && online.has(r.id),
     })) });
   }
 

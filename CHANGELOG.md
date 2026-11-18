@@ -10,6 +10,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.367.0] - 2026-11-18 - The push alert screen no longer overflows the window - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, System health): `ui_overflow` reported from the push alert screen ("Turn on alerts to continue") - the card's foot at 789px in a 749px window, the page taller than the window.
+
+### Fixed
+- **The push alert screen is its own scroller, exactly the window's height**, so the page itself never grows past the window (the portal's overflow probe watches for exactly that). A short window scrolls inside the screen. The top space above the card is a little smaller (at most 5rem). Nothing else on the screen changed. Checked at 1220x749, 1024x560 and 390x600, with alerts not yet allowed and blocked.
+
+### Guards
+- `tests/push-gate.mjs` +1 check, +1 mutation.
+
 ## [1.366.0] - 2026-11-18 - The company badge: A2Z soft gold, AZ ONE navy - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, a Payment History screenshot): colour the company badge beside invoice numbers - A2Z soft gold with dark gold text, AZ ONE navy with white text - at the same compact size, everywhere, changing nothing else.

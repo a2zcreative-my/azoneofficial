@@ -17,3 +17,7 @@ INSERT OR REPLACE INTO sessions (id,user_id,expires_at) VALUES ('790d4628221929c
 INSERT OR IGNORE INTO users (id,email,password_hash,name,role,is_active,totp_enabled,left_on,employment_status) VALUES (109,'izz@azoneofficial.com','x','Mohamad Izzudin','cco',1,1,NULL,'permanent');
 INSERT OR REPLACE INTO sessions (id,user_id,expires_at) VALUES ('41045b05b5559eca6bfd351b2f9060bebcb80256ae35b51b271ee02347fb0ff6',109,datetime('now','+2 days'));
 UPDATE users SET is_active = 1 WHERE id BETWEEN 101 AND 109;
+-- v1.364.0 fix: a custom role made before chat existed (its matrix cells have no chat_use)
+INSERT OR IGNORE INTO custom_roles (id, key, name, base_role, active) VALUES (901, 'cr_designer', 'Designer', 'editor', 1);
+INSERT OR IGNORE INTO users (id,email,password_hash,name,role,is_active,totp_enabled,employment_status,custom_role_id) VALUES (110,'nurul@azoneofficial.com','x','Nurul Fasehah','editor',1,1,'permanent',901);
+INSERT OR REPLACE INTO sessions (id,user_id,expires_at) VALUES ('ae315c6e6364c4c1dd68c66f549318d6f2b6eb7c0c16e4c3587adec970e419cd',110,datetime('now','+2 days'));

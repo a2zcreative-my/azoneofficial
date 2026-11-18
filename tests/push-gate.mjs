@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const FILES = { gate: "components/portal/push-gate.tsx", prov: "components/portal/portal-provider.tsx", shell: "components/portal/portal-shell.tsx" };
+const FILES = { gate: "components/portal/push-gate.tsx", prov: "components/portal/portal-provider.tsx", shell: "components/portal/portal-shell.tsx", css: "components/portal/push-gate.module.css" };
 const read = (f) => readFileSync(join(root, f), "utf8").replace(/\r\n/g, "\n");
 function run(src) {
   const out = [];
@@ -20,6 +20,8 @@ function run(src) {
   ok("the portal is behind the gate, after the 2FA screen", /const pushGate = usePushGate\(user && !user\.requires_2fa \? user\.role : null, onPushOn\);/.test(src.prov)
     && src.prov.indexOf("if (user.requires_2fa) {") < src.prov.indexOf('if (pushGate.state !== "ok" && pushGate.state !== "checking") {')
     && src.prov.indexOf('if (pushGate.state !== "ok" && pushGate.state !== "checking") {') < src.prov.indexOf("const activeTab: TabName"));
+  /* v1.367.0 - the CEO's System health: ui_overflow on the gate (the card's foot at 789px in a 749px window) */
+  ok("the gate never grows the document past the window (its page is the scroller)", /\.page \{[^}]*height: 100dvh;[^}]*overflow-y: auto;/.test(src.css) && !/\.page \{[^}]*min-height: 100dvh/.test(src.css));
   ok("staff cannot switch push off from the menu", /if \(pushRequiredFor\(user\?\.role\)\) \{[\s\S]{0,300}return;\s*\}\s*await disablePush\(\);/.test(src.shell));
   return out;
 }
@@ -34,6 +36,7 @@ const MUT = [
   ["gate", "never re-checked", 'document.addEventListener("visibilitychange", again);', ""],
   ["prov", "the portal not behind the gate", 'if (pushGate.state !== "ok" && pushGate.state !== "checking") {', 'if (false) {'],
   ["shell", "staff switch it off", "if (pushRequiredFor(user?.role)) {", "if (false) {"],
+  ["css", "the gate page grows with its content", "  height: 100dvh;\n  overflow-y: auto;", "  min-height: 100dvh;"],
 ];
 let caught = 0;
 if (process.env.NOMUT !== "1") for (const [k, name, from, to] of MUT) {
