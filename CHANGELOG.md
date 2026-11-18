@@ -10,6 +10,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.380.0] - 2026-11-18 - The Gmail staff are listed on the email-move card at once - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, his screenshot of the live card showing "Also move staff with a personal email (4)" unticked): "still cant see any gmail staff account!" Hiding them behind a tick-box read as missing.
+
+### Changed
+- **Staff with a personal email (Gmail and others) are always listed**, in their own section "Staff with a personal email - Gmail and others (N)" under the @azoneofficial.com staff, each marked "Personal email" with the suggested address. The tick-box is gone. They are still optional: never ticked for you, and **Select all ticks only the @azoneofficial.com staff**. The request still carries `include_personal` only when a personal-email person is ticked, and the server still refuses them without it.
+- The figures count everyone listed.
+
+### Guards
+- Browser `tests/browser/email-move.py` 31 checks (the section is visible at once; Select all skips it).
+
 ## [1.379.0] - 2026-11-18 - /admin -> Users: the super admin can change a staff login email (the CEO's included) - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, his screenshot of /admin -> Users): "for Admin, I didnt see any option for me to change CEO email. this is wrong!" The server always allowed it (CEO and super admin accounts are the super admin's, v1.238.0), but /admin had no button: the login email change lived only on the portal's Users page.

@@ -177,6 +177,7 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | /admin Phase 2 (1.349.0) | Overview and Users on the portal's pages; figures from existing reads only, every Users action on its old route. Guard `admin-super-only`, browser `admin-console.py`. |
 | /admin Phase 3 (1.351.0) | Security & Audit, My Account, Signatures on the portal's pages; each one KpiRow from existing reads; every save unchanged. Guard `admin-super-only`. |
 | /admin Phase 4 (1.352.0) | Six website tabs merged into Website Content; same requests, deletes confirm first. /admin is six tabs. Guard `admin-super-only`. |
+| Email move Gmail section (1.380.0) | No migration. Personal-email staff always listed in their own section; Select all skips them. Browser `email-move.py`. |
 | /admin login email (1.379.0) | No migration. /admin -> Users opens the portal's Sign-in & recovery sheet and the move card. Guard `staff-email-move`. |
 | Email move personal option (1.378.0) | No migration. The move card's opt-in lists Gmail/other-address staff; the server needs `include_personal`. Guard `staff-email-move`. |
 | Staff Accounts leavers last (1.377.0) | No migration. Users -> Staff Accounts: working, then disabled, then leavers (greyed), a stable partition after search/filter; nobody hidden. Guard `staff-leavers-last`. |

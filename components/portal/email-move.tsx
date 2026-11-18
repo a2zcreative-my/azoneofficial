@@ -16,7 +16,7 @@
    address keeps working. The server decides everything again
    (worker/src/staff.ts /accounts/email-move). */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { L, withStepUp } from "@/components/portal/page-shared";
 import { usePrompt } from "@/components/ui/prompt-dialog";
@@ -72,12 +72,13 @@ export function EmailMoveCard() {
   const rows = list?.rows ?? [];
   /* v1.378.0 - the CEO: personal-email staff (Gmail and others) are an OPTION - hidden until he ticks
      "Include", listed after the old-domain staff, never ticked for him */
-  const [withPersonal, setWithPersonal] = useState(false);
+  /* v1.380.0 - the CEO (18-11-2026): "still cant see any gmail staff account!" - they are always listed
+     now, in their own section under the old-domain staff; still never ticked for him */
   const isPersonal = (r: Row) => r.source === "personal";
   const personalCount = rows.filter((r) => r.state !== "moved" && isPersonal(r)).length;
-  const toMove = useMemo(() => rows.filter((r) => r.state !== "moved" && (withPersonal || !isPersonal(r))).sort((a, b) => Number(isPersonal(a)) - Number(isPersonal(b))), [rows, withPersonal]);
+  const toMove = useMemo(() => rows.filter((r) => r.state !== "moved").sort((a, b) => Number(isPersonal(a)) - Number(isPersonal(b))), [rows]);
   const moved = useMemo(() => rows.filter((r) => r.state === "moved"), [rows]);
-  const choosable = toMove.filter((r) => r.can);
+  const choosable = toMove.filter((r) => r.can && !isPersonal(r)); // v1.380.0 - Select all never ticks a personal-email person
   const addr = (r: Row) => (edits[r.id] ?? (r.pending_to ?? r.proposed)).trim().toLowerCase();
   const newDomain = list?.new_domain ?? "a2zcreative.my";
   const oldAt = list?.old_domain ? `@${list.old_domain}` : "@azoneofficial.com"; // v1.377.0 - an older engine answers without it
@@ -87,10 +88,7 @@ export function EmailMoveCard() {
   const toggleAll = () => setPicked(allOn ? new Set() : new Set(choosable.map((r) => r.id)));
   const items = () => toMove.filter((r) => picked.has(r.id)).map((r) => ({ user_id: r.id, new_email: addr(r), ...(resend.has(r.id) ? { resend: true } : {}) }));
   const personalPicked = (ids: number[]) => ids.some((id) => rows.some((r) => r.id === id && isPersonal(r)));
-  const togglePersonal = (on: boolean) => {
-    setWithPersonal(on);
-    if (!on) setPicked((s) => new Set([...s].filter((id) => !rows.some((r) => r.id === id && isPersonal(r)))));
-  };
+
 
   const review = async (only?: Row, again = false) => {
     setMsg(null); setDone(null);
@@ -129,7 +127,7 @@ export function EmailMoveCard() {
     </section>
   );
 
-  const shown = rows.filter((r) => withPersonal || !isPersonal(r)); // v1.378.0 - the figures follow the option
+  const shown = rows;
   const counts = { total: shown.length, moved: moved.length, sent: shown.filter((r) => r.state === "sent").length, waiting: shown.filter((r) => r.state !== "moved" && r.state !== "sent").length };
 
   return (
@@ -139,8 +137,8 @@ export function EmailMoveCard() {
         <div>
           <p className={css.h3}>{L(`Move staff to @${newDomain}`, `Pindahkan kakitangan ke @${newDomain}`)}</p>
           <p className={css.hint}>{L(
-            `Staff who sign in with ${oldAt}. Staff with a personal email (Gmail and others) are moved only if you include them below. Each person confirms from the new mailbox (link valid ${list?.ttl_hours ?? 72} hours); until then the old address keeps working.`,
-            `Kakitangan yang log masuk dengan ${oldAt}. Kakitangan dengan e-mel peribadi (Gmail dan lain-lain) dipindahkan hanya jika anda memasukkan mereka di bawah. Setiap orang mengesahkan dari peti mel baharu (pautan sah ${list?.ttl_hours ?? 72} jam); sehingga itu alamat lama masih berfungsi.`)}</p>
+            `Staff who sign in with ${oldAt}, and below them the staff with a personal email (Gmail and others) - moved only if you tick them. Each person confirms from the new mailbox (link valid ${list?.ttl_hours ?? 72} hours); until then the old address keeps working.`,
+            `Kakitangan yang log masuk dengan ${oldAt}, dan di bawahnya kakitangan dengan e-mel peribadi (Gmail dan lain-lain) - dipindahkan hanya jika anda menandakannya. Setiap orang mengesahkan dari peti mel baharu (pautan sah ${list?.ttl_hours ?? 72} jam); sehingga itu alamat lama masih berfungsi.`)}</p>
         </div>
         {list && (
           <p className={css.counts} data-testid="email-move-counts">
@@ -154,15 +152,6 @@ export function EmailMoveCard() {
       {done && <p className={css.done} data-testid="email-move-done"><AppIcon name="success" /> {done}</p>}
       {msg && !open && <p className={css.warn}>{msg}</p>}
 
-      {list && personalCount > 0 && (
-        <label className={css.optIn} data-testid="email-move-personal">
-          <input type="checkbox" className={css.check} checked={withPersonal} onChange={(e) => togglePersonal(e.target.checked)} />
-          <span>
-            <strong>{L(`Also move staff with a personal email (${personalCount})`, `Pindahkan juga kakitangan dengan e-mel peribadi (${personalCount})`)}</strong>
-            <span>{L("Optional. Gmail and other personal addresses. Each one needs a working @a2zcreative.my mailbox first - the link goes there. Check the suggested address.", "Pilihan. Gmail dan alamat peribadi lain. Setiap seorang memerlukan peti mel @a2zcreative.my yang berfungsi dahulu - pautan dihantar ke situ. Semak alamat cadangan.")}</span>
-          </span>
-        </label>
-      )}
       {!list ? <SkelRows rows={4} /> : toMove.length === 0 ? (
         <p className={css.empty}>{L(`Nobody signs in with ${oldAt} any more.`, `Tiada siapa lagi log masuk dengan ${oldAt}.`)}</p>
       ) : (
@@ -186,11 +175,19 @@ export function EmailMoveCard() {
                 </tr>
               </thead>
               <tbody>
-                {toMove.map((r) => {
+                {toMove.map((r, i) => {
                   const [chip, en, ms] = STATE_CHIP[r.state];
+                  const groupHead = isPersonal(r) && (i === 0 || !isPersonal(toMove[i - 1]!)) ? (
+                    <tr key={`g-${r.id}`} className={css.group} data-testid="email-move-personal">
+                      <td colSpan={5}>
+                        <strong>{L(`Staff with a personal email - Gmail and others (${personalCount})`, `Kakitangan dengan e-mel peribadi - Gmail dan lain-lain (${personalCount})`)}</strong>
+                        <span>{L("Optional: tick only the ones you want to move. Each needs a working @a2zcreative.my mailbox first - the link goes there. The new address is suggested from the name; check it.", "Pilihan: tandakan hanya yang anda mahu pindahkan. Setiap seorang memerlukan peti mel @a2zcreative.my yang berfungsi dahulu - pautan dihantar ke situ. Alamat baharu dicadangkan dari nama; semaknya.")}</span>
+                      </td>
+                    </tr>
+                  ) : null;
                   const bad = picked.has(r.id) && badAddr(r);
-                  return (
-                    <tr key={r.id} className={picked.has(r.id) ? css.on : undefined} data-testid={`email-move-row-${r.id}`}>
+                  return (<Fragment key={r.id}>{groupHead}
+                    <tr className={picked.has(r.id) ? css.on : undefined} data-testid={`email-move-row-${r.id}`}>
                       <td className={`${td} ${css.cCheck}`}><input type="checkbox" className={css.check} aria-label={r.name} checked={picked.has(r.id)} disabled={!r.can} onChange={() => toggle(r.id)} /></td>
                       <td className={td}>
                         <span className={css.whoText}>
@@ -218,7 +215,7 @@ export function EmailMoveCard() {
                           )}
                         </span>
                       </td>
-                    </tr>
+                    </tr></Fragment>
                   );
                 })}
               </tbody>
