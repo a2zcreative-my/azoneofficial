@@ -48,6 +48,8 @@ export interface ProjectRow {
   status: PStatus; title: string; description: string | null; start_date: string | null; due_date: string | null; notes: string | null;
   deliverables: string | null; scope_revision: number | null; scope_snapshot: string | null; activated_at: string | null; activated_by: number | null;
   activation_reason: string | null; completion_requested_at: string | null; completion_requested_by: number | null; completed_at: string | null;
+  /** v1.382.0 (0213) - the COO's or CCO's pre-verification of a staff request; undefined before 0213 */
+  completion_verified_at?: string | null; completion_verified_by?: number | null;
   completed_by: number | null; cancelled_at: string | null; cancelled_by: number | null; cancel_reason: string | null; version: number;
   created_by: number | null; created_at: string; updated_by: number | null; updated_at: string;
 }
@@ -93,7 +95,7 @@ export async function quotationState(env: Env, qt: QtRow): Promise<{ accepted: b
   return { accepted: !!acc, accepted_at: acc?.accepted_at ?? null, accepted_name: acc?.accepted_name ?? null, invoiced: !!invoice, invoice, expired, label };
 }
 
-export interface Access { view: boolean; manage: boolean; owner: boolean; assigned: boolean; ownerAssign: boolean; complete: boolean; prices: boolean; contact: boolean; mgmt: boolean }
+export interface Access { view: boolean; manage: boolean; owner: boolean; assigned: boolean; ownerAssign: boolean; complete: boolean; verify: boolean; prices: boolean; contact: boolean; mgmt: boolean }
 /** Who may do what on THIS project - the one place it is decided. */
 export async function projectAccess(env: Env, user: StaffUser, p: ProjectRow): Promise<Access> {
   const view = canUser(user, "project_view");
@@ -106,6 +108,7 @@ export async function projectAccess(env: Env, user: StaffUser, p: ProjectRow): P
     view, manage, owner, assigned: view && assigned, mgmt,
     ownerAssign: canUser(user, "project_owner_assign"),
     complete: canUser(user, "project_complete"),
+    verify: canUser(user, "project_verify"), // v1.382.0 - the COO / CCO pre-verify a staff request
     prices: view && (mgmt || owner || canUser(user, "sales")),
     contact: view && (mgmt || owner || assigned || canUser(user, "sales")),
   };
@@ -212,7 +215,7 @@ function scopeOf(lines: Line[], prices: boolean) {
   }));
 }
 
-async function managersOf(env: Env, cap: "project_manage" | "project_complete"): Promise<number[]> {
+async function managersOf(env: Env, cap: "project_manage" | "project_complete" | "project_verify"): Promise<number[]> {
   const roles = ["ceo", "coo", "cco"].filter((r) => can(r as StaffUser["role"], cap));
   if (!roles.length) return [];
   const rows = (await env.DB.prepare(
@@ -224,6 +227,96 @@ async function tell(env: Env, ids: (number | null | undefined)[], except: number
   for (const id of [...new Set(ids.filter((x): x is number => typeof x === "number" && x !== except))]) {
     try { await notify(env, id, "task", msg, `${ref}:${id}`, { once: true }); } catch { /* a bell never blocks the work */ }
   }
+}
+
+/* v1.382.0 - THE COMPLETION CHAIN (the CEO, 18-11-2026: "Prompt, CEO confirms, pre-verify by COO or CCO for
+   normal staff, if CEO completed without further, COO and CCO confirm by CEO").
+     a staff member (the Project Owner or another manager) asks  -> the COO or CCO pre-verifies -> the CEO confirms
+     the COO or CCO asks or verifies                             -> the CEO confirms
+     the CEO                                                     -> completes it at once
+   The client's acceptance of the delivered work stays required before the CEO's confirmation (TK-15).
+   Finishing tasks never completes a project by itself; it only says the project is ready. */
+export type CompletionState = {
+  stage: "none" | "requested" | "verified";
+  requested_at: string | null; requested_by: string | null; requested_by_exec: boolean;
+  verified_at: string | null; verified_by: string | null;
+  needs_verify: boolean;
+};
+const VERIFIER_ROLES = ["coo", "cco"];
+async function roleOf(env: Env, id: number | null | undefined): Promise<string | null> {
+  if (!id) return null;
+  return (await env.DB.prepare(`SELECT role FROM users WHERE id = ?1`).bind(id).first<{ role: string }>().catch(() => null))?.role ?? null;
+}
+export async function completionState(env: Env, p: ProjectRow): Promise<CompletionState> {
+  const reqRole = await roleOf(env, p.completion_requested_by);
+  const exec = !!reqRole && (VERIFIER_ROLES.includes(reqRole) || can(reqRole as StaffUser["role"], "project_complete"));
+  const verified = !!p.completion_verified_at;
+  const requested = !!p.completion_requested_at;
+  return {
+    stage: verified ? "verified" : requested ? "requested" : "none",
+    requested_at: p.completion_requested_at, requested_by: await nameOf(env, p.completion_requested_by), requested_by_exec: exec,
+    verified_at: p.completion_verified_at ?? null, verified_by: await nameOf(env, p.completion_verified_by ?? null),
+    needs_verify: requested && !verified && !exec,
+  };
+}
+export type NextStep = { key: "start" | "acceptance" | "request" | "verify" | "confirm" | "wait" | "none"; label: string; hint: string | null };
+/** The ONE next step this person sees on the project (the side panel and the project page draw it). */
+export function nextStepFor(p: ProjectRow, a: Access, tr: Transition[], accepted: boolean, comp: CompletionState, ready: boolean): NextStep {
+  if (p.status === "completed" || p.status === "cancelled") return { key: "none", label: "", hint: null };
+  if (p.status === "draft" || p.status === "ready") {
+    const start = tr.find((t) => t.to === "in_progress");
+    if (start && !start.blocked) return { key: "start", label: "Start the project", hint: start.needs_reason ? "The customer has not accepted on the link - give the reason" : null };
+    return { key: "wait", label: "", hint: start?.blocked ?? (a.manage ? null : "The Project Owner or management starts the project") };
+  }
+  const readyHint = ready ? "Every task is done - ready to complete." : null;
+  const acceptance: NextStep = { key: "acceptance", label: "Record client acceptance", hint: "The client's acceptance of the delivered work is needed before the CEO confirms" };
+  /* the CEO: the client's acceptance, then Confirm completed (with or without a request before it) */
+  if (a.complete) return !accepted ? (a.manage ? acceptance : { key: "wait", label: "", hint: "Waiting for the client's acceptance to be recorded" })
+    : { key: "confirm", label: "Confirm completed", hint: comp.stage === "verified" ? `Verified by ${comp.verified_by ?? "the COO/CCO"}` : comp.stage === "requested" ? `${comp.requested_by ?? "The owner"} says it is done` : readyHint };
+  /* the COO / CCO: verify a staff request (or send it to the CEO themselves); then record the acceptance if it is missing */
+  if (a.verify) {
+    if (comp.stage === "verified" || (comp.stage === "requested" && comp.requested_by_exec)) return !accepted && a.manage ? acceptance : { key: "wait", label: "", hint: "Waiting for the CEO to confirm" };
+    return { key: "verify", label: comp.stage === "requested" ? "Verify and send to the CEO" : "Send to the CEO to confirm", hint: comp.stage === "requested" ? `${comp.requested_by ?? "The owner"} says it is done` : readyHint };
+  }
+  /* the Project Owner or another manager: ask, then record the acceptance while the chain runs */
+  if (a.manage) {
+    if (comp.stage === "none") return { key: "request", label: "Request completion", hint: readyHint };
+    if (!accepted) return acceptance;
+    return { key: "wait", label: "", hint: comp.needs_verify ? "Waiting for the COO or CCO to verify" : "Waiting for the CEO to confirm" };
+  }
+  return { key: "wait", label: "", hint: null };
+}
+/** v1.382.0 - a project made by setting a task under an ACCEPTED or INVOICED quotation starts at once
+    (the CEO: "Yes, start it"), exactly as the Start project button and the status route activate it:
+    in progress, the agreed scope frozen. A quotation not yet accepted leaves it a Draft brief. */
+export async function startIfAccepted(env: Env, user: StaffUser, pid: number): Promise<boolean> {
+  const p = await loadProject(env, pid).catch(() => null);
+  if (!p || (p.status !== "draft" && p.status !== "ready")) return false;
+  const qt = await loadQt(env, p.quotation_id);
+  if (!qt) return false;
+  const st = await quotationState(env, qt);
+  if (!st.accepted && !st.invoiced) return false;
+  const r = await env.DB.prepare(
+    `UPDATE projects SET status = 'in_progress', scope_revision = ?1, scope_snapshot = ?2, activated_at = COALESCE(activated_at, datetime('now')), activated_by = COALESCE(activated_by, ?3), updated_by = ?3, updated_at = datetime('now'), version = version + 1 WHERE id = ?4 AND status IN ('draft', 'ready')`,
+  ).bind(Number(qt.revision ?? 0), scopeSnapshot(qt), user.id, pid).run();
+  if (!(r.meta?.changes ?? 0)) return false;
+  await audit(env, user.id, "project.status", "projects", String(pid), { from: p.status, to: "in_progress", activated: true, quotation: st.label, via: "task" });
+  return true;
+}
+/** v1.382.0 - after a project task closes or is cancelled: when every live task is done, tell the Owner and
+    whoever takes the next step that the project is ready to complete. It never completes the project. */
+export async function projectReadyCheck(env: Env, taskId: number, byUser: number): Promise<void> {
+  try {
+    const t = await env.DB.prepare(`SELECT link_kind, link_id FROM tasks WHERE id = ?1`).bind(taskId).first<{ link_kind: string | null; link_id: number | null }>();
+    if (!t || t.link_kind !== "project" || !t.link_id) return;
+    const p = await loadProject(env, t.link_id);
+    if (!p || !["in_progress", "waiting_client", "on_hold"].includes(p.status)) return;
+    const c = await env.DB.prepare(`SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS done FROM tasks WHERE link_kind = 'project' AND link_id = ?1 AND COALESCE(stage, '') != 'cancelled'`).bind(p.id).first<{ n: number; done: number | null }>();
+    if (!c || !c.n || Number(c.done ?? 0) < c.n) return;
+    const next = p.owner_id ? [p.owner_id] : [];
+    await tell(env, [...next, ...(await managersOf(env, "project_verify")), ...(await managersOf(env, "project_complete"))], byUser,
+      `🏁 Every task on ${p.title} is done - ready to complete (record the client's acceptance, then confirm)`, `proj:${p.id}:ready`);
+  } catch { /* a bell never blocks the work */ }
 }
 
 /* v1.315.0 (Tasks 5.0 Gate 4, TK-9/TK-15, 0202) - the deliverables as rows to
@@ -434,6 +527,9 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const progress = live.length ? Math.round(live.reduce((s, t) => s + (t.status === "completed" ? 100 : Number(t.progress ?? 0)), 0) / live.length) : 0;
     const fileCount = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM task_files WHERE project_id = ?1`).bind(p.id).first<{ n: number }>())?.n ?? 0;
     const revisedAfter = !!snap && Number(qt.revision ?? 0) !== Number(p.scope_revision ?? 0);
+    const comp = await completionState(env, p);
+    const accs = await acceptancesOf(env, p.id);
+    const ready = live.length > 0 && live.every((t) => t.status === "completed");
     return json({
       project: {
         id: p.id, title: p.title, description: p.description, status: p.status, start_date: p.start_date, due_date: p.due_date,
@@ -444,7 +540,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
         owner: p.owner_id ? { id: p.owner_id, name: await nameOf(env, p.owner_id), set_at: p.owner_set_at, set_by: await nameOf(env, p.owner_set_by) } : null,
         progress,
         deliverable_rows: await deliverableRows(env, p.id),
-        acceptances: await acceptancesOf(env, p.id),
+        acceptances: accs,
       },
       quotation: {
         id: qt.id, doc_number: qt.doc_number, state: st, created_at: qt.created_at, valid_until: qt.valid_until, revision: Number(qt.revision ?? 0),
@@ -464,6 +560,10 @@ async function route(env: Env, path: string, method: string, body: Record<string
         is_owner: a.owner, is_assigned: a.assigned, manage: a.manage,
       },
       transitions: transitionsFor(p.status, a, st),
+      /* v1.382.0 - the completion chain and the ONE next step for this person */
+      completion: comp,
+      next: nextStepFor(p, a, transitionsFor(p.status, a, st), (accs ?? [1]).length > 0, comp, ready),
+      ready_to_complete: ready,
     });
   }
 
@@ -571,6 +671,50 @@ async function route(env: Env, path: string, method: string, body: Record<string
     return json({ ok: true }, 201);
   }
 
+  /* v1.382.0 - the completion chain: request (the owner / a manager), verify (the COO or CCO), return (back
+     to work, with the reason). The final step is the CEO's POST /status { to: "completed" }. */
+  if (sub === "/completion" && method === "POST") {
+    const action = typeof body?.action === "string" ? body.action : "";
+    if (!["in_progress", "waiting_client", "on_hold"].includes(p.status)) return err("invalid_state", "Only a project in delivery can be put up for completion", 409);
+    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+    const ceos = async () => managersOf(env, "project_complete");
+    try {
+      if (action === "request") {
+        if (!a.manage) return err("forbidden", "Only the Project Owner or management asks for completion", 403);
+        if (p.completion_requested_at) return json({ ok: true, existing: true });
+        const self = a.verify; // a COO or CCO asking is already verified: it goes to the CEO
+        const r = await env.DB.prepare(`UPDATE projects SET completion_requested_at = datetime('now'), completion_requested_by = ?1${self ? ", completion_verified_at = datetime('now'), completion_verified_by = ?1" : ""} WHERE id = ?2 AND completion_requested_at IS NULL`).bind(user.id, p.id).run();
+        if (!(r.meta?.changes ?? 0)) return json({ ok: true, existing: true });
+        await audit(env, user.id, "project.completion_requested", "projects", String(p.id), { ...(self ? { verified: true } : {}), ...(reason ? { note: reason } : {}) });
+        await tell(env, self ? await ceos() : [...(await managersOf(env, "project_verify"))], user.id,
+          self ? `🏁 ${user.name} asks you to confirm ${p.title} completed` : `🏁 ${user.name} says ${p.title} is done - please verify`, `proj:${p.id}:completion:${self ? "ceo" : "verify"}`);
+        return json({ ok: true, stage: self ? "verified" : "requested" });
+      }
+      if (action === "verify") {
+        if (!a.verify) return err("forbidden", "The COO or CCO verifies a completion before the CEO confirms it", 403);
+        if (p.completion_verified_at) return json({ ok: true, existing: true });
+        const r = await env.DB.prepare(`UPDATE projects SET completion_requested_at = COALESCE(completion_requested_at, datetime('now')), completion_requested_by = COALESCE(completion_requested_by, ?1), completion_verified_at = datetime('now'), completion_verified_by = ?1 WHERE id = ?2 AND completion_verified_at IS NULL`).bind(user.id, p.id).run();
+        if (!(r.meta?.changes ?? 0)) return json({ ok: true, existing: true });
+        await audit(env, user.id, "project.completion_verified", "projects", String(p.id), reason ? { note: reason } : {});
+        await tell(env, await ceos(), user.id, `✔ ${user.name} verified ${p.title} - please confirm it completed`, `proj:${p.id}:completion:ceo`);
+        return json({ ok: true, stage: "verified" });
+      }
+      if (action === "return") {
+        if (!a.verify && !a.complete) return err("forbidden", "The COO, CCO or CEO send a completion back", 403);
+        if (!p.completion_requested_at) return err("invalid_state", "Nobody has asked for completion", 409);
+        if (reason.length < 10) return err("invalid_input", "Say what is still needed (at least 10 characters)", 400);
+        await env.DB.prepare(`UPDATE projects SET completion_requested_at = NULL, completion_requested_by = NULL, completion_verified_at = NULL, completion_verified_by = NULL WHERE id = ?1`).bind(p.id).run();
+        await audit(env, user.id, "project.completion_returned", "projects", String(p.id), { reason });
+        await tell(env, [p.completion_requested_by, p.owner_id], user.id, `↩ ${p.title} is not complete yet: ${reason.slice(0, 160)}`, `proj:${p.id}:completion:returned:${Date.now()}`);
+        return json({ ok: true, stage: "none" });
+      }
+    } catch (e) {
+      if (/no such column/i.test(String(e))) return err("pending_migration", "Run PUSH.bat so migration 0213 applies, then retry", 409);
+      throw e;
+    }
+    return err("invalid_input", "action must be request, verify or return", 400);
+  }
+
   if (sub === "/status" && method === "POST") {
     const to = typeof body?.to === "string" ? body.to as PStatus : null;
     if (!to || !(PROJECT_STATUSES as readonly string[]).includes(to)) return err("invalid_input", "to must be a project status", 400);
@@ -580,7 +724,7 @@ async function route(env: Env, path: string, method: string, body: Record<string
     const st = await quotationState(env, qt);
     const t = transitionsFor(p.status, a, st).find((x) => x.to === to);
     if (!t) {
-      if (to === "completed" && !a.complete) return err("forbidden", "Completed is confirmed by the CEO or COO - the owner requests it with a progress update", 403);
+      if (to === "completed" && !a.complete) return err("forbidden", "Completed is confirmed by the CEO - the owner asks for it (Request completion) and the COO or CCO verifies", 403);
       if (!a.manage) return err("forbidden", "Only the Project Owner or the CEO, COO or CCO change the project status", 403);
       return err("invalid_transition", `A ${p.status.replace("_", " ")} project cannot move to ${to.replace("_", " ")}`, 409);
     }
@@ -661,7 +805,8 @@ async function route(env: Env, path: string, method: string, body: Record<string
       await env.DB.prepare(`UPDATE projects SET completion_requested_at = datetime('now'), completion_requested_by = ?1 WHERE id = ?2 AND completion_requested_at IS NULL`).bind(user.id, p.id).run();
     }
     const who = user.name;
-    if (kind === "done_request") await tell(env, [p.owner_id, ...(await managersOf(env, "project_complete"))], user.id, `🏁 ${who} says the project is done: ${p.title}`, `proj:${p.id}:u:${row.id}`);
+    /* v1.382.0 - a staff member's "done" goes to the COO / CCO to verify; the CEO confirms after them */
+    if (kind === "done_request") await tell(env, [p.owner_id, ...(await managersOf(env, a.verify || a.complete ? "project_complete" : "project_verify"))], user.id, `🏁 ${who} says the project is done: ${p.title}`, `proj:${p.id}:u:${row.id}`);
     else if (kind === "assist_request") await tell(env, [p.owner_id, ...(p.owner_id ? [] : await managersOf(env, "project_manage"))], user.id, `🙋 ${who} asks to help on ${p.title}: ${text.slice(0, 120)}`, `proj:${p.id}:u:${row.id}`);
     else await tell(env, [p.owner_id], user.id, `📝 ${who} updated ${p.title}: ${text.slice(0, 120)}`, `proj:${p.id}:u:${row.id}`);
     return json({ id: row.id, existing: false }, 201);

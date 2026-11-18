@@ -337,7 +337,7 @@ async function runtime(workerBundle) {
     const LT = lt.j?.id ?? 999999;
     const lp = db.prepare(`SELECT id, owner_id, status FROM projects WHERE quotation_id = 102`).get();
     const ltd = (await call(`/staff/tasks/${LT}`, U.lia)).j?.task;
-    ok(lt.status === 201 && lp && lp.owner_id === null && lp.status === "draft" && ltd?.link?.kind === "project" && ltd?.link?.project_id === lp.id && ltd?.link?.quotation === "QT-2026-0019", "Q3 a salesperson's task under their own quotation creates its project (draft, Owner still to be chosen - P-2) and joins it", `${lt.text.slice(0, 120)} ${JSON.stringify(lp)}`);
+    ok(lt.status === 201 && lp && lp.owner_id === null && lp.status === "in_progress" /* v1.382.0 - accepted: the task starts it */ && ltd?.link?.kind === "project" && ltd?.link?.project_id === lp.id && ltd?.link?.quotation === "QT-2026-0019", "Q3 a salesperson's task under their own (accepted) quotation creates its project and starts it (v1.382.0; Owner still to be chosen - P-2) and joins it", `${lt.text.slice(0, 120)} ${JSON.stringify(lp)}`);
     ok(lastAudit("project.create").quotation_id === 102 && ((await call("/staff/projects?scope=assigned", U.lia)).j?.projects ?? []).some((p) => p.id === lp?.id) && (await call(`/staff/projects/by-quotation/102`, U.ceo)).j?.project?.id === lp?.id, "Q3 the project is audited, under the salesperson's Projects (I'm on), and on the quotation page");
     ok((await call("/staff/tasks", U.aina, "POST", { title: "Not my project", quotation_id: 102 })).status === 403, "Q3 a colleague who is not the quotation's salesperson cannot set tasks under it");
     const ct = await call("/staff/tasks", U.ceo, "POST", { title: "Approve the storyboard", assigned_to: U.lia, quotation_id: 102 });

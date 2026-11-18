@@ -893,7 +893,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       return true;
     };
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
-      (x) => x.role !== "customer" && x.role !== "super_admin" && inMonth(x),
+      (x) => x.role !== "customer" && x.role !== "super_admin" && !(x as { not_staff?: number }).not_staff /* v1.384.0 - a test account */ && inMonth(x),
     );
     /* v1.148.0 - this used to be a SECOND, hand-written role order living
        here: it put admin AFTER hr_admin and sales_marketing, the opposite of
@@ -1361,20 +1361,43 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
           <section className={card} aria-label={L("Payroll timeline", "Garis masa gaji")}>
             {head("orders", pp.blueWell, L("Payroll Timeline", "Garis Masa Gaji"), L("Where this month's run stands", "Kedudukan larian bulan ini"))}
             {/* v1.252.0 - the shared StageTimeline (Leave draws the same one) */}
-            <StageTimeline label={L("Payroll timeline", "Garis masa gaji")} stages={[
-                { t: L("Calculate payroll", "Kira gaji"), s: L("Basic, allowance, OT and deductions", "Pokok, elaun, OT dan potongan"),
-                  done: loaded && savedCount === staff.length && dirtyCount === 0,
-                  note: loaded ? L(`${savedCount} of ${staff.length} saved`, `${savedCount} daripada ${staff.length} disimpan`) : "" },
-                { t: L("Review & adjust", "Semak & laras"), s: L("Attendance, leave and adjustments", "Kehadiran, cuti dan pelarasan"),
-                  done: loaded && noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount === 0,
-                  note: loaded ? (noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount === 0 ? L("Nothing to review", "Tiada untuk disemak") : L("Needs review", "Perlu disemak")) : "" },
-                { t: L("Generate payslips", "Jana slip gaji"), s: L("Preview and send as PDF", "Pratonton dan hantar sebagai PDF"),
-                  done: loaded && savedCount === staff.length && dirtyCount === 0,
-                  note: loaded && savedCount === staff.length && dirtyCount === 0 ? L("Ready", "Sedia") : L("After every row is saved", "Selepas setiap baris disimpan") },
-                { t: L("Release to staff", "Keluarkan kepada kakitangan"), s: L("Payslips available in the staff portal", "Slip gaji tersedia dalam portal kakitangan"),
-                  done: !!release?.released,
-                  note: release?.released ? L("Released", "Dikeluarkan") : releaseAt },
-              ].map((st) => ({ key: st.t, title: st.t, sub: st.s, state: st.done ? "done" as const : "todo" as const, aside: st.note }))} />
+            {/* v1.384.0 - THE LIVE SCHEDULE (the CEO, 18-11-2026): Calculate payroll and Review & adjust on the 1st of
+                the next month (the month-end count); Generate payslips and Release to staff on the 5th, or the
+                working day BEFORE it when the 5th is a weekend or a public holiday (the worker's
+                payslipAvailableFromFor). Each stage says its date and whether it is done, due now, coming or late. */}
+            {(() => {
+              const nowMYT = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+              const today = nowMYT.slice(0, 10);
+              const [yy, mm] = month.split("-").map(Number);
+              const first = new Date(Date.UTC(yy!, mm!, 1)).toISOString().slice(0, 10); // the 1st of the next month
+              const relDay = release?.available_from?.slice(0, 10) ?? "";
+              const calcDone = loaded && savedCount === staff.length && dirtyCount === 0;
+              const reviewOpen = noClockDays + shortDays + waitingOnLeave + datesWrong.length + offBase.length + dirtyCount;
+              const reviewDone = loaded && reviewOpen === 0;
+              const released = !!release?.released || (!!release && nowMYT >= release.available_from);
+              const when = (day: string, done: boolean, doneWord: string): { state: "done" | "now" | "todo"; aside: string } => {
+                if (done) return { state: "done", aside: doneWord };
+                if (!day) return { state: "todo", aside: "" };
+                if (today < first) return { state: "todo", aside: day === first ? L(`From ${dmy(day)}`, `Dari ${dmy(day)}`) : L(`On ${dmy(day)}`, `Pada ${dmy(day)}`) }; // the month is not over yet
+                if (relDay && today > relDay) return { state: "now", aside: L(`Late - was due ${dmy(relDay)}`, `Lewat - perlu pada ${dmy(relDay)}`) };
+                if (today >= first) return { state: "now", aside: L(`Due by ${dmy(relDay || day)}`, `Perlu sebelum ${dmy(relDay || day)}`) };
+                return { state: "todo", aside: L(`On ${dmy(day)}`, `Pada ${dmy(day)}`) };
+              };
+              const calc = when(first, calcDone, L(`${savedCount} of ${staff.length} saved`, `${savedCount} daripada ${staff.length} disimpan`));
+              const rev = when(first, reviewDone && calcDone, L("Nothing to review", "Tiada untuk disemak"));
+              if (rev.state === "now" && loaded && reviewOpen > 0) rev.aside = `${rev.aside} · ${L("needs review", "perlu disemak")}`;
+              const gen = when(relDay, calcDone && reviewDone && (today >= first), L("Ready", "Sedia"));
+              const rel = released ? { state: "done" as const, aside: L(`Released ${release?.released ? dmy(release.released.released_at.slice(0, 10)) : dmy(relDay)}`, `Dikeluarkan ${release?.released ? dmy(release.released.released_at.slice(0, 10)) : dmy(relDay)}`) }
+                : { state: (relDay && today >= relDay ? "now" : "todo") as "now" | "todo", aside: releaseAt };
+              return (
+                <StageTimeline label={L("Payroll timeline", "Garis masa gaji")} stages={[
+                  { key: "calc", title: L("Calculate payroll", "Kira gaji"), sub: L("Basic, allowance, OT and deductions - the month-end count on the 1st", "Pokok, elaun, OT dan potongan - kiraan hujung bulan pada 1hb"), ...calc },
+                  { key: "review", title: L("Review & adjust", "Semak & laras"), sub: L("Attendance, leave and adjustments - from the 1st", "Kehadiran, cuti dan pelarasan - dari 1hb"), ...rev },
+                  { key: "generate", title: L("Generate payslips", "Jana slip gaji"), sub: L("Preview and send as PDF - on the payslip day", "Pratonton dan hantar sebagai PDF - pada hari slip gaji"), ...gen },
+                  { key: "release", title: L("Release to staff", "Keluarkan kepada kakitangan"), sub: L("Payslips available in the staff portal · the 5th, or the working day before a weekend or public holiday", "Slip gaji tersedia dalam portal kakitangan · 5hb, atau hari bekerja sebelum hujung minggu atau cuti umum"), ...rel },
+                ]} />
+              );
+            })()}
           </section>
         </div>
 

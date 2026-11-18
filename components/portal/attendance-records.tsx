@@ -20,9 +20,12 @@
    Export: this day as CSV, and the month's punches for Payroll (the
    existing /attendance/export, payroll_export). Nothing here writes. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { L } from "@/components/portal/page-shared";
-import { AppIcon } from "@/components/ui/app-icon";
+import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
+import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
+import { FilterField, FilterPopover } from "@/components/ui/filter-popover";
+import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
@@ -35,74 +38,126 @@ import { TodayRows } from "./attendance-overview";
 import { STATUS, StatusChip, addDays, dayLabel, hhmm, hm, leaveWord, locText, mytHm, type DayRegister, type DayStatus, type PersonDay } from "./attendance-shared";
 import css from "./attendance4.module.css";
 
-const LEGEND: [string, string, DayStatus[]][] = [
-  ["Present", "Hadir", ["present", "on_shift"]], ["Late", "Lewat", ["late"]], ["Missing clock-in", "Tiada daftar masuk", ["not_in", "absent", "pending"]],
-  ["Missing clock-out", "Tiada daftar keluar", ["missing_out"]], ["On leave", "Bercuti", ["leave"]], ["Off day", "Hari cuti", ["rest_day", "holiday"]],
+/* the six figures of the day (the reference's KPI strip) - each is the filter it names.
+   Day statuses for ONE day, from THE verdict; never a month's punch count. */
+const LEGEND: [string, string, DayStatus[], AppIconName, KpiTone][] = [
+  ["Present", "Hadir", ["present", "on_shift"], "users", "green"], ["Late", "Lewat", ["late"], "time", "gold"],
+  ["Missing clock-in", "Tiada daftar masuk", ["not_in", "absent", "pending"], "warning", "red"],
+  ["Missing clock-out", "Tiada daftar keluar", ["missing_out"], "alert", "red"], ["On leave", "Bercuti", ["leave"], "date", "blue"],
+  ["Off day", "Hari cuti", ["rest_day", "holiday"], "holiday", "navy"],
 ];
-const PAGE = 10;
 
-export function AttendanceRecords({ canExport, openPerson, day, setDay }: { canExport: boolean; openPerson: (id: number, day: string) => void; day: string; setDay: (d: string) => void }) {
+/* 18-11-2026 - TEAM ATTENDANCE REPORT (the CEO's approved reference): one card - the title, ONE
+   connected KPI strip, one toolbar (day, team, staff, search, Export), the register 10 a page with
+   page-size control, and View for a person's day. The same request (/staff/attendance/day), the
+   same filters, the same CSV and the same payroll export as the day register it replaces; the
+   month's punch log moved behind "Month punch log" (a drawer) instead of a long table under it. */
+export function AttendanceRecords({ canExport, openPerson, day, setDay, monthLog }: { canExport: boolean; openPerson: (id: number, day: string) => void; day: string; setDay: (d: string) => void; monthLog?: ReactNode }) {
   const reg = useCachedApi<DayRegister>(`/staff/attendance/day?date=${day}`, true, ["attendance"]);
   const staff = reg.data?.staff ?? [];
   const [team, setTeam] = useState("");
   const [who, setWho] = useState("");
   const [q, setQ] = useState("");
   const [leg, setLeg] = useState<number | null>(null);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState<PageSize>(10);
+  const [menu, setMenu] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const teams = [...new Set(staff.map((p) => p.department || p.position || "").filter(Boolean))].sort();
   const needle = q.trim().toLowerCase();
   const rows = staff.filter((p) => (!team || (p.department || p.position) === team) && (!who || String(p.id) === who)
     && (!needle || `${p.name} ${p.position ?? ""}`.toLowerCase().includes(needle)) && (leg === null || LEGEND[leg]![2].includes(p.verdict.status)));
-  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
-  const shown = rows.slice(page * PAGE, page * PAGE + PAGE);
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const cur = Math.min(page, pages);
+  const shown = rows.slice((cur - 1) * size, cur * size);
   const today = mytToday();
+  /* Escape or a press elsewhere closes the export menu */
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: Event) => { if (e instanceof KeyboardEvent ? e.key === "Escape" : !(e.target as Element | null)?.closest?.("[data-export-menu]")) setMenu(false); };
+    document.addEventListener("keydown", close); document.addEventListener("pointerdown", close);
+    return () => { document.removeEventListener("keydown", close); document.removeEventListener("pointerdown", close); };
+  }, [menu]);
   const exportDay = () => downloadCsv(`attendance-${day}.csv`, [
     ["Date", "Staff", "Position", "Department", "Scheduled shift", "Clock in", "Clock out", "Hours", "Status", "Late (min)"],
     ...rows.map((p) => [day, p.name, p.position ?? "", p.department ?? "", p.shift_label ?? "", mytHm(p.first_in), mytHm(p.last_out), (p.worked_minutes / 60).toFixed(2), p.verdict.status === "leave" ? leaveWord(p.leave_type) : STATUS[p.verdict.status][0], p.verdict.lateMinutes || ""]),
   ]);
+  const reset = () => setPage(1);
+  const teamSel = (
+    <select className={selectClassSm} value={team} onChange={(e) => { setTeam(e.target.value); reset(); }} aria-label={L("Team / Department", "Pasukan / Jabatan")}>
+      <option value="">{L("All teams", "Semua pasukan")}</option>{teams.map((t) => <option key={t} value={t}>{t}</option>)}
+    </select>
+  );
+  const whoSel = (
+    <select className={selectClassSm} value={who} onChange={(e) => { setWho(e.target.value); reset(); }} aria-label={L("Staff", "Kakitangan")}>
+      <option value="">{L("All staff", "Semua kakitangan")}</option>{staff.map((p) => <option key={p.id} value={p.id}>{properName(p.name)}</option>)}
+    </select>
+  );
   return (
-    <section className={card} aria-label={L("Attendance records", "Rekod kehadiran")} data-testid="att-records">
-      <div className={css.head}>
-        <div className={css.headText}>
-          <p className={css.title}>{L("Attendance Records", "Rekod Kehadiran")}</p>
-          <p className={css.sub}>{L("Daily attendance, working hours and verification for all staff - each against their own published shift.", "Kehadiran harian, jam bekerja dan pengesahan untuk semua kakitangan - berbanding syif masing-masing.")}</p>
-        </div>
-        <span className={css.introRight}>
-          <button type="button" className={btnSm} onClick={exportDay} data-testid="att-export-day"><AppIcon name="download" />{L("Export day (CSV)", "Eksport hari (CSV)")}</button>
-          {canExport && <a className={btnSm} href={`/api/v1/staff/attendance/export?month=${day.slice(0, 7)}`}><AppIcon name="download" />{L("Month for Payroll", "Bulan untuk Gaji")}</a>}
+    <section className={card} aria-label={L("Team attendance report", "Laporan kehadiran pasukan")} data-testid="att-records">
+      <div className={css.headText}>
+        <p className={`${css.title} ${css.repTitle}`}>{L("Team Attendance Report", "Laporan Kehadiran Pasukan")}</p>
+        <p className={css.sub}>{L("Summary of team attendance for the selected day. View details to see full punch history and verification.", "Ringkasan kehadiran pasukan bagi hari dipilih. Lihat butiran untuk sejarah ketukan penuh dan pengesahan.")}</p>
+      </div>
+      <div className={css.repStrip}>
+        <KpiRow label={L("The day's attendance", "Kehadiran hari ini")} testid="att-figures">
+          {LEGEND.map(([en, ms, ks, icon, tone], i) => (
+            <KpiTile key={en} icon={icon} tone={tone} label={L(en, ms)} value={staff.filter((p) => ks.includes(p.verdict.status)).length} busy={reg.loading && !reg.data}
+              onClick={() => { setLeg(leg === i ? null : i); reset(); }} pressed={leg === i} cell={`att-${i}`} testid="att-legend" />
+          ))}
+        </KpiRow>
+      </div>
+      <div className={css.repBar}>
+        <span className={css.repDay}>
+          <button type="button" className={btnSm} onClick={() => { setDay(addDays(day, -1)); reset(); }} aria-label={L("Previous day", "Hari sebelum")}><AppIcon name="previous" /></button>
+          <input type="date" className={inputClassSm} value={day} max={today} onChange={(e) => { if (e.target.value) { setDay(e.target.value); reset(); } }} aria-label={L("Date", "Tarikh")} data-testid="att-date" />
+          <button type="button" className={btnSm} disabled={day >= today} onClick={() => { setDay(addDays(day, 1)); reset(); }} aria-label={L("Next day", "Hari seterusnya")}><AppIcon name="next" /></button>
+        </span>
+        <span className={`erp-desktop-only ${css.repSel}`}>{teamSel}</span>
+        <span className={`erp-desktop-only ${css.repSelWide}`}>{whoSel}</span>
+        <label className={css.repSearch}>
+          <AppIcon name="search" />
+          <input type="search" className={inputClassSm} value={q} onChange={(e) => { setQ(e.target.value); reset(); }} placeholder={L("Search staff or position…", "Cari kakitangan atau jawatan…")} aria-label={L("Search", "Cari")} />
+        </label>
+        {/* a phone keeps the team and staff picks behind one Filters button (the shared panel) */}
+        <span className={`erp-phone-only ${css.repFilters}`}>
+          <FilterPopover count={(team ? 1 : 0) + (who ? 1 : 0)} onClear={() => { setTeam(""); setWho(""); reset(); }} testid="att-filters">
+            <FilterField label={L("Team", "Pasukan")}>{teamSel}</FilterField>
+            <FilterField label={L("Staff", "Kakitangan")}>{whoSel}</FilterField>
+          </FilterPopover>
+        </span>
+        <span className={css.repRule} aria-hidden="true" />
+        <span className={css.repExport} data-export-menu="">
+          {canExport ? (
+            <>
+              <button type="button" className={btnSm} aria-expanded={menu} aria-haspopup="menu" onClick={() => setMenu((v) => !v)} data-testid="att-export"><AppIcon name="download" />{L("Export (CSV)", "Eksport (CSV)")}</button>
+              {menu && (
+                <div className={`erp-menu ${css.repMenu}`} role="menu">
+                  <button type="button" role="menuitem" onClick={() => { exportDay(); setMenu(false); }} data-testid="att-export-day">{L("This day (CSV)", "Hari ini (CSV)")}</button>
+                  <a role="menuitem" href={`/api/v1/staff/attendance/export?month=${day.slice(0, 7)}`} onClick={() => setMenu(false)}>{L("Month for Payroll", "Bulan untuk Gaji")}</a>
+                </div>
+              )}
+            </>
+          ) : (
+            <button type="button" className={btnSm} onClick={exportDay} data-testid="att-export-day"><AppIcon name="download" />{L("Export (CSV)", "Eksport (CSV)")}</button>
+          )}
         </span>
       </div>
-      <div className={css.filters}>
-        <span className={css.introRight}>
-          <button type="button" className={btnSm} onClick={() => { setDay(addDays(day, -1)); setPage(0); }} aria-label={L("Previous day", "Hari sebelum")}><AppIcon name="previous" /></button>
-          <input type="date" className={inputClassSm} value={day} max={today} onChange={(e) => { if (e.target.value) { setDay(e.target.value); setPage(0); } }} aria-label={L("Date", "Tarikh")} data-testid="att-date" />
-          <button type="button" className={btnSm} disabled={day >= today} onClick={() => { setDay(addDays(day, 1)); setPage(0); }} aria-label={L("Next day", "Hari seterusnya")}><AppIcon name="next" /></button>
-        </span>
-        <select className={selectClassSm} value={team} onChange={(e) => { setTeam(e.target.value); setPage(0); }} aria-label={L("Team / Department", "Pasukan / Jabatan")}>
-          <option value="">{L("All teams", "Semua pasukan")}</option>{teams.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select className={selectClassSm} value={who} onChange={(e) => { setWho(e.target.value); setPage(0); }} aria-label={L("Staff", "Kakitangan")}>
-          <option value="">{L("All staff", "Semua kakitangan")}</option>{staff.map((p) => <option key={p.id} value={p.id}>{properName(p.name)}</option>)}
-        </select>
-        <input type="search" className={`${inputClassSm} ${css.wide}`} value={q} onChange={(e) => { setQ(e.target.value); setPage(0); }} placeholder={L("Search staff or position…", "Cari kakitangan atau jawatan…")} aria-label={L("Search", "Cari")} />
+      {reg.loading && !reg.data ? <SkelRows rows={6} /> : <TodayRows rows={shown} offset={(cur - 1) * size} compact shiftHead={L("Shift", "Syif")} openPerson={(id) => openPerson(id, day)} />}
+      <div className={css.repFoot}>
+        <p className={css.repInfo}>
+          <AppIcon name="info" />
+          <span>{L("Click View to see detailed punch history, verification and location logs for the staff.", "Klik Lihat untuk sejarah ketukan, pengesahan dan log lokasi kakitangan.")}
+            {" "}{dayLabel(day)}{reg.data ? L(` · late after start + ${reg.data.grace_minutes} min`, ` · lewat selepas mula + ${reg.data.grace_minutes} min`) : ""}</span>
+          {monthLog && <button type="button" className={css.repLink} onClick={() => setLogOpen(true)} data-testid="att-month-log">{L("Month punch log", "Log ketukan bulanan")}</button>}
+        </p>
+        <PaginationControls page={cur} total={rows.length} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} label={L("Team attendance report pages", "Halaman laporan kehadiran pasukan")} testid="att-pages" />
       </div>
-      <div className={css.legend} role="group" aria-label={L("Status", "Status")}>
-        {LEGEND.map(([en, ms, ks], i) => (
-          <button key={en} type="button" aria-pressed={leg === i} onClick={() => { setLeg(leg === i ? null : i); setPage(0); }} data-testid="att-legend">
-            {L(en, ms)} <span className={css.muted}>{staff.filter((p) => ks.includes(p.verdict.status)).length}</span>
-          </button>
-        ))}
-      </div>
-      <p className={`${css.sub} ${css.dayNote}`}>{dayLabel(day)}{reg.data ? L(` · late after start + ${reg.data.grace_minutes} min`, ` · lewat selepas mula + ${reg.data.grace_minutes} min`) : ""}</p>
-      {reg.loading && !reg.data ? <SkelRows rows={6} /> : <TodayRows rows={shown} openPerson={(id) => openPerson(id, day)} />}
-      <div className={css.pager}>
-        <span>{L(`Showing ${rows.length ? page * PAGE + 1 : 0}–${Math.min(rows.length, page * PAGE + PAGE)} of ${rows.length}`, `Menunjukkan ${rows.length ? page * PAGE + 1 : 0}–${Math.min(rows.length, page * PAGE + PAGE)} daripada ${rows.length}`)}</span>
-        <span className={css.introRight}>
-          <button type="button" className={btnSm} disabled={page === 0} onClick={() => setPage(page - 1)} aria-label={L("Previous page", "Halaman sebelum")}><AppIcon name="previous" /></button>
-          <span>{page + 1} / {pages}</span>
-          <button type="button" className={btnSm} disabled={page >= pages - 1} onClick={() => setPage(page + 1)} aria-label={L("Next page", "Halaman seterusnya")}><AppIcon name="next" /></button>
-        </span>
-      </div>
+      {monthLog && (
+        <SideDrawer open={logOpen} onClose={() => setLogOpen(false)} wide title={L("Month punch log", "Log ketukan bulanan")} subtitle={L("Every punch across the team for the month - sort a column, or find one person.", "Setiap ketukan seluruh pasukan untuk bulan ini - susun lajur, atau cari seorang.")}>
+          {logOpen ? monthLog : null}
+        </SideDrawer>
+      )}
     </section>
   );
 }

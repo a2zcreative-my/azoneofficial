@@ -561,3 +561,7 @@ CEO's payment verification, which the enquiry only reads.
 1.371.0 (public form references, the CEO 18-11-2026) adds `0212_public_refs`:
 additive only - one counter per Malaysia day that numbers both public forms
 A2Z-DDMM + the running number. No existing reference is renumbered.
+1.382.0 (project stages, the CEO 18-11-2026) adds `0213_project_completion_verify`:
+additive only - two nullable columns on `projects` (completion_verified_at,
+completion_verified_by) for the COO or CCO pre-verification before the CEO
+confirms a completion. No money, pay or people table is touched.

@@ -37,11 +37,12 @@ interface Sheet {
     id: number; employee_id: string | null; name: string; email: string; role: string; is_active: boolean; employment_status: string | null;
     email_verified_at: string | null; methods: { password: boolean; google: boolean; google_unlinked_signup: boolean };
     totp_enabled: boolean; backup_codes_left: number; passkeys?: number; last_login: string | null;
+    not_staff?: boolean; // v1.384.0
   };
   pending: { id: number; new_email: string; route: "email" | "google" | "in_person"; needs_second: number; approved: number; requested_by: number; requested_by_name: string | null; reason: string; created_at: string; expires_at: string }[];
   sessions: { ref: string; created_at: string; expires_at: string; last_seen_at: string | null; user_agent: string | null; passkey?: boolean }[];
   history: { id: number; action: string; created_at: string; detail: string | null; who: string | null }[];
-  can: { email: boolean; recovery: boolean };
+  can: { email: boolean; recovery: boolean; not_staff?: boolean };
   roles_allowed?: string[];
   /* v1.350.0 - the custom role this person works under (null = their business role alone), and the custom roles' names */
   custom_role?: { key: string; name: string; active: boolean } | null;
@@ -206,7 +207,7 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
               {!roleForm && (d.roles_allowed?.length ?? 0) > 0 && <button type="button" className={btnSm} onClick={() => { setError(""); setRoleForm({ role: d.roles_allowed![0]!, reason: "" }); }}><AppIcon name="edit" />{L("Change role", "Tukar peranan")}</button>}
             </div>
             <dl className={css.dl}>
-              <dt>{L("Account type", "Jenis akaun")}</dt><dd>{a.role === "agent" ? L("Agent (outside sales partner)", "Ejen (rakan jualan luar)") : L("Staff", "Kakitangan")}</dd>
+              <dt>{L("Account type", "Jenis akaun")}</dt><dd data-testid="sheet-account-type">{a.role === "agent" ? L("Agent (outside sales partner)", "Ejen (rakan jualan luar)") : a.not_staff ? L("Test / system account - keeps its role, not counted as staff", "Akaun ujian / sistem - kekal peranannya, tidak dikira sebagai kakitangan") : L("Staff", "Kakitangan")}</dd>
               <dt>{L("Business role", "Peranan perniagaan")}</dt><dd><strong>{roleLabel(a.role)}</strong>{d.custom_role ? <span className={css.muted}> · {d.custom_role.name}{d.custom_role.active ? "" : L(" (deactivated)", " (dinyahaktif)")}</span> : null}{a.employment_status ? <span className={css.muted}> · {a.employment_status.replace(/_/g, " ")}</span> : null}</dd>
               <dt>{L("Company access", "Akses syarikat")}</dt><dd>{L("Both companies - A2Z Creative Marketing and AZ One Official. Access is decided by the role; there is no per-person company limit.", "Kedua-dua syarikat - A2Z Creative Marketing dan AZ One Official. Akses ditentukan oleh peranan; tiada had syarikat bagi setiap orang.")}</dd>
             </dl>
@@ -223,6 +224,19 @@ export function AccountSheet({ userId, open, onClose, onChanged, onPermissions, 
                   <button type="button" className={btnSm} onClick={() => { setRoleForm(null); setError(""); }}>{L("Cancel", "Batal")}</button>
                 </div>
               </fieldset>
+            )}
+            {/* v1.384.0 - the CEO: a testing account keeps its role but is not staff (payroll, headcount, pickers) */}
+            {d.can.not_staff && !["agent", "super_admin"].includes(a.role) && (
+              <div className={css.actions}>
+                <button type="button" className={btnSm} disabled={busy} data-testid="sheet-not-staff" onClick={() => void (async () => {
+                  const why = await prompt({ title: a.not_staff ? L("Count as staff again", "Kira sebagai kakitangan semula") : L("Mark as a test account", "Tandakan sebagai akaun ujian"),
+                    message: a.not_staff ? L("They come back onto payroll, headcount and the staff pickers. The role is unchanged.", "Mereka kembali ke gaji, bilangan dan pemilih kakitangan. Peranan tidak berubah.")
+                      : L("The account keeps its role and can still sign in, but it is not staff: not on payroll, headcount, the staff list or any picker.", "Akaun kekal peranannya dan masih boleh log masuk, tetapi bukan kakitangan: tiada dalam gaji, bilangan, senarai kakitangan atau pemilih."),
+                    label: L("Reason (at least 10 characters, kept in the audit history)", "Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit)"), required: true });
+                  if (!why) return;
+                  await send(`/staff/accounts/${a.id}/not-staff`, { not_staff: !a.not_staff, reason: why.value.trim() }, a.not_staff ? L("Counted as staff again", "Dikira sebagai kakitangan semula") : L("Marked as a test account", "Ditandakan sebagai akaun ujian"), L("Change who counts as staff", "Tukar siapa dikira kakitangan"));
+                })()}><AppIcon name="person" />{a.not_staff ? L("Count as staff again", "Kira sebagai kakitangan semula") : L("Mark as test account", "Tandakan sebagai akaun ujian")}</button>
+              </div>
             )}
             {(onPermissions || onAudit) && (
               <div className={css.actions}>

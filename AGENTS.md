@@ -177,6 +177,9 @@ for every endpoint a new card reads). For a worker change, run it locally:
 | /admin Phase 2 (1.349.0) | Overview and Users on the portal's pages; figures from existing reads only, every Users action on its old route. Guard `admin-super-only`, browser `admin-console.py`. |
 | /admin Phase 3 (1.351.0) | Security & Audit, My Account, Signatures on the portal's pages; each one KpiRow from existing reads; every save unchanged. Guard `admin-super-only`. |
 | /admin Phase 4 (1.352.0) | Six website tabs merged into Website Content; same requests, deletes confirm first. /admin is six tabs. Guard `admin-super-only`. |
+| Payroll schedule + test accounts (1.384.0) | No migration. Payslip day = 5th or the working day before; live dated timeline; `notStaffSql` keeps a test account off every staff list. Guard `payroll-schedule`. |
+| Project side panel short (1.383.0) | No migration. Action first, the record folded under More details. Browser `tasks5.py`. |
+| Project stages (1.382.0) | Migration (0213) 0213_project_completion_verify (additive). Task under an accepted quotation starts its project; one Next step (server `nextStepFor`); completion: staff asks -> COO/CCO verify -> CEO confirms. Guards `go-live-p`, `go-live-t`. |
 | Public form trust (1.381.0) | No migration. Company footer on both public forms (from lib/issuers.ts), short links /partner and /business, QR codes in public/qr (scripts/make-form-qr.py). Guard `public-trust`. |
 | Email move Gmail section (1.380.0) | No migration. Personal-email staff always listed in their own section; Select all skips them. Browser `email-move.py`. |
 | /admin login email (1.379.0) | No migration. /admin -> Users opens the portal's Sign-in & recovery sheet and the move card. Guard `staff-email-move`. |

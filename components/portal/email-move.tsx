@@ -23,7 +23,9 @@ import { usePrompt } from "@/components/ui/prompt-dialog";
 import { AppIcon } from "@/components/ui/app-icon";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SkelRows } from "@/components/ui/skeleton";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { btnSm, btnSmAccent, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, td, th } from "@/lib/ui-styles";
+import { roleLabel } from "@/components/portal/users-shared";
 import css from "./email-move.module.css";
 
 type State = "not_started" | "sent" | "expired" | "cancelled" | "moved";
@@ -60,6 +62,10 @@ export function EmailMoveCard() {
   const [msg, setMsg] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [showMoved, setShowMoved] = useState(false);
+  /* 18-11-2026 (the CEO's Users & Security reference): the personal-email staff are an option you
+     switch on - the count says they are there; ticking lists them; turning it off un-ticks them */
+  const [withPersonal, setWithPersonal] = useState(false);
+  const [help, setHelp] = useState(false);
   const { prompt, node: promptNode } = usePrompt();
 
   const load = useCallback(async () => {
@@ -76,7 +82,7 @@ export function EmailMoveCard() {
      now, in their own section under the old-domain staff; still never ticked for him */
   const isPersonal = (r: Row) => r.source === "personal";
   const personalCount = rows.filter((r) => r.state !== "moved" && isPersonal(r)).length;
-  const toMove = useMemo(() => rows.filter((r) => r.state !== "moved").sort((a, b) => Number(isPersonal(a)) - Number(isPersonal(b))), [rows]);
+  const toMove = useMemo(() => rows.filter((r) => r.state !== "moved" && (withPersonal || !isPersonal(r))).sort((a, b) => Number(isPersonal(a)) - Number(isPersonal(b))), [rows, withPersonal]);
   const moved = useMemo(() => rows.filter((r) => r.state === "moved"), [rows]);
   const choosable = toMove.filter((r) => r.can && !isPersonal(r)); // v1.380.0 - Select all never ticks a personal-email person
   const addr = (r: Row) => (edits[r.id] ?? (r.pending_to ?? r.proposed)).trim().toLowerCase();
@@ -88,6 +94,10 @@ export function EmailMoveCard() {
   const toggleAll = () => setPicked(allOn ? new Set() : new Set(choosable.map((r) => r.id)));
   const items = () => toMove.filter((r) => picked.has(r.id)).map((r) => ({ user_id: r.id, new_email: addr(r), ...(resend.has(r.id) ? { resend: true } : {}) }));
   const personalPicked = (ids: number[]) => ids.some((id) => rows.some((r) => r.id === id && isPersonal(r)));
+  const switchPersonal = (on: boolean) => {
+    setWithPersonal(on);
+    if (!on) setPicked((sel) => new Set([...sel].filter((id) => !rows.some((r) => r.id === id && isPersonal(r)))));
+  };
 
 
   const review = async (only?: Row, again = false) => {
@@ -122,42 +132,59 @@ export function EmailMoveCard() {
 
   if (failed) return (
     <section className={`${card} ${css.card}`} data-testid="email-move">
-      <p className={css.h3}>{L("Move staff to @a2zcreative.my", "Pindahkan kakitangan ke @a2zcreative.my")}</p>
+      <div className={css.headRow}><div className={css.lead}><span className={css.well}><AppIcon name="send" /></span><p className={css.h3}>{L("Move staff to @a2zcreative.my", "Pindahkan kakitangan ke @a2zcreative.my")}</p></div></div>
       <p className={css.warn}>{failed}</p>
     </section>
   );
 
   const shown = rows;
-  const counts = { total: shown.length, moved: moved.length, sent: shown.filter((r) => r.state === "sent").length, waiting: shown.filter((r) => r.state !== "moved" && r.state !== "sent").length };
+  /* the figures follow what is listed: the personal-email staff count only once they are included */
+  const counts = { total: shown.length, moved: moved.length, sent: toMove.filter((r) => r.state === "sent").length, waiting: toMove.filter((r) => r.state !== "sent").length };
+  const ttl = list?.ttl_hours ?? 72;
 
   return (
     <section className={`${card} ${css.card}`} data-testid="email-move">
       {promptNode}
       <div className={css.headRow}>
-        <div>
-          <p className={css.h3}>{L(`Move staff to @${newDomain}`, `Pindahkan kakitangan ke @${newDomain}`)}</p>
-          <p className={css.hint}>{L(
-            `Staff who sign in with ${oldAt}, and below them the staff with a personal email (Gmail and others) - moved only if you tick them. Each person confirms from the new mailbox (link valid ${list?.ttl_hours ?? 72} hours); until then the old address keeps working.`,
-            `Kakitangan yang log masuk dengan ${oldAt}, dan di bawahnya kakitangan dengan e-mel peribadi (Gmail dan lain-lain) - dipindahkan hanya jika anda menandakannya. Setiap orang mengesahkan dari peti mel baharu (pautan sah ${list?.ttl_hours ?? 72} jam); sehingga itu alamat lama masih berfungsi.`)}</p>
+        <div className={css.lead}>
+          <span className={css.well}><AppIcon name="send" /></span>
+          <div className={css.headText}>
+            <p className={css.h3}>{L(`Move staff to @${newDomain}`, `Pindahkan kakitangan ke @${newDomain}`)}</p>
+            <p className={css.hint}>{L("Send verification to the new mailbox first. The current login keeps working until it is confirmed.", "Hantar pengesahan ke peti mel baharu dahulu. Log masuk semasa masih berfungsi sehingga ia disahkan.")}</p>
+          </div>
         </div>
-        {list && (
-          <p className={css.counts} data-testid="email-move-counts">
-            <span><strong>{counts.waiting}</strong> {L("to move", "untuk dipindah")}</span>
-            <span><strong>{counts.sent}</strong> {L("link sent", "pautan dihantar")}</span>
-            <span><strong>{counts.moved}</strong> {L("moved", "dipindahkan")}</span>
-          </p>
-        )}
+        <button type="button" className={btnSm} data-testid="email-move-help" onClick={() => setHelp(true)}><AppIcon name="info" />{L("Help & rules", "Bantuan & peraturan")}</button>
       </div>
+      {/* the one connected KPI strip (the Tasks module's) - figures from the list the server sent */}
+      {list && (
+        <KpiRow label={L("Email move figures", "Angka pemindahan e-mel")} testid="email-move-counts">
+          <KpiTile icon="time" tone="gold" label={L("To move", "Untuk dipindah")} value={counts.waiting} sub={L("Not sent or not confirmed", "Belum dihantar atau disahkan")} />
+          <KpiTile icon="send" tone="blue" label={L("Links sent", "Pautan dihantar")} value={counts.sent} sub={L(`Waiting, valid ${ttl} hours`, `Menunggu, sah ${ttl} jam`)} />
+          <KpiTile icon="success" tone="green" label={L("Already moved", "Sudah dipindahkan")} value={counts.moved} sub={L(`Sign in with @${newDomain}`, `Log masuk dengan @${newDomain}`)} />
+        </KpiRow>
+      )}
+      <p className={css.band} role="note"><AppIcon name="info" />{L(`Each person confirms from the new mailbox within ${ttl} hours. Until then the old login email keeps working.`, `Setiap orang mengesahkan dari peti mel baharu dalam ${ttl} jam. Sehingga itu e-mel log masuk lama masih berfungsi.`)}</p>
+      {personalCount > 0 && (
+        <label className={css.option} data-testid="email-move-include-personal">
+          <input type="checkbox" className={css.check} checked={withPersonal} onChange={(e) => switchPersonal(e.target.checked)} />
+          <span className={css.optionText}>
+            <strong>{L(`Also include staff using a personal email (${personalCount})`, `Sertakan juga kakitangan yang menggunakan e-mel peribadi (${personalCount})`)}</strong>
+            <span>{L(`Optional - only staff who already have a working @${newDomain} mailbox.`, `Pilihan - hanya kakitangan yang sudah mempunyai peti mel @${newDomain} yang berfungsi.`)}</span>
+          </span>
+        </label>
+      )}
       {list && !list.mail_ready && <p className={css.warn}><AppIcon name="warning" /> {L("Email sending is not set up - links cannot be sent yet.", "Penghantaran e-mel belum disediakan - pautan belum boleh dihantar.")}</p>}
       {done && <p className={css.done} data-testid="email-move-done"><AppIcon name="success" /> {done}</p>}
       {msg && !open && <p className={css.warn}>{msg}</p>}
 
       {!list ? <SkelRows rows={4} /> : toMove.length === 0 ? (
-        <p className={css.empty}>{L(`Nobody signs in with ${oldAt} any more.`, `Tiada siapa lagi log masuk dengan ${oldAt}.`)}</p>
+        <p className={css.empty}>{personalCount > 0 && !withPersonal
+          ? L(`Nobody signs in with ${oldAt} any more. Tick the option above to list the staff with a personal email.`, `Tiada siapa lagi log masuk dengan ${oldAt}. Tandakan pilihan di atas untuk menyenaraikan kakitangan dengan e-mel peribadi.`)
+          : L(`Nobody signs in with ${oldAt} any more.`, `Tiada siapa lagi log masuk dengan ${oldAt}.`)}</p>
       ) : (
         <>
           <div className={css.bar}>
-            <span className={css.selCount}><strong>{picked.size}</strong> {L("selected", "dipilih")}</span>
+            <label className={css.selCount}><input type="checkbox" className={css.check} aria-label={L("Select all", "Pilih semua")} checked={allOn} disabled={!choosable.length} onChange={toggleAll} /><strong>{picked.size}</strong> {L("selected", "dipilih")}</label>
             {picked.size > 0 && <button type="button" className={btnSmQuiet} onClick={() => { setPicked(new Set()); setResend(new Set()); }}>{L("Clear", "Kosongkan")}</button>}
             <button type="button" className={`${btnSmAccent} ${css.go}`} data-testid="email-move-review" disabled={busy || picked.size === 0 || toMove.some((r) => picked.has(r.id) && badAddr(r))} onClick={() => void review()}>
               <AppIcon name="send" />{L("Review & send links", "Semak & hantar pautan")}
@@ -169,7 +196,7 @@ export function EmailMoveCard() {
                 <tr>
                   <th className={`${th} ${css.cCheck}`}><label className={css.selAllWrap}><input type="checkbox" className={css.check} aria-label={L("Select all", "Pilih semua")} checked={allOn} disabled={!choosable.length} onChange={toggleAll} /><span className={css.selAll} aria-hidden="true">{L("Select all", "Pilih semua")}</span></label></th>
                   <th className={th}>{L("Staff", "Kakitangan")}</th>
-                  <th className={`${th} ${css.cWide}`}>{L("Signs in with now", "Log masuk sekarang")}</th>
+                  <th className={`${th} ${css.cWide}`}>{L("Current login", "Log masuk semasa")}</th>
                   <th className={th}>{L("New login email", "E-mel log masuk baharu")}</th>
                   <th className={`${th} ${css.cState}`}>{L("Status", "Status")}</th>
                 </tr>
@@ -192,7 +219,7 @@ export function EmailMoveCard() {
                       <td className={td}>
                         <span className={css.whoText}>
                           <strong>{r.name}</strong>
-                          <span>{r.role.replace(/_/g, " ")}{r.department ? ` · ${r.department}` : ""}{!r.active ? L(" · inactive", " · tidak aktif") : ""}</span>
+                          <span>{roleLabel(r.role)}{r.department ? ` · ${r.department}` : ""}{!r.active ? L(" · inactive", " · tidak aktif") : ""}</span>
                           {isPersonal(r) && <span><span className={chipSmWarn}>{L("Personal email", "E-mel peribadi")}</span> {L("suggested from the name - check it", "dicadangkan dari nama - semak")}</span>}
                           <span className={css.phoneOnly}>{r.email}</span>
                           {!r.can && <span>{L("CEO and super admin accounts, and your own, are moved by the super admin.", "Akaun CEO dan super admin, serta akaun anda sendiri, dipindahkan oleh super admin.")}</span>}
@@ -223,18 +250,36 @@ export function EmailMoveCard() {
           </div>
         </>
       )}
-      {moved.length > 0 && (
-        <div className={css.movedWrap}>
-          <button type="button" className={btnSmQuiet} onClick={() => setShowMoved((v) => !v)} aria-expanded={showMoved}>
-            <AppIcon name={showMoved ? "up" : "down"} />{L(`Already moved (${moved.length})`, `Sudah dipindahkan (${moved.length})`)}
-          </button>
-          {showMoved && (
-            <ul className={css.movedList}>
-              {moved.map((r) => <li key={r.id}><strong>{r.name}</strong><span>{r.email}{r.moved_at ? ` · ${myt(r.moved_at)}` : ""}</span></li>)}
-            </ul>
+      {list && (
+        <div className={css.foot}>
+          <p className={css.footNote}>{L("Each chosen person gets their own verification link - no account switches at once.", "Setiap orang yang dipilih menerima pautan pengesahan sendiri - tiada akaun bertukar serta-merta.")}</p>
+          {moved.length > 0 && (
+            <button type="button" className={btnSm} onClick={() => setShowMoved((v) => !v)} aria-expanded={showMoved} data-testid="email-move-show-moved">
+              {L(`${showMoved ? "Hide" : "Show"} already moved (${moved.length})`, `${showMoved ? "Sembunyi" : "Tunjuk"} sudah dipindahkan (${moved.length})`)}<AppIcon name={showMoved ? "up" : "down"} />
+            </button>
           )}
         </div>
       )}
+      {showMoved && moved.length > 0 && (
+        <ul className={css.movedList}>
+          {moved.map((r) => <li key={r.id}><strong>{r.name}</strong><span>{r.email}{r.moved_at ? ` · ${myt(r.moved_at)}` : ""}</span></li>)}
+        </ul>
+      )}
+
+      <SideDrawer open={help} onClose={() => setHelp(false)} title={L("Help & rules", "Bantuan & peraturan")} subtitle={L(`Moving staff logins to @${newDomain}`, `Memindahkan log masuk kakitangan ke @${newDomain}`)}>
+        <div className={css.review} data-testid="email-move-rules">
+          <p className={css.hint}>{L(
+            `Staff who sign in with ${oldAt}, and below them the staff with a personal email (Gmail and others) - moved only if you tick them. Each person confirms from the new mailbox (link valid ${ttl} hours); until then the old address keeps working.`,
+            `Kakitangan yang log masuk dengan ${oldAt}, dan di bawahnya kakitangan dengan e-mel peribadi (Gmail dan lain-lain) - dipindahkan hanya jika anda menandakannya. Setiap orang mengesahkan dari peti mel baharu (pautan sah ${ttl} jam); sehingga itu alamat lama masih berfungsi.`)}</p>
+          <ul className={css.rules}>
+            <li>{L(`The new address must end @${newDomain}. Each proposal keeps the person's name; edit it where the mailbox differs.`, `Alamat baharu mesti berakhir @${newDomain}. Setiap cadangan mengekalkan nama orang itu; ubah jika peti mel berbeza.`)}</li>
+            <li>{L("Review asks the server first and shows every person; sending asks for a reason and your authenticator code, and is kept in the audit history.", "Semakan bertanya kepada pelayan dahulu dan menunjukkan setiap orang; penghantaran memerlukan sebab dan kod pengesah anda, dan disimpan dalam sejarah audit.")}</li>
+            <li>{L("The login changes only when the person opens the link. They are then signed out everywhere and sign in with the new address; their account, history, payslips and records stay the same.", "Log masuk bertukar hanya apabila orang itu membuka pautan. Mereka kemudian dilog keluar di semua peranti dan log masuk dengan alamat baharu; akaun, sejarah, slip gaji dan rekod mereka kekal sama.")}</li>
+            <li>{L("Passwords, two-factor sign-in and Google links are not touched by the move.", "Kata laluan, log masuk dua faktor dan pautan Google tidak disentuh oleh pemindahan.")}</li>
+            <li>{L("CEO and super admin accounts, and your own, are moved by the super admin.", "Akaun CEO dan super admin, serta akaun anda sendiri, dipindahkan oleh super admin.")}</li>
+          </ul>
+        </div>
+      </SideDrawer>
 
       <SideDrawer open={open} onClose={() => { if (!busy) { setOpen(false); setPreview(null); } }} title={L("Review the email move", "Semak pemindahan e-mel")} subtitle={L("Nothing is sent until you confirm.", "Tiada apa dihantar sehingga anda sahkan.")}
         footer={preview && (

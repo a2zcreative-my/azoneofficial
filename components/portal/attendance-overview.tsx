@@ -167,18 +167,20 @@ export function AttendanceOverview({ user, open, openPerson }: { user: User; ope
 }
 
 /** One row a person - a table on a wide screen, cards on a phone. */
-export function TodayRows({ rows, openPerson }: { rows: PersonDay[]; openPerson: (id: number) => void }) {
+/* 18-11-2026 - `offset` numbers a page on from the pages before it, `compact` is the Team Attendance
+   Report's tighter rows, `shiftHead` its column word; the Overview passes none of them and is unchanged */
+export function TodayRows({ rows, openPerson, offset = 0, compact = false, shiftHead }: { rows: PersonDay[]; openPerson: (id: number) => void; offset?: number; compact?: boolean; shiftHead?: string }) {
   if (rows.length === 0) return <p className={css.empty}>{L("Nobody matches.", "Tiada yang sepadan.")}</p>;
   const loc = (p: PersonDay) => { const l = locText(p.punches?.find((x) => x.type === "clock_in" && !x.pending)?.loc); return <span className={l.tone === "ok" ? css.locOk : l.tone === "warn" ? css.locWarn : css.muted}>{l.text}</span>; };
   return (
     <>
       <div className={`${css.tableWrap} erp-desktop-only`}>
-        <table className={css.table} data-testid="att-table">
-          <thead><tr><th>{L("No.", "No.")}</th><th>{L("Staff", "Kakitangan")}</th><th>{L("Team / Role", "Pasukan / Peranan")}</th><th>{L("Shift (today)", "Syif (hari ini)")}</th><th>{L("Clock In", "Masuk")}</th><th>{L("Clock Out", "Keluar")}</th><th className={css.num}>{L("Working Hours", "Jam Bekerja")}</th><th>{L("Status", "Status")}</th><th>{L("Location", "Lokasi")}</th><th><span className="erp-sr-only">{L("Open", "Buka")}</span></th></tr></thead>
+        <table className={`${css.table} ${compact ? css.tableCompact : ""}`} data-testid="att-table">
+          <thead><tr><th>{L("No.", "No.")}</th><th>{L("Staff", "Kakitangan")}</th><th>{L("Team / Role", "Pasukan / Peranan")}</th><th>{shiftHead ?? L("Shift (today)", "Syif (hari ini)")}</th><th>{L("Clock In", "Masuk")}</th><th>{L("Clock Out", "Keluar")}</th><th className={css.num}>{L("Working Hours", "Jam Bekerja")}</th><th>{L("Status", "Status")}</th><th>{L("Location", "Lokasi")}</th><th><span className="erp-sr-only">{L("Open", "Buka")}</span></th></tr></thead>
           <tbody>
             {rows.map((p, i) => (
               <tr key={p.id} data-testid="att-row">
-                <td>{i + 1}</td>
+                <td>{offset + i + 1}</td>
                 <td><span className={css.who}><strong>{properName(p.name)}</strong></span></td>
                 <td className={css.muted}>{p.department || p.position || "—"}</td>
                 <td>{p.shift_label ?? "—"}</td>
@@ -187,7 +189,7 @@ export function TodayRows({ rows, openPerson }: { rows: PersonDay[]; openPerson:
                 <td className={css.num}>{hm(p.worked_minutes)}</td>
                 <td><StatusChip p={p} /></td>
                 <td>{loc(p)}</td>
-                <td><button type="button" className={btnSm} onClick={() => openPerson(p.id)}>{L("View", "Lihat")}</button></td>
+                <td><button type="button" className={`${btnSm} ${compact ? css.viewBtn : ""}`} onClick={() => openPerson(p.id)}>{L("View", "Lihat")}</button></td>
               </tr>
             ))}
           </tbody>

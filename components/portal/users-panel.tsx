@@ -53,6 +53,7 @@ import { withStepUp } from "@/components/portal/page-shared";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile"; // 18-11-2026 - the one connected KPI strip
 import { InviteSheet } from "@/components/portal/invite-sheet"; // v1.251.0 - Add User (invite)
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
@@ -118,6 +119,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const [saving, setSaving] = useState(false);
   /* v1.238.0 - the Sign-in & recovery sheet (components/portal/account-sheet) */
   const recovery = holdsCap("account_recovery", superAdmin || owner) || holdsCap("account_email", superAdmin || owner);
+  const canMove = holdsCap("account_email", superAdmin || owner); // v1.376.0 - the staff email move (owner or super admin)
   const [sheetId, setSheetId] = useState<number | null>(null);
   const [custSheetId, setCustSheetId] = useState<number | null>(null); // v1.266.0 - customer recovery
   /* v1.137.0 - one find box over both lists. The customer list is Google
@@ -125,10 +127,14 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
      each list is its own tab, and the box on either one is this one. */
   const [q, setQ] = useState("");
   const [sf, setSf] = useState<StaffFilter>("all");
+  /* 18-11-2026 (the CEO's Users & Security reference) - a role pick beside the status pick, and the
+     email move opened as a page of Staff Accounts (a breadcrumb, never another tab) */
+  const [rf, setRf] = useState("all");
+  const [staffPart, setStaffPart] = useState<"list" | "move">("list");
   /* v1.253.0 (the owner, D3) - one page scroll: no list scrolls inside the
      page; 25 accounts, then Show more (the HR and Finance pattern). A new
      search starts again at the first 25. */
-  const pageKey = `${q}|${sf}`;
+  const pageKey = `${q}|${sf}|${rf}`;
   /* v1.327.0 - the customers are the directory's register (customers-agents.tsx, 10 a page) */
   const [shown, setShown] = useState({ key: pageKey, staff: PAGE });
   const staffShown = shown.key === pageKey ? shown.staff : PAGE;
@@ -293,7 +299,25 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const leftOf = (u: Account) => ["resigned", "terminated"].includes(u.employment_status ?? "") || (!!u.left_on && !u.rejoined_on);
   const dimRank = (u: Account) => (leftOf(u) ? 2 : !u.is_active ? 1 : 0);
   const leaversLast = <T extends Account>(list: T[]): T[] => [0, 1, 2].flatMap((r) => list.filter((u) => dimRank(u) === r));
-  const staffRows = leaversLast(allStaff.filter(match).filter(statusOk));
+  const roleOk = (u: Account) => rf === "all" || u.role === rf;
+  const staffRows = leaversLast(allStaff.filter(match).filter(statusOk).filter(roleOk));
+  /* the roles the staff list holds, for the role pick - from the accounts, never a fixed list */
+  const staffRoles = [...new Set(allStaff.map((u) => u.role))].sort((a, b) => roleLabel(a).localeCompare(roleLabel(b)));
+  /* the strip's figures: the same tests as the status pick, over every staff account */
+  const fig = {
+    all: allStaff.length,
+    active: allStaff.filter((u) => u.is_active).length,
+    no2fa: allStaff.filter((u) => u.is_active && !u.totp_enabled).length,
+    disabled: allStaff.filter((u) => !u.is_active).length,
+  };
+  /* the last sign-in each account shows in the recent sign-in log (/staff/users/activity, the newest
+     60 events) - a date only when the log holds one; older ones say so, never a guess */
+  const lastIn = new Map<string, string>();
+  for (const e of events) {
+    if (!/^auth\.login/.test(e.action) || !e.email) continue;
+    const k = e.email.toLowerCase();
+    if (!lastIn.has(k) || lastIn.get(k)! < e.created_at) lastIn.set(k, e.created_at);
+  }
   /* "3 of 12" while a search is on, plain "12" otherwise: a heading that only
      ever says 3 cannot be told from a list that lost nine rows. */
   const countOf = (shown: number, all: number) => (shown !== all ? `${shown}/${all}` : `${all}`);
@@ -328,11 +352,17 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           <div className={css.cell}>
             <span className={chipSmNeutral}>{roleLabel(u.role)}</span>
             {ownerState?.d?.owner?.verified && ownerState.d.owner.user_id === u.id && <span className={chipSmSuccess}>{L("Owner", "Pemilik")}</span>}
+            {u.not_staff ? <span className={chipSmWarn} title={L("Keeps its role; not counted as staff (payroll, headcount, pickers)", "Kekal peranannya; tidak dikira sebagai kakitangan (gaji, bilangan, pemilih)")}>{L("Test account", "Akaun ujian")}</span> : null}
             {(u.employment_status ?? "permanent") !== "permanent" && (
               <span className={["resigned", "terminated"].includes(u.employment_status ?? "") ? chipSmDanger : chipSmNeutral}>
                 {statusLabel(u.employment_status ?? "")}
               </span>
             )}
+          </div>
+        )}
+        {kind === "staff" && (
+          <div className={`${css.cell} ${css.deskCell}`} data-col="department">
+            {u.department ? <span className={chipSmNeutral}>{u.department}</span> : <span className={css.dim}>—</span>}
           </div>
         )}
         <div className={css.cell}>
@@ -359,6 +389,13 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
                 <AppIcon name="users" />{L("Grant Agent Access", "Beri Akses Ejen")}
               </button>
             )}
+          </div>
+        )}
+        {kind === "staff" && (
+          <div className={`${css.cell} ${css.deskCell} ${css.seen}`} data-col="last-sign-in">
+            {lastIn.has(u.email.toLowerCase())
+              ? <span>{mytStamp2(lastIn.get(u.email.toLowerCase())!)}</span>
+              : <span className={css.dim}>{eventsLoaded ? L("Not in recent log", "Tiada dalam log terkini") : "···"}</span>}
           </div>
         )}
       </div>
@@ -424,8 +461,14 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           aria-label={L("Find an account", "Cari akaun")} onChange={(e) => setQ(e.target.value)} />
       </label>
       {withFilter && (
-        <select className={selectClassSm} value={sf} aria-label={L("Show", "Papar")} onChange={(e) => setSf(e.target.value as StaffFilter)}>
-          <option value="all">{L("All accounts", "Semua akaun")}</option>
+        <select className={selectClassSm} value={rf} aria-label={L("Role", "Peranan")} data-testid="staff-role-filter" onChange={(e) => setRf(e.target.value)}>
+          <option value="all">{L("All roles", "Semua peranan")}</option>
+          {staffRoles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
+        </select>
+      )}
+      {withFilter && (
+        <select className={selectClassSm} value={sf} aria-label={L("Status", "Status")} onChange={(e) => setSf(e.target.value as StaffFilter)}>
+          <option value="all">{L("All status", "Semua status")}</option>
           <option value="active">{L("Active", "Aktif")}</option>
           <option value="disabled">{L("Disabled", "Dinyahaktif")}</option>
           <option value="no2fa">{L("Active without 2FA", "Aktif tanpa 2FA")}</option>
@@ -548,7 +591,17 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
 
       <div hidden={view !== "staff"} className={css.body}>
         <TabZone label={L("Staff accounts", "Akaun kakitangan")}>
-          <section className={`${card} ${css.outset}`}>
+          {/* 18-11-2026 (the CEO's Users & Security reference) - the email move is a page OF Staff
+              Accounts: a breadcrumb and a way back, never another tab. Both stay mounted (hidden),
+              so a half-made selection survives a look at the list. */}
+          {canMove && (
+            <nav className={css.crumbs} hidden={staffPart !== "move"} aria-label={L("Breadcrumb", "Serbuk roti")} data-testid="email-move-crumbs">
+              <span><button type="button" className={css.crumbLink} onClick={() => setStaffPart("list")}>{L("Staff Accounts", "Akaun kakitangan")}</button> / <strong>{L("Move staff to @a2zcreative.my", "Pindahkan kakitangan ke @a2zcreative.my")}</strong></span>
+              <button type="button" className={css.crumbLink} data-testid="email-move-back" onClick={() => setStaffPart("list")}>← {L("Back to Staff Accounts", "Kembali ke Akaun kakitangan")}</button>
+            </nav>
+          )}
+          {canMove && <div hidden={staffPart !== "move"} className={css.part}><EmailMoveCard /></div>}
+          <section className={`${card} ${css.outset}`} hidden={staffPart !== "list"} data-testid="staff-accounts">
             <div className={css.head}>
               <div className={css.headLead}>
                 <span className={css.well}><AppIcon name="person" /></span>
@@ -570,16 +623,27 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
                   </p>
                 </div>
               </div>
-              <div className={css.quick}>
+              {/* a phone lays these four out two by two, with their short names (the full ones on a desk) */}
+              <div className={`${css.quick} ${css.quickStaff}`}>
                 {canInvite && <button type="button" className={btnClass} data-testid="add-user" onClick={() => setInviteOpen(true)}><AppIcon name="add" />{L("Add User", "Tambah Pengguna")}</button>}
-                <button type="button" className={btnSm} onClick={() => openView("roles")}><AppIcon name="lock" />{L("Roles & permissions", "Peranan & kebenaran")}</button>
-                {adminDoor && <Link className={btnSm} href="/admin"><AppIcon name="external" />{L("Passwords & deactivation", "Kata laluan & penyahaktifan")}</Link>}
+                {canMove && <button type="button" className={btnSm} data-testid="email-move-open" onClick={() => setStaffPart("move")}><AppIcon name="send" /><span className="erp-desktop-only">{L("Move to @a2zcreative.my", "Pindah ke @a2zcreative.my")}</span><span className="erp-phone-only">{L("Email move", "Pindah e-mel")}</span></button>}
+                <button type="button" className={btnSm} onClick={() => openView("roles")}><AppIcon name="lock" /><span className="erp-desktop-only">{L("Roles & permissions", "Peranan & kebenaran")}</span><span className="erp-phone-only">{L("Roles", "Peranan")}</span></button>
+                {adminDoor && <Link className={btnSm} href="/admin"><AppIcon name="external" /><span className="erp-desktop-only">{L("Passwords & deactivation", "Kata laluan & penyahaktifan")}</span><span className="erp-phone-only">{L("Passwords", "Kata laluan")}</span></Link>}
               </div>
             </div>
+            {/* the one connected KPI strip (the Tasks module's); each figure is the status pick it names */}
+            <div className={css.strip}>
+              <KpiRow label={L("Staff account figures", "Angka akaun kakitangan")} testid="staff-figures">
+                <KpiTile icon="users" tone="blue" label={L("Total accounts", "Jumlah akaun")} value={fig.all} busy={!loaded} sub={L("Every staff account", "Setiap akaun kakitangan")} onClick={() => setSf("all")} pressed={sf === "all"} cell="all" />
+                <KpiTile icon="success" tone="green" label={L("Active", "Aktif")} value={fig.active} busy={!loaded} sub={L("Can sign in", "Boleh log masuk")} onClick={() => setSf("active")} pressed={sf === "active"} cell="active" />
+                <KpiTile icon="warning" tone="gold" label={L("Active without 2FA", "Aktif tanpa 2FA")} value={fig.no2fa} busy={!loaded} sub={L("Worth chasing", "Perlu dikejar")} onClick={() => setSf("no2fa")} pressed={sf === "no2fa"} cell="no2fa" />
+                <KpiTile icon="blocked" tone="red" label={L("Disabled", "Dinyahaktif")} value={fig.disabled} busy={!loaded} sub={L("Cannot sign in", "Tidak boleh log masuk")} onClick={() => setSf("disabled")} pressed={sf === "disabled"} cell="disabled" />
+              </KpiRow>
+            </div>
             {toolbar(staffRows.length, allStaff.length, true)}
-            <div className={css.table}>
+            <div className={`${css.table} ${css.staffTable}`}>
               <div className={css.header} aria-hidden="true">
-                <span>{L("Account", "Akaun")}</span><span>{L("Role", "Peranan")}</span><span>{L("Status", "Status")}</span><span>2FA</span><span>{canEdit ? L("Manage", "Urus") : ""}</span>
+                <span>{L("Account", "Akaun")}</span><span>{L("Role", "Peranan")}</span><span>{L("Department", "Jabatan")}</span><span>{L("Status", "Status")}</span><span>2FA</span><span>{L("Last sign-in", "Log masuk terakhir")}</span><span>{canEdit ? L("Manage", "Urus") : ""}</span>
               </div>
               <ul className={css.list}>
                 {/* v1.77.0 - skeleton until the first fetch lands. */}
@@ -611,8 +675,6 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
               </p>
             )}
           </section>
-          {/* v1.376.0 - move the @azoneofficial.com logins to @a2zcreative.my (owner or super admin; Gmail untouched) */}
-          {holdsCap("account_email", superAdmin || owner) && <EmailMoveCard />}
         </TabZone>
       </div>
 

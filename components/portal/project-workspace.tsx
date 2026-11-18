@@ -23,6 +23,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.315.0
+import { useConfirm } from "@/components/ui/confirm-dialog"; // v1.382.0 - the CEO confirms completion
 import { Skel, SkelRows } from "@/components/ui/skeleton";
 import { openCustomerFile } from "@/components/portal/customer-file";
 import { btnClass, btnSm, btnSmPrimary, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipSmDanger, fieldLabel, inputClass, selectClass, textareaClass } from "@/lib/ui-styles";
@@ -69,6 +70,82 @@ export interface Workspace {
   suggested_owner: { id: number; name: string | null } | null;
   can: { edit: boolean; add_task: boolean; assign_owner: boolean; update: boolean; assist: boolean; status: boolean; complete: boolean; prices: boolean; contact: boolean; files: boolean; restricted_files: boolean; is_owner: boolean; is_assigned: boolean; manage: boolean };
   transitions: { to: string; label: string; needs_reason?: boolean; blocked?: string }[];
+  /* v1.382.0 - the completion chain and the ONE next step for this person (worker/src/projects.ts nextStepFor) */
+  completion?: { stage: "none" | "requested" | "verified"; requested_at: string | null; requested_by: string | null; requested_by_exec: boolean; verified_at: string | null; verified_by: string | null; needs_verify: boolean };
+  next?: { key: "start" | "acceptance" | "request" | "verify" | "confirm" | "wait" | "none"; label: string; hint: string | null };
+  ready_to_complete?: boolean;
+}
+
+/* v1.382.0 - THE NEXT STEP (the CEO, 18-11-2026: "it is supposed to be able to update the stage by stage
+   until it is complete"). One button, chosen by the server for this person: Start the project, Record
+   client acceptance, Request completion (the owner), Verify and send to the CEO (the COO / CCO), Confirm
+   completed (the CEO). The COO, CCO and CEO may also send a request back with the reason. Every press is
+   the same route the Project status menu uses; nothing here decides who may. */
+export function NextStepBar({ projectId, d, onDone }: { projectId: number; d: Workspace; onDone: (msg: string) => void }) {
+  const { prompt, node: promptNode } = usePrompt();
+  const { confirm, node: confirmNode } = useConfirm();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const n = d.next, c = d.completion;
+  if (!n || n.key === "none") return null;
+  const post = async (url: string, body: unknown, ok: string) => {
+    setBusy(true); setMsg("");
+    const r = await api<{ error?: { message?: string } }>(url, { method: "POST", body: JSON.stringify(body) });
+    setBusy(false);
+    if (!r.ok) { setMsg(r.data?.error?.message ?? L("Not saved - try again", "Tidak disimpan - cuba lagi")); return; }
+    onDone(ok);
+  };
+  const act = async () => {
+    if (n.key === "start") {
+      const t = d.transitions.find((x) => x.to === "in_progress");
+      let reason = "";
+      if (t?.needs_reason) {
+        const got = await prompt({ title: L("Start the project", "Mulakan projek"), label: L("Why start before the customer accepted on the link? (10+ characters)", "Kenapa mula sebelum pelanggan menerima pada pautan? (10+ aksara)"), required: true, confirmLabel: L("Start", "Mula") });
+        if (!got) return; reason = got.value;
+      }
+      return post(`/staff/projects/${projectId}/status`, { to: "in_progress", ...(reason ? { reason } : {}) }, L("Project started", "Projek dimulakan"));
+    }
+    if (n.key === "acceptance") {
+      const got = await prompt({ title: L("Record the client's acceptance", "Rekod penerimaan pelanggan"), message: L("The client accepted the delivered work. Put the signed copy or the message in the project's Files.", "Pelanggan menerima kerja yang dihantar. Letakkan salinan bertandatangan atau mesej dalam Fail projek."),
+        label: L("Client's name", "Nama pelanggan"), required: true, date: { label: L("Accepted on", "Diterima pada"), initial: new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) }, confirmLabel: L("Record acceptance", "Rekod penerimaan") });
+      if (!got) return;
+      return post(`/staff/projects/${projectId}/acceptance`, { client_name: got.value, accepted_on: got.date }, L("Client acceptance recorded", "Penerimaan pelanggan direkod"));
+    }
+    if (n.key === "request") return post(`/staff/projects/${projectId}/completion`, { action: "request" }, L("Completion requested", "Penyelesaian dipohon"));
+    if (n.key === "verify") return post(`/staff/projects/${projectId}/completion`, { action: "verify" }, L("Verified - sent to the CEO", "Disemak - dihantar kepada CEO"));
+    if (n.key === "confirm") {
+      if (!(await confirm({ title: L("Confirm the project completed?", "Sahkan projek selesai?"), message: L("The project closes as completed. Its team is told.", "Projek ditutup sebagai selesai. Pasukannya dimaklumkan."), confirmLabel: L("Confirm completed", "Sahkan selesai") }))) return;
+      return post(`/staff/projects/${projectId}/status`, { to: "completed" }, L("Project completed", "Projek selesai"));
+    }
+  };
+  const sendBack = async () => {
+    const got = await prompt({ title: L("Send back to work", "Hantar semula untuk kerja"), label: L("What is still needed? (10+ characters)", "Apa yang masih perlu? (10+ aksara)"), required: true, confirmLabel: L("Send back", "Hantar semula") });
+    if (!got) return;
+    return post(`/staff/projects/${projectId}/completion`, { action: "return", reason: got.value }, L("Sent back", "Dihantar semula"));
+  };
+  const canReturn = (n.key === "verify" || n.key === "confirm") && c && c.stage !== "none";
+  const chain = c && c.stage !== "none"
+    ? [c.requested_by && L(`Requested by ${c.requested_by} on ${fmtDay(c.requested_at)}`, `Dipohon oleh ${c.requested_by} pada ${fmtDay(c.requested_at)}`),
+       c.verified_by && L(`verified by ${c.verified_by} on ${fmtDay(c.verified_at)}`, `disemak oleh ${c.verified_by} pada ${fmtDay(c.verified_at)}`)].filter(Boolean).join(" · ")
+    : "";
+  return (
+    <div className={pw.nextStep} data-testid="project-next-step" data-step={n.key}>
+      {promptNode}{confirmNode}
+      <div className={pw.nextText}>
+        <strong>{L("Next step", "Langkah seterusnya")}</strong>
+        {d.ready_to_complete && <span className={chipSmSuccess} data-testid="ready-to-complete">{L("Ready to complete", "Sedia untuk diselesaikan")}</span>}
+        {n.hint && <span>{n.hint}</span>}
+        {chain && <span>{chain}</span>}
+      </div>
+      {n.key !== "wait" && (
+        <span className={pw.nextActs}>
+          {canReturn && <button type="button" className={btnSm} disabled={busy} onClick={() => void sendBack()} data-testid="next-send-back">{L("Send back", "Hantar semula")}</button>}
+          <button type="button" className={btnSmPrimary} disabled={busy} onClick={() => void act()} data-testid="next-step-go">{n.label}</button>
+        </span>
+      )}
+      {msg && <p className={pw.warn} role="alert">{msg}</p>}
+    </div>
+  );
 }
 
 /* ---------------- words ---------------- */
@@ -202,7 +279,8 @@ export function ProjectWorkspace({ projectId, onChanged, compactHead }: { projec
               )}
             </div>
           </div>
-          {p.completion_requested_at && !["completed", "cancelled"].includes(p.status) && <p className={pw.warn}>{L(`Completion requested by ${p.completion_requested_by ?? "the owner"} on ${fmtDay(p.completion_requested_at)} — the CEO or COO confirms it.`, `Penyelesaian dipohon oleh ${p.completion_requested_by ?? "pemilik"} pada ${fmtDay(p.completion_requested_at)} — CEO atau COO mengesahkannya.`)}</p>}
+          {/* v1.382.0 - the next step replaces the old "completion requested" line */}
+          <NextStepBar projectId={projectId} d={w} onDone={(m) => done(m)} />
           {p.cancelled_at && <p className={pw.warn}>{L(`Cancelled on ${fmtDay(p.cancelled_at)}: ${p.cancel_reason ?? ""}`, `Dibatalkan pada ${fmtDay(p.cancelled_at)}: ${p.cancel_reason ?? ""}`)}</p>}
 
           {/* the facts row */}
@@ -972,10 +1050,11 @@ function healthOf(r: PRow, today: string): { word: string; cls: string; why: str
 export function ProjectTiles({ rows }: { rows: PRow[] | null }) {
   const today = mytToday();
   const week = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
-  const live = (rows ?? []).filter((r) => !["completed", "cancelled", "draft"].includes(r.status));
+  /* v1.382.0 - the CEO: a Draft brief counts as active (it is open work) */
+  const live = (rows ?? []).filter((r) => !["completed", "cancelled"].includes(r.status));
   return (
     <KpiRow label={L("Project figures", "Angka projek")}>
-      <KpiTile icon="folder" tone="blue" label={L("Active Projects", "Projek Aktif")} value={live.length} busy={rows === null} sub={L("In delivery (after the quotation)", "Dalam penghantaran (selepas sebut harga)")} />
+      <KpiTile icon="folder" tone="blue" label={L("Active Projects", "Projek Aktif")} value={live.length} busy={rows === null} sub={L("Open projects, draft or in delivery", "Projek terbuka, draf atau dalam penghantaran")} />
       <KpiTile icon="warning" tone="gold" label={L("At Risk", "Berisiko")} value={live.filter((r) => healthOf(r, today).word === L("At Risk", "Berisiko")).length} busy={rows === null} sub={L("Overdue work or close to due", "Kerja lewat atau hampir tarikh akhir")} />
       <KpiTile icon="success" tone="green" label={L("Completed This Month", "Selesai Bulan Ini")} value={(rows ?? []).filter((r) => r.status === "completed" && (r.completed_at ?? "").slice(0, 7) === today.slice(0, 7)).length} busy={rows === null} sub={L("Projects closed this month", "Projek ditutup bulan ini")} />
       <KpiTile icon="date" tone="red" label={L("Due This Week", "Perlu Siap Minggu Ini")} value={live.filter((r) => r.due_date && r.due_date >= today && r.due_date <= week).length} busy={rows === null} sub={L("Project due dates in the next 7 days", "Tarikh akhir projek dalam 7 hari")} />
@@ -1015,7 +1094,8 @@ function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
   const accepted = d.quotation.state.accepted_at;
   const steps: [string, string | null, boolean][] = [
     [L("Quotation Accepted", "Sebut Harga Diterima"), accepted ? fmtDay(accepted) : d.quotation.state.invoice ? L("Invoiced", "Diinvois") : null, Boolean(accepted || d.quotation.state.invoice)],
-    [L("Project Kickoff", "Mula Projek"), p.activated_at ? fmtDay(p.activated_at) : null, Boolean(p.activated_at)],
+    /* v1.382.0 - a project started late shows its planned start date as its kickoff */
+    [L("Project Kickoff", "Mula Projek"), p.activated_at ? fmtDay(p.start_date && p.start_date < p.activated_at.slice(0, 10) ? p.start_date : p.activated_at) : null, Boolean(p.activated_at)],
     [L("In Delivery", "Dalam Penghantaran"), p.start_date ? `${fmtDay(p.start_date)}${p.due_date ? ` – ${fmtDay(p.due_date)}` : ""}` : null, ["in_progress", "waiting_client", "on_hold", "completed"].includes(p.status)],
     [L("Final Delivery", "Penghantaran Akhir"), p.completed_at ? fmtDay(p.completed_at) : p.due_date ? fmtDay(p.due_date) : null, p.status === "completed"],
   ];
@@ -1026,17 +1106,29 @@ function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
         <span><strong>{d.client?.company ?? p.title}</strong><small>{p.title} · {d.quotation.doc_number}</small></span>
         <ProjectStatusChip status={p.status} />
       </div>
-      {p.description && <p className={pw.noteLines}>{p.description}</p>}
-      <div className={pw.sumFacts}>
-        <span><small>{L("Client", "Pelanggan")}</small><strong>{d.client?.company ?? "—"}</strong></span>
-        <span><small>{L("Owner", "Pemilik")}</small><strong>{p.owner?.name ?? L("Not assigned", "Belum ditetapkan")}</strong></span>
-        <span><small>{L("Due", "Akhir")}</small><strong>{fmtDay(p.due_date)}</strong></span>
-      </div>
-      <p className={pw.pSub}>{L("Overall Progress", "Kemajuan Keseluruhan")} · <strong>{Math.round(p.progress)}%</strong></p>
+      {/* v1.383.0 - one line of facts (the client is already the heading); the description folds below */}
+      <p className={pw.sumLine} data-testid="summary-facts">
+        <span>{L("Owner", "Pemilik")} <strong>{p.owner?.name ?? L("Not assigned", "Belum ditetapkan")}</strong></span>
+        <span>{L("Due", "Akhir")} <strong>{fmtDay(p.due_date)}</strong></span>
+        <span>{L("Progress", "Kemajuan")} <strong>{Math.round(p.progress)}%</strong></span>
+      </p>
       <span className={pw.track}><span className={p.progress >= 100 ? pw.fillDone : pw.fill} style={{ width: `${Math.round(p.progress)}%` }} /></span>
       <ol className={pw.stages} aria-label={L("Project stages", "Peringkat projek")}>
         {steps.map(([label, when, done]) => <li key={label} data-done={done ? "" : undefined}><span className={pw.stageDot} aria-hidden />{label}<small>{when ?? "—"}</small></li>)}
       </ol>
+      {/* v1.383.0 - the CEO (18-11-2026): "Need to ensure that it is not too long to scroll!" - what to DO comes
+          first (the next step and Open project); the record (deliverables, team, activity, acceptance) folds
+          under More details, closed by default */}
+      <NextStepBar projectId={id} d={d} onDone={(m) => { setMsg(m); setTick((n) => n + 1); }} />
+      {msg && <p className={pw.note} role="status">{msg}</p>}
+      <button type="button" className={btnSm} onClick={onOpen} data-testid="summary-open">{L("Open project", "Buka projek")}</button>
+      <details className={pw.sumMore} data-testid="summary-more">
+        <summary>{L("More details", "Butiran lanjut")}<small>{[
+          p.deliverable_rows ? L(`deliverables ${p.deliverable_rows.filter((x) => x.done_at).length}/${p.deliverable_rows.length}`, `hasil ${p.deliverable_rows.filter((x) => x.done_at).length}/${p.deliverable_rows.length}`) : null,
+          L(`${d.team.length} in the team`, `${d.team.length} dalam pasukan`),
+          p.acceptances ? (p.acceptances.length ? L("client accepted", "pelanggan menerima") : L("acceptance not recorded", "penerimaan belum direkod")) : null,
+        ].filter(Boolean).join(" · ")}</small></summary>
+      {p.description && <p className={pw.noteLines}>{p.description}</p>}
       <div className={pw.sumGrid}>
         <div>
           {p.deliverable_rows ? (
@@ -1072,12 +1164,11 @@ function ProjectSummary({ id, onOpen }: { id: number; onOpen: () => void }) {
           <p className={pw.pSub}><strong>{L("Client Acceptance", "Penerimaan Pelanggan")}</strong></p>
           {p.acceptances.length ? <p className={pw.note}>{L(`Accepted on ${fmtDay(p.acceptances[0]!.accepted_on)} by ${p.acceptances[0]!.client_name}`, `Diterima pada ${fmtDay(p.acceptances[0]!.accepted_on)} oleh ${p.acceptances[0]!.client_name}`)}{p.acceptances[0]!.recorded_by_name ? L(` - recorded by ${p.acceptances[0]!.recorded_by_name}`, ` - direkod oleh ${p.acceptances[0]!.recorded_by_name}`) : ""}</p>
             : <p className={pw.note}>{L("Not recorded yet - required before the project is closed as completed.", "Belum direkod - diperlukan sebelum projek ditutup sebagai selesai.")}</p>}
-          {d.can.edit && <button type="button" className={btnSm} onClick={() => void recordAcceptance()} data-testid="record-client-acceptance">{L("Record client acceptance", "Rekod penerimaan pelanggan")}</button>}
+          {d.can.edit && d.next?.key !== "acceptance" /* v1.382.0 - the next-step bar carries it then */ && <button type="button" className={btnSm} onClick={() => void recordAcceptance()} data-testid="record-client-acceptance">{L("Record client acceptance", "Rekod penerimaan pelanggan")}</button>}
         </div>
       )}
-      {msg && <p className={pw.note} role="status">{msg}</p>}
+      </details>
       {promptNode}
-      <button type="button" className={btnSmPrimary} onClick={onOpen} data-testid="summary-open">{L("Open project", "Buka projek")}</button>
     </section>
   );
 }

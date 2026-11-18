@@ -59,11 +59,14 @@ const ROWS = [
   { n: "starts in 14 days", is_active: 1, role: "live_host", employment_status: "probation", joined_on: day(14), expect: "starting" },
   { n: "starts today", is_active: 1, role: "live_host", employment_status: "contract", joined_on: today, expect: "active" },
   { n: "admin account", is_active: 1, role: "admin", employment_status: "permanent", expect: "system" },
+  /* v1.384.0 - a test account (CCO role, for the morning brief): keeps its role, is not staff */
+  { n: "test account", is_active: 1, role: "cco", employment_status: "permanent", not_staff: 1, expect: "system" },
 ];
 
 const sqlTemplate = (src, name) => (src.match(new RegExp(`export const ${name} = \\(alias = ""\\) =>\\s*\`([\\s\\S]*?)\`;`)) ?? [])[1] ?? "";
 function serverSql(staff) {
-  const cur = sqlTemplate(staff, "currentStaffSql").replace(/\$\{alias\}/g, "");
+  const notStaff = sqlTemplate(staff, "notStaffSql").replace(/\$\{alias\}/g, "").replace(/\$\{NOT_STAFF_KEY\}/g, "not_staff_accounts");
+  const cur = sqlTemplate(staff, "currentStaffSql").replace(/\$\{notStaffSql\(alias\)\}/g, notStaff).replace(/\$\{alias\}/g, "");
   const head = sqlTemplate(staff, "headcountSql").replace(/\$\{currentStaffSql\(alias\)\}/g, cur).replace(/\$\{alias\}/g, "");
   return { cur, head };
 }
@@ -87,6 +90,8 @@ async function checks(f) {
     const db = new DatabaseSync(":memory:");
     db.exec("CREATE TABLE users (id INTEGER, is_active INT, role TEXT, employment_status TEXT, joined_on TEXT, left_on TEXT, rejoined_on TEXT)");
     ROWS.forEach((r, i) => db.prepare("INSERT INTO users VALUES (?,?,?,?,?,?,?)").run(i, r.is_active, r.role, r.employment_status, r.joined_on ?? null, r.left_on ?? null, r.rejoined_on ?? null));
+    db.exec("CREATE TABLE system_meta (key TEXT PRIMARY KEY, value TEXT)");
+    db.prepare("INSERT INTO system_meta VALUES ('not_staff_accounts', ?)").run(JSON.stringify(ROWS.map((r, i) => (r.not_staff ? i : null)).filter((x) => x !== null)));
     const ids = (sql) => new Set(db.prepare(sql).all().map((x) => x.id));
     const sHead = ids(`SELECT id FROM users WHERE is_active = 1 AND ${head} AND role NOT IN ('customer', 'super_admin', 'admin')`);
     const sOn = ids(`SELECT id FROM users WHERE ${cur}`);
@@ -96,7 +101,8 @@ async function checks(f) {
       const st = staffState(r, today);
       ok(st === r.expect, `A ${r.n}: ${r.expect} (browser said ${st})`);
       ok((st === "active") === sHead.has(i), `A ${r.n}: the worker's headcount agrees`);
-      ok(isCurrentStaff(r, today) === sOn.has(i) && sSearch.has(i) === sOn.has(i), `A ${r.n}: "on staff today" agrees in the browser, the worker and the search label`);
+      if (r.not_staff) ok(!sOn.has(i) && !sHead.has(i), `A ${r.n}: the worker keeps a test account off staff and headcount (v1.384.0)`);
+      else ok(isCurrentStaff(r, today) === sOn.has(i) && sSearch.has(i) === sOn.has(i), `A ${r.n}: "on staff today" agrees in the browser, the worker and the search label`);
     });
   }
 

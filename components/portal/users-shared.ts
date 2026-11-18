@@ -14,6 +14,8 @@ export function mytStamp2(iso: string): string {
 }
 
 export interface Account {
+  /** v1.384.0 - a test / system account: keeps its role, is not on staff (the worker's notStaffSql) */
+  not_staff?: number | boolean;
   id: number;
   name: string;
   full_name?: string | null;
@@ -25,6 +27,7 @@ export interface Account {
   rejoined_on?: string | null;
   totp_enabled?: number;
   photo_key?: string | null;
+  department?: string | null; // 18-11-2026 - /staff/users sends it (the Staff Accounts column)
 }
 
 export interface AuthEvent { action: string; created_at: string; name?: string | null; email?: string | null }

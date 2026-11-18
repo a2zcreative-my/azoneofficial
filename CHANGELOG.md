@@ -4,6 +4,12 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Attendance -> Attendance Records: the Team Attendance Report (18-11-2026, the CEO's approved reference) - NO MIGRATION, NO API CHANGE
+- The day register is now one compact card, "Team Attendance Report": ONE connected KPI strip (Present, Late, Missing clock-in, Missing clock-out, On leave, Off day - the day's statuses from THE verdict, each the filter it names), one toolbar (previous / date / next, All teams, All staff, search, Export (CSV)), the table No. | Staff | Team / Role | Shift | Clock In | Clock Out | Working Hours | Status | Location | View in tighter rows, 10 a page with the shared pager and page-size choice (10/15/25/50; the numbering runs on across pages), and a foot with the note and the grace rule.
+- Export (CSV) offers "This day (CSV)" and "Month for Payroll" (the existing /attendance/export) to the roles that had both; others get the day's CSV as before.
+- The month punch log that ran as a long table under the register opens from "Month punch log" in the foot, in a drawer - the same component and request. View opens the same person's-day drawer (details, punch history, corrections, audit).
+- A phone: the same strip, the date row, search, a Filters button (team, staff) and the compact staff rows. The Overview's table is unchanged (TodayRows takes optional offset / compact / shiftHead).
+
 ### Staff account emails wear the task-email look (18-11-2026, the CEO: "Email migrate I want to be the same template as reminder email!") - NO MIGRATION
 - The navy A2Z OS header, white card, details box, gold button and footer of the task emails are now drawn ONCE, `osMailHtml` in `worker/src/mail.ts`; `buildTaskMail` uses it (every task email is byte-for-byte what it was - all 13 kinds compared).
 - Every staff account email - its subject names "A2Z OS": Confirm your new login email (single change and the @a2zcreative.my move), the old-address notices, set your password / new account, two-factor reset, account recovered, passkey added - is drawn in that frame from its own words. A sign-in link becomes a gold button (Confirm New Login Email / Set My Password) with the new address in the details box and a copy-the-link line for mail apps that block buttons. The words and links are unchanged.
@@ -15,6 +21,49 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Rechecked the user's committed AZ ONE service-document changes and preserved them. Local and GitHub main match 3e42644; public API/login report 1.181.9.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
+
+## [1.384.0] - 2026-11-18 - Payroll on a live schedule; payslips the working day BEFORE a weekend or holiday 5th; test accounts are not staff - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "Payroll Timeline need to make sure that it is live track update which is Calculate payroll & Review & adjust by earlier of the month which is on 1st every month for month end count. Generate payslips & Release to staff every each of 5th except on weekend or public holiday which is the payroll done before it. Testing Account should not appear as a staff since it is testing account using CCO roles for morning briefing on the system."
+
+### Changed
+- **The payslip day is the 5th of the next month, or the working day BEFORE it** when the 5th is a weekend or a public holiday (`payslipAvailableFromFor`, worker/src/staff.ts; it used to move to the day AFTER). November 2026 payslips: Friday 4 December 2026, 10:00 (5 December is a Saturday). Everything that reads that day follows: the Payslip Date tile, the automatic release, the "payslips are out" lock on the month's pay changes, Payslips and history.
+- **The Payroll Timeline is live and dated**: Calculate payroll and Review & adjust from the 1st of the next month (the month-end count), Generate payslips and Release to staff on the payslip day. Each stage shows Done, its date while the month is still open, "Due by <payslip day>" once the 1st has passed, or "Late - was due" after the payslip day. Read from the same rows and the server's payslip day; nothing in pay changes.
+- **A test / system account is not staff**: Users -> Staff Accounts -> the account -> **Mark as test account** (the company owner or the super admin, the reason and the authenticator code, audited `user.not_staff` / `user.staff_again`). The account keeps its role and can sign in (the CCO's morning brief and screens still work), but it is off payroll, headcount, the Staff tab, the staff pickers and every staff list (`notStaffSql` inside `currentStaffSql`, `payrollBaseStaffSql`, `payrollMonthStaffSql`). The list is `system_meta.not_staff_accounts` - no migration; an absent or damaged list excludes nobody. The Users list marks it "Test account".
+
+### After deploy
+- Open Users -> Staff Accounts -> **Testing Account** -> Mark as test account.
+
+### Guards
+- New `tests/payroll-schedule.mjs` (21 checks, 4 mutations); `tests/staff-headcount.mjs` +1 row (a test account); `tests/users-ui.mjs` accepts the role filter after the search.
+
+## [1.383.0] - 2026-11-18 - The project side panel is short: the action first, the record folded - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "Need to ensure that it is not too long to scroll!"
+
+### Changed
+- **Tasks -> Projects, the panel beside the register** now reads: the client and status, one line of facts (Owner · Due · Progress), the stage line, then **the Next step and Open project**. Deliverables, the team and next task, recent activity, the description and the client's acceptance fold under **More details** (closed by default, its summary line says deliverables 1/2 · team · acceptance). About 40% shorter (840 px to 500 px at 1280 px wide, 780 px to 460 px at 1440 px). Nothing removed: every item is one tap away, and the opened project is unchanged.
+
+### Guards
+- Browser `tests/browser/tasks5.py` 86 checks (More details closed, the next step above it, the panel under 640 px).
+
+## [1.382.0] - 2026-11-18 - Projects move stage by stage: auto-start, one next step, and the completion chain - BUILT, NOT DEPLOYED (MIGRATION 0213)
+
+The CEO (18-11-2026, his screenshot of a project still a "Draft brief" after its task was done): "it is supposed to be able to update the stage by stage until it is complete". The cause: a project made by adding a task "For a quotation" was created as a Draft brief and nothing ever started it; finishing tasks never moves a project (by design since 1.245.0) and the status change was hidden in Open project -> Project Settings -> Project status; and completion needs the client's acceptance first (1.315.0). His decisions: start it automatically; "CEO confirms, pre-verify by COO or CCO for normal staff, if CEO completed without further, COO and CCO confirm by CEO"; the next-step button; Kickoff = start date; drafts count as active.
+
+### Changed
+- **A task added under an accepted or invoiced quotation starts its project** (`startIfAccepted`, worker/src/projects.ts, called from POST /tasks): In Delivery, the agreed scope frozen, audited `via: task` - exactly as the Start project button. A quotation not yet accepted still cannot have a project.
+- **One "Next step" on every project** (`NextStepBar`, components/portal/project-workspace.tsx), in the Project Register side panel and at the top of the opened project, chosen by the server for the person (`next` on GET /projects/:id, `nextStepFor`): Start the project · Record client acceptance · Request completion (the owner or a manager) · Verify and send to the CEO (the COO or CCO) · Confirm completed (the CEO), with a "Ready to complete" badge when every task is done, and **Send back** (with the reason) for the COO, CCO and CEO.
+- **The completion chain**: a staff member asks -> the **COO or CCO pre-verifies** -> **the CEO confirms**; a COO's or CCO's own request goes straight to the CEO; the CEO completes at once. New `POST /projects/:id/completion` { action: request | verify | return }; the final step stays POST /status { to: completed }. `project_complete` is now **CEO** (and super admin) - the COO no longer confirms; new capability `project_verify` (COO, CCO) in the Roles & Permissions matrix. The client's acceptance stays required before the CEO's confirmation. Every step audited (`project.completion_requested`, `_verified`, `_returned`) and told to the next person.
+- **When the last task on a project is closed**, the Owner, the COO/CCO and the CEO are told it is ready to complete (`projectReadyCheck`). It never completes the project by itself.
+- **Project Kickoff shows the planned start date** when a project is started late.
+- **Active Projects counts Draft briefs** too.
+
+### Migration
+- `0213_project_completion_verify.sql`: two nullable columns on `projects` (completion_verified_at, completion_verified_by). Additive. Health probe and LATEST_MIGRATION updated.
+
+### Guards
+- `tests/go-live-p.mjs` 98 checks, 15 mutations (the chain, auto-start, send-back); `tests/go-live-t.mjs` Q3 now expects the accepted quotation's project started; browser `tests/browser/tasks5.py` 85 checks; `tests/browser/project-fixture.json` re-captured from the worker.
 
 ## [1.381.0] - 2026-11-18 - Trust on the public forms: company footer, short links and QR codes - BUILT, NOT DEPLOYED (NO MIGRATION)
 

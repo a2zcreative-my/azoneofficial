@@ -109,7 +109,7 @@ ok("the vocabulary is imported, not approximated",
 /* v1.327.0 - each list is its own tab with its own find box: the staff list
    (match + status) and the Customer & Agent Directory (name or email, then type) */
 ok("each list has its find box, over every row of that list",
-   /const staffRows = (leaversLast\()?allStaff\.filter\(match\)\.filter\(statusOk\)\)?;/.test(src) /* v1.377.0 - leavers ordered last, after the search over every row */
+   /const staffRows = (leaversLast\()?allStaff\.filter\(match\)\.filter\(statusOk\)(\.filter\(roleOk\))?\)?;/.test(src) /* v1.377.0 - leavers ordered last, after the search over every row; 18-11-2026 - and the role pick */
    && /accounts\.filter\(\(u\) => \(!needle \|\| \[u\.email, u\.full_name \?\? "", u\.name\]\.some/.test(cust)
    && /<CustomersAgents accounts=\{allCustomers\}/.test(src),
    "a search that only narrows part of a list is a trap");
@@ -199,7 +199,8 @@ ok("long lists show 25, then Show more (the directory: 10 a page)",
    && (src.match(/Show more \(\$\{/g) ?? []).length === 1 && /useState<PageSize>\(10\)/.test(cust));
 ok("Grant Agent Access sits beside the access it changes; Manage holds icons, one width on both tabs",
    /No staff access[\s\S]{0,600}?data-testid=\{`grant-agent-\$\{u\.id\}`\}/.test(src)
-   && (mod.match(/ 6\.5rem;/g) ?? []).length === 2);
+   /* 18-11-2026 - the staff table's own two layouts (7 columns, and 6 from 1024-1279px) keep the same Manage width */
+   && (mod.match(/ 6\.5rem;/g) ?? []).length === 4);
 ok("below 1024px every account is a card, never a clipped table",
    /@media \(min-width: 1024px\) \{[\s\S]{0,400}?\.header,\s*\.row \{/.test(mod) && !/@media \(min-width: 768px\) \{\s*\.header,/.test(mod));
 

@@ -90,7 +90,11 @@ export const PERMS: Record<string, readonly Role[]> = {
   project_view: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "editor", "live_host"],
   project_manage: ["super_admin", "ceo", "coo", "cco"],
   project_owner_assign: ["super_admin", "ceo", "coo"],
-  project_complete: ["super_admin", "ceo", "coo"],
+  /* v1.382.0 - the CEO (18-11-2026): "CEO confirms, pre-verify by COO or CCO for normal staff, if CEO completed
+     without further, COO and CCO confirm by CEO" - the final confirmation is the CEO's; the COO and CCO
+     pre-verify (project_verify) */
+  project_complete: ["super_admin", "ceo"],
+  project_verify: ["coo", "cco"],
   /* v1.72.0 — recording an unpaid day is a pay decision, not attendance
      data entry: it removes one twenty-sixth of a month wage. Same reasoning
      as claims_decide. Admin and hr_admin keep every other correction on the
@@ -670,7 +674,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Projects", key: "project_view", en: "View shared project information", ms: "Lihat maklumat projek yang dikongsi", cap: "project_view", note_en: "Prices and contact details need more", note_ms: "Harga dan butiran hubungan memerlukan lebih" },
   { module: "Projects", key: "project_manage", en: "Edit any project, assign its tasks, change its status", ms: "Sunting mana-mana projek, agih tugasan, tukar status", cap: "project_manage", note_en: "The Project Owner can for their own project", note_ms: "Pemilik Projek boleh untuk projek sendiri" },
   { module: "Projects", key: "project_owner", en: "Assign or transfer the Project Owner", ms: "Tetapkan atau pindah Pemilik Projek", cap: "project_owner_assign", note_en: "Never changes the closer or commission", note_ms: "Tidak menukar penutup jualan atau komisen" },
-  { module: "Projects", key: "project_complete", en: "Confirm a project Completed", ms: "Sahkan projek Selesai", cap: "project_complete", note_en: "The owner requests it", note_ms: "Pemilik memohonnya" },
+  { module: "Projects", key: "project_complete", en: "Confirm a project Completed", ms: "Sahkan projek Selesai", cap: "project_complete", note_en: "The final step; a staff request is pre-verified first", note_ms: "Langkah akhir; permohonan kakitangan disemak dahulu" },
+  { module: "Projects", key: "project_verify", en: "Pre-verify a project a staff member says is done", ms: "Semak awal projek yang dikatakan siap oleh kakitangan", cap: "project_verify", note_en: "Then the CEO confirms", note_ms: "Kemudian CEO mengesahkan" },
   { module: "Staff Details", key: "hr_manage", en: "Manage staff records", ms: "Urus rekod kakitangan", cap: "hr_manage" },
   { module: "Staff Details", key: "org_assign", en: "Set reporting lines", ms: "Tetapkan garis pelaporan", cap: "org_assign", na: ["super_admin", "admin"] },
   { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },

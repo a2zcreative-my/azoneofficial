@@ -137,8 +137,13 @@ with sync_playwright() as p:
     check("the Project Register: Project & Client, Owner, Stage, Progress, Tasks, Health", reg.count() == 1 and [h.strip().lower() for h in reg.locator("thead th").all_inner_texts()] == ["project & client", "owner", "stage", "progress", "tasks", "health"])
     check("1440px: the chosen project beside the register (stages, deliverables, team, next task)", vis(pg, "project-summary") and "Quotation Accepted" in pg.get_by_test_id("project-summary").inner_text())
     summ = pg.get_by_test_id("project-summary")
+    # v1.383.0 - the CEO: "not too long to scroll" - the action first, the record folded under More details
+    check("v1.383.0 the side panel is short: More details is closed and the next step sits above it", summ.get_by_test_id("summary-more").get_attribute("open") is None and summ.bounding_box()["height"] < 640 and summ.get_by_test_id("project-next-step").bounding_box()["y"] < summ.get_by_test_id("summary-more").bounding_box()["y"], summ.bounding_box())
+    summ.get_by_test_id("summary-more").locator("summary").click(); pg.wait_for_timeout(300)
     check("Gate 4 (TK-9): the deliverables are ticked rows, kept apart from tasks", summ.get_by_test_id("deliverable-rows").locator("input[type=checkbox]").count() == 2 and "(1/2)" in summ.inner_text(), summ.inner_text()[:300])
-    check("Gate 4 (TK-15): the client's acceptance - not recorded yet, required before completion", "required before the project is closed" in summ.get_by_test_id("client-acceptance").inner_text() and summ.get_by_test_id("record-client-acceptance").count() == 1)
+    check("Gate 4 (TK-15): the client's acceptance - not recorded yet, required before completion", "required before the project is closed" in summ.get_by_test_id("client-acceptance").inner_text() and (summ.get_by_test_id("record-client-acceptance").count() + summ.locator("[data-testid=project-next-step][data-step=acceptance]").count()) == 1)
+    # v1.382.0 - the ONE next step (the CEO 18-11-2026: stage by stage until complete)
+    check("v1.382.0 the panel shows one next step for this person", summ.get_by_test_id("project-next-step").count() == 1 and summ.get_by_test_id("next-step-go").count() == 1, summ.inner_text()[-300:])
     ctx.close()
     check("no page error (Projects)", not errs, errs)
 

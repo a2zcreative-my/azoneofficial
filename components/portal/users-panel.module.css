@@ -861,3 +861,101 @@
 .kpis {
   min-width: 0;
 }
+
+/* ---- 18-11-2026 (the CEO's Users & Security reference) - Staff Accounts: the one KPI strip, a
+   seven-column table on a desk (department and the last sign-in), and the email move as a page of
+   Staff Accounts behind a breadcrumb. Tokens only. ---- */
+.strip {
+  margin-top: 0.875rem;
+  min-width: 0;
+}
+.outset[hidden],
+.part[hidden],
+.crumbs[hidden] {
+  display: none;
+}
+.part {
+  min-width: 0;
+}
+.part > section {
+  margin-block-start: 0;
+}
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.crumbs strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.crumbLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+.crumbLink:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+.dim {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+}
+.seen {
+  font-size: var(--type-caption-size);
+  color: var(--foreground);
+  white-space: nowrap;
+}
+/* a card below 1024px keeps the department chip in its chip line; the sign-in time is a desk column */
+@media (max-width: 1023px) {
+  .seen {
+    display: none !important;
+  }
+  .deskCell:has(> .dim) {
+    display: none !important;
+  }
+}
+@media (min-width: 1024px) {
+  .staffTable .header,
+  .staffTable .row {
+    grid-template-columns: minmax(14rem, 2.3fr) minmax(7rem, 1fr) minmax(7rem, 1fr) minmax(5.5rem, 0.75fr) minmax(5rem, 0.7fr) minmax(8.5rem, 1fr) 6.5rem;
+  }
+}
+@media (max-width: 767px) {
+  .quickStaff {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .quickStaff > * {
+    justify-content: center;
+    min-width: 0;
+  }
+  .crumbs {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .crumbLink {
+    min-height: 2.25rem;
+  }
+}
+/* 1024-1279px: six columns - the sign-in time waits for the wider desk */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .staffTable .header,
+  .staffTable .row {
+    grid-template-columns: minmax(11rem, 2.2fr) minmax(6.5rem, 1fr) minmax(6rem, 1fr) minmax(5rem, 0.75fr) minmax(4.75rem, 0.7fr) 6.5rem;
+  }
+  .staffTable .header > span:nth-child(6),
+  .staffTable .seen {
+    display: none !important;
+  }
+}

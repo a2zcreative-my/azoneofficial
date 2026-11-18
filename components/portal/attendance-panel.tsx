@@ -112,11 +112,9 @@ export function AttendancePanel({ user, go, startView }: { user: User; go: (t: T
         <div hidden={view !== "records"} className={css.body}>
           {manage ? (
             <>
-              <AttendanceRecords canExport={canExport} openPerson={openPerson} day={recDay} setDay={setRecDay} />
-              {/* the month's punch log across the team (was the Team tab) - sort a column, or find one person */}
-              <TabZone label={L("Month punch log", "Log ketukan bulanan")} hint={L("Every punch across the team for the month - sort a column, or find one person.", "Setiap ketukan seluruh pasukan untuk bulan ini - susun lajur, atau cari seorang.")}>
-                <Attendance user={user} view="team" />
-              </TabZone>
+              {/* 18-11-2026 - the Team Attendance Report; the month's punch log (was the long table under
+                  it) opens from its foot in a drawer - the same component, the same request */}
+              <AttendanceRecords canExport={canExport} openPerson={openPerson} day={recDay} setDay={setRecDay} monthLog={<Attendance user={user} view="team" />} />
             </>
           ) : (
             <>

@@ -32,7 +32,7 @@ import { notify, currentStaffSql, staffRolesSql } from "./staff";
 import { queueTaskMailTo, taskForMail } from "./task-mail"; // v1.247.0 - the email leg
 import { can, canUser } from "./permissions";
 import { audit, err, json, putGuarded } from "./shared";
-import { projectAccess, type ProjectRow, type Access as ProjectAccess } from "./projects";
+import { projectAccess, projectReadyCheck, type ProjectRow, type Access as ProjectAccess } from "./projects"; // v1.382.0 - ready to complete
 
 export interface TaskRow {
   id: number; title: string; description: string | null; assigned_to: number; created_by: number | null; priority: string;
@@ -381,6 +381,7 @@ export async function transitionTask(
   const tmd = await taskForMail(env, t.id);
   if (tmd) await queueTaskMailTo(env, "decision", team, user.id, `task:${t.id}:decision:${row.id}`, { task: { ...tmd, status: nextStatus, stage: nextStage }, by: user.name,
     summary: kind === "review_approved" || kind === "closed" ? `Closed as completed: ${text}` : kind === "closed_with_exception" ? `Closed: ${text}` : kind === "reopened" ? `Reopened: ${reason}` : `${kind === "review_returned" ? "Returned for more work" : "Cancelled"}: ${reason}` });
+  if (decision === "close" || decision === "cancel") await projectReadyCheck(env, t.id, user.id); // v1.382.0
   return json({ ok: true, id: row.id, kind, status: nextStatus, stage: nextStage, progress });
 }
 

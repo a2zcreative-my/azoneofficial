@@ -27,6 +27,8 @@ def page(b, w, h):
     pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.on("request", lambda r: reqs.append((r.method, r.url, r.post_data)))
     pg.goto(f"http://127.0.0.1:{PORT}{URL}"); pg.wait_for_timeout(2500)
+    # 18-11-2026 - the move is a page of Staff Accounts, opened from its button
+    if pg.get_by_test_id("email-move-open").count(): pg.get_by_test_id("email-move-open").click(); pg.wait_for_timeout(600)
     return ctx, pg, errs, reqs
 
 def answer(pg, has, value):
@@ -43,11 +45,18 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs = page(b, 1440, 1000)
     card = t(pg, "email-move")
     card.scroll_into_view_if_needed(); pg.wait_for_timeout(300)
-    check("the move card is on Staff Accounts", card.is_visible())
+    check("the move opens as a page of Staff Accounts, behind a breadcrumb", card.is_visible() and t(pg, "email-move-crumbs").is_visible() and "Staff Accounts / Move staff to @a2zcreative.my" in t(pg, "email-move-crumbs").inner_text() and not t(pg, "staff-accounts").is_visible())
+    t(pg, "email-move-help").click(); pg.wait_for_timeout(500)
+    rules = t(pg, "email-move-rules").inner_text()
+    check("Help & rules says personal-email staff move only if ticked, and the 72 hours", "Staff who sign in with @azoneofficial.com" in rules and "moved only if you tick them" in rules and "72 hours" in rules, rules[:300])
+    pg.keyboard.press("Escape"); pg.wait_for_timeout(400)
+    check("the figures are ONE connected KPI strip: 6 to move, 1 link sent, 1 moved", t(pg, "email-move-counts").get_attribute("data-kpi-strip") is not None and re.search(r"To move\s*6", t(pg, "email-move-counts").inner_text()) and re.search(r"Already moved\s*1", t(pg, "email-move-counts").inner_text()), t(pg, "email-move-counts").inner_text())
+    check("the 72-hour rule is said on the page", "within 72 hours" in card.inner_text() and "old login email keeps working" in card.inner_text())
+    check("the personal-email staff are an option with their count (2), not listed until ticked", "(2)" in t(pg, "email-move-include-personal").inner_text() and not t(pg, "email-move-row-9011").count())
+    t(pg, "email-move-include-personal").locator("input").check(); pg.wait_for_timeout(300)
     txt = card.inner_text()
-    check("it says personal-email staff are listed below and move only if ticked", "Staff who sign in with @azoneofficial.com" in txt and "moved only if you tick them" in txt, txt[:300])
-    check("the counts: 8 to move, 1 link sent, 1 moved", re.search(r"8\s*to move", t(pg, "email-move-counts").inner_text()) and re.search(r"1\s*moved", t(pg, "email-move-counts").inner_text()), t(pg, "email-move-counts").inner_text())
-    check("the Gmail staff are listed at once, in their own section (2)", "farahnadia92@gmail.com" in txt and t(pg, "email-move-personal").is_visible() and "(2)" in t(pg, "email-move-personal").inner_text())
+    check("ticked: the Gmail staff are listed in their own section (2), and the figure follows", "farahnadia92@gmail.com" in txt and t(pg, "email-move-personal").is_visible() and "(2)" in t(pg, "email-move-personal").inner_text() and re.search(r"To move\s*8", t(pg, "email-move-counts").inner_text()))
+    t(pg, "email-move-include-personal").locator("input").uncheck(); pg.wait_for_timeout(300)
     check("the proposal keeps the name on the new domain", t(pg, "email-move-row-9002").locator("input[aria-label^='New login email']").input_value() == "aina@a2zcreative.my")
     check("a waiting link shows Link sent and its address", "Link sent" in t(pg, "email-move-row-9006").inner_text() and t(pg, "email-move-row-9006").locator("input[aria-label^='New login email']").input_value() == "iman@a2zcreative.my")
     check("an expired link offers Resend", t(pg, "email-move-resend-9007").is_visible())
@@ -79,6 +88,7 @@ with sync_playwright() as p:
     check("the send carries the reason and the code, not dry run", last.get("totp") == "123456" and last.get("reason") and not last.get("dry_run"), last)
     shot(pg, "em-desktop-sent.png")
     # v1.378.0 - the option: include personal-email staff
+    t(pg, "email-move-include-personal").locator("input").check(); pg.wait_for_timeout(300)
     check("the personal-email staff come after the others, marked and not ticked", t(pg, "email-move-row-9011").is_visible() and "Personal email" in t(pg, "email-move-row-9011").inner_text() and not t(pg, "email-move-row-9011").locator("input[type=checkbox]").is_checked())
     check("their suggestion comes from the name", t(pg, "email-move-row-9011").locator("input[aria-label^='New login email']").input_value() == "farah.nadia@a2zcreative.my")
     shot(pg, "em-personal.png")
@@ -97,6 +107,8 @@ with sync_playwright() as p:
     check("Select all never ticks a personal-email person", not t(pg, "email-move-row-9012").locator("input[type=checkbox]").is_checked() and t(pg, "email-move-row-9003").locator("input[type=checkbox]").is_checked() is not None)
     t(pg, "email-move").locator("thead input[type=checkbox]").uncheck(); pg.wait_for_timeout(200)
     check("the untouched Gmail person stays listed, not ticked", t(pg, "email-move-row-9012").is_visible() and not t(pg, "email-move-row-9012").locator("input[type=checkbox]").is_checked())
+    t(pg, "email-move-back").click(); pg.wait_for_timeout(400)
+    check("Back returns to the staff list", t(pg, "staff-accounts").is_visible() and not card.is_visible())
     check("no script error", not errs, errs)
     ctx.close()
 

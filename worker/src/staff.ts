@@ -17,7 +17,7 @@ import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0: no ordina
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
-import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./projects"; // v1.245.0 - the Project Workspace
+import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
 import { handlePartners } from "./partners"; // v1.351.0
@@ -438,17 +438,35 @@ export function prorationDays(month: string, working: string[]): { basis: "calen
    picker. A last day still decides when one is set (notice periods), and a
    re-joiner is back. Payroll does not use this rule (payrollMonthStaffSql,
    and payrollBaseStaffSql below), so no pay changes. */
+/* v1.384.0 - TEST AND SYSTEM ACCOUNTS ARE NOT STAFF (the CEO, 18-11-2026: "Testing Account should not appear
+   as a staff since it is testing account using CCO roles for morning briefing"). The account keeps its role
+   (so the CCO's morning brief and screens still work for it) but is not on staff: not in payroll, headcount,
+   pickers or staff lists. The list is system_meta 'not_staff_accounts' (a JSON array of user ids), set by the
+   company owner or the super admin (POST /accounts/:id/not-staff, reason + code, audited). No migration: an
+   absent or unreadable list means nobody is excluded. */
+export const NOT_STAFF_KEY = "not_staff_accounts";
+export const notStaffSql = (alias = "") =>
+  `${alias}id NOT IN (SELECT CAST(j.value AS INTEGER) FROM system_meta m, json_each(CASE WHEN json_valid(m.value) THEN m.value ELSE '[]' END) j WHERE m.key = '${NOT_STAFF_KEY}')`;
+export async function notStaffIds(env: Env): Promise<number[]> {
+  try {
+    const v = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = ?1`).bind(NOT_STAFF_KEY).first<{ value: string }>())?.value;
+    const a = v ? JSON.parse(v) : [];
+    return Array.isArray(a) ? a.map(Number).filter((x) => Number.isInteger(x) && x > 0) : [];
+  } catch { return []; }
+}
 export const currentStaffSql = (alias = "") =>
-  `((${alias}left_on IS NULL AND COALESCE(${alias}employment_status, '') NOT IN ('resigned', 'terminated'))
+  `(((${alias}left_on IS NULL AND COALESCE(${alias}employment_status, '') NOT IN ('resigned', 'terminated'))
      OR ${alias}left_on >= date('now', '+8 hours')
-     OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))`;
+     OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))
+     AND ${notStaffSql(alias)})`;
 /** v1.225.0 - the rule payroll's own lists have always used (left_on only),
     kept for them exactly as it was: the basic-salary list and rest-day
     work. Changing who works here today must never change who is paid. */
 export const payrollBaseStaffSql = (alias = "") =>
-  `(${alias}left_on IS NULL
+  `((${alias}left_on IS NULL
      OR ${alias}left_on >= date('now', '+8 hours')
-     OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))`;
+     OR (${alias}rejoined_on IS NOT NULL AND ${alias}rejoined_on <= date('now', '+8 hours')))
+     AND ${notStaffSql(alias)})`;
 
 /** HEADCOUNT — v1.230.0 (the owner, 30-10-2026: "ONE AUTHORITATIVE STAFF
     STATUS DEFINITION", answer "Not yet, show 'Starting'"). Who COUNTS as
@@ -491,9 +509,10 @@ export function payrollMonthStaffSql(month: string, alias = ""): string {
   if (!/^\d{4}-\d{2}$/.test(month)) {
     throw new Error(`payrollMonthStaffSql: month must be YYYY-MM, got ${JSON.stringify(month)}`);
   }
-  return `(${alias}left_on IS NULL
+  return `((${alias}left_on IS NULL
      OR substr(${alias}left_on, 1, 7) >= '${month}'
-     OR (${alias}rejoined_on IS NOT NULL AND substr(${alias}rejoined_on, 1, 7) <= '${month}'))`;
+     OR (${alias}rejoined_on IS NOT NULL AND substr(${alias}rejoined_on, 1, 7) <= '${month}'))
+     AND ${notStaffSql(alias)})`; // v1.384.0 - a test / system account is never on a payroll
 }
 
 /* v1.148.0 - WHY A MANUAL MOVEMENT HAPPENED, as a fixed set of keys (0124).
@@ -1492,6 +1511,9 @@ export async function payslipAvailableFromFor(env: Env, month: string): Promise<
   const y = Number(month.slice(0, 4));
   const m = Number(month.slice(5, 7)); // 1-based payroll month
   const d = new Date(Date.UTC(y, m, 5)); // 5th of the NEXT month
+  /* v1.384.0 - the CEO (18-11-2026): "Generate payslips & Release to staff every each of 5th except on weekend
+     or public holiday which is the payroll done before it". A 5th on a weekend or a public holiday moves to the
+     WORKING DAY BEFORE it (it used to move to the one after). */
   for (let i = 0; i < 14; i++) {
     const iso = d.toISOString().slice(0, 10);
     const dow = d.getUTCDay();
@@ -1499,7 +1521,7 @@ export async function payslipAvailableFromFor(env: Env, month: string): Promise<
       ? await env.DB.prepare(`SELECT 1 AS x FROM holidays WHERE holiday_date = ?1`).bind(iso).first().catch(() => null)
       : null;
     if (dow !== 0 && dow !== 6 && !hol) break;
-    d.setUTCDate(d.getUTCDate() + 1);
+    d.setUTCDate(d.getUTCDate() - 1);
   }
   return `${d.toISOString().slice(0, 10)} 10:00`;
 }
@@ -3865,7 +3887,8 @@ async function handleStaffRoutes(
     let results: unknown[];
     const CORE = `u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
                 u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
-                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled`;
+                CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled,
+                CASE WHEN ${notStaffSql("u.")} THEN 0 ELSE 1 END AS not_staff`; // v1.384.0
     /* v1.174.0 - the roles-and-responsibilities columns (0137) get the top
        rung: the full list with them, then the 0113 list, then the older ones.
        The person who wrote them is joined by name so the card can say so. */
@@ -10242,6 +10265,9 @@ async function handleStaffRoutes(
       const made = await ensureProject(env, user, body.quotation_id);
       if (made instanceof Response) return made;
       body.link_kind = "project"; body.link_id = made.id;
+      /* v1.382.0 - the CEO (18-11-2026): a project made this way stayed a Draft brief for ever. Under an
+         accepted or invoiced quotation it starts now, the way the Start project button starts it. */
+      await startIfAccepted(env, user, made.id);
     }
     /* v1.223.0 - a sales task names its customer, enquiry, quotation
        or project (weekly-sales.ts taskLink) */
@@ -14646,10 +14672,11 @@ async function handleStaffRoutes(
         is_active: t.is_active === 1, employment_status: t.employment_status, email_verified_at: t.email_verified_at ?? null,
         methods: { password: !t.password_hash.startsWith("oauth$"), google: !!t.google_sub, google_unlinked_signup: t.password_hash.startsWith("oauth$") && !t.google_sub },
         totp_enabled: t.totp_enabled === 1, backup_codes_left: Number(codes?.n ?? 0), passkeys: Number(pks?.n ?? 0), last_login: lastLogin?.created_at ?? null,
+        not_staff: (await notStaffIds(env)).includes(t.id), // v1.384.0
       },
       pending, history,
       sessions: sessions.map((x) => ({ ref: x.id.slice(0, 12), created_at: x.created_at, expires_at: x.expires_at, last_seen_at: x.last_seen_at ?? null, user_agent: x.user_agent ?? null, passkey: x.auth_method === "passkey" })),
-      can: { email: !self && allows(user, "account_email"), recovery: !self && allows(user, "account_recovery") },
+      can: { email: !self && allows(user, "account_email"), recovery: !self && allows(user, "account_recovery"), not_staff: !self && allows(user, "account_email") },
       /* v1.251.0 - the Account Management drawer's role picker: exactly the
          roles roleChangeRule would let THIS editor give THIS person now (the
          route still decides on save); empty = no role change from here */
@@ -14676,6 +14703,28 @@ async function handleStaffRoutes(
     }
     return out.join(".");
   };
+  /* v1.384.0 - mark a staff account as a test / system account (not staff) or back. The owner or the super
+     admin, never your own, with the reason and the authenticator code; audited. The role is untouched. */
+  if (acctMatch && method === "POST" && acctMatch[2] === "/not-staff") {
+    const g = await acctGate(Number(acctMatch[1]), "account_email", true);
+    if ("r" in g) return g.r;
+    const t = g.t;
+    if (["super_admin", "agent"].includes(t.role)) return err("invalid_input", "A super admin or agent account is never on the staff list anyway", 400);
+    const on = body?.not_staff === true;
+    const reason = reasonOf();
+    if (reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    const su = await requireFreshTotp(env, user, body?.totp, err, "change who counts as staff");
+    if (su) return su;
+    const ids = new Set(await notStaffIds(env));
+    const was = ids.has(t.id);
+    if (on) ids.add(t.id); else ids.delete(t.id);
+    if (was !== on) {
+      await env.DB.prepare(`INSERT INTO system_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).bind(NOT_STAFF_KEY, JSON.stringify([...ids].sort((a, b) => a - b))).run();
+      await auditAcct(env, user.id, on ? "user.not_staff" : "user.staff_again", String(t.id), { email: t.email, role: t.role, reason });
+    }
+    return json({ ok: true, not_staff: on, changed: was !== on });
+  }
+
   /* v1.376.0 - MOVE STAFF LOGIN EMAILS TO @a2zcreative.my (the CEO, 18-11-2026: "only the staff which is
      using old domain azoneofficial.com"; Gmail and every other address untouched; answers: some new
      addresses differ from the old name, each link valid 72 hours). The SAME proof as one change above -

@@ -74,6 +74,7 @@ async function runtime(workerBundle) {
   qins.run(100, "QT-2026-0018", lines, 530000, "2026-11-30", 5, 5, 1, 1);
   qins.run(101, "QT-2026-0007", lines, 530000, "2026-10-15", 5, 5, null, null); // expired, never accepted
   qins.run(102, "QT-2026-0019", lines, 530000, "2026-11-30", 6, 6, null, null);
+  qins.run(103, "QT-2026-0020", lines, 530000, "2026-11-30", 6, 6, null, null); // v1.382.0 - a task under it starts its project
   db.exec(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, total_cents, payment_status, salesperson_id, created_by, created_at) VALUES (200, 'INV', 'INV-OLD-1', 1, '[]', 1000, 'unpaid', 5, 5, '2026-10-01 01:00:00')`);
   const worker = (await import(pathToFileURL(workerBundle).href + `?v=${Math.random()}`)).default;
   const tok = {};
@@ -262,13 +263,32 @@ async function runtime(workerBundle) {
 
     /* completion (P-3) */
     const dr = await call(`/staff/projects/${pid}/updates`, U.mira, "POST", { kind: "done_request", body: "Semua deliverables sudah dihantar." });
-    ok(dr.status === 201 && db.prepare(`SELECT status FROM projects WHERE id = ?`).get(pid ?? -1)?.status === "in_progress" && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id IN (1, 2) AND message LIKE '%is done%'`) >= 2, "a 'done' update tells the owner, CEO and COO - it does not complete the project", dr.text.slice(0, 120));
+    /* v1.382.0 - the CEO: a staff member's "done" goes to the COO / CCO to verify (not the CEO yet) */
+    ok(dr.status === 201 && db.prepare(`SELECT status FROM projects WHERE id = ?`).get(pid ?? -1)?.status === "in_progress" && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id IN (2, 3) AND message LIKE '%is done%'`) >= 2 && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND message LIKE '%is done%'`) === 0, "a staff 'done' update tells the COO and CCO to verify, not yet the CEO - it does not complete the project", dr.text.slice(0, 120));
     ok((await call(`/staff/projects/${pid}/status`, U.lia, "POST", { to: "completed" })).status === 403 && (await call(`/staff/projects/${pid}/status`, U.cco, "POST", { to: "completed" })).status === 403, "P-3 the owner and the CCO cannot confirm Completed");
+    /* v1.382.0 - THE COMPLETION CHAIN (the CEO, 18-11-2026): staff request -> COO/CCO pre-verify -> CEO confirms */
+    ok((await call(`/staff/projects/${pid}/status`, U.coo, "POST", { to: "completed" })).status === 403, "v1.382.0 the COO no longer confirms Completed - the CEO does");
+    const crq = await call(`/staff/projects/${pid}/completion`, U.lia, "POST", { action: "request" });
+    const prow = () => db.prepare(`SELECT completion_requested_by AS rb, completion_verified_by AS vb, completion_verified_at AS va FROM projects WHERE id = ?`).get(pid ?? -1);
+    ok(crq.status === 200 && crq.j?.stage === "requested" && prow()?.rb === U.lia && !prow()?.va, "the owner (staff) requests completion - it waits for the COO or CCO", crq.text.slice(0, 120));
+    ok((await call(`/staff/projects/${pid}/completion`, U.lia, "POST", { action: "verify" })).status === 403, "the owner cannot verify their own request");
+    ok(((await call(`/staff/projects/${pid}`, U.lia)).j?.next?.key) === "acceptance", "while the COO or CCO verifies, the owner's next step is the client's acceptance");
+    ok(((await call(`/staff/projects/${pid}`, U.cco)).j?.next?.key) === "verify", "the CCO's next step is Verify");
+    ok((await call(`/staff/projects/${pid}/completion`, U.cco, "POST", { action: "return", reason: "short" })).status === 400, "sending it back needs the reason");
+    const rt = await call(`/staff/projects/${pid}/completion`, U.cco, "POST", { action: "return", reason: "The final report is not attached yet" });
+    ok(rt.status === 200 && !prow()?.rb && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ${U.lia} AND message LIKE '%not complete yet%'`) >= 1, "the CCO sends it back with the reason - the owner is told", rt.text.slice(0, 120));
+    await call(`/staff/projects/${pid}/completion`, U.lia, "POST", { action: "request" });
+    const vf = await call(`/staff/projects/${pid}/completion`, U.coo, "POST", { action: "verify" });
+    ok(vf.status === 200 && prow()?.vb === U.coo && prow()?.rb === U.lia && n(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND message LIKE '%verified%'`) >= 1, "the COO verifies - the CEO is told", vf.text.slice(0, 120));
+    ok(!["verify", "confirm"].includes((await call(`/staff/projects/${pid}`, U.coo)).j?.next?.key), "after verifying, the COO cannot verify again or confirm - only the CEO confirms");
+    ok(((await call(`/staff/projects/${pid}`, U.ceo)).j?.next?.key) === "acceptance", "the CEO is asked for the client's acceptance first", JSON.stringify((await call(`/staff/projects/${pid}`, U.ceo)).j?.next));
+    ok(n(`SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'projects' AND action IN ('project.completion_requested', 'project.completion_verified', 'project.completion_returned')`) >= 4, "every step of the chain is audited");
     /* v1.315.0 (TK-15, the CEO 15-11-2026) - Completed needs the client's acceptance of the delivered work on record first */
     const early = await call(`/staff/projects/${pid}/status`, U.ceo, "POST", { to: "completed" });
     ok(early.status === 409 && early.j?.error?.code === "acceptance_required" && db.prepare(`SELECT status FROM projects WHERE id = ?`).get(pid ?? -1)?.status === "in_progress", "TK-15 not Completed before the client's acceptance is recorded", early.text.slice(0, 120));
     const acc = await call(`/staff/projects/${pid}/acceptance`, U.lia, "POST", { accepted_on: "2026-10-30", client_name: "Encik Client", note: "Signed copy in Files" });
     ok(acc.status === 201 || acc.status === 200, "TK-15 the owner records the client's acceptance", acc.text.slice(0, 120));
+    ok(((await call(`/staff/projects/${pid}`, U.ceo)).j?.next?.key) === "confirm", "with the acceptance on record the CEO's next step is Confirm completed");
     const done = await call(`/staff/projects/${pid}/status`, U.ceo, "POST", { to: "completed" });
     ok(done.status === 200 && db.prepare(`SELECT status, completed_by FROM projects WHERE id = ?`).get(pid ?? -1)?.completed_by === U.ceo, "P-3 the CEO confirms Completed", done.text.slice(0, 120));
     ok((await call(`/staff/projects/${pid}/updates`, U.mira, "POST", { kind: "progress", body: "late" })).status === 409, "a completed project takes nothing more");
@@ -290,6 +310,12 @@ async function runtime(workerBundle) {
     ok(c4row?.status === "in_progress" && c4row?.activated_at && JSON.parse(c4row?.scope_snapshot ?? "{}").lines?.length === 2, "v1.247.1 Start project STARTS it: in progress, the agreed scope frozen - not a draft brief (the owner's screenshot)", JSON.stringify(c4row));
     ok(JSON.stringify(db.prepare(`SELECT start_date, due_date FROM projects WHERE quotation_id = 102`).get()) === JSON.stringify({ start_date: "2026-11-02", due_date: "2026-12-15" }), "v1.246.4 Start project keeps the start and due dates picked on the sheet");
     await call(`/staff/projects/${c4.j?.id}/owner`, U.ceo, "POST", { owner_id: U.lia });
+    /* v1.382.0 - a task set under an ACCEPTED quotation starts its project (it used to stay a Draft brief for ever) */
+    db.exec(`INSERT INTO quotation_acceptances (doc_id, revision, accepted_name, accepted_position) VALUES (103, 0, 'Puan Ros', 'Owner')`);
+    const tq = await call("/staff/tasks", U.lia, "POST", { title: "Kick-off call", assigned_to: U.lia, deadline: "2026-11-20", quotation_id: 103 });
+    const p103 = db.prepare(`SELECT id, status, activated_at, scope_snapshot FROM projects WHERE quotation_id = 103`).get();
+    ok((tq.status === 200 || tq.status === 201) && p103?.status === "in_progress" && p103?.activated_at && JSON.parse(p103?.scope_snapshot ?? "{}").lines?.length === 2, "v1.382.0 a task under an accepted quotation STARTS the project (scope frozen)", `${tq.status} ${tq.text.slice(0, 120)} ${JSON.stringify(p103)}`);
+    ok(n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'project.status' AND entity_id = '${p103?.id}' AND detail LIKE '%"via":"task"%'`) === 1, "...audited as started by the task");
     ok(rec.status === 201 && c4.status === 201, "the salesperson records the customer's acceptance (who, how, when), then starts the project", `${rec.text.slice(0, 100)} ${c4.text.slice(0, 100)}`);
     const ed = await call(`/staff/projects/${c4.j?.id}`, U.ceo, "PATCH", { due_date: "2026-12-20", version: db.prepare(`SELECT version FROM projects WHERE id = ?`).get(c4.j?.id)?.version });
     const acts = ((await call(`/staff/projects/${c4.j?.id}/activity`, U.ceo)).j?.activity ?? []).map((x) => x.text);
@@ -331,6 +357,9 @@ if (!given) report(sourceChecks());
 const checks = n;
 
 const MUT = [
+  ["worker/src/projects.ts", "v1.382.0 a task under an accepted quotation leaves the project a draft", [["  if (!st.accepted && !st.invoiced) return false;\n  const r = await env.DB.prepare(", "  if (true) return false;\n  const r = await env.DB.prepare("]]],
+  ["worker/src/projects.ts", "v1.382.0 the owner verifies their own request", [['if (!a.verify) return err("forbidden", "The COO or CCO verifies', 'if (false) return err("forbidden", "The COO or CCO verifies']]],
+  ["worker/src/projects.ts", "v1.382.0 a send-back without the reason", [['if (reason.length < 10) return err("invalid_input", "Say what is still needed', 'if (false) return err("invalid_input", "Say what is still needed']]],
   /* both layers at once: the read-first check AND the conflict clause (the
      unique index alone then answers a second press with an error, not the project) */
   ["worker/src/projects.ts", "P-1 a second press is not answered with the same project", [["  if (existing) return { id: existing.id, existing: true };\n", ""], ["     ON CONFLICT(quotation_id) DO NOTHING RETURNING id`,", "     RETURNING id`,"]]], // v1.246.2 - ensureProject
@@ -366,4 +395,4 @@ for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   else console.log(`caught: ${name} -> ${res.filter(([p]) => !p).slice(0, 2).map(([, m]) => m.split(" - ")[0]).join("; ")}`);
 }
 if (fail) { console.error(`go-live-p: ${fail} of ${n} failed${given ? ` (bundle: ${given})` : ""}`); process.exit(1); }
-console.log(`go-live-p: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - one brief per quotation, owner assigned by CEO/COO, only owner and management edit, assigned staff append updates on their own tasks, everyone sees the shared fields, prices and contacts by right, append-only, files private, the expired never start, the scope frozen, completion by CEO/COO, nothing in sales, commission or payroll touched`);
+console.log(`go-live-p: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - one brief per quotation, owner assigned by CEO/COO, only owner and management edit, assigned staff append updates on their own tasks, everyone sees the shared fields, prices and contacts by right, append-only, files private, the expired never start, the scope frozen, completion: staff asks, COO/CCO verifies, the CEO confirms, nothing in sales, commission or payroll touched`);

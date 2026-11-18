@@ -164,12 +164,12 @@ export function isCurrentStaff(
 export type StaffState = "active" | "starting" | "inactive" | "left" | "system";
 
 export function staffState(
-  u: { is_active?: number | boolean | null; role?: string | null; joined_on?: string | null; left_on?: string | null; rejoined_on?: string | null; employment_status?: string | null },
+  u: { is_active?: number | boolean | null; role?: string | null; joined_on?: string | null; left_on?: string | null; rejoined_on?: string | null; employment_status?: string | null; not_staff?: number | boolean | null },
   today: string = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10),
 ): StaffState {
   if (!isCurrentStaff(u, today)) return "left";
   if (!u.is_active) return "inactive";
-  if (u.role === "admin") return "system";
+  if (u.role === "admin" || u.not_staff) return "system"; // v1.384.0 - a test / system account (the worker's notStaffSql)
   if (u.joined_on && u.joined_on.slice(0, 10) > today) return "starting";
   return "active";
 }

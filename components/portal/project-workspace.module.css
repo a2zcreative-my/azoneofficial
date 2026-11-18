@@ -250,10 +250,6 @@
 .sumHead > span:first-child { display: grid; gap: 0.125rem; flex: 1 1 auto; min-width: 0; }
 .sumHead strong { font-size: var(--type-section-size); }
 .sumHead small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
-.sumFacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
-.sumFacts > span { display: grid; gap: 0.125rem; padding: 0.5rem 0.625rem; border: 1px solid var(--border); border-radius: var(--radius-control); min-width: 0; }
-.sumFacts small { color: var(--muted-foreground); font-size: var(--type-caption-size); }
-.sumFacts strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--type-body-sm-size); }
 .stages { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; margin: 0.875rem 0; padding: 0; text-align: center; font-size: var(--type-caption-size); font-weight: 600; }
 .stages li { display: grid; justify-items: center; gap: 0.25rem; }
 .stages small { color: var(--muted-foreground); font-weight: 400; }
@@ -268,3 +264,21 @@
 .tickList label { display: flex; align-items: center; gap: 0.5rem; min-height: 2rem; cursor: pointer; }
 .tickList small { color: var(--muted-foreground); }
 .doneText { text-decoration: line-through; color: var(--muted-foreground); }
+
+/* v1.382.0 - the ONE next step on a project (NextStepBar) */
+.nextStep { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; margin-block: 0.5rem; padding: 0.625rem 0.75rem; border: 1px solid var(--border); border-inline-start: 3px solid var(--gold-solid); border-radius: var(--radius-control); background: var(--warning-soft); }
+.nextText { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 0.25rem; min-width: 0; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.nextText > strong { color: var(--foreground); font-size: var(--type-body-sm-size); }
+.nextActs { display: inline-flex; flex-wrap: wrap; gap: 0.5rem; }
+.nextStep > .warn { flex-basis: 100%; margin: 0; }
+/* v1.383.0 - the side panel's record folds away (not too long to scroll) */
+.sumMore { border-top: 1px solid var(--border); padding-block-start: 0.5rem; }
+.sumMore > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; cursor: pointer; font-size: var(--type-body-sm-size); font-weight: 600; color: var(--foreground); list-style: none; }
+.sumMore > summary::-webkit-details-marker { display: none; }
+.sumMore > summary::before { content: "\25B8"; color: var(--muted-foreground); }
+.sumMore[open] > summary::before { content: "\25BE"; }
+.sumMore > summary > small { font-weight: 400; color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.sumMore > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }
+.sumMore[open] > summary { margin-block-end: 0.5rem; }
+.sumLine { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0.25rem 0; color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.sumLine strong { color: var(--foreground); font-size: var(--type-body-sm-size); }
