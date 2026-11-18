@@ -323,14 +323,17 @@ async function readScreenshot(env: Env, bytes: Uint8Array, type = "image/png"): 
     } else {
       const image = dataUrl(bytes, type);
       /* v1.372.0 - Cloudflare refused 1.370.0's request with 3030 "Unable to add image when there are no
-         user-supplied nor system-supplied messages" (System health, 18-11-2026 18:25). The model's page does
-         not document the image layout, so the read tries the three layouts Workers AI vision models take,
-         in order, and moves on ONLY when Cloudflare refuses the request itself (a 3xxx/5006 input error,
-         before any inference runs); a licence request is agreed once. Anything else stops at once. */
+         user-supplied nor system-supplied messages" (System health, 18-11-2026 18:25): the image went
+         without any messages.
+         v1.374.0 - the FIRST layout is now the one Cloudflare's own Llama 3.2 Vision tutorial uses:
+         `messages` plus `image` as a data URL. "prompt+image" is gone - it is exactly the request that
+         3030 refuses. The OpenAI-style content parts stay as the fallback, tried only when Cloudflare
+         refuses the input itself; a layout that is accepted but drops the image would read a screen it
+         never saw, so the documented layout goes first. */
+      const SYSTEM = "You read live-selling summary screens and reply with JSON only.";
       const layouts: { name: string; input: Record<string, unknown> }[] = [
-        { name: "content-parts", input: { messages: [{ role: "system", content: "You read live-selling summary screens and reply with JSON only." }, { role: "user", content: [{ type: "text", text: PROMPT }, { type: "image_url", image_url: { url: image } }] }], max_tokens: 300, temperature: 0 } },
-        { name: "prompt+image", input: { prompt: PROMPT, image, max_tokens: 300, temperature: 0 } },
-        { name: "messages+image", input: { messages: [{ role: "system", content: "You read live-selling summary screens and reply with JSON only." }, { role: "user", content: PROMPT }], image, max_tokens: 300, temperature: 0 } },
+        { name: "messages+image", input: { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: PROMPT }], image, max_tokens: 300, temperature: 0 } },
+        { name: "content-parts", input: { messages: [{ role: "system", content: SYSTEM }, { role: "user", content: [{ type: "text", text: PROMPT }, { type: "image_url", image_url: { url: image } }] }], max_tokens: 300, temperature: 0 } },
       ];
       const call = (input: Record<string, unknown>) => Promise.race([
         ai!.run(AI_MODEL, input),

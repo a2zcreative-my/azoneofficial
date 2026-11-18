@@ -55,7 +55,7 @@ function checks(src) {
   ok("the lists send each live's project and document for its tags", /s\.unplanned, s\.project_id, pj\.title AS project_title, \$\{DOC_COLS\("pj"\)\}/.test(s));
   /* v1.370.0 - the image is a base64 data URL (Cloudflare's own Llama 3.2 Vision tutorial); the array of numbers was refused */
   ok("the screenshot goes to Workers AI as a base64 data URL, never an array of numbers", /data:\$\{type \|\| "image\/png"\};base64,/.test(s) && /image_url: \{ url: image \}/.test(s) && !/Array\.from\(bytes\)/.test(s));
-  ok("three request layouts, the next tried only when Cloudflare refuses the input itself (v1.372.0)", /name: "content-parts"/.test(s) && /name: "prompt\+image"/.test(s) && /name: "messages\+image"/.test(s) && /if \(!refusedInput\(e\) \|\| i === layouts\.length - 1\) throw/.test(s));
+  ok("the documented layout first (messages + image, Cloudflare's tutorial), content parts as the fallback, the next tried only when Cloudflare refuses the input itself; never the prompt+image request 3030 refuses (v1.374.0)", s.indexOf('name: "messages+image"') > 0 && s.indexOf('name: "messages+image"') < s.indexOf('name: "content-parts"') && !/name: "prompt\+image"/.test(s) && /if \(!refusedInput\(e\) \|\| i === layouts\.length - 1\) throw/.test(s));
   ok("a failed read is written to System health's error log", /logError\(env, "live_ai"/.test(s));
   /* v1.369.0 - the platform and document tags (the CEO, 18-11-2026) */
   ok("every live shows its platform as a tag", /function PlatformTag/.test(src.ui) && (src.ui.match(/<PlatformTag /g) ?? []).length >= 6);

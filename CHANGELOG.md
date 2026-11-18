@@ -10,6 +10,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.374.0] - 2026-11-18 - Live Reports: the screenshot AI sends the image the way Cloudflare documents it - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+System health, 18-11-2026 18:25: "Live report screenshot AI failed (61135 bytes, image/jpeg): 3030: Unable to add image when there are no user-supplied nor system-supplied messages."
+
+### Fixed
+- **The screenshot reading now sends the layout from Cloudflare's own Llama 3.2 Vision tutorial first**: `messages` (system + user) with `image` as a data URL. 3030 is Cloudflare refusing an image sent without messages, which is what the 18:25 request did.
+- The "prompt + image" layout is removed - it is exactly the request 3030 refuses. The content-parts layout (`image_url` inside the user message) stays as the fallback, tried only when Cloudflare refuses the input itself. A layout that might be accepted while dropping the image is never tried first, so a reading always comes from the screen that was sent.
+- Nothing else changes: the cap, the Neuron ceiling, the licence, typing the figures by hand and the error log are as they were.
+
+### Guards
+- `live-reports-v2` (30 checks, 8 mutations) holds the order: the documented layout first, content parts second, no prompt + image.
+
 ## [1.373.0] - 2026-11-18 - Shift Templates: one pattern to many staff, reviewed before it is saved - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO's brief "A2Z OS - SHIFT TEMPLATES BULK ASSIGNMENT" and his three pictures (desktop selection, review drawer, phone). His answers: a bulk assignment starts tomorrow or later; the existing editor, single assign and history stay, in a drawer.
