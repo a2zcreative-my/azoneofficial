@@ -30,3 +30,9 @@
 /ceo  /farhan  302
 /coo  /zoll    302
 /cco  /izz     302
+
+# v1.381.0 - short, sayable links for the two public forms (the CEO, 18-11-2026:
+# trust). Printed under the QR codes and said on a live stream; the long
+# /apply/... links keep working. 302, not 301, for the same reason as above.
+/partner   /apply/partner   302
+/business  /apply/business  302

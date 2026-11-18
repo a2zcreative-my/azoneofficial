@@ -21,6 +21,7 @@ import { AtSign, CalendarDays, Ellipsis, Facebook, House, Instagram, Linkedin, M
 import { api } from "@/lib/api";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { useBotCheck } from "@/components/security/bot-check";
+import { CompanyFooter } from "@/components/public/company-footer"; // v1.381.0 - who is behind this form
 import css from "./partner.module.css";
 
 type Step = 1 | 2 | 3;
@@ -482,6 +483,7 @@ export default function PartnerApplicationPage() {
           )}
         </section>
       </main>
+      <CompanyFooter lang={lang} />
     </div>
   );
 }

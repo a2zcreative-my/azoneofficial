@@ -25,6 +25,7 @@ import { AtSign, CalendarDays, Ellipsis, Facebook, House, Instagram, Linkedin, M
 import { api } from "@/lib/api";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { useBotCheck } from "@/components/security/bot-check";
+import { CompanyFooter } from "@/components/public/company-footer"; // v1.381.0 - who is behind this form
 import { GROWTH_CHALLENGES, GROWTH_INDUSTRIES, GROWTH_INTERESTS, GROWTH_METHODS, GROWTH_PLATFORMS, GROWTH_STATES, GROWTH_TIMES, type Bi } from "@/lib/growth-words";
 import css from "../partner/partner.module.css";
 import bx from "./business.module.css";
@@ -479,6 +480,7 @@ export default function BusinessGrowthCheckPage() {
           )}
         </section>
       </main>
+      <CompanyFooter lang={lang} />
     </div>
   );
 }

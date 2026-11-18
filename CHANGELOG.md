@@ -16,6 +16,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.381.0] - 2026-11-18 - Trust on the public forms: company footer, short links and QR codes - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "I want to use QR instead of Link to make them trust of this system or you have better suggestion for me?" and "proceed with your suggestion". A QR alone does not earn trust (people are warned about scam QR codes, and a QR hides where it goes); a visible address on our own domain, and the registered company behind the form, do. So: both, plus the company.
+
+### Added
+- **Both public forms end with the registered company** (`components/public/company-footer.tsx` on /apply/partner and /apply/business): A2Z CREATIVE MARKETING, SSM 202603003468 (CA0414729-A), the office address, the official WhatsApp and hello@a2zcreative.my, the Privacy Notice, and one anti-scam line: we never ask for a password, a bank PIN, a TAC code or any payment on this form. Every fact is read from `lib/issuers.ts` and `constants/content.ts` - never typed again - so it cannot drift from the letterhead.
+- **Short, sayable links**: a2zcreative.my/partner and a2zcreative.my/business (302 to the forms, `public/_redirects`); the /apply/... links keep working.
+- **Print-ready QR codes** in `public/qr/` (made by `scripts/make-form-qr.py`): for each form the code alone (SVG for print, PNG 1200 px) and a 1080 x 1350 card with the title in English and BM, the code, the short address printed under it and the registered company. Navy and gold with the A2Z mark in the middle; error correction H; each code points at the SHORT link. All six were decoded back to the right address, also at a quarter of their size.
+
+### Guards
+- New `tests/public-trust.mjs` (16 checks).
+
 ## [1.380.0] - 2026-11-18 - The Gmail staff are listed on the email-move card at once - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026, his screenshot of the live card showing "Also move staff with a personal email (4)" unticked): "still cant see any gmail staff account!" Hiding them behind a tick-box read as missing.

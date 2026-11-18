@@ -1,0 +1,10 @@
+/* v1.381.0 - the company footer of the public forms. Tokens only. */
+.foot { margin-block-start: 1.5rem; padding: 1.25rem 1rem calc(4.5rem + env(safe-area-inset-bottom)); /* room for the back-to-top button */ border-top: 1px solid var(--border); background: var(--card); }
+.inner { max-inline-size: 56rem; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.375rem; text-align: center; }
+.who { margin: 0; display: grid; gap: 0.125rem; color: var(--foreground); font-size: var(--type-body-sm-size); }
+.who > span { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.line { margin: 0; color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: break-word; }
+.link { color: var(--foreground); text-decoration: underline; text-underline-offset: 2px; }
+.link:hover { color: var(--gold-solid); }
+.link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }
+.safe { margin: 0.375rem auto 0; max-inline-size: 40rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-control); background: var(--info-soft); color: var(--foreground); font-size: var(--type-caption-size); }
