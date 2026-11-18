@@ -47,6 +47,7 @@ import { notify } from "./staff";
 import { json, err, audit, bumpVersion } from "./shared";
 import { canUser } from "./permissions";
 import { botCheck, BOT_REFUSED_MESSAGE } from "./security-status";
+import { nextPublicRef } from "./public-ref"; // v1.371.0
 
 /** the stored status (0206's CHECK). on_hold is no longer reached (v1.354.0) but kept readable. */
 export const PARTNER_STATUSES = ["new", "assigned", "screening", "shortlisted", "approved", "rejected", "on_hold", "activated"] as const;
@@ -82,7 +83,9 @@ const PERSON = (a: string) => `COALESCE(NULLIF(TRIM(${a}.full_name), ''), ${a}.n
 const validDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const hoursSince = (sqliteDt: string | null) => (sqliteDt ? (Date.now() - Date.parse(`${sqliteDt.replace(" ", "T")}Z`)) / 3600_000 : 0);
 
-/* v1.354.0 - AGT-APP-#### (the CEO's picture): the next number after the highest
+/* v1.371.0 - the reference is A2Z-DDMM + the day's running number (public-ref.ts, shared with
+   the Business Growth Check); this AGT-APP- formula is only the fallback while 0212 is not applied.
+   v1.354.0 - AGT-APP-#### (the CEO's picture): the next number after the highest
    id, worked out inside the INSERT; two at the same instant collide on the unique
    ref and the loser draws again. Applications from before keep their PIA- reference. */
 const NEXT_REF = `'AGT-APP-' || (COALESCE((SELECT MAX(id) FROM partner_applications), 0) + 1001)`;
@@ -215,9 +218,9 @@ export async function submitPartnerApplication(env: Env, request: Request, body:
         `INSERT INTO partner_applications (ref, client_key, full_name, gender, age_range, phone, email, location, contact_method, best_time, source, source_detail,
             utm_source, utm_medium, utm_campaign, utm_term, utm_content, referred_before, intro_per_week, customer_groups, groups_other, lead_channels, channels_other,
             approach, time_available, screening_window, ack_independent, ack_terms, privacy_ack, marketing_opt_in, lang, created_at)
-         VALUES (${NEXT_REF}, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, 1, 1, 1, ?27, ?28, ?29)
+         VALUES (COALESCE(?1, ${NEXT_REF}), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, 1, 1, 1, ?27, ?28, ?29)
          ON CONFLICT(client_key) DO NOTHING RETURNING id, ref`,
-      ).bind(null, key, full_name, gender, age_range, phone, email, location, contact_method, best_time, source, source_detail,
+      ).bind(await nextPublicRef(env), key, full_name, gender, age_range, phone, email, location, contact_method, best_time, source, source_detail,
         utm("source"), utm("medium"), utm("campaign"), utm("term"), utm("content"), referred_before, intro_per_week, JSON.stringify(groups), groups_other,
         JSON.stringify(channels), channels_other, approach, time_available, screening_window, marketing, body.lang === "ms" ? "ms" : "en", at).first<{ id: number; ref: string }>();
       if (!ins) {

@@ -558,3 +558,6 @@ additive only - the public check's enquiries and their append-only history.
 An enquiry never creates a user, a customer or a sales document; a paid
 solution goes through the existing quotation, acceptance, invoice and the
 CEO's payment verification, which the enquiry only reads.
+1.371.0 (public form references, the CEO 18-11-2026) adds `0212_public_refs`:
+additive only - one counter per Malaysia day that numbers both public forms
+A2Z-DDMM + the running number. No existing reference is renumbered.

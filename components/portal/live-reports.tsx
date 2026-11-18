@@ -496,12 +496,13 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
   };
   const readAi = async (fid: number) => {
     setBusy(`ai${fid}`);
-    const res = await api<{ manual: boolean; reason: string | null; figures?: Record<string, number | null> }>(`/staff/live-reports/${id}/files/${fid}/read`, { method: "POST", body: "{}" });
+    const res = await api<{ manual: boolean; reason: string | null; detail?: string | null; figures?: Record<string, number | null> }>(`/staff/live-reports/${id}/files/${fid}/read`, { method: "POST", body: "{}" });
     setBusy(null);
     if (!res.ok || !res.data) { fb.error(L("The AI could not read it - type the figures", "AI tidak dapat membaca - isi angka sendiri")); return; }
     if (res.data.manual) {
       const why: Record<string, string> = { off: L("The screenshot AI is off", "AI tangkapan skrin dimatikan"), not_bound: L("The screenshot AI is not connected", "AI tangkapan skrin tidak disambung"), cap_reached: L("Today's AI cap is reached", "Had AI hari ini telah dicapai"), ceiling_reached: L("The free AI allowance guard is reached", "Had peruntukan AI percuma dicapai"), unreadable: L("The AI could not find figures on this screenshot", "AI tidak menemui angka pada tangkapan skrin ini"), timeout: L("The AI was too slow", "AI terlalu perlahan"), failed: L("The AI failed", "AI gagal") };
-      fb.notice(`${why[res.data.reason ?? "failed"] ?? why.failed} - ${L("type the figures below", "isi angka di bawah")}`);
+      const cf = res.data.reason === "failed" && res.data.detail ? ` (Cloudflare: ${res.data.detail.slice(0, 120)})` : "";
+      fb.notice(`${why[res.data.reason ?? "failed"] ?? why.failed} - ${L("type the figures below", "isi angka di bawah")}${cf}`);
     } else fb.done(L("Figures read - check and confirm each one", "Angka dibaca - semak dan sahkan setiap satu"));
     refresh();
   };

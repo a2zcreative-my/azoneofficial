@@ -10,7 +10,22 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
-## [1.370.0] - 2026-11-18 - Live Reports: platform and document tags - BUILT, NOT DEPLOYED (NO MIGRATION)
+## [1.371.0] - 2026-11-18 - One reference for the public forms: A2Z-DDMM + running number - BUILT, NOT DEPLOYED (MIGRATION 0212)
+
+The CEO: "number rujukan bagi /apply/business dan /apply/partner mestilah mengunakan A2Z-DDMM Running Number iaitu contoh: A2Z-181101".
+
+### Changed
+- **Business Growth Check and Partner Interest Application references** are now `A2Z-` + the Malaysia day and month + that day's running number (two digits; 100 and up after 99), e.g. `A2Z-181101` for the first one on 18 November. ONE counter serves both forms, so the two never give out the same reference. Each new Malaysia day starts again at 01.
+- The number is taken in one conditional write (`worker/src/public-ref.ts`), so two submissions at the same moment get two numbers. A number taken by a save that then fails is not reused, so a day may skip one; none repeats.
+- Records saved before keep their reference (BG-, AGT-APP-, PIA-). Until 0212 is applied, the old numbering stays in use, so the forms never stop.
+
+### Migration
+- `0212_public_refs` (additive): `public_ref_counters` (day, n).
+
+### Guards
+- `business-growth` (94 checks, 14 mutations): A2Z-1811NN, the partner form takes the next number of the same counter, a new day restarts at 01. `partner-applications` expects A2Z-171101. Browser fixtures give new submissions the same format.
+
+## [1.370.0] - 2026-11-18 - Live Reports: platform and document tags, and the screenshot AI fixed - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026): "if it is TikTok then it is tagging to make sure that my staff didnt do it wrongly and at the same time if it is project belong to Quotation or Invoice then need also tagging".
 
@@ -19,11 +34,14 @@ The CEO (18-11-2026): "if it is TikTok then it is tagging to make sure that my s
 - The tags show in the reports table (the platform under the date and time), the phone cards, the latest live, the report itself, both New Report lists, and the project picker's wording.
 - **Unplanned live: "Check before you record"** shows the chosen platform and project document before the live is added to the roster.
 
+### Fixed
+- **"The AI failed" on every screenshot** (the CEO, 18-11-2026, the first real reads after 1.368.0): the image was sent to Workers AI as a list of numbers - for a phone screenshot millions of them - and refused. It now goes as a base64 data URL, the form in Cloudflare's own Llama 3.2 Vision tutorial. If Cloudflare asks for Meta's licence, the read agrees once and tries again. A failure now writes its real reason to System health's error log (source `live_ai`) and shows Cloudflare's short reason on screen. Manual entry is unchanged and always allowed.
+
 ### Changed
 - The reports table lost its separate Platform and Action columns (the tag sits under the date; View sits under the status), so it fits a 1440px screen without scrolling sideways.
 
 ### Guards
-- `live-reports-v2` +4 checks, +1 mutation (a voided invoice tagged). `live-e2e` +2 (invoiced project, voided invoice), `live-reports.py` +2 (the check line, the report's tags).
+- `live-reports-v2` +6 checks, +2 mutations (a voided invoice tagged; the image sent as numbers again). `live-e2e` +2 (invoiced project, voided invoice), `live-reports.py` +2 (the check line, the report's tags).
 
 ## [1.369.0] - 2026-11-18 - The A2Z Business Growth Check - BUILT, NOT DEPLOYED (MIGRATION 0211)
 

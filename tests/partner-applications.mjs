@@ -105,7 +105,7 @@ async function runtime(workerBundle, sweepBundle) {
     const u0 = usersN();
     /* 1, 2, 3 */
     const s1 = await submit(form());
-    ok(s1.status === 201 && s1.j?.ref === "AGT-APP-1001", "1 a complete application is accepted without signing in, with an AGT-APP reference", JSON.stringify(s1));
+    ok(s1.status === 201 && s1.j?.ref === "A2Z-171101", "1 a complete application is accepted without signing in, with the A2Z-DDMM running reference (v1.371.0)", JSON.stringify(s1));
     const a1 = db.prepare(`SELECT * FROM partner_applications WHERE ref = ?`).get(s1.j?.ref);
     ok(a1 && a1.status === "new" && a1.owner_id === null && a1.phone === "+60123456789" && a1.source === "facebook" && a1.utm_campaign === "partner_nov" && a1.utm_medium === "paid_social", "2 all three steps are one row: the source, the campaign and the phone as one number", JSON.stringify(a1));
     ok(JSON.parse(a1.customer_groups).join() === "sme,corporate" && a1.privacy_ack === 1 && a1.marketing_opt_in === 0 && a1.created_at, "2 the answers, the consents and the time are kept");
@@ -223,12 +223,12 @@ async function runtime(workerBundle, sweepBundle) {
     const direct = await partnersMod.handlePartners(env, "/partner-applications", "GET", null, { id: 31, role: "agent", name: "Rashid" }, new URLSearchParams());
     ok(direct?.status === 403 && (await direct.json()).error?.message === "Partner applications are for A2Z staff only", "9 ...and refused by the partner routes themselves, behind the agent gate");
     const agDesk = await call("/staff/agent/desk", 31);
-    ok(!JSON.stringify(agDesk.j ?? {}).includes("AGT-APP") && notes(31, "partner:%") === 0, "9 an agent is never told of, or shown, an application");
+    ok(!/AGT-APP|A2Z-17\d{4}/.test(JSON.stringify(agDesk.j ?? {})) && notes(31, "partner:%") === 0, "9 an agent is never told of, or shown, an application");
     db.prepare(`DELETE FROM system_meta WHERE key = 'role_permissions'`).run();
     /* the public form sends no session (app/apply/partner: credentials "omit"), so a person who is also
        signed in applies like anyone else, and the mandatory-2FA gate is left exactly as the audit set it */
     const selfApply = await call("/public/partner-applications", null, "POST", form({ email: "rashid.again@example.test", phone: "0171112222" }), "5.5.5.5");
-    ok(selfApply.j?.ref?.startsWith("AGT-APP-") && usersN() === u0, "9 an agent applying through the public form gets a screening record, nothing else", JSON.stringify(selfApply));
+    ok(/^A2Z-1711\d{2,}$/.test(selfApply.j?.ref ?? "") && usersN() === u0, "9 an agent applying through the public form gets a screening record, nothing else", JSON.stringify(selfApply));
     ok(/"\/public\/partner-applications"[\s\S]{0,400}credentials: "omit"/.test(readFileSync(join(root, "app/apply/partner/page.tsx"), "utf8"))
       && !/public\/partner-applications/.test((readFileSync(join(root, "worker/src/index.ts"), "utf8").match(/const TWOFA_EXEMPT_PATHS[\s\S]*?\]\);/) ?? [""])[0]), "9 the form sends no session and the 2FA exemptions are unchanged");
 

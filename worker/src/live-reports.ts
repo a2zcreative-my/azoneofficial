@@ -37,7 +37,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { currentStaffSql, notify } from "./staff";
 import { canUser } from "./permissions";
-import { audit, err, json, putGuarded } from "./shared";
+import { audit, err, json, logError, putGuarded } from "./shared";
 
 type Report = {
   id: number; session_id: number; host_user_id: number; company: string | null; state: string; current_version: number;
@@ -287,7 +287,15 @@ export function parseReading(raw: string): Record<string, number | null> | null 
 
 /** One read: reserve first (a conditional update - concurrent reads cannot pass the cap or the ceiling),
     call with a timeout, settle the Neurons used. Every refusal or failure means manual entry. */
-async function readScreenshot(env: Env, bytes: Uint8Array): Promise<{ ok: true; figures: Record<string, number | null> | null; neurons: number; model: string } | { ok: false; reason: string }> {
+/** v1.370.0 - the image goes to Workers AI as a base64 data URL, the form Cloudflare's own Llama 3.2
+    Vision tutorial uses. 1.368.0 sent it as an array of numbers, which for a phone screenshot is
+    millions of entries and was refused ("The AI failed" on 18-11-2026). */
+function dataUrl(bytes: Uint8Array, type: string): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return `data:${type || "image/png"};base64,${btoa(bin)}`;
+}
+async function readScreenshot(env: Env, bytes: Uint8Array, type = "image/png"): Promise<{ ok: true; figures: Record<string, number | null> | null; neurons: number; model: string } | { ok: false; reason: string; detail?: string }> {
   const s = await aiSettings(env);
   const ai = (env as unknown as { AI?: { run: (m: string, i: unknown) => Promise<unknown> } }).AI;
   const fake = testFake(env);
@@ -313,10 +321,20 @@ async function readScreenshot(env: Env, bytes: Uint8Array): Promise<{ ok: true; 
       if (fake === "fail") throw new Error("test failure");
       raw = fake; usage = { prompt_tokens: 2000, completion_tokens: 120 };
     } else {
-      const res = await Promise.race([
-        ai!.run(AI_MODEL, { messages: [{ role: "user", content: PROMPT }], image: Array.from(bytes), max_tokens: 300, temperature: 0 }),
+      const image = dataUrl(bytes, type);
+      const call = () => Promise.race([
+        ai!.run(AI_MODEL, { messages: [{ role: "user", content: PROMPT }], image, max_tokens: 300, temperature: 0 }),
         new Promise((_, no) => setTimeout(() => no(new Error("timeout")), AI_TIMEOUT_MS)),
-      ]) as { response?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+      ]) as Promise<{ response?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } }>;
+      let res: { response?: string; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+      try { res = await call(); }
+      catch (e) {
+        /* the model asks for Meta's licence once per account: agree (the CEO accepted it when he turned
+           the AI on) and try ONCE more; any other error is not retried */
+        if (!/agree|licen[cs]e|5016/i.test(String(e))) throw e;
+        await ai!.run(AI_MODEL, { prompt: "agree" });
+        res = await call();
+      }
       raw = String(res?.response ?? ""); usage = res?.usage;
     }
     /* Neurons from the model's published rates ($0.049 per M input, $0.676 per M output; $0.011 per 1,000 Neurons);
@@ -326,7 +344,10 @@ async function readScreenshot(env: Env, bytes: Uint8Array): Promise<{ ok: true; 
     return { ok: true, figures: parseReading(raw), neurons: used, model: fake ? `${AI_MODEL} (test)` : AI_MODEL };
   } catch (e) {
     await settle(RESERVE_NEURONS, true);
-    return { ok: false, reason: String(e).includes("timeout") ? "timeout" : "failed" };
+    const detail = String((e as Error)?.message ?? e).slice(0, 300);
+    /* the real reason goes to System health's error log, so a failure is never a mystery again */
+    await logError(env, "live_ai", `Live report screenshot AI failed (${bytes.length} bytes, ${type}): ${detail}`, "/staff/live-reports/files/read").catch(() => {});
+    return { ok: false, reason: detail.includes("timeout") ? "timeout" : "failed", detail };
   }
 }
 
@@ -674,14 +695,14 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       if (!r) return err("not_found", "Report not found", 404);
       if (!(await isParticipant(env, r.session_id, user.id))) return err("forbidden", "Only someone who took part reads the screenshots", 403);
       if (!["draft", "returned"].includes(r.state)) return err("invalid_state", `This report is ${r.state}`, 409);
-      const f = await env.DB.prepare(`SELECT id, r2_key FROM live_report_files WHERE id = ?1 AND report_id = ?2`).bind(Number(rd[2]), r.id).first<{ id: number; r2_key: string }>();
+      const f = await env.DB.prepare(`SELECT id, r2_key, content_type FROM live_report_files WHERE id = ?1 AND report_id = ?2`).bind(Number(rd[2]), r.id).first<{ id: number; r2_key: string; content_type: string | null }>();
       if (!f) return err("not_found", "Screenshot not found", 404);
       const obj = await env.MEDIA.get(f.r2_key);
       if (!obj) return err("not_found", "Screenshot not found", 404);
-      const res = await readScreenshot(env, new Uint8Array(await obj.arrayBuffer()));
+      const res = await readScreenshot(env, new Uint8Array(await obj.arrayBuffer()), f.content_type ?? "image/png");
       if (!res.ok) {
         /* a refusal or a failure is not an error of the report: type the figures */
-        return json({ manual: true, reason: res.reason, usage: await aiUsageToday(env) });
+        return json({ manual: true, reason: res.reason, detail: "detail" in res ? res.detail ?? null : null, usage: await aiUsageToday(env) });
       }
       const outcome = res.figures ? "read" : "unreadable";
       const row = await env.DB.prepare(`INSERT INTO live_report_ai_readings (report_id, file_id, figures, model, neurons, outcome, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`)

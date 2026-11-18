@@ -8,7 +8,8 @@
  *   1 the public form needs no sign-in, validates every required answer on the
  *     server (up to three challenges; two separate required consents; marketing
  *     optional and off unless ticked) and asks Cloudflare's bot check first
- *   2 one submission is ONE enquiry with a BG- reference; a retry or a double
+ *   2 one submission is ONE enquiry with an A2Z-DDMM running reference (v1.371.0,
+ *     one counter shared with the partner form); a retry or a double
  *     press is the same one; the same WhatsApp while one is open is ADDED to it
  *   3 it NEVER creates an account, a customer or a sales document
  *   4 the website Enquiries people are told once; the bell names the enquiry
@@ -100,7 +101,7 @@ async function runtime(workerBundle, sweepBundle) {
     const u0 = count("users"), c0 = count("customers"), d0 = count("sales_documents");
     /* 1, 2, 3 */
     const s1 = await submit(form({ phone: "012-345 6789" }), "9.9.9.9");
-    ok(s1.status === 201 && s1.j?.ref === "BG-1001", "1 a complete check is accepted without signing in, with a BG- reference", JSON.stringify(s1));
+    ok(s1.status === 201 && s1.j?.ref === "A2Z-181101", "1 a complete check is accepted without signing in, with the reference A2Z-DDMM + the day's running number", JSON.stringify(s1));
     const a1 = db.prepare(`SELECT * FROM business_growth_enquiries WHERE ref = ?`).get(s1.j?.ref);
     ok(a1 && a1.status === "new" && a1.owner_id === null && a1.whatsapp === "+60123456789" && a1.business_name === "Aina Bakes" && a1.source === "facebook"
       && a1.utm_campaign === "growth_nov" && a1.utm_medium === "paid_social" && a1.referrer === "https://facebook.com/", "2 all three steps are one row: WhatsApp as one number, the source and the campaign apart", JSON.stringify(a1));
@@ -109,11 +110,11 @@ async function runtime(workerBundle, sweepBundle) {
       "1 the consent evidence: both required consents, the notice version, the time, a hash of the address (never the address)", JSON.stringify(a1));
     ok(count("users") === u0 && count("customers") === c0 && count("sales_documents") === d0, "3 no account, no customer and no sales document is created");
     const again = await submit({ ...form(), client_key: a1.client_key });
-    ok(again.status === 200 && again.j?.ref === "BG-1001" && again.j?.existing && count("business_growth_enquiries") === 1, "2 the same submission retried is the same enquiry");
+    ok(again.status === 200 && again.j?.ref === "A2Z-181101" && again.j?.existing && count("business_growth_enquiries") === 1, "2 the same submission retried is the same enquiry");
     /* the same WhatsApp, another browser: added to the open enquiry */
     const twinBody = form({ phone: "0123456789", client_key: "another-browser-key-0001", challenges: ["ads_results"], consent_marketing: true });
     const twin = await submit(twinBody, "8.8.8.8");
-    ok(twin.j?.ref === "BG-1001" && twin.j?.existing && count("business_growth_enquiries") === 1 && row(a1.id).resubmissions === 1 && row(a1.id).consent_marketing === 1, "2 the same WhatsApp while it is open is ADDED to that enquiry", JSON.stringify(twin));
+    ok(twin.j?.ref === "A2Z-181101" && twin.j?.existing && count("business_growth_enquiries") === 1 && row(a1.id).resubmissions === 1 && row(a1.id).consent_marketing === 1, "2 the same WhatsApp while it is open is ADDED to that enquiry", JSON.stringify(twin));
     const ev1 = db.prepare(`SELECT body FROM business_growth_events WHERE enquiry_id = ? AND kind = 'resubmitted'`).all(a1.id);
     ok(ev1.length === 1 && ev1[0].body.includes("ads_results") && ev1[0].body.includes("marketing yes"), "2 the new answers and their consent are kept on the enquiry's history");
     await submit(twinBody, "8.8.8.8");
@@ -155,10 +156,24 @@ async function runtime(workerBundle, sweepBundle) {
     ok([d1.status, d2.status].sort().join() === "200,201" && d1.j?.ref && d1.j.ref === d2.j?.ref && db.prepare(`SELECT COUNT(*) AS n FROM business_growth_enquiries WHERE client_key = 'double-press-key-0001'`).get().n === 1,
       "2 two copies of one submission at the same moment are one enquiry", `${d1.status} ${d2.status}`);
     ok(count("users") === u0 && count("customers") === c0 && count("sales_documents") === d0, "3 still no account, customer or document after every submission");
+    /* v1.371.0 - ONE counter for both public forms (public-ref.ts, 0212) */
+    const refs = db.prepare(`SELECT ref FROM business_growth_enquiries ORDER BY id`).all().map((r) => r.ref);
+    ok(refs.every((r) => /^A2Z-1811\d{2,}$/.test(r)) && new Set(refs).size === refs.length, "2 every reference is A2Z-1811 + a running number, none repeated", refs.join(","));
+    const nBefore = db.prepare(`SELECT n FROM public_ref_counters WHERE day = '2026-11-18'`).get().n;
+    const pa = await call("/public/partner-applications", null, "POST", { client_key: "partner-key-shared-0001", full_name: "Rizal Hamid", gender: "male", age_range: "25-34", dial: "+60", phone: "0177776666",
+      email: "rizal@example.test", location: "johor", contact_method: "whatsapp", source: "facebook", referred_before: true, intro_per_week: "1-2", customer_groups: ["sme"], lead_channels: ["personal"],
+      approach: "I introduce SME owners from my association with their permission.", time_available: "2-5", screening_window: "7d", ack_independent: true, ack_terms: true, privacy_ack: true }, "7.7.7.7");
+    ok(pa.status === 201 && pa.j?.ref === `A2Z-1811${String(nBefore + 1).padStart(2, "0")}`, "2 a partner application the same day takes the NEXT number of the same counter", JSON.stringify(pa.j));
+    const gNext = await submit(form(), "7.7.7.8");
+    ok(gNext.j?.ref === `A2Z-1811${String(nBefore + 2).padStart(2, "0")}`, "2 ...and the next Business Growth Check the one after it - never the same reference twice", JSON.stringify(gNext.j));
+    fixed += 24 * 3600_000;
+    const tomorrow = await submit(form(), "7.7.7.9");
+    ok(tomorrow.j?.ref === "A2Z-191101", "2 a new Malaysia day starts again at 01", JSON.stringify(tomorrow.j));
+    fixed -= 24 * 3600_000;
 
     /* 5 the list */
     const L1 = await call("/staff/business-growth", ID.sales_marketing);
-    ok(L1.status === 200 && L1.j?.enquiries?.some((e) => e.ref === "BG-1001") && L1.j?.analytics?.total === L1.j.enquiries.length, "5 Sales reads the enquiries and their figures", JSON.stringify(L1.j)?.slice(0, 200));
+    ok(L1.status === 200 && L1.j?.enquiries?.some((e) => e.ref === "A2Z-181101") && L1.j?.analytics?.total === L1.j.enquiries.length, "5 Sales reads the enquiries and their figures", JSON.stringify(L1.j)?.slice(0, 200));
     for (const [uid, who] of [[ID.editor, "an editor"], [ID.live_host, "a live host"], [31, "an agent"], [32, "a customer"]]) ok([401, 403].includes((await call("/staff/business-growth", uid)).status), `5 ${who} cannot read the enquiries`);
     const D1 = await call(`/staff/business-growth/${a1.id}`, ID.sales_marketing);
     ok(D1.status === 200 && D1.j?.enquiry?.urgent_problem && D1.j?.can?.pickup === true && D1.j?.can?.contact === false && D1.j.events?.every((e) => !String(e.channel ?? "").startsWith("key:")), "5 the detail opens; Pick Up is offered, contact is not yet; the browser key is never shown");
@@ -187,7 +202,7 @@ async function runtime(workerBundle, sweepBundle) {
 
     /* 7 the existing Sales path - a quotation made in Sales with the enquiry's reference */
     db.exec(`INSERT INTO customers (id, company) VALUES (900, 'Aina Bakes')`);
-    db.exec(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, total_cents, reference) VALUES (500, 'QT', 'QT202600500', 900, '[]', 150000, 'BG-1001'), (501, 'QT', 'QT202600501', 900, '[]', 1000, 'other')`);
+    db.exec(`INSERT INTO sales_documents (id, doc_type, doc_number, customer_id, items, total_cents, reference) VALUES (500, 'QT', 'QT202600500', 900, '[]', 150000, 'A2Z-181101'), (501, 'QT', 'QT202600501', 900, '[]', 1000, 'other')`);
     const D2 = await call(`/staff/business-growth/${a1.id}`, owner);
     ok(D2.j?.candidates?.map((q) => q.id).join() === "500" && D2.j?.can?.quotation, "7 the quotation naming the enquiry is offered to link");
     ok((await act(a1.id, ID.editor, "quotation", { quotation_id: 500 })).status === 403, "7 an editor cannot link it");
@@ -292,6 +307,8 @@ const MUT = [
   ["worker/src/growth.ts", "a paid invoice counts as verified", "AND EXISTS (SELECT 1 FROM invoice_paid_confirmations c WHERE c.invoice_id = i.id AND c.revoked_at IS NULL) LIMIT 1) AS verified_cents", "LIMIT 1) AS verified_cents"],
   ["worker/src/growth.ts", "advice before the problem", `advice: works && ["problem_identified", "advice_delivered", "follow_up"].includes(a.status),`, `advice: works && reached,`],
   ["worker/src/growth.ts", "Sales gives enquiries away", "const growthManager = (user: StaffUser) => growthViewer(user) && canUser(user, \"exec_view\");", "const growthManager = (user: StaffUser) => growthViewer(user);"],
+  ["worker/src/public-ref.ts", "the running number does not move", "ON CONFLICT(day) DO UPDATE SET n = n + 1 RETURNING n", "ON CONFLICT(day) DO UPDATE SET n = n RETURNING n"],
+  ["worker/src/public-ref.ts", "the day and month swapped", "`A2Z-${mytDay.slice(8, 10)}${mytDay.slice(5, 7)}", "`A2Z-${mytDay.slice(5, 7)}${mytDay.slice(8, 10)}"],
   ["worker/src/desk.ts", "the Desk shows it to everyone", "  if (growthViewer(user)) {\n    await guard(\"growth\"", "  if (true) {\n    await guard(\"growth\""],
 ];
 for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {

@@ -110,7 +110,7 @@ with sync_playwright() as p:
     step3(pg)
     shot(pg, "growth-step3-desktop-bm.png")
     t(pg, "bg-submit").click(); pg.wait_for_timeout(1500)
-    check("submit: confirmation with a BG- reference", t(pg, "bg-done").is_visible() and t(pg, "bg-ref").inner_text().startswith("BG-"), pg.inner_text("body")[:300])
+    check("submit: confirmation with an A2Z-DDMM running reference", t(pg, "bg-done").is_visible() and re.fullmatch(r"A2Z-\d{6,}", t(pg, "bg-ref").inner_text().strip()) is not None, t(pg, "bg-ref").inner_text() if t(pg, "bg-ref").count() else pg.inner_text("body")[:300])
     shot(pg, "growth-confirmation-desktop-bm.png")
     sent = [json.loads(r[2] or "{}") for r in reqs if r[0] == "POST" and "/public/business-growth" in r[1]]
     check("submit: one POST", len(sent) == 1, len(sent))
@@ -175,7 +175,7 @@ with sync_playwright() as p:
     check("growth: the connected KPI strip", t(pg, "growth-strip").is_visible() and t(pg, "growth-strip").locator("[data-cell]").count() == 5, t(pg, "growth-strip").inner_text() if t(pg, "growth-strip").count() else "")
     heads = [x.strip() for x in t(pg, "growth-table").locator("thead th").all_inner_texts()]
     check("growth: Ref., Business · main challenge, Source, Status, Owner, Submitted", heads[:6] == ["Ref.", "Business · main challenge", "Source", "Status", "Owner", "Submitted"], heads)
-    check("growth: open enquiries listed with BG references; Not Interested left out of Open", "BG-1006" in t(pg, "growth-table").inner_text() and "Zaki Agro" not in t(pg, "growth-table").inner_text())
+    check("growth: open enquiries listed with A2Z references; Not Interested left out of Open", "A2Z-181106" in t(pg, "growth-table").inner_text() and "Zaki Agro" not in t(pg, "growth-table").inner_text())
     check("growth: the pipeline definitions beside the list", t(pg, "growth-defs").is_visible() and "Free Advice Delivered" in t(pg, "growth-defs").inner_text())
     check("desktop: no sideways scroll", fits(pg))
     shot(pg, "growth-sales-ceo.png", full=False)
@@ -239,7 +239,7 @@ with sync_playwright() as p:
     growth(pg); select(pg, "RK Tuition Centre")
     t(pg, "growth-quote").click(); pg.wait_for_timeout(1500)
     page_text = pg.inner_text("body")
-    check("Create quotation: the normal Sales path, prefilled from the enquiry", "Prefilled from Business Growth BG-1002" in page_text, page_text[:400])
+    check("Create quotation: the normal Sales path, prefilled from the enquiry", "Prefilled from Business Growth A2Z-181102" in page_text, page_text[:400])
     shot(pg, "growth-create-quotation.png", full=False)
     ctx.close()
 
@@ -247,7 +247,7 @@ with sync_playwright() as p:
     reset(4360)
     ctx, pg, errs, reqs = ctx_page(b, 4360, 1440, 900, "/portal?tab=Dashboard", lang="en")
     pg.get_by_role("button", name=re.compile("^Notifications")).first.click(); pg.wait_for_timeout(800)
-    item = pg.get_by_text(re.compile("BG-1006.*Kopi Hafiz")).first
+    item = pg.get_by_text(re.compile("A2Z-181106.*Kopi Hafiz")).first
     check("bell: the new Business Growth Check", item.is_visible())
     shot(pg, "growth-bell.png", full=False)
     item.click(); pg.wait_for_timeout(2400)
@@ -257,10 +257,10 @@ with sync_playwright() as p:
     ctx, pg, errs, reqs = ctx_page(b, 4360, 1440, 900, "/portal?tab=Desk", lang="en")
     pg.get_by_role("tab", name=re.compile("^Action Inbox")).first.click(); pg.wait_for_timeout(900)
     pg.get_by_text(re.compile("^Requires My Response")).first.click(); pg.wait_for_timeout(600)
-    di = pg.get_by_text("BG-1006 - Kopi Hafiz").first
+    di = pg.get_by_text("A2Z-181106 - Kopi Hafiz").first
     check("Desk: the enquiry waits in the Action Inbox", di.is_visible())
     shot(pg, "growth-desk.png", full=False)
-    pg.locator("[data-testid=inbox-row]", has_text="BG-1006 - Kopi Hafiz").get_by_role("button", name=re.compile("^Open")).first.click(); pg.wait_for_timeout(2400)
+    pg.locator("[data-testid=inbox-row]", has_text="A2Z-181106 - Kopi Hafiz").get_by_role("button", name=re.compile("^Open")).first.click(); pg.wait_for_timeout(2400)
     check("Desk: opens the enquiry itself", t(pg, "growth-record").is_visible() and "Kopi Hafiz" in t(pg, "growth-record").inner_text(), pg.url)
     ctx.close()
 

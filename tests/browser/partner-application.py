@@ -96,7 +96,7 @@ with sync_playwright() as p:
     step3(pg)
     shot(pg, "partner-step3-desktop.png")
     t(pg, "pa-submit").click(); pg.wait_for_timeout(1500)
-    check("submit: confirmation with a reference", t(pg, "pa-done").is_visible() and t(pg, "pa-ref").inner_text().startswith("AGT-APP-"), pg.inner_text("body")[:300])
+    check("submit: confirmation with a reference", t(pg, "pa-done").is_visible() and re.fullmatch(r"A2Z-\d{6,}", t(pg, "pa-ref").inner_text().strip()) is not None, pg.inner_text("body")[:300])
     shot(pg, "partner-confirmation-desktop.png")
     sent = [json.loads(r[2] or "{}") for r in reqs if r[0] == "POST" and "/public/partner-applications" in r[1]]
     check("submit: one POST", len(sent) == 1, len(sent))

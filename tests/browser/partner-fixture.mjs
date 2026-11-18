@@ -70,7 +70,8 @@ export function partnerRoute(method, p, body) {
     const dup = st.apps.find((a) => a.client_key === body.client_key);
     if (dup) return { status: 200, data: { ok: true, ref: dup.ref, existing: true } };
     const id = st.next++;
-    const a = base(id, { client_key: body.client_key, full_name: body.full_name, gender: body.gender, age_range: body.age_range, phone: `${body.dial}${String(body.phone).replace(/\D/g, "").replace(/^0+/, "")}`, email: body.email, location: body.location, source: body.source,
+    const myt = new Date(Date.now() + 8 * 3600_000).toISOString(); /* v1.371.0 - A2Z-DDMM + the day's running number */
+    const a = base(id, { ref: `A2Z-${myt.slice(8, 10)}${myt.slice(5, 7)}${String(id).padStart(2, "0")}`, client_key: body.client_key, full_name: body.full_name, gender: body.gender, age_range: body.age_range, phone: `${body.dial}${String(body.phone).replace(/\D/g, "").replace(/^0+/, "")}`, email: body.email, location: body.location, source: body.source,
       utm_campaign: body.utm?.campaign ?? null, utm_source: body.utm?.source ?? null, referred_before: body.referred_before ? 1 : 0, intro_per_week: body.intro_per_week, customer_groups: body.customer_groups, lead_channels: body.lead_channels, approach: body.approach, time_available: body.time_available, screening_window: body.screening_window, created_at: ago(0) });
     st.apps.unshift(a);
     ev(id, "submitted", "Submitted from /apply/partner", null, "new");

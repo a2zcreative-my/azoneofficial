@@ -12,7 +12,7 @@ const ME = 9001;
 const ago = (h) => new Date(Date.now() - h * 3600_000).toISOString().slice(0, 19).replace("T", " ");
 const today = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 const base = (id, over) => ({
-  id, ref: `BG-${1000 + id}`, full_name: "Aina Rahman", whatsapp: "+60123456789", email: null, business_name: "Aina Bakes", industry: "food_beverage", industry_other: null, city: "Johor Bahru", state: "johor",
+  id, ref: `A2Z-1811${String(id).padStart(2, "0")}`, full_name: "Aina Rahman", whatsapp: "+60123456789", email: null, business_name: "Aina Bakes", industry: "food_beverage", industry_other: null, city: "Johor Bahru", state: "johor",
   social_url: "instagram.com/ainabakes", source: "facebook", source_detail: null, utm_source: "facebook", utm_medium: "paid_social", utm_campaign: "growth_nov", utm_term: null, utm_content: null, referrer: null, landing_path: "/apply/business",
   challenges: ["low_sales", "content"], challenge_other: null, urgent_problem: "Sales dropped since last month and we do not know why.", goal_90d: "Thirty new customers a month from Instagram.",
   platforms: ["instagram", "whatsapp"], interests: ["creative_content"], contact_method: "whatsapp", contact_time: "evening",
@@ -72,7 +72,8 @@ export function growthRoute(method, p, body) {
     const dup = st.rows.find((a) => a.client_key === body.client_key) ?? st.rows.find((a) => a.whatsapp === wa && a.status !== "not_interested");
     if (dup) { if (dup.client_key !== body.client_key) { dup.resubmissions++; ev(dup.id, "resubmitted", "Submitted again from /apply/business"); } return { status: 200, data: { ok: true, ref: dup.ref, existing: true } }; }
     const id = st.next++;
-    const a = base(id, { client_key: body.client_key, full_name: body.full_name, whatsapp: wa, email: body.email || null, business_name: body.business_name, industry: body.industry, city: body.city, state: body.state,
+    const myt = new Date(Date.now() + 8 * 3600_000).toISOString(); /* v1.371.0 - A2Z-DDMM + the day's running number */
+    const a = base(id, { ref: `A2Z-${myt.slice(8, 10)}${myt.slice(5, 7)}${String(id).padStart(2, "0")}`, client_key: body.client_key, full_name: body.full_name, whatsapp: wa, email: body.email || null, business_name: body.business_name, industry: body.industry, city: body.city, state: body.state,
       source: body.source, utm_campaign: body.utm?.campaign ?? null, utm_source: body.utm?.source ?? null, challenges: body.challenges, urgent_problem: body.urgent_problem, goal_90d: body.goal_90d,
       platforms: body.platforms, interests: body.interests ?? [], contact_method: body.contact_method, contact_time: body.contact_time, consent_marketing: body.consent_marketing ? 1 : 0, created_at: ago(0) });
     st.rows.unshift(a);
@@ -80,7 +81,7 @@ export function growthRoute(method, p, body) {
     return { status: 201, data: { ok: true, ref: a.ref } };
   }
   if (process.env.GROWTH && p === "/staff/notifications" && method === "GET" && VIEW) {
-    return { status: 200, data: { notifications: [{ id: 901, kind: "enquiry", message: "New Business Growth Check BG-1006: Hafiz Ismail, Kopi Hafiz - pick it up in Sales › Customers & Follow-ups", is_read: 0, created_at: ago(0.4), ref: "growth:6:new" }] } };
+    return { status: 200, data: { notifications: [{ id: 901, kind: "enquiry", message: "New Business Growth Check A2Z-181106: Hafiz Ismail, Kopi Hafiz - pick it up in Sales › Customers & Follow-ups", is_read: 0, created_at: ago(0.4), ref: "growth:6:new" }] } };
   }
   if (!p.startsWith("/staff/business-growth")) return null;
   if (NEVER) return deny("Business Growth enquiries are for A2Z staff only");

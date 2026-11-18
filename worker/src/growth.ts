@@ -51,6 +51,7 @@ import { json, err, audit, bumpVersion } from "./shared";
 import { canUser } from "./permissions";
 import { botCheck, BOT_REFUSED_MESSAGE } from "./security-status";
 import { sha256 } from "./accounts";
+import { nextPublicRef } from "./public-ref"; // v1.371.0
 
 export const GROWTH_STATUSES = ["new", "assigned", "contacted", "problem_identified", "advice_delivered", "qualified", "follow_up", "not_interested"] as const;
 type Status = (typeof GROWTH_STATUSES)[number];
@@ -85,7 +86,9 @@ const hoursSince = (sqliteDt: string | null) => (sqliteDt ? (Date.now() - Date.p
 const parse = (v: unknown) => { try { const a = JSON.parse(String(v)) as unknown; return Array.isArray(a) ? a.map(String) : []; } catch { return []; } };
 const list = (v: unknown, of: readonly string[]) => (Array.isArray(v) ? [...new Set(v.map(String))].filter((x) => of.includes(x)) : []);
 
-/* BG-#### - the next number after the highest id, worked out inside the INSERT; two at the
+/* v1.371.0 - the reference is A2Z-DDMM + the day's running number (public-ref.ts, shared with
+   the partner application); this BG- formula is only the fallback while 0212 is not applied.
+   BG-#### - the next number after the highest id, worked out inside the INSERT; two at the
    same instant collide on the unique ref and the loser draws again */
 const NEXT_REF = `'BG-' || (COALESCE((SELECT MAX(id) FROM business_growth_enquiries), 0) + 1001)`;
 
@@ -266,13 +269,13 @@ export async function submitBusinessGrowth(env: Env, request: Request, body: Rec
             source, source_detail, utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer, landing_path,
             challenges, challenge_other, urgent_problem, goal_90d, platforms, interests, contact_method, contact_time,
             consent_contact, consent_privacy, consent_marketing, privacy_version, consent_at, consent_ip_hash, consent_agent, lang, last_submitted_at, created_at)
-         VALUES (${NEXT_REF}, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
+         VALUES (COALESCE(?34, ${NEXT_REF}), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
             1, 1, ?28, ?29, ?30, ?31, ?32, ?33, ?30, ?30)
          ON CONFLICT(client_key) DO NOTHING RETURNING id, ref`,
       ).bind(key, full_name, whatsapp, email || null, business_name, industry, industry_other, city, state, social_url,
         source, source_detail, utm("source"), utm("medium"), utm("campaign"), utm("term"), utm("content"), referrer, landing_path,
         JSON.stringify(challenges), challenge_other, urgent_problem, goal_90d, JSON.stringify(platforms), JSON.stringify(interests), contact_method, contact_time,
-        marketing, PRIVACY_VERSION, at, ipHash, agent, lang).first<{ id: number; ref: string }>();
+        marketing, PRIVACY_VERSION, at, ipHash, agent, lang, await nextPublicRef(env)).first<{ id: number; ref: string }>();
       if (!ins) {
         const again = await env.DB.prepare(`SELECT ref FROM business_growth_enquiries WHERE client_key = ?1`).bind(key).first<{ ref: string }>();
         if (again) return json({ ok: true, ref: again.ref, existing: true });
