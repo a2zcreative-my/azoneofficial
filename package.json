@@ -1,6 +1,6 @@
 {
   "name": "azone-official",
-  "version": "1.374.0",
+  "version": "1.376.0",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "engines": {

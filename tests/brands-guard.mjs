@@ -133,8 +133,13 @@ if (!/website:\s*"azoneofficial\.com"/.test(azOneBlock)) {
 if (!/website:\s*"a2zcreative\.my"/.test(a2zBlock)) {
   errors.push("A2Z's letterhead prints a website that is not a2zcreative.my — an invoice would send the client to the wrong (or a dead) address");
 }
-if (!/email:\s*"admin@azoneofficial\.com"/.test(a2zBlock)) {
-  errors.push("A2Z's letterhead email moved off @azoneofficial.com — the Google Workspace mailboxes have not moved, so that address would bounce");
+/* v1.376.0 (the CEO, 18-11-2026) - A2Z's mailbox moved: its letterhead prints
+   hello@a2zcreative.my; AZ ONE OFFICIAL keeps its own address. */
+if (!/email:\s*"hello@a2zcreative\.my"/.test(a2zBlock)) {
+  errors.push("A2Z's letterhead email is not hello@a2zcreative.my (the CEO's choice, 18-11-2026)");
+}
+if (!/email:\s*"admin@azoneofficial\.com"/.test(azOneBlock)) {
+  errors.push("AZ ONE OFFICIAL's letterhead email changed - its documents keep its own address");
 }
 
 /* --- 6. the A2Z site does not sell itself using a client's name --- */

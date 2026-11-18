@@ -2221,15 +2221,15 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
       <div>
         <p className="text-muted-foreground mt-0.5 text-xs">
           {L(
-            "Company emails (@azoneofficial.com) aren't Google accounts, so staff can't self-register — create the account here with a temporary password and hand it over. They change it on first sign-in.",
-            "E-mel syarikat (@azoneofficial.com) bukan akaun Google, jadi kakitangan tidak boleh mendaftar sendiri — cipta akaun di sini dengan kata laluan sementara dan serahkan kepada mereka. Mereka menukarnya pada log masuk pertama.",
+            "Company emails (@a2zcreative.my) aren't Google accounts, so staff can't self-register — create the account here with a temporary password and hand it over. They change it on first sign-in.",
+            "E-mel syarikat (@a2zcreative.my) bukan akaun Google, jadi kakitangan tidak boleh mendaftar sendiri — cipta akaun di sini dengan kata laluan sementara dan serahkan kepada mereka. Mereka menukarnya pada log masuk pertama.",
           )}
         </p>
         {/* v1.4.135: every placeholder field carries a SUBHEAD label above it,
             so the field's purpose stays visible after typing. */}
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <Sub t={L("Company email", "E-mel syarikat")}>
-            <input className={input} placeholder="name@azoneofficial.com" value={newStaff.email}
+            <input className={input} placeholder="name@a2zcreative.my" value={newStaff.email}
               onChange={(e) => { setExisting(null); setNewStaff((d) => ({ ...d, email: e.target.value })); }} />
           </Sub>
           <Sub t={L("Full name (as per NRIC)", "Nama penuh (seperti dalam NRIC)")}>

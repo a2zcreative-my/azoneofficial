@@ -142,8 +142,10 @@ export const A2Z_CREATIVE: Issuer = {
      existed yet, and that footer went stale the moment a2zcreative.my went
      live. Worse than stale by v1.30.0: the old domain resolves to nothing,
      so an A2Z invoice was printing a dead address for the client to type in.
-     AZ ONE's own issuer above keeps azoneofficial.com — that is ITS site. */
-  email: "admin@azoneofficial.com",
+     AZ ONE's own issuer above keeps azoneofficial.com — that is ITS site.
+     v1.376.0 (the CEO, 18-11-2026) - the mailbox moved too: A2Z documents print
+     hello@a2zcreative.my. AZ ONE OFFICIAL's issuer above is unchanged. */
+  email: "hello@a2zcreative.my",
   whatsapp: "+60 12-383 4821",
   website: "a2zcreative.my",
   websiteUrl: "https://a2zcreative.my",

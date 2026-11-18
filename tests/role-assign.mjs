@@ -112,7 +112,7 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
   ok("PATCH /users/:id no longer forces part time by email", !/if \(!companyMail\) forcePartTime = true/.test(patch) && !/forcePartTime\b/.test(patch));
   ok("...the alias still means part time", /if \(isPartTimeAlias\) \{\s*await env\.DB\.prepare\(`UPDATE users SET role = \?1, employment_status = 'part_time'/.test(patch));
   ok("...a plain role lifts a part-time account to permanent", /target\.employment_status === "part_time"\) \{\s*await env\.DB\.prepare\(`UPDATE users SET role = \?1, employment_status = 'permanent'/.test(patch));
-  ok("...and the admin tier still needs a company email", /Admin-tier roles require an @\$\{env\.COMPANY_DOMAIN\} email/.test(patch));
+  ok("...and the admin tier still needs a company email", /Admin-tier roles require an (@\$\{env\.COMPANY_DOMAIN\}|\$\{companyDomainsText\(env\)\}) email/.test(patch) && /isCompanyMail\(env, acct\.email\)|endsWith\(`@\$\{env\.COMPANY_DOMAIN/.test(patch) /* v1.376.0 - either staff domain during the move */);
   ok("POST /users forces part time only for the alias", /const forcePartTimeC = isPartTimeAliasC;/.test(index));
   ok("the staff route honours the status given and forces nothing by email", /const status = newStatus;/.test(route) && !/Personal-email promotion/.test(route) && !/status = "part_time"/.test(route));
   ok("the Users page says what happens to the status before it happens", /status becomes permanent/.test(admin) && /status becomes part time/.test(admin) && /\$\{statusNote\}/.test(admin));

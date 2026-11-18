@@ -70,6 +70,21 @@ set "PORTAL=%~dp0..\a2zcreative-official"
 if exist "%~dp0wrangler.toml" set "PORTAL=%~dp0"
 if exist "%~dp0wrangler.toml" set "STORE=%~dp0..\elfiaofficialstore"
 
+REM  v1.375.0 - "PUSH.bat restore-test": the MONTHLY RESTORE TEST (the CEO, 18-11-2026).
+REM  Exports the live database (a read), restores it into a NEW temporary D1
+REM  database, counts every table, deletes the temporary database and records
+REM  the result on System health ("Last restore test"). Publishes nothing and
+REM  never loads, changes or deletes the live database. scripts\restore-test.mjs
+if /I "%~1"=="restore-test" (
+  pushd "%PORTAL%"
+  call node scripts\restore-test.mjs
+  set "RT_EXIT=!errorlevel!"
+  popd
+  echo.
+  pause
+  exit /b !RT_EXIT!
+)
+
 echo.
 echo   DEPLOY EVERYTHING
 echo   =================

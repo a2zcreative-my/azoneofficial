@@ -26,8 +26,16 @@ import { ALL_TABS, type TabName } from "@/lib/portal-tabs";
    fixed fault is not read as a live one. */
 export const reportedBy = (message: string): string | null => {
   const m = /^v(\d+\.\d+\.\d+)\b/.exec(message);
-  return m && newerVersion(APP_VERSION, m[1]!) ? m[1]! : null;
+  if (m) return newerVersion(APP_VERSION, m[1]!) ? m[1]! : null;
+  /* v1.375.0 - server rows logged BEFORE they carried a version: the ones whose fix shipped are named here
+     with the last version that could produce them, so they read as fixed history, not a live fault */
+  const known = KNOWN_FIXED.find((k) => k.match.test(message));
+  return known && newerVersion(APP_VERSION, known.from) ? known.from : null;
 };
+const KNOWN_FIXED: { match: RegExp; from: string }[] = [
+  /* the Live Reports screenshot AI request layout (3030), fixed in 1.372.0 */
+  { match: /^Live report screenshot AI failed \(.*\): 3030: Unable to add image/, from: "1.371.0" },
+];
 
 /* v1.326.0 - the CEO, 16-11-2026: "when I click on the error, it doesnt directing to the section
    that I should go". Each error names WHERE it is looked into: a page's own report names its tab

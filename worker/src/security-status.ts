@@ -26,6 +26,7 @@
    be able to fill the audit log. */
 
 import type { Env } from "./index";
+import pkg from "../../package.json"; // v1.375.0 - the engine version for API Health's live-error count
 
 const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const CF_GRAPHQL = "https://api.cloudflare.com/client/v4/graphql";
@@ -206,8 +207,13 @@ export async function securityStatus(env: Env, newestBackup: () => Promise<{ key
     } catch { return { today: 0, yesterday: 0 }; }
   };
 
+  /* v1.375.0 (the CEO, 18-11-2026) - API Health counts LIVE errors only, the Dashboard's rule: a row stamped
+     with an older version than this engine, or a row the release notes name as fixed, is history */
   let errors24h = 0;
-  try { errors24h = Number((await env.DB.prepare(`SELECT COUNT(*) AS n FROM error_log WHERE created_at >= datetime('now', '-1 day')`).first<{ n: number }>())?.n ?? 0); } catch { /* pre-0024 */ }
+  try {
+    const rows = (await env.DB.prepare(`SELECT message FROM error_log WHERE created_at >= datetime('now', '-1 day')`).all<{ message: string }>()).results ?? [];
+    errors24h = rows.filter((r) => isLiveError(r.message, pkg.version)).length;
+  } catch { /* pre-0024 */ }
 
   /* v1.344.0 - recent security events: what the server itself refused or recorded
      (audit_log), last seven days - refused requests, refused sign-ins, recovery steps */
@@ -226,6 +232,13 @@ export async function securityStatus(env: Env, newestBackup: () => Promise<{ key
   try { const b = await newestBackup(); if (b) backup = { uploaded: b.uploaded, size: b.size }; } catch { /* null */ }
   let offsite: string | null = null;
   try { offsite = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'last_offsite_export'`).first<{ value: string }>())?.value ?? null; } catch { /* none */ }
+  /* v1.375.0 (the CEO, 18-11-2026) - the last restore test, written only by scripts/restore-test.mjs
+     (PUSH.bat restore-test) after it restored a full export into a TEMPORARY database and compared it */
+  let restoreTest: RestoreTest | null = null;
+  try {
+    const v = (await env.DB.prepare(`SELECT value FROM system_meta WHERE key = 'restore_test_last'`).first<{ value: string }>())?.value;
+    if (v) { const o = JSON.parse(v) as RestoreTest; if (o && typeof o.at === "string" && typeof o.ok === "boolean") restoreTest = o; }
+  } catch { /* none yet */ }
 
   return {
     as_of: new Date().toISOString(),
@@ -235,6 +248,24 @@ export async function securityStatus(env: Env, newestBackup: () => Promise<{ key
     files: FILE_CHECKS,
     platform: { errors_24h: errors24h },
     events,
-    backup: { last: backup, retention_runs: 30, offsite_last: offsite, bucket_bound: !!env.BACKUPS },
+    backup: { last: backup, retention_runs: 30, offsite_last: offsite, bucket_bound: !!env.BACKUPS, restore_test: restoreTest },
   };
 }
+
+/* v1.375.0 - the ONE rule for "is this error row still a live fault?", the same as the portal's
+   components/admin/system-health.tsx reportedBy/liveError (keep the two in step) */
+const semver = (v: string) => v.split(".").map((n) => Number(n) || 0);
+const olderThan = (a: string, b: string) => { const x = semver(a), y = semver(b); for (let i = 0; i < 3; i++) { if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0); } return false; };
+export const KNOWN_FIXED_ERRORS: { match: RegExp; from: string }[] = [
+  /* the Live Reports screenshot AI request layout (3030), fixed in 1.372.0 */
+  { match: /^Live report screenshot AI failed \(.*\): 3030: Unable to add image/, from: "1.371.0" },
+];
+export function isLiveError(message: string, engine: string): boolean {
+  const m = /^v(\d+\.\d+\.\d+)\b/.exec(message);
+  if (m) return !olderThan(m[1]!, engine);
+  const k = KNOWN_FIXED_ERRORS.find((x) => x.match.test(message));
+  return !(k && olderThan(k.from, engine));
+}
+
+/** v1.375.0 - what scripts/restore-test.mjs records (system_meta 'restore_test_last') */
+export type RestoreTest = { at: string; ok: boolean; source: string; tables: number; rows: number; mismatched: number; reason: string | null; seconds: number; by: string };

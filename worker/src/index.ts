@@ -11,6 +11,7 @@ import { handlePasskeys, passkeySettings, revokePasskeyStatements, passkeysMigra
 import { botCheck, botCheckPublic, securityStatus, BOT_REFUSED_MESSAGE } from "./security-status"; // v1.341.0
 import { googleDiscovery, pkcePair, verifyGoogleIdToken } from "./google-oidc"; // v1.265.0 - Google OpenID Connect
 import { mailReady, sendMail } from "./mail"; // v1.266.0 - the customer's emailed code
+import { isCompanyMail, companyDomainsText } from "./accounts"; // v1.376.0 - the staff email domains
 import { applyEmailChange, pendingGoogleChange, sha256 as sha256Acct, expireChanges, assertOne, clearAsserts, emailChangeStatements, afterEmailChange, linkGoogleStatements, googleAuthSettings, legacyWindowOpen, LEGACY_GOOGLE_BEFORE, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.264.0 - the guarded batches
 import { handleEnquiries, announceEnquiry } from "./enquiries"; // v1.112.0
 import { replayOrRun, purgeIdempotencyKeys, REPLAY_HEADER } from "./outbox"; // v1.105.0 - the outbox, server side
@@ -24,7 +25,7 @@ import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified p
 import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
 import { expireOrders } from "./hankeis"; // v1.163.0 - reservations lapse; the static QR does not
 // v1.65.0 — live cards: one counter per topic, bumped where writes land.
-import { bumpVersion, topicOf, putGuarded } from "./shared";
+import { bumpVersion, topicOf, putGuarded, setEngineVersion } from "./shared";
 import { handlePublicAcceptance } from "./business"; // v1.181.16 - quotation acceptance on the shared link
 import { signPlan, loadDocForSigning, assetForDoc } from "./signing"; // v1.248.0 - personal signatures on the shared link
 import { matchByWords, skuKey as lineSkuKey } from "./line-match"; // v1.135.0 - a TikTok line finds its item by its distinctive words
@@ -62,6 +63,8 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   COMPANY_DOMAIN: string;
+  /** v1.376.0 - the staff email domains, comma separated (both during the move to a2zcreative.my); COMPANY_DOMAIN is the fallback */
+  COMPANY_DOMAINS?: string;
   /* v1.238.0 - Cloudflare Email Sending (worker/src/mail.ts). Both optional:
      until they are set, nothing is emailed and the callers fall back. */
   EMAIL?: { send(m: { from: string; to: string; subject: string; text: string; html?: string }): Promise<unknown> };
@@ -120,6 +123,7 @@ import { Role, can, allows, canManageAccount, mayGrant, roleChangeRule, setPermi
 // v1.23.5: the ONE version number — read from the repo root package.json at
 // bundle time, so worker and site stamps always come from the same place.
 import pkg from "../../package.json";
+setEngineVersion(pkg.version); // v1.375.0 - every error row from worker/src/shared.ts logError carries the engine version
 const WORKER_VERSION: string = (pkg as { version: string }).version;
 
 interface SessionUser {
@@ -1804,7 +1808,10 @@ async function audit(
 async function logError(env: Env, source: string, message: string, path?: string): Promise<void> {
   try {
     const src = source.slice(0, 40);
-    const msg = message.slice(0, 500);
+    /* v1.375.0 (the CEO, 18-11-2026: a FIXED server error kept the Dashboard's red alert on for 24 hours) -
+       every server row now begins with the engine's version, like the page reports do, so System health and
+       the Dashboard can tell a fault of an older release (fixed history) from a live one. */
+    const msg = (/^v\d+\.\d+\.\d+\b/.test(message) ? message : `v${pkg.version} ${message}`).slice(0, 500);
     /* v1.5.0 DEDUPE — the fix for the "22 new system errors since the last
        check" notification flood. The same recurring condition (an order with
        no resolvable city, re-scanned by every 30-minute sync pass; a portal
@@ -6644,9 +6651,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     // v1.157.0: the super admin's choice wins - a personal email no longer
     // forces part_time; only the live_host_part_time alias does. Admin-tier
     // roles still require a company email.
-    const companyMailC = email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
+    const companyMailC = isCompanyMail(env, email); // v1.376.0 - either staff domain during the move
     if (["super_admin", "admin"].includes(roleWantedC) && !companyMailC) {
-      return errorResponse("domain_policy", `Admin-tier roles require an @${env.COMPANY_DOMAIN} email`, 400);
+      return errorResponse("domain_policy", `Admin-tier roles require an ${companyDomainsText(env)} email`, 400);
     }
     const forcePartTimeC = isPartTimeAliasC;
     // Check the email conflict explicitly, so a constraint failure elsewhere
@@ -6773,9 +6780,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         if (["super_admin", "admin"].includes(roleWanted)) {
           const acct = await env.DB.prepare(`SELECT email FROM users WHERE id = ?1`)
             .bind(id).first<{ email: string }>();
-          const companyMail = !!acct && acct.email.toLowerCase().endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`);
+          const companyMail = !!acct && isCompanyMail(env, acct.email);
           if (!companyMail) {
-            return errorResponse("domain_policy", `Admin-tier roles require an @${env.COMPANY_DOMAIN} email`, 400);
+            return errorResponse("domain_policy", `Admin-tier roles require an ${companyDomainsText(env)} email`, 400);
           }
         }
         if (isPartTimeAlias) {

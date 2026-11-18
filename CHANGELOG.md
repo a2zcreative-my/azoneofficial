@@ -10,6 +10,41 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.376.0] - 2026-11-18 - Staff login emails move from @azoneofficial.com to @a2zcreative.my - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "my staff they using old domain email for login the portal, how I want to migrate by using the new domain email which is a2zcreative.my" and "some of the staff are using gmail which is I dont want to touch on it except the staff which is using old domain: azoneofficial.com". His answers: the new mailboxes are elsewhere (prove by email link only), some new addresses differ from the old name, each link valid 72 hours, A2Z's contact email becomes hello@a2zcreative.my.
+
+### Added
+- **Users -> Staff Accounts -> "Move staff to @a2zcreative.my"** (`components/portal/email-move.tsx`, the owner or the super admin). Lists only staff accounts that sign in with @azoneofficial.com - Gmail and every other address, customers and agents never appear. Each row proposes the same name @a2zcreative.my and is editable; tick people, Review (a dry run that writes nothing, every person shown old -> new or refused with the reason), then one reason and one authenticator code send the links. Status per person: Not started / Link sent (until when) / Link expired / Moved, with Resend. Desktop table; on a phone each person is one block.
+- **`GET/POST /staff/accounts/email-move`** (worker/src/staff.ts). The SAME proof as a single login email change (`email_changes`, route email, hashed single-use link to the NEW address, `applyEmailChange` when opened: same account, every session signed out, the old address told) - for up to 100 people, each checked on its own (CEO and super admin accounts the super admin's, never your own), each link valid **72 hours**, a retry adds nothing, Resend replaces the waiting link, a mail that fails leaves nothing waiting. Audited per person (`user.email_change_requested`, `bulk`) and once per batch (`user.email_move_batch`). Nothing changes for a person until they open the link; until then the old address keeps working.
+
+### Changed
+- **Both domains are company domains during the move**: `COMPANY_DOMAINS = "azoneofficial.com,a2zcreative.my"` (wrangler.toml); one check, `isCompanyMail` (worker/src/accounts.ts), now used by the four staff / admin domain rules (create staff, the Admin role, admin-tier roles in index.ts). `COMPANY_DOMAIN` stays as the fallback.
+- **A2Z documents and the website print hello@a2zcreative.my** (`lib/issuers.ts` A2Z issuer, `constants/content.ts`); AZ ONE OFFICIAL's documents keep admin@azoneofficial.com. Add-staff and role hints name @a2zcreative.my.
+
+### Guards
+- New `tests/staff-email-move.mjs` (52 checks, 10 mutations; whole worker against SQLite) and browser `tests/browser/email-move.py` (24 checks, desktop and phone; fixture `EMAILMOVE=1`). `tests/brands-guard.mjs` now requires hello@a2zcreative.my on A2Z's letterhead and AZ ONE's own address on AZ ONE's.
+
+## [1.375.0] - 2026-11-18 - A fixed error no longer keeps the Dashboard alarm on; the monthly restore test - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "still not resolved this error! still appear in the dashboard!" - the 18:25 screenshot-AI error (3030), fixed in 1.372.0, kept "1 error(s) logged in the last 24 hours" red on the Dashboard and "1 errors" on API Health. Only page errors carried the version that marks a fault of an older release as history (v1.324.0); server errors never did.
+
+### Fixed
+- **Every server error row now begins with the engine's version** (`logError` in worker/src/shared.ts and worker/src/index.ts; a page's own report, already stamped, is left alone). After the next release, an error from an older version reads "From vX - this portal is vY" and no longer raises the alarm, exactly as page errors already did.
+- **API Health (Security & Sessions) counts live errors only**, by the same rule as the Dashboard (`isLiveError` in worker/src/security-status.ts).
+- **The 18:25 3030 row** was written before rows carried a version; it is named as fixed (from 1.371.0) in both places, so it stops counting now. The log itself is never edited - the row stays in System health with its "older version" label.
+
+### Added
+- **The monthly restore test, `PUSH.bat restore-test`** (the CEO, 18-11-2026: "Last restore test - Not recorded"; his answer "Yes, build it"). `scripts/restore-test.mjs` exports the live database (a read), restores the export into a NEW temporary D1 database `a2z-restore-test-<stamp>`, counts every table against the rows the export holds, then DELETES the temporary database (always, also after a failure) and the export file. The only write to production is one status row, `system_meta` `restore_test_last`. Logged to `backups\restore-test.log`. It never loads, changes or deletes the live database and publishes nothing.
+- **System health > Last restore test** reads that row: Passed (date, tables, rows), Failed (the reason), Due (older than 45 days) or Not recorded. Nothing is shown that the test did not record.
+
+### Not changed
+- **File malware scanning stays "Not scanning"** (the CEO's choice): Cloudflare's malicious-upload scanning needs the Enterprise plan with a paid add-on, and an outside scanner would send staff ICs and bank slips out of Cloudflare. Uploads stay staff-only, image/PDF signature and size checked.
+
+### Guards
+- New `tests/error-history.mjs` (8 checks, 3 mutations).
+- New `tests/restore-test.mjs` (11 checks, 5 mutations): the restore loads and deletes only the temporary database, production gets one status row, the tile shows only what was recorded.
+
 ## [1.374.0] - 2026-11-18 - Live Reports: the screenshot AI sends the image the way Cloudflare documents it - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 System health, 18-11-2026 18:25: "Live report screenshot AI failed (61135 bytes, image/jpeg): 3030: Unable to add image when there are no user-supplied nor system-supplied messages."

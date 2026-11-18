@@ -50,7 +50,9 @@ export interface SecurityStatus {
   platform: { errors_24h: number };
   /** v1.344.0 - what the server refused or recorded in the last seven days (audit_log) */
   events?: SecEvent[];
-  backup: { last: { uploaded: string; size: number } | null; retention_runs: number; offsite_last: string | null; bucket_bound: boolean };
+  backup: { last: { uploaded: string; size: number } | null; retention_runs: number; offsite_last: string | null; bucket_bound: boolean;
+    /* v1.375.0 - written only by scripts/restore-test.mjs (PUSH.bat restore-test) */
+    restore_test?: { at: string; ok: boolean; source: string; tables: number; rows: number; mismatched: number; reason: string | null; seconds: number; by: string } | null };
 }
 export type StatusRead = SecurityStatus | "denied" | "failed" | null;
 
@@ -197,7 +199,19 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
     <li data-testid={testid}><span className={css.rowIcon} aria-hidden><AppIcon name={icon} /></span>
       <span className={css.rowText}><strong>{title}</strong><small>{sub}</small></span>{chip}</li>
   );
-  const restoreRecorded = false; // no restore test is recorded anywhere yet (docs/RESTORE.md is a manual procedure)
+  /* v1.375.0 (the CEO, 18-11-2026) - the last restore test, as scripts/restore-test.mjs recorded it: a full
+     export restored into a TEMPORARY database, every table counted, the temporary database deleted.
+     Older than 45 days reads "Due" - the test is monthly. */
+  const rt = s.backup.restore_test ?? null;
+  const rtAge = rt ? hoursSince(rt.at) : null;
+  const rtDue = rtAge !== null && rtAge > 45 * 24;
+  const rtSub = !rt ? L("No restore test is recorded yet - run PUSH.bat restore-test on the office PC (monthly)", "Tiada ujian pemulihan direkodkan lagi - jalankan PUSH.bat restore-test pada PC pejabat (bulanan)")
+    : rt.ok ? L(`${mytWhen(rt.at)} - ${rt.tables} tables, ${rt.rows.toLocaleString("en-MY")} rows restored into a temporary database and counted; it was then deleted`, `${mytWhen(rt.at)} - ${rt.tables} jadual, ${rt.rows.toLocaleString("ms-MY")} baris dipulihkan ke pangkalan data sementara dan dikira; kemudian dipadam`)
+    : L(`${mytWhen(rt.at)} - failed: ${rt.reason ?? "see backups\\restore-test.log"}`, `${mytWhen(rt.at)} - gagal: ${rt.reason ?? "lihat backups\\restore-test.log"}`);
+  const rtChip = !rt ? <span className={chipSmWarn}>{L("Not recorded", "Tidak direkodkan")}</span>
+    : !rt.ok ? <span className={chipSmDanger}>{L("Failed", "Gagal")}</span>
+    : rtDue ? <span className={chipSmWarn}>{L("Due", "Perlu diuji")}</span>
+    : <span className={chipSmSuccess}>{L("Passed", "Lulus")}</span>;
   return (
     <div className={css.stack} data-testid="security-health">
       <KpiRow label={L("System health figures", "Angka kesihatan sistem")} testid="health-strip">
@@ -259,7 +273,7 @@ export function SecurityHealth({ s, onAudit }: { s: StatusRead; onAudit?: () => 
               {row("upload", L("Upload scanning", "Imbasan muat naik"), L("Size limit and file-type check before a file is stored", "Had saiz dan semakan jenis fail sebelum disimpan"), <span className={chipSmInfo}>{L("Type + size", "Jenis + saiz")}</span>, "file-upload")}
               {row("blocked", L("Quarantine records", "Rekod kuarantin"), L("No quarantine exists - a file that fails the checks is refused, not kept", "Tiada kuarantin - fail yang gagal semakan ditolak, bukan disimpan"), <span className={chipSmNeutral}>{L("None kept", "Tiada disimpan")}</span>, "file-quarantine")}
               {row("database", L("Last successful backup", "Sandaran terakhir berjaya"), mytWhen(s.backup.last?.uploaded), <span className={bk.tone === "green" ? chipSmSuccess : chipSmWarn}>{bk.value}</span>, "file-backup")}
-              {row("refresh", L("Last restore test", "Ujian pemulihan terakhir"), L("No restore test is recorded - the restore is the manual procedure in docs/RESTORE.md", "Tiada ujian pemulihan direkodkan - pemulihan ialah prosedur manual dalam docs/RESTORE.md"), <span className={chipSmWarn}>{restoreRecorded ? "" : L("Not recorded", "Tidak direkodkan")}</span>, "file-restore")}
+              {row("refresh", L("Last restore test", "Ujian pemulihan terakhir"), rtSub, rtChip, "file-restore")}
             </ul>
           </SplitPane>
         </SplitColumn>

@@ -24,6 +24,18 @@ import { notify } from "./staff";
 import { mailReady, sendMail } from "./mail";
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/* v1.376.0 - THE STAFF EMAIL DOMAINS (the CEO, 18-11-2026: staff move from @azoneofficial.com to
+   @a2zcreative.my). COMPANY_DOMAINS is a comma list (both, during the move); COMPANY_DOMAIN, the
+   single value every earlier release read, is the fallback. One check for every staff / admin
+   domain rule, so the four places that asked it can never disagree. */
+export const OLD_STAFF_DOMAIN = "azoneofficial.com";
+export const NEW_STAFF_DOMAIN = "a2zcreative.my";
+export function companyDomains(env: { COMPANY_DOMAINS?: string; COMPANY_DOMAIN?: string }): string[] {
+  const list = String(env.COMPANY_DOMAINS ?? env.COMPANY_DOMAIN ?? "").split(",").map((d) => d.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
+  return [...new Set(list)];
+}
+export const isCompanyMail = (env: { COMPANY_DOMAINS?: string; COMPANY_DOMAIN?: string }, email: string) => companyDomains(env).some((d) => email.toLowerCase().trim().endsWith(`@${d}`));
+export const companyDomainsText = (env: { COMPANY_DOMAINS?: string; COMPANY_DOMAIN?: string }) => companyDomains(env).map((d) => `@${d}`).join(" or ");
 export const CHANGE_TTL_HOURS = 24;
 export const SET_PASSWORD_TTL_HOURS = 24;
 

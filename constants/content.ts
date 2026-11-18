@@ -27,7 +27,7 @@ export const CONTACT = {
   whatsapp: "60123834821",
   whatsappMessage:
     "Hi A2Z Creative Marketing, I'm interested in your services. I would like to know more.",
-  email: "admin@azoneofficial.com",
+  email: "hello@a2zcreative.my" /* v1.376.0 - the CEO: A2Z's contact email */,
   socials: {
     tiktok: "https://www.tiktok.com/@azoneofficialhq",
     instagram: "https://www.instagram.com/azoneofficialhq",

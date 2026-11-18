@@ -79,7 +79,7 @@ const FROM_QT = `(SELECT q.doc_number FROM sales_documents q WHERE q.id = d.conv
 export const OT_DECIDE_ROLES: readonly string[] = ["ceo", "coo", "super_admin", "admin"];
 
 import { Role, can, allows, mayGrant, roleChangeRule, roleDoor, rolesFor, setPermissionOverrides, cleanOverrides, canManageAccount, PERMS, ACTION_CATALOGUE, POLICY_ROLES, OWNER_GRANTS, LOCKED_CELLS, lockedCellViolation, type PolicyList, canUser, isCustomKey, isOwnKey, isExtraKey, PROTECTED_ROLE_KEYS, CUSTOM_FORBIDDEN, CUSTOM_BASE_ROLES } from "./permissions";
-import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, googleAuthSettings, legacyWindowOpen, LEGACY_CUSTOMER_SQL, type ChangeRow } from "./accounts"; // v1.238.0 - account identity
+import { applyEmailChange, auditAcct, emailTaken, expireChanges, newToken, privilegedTarget, sha256 as sha256Acct, EMAIL_RE, CHANGE_TTL_HOURS, SET_PASSWORD_TTL_HOURS, googleAuthSettings, legacyWindowOpen, LEGACY_CUSTOMER_SQL, isCompanyMail, companyDomainsText, OLD_STAFF_DOMAIN, NEW_STAFF_DOMAIN, type ChangeRow } from "./accounts"; // v1.238.0 - account identity; v1.376.0 - the staff email domains
 import { mailReady, sendMail, sendMailResult } from "./mail"; // v1.238.0 - Cloudflare Email Sending; v1.247.0 - the provider answer for the log
 
 /** v1.6.0: VAPID keys, or null when push isn't configured (push simply off). */
@@ -3335,8 +3335,8 @@ async function handleStaffRoutes(
     const email = (body.email as string).toLowerCase().trim();
     // Domain policy (v1.4.42): staff roles require a company email —
     // personal emails (gmail etc.) belong to customer accounts.
-    if (!agentNew && !email.endsWith(`@${env.COMPANY_DOMAIN.toLowerCase()}`)) {
-      return err("domain_policy", `Staff roles require an @${env.COMPANY_DOMAIN} email — personal emails stay as customer accounts`, 400);
+    if (!agentNew && !isCompanyMail(env, email)) {
+      return err("domain_policy", `Staff roles require an ${companyDomainsText(env)} email — personal emails stay as customer accounts`, 400);
     }
     const existing = await env.DB.prepare(`SELECT id FROM users WHERE email = ?1`)
       .bind(email).first<{ id: number }>();
@@ -3495,8 +3495,8 @@ async function handleStaffRoutes(
     if (target.role === newRole && !heldCustom && (!newStatus || newStatus === target.employment_status)) {
       return json({ ok: true, role: newRole, employment_status: target.employment_status, unchanged: true });
     }
-    if (newRole === "admin" && !target.email.toLowerCase().endsWith(`@${String(env.COMPANY_DOMAIN ?? "").toLowerCase()}`)) {
-      return err("domain_policy", `The Admin role requires an @${env.COMPANY_DOMAIN} email`, 400);
+    if (newRole === "admin" && !isCompanyMail(env, target.email)) {
+      return err("domain_policy", `The Admin role requires an ${companyDomainsText(env)} email`, 400);
     }
     const byOwner = user.role !== "super_admin" && user.is_owner === true && rule.privileged;
     if (rule.privileged) {
@@ -14663,6 +14663,110 @@ async function handleStaffRoutes(
       mail_ready: mailReady(env), privileged: privilegedTarget(t.role), me: user.id,
     });
   }
+  /* v1.376.0 - MOVE STAFF LOGIN EMAILS TO @a2zcreative.my (the CEO, 18-11-2026: "only the staff which is
+     using old domain azoneofficial.com"; Gmail and every other address untouched; answers: some new
+     addresses differ from the old name, each link valid 72 hours). The SAME proof as one change above -
+     an email_changes row, route "email", a single-use link to the new address, applied only when the
+     person clicks it (applyEmailChange: same account, every session out) - for many people at once.
+       GET  /accounts/email-move    the old-domain staff accounts, the proposed address, where each stands
+       POST /accounts/email-move    { items: [{ user_id, new_email, resend? }], reason, totp, dry_run }
+     The owner or the super admin (account_email), one authenticator code and one reason for the batch;
+     every person is checked on its own (acctGate) and audited on its own. */
+  if (path === "/accounts/email-move" && (method === "GET" || method === "POST")) {
+    if (!allows(user, "account_email")) return err("forbidden", "Only the company owner or the super admin manages staff sign-in." + ownerOffHint(user), 403);
+    const MOVE_TTL_HOURS = 72;
+    await expireChanges(env);
+    const latestOf = async (uid: number) => await env.DB.prepare(
+      `SELECT id, new_email, status, created_at, expires_at, applied_at FROM email_changes WHERE user_id = ?1 AND new_email LIKE ?2 ORDER BY id DESC LIMIT 1`,
+    ).bind(uid, `%@${NEW_STAFF_DOMAIN}`).first<{ id: number; new_email: string; status: string; created_at: string; expires_at: string; applied_at: string | null }>().catch(() => null);
+    if (method === "GET") {
+      /* the old-domain staff still to move, and the ones this move already moved */
+      const { results } = await env.DB.prepare(
+        `SELECT u.id, u.email, u.role, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.department, u.is_active, u.password_hash, u.google_sub
+           FROM users u WHERE u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)
+            AND (lower(u.email) LIKE ?1 OR u.id IN (SELECT user_id FROM email_changes WHERE new_email LIKE ?2))
+          ORDER BY ${STAFF_ORDER_SQL}`,
+      ).bind(`%@${OLD_STAFF_DOMAIN}`, `%@${NEW_STAFF_DOMAIN}`).all<{ id: number; email: string; role: string; name: string; department: string | null; is_active: number; password_hash: string; google_sub: string | null }>();
+      const rows = [];
+      for (const u of results ?? []) {
+        const ch = await latestOf(u.id);
+        const moved = u.email.toLowerCase().endsWith(`@${NEW_STAFF_DOMAIN}`);
+        rows.push({
+          id: u.id, name: u.name, email: u.email, role: u.role, department: u.department, active: u.is_active === 1,
+          proposed: moved ? u.email : `${u.email.split("@")[0]!.toLowerCase()}@${NEW_STAFF_DOMAIN}`,
+          state: moved ? "moved" : ch?.status === "pending" ? "sent" : ch?.status === "expired" ? "expired" : ch?.status === "cancelled" ? "cancelled" : "not_started",
+          pending_to: ch?.status === "pending" ? ch.new_email : null, expires_at: ch?.status === "pending" ? ch.expires_at : null, moved_at: moved ? ch?.applied_at ?? null : null,
+          google_only: u.password_hash.startsWith("oauth$"), google: !!u.google_sub,
+          can: u.id !== user.id && canManageAccount(user, u.role),
+        });
+      }
+      return json({ rows, old_domain: OLD_STAFF_DOMAIN, new_domain: NEW_STAFF_DOMAIN, mail_ready: mailReady(env), ttl_hours: MOVE_TTL_HOURS, me: user.id });
+    }
+    const items = Array.isArray(body?.items) ? (body!.items as unknown[]).slice(0, 101) : [];
+    if (!items.length) return err("invalid_input", "Choose at least one staff member.", 400);
+    if (items.length > 100) return err("invalid_input", "At most 100 staff in one move.", 400);
+    const dry = body?.dry_run === true;
+    const reason = reasonOf();
+    if (!dry && reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
+    if (!dry && !mailReady(env)) return err("mail_unavailable", "Email sending is not set up - the verification links cannot be sent.", 409);
+    type MoveRow = { user_id: number; name: string | null; from: string | null; to: string; state: "send" | "already_sent" | "refused"; reason: string | null; google_only: boolean; result?: "sent" | "mail_failed" };
+    const seenTo = new Set<string>(); const seenId = new Set<number>();
+    const rows: MoveRow[] = [];
+    for (const raw of items) {
+      const it = (raw ?? {}) as Record<string, unknown>;
+      const uid = Number(it.user_id);
+      const to = typeof it.new_email === "string" ? it.new_email.trim().toLowerCase() : "";
+      const resend = it.resend === true;
+      const row: MoveRow = { user_id: uid, name: null, from: null, to, state: "refused", reason: null, google_only: false };
+      rows.push(row);
+      if (!Number.isInteger(uid) || uid <= 0 || seenId.has(uid)) { row.reason = "Listed twice or not a staff account."; continue; }
+      seenId.add(uid);
+      const t = await loadAcct(uid);
+      if (!t || ["customer", "agent"].includes(t.role)) { row.reason = "Not a staff account."; continue; }
+      row.name = (t.full_name ?? "").trim() || t.name; row.from = t.email; row.google_only = t.password_hash.startsWith("oauth$");
+      /* ONLY the old domain moves - Gmail and every other address are never touched (the CEO) */
+      if (!t.email.toLowerCase().endsWith(`@${OLD_STAFF_DOMAIN}`)) { row.reason = `Signs in with ${t.email} - only @${OLD_STAFF_DOMAIN} addresses are moved.`; continue; }
+      if (t.id === user.id) { row.reason = "Your own account - the other of owner and super admin moves it."; continue; }
+      if (!canManageAccount(user, t.role)) { row.reason = "CEO and super admin accounts are moved by the super admin."; continue; }
+      if (!EMAIL_RE.test(to) || to.length > 200 || !to.endsWith(`@${NEW_STAFF_DOMAIN}`)) { row.reason = `The new address must be a valid @${NEW_STAFF_DOMAIN} address.`; continue; }
+      if (seenTo.has(to)) { row.reason = "The same new address is given to two people."; continue; }
+      seenTo.add(to);
+      const ch = await latestOf(uid);
+      if (ch?.status === "pending" && ch.new_email === to && !resend) { row.state = "already_sent"; row.reason = `A link to ${to} is already waiting (until ${ch.expires_at} UTC) - Resend sends a fresh one.`; continue; }
+      if (await emailTaken(env, to, ch?.status === "pending" && ch.new_email === to ? ch.id : 0)) { row.reason = "That address already belongs to an account, or another change is waiting for it."; continue; }
+      row.state = "send";
+    }
+    const counts = { send: rows.filter((r) => r.state === "send").length, already_sent: rows.filter((r) => r.state === "already_sent").length, refused: rows.filter((r) => r.state === "refused").length };
+    if (dry) return json({ ok: true, dry_run: true, rows, counts, ttl_hours: MOVE_TTL_HOURS });
+    if (!counts.send) return json({ ok: true, rows, counts, sent: 0 });
+    const su = await requireFreshTotp(env, user, body?.totp, err, "move staff login emails");
+    if (su) return su;
+    const batch = `email_move:${user.id}:${Date.now()}`;
+    let sent = 0;
+    for (const r of rows) {
+      if (r.state !== "send") continue;
+      const tok = newToken();
+      const ins = await env.DB.prepare(
+        `INSERT INTO email_changes (user_id, old_email, new_email, route, token_hash, needs_second, identity_checked_by, requested_by, reason, expires_at)
+         VALUES (?1, ?2, ?3, 'email', ?4, 0, NULL, ?5, ?6, datetime('now', '+${MOVE_TTL_HOURS} hours')) RETURNING *`,
+      ).bind(r.user_id, r.from, r.to, await sha256Acct(tok), user.id, reason).first<ChangeRow>();
+      await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE user_id = ?1 AND status = 'pending' AND id != ?2`).bind(r.user_id, ins!.id).run();
+      const ok = await sendMail(env, { to: r.to, subject: "Confirm your new A2Z OS login email",
+        text: `${user.name} is moving your A2Z OS login from ${r.from} to this address (@${NEW_STAFF_DOMAIN}).\n\nConfirm it within ${MOVE_TTL_HOURS} hours:\n${primaryOrigin(env)}/verify-email#token=${tok}\n\nUntil you confirm, keep signing in with ${r.from}. After you confirm, sign in with this address - your account, history and settings stay the same.\n\nIf you did not expect this, ignore this email - nothing changes.` });
+      if (!ok) {
+        await env.DB.prepare(`UPDATE email_changes SET status = 'cancelled' WHERE id = ?1`).bind(ins!.id).run();
+        r.result = "mail_failed"; continue;
+      }
+      r.result = "sent"; sent++;
+      await sendMail(env, { to: r.from!, subject: "Your A2Z OS login email is moving to @" + NEW_STAFF_DOMAIN,
+        text: `${user.name} is moving the login email of your A2Z OS account to ${r.to}. It changes only when that address is confirmed - the link is in the ${r.to} mailbox. Until then this address keeps working.\n\nIf you did not expect this, tell A2Z Creative Marketing.` });
+      try { await notify(env, r.user_id, "security", `Your login email is moving to ${r.to}. Open the link sent to that address to confirm it (within ${MOVE_TTL_HOURS} hours).`, `email_change_req:${ins!.id}`); } catch { /* a notice never blocks */ }
+      await auditAcct(env, user.id, "user.email_change_requested", String(r.user_id), { from: r.from, to: r.to, route: "email", reason, bulk: batch, ttl_hours: MOVE_TTL_HOURS, by_owner: user.role !== "super_admin" });
+    }
+    await auditAcct(env, user.id, "user.email_move_batch", String(user.id), { batch, reason, sent: rows.filter((r) => r.result === "sent").map((r) => r.user_id), mail_failed: rows.filter((r) => r.result === "mail_failed").map((r) => r.user_id), already_sent: rows.filter((r) => r.state === "already_sent").map((r) => r.user_id), refused: rows.filter((r) => r.state === "refused").map((r) => ({ id: r.user_id, why: r.reason })) });
+    return json({ ok: true, rows, counts, sent });
+  }
+
   if (acctMatch && method === "POST" && acctMatch[2] === "/email") {
     const g = await acctGate(Number(acctMatch[1]), "account_email", true);
     if ("r" in g) return g.r;

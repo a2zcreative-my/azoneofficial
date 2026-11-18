@@ -74,6 +74,18 @@ Witnessed by the owner. On this computer:
 
 Loading the drill into a staging D1 (section 3 against a staging database) is the full rehearsal; it waits for the staging environment (D-4: "staging later").
 
+## 5a. The monthly restore test (v1.375.0) - `PUSH.bat restore-test`
+
+One command on this computer, about 5 minutes, monthly (System health shows "Due" after 45 days):
+
+    PUSH.bat restore-test
+
+It exports the live database (a read), creates a NEW temporary D1 database `a2z-restore-test-<stamp>`, loads the export into it (the section 3 path), counts every table against the rows the export holds, then deletes the temporary database and the export file - also when something fails. The only write to production is the status row `system_meta` `restore_test_last`, which **System health > Last restore test** shows (Passed / Failed / Due / Not recorded). The log is `backups\restore-test.log`.
+
+If it says it could not delete the temporary database, delete `a2z-restore-test-...` by hand in Cloudflare > Storage & databases > D1. Never delete `azoneofficial`.
+
+This proves the database comes back. The quarterly drill above (section 5) still proves the NIGHTLY backup files and the media copies.
+
 ## 6. Before the first deploy of 1.244.0 (once)
 
 Create the backups bucket:

@@ -115,6 +115,8 @@ PUBLIC_FORM_ORIGINS = "https://azoneofficial.com"
 # staff/admin role. Changing it before the mailboxes move would lock every
 # existing staff member out of their own role edits.
 COMPANY_DOMAIN     = "azoneofficial.com"
+# v1.376.0 - staff login emails may be either domain while staff move to a2zcreative.my (Users -> Staff Accounts)
+COMPANY_DOMAINS    = "azoneofficial.com,a2zcreative.my"
 GOOGLE_CLIENT_ID   = "357852391876-0hln8ehf5do4pb188kfh8rt486nvj4d9.apps.googleusercontent.com"
 # TikTok Shop Partner Center app (service ID 7668934538403645205). The app key
 # is an public identifier — it travels in query strings on every API call — so

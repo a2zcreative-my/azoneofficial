@@ -42,6 +42,7 @@ import { RolesPermissions } from "@/components/portal/roles-permissions"; // v1.
 import { OwnerPage, useOwner } from "@/components/portal/owner-card";
 import { AuditPanel } from "@/components/admin/audit-panel";
 import { AccountSheet } from "@/components/portal/account-sheet";
+import { EmailMoveCard } from "@/components/portal/email-move"; // v1.376.0 - staff move to @a2zcreative.my
 import { CustomerRecoverySheet } from "@/components/portal/customer-recovery-sheet"; // v1.266.0
 import { ReportsRegister, SupportCard } from "@/components/portal/support-card";
 import { SystemHealthCard } from "@/components/admin/system-health";
@@ -257,11 +258,11 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
         {saving ? L("Saving…", "Menyimpan…") : L("Save", "Simpan")}
       </button>
       <button type="button" className="inline-flex h-9 items-center text-xs underline" onClick={() => setEditId(null)}>{L("Cancel", "Batal")}</button>
-      {!u.email.toLowerCase().endsWith("@azoneofficial.com") && draft.role !== "customer" && (
+      {!/@(azoneofficial\.com|a2zcreative\.my)$/.test(u.email.toLowerCase()) && draft.role !== "customer" && (
         <p className="text-muted-foreground col-span-2 w-full text-[11px]">
           {L("Personal-email (Google) account — staff roles are saved as", "Akaun e-mel peribadi (Google) — peranan kakitangan disimpan sebagai")}{" "}
           <span className="font-medium">{L("part time", "separuh masa")}</span>
-          {L("; permanent staff need an @azoneofficial.com account.", "; kakitangan tetap memerlukan akaun @azoneofficial.com.")}
+          {L("; permanent staff need an @a2zcreative.my account.", "; kakitangan tetap memerlukan akaun @a2zcreative.my.")}
         </p>
       )}
     </>
@@ -603,6 +604,8 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
               </p>
             )}
           </section>
+          {/* v1.376.0 - move the @azoneofficial.com logins to @a2zcreative.my (owner or super admin; Gmail untouched) */}
+          {holdsCap("account_email", superAdmin || owner) && <EmailMoveCard />}
         </TabZone>
       </div>
 

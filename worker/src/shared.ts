@@ -65,11 +65,19 @@ export async function audit(
   }
 }
 
+/** v1.375.0 - the engine's version, stamped at the head of each error row; index.ts sets it once from
+    package.json at start-up (a bundle without it - a test - logs unstamped, as before). */
+let ENGINE_VERSION = "";
+export function setEngineVersion(v: string): void { ENGINE_VERSION = v; }
+
 /** The ONE error-log writer: six-hour dedupe + opportunistic 500-row trim. */
 export async function logError(env: Env, source: string, message: string, path?: string): Promise<void> {
   try {
     const src = source.slice(0, 40);
-    const msg = message.slice(0, 500);
+    /* v1.375.0 (the CEO, 18-11-2026: a FIXED server error kept the Dashboard's red alert on for 24 hours) -
+       every server row now begins with the engine's version, like the page reports do, so System health and
+       the Dashboard can tell a fault of an older release (fixed history) from a live one. */
+    const msg = (!ENGINE_VERSION || /^v\d+\.\d+\.\d+\b/.test(message) ? message : `v${ENGINE_VERSION} ${message}`).slice(0, 500);
     const pth = path?.slice(0, 200) ?? null;
     const dup = await env.DB.prepare(
       `SELECT id FROM error_log WHERE source = ?1 AND message = ?2
