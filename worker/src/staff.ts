@@ -14663,6 +14663,19 @@ async function handleStaffRoutes(
       mail_ready: mailReady(env), privileged: privilegedTarget(t.role), me: user.id,
     });
   }
+  /* v1.378.0 - a suggested company address from a person's name: the first two given names, lower case,
+     joined by a dot, stopping at bin / binti / a/p / a/l (the father's name). A suggestion only - editable. */
+  const nameLocalPart = (name: string | null | undefined): string => {
+    const words = String(name ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/\s+/).filter(Boolean);
+    const out: string[] = [];
+    for (const w of words) {
+      if (["bin", "binti", "bt", "bte", "b.", "bt.", "a/p", "a/l", "ap", "al", "@"].includes(w)) break;
+      const c = w.replace(/[^a-z0-9]/g, "");
+      if (c) out.push(c);
+      if (out.length === 2) break;
+    }
+    return out.join(".");
+  };
   /* v1.376.0 - MOVE STAFF LOGIN EMAILS TO @a2zcreative.my (the CEO, 18-11-2026: "only the staff which is
      using old domain azoneofficial.com"; Gmail and every other address untouched; answers: some new
      addresses differ from the old name, each link valid 72 hours). The SAME proof as one change above -
@@ -14684,16 +14697,22 @@ async function handleStaffRoutes(
       const { results } = await env.DB.prepare(
         `SELECT u.id, u.email, u.role, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.department, u.is_active, u.password_hash, u.google_sub
            FROM users u WHERE u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)
-            AND (lower(u.email) LIKE ?1 OR u.id IN (SELECT user_id FROM email_changes WHERE new_email LIKE ?2))
+            AND (lower(u.email) NOT LIKE ?2 OR u.id IN (SELECT user_id FROM email_changes WHERE new_email LIKE ?2)) /* v1.378.0 - personal emails listed too, as an option */
           ORDER BY ${STAFF_ORDER_SQL}`,
       ).bind(`%@${OLD_STAFF_DOMAIN}`, `%@${NEW_STAFF_DOMAIN}`).all<{ id: number; email: string; role: string; name: string; department: string | null; is_active: number; password_hash: string; google_sub: string | null }>();
       const rows = [];
       for (const u of results ?? []) {
         const ch = await latestOf(u.id);
         const moved = u.email.toLowerCase().endsWith(`@${NEW_STAFF_DOMAIN}`);
+        /* v1.378.0 - the CEO (18-11-2026): "I want to change those staff with gmail using a2zcreative.my. an Option for me".
+           A personal address (Gmail and any other non-company domain) is listed apart and moves only when the
+           request says include_personal; its suggested address comes from the name (a Gmail local part is not a
+           company name) and must be checked. */
+        const personal = !moved && !u.email.toLowerCase().endsWith(`@${OLD_STAFF_DOMAIN}`);
         rows.push({
           id: u.id, name: u.name, email: u.email, role: u.role, department: u.department, active: u.is_active === 1,
-          proposed: moved ? u.email : `${u.email.split("@")[0]!.toLowerCase()}@${NEW_STAFF_DOMAIN}`,
+          source: personal ? "personal" : "old_domain",
+          proposed: moved ? u.email : personal ? `${nameLocalPart(u.name) || u.email.split("@")[0]!.toLowerCase().replace(/[^a-z0-9._-]/g, "")}@${NEW_STAFF_DOMAIN}` : `${u.email.split("@")[0]!.toLowerCase()}@${NEW_STAFF_DOMAIN}`,
           state: moved ? "moved" : ch?.status === "pending" ? "sent" : ch?.status === "expired" ? "expired" : ch?.status === "cancelled" ? "cancelled" : "not_started",
           pending_to: ch?.status === "pending" ? ch.new_email : null, expires_at: ch?.status === "pending" ? ch.expires_at : null, moved_at: moved ? ch?.applied_at ?? null : null,
           google_only: u.password_hash.startsWith("oauth$"), google: !!u.google_sub,
@@ -14709,7 +14728,7 @@ async function handleStaffRoutes(
     const reason = reasonOf();
     if (!dry && reason.length < 10) return err("reason_required", "Give the reason (at least 10 characters) - it is kept in the audit history.", 400);
     if (!dry && !mailReady(env)) return err("mail_unavailable", "Email sending is not set up - the verification links cannot be sent.", 409);
-    type MoveRow = { user_id: number; name: string | null; from: string | null; to: string; state: "send" | "already_sent" | "refused"; reason: string | null; google_only: boolean; result?: "sent" | "mail_failed" };
+    type MoveRow = { user_id: number; name: string | null; from: string | null; to: string; state: "send" | "already_sent" | "refused"; reason: string | null; google_only: boolean; personal?: boolean; result?: "sent" | "mail_failed" };
     const seenTo = new Set<string>(); const seenId = new Set<number>();
     const rows: MoveRow[] = [];
     for (const raw of items) {
@@ -14724,8 +14743,12 @@ async function handleStaffRoutes(
       const t = await loadAcct(uid);
       if (!t || ["customer", "agent"].includes(t.role)) { row.reason = "Not a staff account."; continue; }
       row.name = (t.full_name ?? "").trim() || t.name; row.from = t.email; row.google_only = t.password_hash.startsWith("oauth$");
-      /* ONLY the old domain moves - Gmail and every other address are never touched (the CEO) */
-      if (!t.email.toLowerCase().endsWith(`@${OLD_STAFF_DOMAIN}`)) { row.reason = `Signs in with ${t.email} - only @${OLD_STAFF_DOMAIN} addresses are moved.`; continue; }
+      /* The old domain moves; a personal address (Gmail and others) only when the CEO opts in for this
+         request (include_personal, v1.378.0); an address already @a2zcreative.my never moves again */
+      const tEmail = t.email.toLowerCase();
+      if (tEmail.endsWith(`@${NEW_STAFF_DOMAIN}`)) { row.reason = `Already signs in with @${NEW_STAFF_DOMAIN}.`; continue; }
+      row.personal = !tEmail.endsWith(`@${OLD_STAFF_DOMAIN}`);
+      if (row.personal && body?.include_personal !== true) { row.reason = `Signs in with a personal address (${t.email}) - moved only when personal-email staff are included.`; continue; }
       if (t.id === user.id) { row.reason = "Your own account - the other of owner and super admin moves it."; continue; }
       if (!canManageAccount(user, t.role)) { row.reason = "CEO and super admin accounts are moved by the super admin."; continue; }
       if (!EMAIL_RE.test(to) || to.length > 200 || !to.endsWith(`@${NEW_STAFF_DOMAIN}`)) { row.reason = `The new address must be a valid @${NEW_STAFF_DOMAIN} address.`; continue; }
@@ -14761,9 +14784,9 @@ async function handleStaffRoutes(
       await sendMail(env, { to: r.from!, subject: "Your A2Z OS login email is moving to @" + NEW_STAFF_DOMAIN,
         text: `${user.name} is moving the login email of your A2Z OS account to ${r.to}. It changes only when that address is confirmed - the link is in the ${r.to} mailbox. Until then this address keeps working.\n\nIf you did not expect this, tell A2Z Creative Marketing.` });
       try { await notify(env, r.user_id, "security", `Your login email is moving to ${r.to}. Open the link sent to that address to confirm it (within ${MOVE_TTL_HOURS} hours).`, `email_change_req:${ins!.id}`); } catch { /* a notice never blocks */ }
-      await auditAcct(env, user.id, "user.email_change_requested", String(r.user_id), { from: r.from, to: r.to, route: "email", reason, bulk: batch, ttl_hours: MOVE_TTL_HOURS, by_owner: user.role !== "super_admin" });
+      await auditAcct(env, user.id, "user.email_change_requested", String(r.user_id), { from: r.from, to: r.to, route: "email", reason, bulk: batch, ttl_hours: MOVE_TTL_HOURS, by_owner: user.role !== "super_admin", ...(r.personal ? { personal: true } : {}) });
     }
-    await auditAcct(env, user.id, "user.email_move_batch", String(user.id), { batch, reason, sent: rows.filter((r) => r.result === "sent").map((r) => r.user_id), mail_failed: rows.filter((r) => r.result === "mail_failed").map((r) => r.user_id), already_sent: rows.filter((r) => r.state === "already_sent").map((r) => r.user_id), refused: rows.filter((r) => r.state === "refused").map((r) => ({ id: r.user_id, why: r.reason })) });
+    await auditAcct(env, user.id, "user.email_move_batch", String(user.id), { batch, reason, include_personal: body?.include_personal === true, sent: rows.filter((r) => r.result === "sent").map((r) => r.user_id), mail_failed: rows.filter((r) => r.result === "mail_failed").map((r) => r.user_id), already_sent: rows.filter((r) => r.state === "already_sent").map((r) => r.user_id), refused: rows.filter((r) => r.state === "refused").map((r) => ({ id: r.user_id, why: r.reason })) });
     return json({ ok: true, rows, counts, sent });
   }
 

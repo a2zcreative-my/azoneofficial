@@ -32,6 +32,8 @@ import { useSaveToast } from "@/components/ui/save-toast";
 import { withStepUp } from "@/components/portal/page-shared";
 import { OwnerCard, useOwner } from "@/components/portal/owner-card";
 import { roleLabel } from "@/components/portal/users-shared";
+import { AccountSheet } from "@/components/portal/account-sheet"; // v1.379.0 - login email and recovery, here too
+import { EmailMoveCard } from "@/components/portal/email-move"; // v1.379.0 - the super admin moves the CEO and super admin accounts
 import { btnSm, btnSmDanger, btnSmPrimary, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, fieldLabel, inputClass, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import css from "./admin-console.module.css";
 
@@ -86,6 +88,7 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
   const [ownerTick, setOwnerTick] = useState(0);
   const ownerState = useOwner(true, ownerTick);
 
+  const [sheetId, setSheetId] = useState<number | null>(null); // v1.379.0 - the Sign-in & recovery sheet
   const load = useCallback(async () => {
     const r = await api<{ users: AdminUser[] }>("/users");
     if (r.ok && r.data) { setUsers(r.data.users); setFailed(false); } else { setUsers((u) => u ?? []); setFailed(true); }
@@ -222,6 +225,11 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
             <SplitPane testid="user-detail" title={L("Selected Account", "Akaun Dipilih")} sub={sel ? sel.email : L("Choose an account in the list", "Pilih akaun dalam senarai")}
               foot={sel && !self ? (
                 <span className={css.actions}>
+                  {/* v1.379.0 - the CEO (18-11-2026): "for Admin, I didnt see any option for me to change CEO email".
+                      The same Sign-in & recovery sheet as the portal (login email by link / Google / in person,
+                      2FA reset, set-password link); the server decides who may (the super admin for CEO and
+                      super admin accounts). Staff accounts only - a customer is not a staff account. */}
+                  {!["customer", "agent"].includes(sel.role) && <button type="button" className={btnSmPrimary} onClick={() => setSheetId(sel.id)} data-testid="user-email">{L("Change login email", "Tukar e-mel log masuk")}</button>}
                   <button type="button" className={btnSm} onClick={() => void signOut(sel)} data-testid="user-signout">{L("Sign out everywhere", "Log keluar di semua tempat")}</button>
                   <button type="button" className={btnSm} onClick={() => setResetPw(resetPw === null ? "" : null)} aria-expanded={resetPw !== null} data-testid="user-reset">{L("Set password", "Tetapkan kata laluan")}</button>
                   <button type="button" className={sel.is_active ? btnSmDanger : btnSm} onClick={() => void toggleActive(sel)} data-testid="user-suspend">{sel.is_active ? L("Suspend", "Gantung") : L("Reinstate", "Pulihkan")}</button>
@@ -260,6 +268,11 @@ export function AdminUsers({ me }: { me: { id: number; role: string } }) {
             </SplitPane>
         </WorkspaceSplit>
       </TabZone>
+      {/* v1.379.0 - the move to @a2zcreative.my: the super admin is the one who moves the CEO and super admin accounts */}
+      <TabZone label={L("Move staff to @a2zcreative.my", "Pindahkan kakitangan ke @a2zcreative.my")}>
+        <EmailMoveCard />
+      </TabZone>
+      <AccountSheet userId={sheetId} open={sheetId !== null} onClose={() => setSheetId(null)} onChanged={() => void load()} />
       {/* the one Company owner card (v1.252.1), below the register: named by a super admin with a reason and the authenticator code */}
       <TabZone label={L("Company owner", "Pemilik syarikat")}>
         {ownerState ? <div data-testid="admin-owner"><OwnerCard state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} /></div> : <SkelRows rows={3} />}

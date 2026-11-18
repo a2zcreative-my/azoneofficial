@@ -27,9 +27,9 @@ import { btnSm, btnSmAccent, btnSmQuiet, card, chipSmDanger, chipSmInfo, chipSmN
 import css from "./email-move.module.css";
 
 type State = "not_started" | "sent" | "expired" | "cancelled" | "moved";
-type Row = { id: number; name: string; email: string; role: string; department: string | null; active: boolean; proposed: string; state: State; pending_to: string | null; expires_at: string | null; moved_at: string | null; google_only: boolean; google: boolean; can: boolean };
+type Row = { id: number; name: string; email: string; role: string; department: string | null; active: boolean; proposed: string; state: State; pending_to: string | null; expires_at: string | null; moved_at: string | null; google_only: boolean; google: boolean; can: boolean; source?: "old_domain" | "personal" };
 type List = { rows: Row[]; old_domain: string; new_domain: string; mail_ready: boolean; ttl_hours: number };
-type PRow = { user_id: number; name: string | null; from: string | null; to: string; state: "send" | "already_sent" | "refused"; reason: string | null; google_only: boolean; result?: "sent" | "mail_failed" };
+type PRow = { user_id: number; name: string | null; from: string | null; to: string; state: "send" | "already_sent" | "refused"; reason: string | null; google_only: boolean; personal?: boolean; result?: "sent" | "mail_failed" };
 type Preview = { rows: PRow[]; counts: { send: number; already_sent: number; refused: number }; sent?: number; dry_run?: boolean };
 
 const STATE_CHIP: Record<State, [string, string, string]> = {
@@ -64,23 +64,33 @@ export function EmailMoveCard() {
 
   const load = useCallback(async () => {
     const r = await api<List & { error?: { message?: string } }>("/staff/accounts/email-move");
-    if (!r.ok || !r.data) { setFailed(r.data?.error?.message ?? L("Could not load the list.", "Senarai tidak dapat dimuatkan.")); return; }
+    if (!r.ok || !r.data || !Array.isArray(r.data.rows)) { setFailed(r.data?.error?.message ?? L("Could not load the list.", "Senarai tidak dapat dimuatkan.")); return; }
     setFailed(null); setList(r.data);
   }, []);
   useEffect(() => { void load(); }, [load]);
 
   const rows = list?.rows ?? [];
-  const toMove = useMemo(() => rows.filter((r) => r.state !== "moved"), [rows]);
+  /* v1.378.0 - the CEO: personal-email staff (Gmail and others) are an OPTION - hidden until he ticks
+     "Include", listed after the old-domain staff, never ticked for him */
+  const [withPersonal, setWithPersonal] = useState(false);
+  const isPersonal = (r: Row) => r.source === "personal";
+  const personalCount = rows.filter((r) => r.state !== "moved" && isPersonal(r)).length;
+  const toMove = useMemo(() => rows.filter((r) => r.state !== "moved" && (withPersonal || !isPersonal(r))).sort((a, b) => Number(isPersonal(a)) - Number(isPersonal(b))), [rows, withPersonal]);
   const moved = useMemo(() => rows.filter((r) => r.state === "moved"), [rows]);
   const choosable = toMove.filter((r) => r.can);
   const addr = (r: Row) => (edits[r.id] ?? (r.pending_to ?? r.proposed)).trim().toLowerCase();
   const newDomain = list?.new_domain ?? "a2zcreative.my";
-  const oldAt = list ? `@${list.old_domain}` : "@azoneofficial.com";
+  const oldAt = list?.old_domain ? `@${list.old_domain}` : "@azoneofficial.com"; // v1.377.0 - an older engine answers without it
   const badAddr = (r: Row) => !addr(r).endsWith(`@${newDomain}`) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr(r));
   const allOn = choosable.length > 0 && choosable.every((r) => picked.has(r.id));
   const toggle = (id: number) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setPicked(allOn ? new Set() : new Set(choosable.map((r) => r.id)));
   const items = () => toMove.filter((r) => picked.has(r.id)).map((r) => ({ user_id: r.id, new_email: addr(r), ...(resend.has(r.id) ? { resend: true } : {}) }));
+  const personalPicked = (ids: number[]) => ids.some((id) => rows.some((r) => r.id === id && isPersonal(r)));
+  const togglePersonal = (on: boolean) => {
+    setWithPersonal(on);
+    if (!on) setPicked((s) => new Set([...s].filter((id) => !rows.some((r) => r.id === id && isPersonal(r)))));
+  };
 
   const review = async (only?: Row, again = false) => {
     setMsg(null); setDone(null);
@@ -88,7 +98,7 @@ export function EmailMoveCard() {
     const body = only ? [{ user_id: only.id, new_email: addr(only), ...(again ? { resend: true } : {}) }] : items();
     if (!body.length) return;
     setBusy(true);
-    const r = await api<Preview & { error?: { message?: string } }>("/staff/accounts/email-move", { method: "POST", body: JSON.stringify({ items: body, dry_run: true }) });
+    const r = await api<Preview & { error?: { message?: string } }>("/staff/accounts/email-move", { method: "POST", body: JSON.stringify({ items: body, dry_run: true, ...(personalPicked(body.map((b) => b.user_id)) ? { include_personal: true } : {}) }) });
     setBusy(false);
     if (!r.ok || !r.data) { setMsg(r.data?.error?.message ?? L("The check failed - nothing was sent.", "Semakan gagal - tiada apa dihantar.")); return; }
     setPreview(r.data); setOpen(true);
@@ -99,7 +109,7 @@ export function EmailMoveCard() {
     const body = preview.rows.filter((p) => p.state === "send").map((p) => ({ user_id: p.user_id, new_email: p.to, ...(resend.has(p.user_id) ? { resend: true } : {}) }));
     setBusy(true); setMsg(null);
     const r = await withStepUp<Preview & { error?: { message?: string } }>(
-      (totp) => api("/staff/accounts/email-move", { method: "POST", body: JSON.stringify({ items: body, reason: reason.trim(), ...(totp ? { totp } : {}) }) }),
+      (totp) => api("/staff/accounts/email-move", { method: "POST", body: JSON.stringify({ items: body, reason: reason.trim(), ...(personalPicked(body.map((b) => b.user_id)) ? { include_personal: true } : {}), ...(totp ? { totp } : {}) }) }),
       prompt,
       { title: L("Send the verification links", "Hantar pautan pengesahan"), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") },
     );
@@ -119,7 +129,8 @@ export function EmailMoveCard() {
     </section>
   );
 
-  const counts = { total: rows.length, moved: moved.length, sent: rows.filter((r) => r.state === "sent").length, waiting: rows.filter((r) => r.state !== "moved" && r.state !== "sent").length };
+  const shown = rows.filter((r) => withPersonal || !isPersonal(r)); // v1.378.0 - the figures follow the option
+  const counts = { total: shown.length, moved: moved.length, sent: shown.filter((r) => r.state === "sent").length, waiting: shown.filter((r) => r.state !== "moved" && r.state !== "sent").length };
 
   return (
     <section className={`${card} ${css.card}`} data-testid="email-move">
@@ -128,8 +139,8 @@ export function EmailMoveCard() {
         <div>
           <p className={css.h3}>{L(`Move staff to @${newDomain}`, `Pindahkan kakitangan ke @${newDomain}`)}</p>
           <p className={css.hint}>{L(
-            `Only staff who sign in with ${oldAt}. Gmail and other addresses are not touched. Each person confirms from the new mailbox (link valid ${list?.ttl_hours ?? 72} hours); until then the old address keeps working.`,
-            `Hanya kakitangan yang log masuk dengan ${oldAt}. Gmail dan alamat lain tidak disentuh. Setiap orang mengesahkan dari peti mel baharu (pautan sah ${list?.ttl_hours ?? 72} jam); sehingga itu alamat lama masih berfungsi.`)}</p>
+            `Staff who sign in with ${oldAt}. Staff with a personal email (Gmail and others) are moved only if you include them below. Each person confirms from the new mailbox (link valid ${list?.ttl_hours ?? 72} hours); until then the old address keeps working.`,
+            `Kakitangan yang log masuk dengan ${oldAt}. Kakitangan dengan e-mel peribadi (Gmail dan lain-lain) dipindahkan hanya jika anda memasukkan mereka di bawah. Setiap orang mengesahkan dari peti mel baharu (pautan sah ${list?.ttl_hours ?? 72} jam); sehingga itu alamat lama masih berfungsi.`)}</p>
         </div>
         {list && (
           <p className={css.counts} data-testid="email-move-counts">
@@ -143,6 +154,15 @@ export function EmailMoveCard() {
       {done && <p className={css.done} data-testid="email-move-done"><AppIcon name="success" /> {done}</p>}
       {msg && !open && <p className={css.warn}>{msg}</p>}
 
+      {list && personalCount > 0 && (
+        <label className={css.optIn} data-testid="email-move-personal">
+          <input type="checkbox" className={css.check} checked={withPersonal} onChange={(e) => togglePersonal(e.target.checked)} />
+          <span>
+            <strong>{L(`Also move staff with a personal email (${personalCount})`, `Pindahkan juga kakitangan dengan e-mel peribadi (${personalCount})`)}</strong>
+            <span>{L("Optional. Gmail and other personal addresses. Each one needs a working @a2zcreative.my mailbox first - the link goes there. Check the suggested address.", "Pilihan. Gmail dan alamat peribadi lain. Setiap seorang memerlukan peti mel @a2zcreative.my yang berfungsi dahulu - pautan dihantar ke situ. Semak alamat cadangan.")}</span>
+          </span>
+        </label>
+      )}
       {!list ? <SkelRows rows={4} /> : toMove.length === 0 ? (
         <p className={css.empty}>{L(`Nobody signs in with ${oldAt} any more.`, `Tiada siapa lagi log masuk dengan ${oldAt}.`)}</p>
       ) : (
@@ -176,6 +196,7 @@ export function EmailMoveCard() {
                         <span className={css.whoText}>
                           <strong>{r.name}</strong>
                           <span>{r.role.replace(/_/g, " ")}{r.department ? ` · ${r.department}` : ""}{!r.active ? L(" · inactive", " · tidak aktif") : ""}</span>
+                          {isPersonal(r) && <span><span className={chipSmWarn}>{L("Personal email", "E-mel peribadi")}</span> {L("suggested from the name - check it", "dicadangkan dari nama - semak")}</span>}
                           <span className={css.phoneOnly}>{r.email}</span>
                           {!r.can && <span>{L("CEO and super admin accounts, and your own, are moved by the super admin.", "Akaun CEO dan super admin, serta akaun anda sendiri, dipindahkan oleh super admin.")}</span>}
                           {r.google_only && <span className={css.warnLine}><AppIcon name="google" /> {L("Signs in with Google only - after the move, Google must be the new address.", "Log masuk dengan Google sahaja - selepas pindah, Google mesti alamat baharu.")}</span>}
@@ -242,6 +263,7 @@ export function EmailMoveCard() {
                     <strong>{p.name ?? `#${p.user_id}`}</strong>
                     <span>{p.from} → <strong>{p.to}</strong></span>
                     {p.reason && <span>{p.reason}</span>}
+                    {p.personal && p.state === "send" && <span>{L("Personal email today - after the move they sign in with the new address. A linked Google sign-in keeps working.", "E-mel peribadi sekarang - selepas pindah mereka log masuk dengan alamat baharu. Log masuk Google yang dipautkan masih berfungsi.")}</span>}
                   </span>
                   <span className={p.state === "send" ? chipSmSuccess : p.state === "already_sent" ? chipSmInfo : chipSmDanger}>
                     {p.state === "send" ? L("Send link", "Hantar pautan") : p.state === "already_sent" ? L("Waiting", "Menunggu") : L("Refused", "Ditolak")}

@@ -154,6 +154,15 @@
 .row:hover {
   background: color-mix(in srgb, var(--secondary) 55%, var(--card));
 }
+/* v1.377.0 - a leaver or a disabled account: grey, at the foot of the staff list (order and colour only) */
+.rowGone {
+  background: color-mix(in srgb, var(--secondary) 60%, var(--card));
+  box-shadow: none;
+}
+.rowGone .name, .rowGone .email {
+  color: var(--muted-foreground);
+}
+
 .identity {
   grid-column: 1 / -1;
   display: flex;

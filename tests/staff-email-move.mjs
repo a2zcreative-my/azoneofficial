@@ -48,7 +48,7 @@ async function runtime(workerBundle) {
   db.exec(`INSERT INTO users (id, name, email, role, is_active, password_hash, totp_enabled, totp_secret, base_salary_cents) VALUES
     (1,'Alif','alif@azoneofficial.com','ceo',1,'x',1,'${SECRET}',0),(2,'Ops','ops@azoneofficial.com','coo',1,'x',1,'${SECRET}',0),
     (4,'Hana','hana@azoneofficial.com','hr_admin',1,'x',1,'${SECRET}',200000),
-    (5,'Aina','aina@gmail.com','sales_marketing',1,'x',1,'${SECRET}',210000),(6,'Mia','mia@azoneofficial.com','marketing',1,'x',1,'${SECRET}',200000),
+    (5,'Aina Sofea binti Kamal','aina@gmail.com','sales_marketing',1,'x',1,'${SECRET}',210000),(6,'Mia','mia@azoneofficial.com','marketing',1,'x',1,'${SECRET}',200000),
     (7,'Tech','tech@azoneofficial.com','admin',1,'x',1,'${SECRET}',0),(8,'Root','root@azoneofficial.com','super_admin',1,'x',1,'${SECRET}',0),
     (9,'Shop','shop@azoneofficial.com','customer',1,'x',0,NULL,0),(10,'Ed','ed@azoneofficial.com','editor',1,'x',1,'${SECRET}',200000),
     (11,'Lia','lia@yahoo.com','live_host',1,'x',1,'${SECRET}',150000),(12,'Second','ceo2@azoneofficial.com','ceo',1,'x',1,'${SECRET}',0),
@@ -113,7 +113,10 @@ async function runtime(workerBundle) {
     const L0 = await call("/staff/accounts/email-move", U.ceo);
     const ids = (L0.j?.rows ?? []).map((r) => r.id);
     ok(L0.status === 200, "the owner opens the list", L0.text.slice(0, 200));
-    ok(!ids.includes(5) && !ids.includes(11), "a Gmail / other-domain staff account is never listed");
+    const rowOf = (id) => L0.j?.rows?.find((r) => r.id === id);
+    /* v1.378.0 - the CEO: personal-email staff are an option - listed apart, with a name-based suggestion */
+    ok(rowOf(5)?.source === "personal" && rowOf(11)?.source === "personal" && rowOf(13)?.source === "old_domain", "personal-email staff are listed apart (source personal); old-domain staff are old_domain");
+    ok(rowOf(5)?.proposed === "aina.sofea@a2zcreative.my", "a personal address gets a suggestion from the name, stopping at bin / binti", rowOf(5)?.proposed);
     ok(!ids.includes(9) && !ids.includes(16), "customers and agents are never listed, whatever their address");
     ok([1, 2, 4, 6, 7, 8, 10, 12, 13, 15].every((i) => ids.includes(i)), "every @azoneofficial.com staff account is listed");
     const nora = L0.j?.rows?.find((r) => r.id === 13);
@@ -135,7 +138,7 @@ async function runtime(workerBundle) {
     const st = (id) => pv.j?.rows?.find((r) => r.user_id === id)?.state;
     ok(pv.status === 200 && pv.j?.dry_run === true && db.prepare(`SELECT COUNT(*) AS n FROM email_changes`).get().n === before && mails.length === 0, "the preview writes nothing and sends nothing", pv.text.slice(0, 300));
     ok(st(13) === "send" && st(10) === "send", "old-domain staff go through, a different new name too (some addresses differ)");
-    ok(st(5) === "refused" && st(11) === "refused", "Gmail and other addresses are refused - never touched");
+    ok(st(5) === "refused" && st(11) === "refused" && /personal/.test(pv.j?.rows?.find((r) => r.user_id === 5)?.reason ?? ""), "Gmail and other addresses are refused unless personal-email staff are included");
     ok(st(6) === "refused", "a new address outside @a2zcreative.my is refused");
     ok(st(4) === "refused", "the same new address for two people is refused");
     ok(st(1) === "refused" && st(12) === "refused", "never your own, never a CEO account (the super admin's)");
@@ -155,13 +158,21 @@ async function runtime(workerBundle) {
     ok(c13.length === 1 && c13[0].status === "pending" && c13[0].route === "email" && c13[0].old_email === "nora@azoneofficial.com" && c13[0].new_email === "nora@a2zcreative.my", "one waiting change per person, by email link");
     const hrs = db.prepare(`SELECT (julianday(expires_at) - julianday(created_at)) * 24 AS h FROM email_changes WHERE id = ?`).get(c13[0].id).h;
     ok(Math.round(hrs) === 72, "each link expires after 72 hours", String(hrs));
-    ok(changes(5).length === 0 && user(5).email === "aina@gmail.com", "the Gmail account is untouched");
+    ok(changes(5).length === 0 && user(5).email === "aina@gmail.com", "the Gmail account is untouched when not included");
+    /* ---- v1.378.0 - the option: personal-email staff included on purpose ---- */
+    const pp = await M(U.ceo, [{ user_id: 5, new_email: "aina.sofea@a2zcreative.my" }], { dry_run: true, include_personal: true });
+    ok(pp.j?.rows?.[0]?.state === "send" && pp.j?.rows?.[0]?.personal === true && changes(5).length === 0, "with include_personal the Gmail staff member previews as Send link (marked personal), still writing nothing", pp.text.slice(0, 200));
+    const ps = await M(U.ceo, [{ user_id: 5, new_email: "aina.sofea@a2zcreative.my" }], { include_personal: true, totp: code() });
+    ok(ps.j?.sent === 1 && changes(5)[0]?.old_email === "aina@gmail.com" && user(5).email === "aina@gmail.com", "...the link is sent; the Gmail login stays until it is opened", ps.text.slice(0, 200));
+    ok(audits("user.email_change_requested").some((a) => a.entity_id === "5" && a.d.personal === true) && audits("user.email_move_batch").some((a) => a.d.include_personal === true), "a personal move is audited as personal, and the batch says it included them");
+    ok((await call("/auth/email-verify", null, "POST", { token: tokenFor("aina.sofea@a2zcreative.my") })).status === 200 && user(5).email === "aina.sofea@a2zcreative.my" && sessions(5) === 0, "opening it moves the login - same account, signed out everywhere");
+    ok((await M(U.ceo, [{ user_id: 9, new_email: "shop2@a2zcreative.my" }, { user_id: 16, new_email: "agent2@a2zcreative.my" }], { dry_run: true, include_personal: true })).j?.rows?.every((r) => r.state === "refused"), "include_personal never reaches a customer or an agent");
     ok(user(13).email === "nora@azoneofficial.com" && sessions(13) === 1, "nothing changes until the person proves the new mailbox");
     const tN = tokenFor("nora@a2zcreative.my");
     ok(tN && mails.some((x) => x.to === "nora@azoneofficial.com"), "the link goes to the new address, the old address is told");
     ok(c13[0].token_hash === sha(tN) && !db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE detail LIKE ?`).get(`%${tN}%`).n && !s1.text.includes(tN), "only the hash is stored; the token is never in the audit or the answer");
-    const a1 = audits("user.email_change_requested").filter((a) => a.d.bulk);
-    ok(a1.length === 2 && a1.every((a) => a.d.route === "email" && a.d.reason === R) && audits("user.email_move_batch").length === 1, "audited per person and once for the batch");
+    const a1 = audits("user.email_change_requested").filter((a) => a.d.bulk && ["13", "10"].includes(String(a.entity_id)));
+    ok(a1.length === 2 && a1.every((a) => a.d.route === "email" && a.d.reason === R) && new Set(a1.map((a) => a.d.bulk)).size === 1 && audits("user.email_move_batch").some((b) => b.d.batch === a1[0]?.d.bulk), "audited per person and once for the batch");
 
     /* ---- a retry adds nothing ---- */
     const s2 = await M(U.ceo, [{ user_id: 13, new_email: "nora@a2zcreative.my" }], { totp: code() });
@@ -176,7 +187,7 @@ async function runtime(workerBundle) {
     ok(db.prepare(`SELECT salesperson_id FROM sales_documents WHERE id = 100`).get().salesperson_id === 13, "the person's records stay with the same account");
     const L2 = await call("/staff/accounts/email-move", U.ceo);
     ok(L2.j?.rows?.find((r) => r.id === 13)?.state === "moved", "the list shows Moved");
-    ok((await M(U.ceo, [{ user_id: 13, new_email: "nora2@a2zcreative.my" }], { dry_run: true })).j?.rows?.[0]?.state === "refused", "a moved account is not moved again");
+    ok((await M(U.ceo, [{ user_id: 13, new_email: "nora2@a2zcreative.my" }], { dry_run: true, include_personal: true })).j?.rows?.[0]?.state === "refused", "a moved account is not moved again, even with personal staff included");
     const signIn2 = await call("/auth/login", null, "POST", { email: "nora@a2zcreative.my", password: "nope" });
     ok(signIn2.status !== 500, "the new address is a normal login address");
 
@@ -225,7 +236,8 @@ report(await runtime(join(dir, "worker.mjs")));
 const checks = n;
 
 const MUT = [
-  ["worker/src/staff.ts", "a Gmail account can be moved", "if (!t.email.toLowerCase().endsWith(`@${OLD_STAFF_DOMAIN}`)) { row.reason", "if (false) { row.reason"],
+  ["worker/src/staff.ts", "a Gmail account moves without the opt-in", "if (row.personal && body?.include_personal !== true) { row.reason", "if (false) { row.reason"],
+  ["worker/src/staff.ts", "a moved account moves again", "if (tEmail.endsWith(`@${NEW_STAFF_DOMAIN}`)) { row.reason", "if (false) { row.reason"],
   ["worker/src/staff.ts", "any new domain is accepted", " || !to.endsWith(`@${NEW_STAFF_DOMAIN}`)) { row.reason", ") { row.reason"],
   ["worker/src/staff.ts", "a retry sends a second link", 'if (ch?.status === "pending" && ch.new_email === to && !resend) { row.state = "already_sent";', 'if (false) { row.state = "already_sent";'],
   ["worker/src/staff.ts", "the link lasts 24 hours", "const MOVE_TTL_HOURS = 72;", "const MOVE_TTL_HOURS = 24;"],
@@ -257,5 +269,11 @@ if (!/email: "hello@a2zcreative\.my"/.test(a2zBlock.slice(0, 2500))) { fail++; c
 n++; if (!/email: "admin@azoneofficial\.com"/.test(iss.slice(0, iss.indexOf("export const A2Z_CREATIVE")))) { fail++; console.error("FAIL AZ ONE OFFICIAL keeps its own email"); }
 n++; if (!/email: "hello@a2zcreative\.my"/.test(readFileSync(join(root, "constants/content.ts"), "utf8"))) { fail++; console.error("FAIL the website shows hello@a2zcreative.my"); }
 n++; if (!/COMPANY_DOMAINS\s*=\s*"azoneofficial\.com,a2zcreative\.my"/.test(readFileSync(join(root, "worker/wrangler.toml"), "utf8"))) { fail++; console.error("FAIL both staff domains are configured"); }
+/* v1.379.0 - the CEO: "for Admin, I didnt see any option for me to change CEO email". /admin -> Users opens the
+   same Sign-in & recovery sheet for a staff account, and carries the move card */
+const adm = readFileSync(join(root, "components/admin/admin-users.tsx"), "utf8");
+n++; if (!/data-testid="user-email"/.test(adm) || !/onClick=\{\(\) => setSheetId\(sel\.id\)\}/.test(adm) || !/<AccountSheet userId=\{sheetId\}/.test(adm)) { fail++; console.error("FAIL /admin Users: Change login email opens the Sign-in & recovery sheet"); }
+n++; if (!/!\["customer", "agent"\]\.includes\(sel\.role\) && <button[\s\S]{0,200}data-testid="user-email"/.test(adm)) { fail++; console.error("FAIL /admin Users: only for staff accounts"); }
+n++; if (!/<EmailMoveCard \/>/.test(adm)) { fail++; console.error("FAIL /admin Users: the move card is there for the super admin"); }
 if (fail) { console.error(`staff-email-move: ${fail} of ${n} failed`); process.exit(1); }
-console.log(`staff-email-move: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - only @azoneofficial.com staff move, by a 72-hour link to the new mailbox; Gmail untouched`);
+console.log(`staff-email-move: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - @azoneofficial.com staff move by a 72-hour link to the new mailbox; personal-email staff only when included`);

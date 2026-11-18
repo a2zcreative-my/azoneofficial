@@ -14,19 +14,26 @@ const people = () => [
   { id: 9007, name: "Kavitha a/p Raman", email: "kavitha@azoneofficial.com", role: "sales_marketing", department: "Sales", state: "expired" },
   { id: 9010, name: "Lee Wei Han", email: "weihan@a2zcreative.my", role: "marketing", department: "Marketing", state: "moved", moved_at: "2026-11-18 03:10:00" },
   { id: 9001, name: "Fixture Person", email: "fixture@azoneofficial.com", role: "ceo", department: "Management", can: false },
-].map((u) => ({ department: null, active: true, google: false, google_only: false, state: "not_started", pending_to: null, expires_at: null, moved_at: null, can: true, ...u, proposed: u.email.endsWith(`@${NEW}`) ? u.email : `${u.email.split("@")[0]}@${NEW}` }));
+  /* v1.378.0 - personal-email staff: an option, suggested from the name */
+  { id: 9011, name: "Farah Nadia binti Yusof", email: "farahnadia92@gmail.com", role: "sales_marketing", department: "Sales", source: "personal", proposed: "farah.nadia@a2zcreative.my" },
+  { id: 9012, name: "Iskandar bin Ahmad", email: "iskandar.a@yahoo.com", role: "live_host", department: "Live", source: "personal", proposed: "iskandar@a2zcreative.my" },
+].map((u) => ({ department: null, active: true, google: false, google_only: false, state: "not_started", pending_to: null, expires_at: null, moved_at: null, can: true, source: "old_domain", ...u, proposed: u.proposed ?? (u.email.endsWith(`@${NEW}`) ? u.email : `${u.email.split("@")[0]}@${NEW}`) }));
+export const emailMovePosts = [];
 let rows = people();
-export const resetEmailMove = () => { rows = people(); };
+export const resetEmailMove = () => { rows = people(); emailMovePosts.length = 0; };
 export function emailMoveRoute(method, p, body) {
   if (!ON || p !== "/staff/accounts/email-move") return null;
   if (method === "GET") return { status: 200, data: { rows, old_domain: "azoneofficial.com", new_domain: NEW, mail_ready: true, ttl_hours: 72, me: 9001 } };
+  emailMovePosts.push(body);
   const items = Array.isArray(body?.items) ? body.items : [];
   const seen = new Set();
   const out = items.map((it) => {
     const r = rows.find((x) => x.id === it.user_id);
     const to = String(it.new_email ?? "").trim().toLowerCase();
     const base = { user_id: it.user_id, name: r?.name ?? null, from: r?.email ?? null, to, google_only: !!r?.google_only, reason: null };
-    if (!r || !r.email.endsWith("@azoneofficial.com")) return { ...base, state: "refused", reason: "Only @azoneofficial.com addresses are moved." };
+    if (!r || r.email.endsWith(`@${NEW}`)) return { ...base, state: "refused", reason: "Already signs in with the new domain." };
+    if (r.source === "personal") base.personal = true;
+    if (r.source === "personal" && body?.include_personal !== true) return { ...base, state: "refused", reason: `Signs in with a personal address (${r.email}) - moved only when personal-email staff are included.` };
     if (!r.can) return { ...base, state: "refused", reason: "CEO and super admin accounts are moved by the super admin." };
     if (!to.endsWith(`@${NEW}`)) return { ...base, state: "refused", reason: `The new address must be a valid @${NEW} address.` };
     if (seen.has(to)) return { ...base, state: "refused", reason: "The same new address is given to two people." };

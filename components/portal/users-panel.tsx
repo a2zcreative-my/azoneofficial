@@ -286,7 +286,14 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
      customers they were made from, in Customers & Agents */
   const allStaff = rows.filter((u) => u.role !== "customer" && u.role !== "agent");
   const allCustomers = rows.filter((u) => u.role === "customer" || u.role === "agent");
-  const staffRows = allStaff.filter(match).filter(statusOk);
+  /* v1.377.0 - the CEO (18-11-2026): "resigned staff need to put at the below list". Working
+     accounts first, disabled ones next, leavers (resigned / terminated, or a leaving date with no
+     rejoin) last - a stable partition, so the order inside each group is the one it had. Leavers
+     and disabled accounts are drawn grey. Order and colour only: nobody is hidden. */
+  const leftOf = (u: Account) => ["resigned", "terminated"].includes(u.employment_status ?? "") || (!!u.left_on && !u.rejoined_on);
+  const dimRank = (u: Account) => (leftOf(u) ? 2 : !u.is_active ? 1 : 0);
+  const leaversLast = <T extends Account>(list: T[]): T[] => [0, 1, 2].flatMap((r) => list.filter((u) => dimRank(u) === r));
+  const staffRows = leaversLast(allStaff.filter(match).filter(statusOk));
   /* "3 of 12" while a search is on, plain "12" otherwise: a heading that only
      ever says 3 cannot be told from a list that lost nine rows. */
   const countOf = (shown: number, all: number) => (shown !== all ? `${shown}/${all}` : `${all}`);
@@ -298,7 +305,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
      A phone folds the role, status and 2FA into a line of their own under the
      identity; a desk lays each out as a column. */
   const accountRow = (u: Account, kind: "staff" | "customer") => (
-    <li key={u.id} className={`${css.row} ${kind === "customer" ? css.rowCust : ""}`}>
+    <li key={u.id} className={`${css.row} ${kind === "customer" ? css.rowCust : ""} ${kind === "staff" && dimRank(u) > 0 ? css.rowGone : ""}`} data-gone={kind === "staff" && dimRank(u) > 0 ? "" : undefined}>
       <div className={css.identity}>
         <Avatar name={properName(u.full_name || u.name)} photoKey={u.photo_key} size="md" />
         <div className={css.who}>

@@ -109,7 +109,7 @@ ok("the vocabulary is imported, not approximated",
 /* v1.327.0 - each list is its own tab with its own find box: the staff list
    (match + status) and the Customer & Agent Directory (name or email, then type) */
 ok("each list has its find box, over every row of that list",
-   /const staffRows = allStaff\.filter\(match\)\.filter\(statusOk\);/.test(src)
+   /const staffRows = (leaversLast\()?allStaff\.filter\(match\)\.filter\(statusOk\)\)?;/.test(src) /* v1.377.0 - leavers ordered last, after the search over every row */
    && /accounts\.filter\(\(u\) => \(!needle \|\| \[u\.email, u\.full_name \?\? "", u\.name\]\.some/.test(cust)
    && /<CustomersAgents accounts=\{allCustomers\}/.test(src),
    "a search that only narrows part of a list is a trap");

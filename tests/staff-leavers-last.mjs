@@ -20,5 +20,12 @@ ok("record picks grey", /\$\{isDim\(u\) \? sp\.pickGone : ""\}/.test(D));
 ok("nobody is filtered out by the ordering", !/leaversLast\([^)]*\)\.filter\(\(u\) => !isDim/.test(D));
 ok("the grey is a token, never a hex", /\.rowGone td \{\s*background: color-mix\(in srgb, var\(--secondary\)/.test(C)
    && /\.pickGone \{\s*background: color-mix\(in srgb, var\(--secondary\)/.test(C) && !/Gone[^{]*\{[^}]*#[0-9a-f]{3,6}/i.test(C));
+/* v1.377.0 - the CEO (18-11-2026): "resigned staff need to put at the below list" - Users -> Staff Accounts too */
+const UP = readFileSync(new URL("../components/portal/users-panel.tsx", import.meta.url), "utf8");
+const UC = readFileSync(new URL("../components/portal/users-panel.module.css", import.meta.url), "utf8");
+ok("Users: a leaver is resigned / terminated, or left with no rejoin", /const leftOf = \(u: Account\) => \["resigned", "terminated"\]\.includes\(u\.employment_status \?\? ""\) \|\| \(!!u\.left_on && !u\.rejoined_on\);/.test(UP));
+ok("Users: working 0, disabled 1, left 2", /const dimRank = \(u: Account\) => \(leftOf\(u\) \? 2 : !u\.is_active \? 1 : 0\);/.test(UP));
+ok("Users: the staff list is that stable partition, after search and filter (nobody hidden)", /const staffRows = leaversLast\(allStaff\.filter\(match\)\.filter\(statusOk\)\);/.test(UP));
+ok("Users: those rows are grey, by token", /dimRank\(u\) > 0 \? css\.rowGone/.test(UP) && /\.rowGone \{\s*background: color-mix\(in srgb, var\(--secondary\)/.test(UC));
 if (bad) { console.error(`staff-leavers-last: ${bad} of ${n} failed`); process.exit(1); }
-console.log(`staff-leavers-last: ${n} checks passed - working staff first, inactive next, leavers last and greyed in the Directory and Staff Records; nobody hidden`);
+console.log(`staff-leavers-last: ${n} checks passed - working staff first, inactive next, leavers last and greyed in the Directory, Staff Records and Users -> Staff Accounts; nobody hidden`);

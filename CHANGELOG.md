@@ -10,6 +10,41 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.379.0] - 2026-11-18 - /admin -> Users: the super admin can change a staff login email (the CEO's included) - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, his screenshot of /admin -> Users): "for Admin, I didnt see any option for me to change CEO email. this is wrong!" The server always allowed it (CEO and super admin accounts are the super admin's, v1.238.0), but /admin had no button: the login email change lived only on the portal's Users page.
+
+### Fixed
+- **/admin -> Users -> Selected Account has "Change login email"** for a staff account. It opens the same Sign-in & recovery sheet as the portal (`AccountSheet`): change the login email by email link, Google sign-in or in person, reset 2FA, send a set-password link, with the reason and authenticator code the server asks for. Not shown for a customer or agent, and not on your own account (another super admin changes yours).
+- **The "Move staff to @a2zcreative.my" card is on /admin -> Users too**, because the super admin is the one who moves the CEO and super admin accounts.
+- No server change: the same routes and rules.
+
+### Guards
+- `tests/staff-email-move.mjs` +3 checks on the /admin page.
+
+## [1.378.0] - 2026-11-18 - The email move can include staff with a Gmail (or other personal) address, as an option - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "I want to change those staff with gmail using a2zcreative.my. an Option for me".
+
+### Changed
+- **Users -> Staff Accounts -> Move staff to @a2zcreative.my has an option "Also move staff with a personal email (N)"**, off by default. Ticked, the staff who sign in with Gmail or any other non-company address are listed after the @azoneofficial.com staff, marked "Personal email", never ticked for you. Their suggested address comes from the name (the first two given names, stopping at bin / binti / a/p / a/l, e.g. aina.sofea@a2zcreative.my) and is editable. The review drawer marks each one; the request carries `include_personal`.
+- **The server moves a personal address only when the request says `include_personal: true`** (`/staff/accounts/email-move`); otherwise it is refused as before. Same proof as every move: a single-use link to the NEW mailbox, 72 hours, the login changes only when it is opened (same account, every session signed out, records kept); a linked Google sign-in keeps working (Google is matched by its id). Customers and agents are never reached; an account already on @a2zcreative.my never moves again. Audited with `personal: true` per person and `include_personal` per batch.
+- The figures on the card follow the option.
+
+### Guards
+- `tests/staff-email-move.mjs` 58 checks, 11 mutations (personal refused without the option; with it previews, sends, applies; audit marks; customers/agents never; a moved account never again). Browser `tests/browser/email-move.py` 30 checks.
+
+## [1.377.0] - 2026-11-18 - Users -> Staff Accounts: leavers at the bottom, in grey - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, his screenshot of Staff Accounts): "resigned staff need to put at the below list".
+
+### Changed
+- **Users -> Staff Accounts lists working accounts first, disabled accounts next and leavers last** (resigned or terminated, or a leaving date with no rejoin), the same rule the Staff Directory and Staff Records follow since 1.361.0. It is a stable partition after the search and the status filter, so the order inside each group is unchanged and nobody is hidden. Leavers and disabled accounts are drawn grey (`.rowGone`, tokens only). Order and colour only: no permission, status or account changes.
+- The 1.376.0 email-move card reads its domain from the server and says it could not load, rather than printing "@undefined", if an older engine answers.
+
+### Guards
+- `tests/staff-leavers-last.mjs` +4 checks (the Users list); `tests/users-ui.mjs` accepts the ordered list over the same search.
+
 ## [1.376.0] - 2026-11-18 - Staff login emails move from @azoneofficial.com to @a2zcreative.my - BUILT, NOT DEPLOYED (NO MIGRATION)
 
 The CEO (18-11-2026): "my staff they using old domain email for login the portal, how I want to migrate by using the new domain email which is a2zcreative.my" and "some of the staff are using gmail which is I dont want to touch on it except the staff which is using old domain: azoneofficial.com". His answers: the new mailboxes are elsewhere (prove by email link only), some new addresses differ from the old name, each link valid 72 hours, A2Z's contact email becomes hello@a2zcreative.my.
