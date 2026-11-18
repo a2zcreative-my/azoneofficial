@@ -10,6 +10,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.359.0] - 2026-11-18 - Management's Dashboard opens on the CEO View at once - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026, two phone screenshots a minute apart): the Dashboard showed "Sales this month", "Welcome back" and the shift pill, then turned into the CEO View with the weekly My Performance.
+
+### Fixed
+- **The Dashboard no longer shows management the staff layout first.** Which layout to draw was decided by the week figures ARRIVING (`exec = Boolean(weekHead.data?.outlook)`), so until `/staff/sales/week/dashboard` answered - or whenever it was slow or failed - the CEO, COO, CCO and admins got "Welcome back", the shift pill, Overview / My Day and "Sales this month", then the CEO View. The layout is now decided by `exec_view`, the very permission the server gives the outlook by (weekly-sales.ts VIEW_ALL), read from `/auth/me`'s caps before anything draws; when the week answers it still has the last word. While it is on its way the Overview holds the CEO View's place with a skeleton; if it cannot be read, the page says so with Try again - never the staff tiles. Everyone else's Dashboard is unchanged.
+
+### Guards
+- `tests/dashboard-overview.mjs` +2 checks (the layout from exec_view, never from the figures arriving; the skeleton / retry come before the CEO View and never fall back to the staff tiles). Browser: with the week held back 5 s and with it failing, the CEO never sees "Welcome back" or "Sales this month"; Sales staff keep their Dashboard.
+
 ## [1.358.0] - 2026-11-18 - Roles v2, stage 3: your own roles are given to people; their claims go to their manager - BUILT, NOT DEPLOYED (MIGRATION 0209)
 
 Plan: `docs/ROLES-V2-PLAN.md`, stage 3 (decisions R-3 and R-6).

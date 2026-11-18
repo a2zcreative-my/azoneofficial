@@ -93,7 +93,9 @@ const route = staff.slice(staff.indexOf('path.match(/^\\/users\\/(\\d+)\\/role$/
 {
   ok("the control renders only for ROLE_ASSIGN_ROLES", /const canSetRole = holds\("role_assign", ROLE_ASSIGN_ROLES\.includes\(role\)\);/.test(dir) && /canSetRole && !readOnly \? \(/.test(dir)); // v1.308.0 - the control lives in Staff Records > Role & Access
   ok("it is its own route, not a field of Save", /`\/users\/\$\{u\.id\}\/role`/.test(dir) && !/\["role", /.test(dir.slice(dir.indexOf("const RECORD_SECTIONS"), dir.indexOf("const RECORD_FIELDS"))));
-  ok("an executive account shows it locked", /disabled=\{!WORKING_ROLES\.includes\(u\.role\)\}/.test(dir));
+  /* v1.358.0 - an own role (Roles v2) is editable too, by role_custom only; an executive stays locked */
+  ok("an executive account shows it locked", /disabled=\{!roleEditable\(u\.role\)\}/.test(dir) && /const roleEditable = \(cur: string\) => WORKING_ROLES\.includes\(cur\) \|\| \(canGiveOwn && \/\^r_\/\.test\(cur\)\);/.test(dir));
+  ok("the roles you made are offered only to role_custom", /const canGiveOwn = holds\("role_custom", \["ceo", "super_admin"\]\.includes\(role\)\);/.test(dir) && /\.\.\.\(canGiveOwn \? ownRoles\.map/.test(dir));
   ok("the confirmation names both roles, in both languages", /\$\{roleLabel\(u\.role\)\} → \$\{roleLabel\(next\)\}\. This changes which tabs/.test(dir) && /Tukar peranan \$\{displayName\(u\)\}\?/.test(dir));
   ok("and asks for an optional reason", /Reason \(optional\)/.test(dir) && /reason: r\.value/.test(dir));
 }

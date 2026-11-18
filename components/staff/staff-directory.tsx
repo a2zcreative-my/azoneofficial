@@ -73,6 +73,7 @@ import { OrgChart, ORG_ASSIGN_ROLES, buildOrg } from "@/components/staff/org-cha
    and COO to update the roles". The two lists are held against the worker's
    PERMS.role_assign and the route's WORKING_ROLES by tests/role-assign.mjs. */
 import { ROLE_ASSIGN_ROLES, WORKING_ROLES } from "@/lib/org-tree";
+import { withStepUp } from "@/components/portal/page-shared"; // v1.358.0 - an own role needs the code
 /* v1.124.0 — the paper palette has one owner (lib/doc-theme.ts). This
    document is written into a separate window/iframe that cannot see the
    app stylesheet, so it needs literal hex, not var(--doc-*). */
@@ -846,9 +847,39 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
     }
     if (full.length === 1) printBadge(full[0]!); else printBadges(full);
   };
-  const roleLabel = (r: string) => L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "));
+  /* v1.358.0 - ROLES V2: the roles you made (Roles & Permissions) are offered here too, to the CEO
+     and the Super Admin only (role_custom - the server decides), with their names. The server asks
+     for a reason and the authenticator code for these, as on the Users tab. */
+  const canGiveOwn = holds("role_custom", ["ceo", "super_admin"].includes(role));
+  const [ownRoles, setOwnRoles] = useState<{ key: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!canGiveOwn) return;
+    let live = true;
+    void api<{ role_table?: { key: string; name: string; kind: string }[] }>("/access/policy").then((r) => {
+      if (live && r.ok) setOwnRoles((r.data?.role_table ?? []).filter((x) => x.kind === "own").map((x) => ({ key: x.key, name: x.name })));
+    });
+    return () => { live = false; };
+  }, [canGiveOwn]);
+  const ownName = (k: string) => ownRoles.find((x) => x.key === k)?.name;
+  const roleLabel = (r: string) => ownName(r) ?? L(r.replace(/_/g, " "), ROLE_MS[r] ?? r.replace(/_/g, " "));
+  const roleChoices = (cur: string) => [...WORKING_ROLES, ...(canGiveOwn ? ownRoles.map((x) => x.key) : [])].concat(/^r_/.test(cur) && !ownName(cur) ? [cur] : []);
+  const roleEditable = (cur: string) => WORKING_ROLES.includes(cur) || (canGiveOwn && /^r_/.test(cur));
   const changeRole = async (u: Staff, next: string) => {
     if (!next || next === u.role) return;
+    if (/^r_/.test(next) || /^r_/.test(u.role)) {
+      /* an own role, given or taken away: a reason (10+) and the code, as the server requires */
+      const why = await prompt({ title: L(`Change ${displayName(u)}'s role?`, `Tukar peranan ${displayName(u)}?`),
+        label: L(`Why (at least 10 characters, kept in the audit history). ${roleLabel(u.role)} becomes ${roleLabel(next)}; what they may do and see changes at once, and their leave and claims follow the Organisation chart.`, `Sebab (sekurang-kurangnya 10 aksara, disimpan dalam sejarah audit). ${roleLabel(u.role)} menjadi ${roleLabel(next)}; apa yang mereka boleh lakukan dan lihat berubah serta-merta, dan cuti serta tuntutan mereka mengikut carta Organisasi.`), required: true });
+      if (!why) return;
+      if (why.value.trim().length < 10) { setRowMsg((m) => ({ ...m, [u.id]: L("Give a reason of at least 10 characters.", "Beri sebab sekurang-kurangnya 10 aksara.") })); return; }
+      setRowMsg((m) => ({ ...m, [u.id]: "" }));
+      const res = await withStepUp<ErrShape>(
+        (totp) => api<ErrShape>(`/users/${u.id}/role`, { method: "POST", body: JSON.stringify({ role: next, reason: why.value.trim(), ...(totp ? { totp } : {}) }) }),
+        prompt, { title: L(`Confirm: ${displayName(u)} → ${roleLabel(next)}`, `Sahkan: ${displayName(u)} → ${roleLabel(next)}`), label: L("Your 6-digit authenticator code", "Kod pengesah 6 digit anda") });
+      if (res.ok) { showToast(L("Role changed", "Peranan ditukar"), `${displayName(u)} — ${roleLabel(next)}`); void load(); }
+      else setRowMsg((m) => ({ ...m, [u.id]: res.data?.error?.message ?? L("Role change failed", "Penukaran peranan gagal") }));
+      return;
+    }
     const r = await prompt({
       title: L(`Change ${displayName(u)}'s role?`, `Tukar peranan ${displayName(u)}?`),
       message: L(
@@ -2062,10 +2093,10 @@ export function StaffDirectory({ canAmend = false, readOnly = false, role = "", 
                     <div><dt>{L("Department", "Jabatan")}</dt><dd>{deptName(u) || <span className={sp.muted}>—</span>}</dd></div>
                     <div><dt>{L("System role (portal access)", "Peranan sistem (akses portal)")}</dt><dd>
                       {canSetRole && !readOnly ? (
-                        <select className={input} value={u.role} disabled={!WORKING_ROLES.includes(u.role)}
-                          title={WORKING_ROLES.includes(u.role) ? L("Which tabs they see — recorded with your name", "Tab yang mereka lihat — direkodkan dengan nama anda") : L("Executive roles are set by the system administrator", "Peranan eksekutif ditetapkan oleh pentadbir sistem")}
+                        <select className={input} value={u.role} disabled={!roleEditable(u.role)}
+                          title={roleEditable(u.role) ? L("Which tabs they see — recorded with your name", "Tab yang mereka lihat — direkodkan dengan nama anda") : L("Executive roles are set by the system administrator", "Peranan eksekutif ditetapkan oleh pentadbir sistem")}
                           onChange={(e) => void changeRole(u, e.target.value)}>
-                          {WORKING_ROLES.includes(u.role) ? WORKING_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>) : <option value={u.role}>{roleLabel(u.role)}</option>}
+                          {roleEditable(u.role) ? roleChoices(u.role).map((r) => <option key={r} value={r}>{roleLabel(r)}</option>) : <option value={u.role}>{roleLabel(u.role)}</option>}
                         </select>
                       ) : <span className={sp.cap}>{roleLabel(u.role)}</span>}
                     </dd></div>

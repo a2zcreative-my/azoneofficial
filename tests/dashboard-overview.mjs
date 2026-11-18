@@ -106,7 +106,14 @@ ok("the overview never writes", !/method:\s*"(?:POST|PUT|PATCH|DELETE)"/.test(co
   /* v1.291.0 (4.0) - management's My Day is the Command Center's own (the
      overview is handed the view); everyone else still reads the zones */
   ok("the zones are still drawn, in DASHBOARD_ZONES order, for everyone but management", /\{shiftOnly \? zoneShift : exec \? null : DASHBOARD_ZONES\[lead\]\.map\(\(k\) => <Fragment key=\{k\}>\{ZONES\[k\]\}<\/Fragment>\)\}/.test(dash)
-     && /const exec = Boolean\(weekHead\.data\?\.outlook\);/.test(dash) && /view=\{view\} shiftKind=\{todayKind\}/.test(dash));
+     && /const exec = weekHead\.data \? Boolean\(weekHead\.data\.outlook\) : holds\("exec_view", EXEC_VIEW_ROLES\.includes\(user\.role\)\);/.test(dash) && /view=\{view\} shiftKind=\{todayKind\}/.test(dash));
+  /* v1.359.0 (the CEO, 18-11-2026) - management never sees the staff Dashboard on its way to the CEO View */
+  {
+    const ovSrc = read("components/portal/dashboard-overview.tsx");
+    ok("the CEO View is decided by exec_view before the week answers, never by the figures arriving", /const EXEC_VIEW_ROLES = \["super_admin", "admin", "ceo", "coo", "cco"\];/.test(dash) && /import \{ holds \} from "@\/lib\/caps";/.test(dash));
+    ok("...and the overview holds its place with a skeleton or a retry - never the staff tiles", /const execExpected = wk \? Boolean\(wk\.outlook\) : holds\("exec_view"/.test(ovSrc) && /if \(execExpected && !wk\?\.outlook\) \{/.test(ovSrc) && /data-testid="exec-loading"/.test(ovSrc) && /data-testid="exec-week-failed"/.test(ovSrc)
+      && ovSrc.indexOf("if (execExpected && !wk?.outlook)") < ovSrc.indexOf("if (exec && wk?.outlook) {"));
+  }
   ok("the clock-first job opens on My Day, the others on the overview; a clock-first person who manages nobody reads My Day alone", /const view: "overview" \| "day" = dayOnly \? "day" : dashView \?\? \(lead === "shift" \? "day" : "overview"\);/.test(dash)
      && /const dayOnly = !exec && lead === "shift" && !MANAGE_ROLES\.includes\(user\.role\);/.test(dash) && /\{!dayOnly && \(/.test(dash));
   ok("the zones only leave the screen under the overview (still mounted)", /\.page\[data-view="overview"\] > \[data-zone\] \{\s*display: none;/.test(read("components/portal/dashboard.module.css")));

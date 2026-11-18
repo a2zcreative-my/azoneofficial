@@ -65,6 +65,9 @@ import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShiftLine, To
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 import { WeekTargetStrip, useWeekDash } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0; useWeekDash v1.291.0
 import { QuickActionsStrip, type QuickAction } from "@/components/portal/executive-cards"; // v1.291.0
+import { holds } from "@/lib/caps"; // v1.359.0 - the CEO View is decided by exec_view, not by the figures arriving
+/** v1.359.0 - worker/src/permissions.ts PERMS.exec_view (the fallback before /auth/me's caps are known) */
+const EXEC_VIEW_ROLES = ["super_admin", "admin", "ceo", "coo", "cco"];
 import { ReportingLineStrip } from "@/components/portal/reporting-line-card"; // v1.291.0
 
 /**
@@ -1117,7 +1120,15 @@ export function Dashboard({
      shared request); everyone else who opens on My Day and manages nobody
      reads My Day alone - their Overview's pieces are all on it. */
   const weekHead = useWeekDash();
-  const exec = Boolean(weekHead.data?.outlook);
+  /* v1.359.0 (the CEO, 18-11-2026: the Dashboard showed "Sales this month",
+     "Welcome back" and the shift pill, then turned into the CEO View) - the
+     layout was decided by the week figures ARRIVING, so until that request
+     answered - or when it was slow or failed - management got the staff
+     Dashboard first. The server gives the outlook to exactly the exec_view
+     holders (weekly-sales.ts VIEW_ALL), and /auth/me's caps are set before
+     anything draws, so the layout is decided from the same permission at
+     once; when the answer lands it still has the last word. */
+  const exec = weekHead.data ? Boolean(weekHead.data.outlook) : holds("exec_view", EXEC_VIEW_ROLES.includes(user.role));
   const dayOnly = !exec && lead === "shift" && !MANAGE_ROLES.includes(user.role);
   const view: "overview" | "day" = dayOnly ? "day" : dashView ?? (lead === "shift" ? "day" : "overview");
   /* where this person's own shift stands, for the header and the overview -

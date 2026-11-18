@@ -64,7 +64,8 @@ import { usePortal } from "@/components/portal/portal-provider";
 import type { TodayShiftKind } from "@/components/portal/on-shift";
 import { taskFigures } from "@/lib/task-figures";
 import type { TabName } from "@/lib/portal-tabs";
-import { card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
+import { btnSm, card, chipDanger, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
+import { holds } from "@/lib/caps"; // v1.359.0
 import ov from "./dashboard-overview.module.css";
 import x from "./executive.module.css";
 import { AlertBand, ApprovalsCard, ContributionCard, DecisionQueueCard, FollowUpsCard, MyTasksCard, MyWorkStrip, NextActionsCard, NextBestActionCard, QuickActionsStrip, SalesRecoveryStrip, SalesSummaryCard, ScheduleCard, TodayStrip, ViewSwitch, daysWaiting, usePerformance, vsWord, type AlertLine, type DayAction, type FollowLite, type NextAction, type QuickAction, type ScheduleLite } from "@/components/portal/executive-cards";
@@ -763,6 +764,25 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
      Attendance, Users -> Security & Sessions, the Desk). Nothing is worked
      out here that the server did not say.
      ================================================================ */
+  /* v1.359.0 (the CEO, 18-11-2026) - management never sees the staff
+     overview ("Sales this month") on its way to the CEO View. Until the week
+     answers, the layout is decided by exec_view - the very permission the
+     server gives the outlook by (weekly-sales.ts VIEW_ALL) - and the CEO
+     View's place is held by its own skeleton; if the week cannot be read the
+     page says so and offers a retry, never the staff layout instead. */
+  const execExpected = wk ? Boolean(wk.outlook) : holds("exec_view", ["super_admin", "admin", "ceo", "coo", "cco"].includes(user.role));
+  if (execExpected && !wk?.outlook) {
+    return weekView.failed && !wk ? (
+      <section className={card} role="alert" data-testid="exec-week-failed">
+        <p className={x.empty}><AppIcon name="warning" />{L("The company figures could not be loaded.", "Angka syarikat tidak dapat dimuatkan.")}</p>
+        <button type="button" className={btnSm} onClick={weekView.refresh}>{L("Try again", "Cuba lagi")}</button>
+      </section>
+    ) : (
+      <section className={card} aria-busy="true" data-testid="exec-loading">
+        <SkelRows rows={6} />
+      </section>
+    );
+  }
   if (exec && wk?.outlook) {
     const c = wk.company, ol = wk.outlook;
     const owedLabel = verifying ? L("Verified outstanding", "Tertunggak disahkan") : L("Outstanding", "Tertunggak");
