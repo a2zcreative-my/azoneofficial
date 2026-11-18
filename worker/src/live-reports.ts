@@ -405,7 +405,7 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
        assistant or salesperson who took part can add themselves (the roster read shows staff only their own) */
     if (path === "/live-reports/recent-lives" && method === "GET") {
       const rows = (await env.DB.prepare(
-        `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.unplanned, pj.title AS project_title, ${DOC_COLS("pj")},
+        `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.unplanned, s.project_id, pj.title AS project_title, ${DOC_COLS("pj")},
                 COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS host_name
            FROM live_sessions s JOIN users u ON u.id = s.host_user_id LEFT JOIN projects pj ON pj.id = s.project_id
           WHERE s.status != 'cancelled' AND s.session_date <= ?2 AND s.session_date >= date(?2, '-30 days')

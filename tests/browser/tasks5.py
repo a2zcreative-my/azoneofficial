@@ -205,7 +205,10 @@ with sync_playwright() as p:
     check("…the form: project, figures, screenshot, Submit / Save draft", all(vis(pg, k) for k in ["live-project", "live-fig-gmv", "live-fig-duration_min", "live-submit", "live-save"]) and pg.get_by_test_id("live-upload").count() == 1)
     pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
     pg.get_by_test_id("live-new").click(); pg.wait_for_timeout(600)
-    pg.get_by_test_id("live-start-72").click(); pg.wait_for_timeout(1200)
+    pg.get_by_test_id("live-start-72").click(); pg.wait_for_timeout(500)
+    conf = pg.get_by_test_id("live-confirm")
+    check("host: before a report starts, the live is shown to check - platform and document tags (v1.370.0)", conf.count() == 1 and "TikTok" in conf.inner_text() and "No project yet" in conf.inner_text(), conf.inner_text()[:300] if conf.count() else "")
+    pg.get_by_test_id("live-confirm-yes").click(); pg.wait_for_timeout(1200)
     posts = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HOST}/__tasks").read())["posts"]
     check("host: choosing a live on the roster starts its report (the session, never the host's id)", any(x["p"] == "/staff/live-reports" and '"session_id": 72' in str(x["body"]).replace('"session_id":72', '"session_id": 72') for x in posts), posts[-3:])
     check("no sideways page (host, phone)", no_hscroll(pg))

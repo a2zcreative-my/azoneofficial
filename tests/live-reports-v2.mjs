@@ -50,6 +50,9 @@ function checks(src) {
   ok("GMV is said to be the staff's own figure, not sales, cash, invoice or commission", /never verified sales, cash, an invoice or commission/.test(src.ui));
   ok("manual entry is always offered", /manual entry \(always allowed\)/.test(src.ui));
   ok("figures strip is the one KPI strip", /<KpiRow cols=\{6\}/.test(src.ui) && !/erp-stat|tileCard/.test(src.ui));
+  /* v1.370.0 - nothing starts until the person has seen which live it is (the CEO, 18-11-2026) */
+  ok("Report and I took part open the 'Check this is the right live' card first, never the report", /setConfirm\(\{ live: s, join: false \}\)/.test(src.ui) && /setConfirm\(\{ live: s, join: true \}\)/.test(src.ui) && !/onClick=\{\(\) => void (start|join)\(s\.id\)\}/.test(src.ui));
+  ok("the lists send each live's project and document for its tags", /s\.unplanned, s\.project_id, pj\.title AS project_title, \$\{DOC_COLS\("pj"\)\}/.test(s));
   /* v1.370.0 - the image is a base64 data URL (Cloudflare's own Llama 3.2 Vision tutorial); the array of numbers was refused */
   ok("the screenshot goes to Workers AI as a base64 data URL, never an array of numbers", /data:\$\{type \|\| "image\/png"\};base64,/.test(s) && /image, max_tokens: 300/.test(s) && !/Array\.from\(bytes\)/.test(s));
   ok("a failed read is written to System health's error log", /logError\(env, "live_ai"/.test(s));

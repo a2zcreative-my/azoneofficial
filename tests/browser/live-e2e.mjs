@@ -167,6 +167,7 @@ ok("staff outside the live cannot open its screenshot", (await api("designer", "
 { const mine = await api("sales", "GET", "/live-reports/recent-lives"), other = await api("coo", "GET", "/live-reports/recent-lives");
   ok("recent lives leaves out the lives you are already on", mine.status === 200 && !mine.d.sessions.some((x) => x.id === 801), JSON.stringify(mine.d).slice(0, 200));
   ok("recent lives lists a roster live you are not on, with its host", other.status === 200 && other.d.sessions.some((x) => x.id === 801 && x.host_name), JSON.stringify(other.d).slice(0, 200));
+  ok("recent lives carry the project id and its document, for the tags (v1.370.0)", other.d.sessions.every((x) => "project_id" in x && "qt_number" in x && "inv_number" in x), JSON.stringify(other.d.sessions[0]));
   ok("an agent cannot list recent lives", (await api("agent", "GET", "/live-reports/recent-lives")).status === 403); }
 
 console.log(`\nlive-e2e: ${pass} passed, ${failN} failed`);

@@ -364,6 +364,9 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
   const [form, setForm] = useState({ project_id: "", session_date: today, start_time: "", end_time: "", platform: "tiktok", role: "host" });
   const [joinRole, setJoinRole] = useState("co_host");
   const [existing, setExisting] = useState<{ session_id: number; id: number | null } | null>(null);
+  /* v1.370.0 - the CEO (18-11-2026): nothing starts until the person has seen WHICH live it is -
+     its date, project, platform and document - and pressed Yes */
+  const [confirm, setConfirm] = useState<{ live: OpenLive & { host_name?: string }; join: boolean } | null>(null);
   const start = async (sid: number) => {
     const r = await api<{ id?: number; error?: { message?: string } }>("/staff/live-reports", { method: "POST", body: JSON.stringify({ session_id: sid }) });
     if (r.ok && r.data?.id) onOpened(r.data.id); else fb.error(r.data?.error?.message ?? L("Could not start the report", "Laporan tidak dapat dimulakan"));
@@ -381,21 +384,41 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
   };
   const others = roster?.sessions ?? [];
   return (
-    <SideDrawer open={open} onClose={() => { setExisting(null); onClose(); }} form icon="live" title={L("New Live Report", "Laporan Live Baharu")}
+    <SideDrawer open={open} onClose={() => { setExisting(null); setConfirm(null); onClose(); }} form icon="live" title={L("New Live Report", "Laporan Live Baharu")}
       subtitle={L("One report per live - everyone who took part works on the same one.", "Satu laporan setiap live - semua peserta mengisi laporan yang sama.")}>
       <DrawerForm>
         <div className={css.modeRow} role="radiogroup" aria-label={L("Which live", "Live mana")}>
           <button type="button" role="radio" aria-checked={mode === "roster"} className={mode === "roster" ? btnSmAccent : btnSm} onClick={() => setMode("roster")} data-testid="live-mode-roster">{L("A live on the roster", "Live dalam roster")}</button>
           <button type="button" role="radio" aria-checked={mode === "unplanned"} className={mode === "unplanned" ? btnSmAccent : btnSm} onClick={() => setMode("unplanned")} data-testid="live-mode-unplanned">{L("Unplanned live", "Live tidak dirancang")}</button>
         </div>
-        {mode === "roster" ? (
+        {mode === "roster" && confirm ? (
+          <DrawerPanel icon="warning" title={L("Check this is the right live", "Semak ini live yang betul")} sub={L("Read it before you continue - a report belongs to one live only.", "Baca sebelum teruskan - satu laporan untuk satu live sahaja.")}>
+            <div className={css.confirm} data-testid="live-confirm">
+              <dl className={css.confirmList}>
+                <div><dt>{L("Date & time", "Tarikh & masa")}</dt><dd>{dateWord(confirm.live.session_date)} · {t12(confirm.live.start_time)}{confirm.live.end_time ? ` - ${t12(confirm.live.end_time)}` : ""}</dd></div>
+                <div><dt>{L("Project", "Projek")}</dt><dd>{confirm.live.project_title ?? confirm.live.client_name ?? "-"}</dd></div>
+                {confirm.live.host_name && <div><dt>{L("Host", "Hos")}</dt><dd>{confirm.live.host_name}</dd></div>}
+                <div><dt>{L("Platform", "Platform")}</dt><dd><PlatformTag platform={confirm.live.platform} /></dd></div>
+                <div><dt>{L("Document", "Dokumen")}</dt><dd><DocTag project={Boolean(confirm.live.project_id)} qt={confirm.live.qt_number} inv={confirm.live.inv_number} /></dd></div>
+                {confirm.join && <div><dt>{L("Your role", "Peranan anda")}</dt><dd>{ROLE[joinRole]}</dd></div>}
+              </dl>
+              {!confirm.live.project_id && <p className={css.confirmWarn}>{L("This live has no project yet - you will choose it in the report before submitting.", "Live ini belum ada projek - anda akan memilihnya dalam laporan sebelum menghantar.")}</p>}
+              <span className={css.aiBtns}>
+                <button type="button" className={btnSm} onClick={() => setConfirm(null)} data-testid="live-confirm-back">{L("Back", "Kembali")}</button>
+                <button type="button" className={btnSmAccent} data-testid="live-confirm-yes"
+                  onClick={() => { const c = confirm; setConfirm(null); void (c.join ? join(c.live.id) : start(c.live.id)); }}>
+                  {confirm.join ? L("Yes, I took part - report it", "Ya, saya terlibat - laporkan") : L("Yes, report this live", "Ya, laporkan live ini")}</button>
+              </span>
+            </div>
+          </DrawerPanel>
+        ) : mode === "roster" ? (
           <>
             <DrawerPanel icon="live" title={L("Your lives waiting for a report", "Live anda menunggu laporan")} sub={L("Last 30 days", "30 hari lepas")}>
               {openLive.length === 0 ? <p className={css.empty}>{L("None waiting.", "Tiada yang menunggu.")}</p> : (
                 <ul className={css.pick}>{openLive.map((s) => (
                   <li key={s.id}><span><strong>{dateWord(s.session_date)} · {t12(s.start_time)}</strong><small>{s.project_title ?? s.client_name ?? "-"}</small>
                     <span className={css.chips}><PlatformTag platform={s.platform} /><DocTag project={Boolean(s.project_id)} qt={s.qt_number} inv={s.inv_number} /></span></span>
-                    <button type="button" className={btnSmAccent} onClick={() => void start(s.id)} data-testid={`live-start-${s.id}`}>{L("Report", "Lapor")}</button></li>
+                    <button type="button" className={btnSmAccent} onClick={() => setConfirm({ live: s, join: false })} data-testid={`live-start-${s.id}`}>{L("Report", "Lapor")}</button></li>
                 ))}</ul>
               )}
             </DrawerPanel>
@@ -408,7 +431,7 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
                 <ul className={css.pick}>{others.map((s) => (
                   <li key={s.id}><span><strong>{dateWord(s.session_date)} · {t12(s.start_time)}</strong><small>{s.project_title ?? s.client_name ?? "-"} · {L("Host", "Hos")}: {s.host_name}</small>
                     <span className={css.chips}><PlatformTag platform={s.platform} /><DocTag project={Boolean(s.project_id)} qt={s.qt_number} inv={s.inv_number} /></span></span>
-                    <button type="button" className={btnSm} onClick={() => void join(s.id)} data-testid={`live-join-${s.id}`}>{L("I took part", "Saya terlibat")}</button></li>
+                    <button type="button" className={btnSm} onClick={() => setConfirm({ live: s, join: true })} data-testid={`live-join-${s.id}`}>{L("I took part", "Saya terlibat")}</button></li>
                 ))}</ul>
               )}
             </DrawerPanel>
