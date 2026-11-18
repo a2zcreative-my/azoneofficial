@@ -17,8 +17,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { devicePushStatus, enablePush, signOutRequest, type DevicePush } from "@/lib/push-client";
 import { L } from "@/components/portal/page-shared";
-import { btnClass, card } from "@/lib/ui-styles";
-import css from "@/app/portal/portal.module.css";
+import { btnSmAccent } from "@/lib/ui-styles";
+import { LogOut } from "@/components/layout/nav-icons";
+import { AppIcon } from "@/components/ui/app-icon";
+import css from "./push-gate.module.css";
 
 /** Agents and customers are not staff; every other role must have push on (the CEO's answer). */
 export const pushRequiredFor = (role: string | undefined | null) => Boolean(role) && !["agent", "customer"].includes(String(role));
@@ -80,32 +82,46 @@ export function PushGate({ state, check, onOn }: { state: DevicePush; check: () 
           L("Come back here and tap Check again.", "Kembali ke sini dan tekan Semak semula.")])
       : [];
   return (
-    <div className={css.stepUp} data-testid="push-gate" data-state={state}>
-      <div className={card}>
-        <h1 className={css.stepUpTitle}>{L("Turn on alerts to continue", "Hidupkan makluman untuk meneruskan")}</h1>
-        <p className={css.stepUpText}>
-          {L("A2Z sends every update to staff as a push alert - approvals, tasks, leave, claims and shift reminders. Push alerts must be on for this device before you can use the portal.",
-            "A2Z menghantar setiap kemas kini kepada kakitangan sebagai makluman push - kelulusan, tugasan, cuti, tuntutan dan peringatan syif. Makluman push mesti dihidupkan untuk peranti ini sebelum anda boleh menggunakan portal.")}
-        </p>
-        {state === "off" && (
-          <button type="button" className={btnClass} disabled={busy} onClick={() => void turnOn()} data-testid="push-gate-on">
-            {busy ? L("Turning on...", "Menghidupkan...") : L("Turn on push alerts", "Hidupkan makluman push")}
-          </button>
-        )}
-        {steps.length > 0 && (
-          <>
-            <p className={css.stepUpText}><strong>{state === "denied" ? L("Alerts are blocked on this device. To allow them:", "Makluman disekat pada peranti ini. Untuk membenarkannya:") : L("This browser cannot receive alerts. To fix it:", "Pelayar ini tidak boleh menerima makluman. Untuk membaikinya:")}</strong></p>
-            <ol className={css.stepUpText} data-testid="push-gate-steps">{steps.map((s, i) => <li key={s}>{`${i + 1}. ${s}`}</li>)}</ol>
-            <button type="button" className={btnClass} onClick={() => void check()} data-testid="push-gate-check">{L("Check again", "Semak semula")}</button>
-          </>
-        )}
-        {note && <p className={css.stepUpText} role="alert">{note}</p>}
-        <div className={css.stepUpFoot}>
-          <button type="button" className={css.quietLink} onClick={() => { void signOutRequest().then(() => { window.location.href = "/login"; }); }}>
-            {L("Sign out", "Log keluar")}
-          </button>
-        </div>
-      </div>
+    <div className={css.page} data-testid="push-gate" data-state={state}>
+      <header className={css.bar}>
+        <span className={css.wordmark} aria-label="A2Z OS - A2Z CREATIVE MARKETING">
+          <span className={css.wordmarkName}>A2Z <span className={css.wordmarkOs}>OS</span></span>
+          <span className={css.wordmarkSub}>A2Z CREATIVE MARKETING</span>
+        </span>
+      </header>
+      <main className={css.wrap}>
+        <section className={css.card} aria-labelledby="push-gate-title">
+          <div className={css.body}>
+            <span className={css.tile} aria-hidden><AppIcon name="alert" /></span>
+            <h1 id="push-gate-title" className={css.title}>{L("Turn on alerts to continue", "Hidupkan makluman untuk meneruskan")}</h1>
+            <p className={css.text}>
+              {L("A2Z sends every update to staff on a push alert — approvals, tasks, leave, claims and shift reminders. Push alerts must be on for this device before you can use the portal.",
+                "A2Z menghantar setiap kemas kini kepada kakitangan melalui makluman push — kelulusan, tugasan, cuti, tuntutan dan peringatan syif. Makluman push mesti dihidupkan untuk peranti ini sebelum anda boleh menggunakan portal.")}
+            </p>
+            {state === "off" && (
+              <button type="button" className={`${btnSmAccent} ${css.action}`} disabled={busy} onClick={() => void turnOn()} data-testid="push-gate-on">
+                {busy ? L("Turning on...", "Menghidupkan...") : L("Turn on push alerts", "Hidupkan makluman push")}
+                {!busy && <AppIcon name="forward" />}
+              </button>
+            )}
+            {steps.length > 0 && (
+              <>
+                <p className={css.lead}>{state === "denied" ? L("Alerts are blocked on this device. To allow them:", "Makluman disekat pada peranti ini. Untuk membenarkannya:") : L("This browser cannot receive alerts. To fix it:", "Pelayar ini tidak boleh menerima makluman. Untuk membaikinya:")}</p>
+                <ol className={css.steps} data-testid="push-gate-steps">{steps.map((s, i) => <li key={s}>{`${i + 1}. ${s}`}</li>)}</ol>
+                <button type="button" className={`${btnSmAccent} ${css.action}`} onClick={() => void check()} data-testid="push-gate-check">
+                  {L("Check again", "Semak semula")}<AppIcon name="forward" />
+                </button>
+              </>
+            )}
+            {note && <p className={css.note} role="alert">{note}</p>}
+          </div>
+          <div className={css.foot}>
+            <button type="button" className={css.signOut} onClick={() => { void signOutRequest().then(() => { window.location.href = "/login"; }); }}>
+              <LogOut aria-hidden className="erp-icon" strokeWidth={1.75} />{L("Sign out", "Log keluar")}
+            </button>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }

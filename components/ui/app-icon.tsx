@@ -37,7 +37,7 @@
  */
 
 import {
-  BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ChevronDown, ChevronRight, ClipboardList, Star,
+  ArrowRight, BellRing, BadgeCheck, Ban, Banknote, Cake, CalendarDays, ChartColumn, ChevronDown, ChevronRight, ClipboardList, Star,
   Clapperboard, CreditCard, Database, DoorOpen, Download, Eye, FileText, Flame,
   Folder, Footprints, Gem, Hourglass, Info, Lightbulb, Link2, Lock, MapPin, Paperclip,
   MessageCircle, Package, Palmtree, PartyPopper, Plug, Printer, Puzzle, Receipt,
@@ -81,6 +81,8 @@ export const APP_ICON = {
   offboard: DoorOpen,
   preview: Eye,
   next: ChevronRight,
+  forward: ArrowRight, // v1.362.0 - a call to go on (the push gate)
+  alert: BellRing, // v1.362.0 - push alerts
   expand: ChevronDown,
   /* things */
   money: Banknote,
