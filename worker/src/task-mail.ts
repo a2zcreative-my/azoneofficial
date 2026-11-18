@@ -22,7 +22,7 @@
    account or a leaver gets nothing. */
 import type { Env } from "./index";
 import { primaryOrigin } from "./index";
-import { mailReady, sendMailResult } from "./mail";
+import { mailReady, sendMailResult, osMailHtml, mailEsc as esc } from "./mail";
 import { currentStaffSql, taskPeopleSql } from "./staff"; // v1.249.0 - agents get the emails about their own tasks
 import { taskAccess, type TaskRow } from "./tasks-progress"; // v1.337.0 - a link only to a record the person may open (used at call time; the import cycle is harmless)
 import type { StaffUser } from "./staff";
@@ -161,8 +161,6 @@ export interface TaskMailData {
   canOpen?: boolean;
 }
 
-const NAVY = "#1a2946", GOLD = "#c8a96a", INK = "#14213d", MUTED = "#5b6478";
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const dmy = (iso?: string | null) => (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split("-").reverse().join("-") : null);
 const cap = (s?: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ") : "");
 
@@ -223,23 +221,14 @@ export function buildTaskMail(env: Env, kind: MailKind, d: TaskMailData): { subj
     "Regards,", "A2Z Creative Marketing", "hello@a2zcreative.my", "",
     "This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.",
   ].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
-  const trs = rows.map(([k, v]) => `<tr><td style="padding:6px 10px 6px 0;color:${MUTED};font-size:13px;white-space:nowrap;vertical-align:top">${esc(k)}</td><td style="padding:6px 0;color:${INK};font-size:14px;font-weight:600;vertical-align:top">${esc(v).replace(/\n/g, "<br>")}</td></tr>`).join("");
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(subject)}</title></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6"><tr><td align="center" style="padding:24px 12px">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-<tr><td style="background:${NAVY};padding:20px 24px"><span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.01em">A2Z <span style="color:${GOLD}">OS</span></span><br><span style="color:${GOLD};font-size:11px;letter-spacing:0.14em;text-transform:uppercase">A2Z Creative Marketing</span></td></tr>
-<tr><td style="padding:24px">
-<h1 style="margin:0 0 12px;font-size:20px;color:${NAVY}">${esc(HEADLINE[kind])}</h1>
-<p style="margin:0 0 6px;color:${INK};font-size:15px">Hello ${esc(d.to.first)},</p>
-<p style="margin:0 0 16px;color:${INK};font-size:15px;line-height:1.5">${esc(intro)}</p>
-<table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;background:#f8f9fb;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;margin:0 0 20px"><tr><td><table role="presentation" cellspacing="0" cellpadding="0">${trs}</table></td></tr></table>
-${kind === "test" || noAccess ? "" : `<p style="margin:0 0 20px;color:${MUTED};font-size:13px;line-height:1.5">Please review the task and provide progress updates as the work proceeds.</p>`}
-<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="background:${GOLD};border-radius:8px"><a href="${esc(link)}" style="display:inline-block;padding:12px 22px;color:${NAVY};font-weight:700;font-size:15px;text-decoration:none">${listOnly ? "Open My Tasks in A2Z OS" : "View Task in A2Z OS"} →</a></td></tr></table>
-${noAccess ? "" : `<p style="margin:20px 0 0;color:${MUTED};font-size:12px;line-height:1.5">You can update your progress, add comments and upload files directly in the task.</p>`}
-</td></tr>
-<tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;color:${MUTED};font-size:12px;line-height:1.5"><strong style="color:${INK}">A2Z Creative Marketing</strong> · hello@a2zcreative.my<br>This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.</td></tr>
-</table></td></tr></table></body></html>`;
+  /* 18-11-2026 - the frame is mail.ts osMailHtml, shared with the staff account emails */
+  const html = osMailHtml({
+    title: subject, headline: HEADLINE[kind], greeting: `Hello ${d.to.first},`, paras: [esc(intro)], rows,
+    note: kind === "test" || noAccess ? null : "Please review the task and provide progress updates as the work proceeds.",
+    button: { label: listOnly ? "Open My Tasks in A2Z OS" : "View Task in A2Z OS", href: link },
+    after: noAccess ? null : "You can update your progress, add comments and upload files directly in the task.",
+    footer: "This is an automated email from A2Z OS. Please do not reply - update the task in A2Z OS instead.",
+  });
   return { subject, text, html };
 }
 

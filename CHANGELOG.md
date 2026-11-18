@@ -4,6 +4,12 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Staff account emails wear the task-email look (18-11-2026, the CEO: "Email migrate I want to be the same template as reminder email!") - NO MIGRATION
+- The navy A2Z OS header, white card, details box, gold button and footer of the task emails are now drawn ONCE, `osMailHtml` in `worker/src/mail.ts`; `buildTaskMail` uses it (every task email is byte-for-byte what it was - all 13 kinds compared).
+- Every staff account email - its subject names "A2Z OS": Confirm your new login email (single change and the @a2zcreative.my move), the old-address notices, set your password / new account, two-factor reset, account recovered, passkey added - is drawn in that frame from its own words. A sign-in link becomes a gold button (Confirm New Login Email / Set My Password) with the new address in the details box and a copy-the-link line for mail apps that block buttons. The words and links are unchanged.
+- Client and customer emails (a quotation, a customer's set-password link, the legacy notice, the Google codes) never name "A2Z OS" and stay plain, so an AZ ONE OFFICIAL quotation never wears A2Z Creative Marketing's header.
+- Guard `tests/os-mail.mjs` (6 checks, 4 mutations).
+
 ### Follow-up after 1.181.9 - 12 October 2026
 
 - Rechecked the user's committed AZ ONE service-document changes and preserved them. Local and GitHub main match 3e42644; public API/login report 1.181.9.

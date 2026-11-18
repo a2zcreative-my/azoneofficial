@@ -294,6 +294,7 @@ const GUARDS = [
   ["pay-records", "a salary advance names its request on the payslip and is recovered from the request month or later, an unpaid day is edited only by the CEO and only if the company recorded it, and the attendance donut's names follow the donut's own rules"],
   ["claim-categories", "the claim form, the API and the claims table allow the same categories - a category the table refuses is a claim silently never saved (stationery, 29-09-2026)"],
   ["quotation-revisions", "a quotation revised at the customer's request keeps its number, prints REV n dated the day it was revised, and keeps every version it replaced (20-10-2026)"],
+  ["os-mail", "task emails and every staff account email share one A2Z OS frame (mail.ts osMailHtml); client and customer emails stay plain (18-11-2026)"],
   ["restore-test", "the monthly restore test (PUSH.bat restore-test) loads and deletes only a temporary database, writes production one status row, and System health shows only what it recorded (18-11-2026)"],
   ["error-history", "a fixed error is history, not an alarm: every server error row carries the engine version, and the Dashboard alert and API Health count only live faults (18-11-2026)"],
   ["live-reports-v2", "live reports: one report per live shared by everyone who took part, a project required, a participant never reviews, the screenshot AI is Workers AI only and capped under the free allowance and never needed, rule-based analysis, inside Roster & Scheduling (18-11-2026)"],
