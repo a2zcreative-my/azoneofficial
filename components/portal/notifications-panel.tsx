@@ -74,6 +74,7 @@ const KIND_HEAD: Record<string, [string, string, AppIconName]> = {
   sales: ["Sales", "Jualan", "chart"],
   brief: ["Brief", "Taklimat", "documents"],
   payment: ["Payment", "Bayaran", "money"], // v1.365.0 - was headed "Update"
+  enquiry: ["Enquiry", "Pertanyaan", "target"], // v1.369.0 - website enquiries and the Business Growth Check (a growth: ref opens the enquiry)
 };
 const headOf = (kind: string): [string, AppIconName] => {
   const h = KIND_HEAD[kind];

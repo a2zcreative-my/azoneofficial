@@ -18,6 +18,7 @@ import type { Opportunity } from "@/components/portal/sales-discipline";
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
 import { InvoicePayAction, payActorOf } from "@/components/portal/payment-parts"; // v1.282.0 - one action per invoice
 import { SalesEnquiries, useEnquiryList, type Enquiry } from "@/components/portal/sales-enquiries"; // v1.216.0
+import { GrowthEnquiries, useGrowthList, type GRow } from "@/components/portal/growth-enquiries"; // v1.369.0 - the Business Growth Check
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { DetailGrid, RecordToggle } from "@/components/ui/record-row";
@@ -686,6 +687,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const [custTab, setCustTab] = useState<"add" | "clients">("clients");
   /* v1.292.0 - Customers & Follow-ups is ONE workspace: what needs action, the enquiries, the follow-ups, every customer, or the same records as a read-only board */
   const [custFilter, setCustFilter] = useState<CustFilter>("action");
+  /* v1.369.0 - the Business Growth Check: the website Enquiries people (enquiry_manage), never an agent or a customer; the server checks again */
+  const seesGrowth = !["agent", "customer"].includes(user.role) && holds("enquiry_manage", ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(user.role));
+  const growthState = useGrowthList(seesGrowth);
+  const [growthOpen, setGrowthOpen] = useState<number | null>(null);
   const [fileTick, setFileTick] = useState(0); // v1.292.0 - a customer file closed from the worklist: reload
   const [workTab, setWorkTab] = useState<"create" | "documents" | "receipts" | "packages">(initialView);
   /* v1.347.0 - Agents › Packages opens the master packages here (startView "packages"), once, adjusted while rendering */
@@ -919,6 +924,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       setWsView("customers");
       setCustTab("clients"); setTagFilter("");
       if (customers.some((c) => c.id === f.id)) setOpenCust(f.id);
+    } else if (f.kind === "growth") {
+      /* v1.369.0 - a Business Growth Check bell or Desk row: Customers & Follow-ups, that enquiry selected */
+      setWsView("customers"); setCustFilter("growth"); setGrowthOpen(f.id);
     }
   });
   useScrollToRecord(focused);
@@ -1208,7 +1216,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      with no `source` behaves exactly as before. */
   type Prefill = {
     company?: string; contact_person?: string; phone?: string; reference?: string;
-    source?: "enquiry" | "recurring" | "agent_request" | "fa_fee"; // v1.250.0 - an agent's request (Agents > Create quotation in Sales); v1.302.0 - the advisory fee after a recorded disbursement (Financial Advisory > Agreements)
+    source?: "enquiry" | "recurring" | "agent_request" | "fa_fee" | "growth"; // v1.369.0 growth: a qualified Business Growth Check enquiry // v1.250.0 - an agent's request (Agents > Create quotation in Sales); v1.302.0 - the advisory fee after a recorded disbursement (Financial Advisory > Agreements)
     customer_id?: number; doc_type?: string; kind?: string; items?: DocItem[];
     email?: string; package_id?: number | null; package_version?: number | null; package_name?: string;
     discount_cents?: number; tax_percent?: number; delivery_cents?: number; issuer?: string; salesperson_id?: number;
@@ -1266,7 +1274,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         phone: pf.phone ?? "",
         ...(pf.email ? { email: pf.email } : {}), // v1.250.0 - an agent request carries the client's email
       }));
-    if (pf.source === "enquiry" || pf.source === "agent_request" || pf.source === "fa_fee") {
+    if (pf.source === "enquiry" || pf.source === "agent_request" || pf.source === "fa_fee" || pf.source === "growth") {
       setWorkTab("create");
       if (!existing) setCustTab("add");
       jump(existing ? "sales-work" : "sales-customers");
@@ -1276,6 +1284,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         ? L(`Prefilled from ${pf.source === "fa_fee" ? "the advisory fee" : "agent request"} ${pf.reference ?? ""}`, `Diisi awal daripada ${pf.source === "fa_fee" ? "yuran nasihat" : "permintaan ejen"} ${pf.reference ?? ""}`)
         : pf.source === "enquiry"
         ? L("Prefilled from the enquiry", "Diisi awal daripada pertanyaan")
+        : pf.source === "growth"
+        ? L(`Prefilled from Business Growth ${pf.reference ?? ""}`, `Diisi awal daripada Pertumbuhan Bisnes ${pf.reference ?? ""}`)
         : L("Prefilled from prospect", "Diisi awal daripada prospek"),
       existing
         ? L(
@@ -3583,8 +3593,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           {/* v1.292.0 - ONE workspace: what needs action, the enquiries, the
               follow-ups or every customer - one at a time - and the same
               records as a read-only board (decision S3) */}
-          <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />}
-            counts={loaded ? { action: custNeeds.length, enquiries: enquiries.length, followups: sFollowups.length, all: customers.length } : null} />
+          <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />} growth={seesGrowth}
+            counts={loaded ? { action: custNeeds.length, enquiries: enquiries.length, followups: sFollowups.length, all: customers.length, ...(growthState.data ? { growth: growthState.data.enquiries.filter((g) => g.status !== "not_interested").length } : {}) } : null} />
           {custFilter === "action" && <CustomerNeeds rows={custNeeds} loaded={loaded} />}
           {custFilter === "board" && <CustomerBoard columns={boardColumns} loaded={loaded} />}
           {/* v1.216.0 - new enquiries from the website and customer accounts
@@ -3599,6 +3609,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               if (customers.some((c) => c.company.trim().toLowerCase() === ((e.company ?? "").trim() || e.name).toLowerCase())) setWsView("documents");
             }} />
           </div>
+          {/* v1.369.0 - the Business Growth Check enquiries (growth-enquiries.tsx); a paid solution is a
+              normal quotation, prefilled with the enquiry's reference so it can be linked back */}
+          {seesGrowth && custFilter === "growth" && (
+            <GrowthEnquiries state={growthState} open={growthOpen} onOpen={setGrowthOpen} onQuote={(g: GRow) => {
+              applyPrefill({ source: "growth", company: g.business_name, contact_person: g.full_name, phone: g.whatsapp, email: g.email ?? undefined, reference: g.ref, salesperson_id: g.owner_id ?? undefined });
+              if (customers.some((c) => c.company.trim().toLowerCase() === g.business_name.trim().toLowerCase())) setWsView("documents");
+            }} />
+          )}
           {custFilter === "followups" && <FollowUps all rows={sFollowups} today={mytToday()} onOpen={(f) => openCustomerFile(f.customer_id, f.company, () => void load())} />}
         </>
       )}

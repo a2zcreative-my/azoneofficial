@@ -50,6 +50,11 @@ function checks(src) {
   ok("GMV is said to be the staff's own figure, not sales, cash, invoice or commission", /never verified sales, cash, an invoice or commission/.test(src.ui));
   ok("manual entry is always offered", /manual entry \(always allowed\)/.test(src.ui));
   ok("figures strip is the one KPI strip", /<KpiRow cols=\{6\}/.test(src.ui) && !/erp-stat|tileCard/.test(src.ui));
+  /* v1.369.0 - the platform and document tags (the CEO, 18-11-2026) */
+  ok("every live shows its platform as a tag", /function PlatformTag/.test(src.ui) && (src.ui.match(/<PlatformTag /g) ?? []).length >= 6);
+  ok("every live shows its project's document: the live invoice, else the quotation, else 'no project yet'", /function DocTag/.test(src.ui) && (src.ui.match(/<DocTag /g) ?? []).length >= 6 && /No project yet/.test(src.ui));
+  ok("the invoice tag never names a voided invoice", /i\.doc_type = 'INV' AND i\.converted_from = \$\{pj\}\.quotation_id AND COALESCE\(i\.payment_status, ''\) != 'void'/.test(s));
+  ok("an unplanned live shows its tags before it is recorded", /data-testid="live-u-check"/.test(src.ui));
   return out;
 }
 
@@ -63,6 +68,7 @@ const MUT = [
   ["srv", "a ceiling above the free allowance", "NEURON_CEILING_MAX = 8_000;", "NEURON_CEILING_MAX = 20_000;"],
   ["roster", "the old card back", "<div id=\"live-host-card\"><LiveReports /></div>", "<div id=\"live-host-card\"><LiveHostCard /></div>"],
   ["tabs", "a new Live Reports tab", '"Roster & Scheduling",', '"Roster & Scheduling",\n  "Live Reports",'],
+  ["srv", "a voided invoice tagged", "AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS inv_number", "ORDER BY i.id DESC LIMIT 1) AS inv_number"],
   ["ui", "the GMV disclaimer dropped", "never verified sales, cash, an invoice or commission", "verified sales"],
 ];
 let caught = 0;

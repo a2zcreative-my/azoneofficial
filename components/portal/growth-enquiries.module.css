@@ -1,0 +1,29 @@
+/* v1.369.0 - the Business Growth Check on Sales -> Customers & Follow-ups.
+   Only what the shared Agents / partner styles do not already give: long
+   answers that keep their lines, the history list, and the analytics bars.
+   Colours are the global tokens. */
+
+.long { white-space: pre-line; overflow-wrap: break-word; }
+
+.history { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+.history > li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.125rem; padding: 0.5rem 0.625rem; border-radius: var(--radius-control, 0.5rem); background: var(--secondary); }
+.histHead { color: var(--muted-foreground); font-size: var(--type-caption-size); }
+.histHead strong { color: var(--foreground); }
+
+.analytics { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+@media (min-width: 1024px) {
+  .analytics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.bars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+.bars > li { display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr) 2rem; align-items: center; gap: 0.5rem; font-size: var(--type-body-sm-size); }
+.barLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barTrack { block-size: 0.5rem; border-radius: var(--radius-full); background: var(--secondary); overflow: hidden; }
+.barFill { display: block; block-size: 100%; border-radius: inherit; background: var(--gold-solid); }
+.barN { text-align: end; font-variant-numeric: tabular-nums; }
+
+/* the pipeline definitions: the partner list's layout with a wider word column
+   ("Free Advice Delivered" is longer than any partner stage) */
+.defsWide li { grid-template-columns: 1rem 11rem minmax(0, 1fr) 2rem; }
+@media (max-width: 639px) {
+  .defsWide li { grid-template-columns: 1rem minmax(0, 1fr) 2rem; }
+}

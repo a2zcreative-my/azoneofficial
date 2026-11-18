@@ -18,6 +18,7 @@ import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { assetAckSweep, assetRepairSweep } from "./assets"; // v1.304.0 - Assets 4.0 phase 2; v1.305.0 - phase 3 repair follow-up
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 / v1.226.0 - 15 minutes before a shift, 15 before its end, and at the end
 import { submitPartnerApplication, partnerSweep } from "./partners"; // v1.351.0 - the public partner interest application and its hourly reminders
+import { submitBusinessGrowth, growthSweep } from "./growth"; // v1.369.0 - the public Business Growth Check and its hourly reminders
 import { drainMailOutbox, taskMailSweep, taskDigest } from "./task-mail"; // v1.247.0 - task emails: the outbox drains on the five-minute tick, reminders ride the hourly pass, the digest at 08:30 MYT
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
 import { handleHankeisApi } from "./hankeis-api"; // v1.163.0 - the Astra GPT integration surface
@@ -327,7 +328,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0210_live_participants";
+const LATEST_MIGRATION = "0211_business_growth";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -2321,6 +2322,8 @@ export default {
         try { await leaveEscalationSweep(env); } catch (e) { await logError(env, "leave_escalation", e instanceof Error ? e.message : String(e)); }
         /* v1.351.0 - partner applications: unclaimed or overdue -> the owner reminded, management told (once a day each) */
         try { await partnerSweep(env); } catch (e) { await logError(env, "partner_sweep", e instanceof Error ? e.message : String(e)); }
+        /* v1.369.0 - Business Growth enquiries: unclaimed at 4 h, the owner reminded at 24 h, management told at 48 h (once a day each) */
+        try { await growthSweep(env); } catch (e) { await logError(env, "growth_sweep", e instanceof Error ? e.message : String(e)); }
         /* v1.304.0 - an asset hand-over unacknowledged for 3 days: an ordinary Task for whoever issued it (once) */
         try { await assetAckSweep(env); } catch (e) { await logError(env, "asset_ack_sweep", e instanceof Error ? e.message : String(e)); }
         try { await assetRepairSweep(env); } catch (e) { await logError(env, "asset_repair_sweep", e instanceof Error ? e.message : String(e)); }
@@ -3133,6 +3136,14 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     const rateOk = await checkRateLimit(env, `partner_apply:${clientIp(request)}`, 20, 3600);
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
     return submitPartnerApplication(env, request, body, rateOk);
+  }
+
+  /* v1.369.0 - the public A2Z Business Growth Check (/apply/business, growth.ts): no session,
+     Cloudflare's bot check, retry-safe; it never creates an account, a customer or a sale */
+  if (path === "/api/v1/public/business-growth" && method === "POST") {
+    const rateOk = await checkRateLimit(env, `growth_check:${clientIp(request)}`, 10, 3600);
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    return submitBusinessGrowth(env, request, body, rateOk);
   }
 
   if (path === "/api/v1/enquiries" && method === "POST") {
@@ -5778,6 +5789,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0208 (roles: the roles table the owner adds to - Roles v2 stage 1)", `SELECT key, name, kind, counts_as_staff, tabs FROM roles LIMIT 0`],
       ["0209 (users: any role in the roles table; claims: the line approver)", `SELECT line_approver_id FROM claims LIMIT 0`],
       ["0210 (live reports: participants, the confirmed figures, the AI readings and budget)", `SELECT l.role, r.draft_viewers, a.outcome, b.neurons FROM live_participants l, live_reports r, live_report_ai_readings a, ai_budget b LIMIT 0`],
+      ["0211 (sales: the Business Growth Check enquiries and their history)", `SELECT g.ref, g.status, g.owner_id, g.quotation_id, e.kind FROM business_growth_enquiries g, business_growth_events e LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -6012,6 +6024,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0208_roles",
       "0209_roles_assignable",
       "0210_live_participants",
+      "0211_business_growth",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

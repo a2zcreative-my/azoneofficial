@@ -29,17 +29,18 @@ type Person = { user_id: number; role: string; name: string; photo_key: string |
 type Row = {
   id: number; session_id: number; state: string; session_date: string; start_time: string; end_time: string | null; platform: string;
   project_id: number | null; project_title: string | null; project_client: string | null; client_name: string | null; company: string | null; unplanned: number;
+  qt_number: string | null; inv_number: string | null;
   gmv_cents: number | null; draft_gmv_cents: number | null; duration_min: number | null; viewers: number | null; orders: number | null;
   thumb_file_id: number | null; participants: Person[];
 };
-type OpenLive = { id: number; session_date: string; start_time: string; end_time: string | null; platform: string; client_name: string | null; project_title: string | null; unplanned: number };
+type OpenLive = { id: number; session_date: string; start_time: string; end_time: string | null; platform: string; client_name: string | null; project_title: string | null; unplanned: number; project_id?: number | null; qt_number?: string | null; inv_number?: string | null };
 type List = { reports: Row[]; sessions_to_report: OpenLive[]; can_review: boolean; me: number };
 type Flag = { key: string; title: string; detail: string; tips: string[] };
 type Analysis = { gmv_per_hour_cents: number | null; conversion: number | null; aov_cents: number | null; flags: Flag[] };
 type Figures = { lives: number; reported: number; gmv_cents: number | null; viewers: number | null; orders: number | null; conversion: number | null; avg_watch_sec: number | null };
 type Overview = { month: string; figures: Figures; previous: Figures; latest_report_id: number | null; latest_analysis: Analysis | null; waiting_review: number | null; can_review: boolean };
 type AiUsage = { enabled: boolean; bound: boolean; cap: number; ceiling: number; free_neurons_a_day: number; screenshots: number; neurons: number; refused: number; failed: number; fallback: string | null; manual_entry: boolean; can_set?: boolean; model: string };
-type Project = { id: number; title: string; client: string | null; company: "a2z" | "azoo"; status: string };
+type Project = { id: number; title: string; client: string | null; company: "a2z" | "azoo"; status: string; qt_number?: string | null; inv_number?: string | null };
 type Detail = {
   report: Record<string, number | string | null> & { id: number; state: string; session_id: number; company: string | null };
   session: { id: number; session_date: string; start_time: string; end_time: string | null; platform: string; host_user_id: number; project_id: number | null; unplanned: number } | null;
@@ -104,6 +105,22 @@ function useLoad<T>(path: string | null, tick: number): T | null {
   }, [path, tick]);
   return d;
 }
+
+/* v1.369.0 - the CEO (18-11-2026): every live carries its PLATFORM and its project's DOCUMENT as
+   tags, so staff see at a glance they picked the right live and the right project. The document is
+   the live invoice of the project's quotation when there is one, else the quotation; a live with no
+   project yet is flagged. Words and numbers come from the records (worker DOC_COLS). */
+function PlatformTag({ platform }: { platform: string }) {
+  const tone = platform === "tiktok" ? css.pfTiktok : platform === "shopee" ? css.pfShopee : css.pfOther;
+  return <span className={`${css.tag} ${tone}`} data-testid="live-tag-platform"><AppIcon name="live" />{PLATFORM[platform] ?? platform}</span>;
+}
+function DocTag({ project, qt, inv }: { project: boolean; qt?: string | null; inv?: string | null }) {
+  if (!project) return <span className={`${css.tag} ${css.docNone}`} data-testid="live-tag-doc"><AppIcon name="warning" />{L("No project yet", "Tiada projek lagi")}</span>;
+  if (inv) return <span className={`${css.tag} ${css.docInv}`} data-testid="live-tag-doc" title={L("The project's quotation has been invoiced", "Sebut harga projek telah diinvois")}><AppIcon name="document" />{L("Invoice", "Invois")} {inv}</span>;
+  if (qt) return <span className={`${css.tag} ${css.docQt}`} data-testid="live-tag-doc" title={L("The project's quotation (not invoiced yet)", "Sebut harga projek (belum diinvois)")}><AppIcon name="document" />{L("Quotation", "Sebut harga")} {qt}</span>;
+  return null;
+}
+const docWord = (p: { qt_number?: string | null; inv_number?: string | null }) => (p.inv_number ? ` · ${L("Invoice", "Invois")} ${p.inv_number}` : p.qt_number ? ` · ${L("Quotation", "Sebut harga")} ${p.qt_number}` : "");
 
 function Faces({ people, max = 2 }: { people: Person[]; max?: number }) {
   return (
@@ -180,19 +197,18 @@ export function LiveReports() {
             <>
               <div className={`erp-table-scroll ${css.tableWrap}`}>
               <table className={css.table} data-testid="live-table">
-                <thead><tr><th aria-label={L("Screenshot", "Tangkapan skrin")} /><th>{L("Date & Time", "Tarikh & Masa")}</th><th>{L("Project", "Projek")}</th><th>{L("Platform", "Platform")}</th><th>{L("Participants", "Peserta")}</th><th className={css.r}>GMV</th><th>{L("Status", "Status")}</th><th className={css.r}>{L("Action", "Tindakan")}</th></tr></thead>
+                <thead><tr><th aria-label={L("Screenshot", "Tangkapan skrin")} /><th>{L("Date, Time & Platform", "Tarikh, Masa & Platform")}</th><th>{L("Project", "Projek")}</th><th>{L("Participants", "Peserta")}</th><th className={css.r}>GMV</th><th>{L("Status", "Status")}</th></tr></thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.id} data-testid={`live-row-${r.id}`}>
                       <td><Thumb row={r} /></td>
-                      <td className={css.when}><strong>{dateWord(r.session_date)}</strong><small>{t12(r.start_time)}{r.end_time ? ` - ${t12(r.end_time)}` : ""}</small></td>
+                      <td className={css.when}><strong>{dateWord(r.session_date)}</strong><small>{t12(r.start_time)}{r.end_time ? ` - ${t12(r.end_time)}` : ""}</small><span className={css.chips}><PlatformTag platform={r.platform} /></span></td>
                       <td><strong>{r.project_title ?? r.client_name ?? L("No project yet", "Tiada projek lagi")}</strong>
-                        <span className={css.chips}>{r.company && <span className={companyBadge(r.company)}>{COMPANY[r.company]}</span>}{r.unplanned ? <span className={css.unplanned}>{L("Unplanned", "Tidak dirancang")}</span> : null}</span></td>
-                      <td><span className={css.platform}><AppIcon name="live" />{PLATFORM[r.platform] ?? r.platform}</span></td>
+                        <span className={css.chips}>{r.company && <span className={companyBadge(r.company)}>{COMPANY[r.company]}</span>}<DocTag project={Boolean(r.project_id)} qt={r.qt_number} inv={r.inv_number} />{r.unplanned ? <span className={css.unplanned}>{L("Unplanned", "Tidak dirancang")}</span> : null}</span></td>
                       <td><Faces people={r.participants} /></td>
                       <td className={css.r}><strong>{rm(r.gmv_cents ?? r.draft_gmv_cents)}</strong></td>
-                      <td><span className={STATE[r.state]?.[0] ?? chipSmNeutral}>{stateWord(r.state)}</span></td>
-                      <td className={css.r}><button type="button" className={btnSm} onClick={() => setOpen(r.id)} data-testid={`live-view-${r.id}`}>{L("View", "Lihat")}</button></td>
+                      <td className={css.stateCell}><span className={STATE[r.state]?.[0] ?? chipSmNeutral}>{stateWord(r.state)}</span>
+                        <button type="button" className={btnSm} onClick={() => setOpen(r.id)} data-testid={`live-view-${r.id}`}>{L("View", "Lihat")}</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -205,7 +221,8 @@ export function LiveReports() {
                       <Thumb row={r} />
                       <span className={css.cardText}>
                         <strong>{r.project_title ?? r.client_name ?? L("No project yet", "Tiada projek lagi")}</strong>
-                        <small>{dateWord(r.session_date)} · {t12(r.start_time)} · {PLATFORM[r.platform] ?? r.platform}</small>
+                        <small>{dateWord(r.session_date)} · {t12(r.start_time)}</small>
+                        <span className={css.chips}><PlatformTag platform={r.platform} /><DocTag project={Boolean(r.project_id)} qt={r.qt_number} inv={r.inv_number} /></span>
                         <span className={css.cardFoot}><strong>{rm(r.gmv_cents ?? r.draft_gmv_cents)}</strong><span className={STATE[r.state]?.[0] ?? chipSmNeutral}>{stateWord(r.state)}</span></span>
                       </span>
                     </button>
@@ -227,7 +244,8 @@ export function LiveReports() {
                   <div className={css.latestText}>
                     <strong>{latest.project_title ?? latest.client_name}</strong>
                     {latest.company && <span className={companyBadge(latest.company)}>{COMPANY[latest.company]}</span>}
-                    <small>{dateWord(latest.session_date)} · {PLATFORM[latest.platform] ?? latest.platform}</small>
+                    <small>{dateWord(latest.session_date)}</small>
+                    <span className={css.chips}><PlatformTag platform={latest.platform} /><DocTag project={Boolean(latest.project_id)} qt={latest.qt_number} inv={latest.inv_number} /></span>
                     <span className={css.gmvBox}><small>GMV</small><strong>{rm(latest.gmv_cents)}</strong></span>
                   </div>
                 </div>
@@ -375,7 +393,8 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
             <DrawerPanel icon="live" title={L("Your lives waiting for a report", "Live anda menunggu laporan")} sub={L("Last 30 days", "30 hari lepas")}>
               {openLive.length === 0 ? <p className={css.empty}>{L("None waiting.", "Tiada yang menunggu.")}</p> : (
                 <ul className={css.pick}>{openLive.map((s) => (
-                  <li key={s.id}><span><strong>{dateWord(s.session_date)} · {t12(s.start_time)}</strong><small>{s.project_title ?? s.client_name ?? "-"} · {PLATFORM[s.platform] ?? s.platform}</small></span>
+                  <li key={s.id}><span><strong>{dateWord(s.session_date)} · {t12(s.start_time)}</strong><small>{s.project_title ?? s.client_name ?? "-"}</small>
+                    <span className={css.chips}><PlatformTag platform={s.platform} /><DocTag project={Boolean(s.project_id)} qt={s.qt_number} inv={s.inv_number} /></span></span>
                     <button type="button" className={btnSmAccent} onClick={() => void start(s.id)} data-testid={`live-start-${s.id}`}>{L("Report", "Lapor")}</button></li>
                 ))}</ul>
               )}
@@ -387,7 +406,8 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
                 </select></label>
               {!roster ? <SkelRows rows={2} /> : others.length === 0 ? <p className={css.empty}>{L("No other live on the roster in the last 30 days.", "Tiada live lain dalam roster 30 hari lepas.")}</p> : (
                 <ul className={css.pick}>{others.map((s) => (
-                  <li key={s.id}><span><strong>{dateWord(s.session_date)} · {t12(s.start_time)}</strong><small>{s.project_title ?? s.client_name ?? "-"} · {PLATFORM[s.platform] ?? s.platform} · {L("Host", "Hos")}: {s.host_name}</small></span>
+                  <li key={s.id}><span><strong>{dateWord(s.session_date)} · {t12(s.start_time)}</strong><small>{s.project_title ?? s.client_name ?? "-"} · {L("Host", "Hos")}: {s.host_name}</small>
+                    <span className={css.chips}><PlatformTag platform={s.platform} /><DocTag project={Boolean(s.project_id)} qt={s.qt_number} inv={s.inv_number} /></span></span>
                     <button type="button" className={btnSm} onClick={() => void join(s.id)} data-testid={`live-join-${s.id}`}>{L("I took part", "Saya terlibat")}</button></li>
                 ))}</ul>
               )}
@@ -399,7 +419,7 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
               <label className={css.wide}>{L("Project (active)", "Projek (aktif)")}
                 <select className="erp-input" value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} data-testid="live-u-project">
                   <option value="">{L("Choose a project", "Pilih projek")}</option>
-                  {(projects?.projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.title}{p.client ? ` · ${p.client}` : ""} ({COMPANY[p.company]})</option>)}
+                  {(projects?.projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.title}{p.client ? ` · ${p.client}` : ""} ({COMPANY[p.company]}){docWord(p)}</option>)}
                 </select></label>
               <label>{L("Date", "Tarikh")}<input className="erp-input" type="date" max={today} value={form.session_date} onChange={(e) => setForm({ ...form, session_date: e.target.value })} data-testid="live-u-date" /></label>
               <label>{L("Platform", "Platform")}<select className="erp-input" value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}>
@@ -409,6 +429,9 @@ function NewReport({ open, onClose, openLive, onOpened }: { open: boolean; onClo
               <label>{L("Your role", "Peranan anda")}<select className="erp-input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
                 {Object.entries(ROLE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
             </div>
+            {(() => { const pj = (projects?.projects ?? []).find((p) => String(p.id) === form.project_id); return (
+              <p className={css.check} data-testid="live-u-check"><strong>{L("Check before you record:", "Semak sebelum merekod:")}</strong>
+                <PlatformTag platform={form.platform} /><DocTag project={Boolean(pj)} qt={pj?.qt_number} inv={pj?.inv_number} /></p>); })()}
             {existing && (
               <div className={css.notice} role="alert" data-testid="live-u-existing">
                 <p>{L("This live is already recorded (same project, platform and time). Join it instead of adding another - its GMV is counted once.", "Live ini sudah direkodkan (projek, platform dan masa sama). Sertai sahaja - GMV dikira sekali.")}</p>
@@ -508,10 +531,11 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
             {edit ? (
               <select className="erp-input" value={d.project?.id ?? ""} onChange={(e) => void call("project", `/staff/live-reports/${id}/draft`, "PUT", { project_id: Number(e.target.value) })} data-testid="live-project">
                 <option value="" disabled>{L("Choose the project (required)", "Pilih projek (wajib)")}</option>
-                {(projects?.projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.title}{p.client ? ` · ${p.client}` : ""} ({COMPANY[p.company]})</option>)}
+                {(projects?.projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.title}{p.client ? ` · ${p.client}` : ""} ({COMPANY[p.company]}){docWord(p)}</option>)}
               </select>
             ) : <p>{d.project ? `${d.project.title}${d.project.client ? ` · ${d.project.client}` : ""}` : L("No project", "Tiada projek")}</p>}
             {d.project && <p className="erp-meta">{L("Client", "Pelanggan")}: {d.project.client ?? "-"} · {L("Company", "Syarikat")}: {COMPANY[d.project.company]}</p>}
+            <span className={css.chips} data-testid="live-detail-tags">{s && <PlatformTag platform={s.platform} />}<DocTag project={Boolean(d.project)} qt={d.project?.qt_number} inv={d.project?.inv_number} />{s?.unplanned ? <span className={css.unplanned}>{L("Unplanned", "Tidak dirancang")}</span> : null}</span>
           </Section>
 
           <Section icon="users" title={L("Who took part", "Siapa yang terlibat")}>

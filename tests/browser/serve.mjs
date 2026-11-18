@@ -20,6 +20,7 @@ import { fixture, projectFixture } from "./fixture.mjs";
 const payReleased = new Set(); /* v1.339.0 - PAYHIST */
 import { fa, faRoute, resetFa } from "./fa-fixture.mjs";
 import { partnerRoute, partnerState, resetPartners } from "./partner-fixture.mjs"; // v1.351.0 - the Partner Interest Application
+import { growthRoute, growthState, resetGrowth } from "./growth-fixture.mjs"; // v1.369.0 - the Business Growth Check
 
 /* v1.247.0 - the task email settings as the worker answers them by default (task-mail.ts DEFAULT_SETTINGS) */
 const MAIL_SETTINGS = { enabled: true, triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true }, lead_hours: 24, escalation_days: 2, overdue_days: [1, 3, 7], digest_on: false, digest_time: "08:30", quiet_from: "21:00", quiet_to: "08:00", cap_per_day: 8 };
@@ -131,6 +132,8 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ role: process.env.ROLE ?? "ceo", fa_posts: fa.posts, missing: [...missing], portal_loads: portalLoads, chunk_404s: chunk404s, chunks_broken: chunksBroken, twofa_on: twofaOn, punch_log: punchLog, manual_paid: manualPaid })); return;
   }
+  if (url.pathname === "/__growth-reset") { resetGrowth(); res.writeHead(200, { "content-type": "application/json" }); res.end("{\"ok\":true}"); return; }
+  if (url.pathname === "/__growth") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(growthState())); return; }
   if (url.pathname === "/__partners-reset") { resetPartners(); res.writeHead(200, { "content-type": "application/json" }); res.end("{\"ok\":true}"); return; }
   if (url.pathname === "/__partners") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(partnerState())); return; }
   if (url.pathname === "/__payments") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(pay)); return; }
@@ -211,6 +214,8 @@ const server = http.createServer((req, res) => {
       /* v1.351.0 - the public partner application and Agents -> Requests -> Partner Applications (partner-fixture.mjs) */
       {
         let pb = null; try { pb = body ? JSON.parse(body) : null; } catch { pb = null; }
+        const gr = growthRoute(req.method, p, pb); // v1.369.0
+        if (gr) { res.writeHead(gr.status, { "content-type": "application/json" }); res.end(JSON.stringify(gr.data)); return; }
         const pr = partnerRoute(req.method, p, pb);
         if (pr) { res.writeHead(pr.status, { "content-type": "application/json" }); res.end(JSON.stringify(pr.data)); return; }
       }

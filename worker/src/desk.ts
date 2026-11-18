@@ -44,6 +44,7 @@
  * its topics moves, so the desk is live without polling.
  */
 
+import { growthViewer } from "./growth"; // v1.369.0
 import type { Env } from "./index";
 import { can, canUser, isOwnKey } from "./permissions";
 import { leaveCanActAt } from "./leave-chain";
@@ -52,7 +53,7 @@ import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments"; // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth"; // v1.369.0 growth: Business Growth Check enquiries to pick up or follow up // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -446,6 +447,30 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
           items.push({ ...base, title: `${a.ref} - partner application pre-approved`, sub: "pre-approved by the COO / CCO · final decision", since: a.preapproved_at, overdue: ageDays(a.preapproved_at) > 2, kind: "decide", next: "Approve, return or reject" });
         } else if (a.status === "approved" && approves) {
           items.push({ ...base, title: `${a.ref} - approved partner to activate`, sub: "agreement, Agent access and salesperson", since: a.approved_at, overdue: ageDays(a.approved_at) > 3, kind: "do", next: "Record the agreement, then activate" });
+        }
+      }
+    });
+  }
+  /* v1.369.0 - THE BUSINESS GROWTH CHECK (growth.ts): an unclaimed enquiry to pick up (the website
+     Enquiries people, enquiry_manage), and the ones I own that wait on a first contact or a follow-up
+     that is due. Never for an agent or a customer. The row opens the enquiry itself (Sales ->
+     Customers & Follow-ups -> Business Growth). Read only. */
+  if (growthViewer(user)) {
+    await guard("growth", async () => {
+      const { results } = await env.DB.prepare(
+        `SELECT id, ref, full_name, business_name, source, status, owner_id, created_at, picked_at, first_response_at, next_follow_up_on
+           FROM business_growth_enquiries WHERE status IN ('new', 'assigned', 'contacted', 'problem_identified', 'advice_delivered', 'qualified', 'follow_up')
+            AND (status = 'new' OR owner_id = ?1) ORDER BY id ASC LIMIT 200`,
+      ).bind(user.id).all<{ id: number; ref: string; full_name: string; business_name: string; source: string; status: string; owner_id: number | null; created_at: string; picked_at: string | null; first_response_at: string | null; next_follow_up_on: string | null }>();
+      const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      for (const g of results) {
+        const base = { bucket: "growth" as const, id: `growth:${g.id}`, tab: "Sales", who: g.full_name };
+        if (g.status === "new" && g.owner_id === null) {
+          items.push({ ...base, title: `${g.ref} - ${g.business_name}`, sub: `Business Growth Check · ${g.source} · not picked up`, since: g.created_at, overdue: ageDays(g.created_at) > 4 / 24, kind: "do", next: "Pick it up and contact the entrepreneur" });
+        } else if (g.owner_id === user.id && !g.first_response_at) {
+          items.push({ ...base, title: `${g.ref} - ${g.business_name}`, sub: "Business Growth Check · no contact yet", since: g.picked_at ?? g.created_at, overdue: ageDays(g.picked_at ?? g.created_at) > 1, kind: "do", next: "Contact the entrepreneur and record it" });
+        } else if (g.owner_id === user.id && g.next_follow_up_on && g.next_follow_up_on <= today) {
+          items.push({ ...base, title: `${g.ref} - ${g.business_name}`, sub: `Business Growth Check · follow-up ${dmy(g.next_follow_up_on)}`, since: g.next_follow_up_on, overdue: g.next_follow_up_on < today, kind: "do", next: "Follow up and record it" });
         }
       }
     });

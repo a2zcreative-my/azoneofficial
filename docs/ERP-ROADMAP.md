@@ -553,3 +553,8 @@ additive only - a project and an Unplanned flag on a roster live, who took
 part in it, the eight extra staff-confirmed figures on a report's draft and
 versions, the append-only screenshot AI readings and the AI's daily budget.
 Reported GMV stays outside every money, pay and commission table.
+1.369.0 (Business Growth Check, the CEO 18-11-2026) adds `0211_business_growth`:
+additive only - the public check's enquiries and their append-only history.
+An enquiry never creates a user, a customer or a sales document; a paid
+solution goes through the existing quotation, acceptance, invoice and the
+CEO's payment verification, which the enquiry only reads.

@@ -4,6 +4,8 @@ INSERT OR IGNORE INTO customers (id, company, created_at) VALUES (501, 'ELFIA Of
 INSERT OR IGNORE INTO sales_documents (id, doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents, created_at, delivery_cents, revision, issuer_code)
   VALUES (601, 'QT', 'QT-TEST-601', 501, '[]', 0, 0, 100000, datetime('now'), 0, 0, 'a2z'),
          (602, 'QT', 'QT-TEST-602', 502, '[]', 0, 0, 100000, datetime('now'), 0, 0, NULL);
+-- v1.369.0 - 601 is invoiced (603, the tag says Invoice); 602's only invoice is voided (604, the tag stays Quotation)
+INSERT OR IGNORE INTO sales_documents (id, doc_type, doc_number, customer_id, items, discount_cents, tax_percent, total_cents, created_at, delivery_cents, revision, issuer_code, converted_from, payment_status) VALUES (603, 'INV', 'INV-TEST-603', 501, '[]', 0, 0, 100000, datetime('now'), 0, 0, 'a2z', 601, 'unpaid'), (604, 'INV', 'INV-TEST-604', 502, '[]', 0, 0, 100000, datetime('now'), 0, 0, NULL, 602, 'void');
 INSERT OR IGNORE INTO projects (id, quotation_id, customer_id, status, title, version, created_at, updated_at)
   VALUES (701, 601, 501, 'in_progress', 'ELFIA Official - Live Selling', 1, datetime('now'), datetime('now')),
          (702, 602, 502, 'in_progress', 'AZ ONE Financing - Live', 1, datetime('now'), datetime('now')),

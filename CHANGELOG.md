@@ -10,6 +10,38 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - Add main pushes to the existing browser workflow, whose PR/manual-only triggers left the direct main release push without a run. This trigger change is local and does not deploy or change branch/deployment protection.
 - Reconcile Claude's handoff and supporting Markdown with the committed/released baseline. First Linux browser execution and production recovery testing remain pending.
 
+## [1.370.0] - 2026-11-18 - Live Reports: platform and document tags - BUILT, NOT DEPLOYED (NO MIGRATION)
+
+The CEO (18-11-2026): "if it is TikTok then it is tagging to make sure that my staff didnt do it wrongly and at the same time if it is project belong to Quotation or Invoice then need also tagging".
+
+### Added
+- **Every live carries two tags**: its platform (TikTok dark, Shopee Live orange, Other grey) and its project's document - **Invoice INV-...** (green) when the project's quotation has a live invoice, otherwise **Quotation QT-...** (blue); a voided invoice never counts. A live with no project yet shows **No project yet** (red).
+- The tags show in the reports table (the platform under the date and time), the phone cards, the latest live, the report itself, both New Report lists, and the project picker's wording.
+- **Unplanned live: "Check before you record"** shows the chosen platform and project document before the live is added to the roster.
+
+### Changed
+- The reports table lost its separate Platform and Action columns (the tag sits under the date; View sits under the status), so it fits a 1440px screen without scrolling sideways.
+
+### Guards
+- `live-reports-v2` +4 checks, +1 mutation (a voided invoice tagged). `live-e2e` +2 (invoiced project, voided invoice), `live-reports.py` +2 (the check line, the report's tags).
+
+## [1.369.0] - 2026-11-18 - The A2Z Business Growth Check - BUILT, NOT DEPLOYED (MIGRATION 0211)
+
+The CEO's brief "A2Z Business Growth Check" with his three step pictures and the Sales Customers & Follow-ups picture; the style is /apply/partner. His answers: who sees = the same people as website Enquiries; a second check from the same WhatsApp is added to the open enquiry; reminders at 4 / 24 / 48 hours.
+
+### Added
+- **Public form `/apply/business`** - "Kenal Pasti Cabaran Bisnes Anda — Semakan Awal PERCUMA", no sign-in, BM first with EN, three steps on the partner page's stylesheet. Step 1: name, WhatsApp, business / brand, industry, city, state (required); email and social / website (optional); twelve discovery sources; the campaign's utm_* kept separately, with the referrer and landing page. Step 2: up to three challenges, the most urgent problem, the 90-day goal, the platforms in use, optional improvement interests. No budget question. Step 3: contact method and time; two separate required consents (contact; the A2Z Privacy Notice) and one optional marketing consent, unticked; the free review, possible suggestions, never mandatory, a separate quotation and acceptance, no guaranteed result. Button "Hantar untuk Semakan Percuma".
+- **One record** - `business_growth_enquiries` with a `BG-` reference: validated again on the server, Cloudflare's bot check (`growth_check`), 10 per hour per connection, retry-safe by the browser's key. The consent evidence keeps the notice version (2026-07-24), the time and a hash of the address, never the address. It never creates an account, a customer or a sales document. The same WhatsApp while an enquiry is open is added to it as a "submitted again" event and its owner is told.
+- **Sales -> Customers & Follow-ups -> Business Growth** - a tab in the existing row (no new module or sidebar item) for the website Enquiries people (`enquiry_manage`): the connected KPI strip, the list beside the selected enquiry, Analytics. Pick Up (one owner, a second is refused), WhatsApp Usahawan (wa.me with the CEO's message prefilled - opening it is not a record), Record contact (reached or not), Add Note and the next follow-up, Problem identified, Free advice given, Outcome (Qualified / Follow-Up / Not Interested, with the reason), Give to and Hand back for management (`exec_view`). Qualified offers Create quotation (the normal Sales form, prefilled, reference = the BG number) and Link quotation.
+- **Analytics from records only** - sources, common challenges, first-response time (median and average), free assessments completed, qualified leads, quotations linked and accepted, CEO-verified sales (a live paid confirmation on the quotation's invoice).
+- **Bell and Desk** - the bell (`growth:<id>`) and the Desk's Business Growth Check bucket open the exact enquiry. Hourly pass: unpicked after 4 h -> the team, the owner at 24 h, management at 48 h, once a day each.
+
+### Migration
+- `0211_business_growth` (additive): `business_growth_enquiries`, `business_growth_events` (append-only; an enquiry cannot be deleted).
+
+### Guards
+- New `tests/business-growth.mjs` (90 checks, 12 mutations). Browser: `tests/browser/business-growth.py` (82 checks, screenshots). attendance4 / hr4 / staff4 accept 0211.
+
 ## [1.368.0] - 2026-11-18 - Live Reports: one report per live, any staff who took part - BUILT, NOT DEPLOYED (MIGRATION 0210, NEW AI BINDING)
 
 The CEO's directive "A2Z OS - Live Reports Audit Revision 18 Nov 2026" and his picture ("Follow exactly the photo and the prompt"); decisions C1 (inside Roster & Scheduling), C2 (AI use in the existing System health), C3 (one review by the CEO, COO or CCO who did not take part). Audit: claude/LIVE-REPORTS-AUDIT-REV-18NOV.md.

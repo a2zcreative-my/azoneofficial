@@ -109,14 +109,16 @@ export function DocsMore({ items }: { items: { key: string; label: string; on: b
 }
 
 /** Customers & Follow-ups: one filter at a time, with the counts of what is there */
-export type CustFilter = "action" | "enquiries" | "followups" | "all" | "board";
-export function CustomerFilterBar({ value, onChange, counts, scopeSwitch }: { value: CustFilter; onChange: (f: CustFilter) => void; counts: Record<Exclude<CustFilter, "board">, number> | null; scopeSwitch: ReactNode }) {
-  const items: [CustFilter, string][] = [["action", L("Needs Action", "Perlu Tindakan")], ["enquiries", L("Enquiries", "Pertanyaan")], ["followups", L("Follow-ups", "Susulan")], ["all", L("All Customers", "Semua Pelanggan")], ["board", L("Board", "Papan")]];
+export type CustFilter = "action" | "enquiries" | "growth" | "followups" | "all" | "board"; // v1.369.0 growth: the Business Growth Check
+export function CustomerFilterBar({ value, onChange, counts, scopeSwitch, growth = false }: { value: CustFilter; onChange: (f: CustFilter) => void; counts: Record<Exclude<CustFilter, "board" | "growth">, number> & { growth?: number } | null; scopeSwitch: ReactNode;
+  /** v1.369.0 - the Business Growth Check is drawn for the website Enquiries people only (the server checks again) */
+  growth?: boolean }) {
+  const items: [CustFilter, string][] = [["action", L("Needs Action", "Perlu Tindakan")], ["enquiries", L("Enquiries", "Pertanyaan")], ...(growth ? [["growth", L("Business Growth", "Pertumbuhan Bisnes")] as [CustFilter, string]] : []), ["followups", L("Follow-ups", "Susulan")], ["all", L("All Customers", "Semua Pelanggan")], ["board", L("Board", "Papan")]];
   return (
     <div className={css.customerFilters}>
       {/* v1.324.0 (Global UI System D-2) - the one tab row; the scope switch sits at its right end */}
       <LineTabs label={L("Customers and follow-ups", "Pelanggan dan susulan")} value={value} onChange={onChange} testid="cust"
-        tabs={items.map(([k, label]) => [k, `${label}${counts && k !== "board" ? ` (${counts[k]})` : ""}`] as const)} aside={scopeSwitch} />
+        tabs={items.map(([k, label]) => [k, `${label}${counts && k !== "board" && counts[k as keyof typeof counts] != null ? ` (${counts[k as keyof typeof counts]})` : ""}`] as const)} aside={scopeSwitch} />
     </div>
   );
 }

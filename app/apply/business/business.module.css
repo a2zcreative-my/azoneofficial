@@ -1,0 +1,14 @@
+/* v1.369.0 - the Business Growth Check wears the Partner Interest Application's
+   stylesheet (../partner/partner.module.css); this adds only what that form does
+   not ask: an "optional" word, the three-challenge counter, a chip that is full,
+   and the "what to expect" list. Global tokens only. */
+
+.opt { color: var(--muted-foreground); font-weight: 400; font-size: var(--type-caption-size); }
+.count { margin-inline-start: 0.5rem; color: var(--muted-foreground); font-weight: 500; font-size: var(--type-caption-size); }
+
+/* a chip that cannot be chosen because three are already chosen */
+.full { opacity: 0.45; cursor: not-allowed; }
+
+.expect { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+.expect > li { display: grid; grid-template-columns: 1.125rem minmax(0, 1fr); gap: 0.5rem; align-items: start; font-size: var(--type-body-sm-size); color: var(--foreground); }
+.expect > li > svg { inline-size: 1.125rem; block-size: 1.125rem; color: var(--success); margin-block-start: 0.0625rem; }

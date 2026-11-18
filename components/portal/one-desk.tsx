@@ -56,7 +56,7 @@ import css from "./one-desk.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments"; // v1.351.0 partners; v1.365.0 payments to verify
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth"; // v1.351.0 partners; v1.365.0 payments to verify; v1.369.0 Business Growth Check
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
@@ -90,6 +90,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   advisory: ["DSR assessments to review", "Penilaian DSR untuk disemak"], // v1.288.0
   partners: ["Partner applications", "Permohonan rakan kongsi"], // v1.351.0
   payments: ["Payments to verify", "Bayaran untuk disahkan"], // v1.365.0
+  growth: ["Business Growth Check", "Semakan Pertumbuhan Bisnes"], // v1.369.0
 };
 
 /** v1.291.0 - the module a Desk item comes from, in words (the Dashboard's decision queue) */
@@ -122,7 +123,7 @@ export function waited(since: string | null): string {
 export function useDeskData() {
   /* the topics every bucket can move on - a write anywhere here refetches */
   return useCachedApi<DeskData>("/staff/desk", true,
-    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes", "partner-applications"]); // v1.351.0 - a new or moved partner application
+    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes", "partner-applications", "business-growth"]); // v1.351.0 - a new or moved partner application; v1.369.0 - a Business Growth enquiry
 }
 
 /** The three lists the surfaces need, split once so they cannot drift apart. */

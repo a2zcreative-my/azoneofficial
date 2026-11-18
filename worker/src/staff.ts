@@ -21,6 +21,7 @@ import { handleProjects, projectTaskGate, taskProject, ensureProject } from "./p
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
 import { handlePartners } from "./partners"; // v1.351.0
+import { handleGrowth } from "./growth"; // v1.369.0
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
@@ -3170,6 +3171,12 @@ async function handleStaffRoutes(
   if (path === "/projects" || path.startsWith("/projects/")) {
     const pj = await handleProjects(env, path, method, body, user, new URL(request.url).searchParams, request);
     if (pj) return pj;
+  }
+
+  /* ---- v1.369.0 the Business Growth Check (growth.ts): Sales -> Customers & Follow-ups -> Business Growth ---- */
+  if (path === "/business-growth" || path.startsWith("/business-growth/")) {
+    const bg = await handleGrowth(env, path, method, body, user);
+    if (bg) return bg;
   }
 
   /* ---- v1.351.0 partner interest applications (partners.ts): Agents -> Requests -> Partner Applications ---- */

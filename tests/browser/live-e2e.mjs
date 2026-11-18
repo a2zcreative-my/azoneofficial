@@ -158,6 +158,11 @@ ok("an agent cannot read the overview", (await api("agent", "GET", "/live-report
 ok("an agent cannot open a screenshot", (await api("agent", "GET", `/live-reports/${rid}/files/${fid}`)).status === 403);
 ok("a reviewer opens a screenshot", (await api("coo", "GET", `/live-reports/${rid}/files/${fid}`)).status === 200);
 ok("staff outside the live cannot open its screenshot", (await api("designer", "GET", `/live-reports/${mk.d.id}/files/${fid}`)).status === 403);
+/* v1.369.0 - the document tag: the live invoice of the project's quotation, else the quotation (a voided invoice never counts) */
+{ const pr = (await api("sales", "GET", "/live-reports/projects")).d?.projects ?? [];
+  const a = pr.find((x) => x.id === 701), b = pr.find((x) => x.id === 702);
+  ok("an invoiced project is tagged with its invoice", a?.inv_number === "INV-TEST-603" && a?.qt_number === "QT-TEST-601", JSON.stringify(a));
+  ok("a project whose only invoice is voided is tagged with its quotation", b?.inv_number === null && b?.qt_number === "QT-TEST-602", JSON.stringify(b)); }
 /* v1.368.0 - the drawer's "a live you performed but are not listed in" read */
 { const mine = await api("sales", "GET", "/live-reports/recent-lives"), other = await api("coo", "GET", "/live-reports/recent-lives");
   ok("recent lives leaves out the lives you are already on", mine.status === 200 && !mine.d.sessions.some((x) => x.id === 801), JSON.stringify(mine.d).slice(0, 200));

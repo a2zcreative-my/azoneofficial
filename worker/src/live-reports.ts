@@ -117,15 +117,20 @@ async function staffOk(env: Env, userId: number): Promise<{ name: string } | nul
   ).bind(userId).first<{ name: string }>();
 }
 /** an ACTIVE project and what follows from it: the client and the company (the quotation's issuer) */
-async function projectOf(env: Env, id: number): Promise<{ id: number; title: string; client: string | null; company: "a2z" | "azoo"; status: string } | null> {
+/** v1.369.0 - the project's sales document, for the tag staff check before they report: the live
+    invoice of its quotation when there is one (never a voided one), else the quotation itself. */
+const DOC_COLS = (pj: string) => `(SELECT q.doc_number FROM sales_documents q WHERE q.id = ${pj}.quotation_id) AS qt_number,
+  (SELECT i.doc_number FROM sales_documents i WHERE i.doc_type = 'INV' AND i.converted_from = ${pj}.quotation_id AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS inv_number`;
+type DocNums = { qt_number: string | null; inv_number: string | null };
+async function projectOf(env: Env, id: number): Promise<({ id: number; title: string; client: string | null; company: "a2z" | "azoo"; status: string } & DocNums) | null> {
   const p = await env.DB.prepare(
-    `SELECT p.id, p.title, p.status, c.company AS client, d.issuer_code
+    `SELECT p.id, p.title, p.status, c.company AS client, d.issuer_code, ${DOC_COLS("p")}
        FROM projects p LEFT JOIN customers c ON c.id = p.customer_id LEFT JOIN sales_documents d ON d.id = p.quotation_id
       WHERE p.id = ?1`,
-  ).bind(id).first<{ id: number; title: string; status: string; client: string | null; issuer_code: string | null }>();
+  ).bind(id).first<{ id: number; title: string; status: string; client: string | null; issuer_code: string | null } & DocNums>();
   if (!p) return null;
   /* 0073: a NULL issuer is a legacy document of AZ ONE OFFICIAL */
-  return { id: p.id, title: p.title, client: p.client, status: p.status, company: p.issuer_code === "a2z" ? "a2z" : "azoo" };
+  return { id: p.id, title: p.title, client: p.client, status: p.status, company: p.issuer_code === "a2z" ? "a2z" : "azoo", qt_number: p.qt_number, inv_number: p.inv_number };
 }
 const ACTIVE_PROJECT = ["draft", "ready", "in_progress", "waiting_client", "on_hold"];
 /** The reviewers to tell: the CEO, COO and CCO on staff who did NOT take part. */
@@ -361,11 +366,11 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
     /* ---------------- pickers: active projects, staff who may take part ---------------- */
     if (path === "/live-reports/projects" && method === "GET") {
       const rows = (await env.DB.prepare(
-        `SELECT p.id, p.title, p.status, c.company AS client, d.issuer_code
+        `SELECT p.id, p.title, p.status, c.company AS client, d.issuer_code, ${DOC_COLS("p")}
            FROM projects p LEFT JOIN customers c ON c.id = p.customer_id LEFT JOIN sales_documents d ON d.id = p.quotation_id
           WHERE p.status IN (${ACTIVE_PROJECT.map((s) => `'${s}'`).join(", ")}) ORDER BY p.title COLLATE NOCASE LIMIT 300`,
-      ).all<{ id: number; title: string; status: string; client: string | null; issuer_code: string | null }>()).results ?? [];
-      return json({ projects: rows.map((p) => ({ id: p.id, title: p.title, status: p.status, client: p.client, company: p.issuer_code === "a2z" ? "a2z" : "azoo" })) });
+      ).all<{ id: number; title: string; status: string; client: string | null; issuer_code: string | null } & DocNums>()).results ?? [];
+      return json({ projects: rows.map((p) => ({ id: p.id, title: p.title, status: p.status, client: p.client, company: p.issuer_code === "a2z" ? "a2z" : "azoo", qt_number: p.qt_number, inv_number: p.inv_number })) });
     }
     if (path === "/live-reports/people" && method === "GET") {
       const rows = (await env.DB.prepare(
@@ -379,7 +384,7 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
        assistant or salesperson who took part can add themselves (the roster read shows staff only their own) */
     if (path === "/live-reports/recent-lives" && method === "GET") {
       const rows = (await env.DB.prepare(
-        `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.unplanned, pj.title AS project_title,
+        `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.unplanned, pj.title AS project_title, ${DOC_COLS("pj")},
                 COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS host_name
            FROM live_sessions s JOIN users u ON u.id = s.host_user_id LEFT JOIN projects pj ON pj.id = s.project_id
           WHERE s.status != 'cancelled' AND s.session_date <= ?2 AND s.session_date >= date(?2, '-30 days')
@@ -425,7 +430,7 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       const reports = (await env.DB.prepare(
         `SELECT r.*, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.project_id, s.unplanned,
                 COALESCE(NULLIF(TRIM(h.full_name), ''), h.name) AS host_name,
-                pj.title AS project_title, cu.company AS project_client,
+                pj.title AS project_title, cu.company AS project_client, ${DOC_COLS("pj")},
                 v.gmv_cents, v.duration_min, v.viewers, v.orders, v.highlights, v.blockers, v.next_actions, v.submitted_at,
                 (SELECT COUNT(*) FROM live_report_files f WHERE f.report_id = r.id AND (f.version = r.current_version OR (f.version IS NULL AND r.state IN ('draft', 'returned')))) AS file_count,
                 (SELECT MIN(f.id) FROM live_report_files f WHERE f.report_id = r.id) AS thumb_file_id
@@ -446,7 +451,7 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       }
       /* the lives you took part in (last 30 days, not cancelled) that have no report yet */
       const open = (await env.DB.prepare(
-        `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.status, s.project_id, s.unplanned, pj.title AS project_title
+        `SELECT s.id, s.session_date, s.start_time, s.end_time, s.platform, s.client_name, s.status, s.project_id, s.unplanned, pj.title AS project_title, ${DOC_COLS("pj")}
            FROM live_sessions s LEFT JOIN projects pj ON pj.id = s.project_id
           WHERE s.status != 'cancelled' AND s.session_date <= ?2 AND s.session_date >= date(?2, '-30 days')
             AND ${tookPart(1)}

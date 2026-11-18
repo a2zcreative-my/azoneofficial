@@ -39,6 +39,7 @@ export const TAB_OF_KIND: Record<string, TabName> = {
   project: "Tasks", // v1.245.0 - a project bell (proj:<id>:...) opens the project in Tasks > Projects
   partner: "Agents", // v1.351.0 - a partner application bell (partner:<id>:...) opens it in Agents > Requests
   payment_report: "Sales", // v1.365.0 - a payment to verify (pay_report:<id>:...) opens its invoice in Sales > Payments
+  growth: "Sales", // v1.369.0 - a Business Growth Check bell (growth:<id>:...) opens the enquiry in Sales > Customers & Follow-ups
 };
 
 /** The record a notification or Desk `ref` names, or null when it names a
@@ -48,7 +49,7 @@ export const TAB_OF_KIND: Record<string, TabName> = {
 export function recordOfRef(ref: string | null | undefined): { kind: string; id: number } | null {
   if (!ref) return null;
   /* v1.220.0 - staff:<id>: a request to update someone's responsibilities opens that person on the Staff tab */
-  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff|proj|partner|pay_report):(\d+)(?::|$)/.exec(ref);
+  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff|proj|partner|pay_report|growth):(\d+)(?::|$)/.exec(ref);
   if (!m) return null;
   const id = Number(m[2]);
   if (!Number.isFinite(id) || id <= 0) return null;
