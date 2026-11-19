@@ -292,6 +292,9 @@ function checks(s) {
   t(/"portfolios"/.test(s.dir) && /data-testid="peek-portfolio"/.test(s.dir), "Staff has a Portfolios view and a Portfolio action on the profile");
   t(/const writer = manage \|\| isOwn\(p, s, user\);/.test(s.pf) && /isOwn = \(p: \{ user_id: number \}, s: \{ current: number \} \| null, user: StaffUser\) => p\.user_id === user\.id && Boolean\(s\?\.current\)/.test(s.pf), "self (v1.390.0): a person writes only their OWN portfolio, while on staff");
   t(/rest === "\/publish" && method === "POST"\) \{\n\s*if \(!publish\)/.test(s.pf) && /rest === "\/unpublish" && method === "POST"\) \{\n\s*if \(!publish\)/.test(s.pf), "self: publishing and unpublishing stay the approver's");
+  t(/<dialog ref=\{sheet\}/.test(s.page) && /data-testid="portfolio-dock"/.test(s.page) && /data-testid="portfolio-form"/.test(s.page) && /\/public\/portfolio\/\$\{slug\}\/enquiry/.test(s.page), "v1.391.0 page: an inline enquiry card on a wide screen, a sticky dock and a native sheet on a phone, the same enquiry route");
+  t(/const email = p\.email \?\? A2Z_CREATIVE\.email;/.test(s.page) && !/CONTACT\.email/.test(s.page), "v1.391.0 page: with no approved email it shows A2Z Creative Marketing's own, never another company's");
+  t(!/portfolio-card/.test(s.page), "v1.391.0 page: the public page does not draw or change the card (PNG / PDF stay in lib/portfolio-card.ts)");
   t(/data-testid="my-portfolio-create"/.test(s.mine) && /data-testid="my-portfolio-edit"/.test(s.mine) && /PortfolioEditor/.test(s.mine) && /data-testid="pf-submit"/.test(s.studio), "self: Profile offers Create / Edit my portfolio with the one editor, and Send for approval");
   return out;
 }
