@@ -26,6 +26,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
+import { Avatar } from "@/components/ui/avatar";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { PillSwitch } from "@/components/ui/panel";
 import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
@@ -60,7 +61,9 @@ const SHORT: Record<CompanyCode, string> = { a2z: "A2Z", azoo: "AZ ONE" };
 const SHORT_NAME: Record<CompanyCode, string> = { a2z: "A2Z Creative Marketing", azoo: "AZ One Official" };
 /* 19-11-2026 - THE DIRECTORS, as the CEO stated them ("CEO is the Director
    for A2Z Creative Marketing, while AZ ONE OFFICIAL CEO is Managing Director
-   while COO is Director (partnership)"). Legal appointments are kept like the
+   while COO is Director (partnership)"); the CCO, Mohamad Izzudin, is the
+   third director and partner of AZ ONE OFFICIAL, as the CEO stated when he
+   was admitted (Aug 2026; the CEO pointed out the missing seat 19-11-2026). Legal appointments are kept like the
    letterhead: here, changed only by an approved release, never on screen.
    Each appointment names the ROLE that holds it; the person shown is read
    from the live staff list, so a change of holder needs no code change. */
@@ -72,6 +75,7 @@ const DIRECTORS: Record<CompanyCode, { form: { en: string; ms: string }; seats: 
   azoo: { form: { en: "Partnership", ms: "Perkongsian" }, seats: [
     { role: "ceo", title: { en: "Managing Director", ms: "Pengarah Urusan" }, partner: true },
     { role: "coo", title: { en: "Director", ms: "Pengarah" }, partner: true },
+    { role: "cco", title: { en: "Director", ms: "Pengarah" }, partner: true },
   ] },
 };
 const last4 = (t: string) => t.replace(/\D/g, "").slice(-4);
@@ -116,7 +120,9 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
   const owner = useRead<Owner>(view === "ownership" || view === "overview" ? "/staff/owner" : null);
   const signing = useRead<Signing>(view === "ownership" ? "/staff/signing/overview" : null);
   const staffList = useRead<{ staff: { id: number; name: string; role: string; position: string | null }[] }>(view === "ownership" ? "/staff/staff-list" : null);
-  const holderOf = (r: string) => staffList?.d?.staff.find((p) => p.role === r) ?? null;
+  /* The longest-serving holder of the role (lowest id): a later account given
+     the same role - a testing account - never takes the director's seat. */
+  const holderOf = (r: string) => (staffList?.d?.staff ?? []).filter((p) => p.role === r).sort((a, b) => a.id - b.id)[0] ?? null;
 
   const members = (co: CompanyCode) => reviewStaff?.d?.staff.filter((s) => s.is_active && s.memberships.some((m) => m.company_code === co)).length ?? null;
   const banks = (co: CompanyCode) => cash[co]?.d ? cash[co]!.d!.banks.filter((b) => b.active && b.company === co).length : null;
@@ -223,7 +229,7 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
             {!owner ? <SkelRows rows={2} /> : owner.refused ? <p className={css.meta}>{L("Your role does not read the owner record.", "Peranan anda tidak membaca rekod pemilik.")}</p>
               : !owner.d?.owner ? <p className={css.meta} data-testid="owner-none">{L("No company owner is designated yet.", "Belum ada pemilik syarikat ditetapkan.")}</p>
               : <div className={css.ownerRow} data-testid="owner-row">
-                  <span className={css.avatar} aria-hidden="true">{owner.d.owner.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("")}</span>
+                  <Avatar name={owner.d.owner.name} size="lg" />
                   <span><strong>{owner.d.owner.name}</strong><span className={css.meta}>{L(`Designated ${owner.d.owner.set_at ? dmy(String(owner.d.owner.set_at).slice(0, 10)) : ""}${owner.d.owner.set_by_name ? ` by ${owner.d.owner.set_by_name}` : ""}`, `Ditetapkan ${owner.d.owner.set_at ? dmy(String(owner.d.owner.set_at).slice(0, 10)) : ""}${owner.d.owner.set_by_name ? ` oleh ${owner.d.owner.set_by_name}` : ""}`)}</span></span>
                   <span className={owner.d.owner.verified ? chipSuccess : chipWarn}>{owner.d.owner.verified ? L("Verified", "Disahkan") : L("Not verified", "Belum disahkan")}</span>
                 </div>}
@@ -256,7 +262,7 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
                 {!staffList ? <SkelRows rows={2} /> : (
                   <ul className={css.people}>{DIRECTORS[co].seats.map((a) => { const p = holderOf(a.role); return (
                     <li key={a.role}>
-                      <span className={css.avatar} aria-hidden="true">{(p?.name ?? roleLabel(a.role)).split(/\s+/).slice(0, 2).map((w) => w[0]).join("")}</span>
+                      {p ? <Avatar name={p.name} userId={p.id} size="lg" /> : <Avatar name={roleLabel(a.role)} photoKey={null} size="lg" />}
                       <span className={css.personName}><strong>{p?.name ?? (staffList.refused ? roleLabel(a.role) : L("Not on the staff list", "Tiada dalam senarai staf"))}</strong><span className={css.meta}>{roleLabel(a.role)}</span></span>
                       <span className={chipInfo}>{L(a.title.en, a.title.ms)}</span>
                       {a.partner && <span className={chipNeutral}>{L("Partner", "Rakan kongsi")}</span>}

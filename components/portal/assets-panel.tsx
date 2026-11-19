@@ -57,6 +57,7 @@ import { buildAssetReportPdf } from "@/lib/asset-report-pdf";
 import { downloadPdf } from "@/lib/fa-agreement";
 import { CustodyPanel, CustodyQueue, MyAssets } from "./asset-custody"; // v1.304.0 - phase 2: custody
 import { CareBoard, CarePanel, eventLabel, eventText, type CareEvent } from "./asset-care"; // v1.305.0 - phase 3: maintenance and disposal
+import { AssetLabel } from "./asset-label"; // 19-11-2026 - the QR label inside the asset drawer
 import av from "./assets-page.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -1304,6 +1305,7 @@ export function AssetsPanel({ focus, startView }: { focus?: RecordFocus | null; 
               </span>
             ) : undefined}>
             <div className={av.detail} data-record={`asset:${a.id}`}>
+              <AssetLabel asset={a} company={a.issuer_code && COMPANY[a.issuer_code] ? COMPANY[a.issuer_code]! : null} />
               <section className={av.detailSec} aria-label={L("Basic information", "Maklumat asas")}>
                 <p className={av.title}>{L("Basic information", "Maklumat asas")}</p>
                 <dl className={av.facts}>

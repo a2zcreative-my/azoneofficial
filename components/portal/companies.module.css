@@ -69,7 +69,6 @@
 
 .ownerRow { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .ownerRow > span:nth-child(2) { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.avatar { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-full); background: var(--secondary); color: var(--foreground); font-weight: 600; font-size: var(--type-caption-size); flex: none; }
 .people { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .people > li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem var(--space-2); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); font-size: var(--type-body-sm-size); }
 .people > li:last-child { border-bottom: 0; }

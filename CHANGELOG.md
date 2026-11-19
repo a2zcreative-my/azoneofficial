@@ -4,6 +4,13 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Assets: a QR label in the asset's details, ready to print (19-11-2026, the CEO) - NO MIGRATION
+- The CEO: "a QR code for the asset which is easier for me to print and paste it to the physical. this QR must visible on the card details instead of outside". The asset drawer now opens with a QR label (components/portal/asset-label.tsx): the code, the asset tag and a Print label button. Nothing changes on the register rows.
+- The code holds only the link `/portal?tab=Assets&asset=<id>` - never the price, the holder or the serial. Scanning it with a phone camera opens that asset's drawer after the usual sign-in (portal-provider deep link, the same focus a search hit uses); who may see the asset is still the server's rule.
+- Print label prints one 70 x 35 mm label (code, company, tag, name) from a hidden frame - cut it out or print onto a sticker sheet.
+- The QR is drawn by lib/qr.ts (QR Model 2, byte mode, error correction M, after Project Nayuki's reference generator): no package added, no network call.
+- Guard: new `asset-qr` (14 checks; the encoder's output was checked with OpenCV's QR reader).
+
 ### Live Reports: the AI fills the figures it reads; staff type only the rest (19-11-2026, the CEO) - NO MIGRATION
 - The CEO: "Duration, AI read 60, but the textbox appear 1 ... Manual filled should only the textbox that AI doesnt filled". Supersedes v1.386.0's "fill only EMPTY boxes, never over a typed figure", which is why a typed 1 stayed beside an AI reading of 60.
 - A reading writes every figure it read into the draft (`aiFilled` / `aiFillStatement` in worker/src/live-reports.ts; the newest reading of this submission's screenshots wins per figure). The draft refuses a different value for one of them (409 `ai_filled`); submit writes them again before the version freezes, so a draft typed before this change is corrected when it is submitted.
