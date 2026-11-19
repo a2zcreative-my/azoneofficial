@@ -63,18 +63,25 @@ for (const r of ["coo", "cco", "sales_marketing", "live_host", "marketing", "edi
 }
 ok("hr_manage is untouched (the CEO's other staff fields keep their rule)", /hr_manage: \["super_admin", "admin", "hr_admin", "ceo"\],/.test(perms));
 
-/* ---- 2. its own door, no lock ---- */
-const route = staff.slice(staff.indexOf('const respRoute = path.match(/^\\/users\\/(\\d+)\\/responsibilities$/);'), staff.indexOf('const reportsTo = path.match('));
-ok("the route exists, PUT or PATCH on /users/:id/responsibilities", route.length > 200 && /if \(respRoute && \(method === "PUT" \|\| method === "PATCH"\)\)/.test(route));
-ok("the route is behind responsibilities_edit", /if \(!canUser\(user, "responsibilities_edit"\)\)/.test(route));
-ok("working staff only - a leaver's record is refused with 409", /if \(!person\.is_active\) return err\("inactive", [^,]+, 409\);/.test(route));
-ok("customers are not staff", /AND role <> 'customer'/.test(route));
-ok("the title is capped at 120, each line at 200, the list at 30", /\.slice\(0, 120\)/.test(route) && /l\.length > 200/.test(route) && /lines\.length > 30/.test(route));
-ok("blank lines and leading bullets are dropped, the same rule the client previews", /\.map\(\(l\) => l\.replace\(\/\^\\s\*\[-•\*\]\\s\*\/, ""\)\.trim\(\)\)\.filter\(Boolean\)/.test(route)
-   && /\.map\(\(l\) => l\.replace\(\/\^\\s\*\[-•\*\]\\s\*\/, ""\)\.trim\(\)\)\.filter\(Boolean\)/.test(block));
-ok("the whole text is written each time, with who and when", /UPDATE users SET role_title = \?1, responsibilities = \?2, responsibilities_updated_at = datetime\('now'\), responsibilities_updated_by = \?3 WHERE id = \?4/.test(route));
-ok("the change is audited with the text before and after", /audit\(env, user\.id, "staff\.responsibilities_update", "users", String\(id\), \{[\s\S]*?role_title_before[\s\S]*?responsibilities_after/.test(route));
-ok("a missing 0137 is a 503 that names the migration, never a 500", /err\("migration_pending", "Roles and responsibilities need migration 0137/.test(route));
+/* ---- 2. its own door, no lock ----
+   v1.388.0 (0215): the write moved to worker/src/responsibilities.ts, where the
+   list is a set of records; the same promises are held there (and run for real
+   in tests/responsibility-records.mjs). */
+const resp = read("worker/src/responsibilities.ts");
+const route = resp.slice(resp.indexOf('if (person && (method === "PUT" || method === "PATCH"))'), resp.indexOf("/* ---------------- the portfolio"));
+ok("the route exists, PUT or PATCH on /users/:id/responsibilities, behind one door in staff.ts", route.length > 200
+   && /const person = path\.match\(\/\^\\\/users\\\/\(\\d\+\)\\\/responsibilities\$\/\);/.test(resp)
+   && /if \(\/\^\\\/users\\\/\\d\+\\\/responsibilities\$\/\.test\(path\)/.test(staff) && /handleResponsibilities\(env, path, method, body, user\)/.test(staff));
+ok("the route is behind responsibilities_edit", /if \(!mayEdit\) return err\("forbidden"/.test(route) && /const mayEdit = canUser\(user, "responsibilities_edit"\);/.test(resp));
+ok("working staff only - a leaver's record is refused with 409", /if \(!p\.is_active\) return err\("inactive", [^,]+, 409\);/.test(route));
+ok("customers and agents are not staff", /role NOT IN \('customer', 'agent'\)/.test(route));
+ok("the title is capped at 120, each item at 200, the list at 30, five Key", /RESP_LIMITS = \{ text: 200, items: 30, key: 5, title: 120 \}/.test(resp) && /\.slice\(0, RESP_LIMITS\.title\)/.test(route));
+ok("blank lines and leading bullets are dropped, the same rule the client cleans with", /replace\(\/\^\\s\*\[-•\*\]\\s\*\/, ""\)\.trim\(\)/.test(resp)
+   && /replace\(\/\^\\s\*\[-•\*\]\\s\*\/, ""\)\.trim\(\)/.test(read("lib/staff-profile.ts")));
+ok("the whole list is written each time, with who and when", /replaceList\(env, \{ table: "staff_responsibilities"/.test(route) && /UPDATE users SET role_title = \?1, responsibilities_updated_at = datetime\('now'\), responsibilities_updated_by = \?2 WHERE id = \?3/.test(route));
+ok("the change is audited with the list before and after", /audit\(env, user\.id, "staff\.responsibilities_update", "users", String\(id\), \{[\s\S]*?role_title_before[\s\S]*?responsibilities_after/.test(route));
+ok("a save names the version it started from - never an overwrite", /if \(version !== versionOf\(before\)\) return err\("changed"/.test(route));
+ok("a missing 0215 is a 503 that names the migration, never a 500", /err\("migration_pending", "Responsibilities need migration 0215/.test(resp));
 const patchFields = staff.match(/const fields = \[([^\]]+)\] as const;/)?.[1] ?? "";
 ok("PATCH /users/:id (the fill-once form) does NOT carry the new fields", !/role_title|responsibilities/.test(patchFields));
 
@@ -100,12 +107,13 @@ ok("the block is drawn for working staff (a leaver's text stays readable)", /\{\
 ok("the button follows the permission AND the record being active", /canEdit=\{canEditResponsibilities && Boolean\(u\.is_active\)\}/.test(dir));
 ok("the saved record shows at once and the view refetches behind it", /setStaff\(mergeR\); setAllStaff\(mergeR\); void load\(\);/.test(dir));
 ok("the summary tier counts who is written, against the working headcount", /L\(`\$\{writtenCount\} of \$\{activeCount\}`, `\$\{writtenCount\} daripada \$\{activeCount\}`\)/.test(dir) && /const writtenCount = headcount\.filter\(/.test(dir)); // v1.230.0 - the working headcount is the one staff rule's Active (staff-headcount.mjs)
-ok("the block hides the button it may not press", /\{canEdit && !editing && \(\s*<button type="button" className=\{btnSm\} onClick=\{open\}/.test(block));
-ok("the editor is one title and one textarea, one responsibility per line", /<input className=\{inputClass\} value=\{title\} maxLength=\{RESPONSIBILITY_LIMITS\.title\}/.test(block)
-   && /<textarea className=\{`\$\{textareaClass\} \$\{css\.textarea\}`\} value=\{text\}/.test(block) && /responsibilities: lines \}/.test(block));
-ok("the write goes to the worker's own route", /`\/staff\/users\/\$\{userId\}\/responsibilities`,\s*\{ method: "PUT"/.test(block));
+ok("the block hides the button it may not press", /\{canEdit && !editing && \(\s*<button type="button" className=\{btnSm\} onClick=\{\(\) => setEditing\(true\)\}/.test(block));
+ok("v1.388.0: the editor is one row per responsibility (Key, Public, reorder, remove) and the ONE drawer both tabs open", /function RowsEditor\(/.test(block)
+   && /data-testid="resp-key"/.test(block) && /data-testid="resp-public"/.test(block) && /aria-label=\{L\("Move up"/.test(block) && /data-testid="resp-remove"/.test(block)
+   && /<ResponsibilitiesDrawer open=\{editing\}/.test(block) && /<ResponsibilitiesDrawer open=\{respFor !== null\}/.test(dir));
+ok("the write goes to the worker's own route, with the version it loaded", /`\/staff\/users\/\$\{userId\}\/responsibilities`,\s*\{ method: "PUT", body: JSON\.stringify\(\{ role_title: title\.trim\(\), version: data\.version/.test(block));
 ok("a toast on success AND on refusal, and the text survives a failed save", /toast\(L\("Not saved", "Tidak disimpan"\), r\.data\?\.error\?\.message/.test(block) && /toast\(L\("Saved", "Disimpan"\)/.test(block) && !/setText\(""\)/.test(block));
-ok("the client's limits are the worker's", /RESPONSIBILITY_LIMITS = \{ title: 120, line: 200, lines: 30 \}/.test(block));
+ok("the client's limits are the worker's", /RESP_LIMITS = \{ title: 120, text: 200, items: 30, key: 5 \} as const;/.test(read("lib/staff-profile.ts")) && /RESPONSIBILITY_LIMITS = \{ title: RESP_LIMITS\.title, line: RESP_LIMITS\.text, lines: RESP_LIMITS\.items, key: RESP_LIMITS\.key \}/.test(block));
 ok("the block wears the shared classes and its own module, no utility class", /import css from "\.\/responsibilities\.module\.css";/.test(block)
    && !/className="(?:[^"]* )?(?:mt-\d|flex|grid|text-sm|gap-\d|space-y-\d)(?: [^"]*)?"/.test(block) && !/#[0-9a-fA-F]{3,6}\b/.test(blockCss) && /var\(--secondary\)/.test(blockCss));
 

@@ -19,6 +19,7 @@ import { runWatchers, morningBrief } from "./watchers"; // v1.108.0
 import { assetAckSweep, assetRepairSweep } from "./assets"; // v1.304.0 - Assets 4.0 phase 2; v1.305.0 - phase 3 repair follow-up
 import { runShiftReminders } from "./shift-reminders-cron"; // v1.151.0 / v1.226.0 - 15 minutes before a shift, 15 before its end, and at the end
 import { submitPartnerApplication, partnerSweep } from "./partners"; // v1.351.0 - the public partner interest application and its hourly reminders
+import { publicPortfolio, publicView, publicMediaKey } from "./portfolios"; // v1.389.0 - the public staff portfolio
 import { submitBusinessGrowth, growthSweep } from "./growth"; // v1.369.0 - the public Business Growth Check and its hourly reminders
 import { drainMailOutbox, taskMailSweep, taskDigest } from "./task-mail"; // v1.247.0 - task emails: the outbox drains on the five-minute tick, reminders ride the hourly pass, the digest at 08:30 MYT
 import { spRecheckPosts } from "./sales-performance"; // v1.155.0 - a verified post that vanished stops counting
@@ -332,7 +333,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0214_finance_cash_verify";
+const LATEST_MIGRATION = "0216_staff_portfolios";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -3153,6 +3154,52 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     return submitBusinessGrowth(env, request, body, rateOk);
   }
 
+  /* v1.389.0 - THE PUBLIC STAFF PORTFOLIO (/portfolio/<slug>, portfolios.ts): no session. Only a
+     PUBLISHED portfolio of someone still on staff is shown, and only its frozen public fields with the
+     live name, position and department - never a staff id or any HR field. Drafts, unpublished
+     portfolios and leavers answer 404, exactly like an address that never existed.
+     Under /public/ because /api/v1/portfolio/<id> is the website's content list (CRUD). */
+  const pfm = /^\/api\/v1\/public\/portfolio\/([a-z0-9-]{2,40})(?:\/(portrait|media\/(\d+)|enquiry))?$/.exec(path);
+  if (pfm) {
+    const found = await publicPortfolio(env, pfm[1]!);
+    if (!found) return errorResponse("not_found", "This portfolio is not available", 404);
+    if (!pfm[2] && method === "GET") {
+      return new Response(JSON.stringify({ portfolio: publicView(found) }), { status: 200, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" } });
+    }
+    if ((pfm[2] === "portrait" || pfm[3]) && method === "GET") {
+      const key = await publicMediaKey(env, found, pfm[2] === "portrait" ? "portrait" : Number(pfm[3]));
+      const obj = key ? await env.MEDIA.get(key) : null;
+      if (!obj) return errorResponse("not_found", "File not found", 404);
+      const headers = new Headers();
+      obj.writeHttpMetadata(headers);
+      const ct = headers.get("Content-Type") ?? "";
+      if (!/^(image\/(jpeg|png|webp)|video\/(mp4|webm))$/.test(ct)) return errorResponse("not_found", "File not found", 404);
+      headers.set("X-Content-Type-Options", "nosniff");
+      headers.set("Cache-Control", "public, max-age=300");
+      return new Response(obj.body, { headers });
+    }
+    if (pfm[2] === "enquiry" && method === "POST") {
+      const allowed = await checkRateLimit(env, `portfolio_enquiry:${clientIp(request)}`, 5, 3600);
+      if (!allowed) return errorResponse("rate_limited", "Too many messages - please try again later or WhatsApp us", 429);
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!body || !isNonEmptyString(body.name, 120) || !isNonEmptyString(body.message, 2000)) {
+        return errorResponse("invalid_input", "name and message are required", 400);
+      }
+      if (!isNonEmptyString(body.phone, 40) && !isNonEmptyString(body.email, 200)) {
+        return errorResponse("invalid_input", "Leave a phone number or an email so we can reply", 400);
+      }
+      const who = publicView(found);
+      const ins = await env.DB.prepare(`INSERT INTO enquiries (name, company, phone, email, message) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`)
+        .bind((body.name as string).trim(), isNonEmptyString(body.company, 200) ? body.company : null,
+          isNonEmptyString(body.phone, 40) ? body.phone : null, isNonEmptyString(body.email, 200) ? body.email : null,
+          `[Portfolio: ${who.name}${who.position ? `, ${who.position}` : ""}] ${(body.message as string).trim()}`).first<{ id: number }>();
+      await announceEnquiry(env, ins?.id ?? null, (body.name as string).trim(), null, "site");
+      await notify(env, found.p.user_id, "enquiry", `A client asked about your portfolio: ${(body.name as string).trim()}`, `portfolio-enquiry:${ins?.id ?? Date.now()}`, { once: true });
+      return json({ ok: true }, 201);
+    }
+    return errorResponse("method_not_allowed", "Method not allowed", 405);
+  }
+
   if (path === "/api/v1/enquiries" && method === "POST") {
     const allowed = await checkRateLimit(env, `enquiry:${clientIp(request)}`, 5, 3600);
     if (!allowed) {
@@ -5829,6 +5876,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0212 (the public forms: one A2Z-DDMM running reference)", `SELECT day, n FROM public_ref_counters LIMIT 0`],
       ["0213 (projects: the COO/CCO pre-verification before the CEO confirms)", `SELECT completion_verified_at, completion_verified_by FROM projects LIMIT 0`],
       ["0214 (Finance: a historical receipt verified as cash only)", `SELECT cash_verified_at, cash_revoked_at FROM cashbook_marks LIMIT 0`],
+      ["0215 (responsibilities as records, position templates)", `SELECT id, user_id, sort_order, text, is_key, is_public, template_position_id, batch_key FROM staff_responsibilities LIMIT 0`],
+      ["0216 (staff portfolios: the card, the public page and its work)", `SELECT p.slug, p.state, p.published_json, i.media_key, i.removed_at FROM staff_portfolios p, staff_portfolio_items i LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -6067,6 +6116,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0212_public_refs",
       "0213_project_completion_verify",
       "0214_finance_cash_verify",
+      "0215_responsibility_items",
+      "0216_staff_portfolios",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

@@ -152,7 +152,7 @@ function sourceChecks(read) {
   const out = [];
   const ok = (c, m, why = "") => out.push([!!c, why && !c ? `${m} - ${why}` : m]);
   const dir = strip(read("components/staff/staff-directory.tsx"));
-  ok(/const STAFF_TABS: readonly StaffTab\[\] = \["overview", "directory", "org", "team", "roles", "records"\];/.test(dir) && /useTabViewAddress\("Staff Details", tab, setTab, isStaffTab\);/.test(dir) && /<ViewSwitch value=\{tab\}/.test(dir), "six views, in the address, with the phone's view switch (S-0)");
+  ok(/const STAFF_TABS: readonly StaffTab\[\] = \["overview", "directory", "org", "team", "roles", "records"(?:, "portfolios")?\];/.test(dir) && /useTabViewAddress\("Staff Details", tab, setTab, isStaffTab\);/.test(dir) && /<ViewSwitch value=\{tab\}/.test(dir), "six views, in the address, with the phone's view switch (S-0)");
   ok(/const statusKeyOf = \(u: Staff\): StatusKey => \{/.test(dir) && !/attendance|monitor|clock/.test(dir.slice(dir.indexOf("const statusKeyOf"), dir.indexOf("const STATUS_LABEL"))) && !/Contract ended|Suspended/.test(dir),
     "the status is employment, read from the record - no attendance, no invented 'Contract ended' or 'Suspended' (S-4)");
   ok(/const masked = key === "ic_number" && !editing && Boolean\(base\.ic_number\);/.test(dir) && /masked \? maskIc\(base\.ic_number \?\? ""\)/.test(dir), "the NRIC shows masked until Edit (S-1)");
@@ -166,7 +166,7 @@ function sourceChecks(read) {
   const perms = read("worker/src/permissions.ts");
   ok(['hr_manage: ["super_admin", "admin", "hr_admin", "ceo"]', 'exec_view: ["super_admin", "admin", "ceo", "coo", "cco"]', 'org_assign: ["ceo", "coo", "cco"]', 'responsibilities_edit: ["super_admin", "admin", "hr_admin", "ceo"]', 'role_assign: ["ceo", "coo"]', 'payroll_process: ["super_admin", "admin", "ceo", "coo"]'].every((x) => perms.includes(x))
     && read("lib/portal-tabs.ts").includes('"Staff Details": ["hr_admin", "coo", "cco", "ceo", "super_admin", "admin"],'), "no permission and no tab access changed");
-  /* v1.311.0 - 0196 is Commission 5.0's (K-2), not this module's */ ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only|0204_staff_positions|0205_custom_roles|0206_partner_applications|0207_partner_preapproval|0208_roles|0209_roles_assignable|0210_live_participants|0211_business_growth|0212_public_refs|0213_project_completion_verify|0214_finance_cash_verify)";/.test(read("worker/src/index.ts")), "no migration (S-13 is later)");
+  /* v1.311.0 - 0196 is Commission 5.0's (K-2), not this module's */ ok(/const LATEST_MIGRATION = "(0195_asset_care|0196_commission_guards|0198_expense_lifecycle|0202_project_deliverables|0203_journal_append_only|0204_staff_positions|0205_custom_roles|0206_partner_applications|0207_partner_preapproval|0208_roles|0209_roles_assignable|0210_live_participants|0211_business_growth|0212_public_refs|0213_project_completion_verify|0214_finance_cash_verify|0215_responsibility_items|0216_staff_portfolios)";/.test(read("worker/src/index.ts")), "no migration (S-13 is later)");
   ok(/import \{ reportingLine, type OrgPerson \} from "\.\.\/\.\.\/lib\/org-tree";/.test(read("worker/src/leave-chain.ts")), "leave keeps routing on the reporting line (S-7, unchanged)");
   return out;
 }

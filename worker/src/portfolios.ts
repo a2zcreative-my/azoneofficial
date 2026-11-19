@@ -1,0 +1,476 @@
+/**
+ * v1.389.0 - STAFF PORTFOLIOS (the CEO, 19-11-2026: the Staff Portfolio Card Generator).
+ *
+ * One portfolio per staff member, beside the staff record and never a copy of it.
+ *   - Name, position, department and photo are READ from `users` every time they are
+ *     shown; the responsibilities are the person's list (responsibilities.ts, 0215) - only
+ *     the items ticked PUBLIC there ever reach a card or the public page. Nothing here writes a staff record: the only way
+ *     to change a staff photo is the existing POST /users/:id/photo door.
+ *   - A portfolio adds what the record does not hold: tagline, introduction,
+ *     specialties, expertise, experience, the contact
+ *     details the CEO approved for the public (email and phone are each OFF until
+ *     ticked), socials, a processed portrait (crop or cut-out), and the work.
+ *   - Draft -> Published -> Unpublished. Publishing freezes what the public sees
+ *     (`published_json`); a later draft edit stays private until it is published.
+ *   - The public address is /portfolio/<slug> and is fixed once published, so a
+ *     printed QR never breaks. No QR is offered until there is a page behind it.
+ *   - The public reads (index.ts) show ONLY the frozen public fields plus the live
+ *     name / position / department - never a staff id, IC, salary, address,
+ *     attendance or any HR field - and nothing at all for a draft, an
+ *     unpublished portfolio, or someone who has left.
+ *
+ * Who: `portfolio_manage` builds and edits; `portfolio_publish` publishes and
+ * unpublishes (the approval). Each person may read their own portfolio.
+ */
+import type { Env } from "./index";
+import type { StaffUser } from "./staff";
+import { currentStaffSql, notify } from "./staff";
+import { canUser } from "./permissions";
+import { portfolioOf } from "./responsibilities";
+import { audit, err, json, putGuarded } from "./shared";
+
+export const PORTFOLIO_SITE = "https://a2zcreative.my";
+/** words that are pages, or would read as one, never a person's address */
+const RESERVED = new Set(["staff", "elfia", "new", "edit", "admin", "portal", "index", "page", "api", "media", "portfolio"]);
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const VIDEO_TYPES = ["video/mp4", "video/webm"];
+const IMAGE_MAX = 8 * 1024 * 1024;
+const VIDEO_MAX = 60 * 1024 * 1024;
+const LIST_MAX = 8;
+
+export type PortfolioRow = {
+  id: number; user_id: number; slug: string; state: "draft" | "published" | "unpublished"; template: string;
+  tagline: string | null; intro: string | null; specialties: string | null; expertise: string | null;
+  experience: string | null; contact_email: string | null; contact_phone: string | null; show_email: number; show_phone: number;
+  socials: string | null; portrait_key: string | null; portrait_source_key: string | null; photo_crop: string | null;
+  published_json: string | null; published_at: string | null; published_by: number | null; published_version: number | null;
+  unpublished_at: string | null; version: number; created_at: string; updated_at: string | null;
+};
+type StaffBits = {
+  id: number; name: string; full_name: string | null; position: string | null; role_title: string | null; department: string | null;
+  photo_key: string | null; email: string | null; phone: string | null; current: number;
+};
+export type PublicSnapshot = {
+  tagline: string | null; intro: string | null; specialties: string[]; expertise: string[];
+  experience: string | null; email: string | null; phone: string | null; socials: Record<string, string>;
+  portrait_key: string | null; template: string;
+  items: { id: number; kind: string; title: string; description: string | null; video_url: string | null; has_media: boolean; media_type: string | null; featured: boolean; media_key?: string | null }[];
+};
+
+const trimTo = (v: unknown, n: number): string | null => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
+/** a list of short phrases: trimmed, de-duplicated, at most LIST_MAX */
+function listOf(v: unknown, each = 80): string[] | null {
+  if (v === undefined) return null;
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) {
+    const t = trimTo(x, each);
+    if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
+    if (out.length >= LIST_MAX) break;
+  }
+  return out;
+}
+const parseList = (s: string | null): string[] => { try { const v = JSON.parse(s ?? "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } };
+const parseObj = (s: string | null): Record<string, string> => { try { const v = JSON.parse(s ?? "{}"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch { return {}; } };
+const SOCIAL_HOSTS: Record<string, RegExp> = {
+  instagram: /^https:\/\/(www\.)?instagram\.com\//i, tiktok: /^https:\/\/(www\.)?tiktok\.com\//i, facebook: /^https:\/\/(www\.|m\.)?facebook\.com\//i,
+  linkedin: /^https:\/\/(www\.)?linkedin\.com\//i, youtube: /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//i,
+};
+/** only https links to the five networks, so a portfolio can never carry a link elsewhere */
+function socialsOf(v: unknown): Record<string, string> | null | "bad" {
+  if (v === undefined) return null;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+    const t = trimTo(raw, 200);
+    if (!t) continue;
+    if (!SOCIAL_HOSTS[k] || !SOCIAL_HOSTS[k]!.test(t)) return "bad";
+    out[k] = t;
+  }
+  return out;
+}
+/** a video link may only be a YouTube, TikTok, Instagram or Facebook page */
+const videoUrlOk = (u: string) => /^https:\/\/(www\.)?(youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|vimeo\.com)\//i.test(u);
+/** the person's own name, before "bin" / "binti" / "a/l" / "a/p", at most three words: "Nur Farah binti Ali" -> nur-farah */
+export function slugOf(name: string): string {
+  const own = name.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/\s(?:bin|binti|bt|bte|a\/l|a\/p)\s/)[0] ?? "";
+  return own.replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).slice(0, 3).join("-").slice(0, 40).replace(/-+$/, "");
+}
+const slugOk = (s: string) => /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(s) && /[a-z]/.test(s) && !s.includes("--") && !RESERVED.has(s);
+export const publicUrl = (slug: string) => `${PORTFOLIO_SITE}/portfolio/${slug}`;
+
+async function staffOf(env: Env, userId: number): Promise<StaffBits | null> {
+  return env.DB.prepare(
+    `SELECT u.id, u.name, u.full_name, u.position, u.role_title, u.department, u.photo_key, u.email, u.phone,
+            CASE WHEN ${currentStaffSql("u.")} THEN 1 ELSE 0 END AS current
+       FROM users u WHERE u.id = ?1 AND u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)`,
+  ).bind(userId).first<StaffBits>();
+}
+const displayName = (s: { name: string; full_name: string | null }) => (s.full_name ?? "").trim() || s.name;
+const positionOf = (s: StaffBits) => (s.position ?? "").trim() || (s.role_title ?? "").trim() || null;
+
+/** the responsibilities a card or the public page may show: the ones ticked Public on the
+    person's list (responsibilities.ts), at most five, in their order. None ticked - none shown. */
+export async function publicDuties(env: Env, userId: number): Promise<{ public: string[]; key: string[]; all: number }> {
+  try {
+    const pf = await portfolioOf(env, userId);
+    return { public: (pf?.public ?? []).slice(0, 5), key: pf?.key ?? [], all: pf?.responsibilities.length ?? 0 };
+  } catch { return { public: [], key: [], all: 0 }; } // 0215 not applied yet: show none, never guess
+}
+
+async function itemsOf(env: Env, pid: number) {
+  return (await env.DB.prepare(
+    `SELECT id, kind, title, description, media_key, media_type, video_url, featured, sort_order, created_at
+       FROM staff_portfolio_items WHERE portfolio_id = ?1 AND removed_at IS NULL ORDER BY featured DESC, sort_order, id`,
+  ).bind(pid).all<{ id: number; kind: string; title: string; description: string | null; media_key: string | null; media_type: string | null; video_url: string | null; featured: number; sort_order: number; created_at: string }>()).results;
+}
+
+/** what publishing freezes: only the fields meant for the public */
+async function snapshotOf(env: Env, p: PortfolioRow, s: StaffBits): Promise<PublicSnapshot> {
+  const items = await itemsOf(env, p.id);
+  return {
+    tagline: p.tagline, intro: p.intro, specialties: parseList(p.specialties),
+    expertise: parseList(p.expertise), experience: p.experience,
+    email: p.show_email ? (p.contact_email ?? null) : null, phone: p.show_phone ? (p.contact_phone ?? null) : null,
+    socials: parseObj(p.socials),
+    /* the approved photo: the processed portrait, else the staff photo of that moment */
+    portrait_key: p.portrait_key && p.portrait_source_key === s.photo_key ? p.portrait_key : (s.photo_key ?? p.portrait_key ?? null),
+    template: p.template,
+    items: items.filter((i) => i.kind === "video" ? Boolean(i.media_key || i.video_url) : Boolean(i.media_key))
+      .map((i) => ({ id: i.id, kind: i.kind, title: i.title, description: i.description, video_url: i.video_url, has_media: Boolean(i.media_key), media_type: i.media_type, featured: Boolean(i.featured), media_key: i.media_key })),
+  };
+}
+
+/** what a draft would publish, compared with what is live */
+const changedSincePublish = (snap: PublicSnapshot, live: string | null) => {
+  if (!live) return true;
+  try { return JSON.stringify(snap) !== JSON.stringify(JSON.parse(live)); } catch { return true; }
+};
+
+async function rowOf(env: Env, id: number): Promise<PortfolioRow | null> {
+  return env.DB.prepare(`SELECT * FROM staff_portfolios WHERE id = ?1`).bind(id).first<PortfolioRow>();
+}
+
+async function uniqueSlug(env: Env, base: string): Promise<string> {
+  let b = slugOk(base) ? base : `${base || "staff"}-team`.replace(/^-/, "");
+  if (!slugOk(b)) b = "a2z-team";
+  for (let n = 1; n < 50; n++) {
+    const s = n === 1 ? b : `${b.slice(0, 36)}-${n}`;
+    const hit = await env.DB.prepare(`SELECT 1 FROM staff_portfolios WHERE slug = ?1 COLLATE NOCASE`).bind(s).first();
+    if (!hit && slugOk(s)) return s;
+  }
+  return `${b.slice(0, 30)}-${Date.now().toString(36)}`;
+}
+
+function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Awaited<ReturnType<typeof itemsOf>>, user: StaffUser, duties: { public: string[]; key: string[]; all: number }) {
+  const live = p.published_json ? (JSON.parse(p.published_json) as PublicSnapshot) : null;
+  return {
+    portfolio: {
+      id: p.id, user_id: p.user_id, slug: p.slug, state: p.state, template: p.template, tagline: p.tagline, intro: p.intro,
+      specialties: parseList(p.specialties), expertise: parseList(p.expertise),
+      experience: p.experience, contact_email: p.contact_email, contact_phone: p.contact_phone,
+      show_email: Boolean(p.show_email), show_phone: Boolean(p.show_phone), socials: parseObj(p.socials),
+      portrait_key: p.portrait_key, photo_crop: (() => { try { return p.photo_crop ? JSON.parse(p.photo_crop) : null; } catch { return null; } })(),
+      /* the staff photo changed after the portrait was made from it: the card falls back to the new photo */
+      portrait_stale: Boolean(p.portrait_key && p.portrait_source_key !== s.photo_key),
+      version: p.version, published_at: p.published_at, unpublished_at: p.unpublished_at, updated_at: p.updated_at,
+      public_url: p.state === "published" ? publicUrl(p.slug) : null,
+      address: publicUrl(p.slug),
+      unpublished_changes: p.state === "published" ? changedSincePublish(snap, p.published_json) : null,
+      live_photo_differs: Boolean(live && live.portrait_key !== snap.portrait_key),
+    },
+    staff: {
+      id: s.id, name: displayName(s), position: positionOf(s), department: (s.department ?? "").trim() || null,
+      photo_key: s.photo_key, email: s.email, phone: s.phone, current: Boolean(s.current),
+    },
+    /* the Public ones are what the card and the page show; Key and the count say what is not public yet */
+    duties,
+    items: items.map((i) => ({ ...i, featured: Boolean(i.featured) })),
+    can: { edit: canUser(user, "portfolio_manage"), publish: canUser(user, "portfolio_publish"), upload_staff_photo: canUser(user, "hr_manage") },
+  };
+}
+
+export async function handlePortfolios(
+  env: Env, path: string, method: string, body: Record<string, unknown> | null, user: StaffUser, request: Request,
+): Promise<Response | null> {
+  const manage = canUser(user, "portfolio_manage");
+  const publish = canUser(user, "portfolio_publish");
+
+  /* ---- your own portfolio, for the Profile tab: download and share once published ---- */
+  if (path === "/portfolios/mine" && method === "GET") {
+    const p = await env.DB.prepare(`SELECT * FROM staff_portfolios WHERE user_id = ?1`).bind(user.id).first<PortfolioRow>();
+    if (!p) return json({ portfolio: null });
+    const s = await staffOf(env, p.user_id);
+    if (!s) return json({ portfolio: null });
+    return json(detailOf(p, s, await snapshotOf(env, p, s), await itemsOf(env, p.id), user, await publicDuties(env, p.user_id)));
+  }
+
+  if (!manage && !publish) {
+    if (path === "/portfolios" || path.startsWith("/portfolios/")) return err("forbidden", "Portfolio access required", 403);
+    return null;
+  }
+
+  /* ---- the list: every person on staff, with their portfolio if they have one ---- */
+  if (path === "/portfolios" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT u.id, u.name, u.full_name, u.position, u.role_title, u.department, u.photo_key,
+              (SELECT COUNT(*) FROM staff_responsibilities r WHERE r.user_id = u.id AND r.is_public = 1) AS public_duties,
+              p.id AS pid, p.slug, p.state, p.updated_at, p.published_at, p.tagline, p.portrait_key, p.portrait_source_key, p.specialties
+         FROM users u LEFT JOIN staff_portfolios p ON p.user_id = u.id
+        WHERE u.role NOT IN ('customer', 'agent', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) AND ${currentStaffSql("u.")}
+        ORDER BY COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) COLLATE NOCASE`,
+    ).all<Record<string, unknown>>();
+    const people = results.map((r) => ({
+      user_id: r.id as number, name: displayName(r as { name: string; full_name: string | null }),
+      position: ((r.position as string | null) ?? "").trim() || ((r.role_title as string | null) ?? "").trim() || null,
+      department: ((r.department as string | null) ?? "").trim() || null, photo_key: (r.photo_key as string | null) ?? null, public_duties: Number(r.public_duties ?? 0),
+      portfolio: r.pid ? {
+        id: r.pid as number, slug: r.slug as string, state: r.state as string, updated_at: r.updated_at ?? null, published_at: r.published_at ?? null,
+        tagline: r.tagline ?? null, specialties: parseList((r.specialties as string | null) ?? null).length,
+        public_url: r.state === "published" ? publicUrl(r.slug as string) : null,
+        portrait_stale: Boolean(r.portrait_key && r.portrait_source_key !== r.photo_key),
+      } : null,
+    }));
+    const n = (st: string) => people.filter((x) => x.portfolio?.state === st).length;
+    return json({
+      people,
+      counts: { staff: people.length, published: n("published"), draft: n("draft"), unpublished: n("unpublished"), none: people.filter((x) => !x.portfolio).length, no_photo: people.filter((x) => !x.photo_key).length },
+      can: { edit: manage, publish },
+    });
+  }
+
+  /* ---- create a draft for a person on staff (no photo needed) ---- */
+  if (path === "/portfolios" && method === "POST") {
+    if (!manage) return err("forbidden", "Only portfolio managers create a portfolio", 403);
+    const uid = Number(body?.user_id);
+    const s = Number.isInteger(uid) ? await staffOf(env, uid) : null;
+    if (!s || !s.current) return err("not_found", "That person is not on staff", 404);
+    const had = await env.DB.prepare(`SELECT id FROM staff_portfolios WHERE user_id = ?1`).bind(uid).first<{ id: number }>();
+    if (had) return json({ id: had.id, existed: true });
+    const slug = await uniqueSlug(env, slugOf(displayName(s)));
+    const email = s.email && /@a2zcreative\.my$/i.test(s.email) ? s.email : null;
+    const row = await env.DB.prepare(
+      `INSERT INTO staff_portfolios (user_id, slug, contact_email, contact_phone, created_by, updated_by, updated_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?5, datetime('now') WHERE NOT EXISTS (SELECT 1 FROM staff_portfolios WHERE user_id = ?1) RETURNING id`,
+    ).bind(uid, slug, email, s.phone ?? null, user.id).first<{ id: number }>();
+    if (!row) {
+      const again = await env.DB.prepare(`SELECT id FROM staff_portfolios WHERE user_id = ?1`).bind(uid).first<{ id: number }>();
+      return json({ id: again?.id ?? null, existed: true });
+    }
+    await audit(env, user.id, "portfolio.create", "staff_portfolios", String(row.id), { user_id: uid, slug });
+    return json({ id: row.id, slug }, 201);
+  }
+
+  const m = /^\/portfolios\/(\d+)(\/.*)?$/.exec(path);
+  if (!m) return null;
+  const p = await rowOf(env, Number(m[1]));
+  if (!p) return err("not_found", "Portfolio not found", 404);
+  const s = await staffOf(env, p.user_id);
+  if (!s) return err("not_found", "Staff record not found", 404);
+  const rest = m[2] ?? "";
+
+  if (rest === "" && method === "GET") {
+    return json(detailOf(p, s, await snapshotOf(env, p, s), await itemsOf(env, p.id), user, await publicDuties(env, p.user_id)));
+  }
+
+  /* ---- edit the draft (the version guards two editors) ---- */
+  if (rest === "" && method === "PUT") {
+    if (!manage) return err("forbidden", "Only portfolio managers edit a portfolio", 403);
+    if (Number(body?.version) !== p.version) return err("stale", "Someone else changed this portfolio - reload it", 409);
+    const sets: string[] = []; const vals: unknown[] = [];
+    const put = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = ?${vals.length}`); };
+    const text = (k: string, n: number) => { if (body && k in body) put(k, trimTo(body[k], n)); };
+    text("tagline", 120); text("intro", 1200); text("experience", 40);
+    for (const k of ["specialties", "expertise"] as const) {
+      const l = listOf(body?.[k], 60);
+      if (l) put(k, JSON.stringify(k === "specialties" ? l.slice(0, 5) : l));
+    }
+    if (body && "template" in body) {
+      if (!["navy", "gold", "light"].includes(String(body.template))) return err("invalid_input", "Unknown template", 400);
+      put("template", String(body.template));
+    }
+    if (body && "contact_email" in body) {
+      const e = trimTo(body.contact_email, 160);
+      if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return err("invalid_input", "That email does not look right", 400);
+      put("contact_email", e);
+    }
+    if (body && "contact_phone" in body) {
+      const ph = trimTo(body.contact_phone, 24);
+      if (ph && !/^\+?[0-9 ()-]{7,20}$/.test(ph)) return err("invalid_input", "That phone number does not look right", 400);
+      put("contact_phone", ph);
+    }
+    /* the public contact is the CEO's approval, one tick each; only the publisher may tick it */
+    for (const k of ["show_email", "show_phone"] as const) {
+      if (body && k in body) {
+        const on = body[k] === true ? 1 : 0;
+        if (on !== p[k] && !publish) return err("forbidden", "Only the approver may show a person's email or phone in public", 403);
+        put(k, on);
+      }
+    }
+    const so = socialsOf(body?.socials);
+    if (so === "bad") return err("invalid_input", "Social links must be https links to Instagram, TikTok, Facebook, LinkedIn or YouTube", 400);
+    if (so) put("socials", JSON.stringify(so));
+    if (body && "photo_crop" in body) {
+      const c = body.photo_crop as Record<string, unknown> | null;
+      const ok = c && [c.zoom, c.x, c.y].every((v) => typeof v === "number" && Number.isFinite(v)) && (c.zoom as number) >= 1 && (c.zoom as number) <= 4 && Math.abs(c.x as number) <= 1 && Math.abs(c.y as number) <= 1;
+      put("photo_crop", ok ? JSON.stringify({ zoom: c!.zoom, x: c!.x, y: c!.y }) : null);
+    }
+    if (body && "slug" in body && String(body.slug) !== p.slug) {
+      /* the address is printed inside every QR: fixed from the first publish */
+      if (p.published_at) return err("slug_locked", "The address is fixed once a portfolio has been published - printed QR codes point at it", 409);
+      const sl = String(body.slug).toLowerCase().trim();
+      if (!slugOk(sl)) return err("invalid_input", "Use 3-40 lowercase letters, numbers and dashes", 400);
+      const taken = await env.DB.prepare(`SELECT 1 FROM staff_portfolios WHERE slug = ?1 COLLATE NOCASE AND id != ?2`).bind(sl, p.id).first();
+      if (taken) return err("slug_taken", "Another portfolio already uses that address", 409);
+      put("slug", sl);
+    }
+    if (!sets.length) return json({ ok: true, version: p.version });
+    vals.push(user.id); sets.push(`updated_by = ?${vals.length}`);
+    vals.push(p.id, p.version);
+    const res = await env.DB.prepare(
+      `UPDATE staff_portfolios SET ${sets.join(", ")}, updated_at = datetime('now'), version = version + 1 WHERE id = ?${vals.length - 1} AND version = ?${vals.length}`,
+    ).bind(...vals).run();
+    if (!res.meta.changes) return err("stale", "Someone else changed this portfolio - reload it", 409);
+    await audit(env, user.id, "portfolio.edit", "staff_portfolios", String(p.id), { fields: Object.keys(body ?? {}).filter((k) => k !== "version") });
+    return json({ ok: true, version: p.version + 1 });
+  }
+
+  /* ---- the processed portrait (cropped, or with the background removed) ---- */
+  if (rest === "/portrait" && method === "POST") {
+    if (!manage) return err("forbidden", "Only portfolio managers change the portrait", 403);
+    const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim();
+    if (!IMAGE_TYPES.includes(ct)) return err("invalid_input", "Only JPG, PNG or WebP images", 400);
+    const key = `private/portfolio/${p.id}-portrait-${Date.now()}.${ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : "jpg"}`;
+    const rejected = await putGuarded(env.MEDIA, key, request, { max: IMAGE_MAX, contentType: ct });
+    if (rejected) return rejected;
+    await env.DB.prepare(`UPDATE staff_portfolios SET portrait_key = ?1, portrait_source_key = ?2, updated_by = ?3, updated_at = datetime('now'), version = version + 1 WHERE id = ?4`)
+      .bind(key, s.photo_key, user.id, p.id).run();
+    await audit(env, user.id, "portfolio.portrait", "staff_portfolios", String(p.id), { key, from_photo: s.photo_key });
+    return json({ portrait_key: key }, 201);
+  }
+  if (rest === "/portrait/reset" && method === "POST") {
+    if (!manage) return err("forbidden", "Only portfolio managers change the portrait", 403);
+    await env.DB.prepare(`UPDATE staff_portfolios SET portrait_key = NULL, portrait_source_key = NULL, updated_by = ?1, updated_at = datetime('now'), version = version + 1 WHERE id = ?2`).bind(user.id, p.id).run();
+    await audit(env, user.id, "portfolio.portrait_reset", "staff_portfolios", String(p.id));
+    return json({ ok: true });
+  }
+
+  /* ---- the work: a project image or a video ---- */
+  if (rest === "/items" && method === "POST") {
+    if (!manage) return err("forbidden", "Only portfolio managers add work", 403);
+    const kind = body?.kind === "video" ? "video" : "image";
+    const title = trimTo(body?.title, 120);
+    if (!title) return err("invalid_input", "Give the work a title", 400);
+    const vurl = trimTo(body?.video_url, 300);
+    if (vurl && !videoUrlOk(vurl)) return err("invalid_input", "A video link may be YouTube, TikTok, Instagram, Facebook or Vimeo", 400);
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM staff_portfolio_items WHERE portfolio_id = ?1 AND removed_at IS NULL`).bind(p.id).first<{ n: number }>();
+    if ((count?.n ?? 0) >= 24) return err("too_many", "A portfolio holds up to 24 pieces of work", 409);
+    const row = await env.DB.prepare(
+      `INSERT INTO staff_portfolio_items (portfolio_id, kind, title, description, video_url, featured, sort_order, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id`,
+    ).bind(p.id, kind, title, trimTo(body?.description, 600), kind === "video" ? vurl : null, body?.featured === true ? 1 : 0, (count?.n ?? 0) + 1, user.id).first<{ id: number }>();
+    await audit(env, user.id, "portfolio.item_add", "staff_portfolios", String(p.id), { item: row?.id, kind });
+    return json({ id: row?.id }, 201);
+  }
+  const it = /^\/items\/(\d+)(\/media|\/remove)?$/.exec(rest);
+  if (it) {
+    if (!manage) return err("forbidden", "Only portfolio managers change work", 403);
+    const item = await env.DB.prepare(`SELECT id, kind FROM staff_portfolio_items WHERE id = ?1 AND portfolio_id = ?2 AND removed_at IS NULL`).bind(Number(it[1]), p.id).first<{ id: number; kind: string }>();
+    if (!item) return err("not_found", "That work is not on this portfolio", 404);
+    if (it[2] === "/media" && method === "POST") {
+      const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim();
+      const okType = item.kind === "video" ? [...VIDEO_TYPES, ...IMAGE_TYPES] : IMAGE_TYPES;
+      if (!okType.includes(ct)) return err("invalid_input", item.kind === "video" ? "MP4 or WebM video, or a JPG, PNG or WebP cover" : "Only JPG, PNG or WebP images", 400);
+      const ext = ct.split("/")[1]!.replace("jpeg", "jpg");
+      const key = `private/portfolio/${p.id}-item-${item.id}-${Date.now()}.${ext}`;
+      const rejected = await putGuarded(env.MEDIA, key, request, { max: VIDEO_TYPES.includes(ct) ? VIDEO_MAX : IMAGE_MAX, contentType: ct });
+      if (rejected) return rejected;
+      await env.DB.prepare(`UPDATE staff_portfolio_items SET media_key = ?1, media_type = ?2, updated_at = datetime('now') WHERE id = ?3`).bind(key, ct, item.id).run();
+      await audit(env, user.id, "portfolio.item_media", "staff_portfolios", String(p.id), { item: item.id, type: ct });
+      return json({ media_key: key }, 201);
+    }
+    if (it[2] === "/remove" && method === "POST") {
+      await env.DB.prepare(`UPDATE staff_portfolio_items SET removed_at = datetime('now'), removed_by = ?1 WHERE id = ?2 AND removed_at IS NULL`).bind(user.id, item.id).run();
+      await audit(env, user.id, "portfolio.item_remove", "staff_portfolios", String(p.id), { item: item.id });
+      return json({ ok: true });
+    }
+    if (!it[2] && method === "PUT") {
+      const sets: string[] = []; const vals: unknown[] = [];
+      const put = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = ?${vals.length}`); };
+      if (body && "title" in body) { const t = trimTo(body.title, 120); if (!t) return err("invalid_input", "Give the work a title", 400); put("title", t); }
+      if (body && "description" in body) put("description", trimTo(body.description, 600));
+      if (body && "featured" in body) put("featured", body.featured === true ? 1 : 0);
+      if (body && "sort_order" in body && Number.isInteger(body.sort_order)) put("sort_order", body.sort_order);
+      if (body && "video_url" in body) {
+        const v = trimTo(body.video_url, 300);
+        if (v && !videoUrlOk(v)) return err("invalid_input", "A video link may be YouTube, TikTok, Instagram, Facebook or Vimeo", 400);
+        put("video_url", v);
+      }
+      if (!sets.length) return json({ ok: true });
+      vals.push(item.id);
+      await env.DB.prepare(`UPDATE staff_portfolio_items SET ${sets.join(", ")}, updated_at = datetime('now') WHERE id = ?${vals.length}`).bind(...vals).run();
+      await audit(env, user.id, "portfolio.item_edit", "staff_portfolios", String(p.id), { item: item.id });
+      return json({ ok: true });
+    }
+  }
+
+  /* ---- publish: the approval. It freezes exactly what the public will see ---- */
+  if (rest === "/publish" && method === "POST") {
+    if (!publish) return err("forbidden", "Only the approver publishes a portfolio", 403);
+    if (!s.current) return err("not_on_staff", "This person is no longer on staff", 409);
+    if (Number(body?.version) !== p.version) return err("stale", "The portfolio changed - check it again before publishing", 409);
+    if (!positionOf(s)) return err("incomplete", "Give this person a position on their staff record first", 409);
+    const snap = await snapshotOf(env, p, s);
+    const res = await env.DB.prepare(
+      `UPDATE staff_portfolios SET state = 'published', published_json = ?1, published_at = datetime('now'), published_by = ?2, published_version = version,
+              unpublished_at = NULL, unpublished_by = NULL WHERE id = ?3 AND version = ?4`,
+    ).bind(JSON.stringify(snap), user.id, p.id, p.version).run();
+    if (!res.meta.changes) return err("stale", "The portfolio changed - check it again before publishing", 409);
+    await audit(env, user.id, "portfolio.publish", "staff_portfolios", String(p.id), { slug: p.slug, version: p.version, show_email: Boolean(snap.email), show_phone: Boolean(snap.phone), items: snap.items.length });
+    if (p.user_id !== user.id) await notify(env, p.user_id, "portfolio", "Your portfolio is published - open Profile to download and share your card", `portfolio:${p.id}:pub:${p.version}`, { once: true });
+    return json({ ok: true, public_url: publicUrl(p.slug) });
+  }
+  if (rest === "/unpublish" && method === "POST") {
+    if (!publish) return err("forbidden", "Only the approver unpublishes a portfolio", 403);
+    if (p.state !== "published") return err("invalid_state", "This portfolio is not published", 409);
+    await env.DB.prepare(`UPDATE staff_portfolios SET state = 'unpublished', unpublished_at = datetime('now'), unpublished_by = ?1 WHERE id = ?2 AND state = 'published'`).bind(user.id, p.id).run();
+    await audit(env, user.id, "portfolio.unpublish", "staff_portfolios", String(p.id), { slug: p.slug, reason: trimTo(body?.reason, 200) });
+    return json({ ok: true });
+  }
+  return null;
+}
+
+/* ================= THE PUBLIC READS (index.ts calls these with no session) ================= */
+
+/** a published portfolio of someone still on staff, or null: drafts, unpublished and leavers are never shown */
+export async function publicPortfolio(env: Env, slug: string): Promise<{ p: PortfolioRow; s: StaffBits; snap: PublicSnapshot; duties: string[] } | null> {
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) return null;
+  const p = await env.DB.prepare(`SELECT * FROM staff_portfolios WHERE slug = ?1 COLLATE NOCASE AND state = 'published' AND published_json IS NOT NULL`).bind(slug).first<PortfolioRow>();
+  if (!p) return null;
+  const s = await staffOf(env, p.user_id);
+  if (!s || !s.current) return null;
+  let snap: PublicSnapshot;
+  try { snap = JSON.parse(p.published_json!) as PublicSnapshot; } catch { return null; }
+  return { p, s, snap, duties: (await publicDuties(env, p.user_id)).public };
+}
+
+/** the page's data: the frozen public fields, the live name / position / department, and nothing else */
+export function publicView(x: { p: PortfolioRow; s: StaffBits; snap: PublicSnapshot; duties: string[] }) {
+  const { p, s, snap } = x;
+  return {
+    slug: p.slug, url: publicUrl(p.slug), name: displayName(s), position: positionOf(s), department: (s.department ?? "").trim() || null,
+    tagline: snap.tagline, intro: snap.intro, specialties: snap.specialties, expertise: snap.expertise, experience: snap.experience,
+    responsibilities: x.duties,
+    email: snap.email, phone: snap.phone, socials: snap.socials, template: snap.template,
+    has_photo: Boolean(snap.portrait_key),
+    items: snap.items.map((i) => ({ id: i.id, kind: i.kind, title: i.title, description: i.description, video_url: i.video_url, has_media: i.has_media, media_type: i.media_type, featured: i.featured })),
+    published_at: p.published_at,
+  };
+}
+
+/** the R2 key a public request may read: the approved portrait, or a published item's file */
+export async function publicMediaKey(env: Env, x: { p: PortfolioRow; snap: PublicSnapshot }, what: "portrait" | number): Promise<string | null> {
+  if (what === "portrait") return x.snap.portrait_key;
+  /* the file frozen at publish, never a later replacement nobody approved */
+  void env;
+  return x.snap.items.find((i) => i.id === what && i.has_media)?.media_key ?? null;
+}

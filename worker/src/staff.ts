@@ -19,7 +19,9 @@ import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
+import { handlePortfolios } from "./portfolios"; // v1.389.0 - staff portfolios
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
+import { handleResponsibilities, itemsOf, RESP_ITEMS_SQL, RESP_TEXT_SQL } from "./responsibilities"; // v1.388.0 - responsibilities as records, templates, the portfolio (0215)
 import { handlePartners } from "./partners"; // v1.351.0
 import { handleGrowth } from "./growth"; // v1.369.0
 import { handleShiftBulk } from "./shift-bulk"; // v1.373.0
@@ -3104,7 +3106,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && path !== "/leave/attachment" // v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && !/^\/portfolios\/\d+\/(portrait|items\/\d+\/media)$/.test(path) && path !== "/leave/attachment" // v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -3201,10 +3203,22 @@ async function handleStaffRoutes(
   /* ---- v1.245.0 Project Workspace (projects.ts): one brief per
      quotation, append-only progress, private files. View: every staff role;
      editing: the Project Owner and CEO / COO / CCO, decided per project. ---- */
+  /* ---- v1.388.0 responsibilities as records (responsibilities.ts, 0215): one person's list, the
+     position templates, and the portfolio a card reads. The person's list keeps responsibilities_edit;
+     templates are responsibility_templates (CEO, Super Admin, COO, CCO). ---- */
+  if (/^\/users\/\d+\/responsibilities$/.test(path) || path === "/responsibilities/templates" || path.startsWith("/responsibilities/templates/") || path.startsWith("/portfolio/")) {
+    const rs = await handleResponsibilities(env, path, method, body, user);
+    if (rs) return rs;
+  }
   /* ---- v1.322.0 the positions list (positions.ts): the CEO and the Super Admin keep it, everyone on staff reads it ---- */
   if (path === "/positions" || path.startsWith("/positions/")) {
     const ps = await handlePositions(env, path, method, body, user, new URL(request.url).searchParams);
     if (ps) return ps;
+  }
+  /* ---- v1.389.0 staff portfolios (portfolios.ts): Staff -> Portfolios; your own on Profile ---- */
+  if (path === "/portfolios" || path.startsWith("/portfolios/")) {
+    const pf = await handlePortfolios(env, path, method, body, user, request);
+    if (pf) return pf;
   }
   /* ---- v1.315.0 Tasks 5.0 Gate 4: the Live Host Report (live-reports.ts) ---- */
   if (path === "/live-reports" || path.startsWith("/live-reports/")) {
@@ -3302,6 +3316,12 @@ async function handleStaffRoutes(
                 joined_on, is_active
          FROM users WHERE id = ?1`,
       ).bind(user.id).first();
+    }
+    /* v1.388.0 - the list comes from its records (0215), one per line, in order -
+       the same text every reader has always had; before 0215 applies, the 0137 text stays */
+    if (row) {
+      try { row.responsibilities = (await itemsOf(env, user.id)).map((i) => i.text).join("\n") || null; }
+      catch (eI) { if (!/no such table/.test(String(eI))) throw eI; }
     }
     return json({ profile: row });
   }
@@ -3912,6 +3932,19 @@ async function handleStaffRoutes(
     /* v1.174.0 - the roles-and-responsibilities columns (0137) get the top
        rung: the full list with them, then the 0113 list, then the older ones.
        The person who wrote them is joined by name so the card can say so. */
+    /* v1.388.0 - the list comes from its records (0215): `responsibilities` is
+       built from them, one per line, so every reader of the text is unchanged;
+       `responsibility_items` carries each item with its Key / Public flags.
+       Before 0215 applies, the 0137 rung below reads the old text. */
+    try {
+      ({ results } = await env.DB.prepare(
+        `SELECT ${CORE}, u.reports_to, u.role_title, ${RESP_TEXT_SQL} AS responsibilities, ${RESP_ITEMS_SQL} AS responsibility_items, u.responsibilities_updated_at,
+                (SELECT w.name FROM users w WHERE w.id = u.responsibilities_updated_by) AS responsibilities_updated_by_name
+         FROM users u ORDER BY ${STAFF_ORDER_SQL}`,
+      ).all());
+    } catch (eI) {
+      if (!(eI instanceof Error && /no such (table|column)/.test(eI.message))) throw eI;
+      await logError(env, "migration_skew", "GET /users: 0215 responsibility items missing - run wrangler d1 migrations apply");
     try {
       ({ results } = await env.DB.prepare(
         `SELECT ${CORE}, u.reports_to, u.role_title, u.responsibilities, u.responsibilities_updated_at,
@@ -3943,6 +3976,7 @@ async function handleStaffRoutes(
       }
     }
     }
+    }
     /* v1.308.0 - STAFF WORKSPACE 4.0 (the CEO, 15-11-2026, S-1): the private
        block - NRIC, bank, statutory numbers, home address, emergency contact,
        blood type - no longer travels in the list. One person's block is read
@@ -3954,6 +3988,7 @@ async function handleStaffRoutes(
     const shaped = (results as Record<string, unknown>[]).map((r) => {
       const o: Record<string, unknown> = { ...r };
       o.private_set = STAFF_PRIVATE_FIELDS.filter((k) => String(o[k] ?? "").trim() !== "");
+      if (typeof o.responsibility_items === "string") { try { o.responsibility_items = JSON.parse(o.responsibility_items); } catch { o.responsibility_items = []; } } // v1.388.0
       for (const k of STAFF_PRIVATE_FIELDS) if (!(keepPay && PAYSLIP_PRIVATE_FIELDS.includes(k))) delete o[k];
       return o;
     });
@@ -4126,67 +4161,10 @@ async function handleStaffRoutes(
      picture, it is a page that never finishes. It cannot be checked by
      looking at the two people involved, so the walk is done here, on the
      database, before the write. */
-  /* ---- roles and responsibilities (v1.174.0) ----
-     The CEO, 21-09-2026: *"On the staff tabs, I want to add Roles and
-     Responsibilities of the staff that currently working for me. I need to
-     make sure that I can edit the roles and responsibilities in staff tabs."*
-
-     Its own route, for the same two reasons reports_to has one. PATCH
-     /users/:id is the HR tier's fill-once form - a value saved there locks
-     and an admin is needed to change it - and a job description is the
-     opposite kind of fact: it is rewritten every time the work changes. And
-     its fields are longer than that form's 200 characters. So: one title,
-     one list, written whole each time, by responsibilities_edit (the CEO and
-     the HR tier), for WORKING staff only - what a leaver was answerable for
-     stays readable, but nobody writes duties for somebody who is not here.
-     The old and new text go to the audit log, as the leave entitlement's do. */
-  const respRoute = path.match(/^\/users\/(\d+)\/responsibilities$/);
-  if (respRoute && (method === "PUT" || method === "PATCH")) {
-    if (!canUser(user, "responsibilities_edit")) {
-      return err("forbidden", "Only the CEO and the HR tier write roles and responsibilities", 403);
-    }
-    const id = Number(respRoute[1]);
-    const b = (body ?? {}) as Record<string, unknown>;
-    const rawTitle = b.role_title;
-    if (rawTitle !== undefined && rawTitle !== null && typeof rawTitle !== "string") {
-      return err("invalid_input", "role_title must be text", 400);
-    }
-    const title = typeof rawTitle === "string" ? rawTitle.trim().slice(0, 120) : "";
-    /* the list arrives as an array of lines or as one text with newlines;
-       blank lines drop, each line is capped, and thirty is plenty for a job */
-    const rawLines: unknown[] | null = Array.isArray(b.responsibilities)
-      ? b.responsibilities
-      : typeof b.responsibilities === "string" ? b.responsibilities.split(/\r?\n/) : b.responsibilities == null ? [] : null;
-    if (rawLines === null || rawLines.some((l) => typeof l !== "string")) {
-      return err("invalid_input", "responsibilities must be lines of text", 400);
-    }
-    const lines = (rawLines as string[]).map((l) => l.replace(/^\s*[-•*]\s*/, "").trim()).filter(Boolean);
-    if (lines.length > 30) return err("invalid_input", "At most 30 responsibilities - write the job, not the manual", 400);
-    if (lines.some((l) => l.length > 200)) return err("invalid_input", "Each responsibility is one line of at most 200 characters", 400);
-    let person: { id: number; name: string; is_active: number; role_title: string | null; responsibilities: string | null } | null;
-    try {
-      person = await env.DB.prepare(
-        `SELECT id, name, is_active, role_title, responsibilities FROM users WHERE id = ?1 AND role <> 'customer'`,
-      ).bind(id).first();
-    } catch (e) {
-      if (!(e instanceof Error && e.message.includes("no such column"))) throw e;
-      await logError(env, "migration_skew", "PUT /users/:id/responsibilities: 0137 not applied - run wrangler d1 migrations apply");
-      return err("migration_pending", "Roles and responsibilities need migration 0137 - run the deploy, then try again", 503);
-    }
-    if (!person) return err("not_found", "Staff not found", 404);
-    if (!person.is_active) return err("inactive", "Roles and responsibilities are kept for working staff - this record is not active", 409);
-    const text = lines.join("\n");
-    await env.DB.prepare(
-      `UPDATE users SET role_title = ?1, responsibilities = ?2, responsibilities_updated_at = datetime('now'), responsibilities_updated_by = ?3 WHERE id = ?4`,
-    ).bind(title || null, text || null, user.id, id).run();
-    await audit(env, user.id, "staff.responsibilities_update", "users", String(id), {
-      person: person.name,
-      role_title_before: person.role_title, role_title_after: title || null,
-      responsibilities_before: person.responsibilities, responsibilities_after: text || null,
-    });
-    return json({ ok: true, role_title: title || null, responsibilities: lines, updated_by_name: user.name ?? null });
-  }
-
+  /* ---- roles and responsibilities: v1.174.0 wrote them here as one text;
+     v1.388.0 (0215) moved the write to worker/src/responsibilities.ts, where the
+     list is a set of records with templates, Key / Public, and a version a save
+     must name. The door is near the positions list, above. ---- */
   const reportsTo = path.match(/^\/users\/(\d+)\/reports-to$/);
   if (reportsTo && (method === "PUT" || method === "PATCH")) {
     if (!canUser(user, "org_assign")) {

@@ -100,3 +100,121 @@
     align-items: start;
   }
 }
+
+/* v1.388.0 - responsibilities as records (0215): the row editor, the
+   template line, and the staff portfolio card. Tokens only; the card, the
+   chips, the inputs and the buttons are the shared classes. */
+.flag {
+  margin-left: 0.375rem;
+  vertical-align: middle;
+}
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+}
+.position {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.template {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-control);
+  background: var(--secondary);
+  font-size: var(--type-caption-size);
+}
+.template > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+.row {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: start;
+}
+.num {
+  margin-top: 0.625rem;
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.rowMain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+  min-width: 0;
+}
+.flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.flagLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.rowBtns {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.addRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.portfolio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+.pfHead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.pfWho {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.125rem;
+  min-width: 0;
+}
+.pfName {
+  overflow-wrap: anywhere;
+}
+.pfTitle {
+  font-size: var(--type-body-size);
+  font-weight: 600;
+  color: var(--primary);
+  overflow-wrap: anywhere;
+}
+.flip {
+  transform: rotate(180deg);
+}

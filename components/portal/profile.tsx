@@ -38,6 +38,7 @@ import { ShiftReminderPrefs } from "@/components/portal/shift-reminder-prefs"; /
 import { AppIcon } from "@/components/ui/app-icon";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { LineTabs } from "@/components/ui/line-tabs";
+import { MyPortfolioCard } from "@/components/portal/my-portfolio"; // v1.389.0
 import { MySignature } from "@/components/portal/signing-panel"; // v1.248.0
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { useSaveToast } from "@/components/ui/save-toast";
@@ -207,6 +208,8 @@ export function Profile({ payslips }: { payslips?: ReactNode }) {
         </section>
         {/* v1.226.0 - the person's own shift reminder switches */}
         <ShiftReminderPrefs />
+        {/* v1.389.0 - my portfolio card, once someone has made one for me */}
+        <MyPortfolioCard />
       </div>
 
       {/* ================= SECURITY & ACCOUNT ================= */}

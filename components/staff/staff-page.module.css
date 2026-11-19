@@ -1154,16 +1154,34 @@
   .lineStrip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-/* Departments & Roles (ref 05) */
-.coverage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; align-items: center; }
-.coverFig { display: grid; gap: 0.125rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
-.coverFig strong { font-size: 1.375rem; line-height: 1.2; color: var(--foreground); font-variant-numeric: tabular-nums; }
-.coverage .track { min-width: 8rem; }
-.rolesBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
-@media (min-width: 1024px) {
-  .coverage { grid-template-columns: minmax(0, 1.6fr) auto auto minmax(8rem, 1.2fr); gap: 1.5rem; }
-  .coverage > .coverFig { padding-left: 1.5rem; border-left: 1px solid var(--border); }
+/* Departments & Roles - v1.388.0: the coverage card became the KPI strip; one
+   collapsible section per department; the key responsibilities on one line */
+.rolesBar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.rolesBar > .search { flex: 1 1 14rem; }
+.rolesBarEnd { display: inline-flex; flex-wrap: wrap; gap: 0.5rem; margin-left: auto; }
+.roleDept { display: block; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.deptHead {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
+  min-height: 2.75rem; padding: 0.25rem 0; border: 0; background: transparent; color: var(--foreground);
+  font: inherit; text-align: left; cursor: pointer;
 }
+.deptHead:focus-visible { outline: 2px solid var(--gold-solid); outline-offset: 2px; border-radius: var(--radius-sm); }
+.deptInner { display: block; width: 100%; min-width: 0; }
+.deptChevron { display: inline-flex; margin-left: auto; color: var(--muted-foreground); }
+.flip { transform: rotate(180deg); }
+.deptName { font-weight: 600; font-size: var(--type-body-size); }
+.deptMeta { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.deptRow { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.deptRow > .deptHead { flex: 1 1 auto; min-width: 0; }
+.respCell { min-width: 14rem; max-width: 32rem; }
+.respLine { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; max-width: 26rem; }
+.respText { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.respMore {
+  flex: 0 0 auto; padding: 0; border: 0; background: transparent; font: inherit;
+  font-size: var(--type-caption-size); font-weight: 600; color: var(--primary); cursor: pointer; white-space: nowrap;
+}
+.respMore:hover { text-decoration: underline; }
+.respMore:focus-visible { outline: 2px solid var(--gold-solid); outline-offset: 2px; }
 
 /* Staff Records (ref 06) */
 .recordsList { min-width: 0; }

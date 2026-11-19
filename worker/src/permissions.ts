@@ -202,6 +202,14 @@ export const PERMS: Record<string, readonly Role[]> = {
      narrowing does not have to touch every other staff field. NOT coo / cco:
      they read; they set reporting lines (org_assign), not duties. */
   responsibilities_edit: ["super_admin", "admin", "hr_admin", "ceo"],
+  /* v1.388.0 (the CEO, 19-11-2026) - keep the responsibility TEMPLATES per position (0215). A person's
+     own list stays responsibilities_edit; a template is only a suggestion, copied when used. */
+  responsibility_templates: ["super_admin", "ceo", "coo", "cco"],
+  /* v1.389.0 - staff portfolios (portfolios.ts, the CEO 19-11-2026). Build and edit a
+     portfolio and its card: the HR tier and the executives. Publish / unpublish, and
+     showing a person's email or phone in public, is the approval: CEO, COO, super admin. */
+  portfolio_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
+  portfolio_publish: ["super_admin", "ceo", "coo"],
 
   /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
      record: "I want to have a roles assigned for me to assigned her role.
@@ -681,6 +689,9 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },
   { module: "Staff Details", key: "positions_manage", en: "Keep the positions list (add, rename, link to an access level, retire)", ms: "Urus senarai jawatan (tambah, namakan semula, pautkan ke tahap akses, bersarakan)", cap: "positions_manage", note_en: "A position never changes anybody's role", note_ms: "Jawatan tidak sekali-kali menukar peranan sesiapa" },
   { module: "Staff Details", key: "responsibilities", en: "Write roles and responsibilities", ms: "Tulis peranan dan tanggungjawab", cap: "responsibilities_edit" },
+  { module: "Staff Details", key: "responsibility_templates", en: "Keep the responsibility templates for each position", ms: "Urus templat tanggungjawab bagi setiap jawatan", cap: "responsibility_templates", note_en: "A template is copied when used - changing it never changes anybody's list", note_ms: "Templat disalin apabila digunakan - mengubahnya tidak mengubah senarai sesiapa" },
+  { module: "Staff Details", key: "portfolio_manage", en: "Build staff portfolios and their cards", ms: "Bina portfolio kakitangan dan kadnya", cap: "portfolio_manage" },
+  { module: "Staff Details", key: "portfolio_publish", en: "Publish or unpublish a staff portfolio, and approve its public contact", ms: "Terbit atau tarik balik portfolio kakitangan, dan luluskan hubungan awamnya", cap: "portfolio_publish", note_en: "The public page and its QR exist only once published", note_ms: "Halaman awam dan QR wujud hanya selepas diterbitkan" },
   { module: "Inventory", key: "inventory", en: "Manage inventory", ms: "Urus inventori", cap: "inventory" },
   { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },
   { module: "Hotels", key: "hotels", en: "Manage the hotel directory", ms: "Urus direktori hotel", cap: "hotels_manage" },

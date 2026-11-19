@@ -402,8 +402,8 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
      outside every zone; the same record, gates and badge printing */
   const staffDir = read("components/staff/staff-directory.tsx");
   const staffFn = staffDir.slice(staffDir.indexOf("export function StaffDirectory("), staffDir.indexOf("/* v1.4.191 STAFF DOCUMENT VAULT"));
-  /* v1.204.0 - six: the Team Map is its own tab beside the Organisation chart */
-  ok("Staff: six tabs in the brief's order, zones hidden not unmounted", [["overview", "Overview"], ["directory", "Directory"], ["org", "Organisation"], ["team", "Team Map"], ["roles", "Departments & Roles"], ["records", "Staff Records"]].map(([k, t]) => staffFn.indexOf(`["${k}", L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (staffFn.match(/className=\{tab !== "[a-z]+" \? sp\.off : ""\}/g) ?? []).length === 6);
+  /* v1.204.0 - six: the Team Map is its own tab beside the Organisation chart. v1.389.0 - seven: Portfolios (drawn only for portfolio_manage / portfolio_publish) */
+  ok("Staff: six tabs in the brief's order, zones hidden not unmounted", [["overview", "Overview"], ["directory", "Directory"], ["org", "Organisation"], ["team", "Team Map"], ["roles", "Departments & Roles"], ["records", "Staff Records"], ["portfolios", "Portfolios"]].map(([k, t]) => staffFn.indexOf(`["${k}", L("${t}"`)).every((x, i, a) => x > 0 && (i === 0 || x > a[i - 1])) && (staffFn.match(/className=\{tab !== "[a-z]+" \? sp\.off : ""\}/g) ?? []).length === 7);
   ok("Staff: Add staff on the tab row, never for the read-only roles", /aside=\{!readOnly \? \(\s*<TabAside>\s*<TabAction icon="add" onClick=\{\(\) => setShowCreate\(true\)\}>/.test(staffFn) && /open=\{!readOnly && showCreate\}/.test(staffFn));
   ok("Staff: the toast and the question render outside every zone", staffFn.indexOf("{toastNode}{promptNode}") > 0 && staffFn.indexOf("{toastNode}{promptNode}") < staffFn.indexOf("<TabZone"));
   /* v1.308.0 - Staff Workspace 4.0 (reference 06): View, then Edit / Cancel /

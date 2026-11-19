@@ -569,3 +569,12 @@ Finance historical recovery (the CEO 18-11-2026, docs/FINANCE-HISTORY-GATE.md) a
 additive only - six nullable columns on `cashbook_marks` (cash verified / revoked, by whom, why).
 A receipt paid before 01-11-2026 is verified as cash only; it is never an invoice_paid_confirmations
 row, so commission cannot see it.
+Position & Responsibilities as records (the CEO 19-11-2026) adds `0215_responsibility_items`:
+additive only - two new tables (`staff_responsibilities`, `position_responsibility_templates`) and one
+conversion INSERT that copies each line already written into a row. `users` is not altered and
+`users.responsibilities` is kept as written; no money, pay or access table is touched.
+
+Staff portfolios (the CEO 19-11-2026, v1.389.0) adds `0216_staff_portfolios`:
+additive only - two new tables (`staff_portfolios`, `staff_portfolio_items`) with no-delete triggers.
+`users` is not altered; the responsibilities shown are read from 0215 (Public only); no money, pay or
+access table is touched.

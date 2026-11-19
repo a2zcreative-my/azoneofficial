@@ -36,3 +36,8 @@
 # /apply/... links keep working. 302, not 301, for the same reason as above.
 /partner   /apply/partner   302
 /business  /apply/business  302
+
+# v1.389.0 - the staff portfolios (/portfolio/<name>). Every name is served the ONE static page
+# /portfolio/staff, which asks the API for that published portfolio (status 200: a rewrite, the
+# address stays what the QR says). /portfolio/elfia above keeps its 301 because the first match wins.
+/portfolio/:name  /portfolio/staff  200
