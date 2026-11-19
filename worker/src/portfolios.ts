@@ -97,6 +97,13 @@ export function slugOf(name: string): string {
   return own.replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).slice(0, 3).join("-").slice(0, 40).replace(/-+$/, "");
 }
 const slugOk = (s: string) => /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(s) && /[a-z]/.test(s) && !s.includes("--") && !RESERVED.has(s);
+/* 19-11-2026 (the CEO: "I dont want to touch staff photo, just want to add another photo of them
+   for their portfolio") - a photo uploaded FOR THE PORTFOLIO is its own: portrait_source_key holds
+   this marker instead of the staff photo it was made from, so a later change to the staff record
+   photo never makes it stale, and the staff record photo is never written. */
+export const OWN_PORTRAIT = "own";
+const portraitCurrent = (key: string | null, source: string | null, staffPhoto: string | null) =>
+  Boolean(key && (source === OWN_PORTRAIT || source === staffPhoto));
 export const publicUrl = (slug: string) => `${PORTFOLIO_SITE}/portfolio/${slug}`;
 
 async function staffOf(env: Env, userId: number): Promise<StaffBits | null> {
@@ -134,7 +141,7 @@ async function snapshotOf(env: Env, p: PortfolioRow, s: StaffBits): Promise<Publ
     email: p.show_email ? (p.contact_email ?? null) : null, phone: p.show_phone ? (p.contact_phone ?? null) : null,
     socials: parseObj(p.socials),
     /* the approved photo: the processed portrait, else the staff photo of that moment */
-    portrait_key: p.portrait_key && p.portrait_source_key === s.photo_key ? p.portrait_key : (s.photo_key ?? p.portrait_key ?? null),
+    portrait_key: portraitCurrent(p.portrait_key, p.portrait_source_key, s.photo_key) ? p.portrait_key : (s.photo_key ?? p.portrait_key ?? null),
     template: p.template,
     items: items.filter((i) => i.kind === "video" ? Boolean(i.media_key || i.video_url) : Boolean(i.media_key))
       .map((i) => ({ id: i.id, kind: i.kind, title: i.title, description: i.description, video_url: i.video_url, has_media: Boolean(i.media_key), media_type: i.media_type, featured: Boolean(i.featured), media_key: i.media_key })),
@@ -172,7 +179,9 @@ function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Aw
       show_email: Boolean(p.show_email), show_phone: Boolean(p.show_phone), socials: parseObj(p.socials),
       portrait_key: p.portrait_key, photo_crop: (() => { try { return p.photo_crop ? JSON.parse(p.photo_crop) : null; } catch { return null; } })(),
       /* the staff photo changed after the portrait was made from it: the card falls back to the new photo */
-      portrait_stale: Boolean(p.portrait_key && p.portrait_source_key !== s.photo_key),
+      portrait_stale: Boolean(p.portrait_key) && !portraitCurrent(p.portrait_key, p.portrait_source_key, s.photo_key),
+      /* the portfolio's own photo (uploaded for it), not one made from the staff record photo */
+      portrait_own: Boolean(p.portrait_key && p.portrait_source_key === OWN_PORTRAIT),
       version: p.version, published_at: p.published_at, unpublished_at: p.unpublished_at, updated_at: p.updated_at,
       public_url: p.state === "published" ? publicUrl(p.slug) : null,
       address: publicUrl(p.slug),
@@ -228,7 +237,7 @@ export async function handlePortfolios(
         id: r.pid as number, slug: r.slug as string, state: r.state as string, updated_at: r.updated_at ?? null, published_at: r.published_at ?? null,
         tagline: r.tagline ?? null, specialties: parseList((r.specialties as string | null) ?? null).length,
         public_url: r.state === "published" ? publicUrl(r.slug as string) : null,
-        portrait_stale: Boolean(r.portrait_key && r.portrait_source_key !== r.photo_key),
+        portrait_stale: Boolean(r.portrait_key) && !portraitCurrent(r.portrait_key as string | null, r.portrait_source_key as string | null, r.photo_key as string | null),
       } : null,
     }));
     const n = (st: string) => people.filter((x) => x.portfolio?.state === st).length;
@@ -343,9 +352,11 @@ export async function handlePortfolios(
     const key = `private/portfolio/${p.id}-portrait-${Date.now()}.${ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : "jpg"}`;
     const rejected = await putGuarded(env.MEDIA, key, request, { max: IMAGE_MAX, contentType: ct });
     if (rejected) return rejected;
+    /* ?own=1 - the portfolio's own photo (or a cut-out of it): kept apart from the staff record photo */
+    const own = new URL(request.url).searchParams.get("own") === "1";
     await env.DB.prepare(`UPDATE staff_portfolios SET portrait_key = ?1, portrait_source_key = ?2, updated_by = ?3, updated_at = datetime('now'), version = version + 1 WHERE id = ?4`)
-      .bind(key, s.photo_key, user.id, p.id).run();
-    await audit(env, user.id, "portfolio.portrait", "staff_portfolios", String(p.id), { key, from_photo: s.photo_key });
+      .bind(key, own ? OWN_PORTRAIT : s.photo_key, user.id, p.id).run();
+    await audit(env, user.id, "portfolio.portrait", "staff_portfolios", String(p.id), { key, ...(own ? { own: true } : { from_photo: s.photo_key }) });
     return json({ portrait_key: key }, 201);
   }
   if (rest === "/portrait/reset" && method === "POST") {

@@ -174,7 +174,8 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
   const [side, setSide] = useState<"front" | "back">("front");
   const [size, setSize] = useState<CardSize>("story");
   const [portrait, setPortrait] = useState<LoadedPortrait | null>(null);
-  const [pending, setPending] = useState<Blob | null>(null); // a cut-out not saved yet
+  const [pending, setPending] = useState<Blob | null>(null); // a cut-out or a new portfolio photo, not saved yet
+  const [pendingOwn, setPendingOwn] = useState(false); // the pending picture is the portfolio's own photo
   const [busy, setBusy] = useState<string | null>(null);
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
@@ -188,7 +189,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
   const load = useCallback(async () => {
     if (!id) return;
     const r = await api<PortfolioDetail>(`/portfolios/${id}`);
-    if (r.ok && r.data) { setD(r.data); setDraft({}); setPending(null); }
+    if (r.ok && r.data) { setD(r.data); setDraft({}); setPending(null); setPendingOwn(false); }
     else notifyRef.current(L("Could not open the portfolio", "Tidak dapat membuka portfolio"), "", "error");
   }, [id]);
   useEffect(() => { setD(null); setTab("card"); if (id) void load(); }, [id, load]);
@@ -226,7 +227,9 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
     if (!d) return false;
     if (pending) {
       setBusy("portrait");
-      const res = await csrfFetch(`/api/v1/staff/portfolios/${d.portfolio.id}/portrait`, { method: "POST", headers: { "Content-Type": "image/png" }, body: pending });
+      /* the portfolio's own photo - a new upload, or a cut-out of the own photo already in use - never the staff record */
+      const own = pendingOwn || Boolean(d.portfolio.portrait_own && !d.portfolio.portrait_stale);
+      const res = await csrfFetch(`/api/v1/staff/portfolios/${d.portfolio.id}/portrait${own ? "?own=1" : ""}`, { method: "POST", headers: { "Content-Type": pending.type || "image/png" }, body: pending });
       setBusy(null);
       if (!res.ok) { notify(L("The portrait was not saved", "Potret tidak disimpan"), "", "error"); return false; }
     }
@@ -257,26 +260,21 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
   };
   const resetToStaffPhoto = async () => {
     if (!d) return;
-    setPending(null);
+    setPending(null); setPendingOwn(false);
     const r = await api(`/portfolios/${d.portfolio.id}/portrait/reset`, { method: "POST", body: "{}" });
     if (r.ok) { notify(L("Using the staff photo", "Menggunakan foto kakitangan")); void load(); }
   };
-  const uploadStaffPhoto = async (f: File | undefined) => {
+  /* the portfolio's own photo: shown in the preview at once, saved with Save - the staff record photo is not touched */
+  const pickPortfolioPhoto = async (f: File | undefined) => {
     if (!d || !f) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(f.type)) { notify(L("Use a JPG, PNG or WebP image", "Gunakan imej JPG, PNG atau WebP"), "", "error"); return; }
     setBusy("photo");
     const { compressImage } = await import("@/lib/compress-image");
-    const blob = await compressImage(f, 2000, 0.9);
-    const res = await csrfFetch(`/api/v1/staff/users/${d.staff.id}/photo`, { method: "POST", headers: { "Content-Type": blob.type || "image/jpeg" }, body: blob });
+    const blob = await compressImage(f, 2000, 0.9).catch(() => null);
     setBusy(null);
-    if (res.ok) {
-      notify(L("Staff photo saved", "Foto kakitangan disimpan"), L("It is on the staff record and this card", "Ia pada rekod kakitangan dan kad ini"));
-      setPending(null);
-      /* the new photo, without throwing away what is being typed */
-      const r = await api<PortfolioDetail>(`/portfolios/${d.portfolio.id}`);
-      if (r.ok && r.data) setD(r.data);
-    }
-    else { const j = await res.json().catch(() => null) as { error?: { message?: string } } | null; notify(L("The photo was not saved", "Foto tidak disimpan"), j?.error?.message ?? "", "error"); }
+    if (!blob) { notify(L("That photo could not be read", "Foto itu tidak dapat dibaca"), "", "error"); return; }
+    setPending(blob); setPendingOwn(true);
+    notify(L("Portfolio photo added", "Foto portfolio ditambah"), L("Check the preview, then Save - the staff record photo is not changed", "Semak pratonton, kemudian Simpan - foto rekod kakitangan tidak diubah"));
   };
 
   const publish = async () => {
@@ -367,17 +365,17 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
               <div className={css.photoBox} data-testid="pf-photo">
                 <strong>{L("Photo", "Foto")}</strong>
                 <p className="erp-meta">{portraitKey || pending
-                  ? (pending ? L("Background removed - not saved yet", "Latar dibuang - belum disimpan") : d.portfolio.portrait_key && !d.portfolio.portrait_stale ? L("Using the adjusted portrait", "Menggunakan potret yang dilaraskan") : L("Using the staff record photo", "Menggunakan foto rekod kakitangan"))
+                  ? (pending ? (pendingOwn ? L("New portfolio photo - not saved yet", "Foto portfolio baharu - belum disimpan") : L("Background removed - not saved yet", "Latar dibuang - belum disimpan")) : d.portfolio.portrait_own && !d.portfolio.portrait_stale ? L("Using the portfolio's own photo - the staff record photo is not changed", "Menggunakan foto portfolio sendiri - foto rekod kakitangan tidak diubah") : d.portfolio.portrait_key && !d.portfolio.portrait_stale ? L("Using the adjusted portrait", "Menggunakan potret yang dilaraskan") : L("Using the staff record photo", "Menggunakan foto rekod kakitangan"))
                   : L("No photo yet - the card shows a placeholder with the initials. A photo is not needed to create or publish.", "Belum ada foto - kad memaparkan pemegang tempat dengan huruf awal. Foto tidak diperlukan untuk mencipta atau menerbit.")}</p>
                 {d.portfolio.portrait_stale && <p className="erp-meta">{L("The staff photo changed after this portrait was made - the card now uses the new staff photo.", "Foto kakitangan berubah selepas potret ini dibuat - kad kini menggunakan foto baharu.")}</p>}
                 <div className={css.actions}>
-                  {d.can.upload_staff_photo && (
-                    <label className={btnSm} data-testid="pf-upload-label"><AppIcon name="upload" />{d.staff.photo_key ? L("Replace staff photo", "Ganti foto kakitangan") : L("Upload staff photo", "Muat naik foto kakitangan")}
-                      <input type="file" accept="image/jpeg,image/png,image/webp" className="erp-sr-only" onChange={(e) => void uploadStaffPhoto(e.target.files?.[0])} data-testid="pf-upload" />
+                  {edit && (
+                    <label className={btnSm} data-testid="pf-own-photo-label"><AppIcon name="upload" />{busy === "photo" ? L("Reading...", "Membaca...") : d.portfolio.portrait_own ? L("Replace portfolio photo", "Ganti foto portfolio") : L("Upload portfolio photo", "Muat naik foto portfolio")}
+                      <input type="file" accept="image/jpeg,image/png,image/webp" className="erp-sr-only" onChange={(e) => { void pickPortfolioPhoto(e.target.files?.[0]); e.target.value = ""; }} data-testid="pf-own-photo" />
                     </label>
                   )}
                   {edit && (portraitKey || pending) && <button type="button" className={btnSm} disabled={busy === "cutout"} onClick={() => void removeBackground()} data-testid="pf-cutout"><AppIcon name="fix" />{busy === "cutout" ? L("Removing...", "Membuang...") : L("Remove background", "Buang latar")}</button>}
-                  {edit && (d.portfolio.portrait_key || pending) && <button type="button" className={btnSmQuiet} onClick={() => void resetToStaffPhoto()} data-testid="pf-photo-reset">{L("Use the staff photo as it is", "Guna foto kakitangan seadanya")}</button>}
+                  {edit && (d.portfolio.portrait_key || pending) && <button type="button" className={btnSmQuiet} onClick={() => void resetToStaffPhoto()} data-testid="pf-photo-reset">{L("Use the staff record photo instead", "Guna foto rekod kakitangan")}</button>}
                 </div>
                 {(portraitKey || pending) && edit && (
                   <div className={css.sliders}>

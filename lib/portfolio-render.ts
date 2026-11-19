@@ -14,7 +14,7 @@ export interface PortfolioDetail {
     id: number; user_id: number; slug: string; state: "draft" | "published" | "unpublished"; template: CardTemplate;
     tagline: string | null; intro: string | null; specialties: string[]; expertise: string[];
     experience: string | null; contact_email: string | null; contact_phone: string | null; show_email: boolean; show_phone: boolean;
-    socials: Record<string, string>; portrait_key: string | null; photo_crop: CardCrop | null; portrait_stale: boolean;
+    socials: Record<string, string>; portrait_key: string | null; photo_crop: CardCrop | null; portrait_stale: boolean; portrait_own?: boolean;
     version: number; published_at: string | null; unpublished_at: string | null; updated_at: string | null;
     public_url: string | null; address: string; unpublished_changes: boolean | null; live_photo_differs: boolean;
   };

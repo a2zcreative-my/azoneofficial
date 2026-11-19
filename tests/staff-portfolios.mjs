@@ -118,6 +118,18 @@ try {
   ok(d.portfolio.portrait_stale === true, "a new staff photo makes the old portrait stale - the card falls back to the new photo");
   ok((await call("/public/portfolio/nurfarah/portrait", null)).buf.includes(Buffer.from("fake-png-cutout")), "the public keeps the approved photo until republished");
 
+  /* 19-11-2026 (the CEO) - the portfolio's OWN photo: uploaded for the portfolio, never the staff record,
+     and a later staff photo change does not replace it */
+  const staffPhotoBefore = db.prepare("SELECT photo_key FROM users WHERE id = 11").get().photo_key;
+  r = await call(`/staff/portfolios/${pid}/portrait?own=1`, 2, "POST", PNG("own"), "image/png");
+  ok(r.status === 201, "own photo: a photo uploaded for the portfolio is saved", r.text);
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  ok(d.portfolio.portrait_own === true && d.portfolio.portrait_stale === false, "own photo: marked as the portfolio's own and current", JSON.stringify(d.portfolio).slice(0, 160));
+  ok(db.prepare("SELECT photo_key FROM users WHERE id = 11").get().photo_key === staffPhotoBefore, "own photo: the staff record photo is not touched");
+  await call("/staff/users/11/photo", 1, "POST", PNG("third"), "image/png");
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  ok(d.portfolio.portrait_own === true && d.portfolio.portrait_stale === false, "own photo: a new staff photo does not replace it");
+
   /* the approver shows the phone */
   await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, show_phone: true });
   d = (await call(`/staff/portfolios/${pid}`, 1)).j;
