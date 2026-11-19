@@ -26,7 +26,23 @@ export interface PortfolioDetail {
   /** the person's responsibilities (Staff -> Departments & Roles): only the Public ones reach a card */
   duties: { public: string[]; key: string[]; all: number };
   items: { id: number; kind: "image" | "video"; title: string; description: string | null; media_key: string | null; media_type: string | null; video_url: string | null; featured: boolean; sort_order: number }[];
-  can: { edit: boolean; publish: boolean; upload_staff_photo: boolean };
+  can: { edit: boolean; publish: boolean; upload_staff_photo: boolean; /** v1.390.0 - the owner sends it for approval */ submit?: boolean; /** 0219 - you are its pre-checker */ precheck?: boolean };
+  /** 0219 - where the review stands: null = not sent, or published since */
+  review?: PortfolioReview | null;
+}
+export interface PortfolioReview {
+  stage: "precheck" | "approval" | "returned"; version: number; at: string; note: string | null; by: string | null;
+  prechecker: { name: string | null; role: string | null } | null; prechecked_by: string | null; changed_since: boolean; mine_to_precheck: boolean;
+}
+const ROLE_WORD: Record<string, string> = { coo: "COO", cco: "CCO", ceo: "CEO" };
+/** the review in words, for the editor, the list and Profile */
+export function reviewWords(r: PortfolioReview | { stage: string; prechecker: { name: string | null; role: string | null } | null; prechecked_by?: string | null; note?: string | null; by?: string | null }, ms: boolean): string {
+  const who = r.prechecker ? `${r.prechecker.name ?? ""}${r.prechecker.role && ROLE_WORD[r.prechecker.role] ? ` (${ROLE_WORD[r.prechecker.role]})` : ""}` : "";
+  if (r.stage === "precheck") return ms ? `Menunggu semakan awal oleh ${who}` : `Waiting for pre-check by ${who}`;
+  if (r.stage === "returned") return ms ? `Dikembalikan oleh ${r.by ?? ""}${r.note ? `: ${r.note}` : ""}` : `Returned by ${r.by ?? ""}${r.note ? `: ${r.note}` : ""}`;
+  return "prechecked_by" in r && r.prechecked_by
+    ? (ms ? `Disemak awal oleh ${r.prechecked_by} - menunggu kelulusan CEO` : `Pre-checked by ${r.prechecked_by} - waiting for the CEO's approval`)
+    : (ms ? "Menunggu kelulusan CEO" : "Waiting for the CEO's approval");
 }
 
 const SOCIAL_KINDS: Record<string, CardIcon> = { instagram: "instagram", tiktok: "tiktok", facebook: "facebook", linkedin: "linkedin", youtube: "youtube" };

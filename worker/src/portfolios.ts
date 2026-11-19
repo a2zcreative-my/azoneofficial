@@ -21,11 +21,23 @@
  *
  * Who: `portfolio_manage` builds and edits; `portfolio_publish` publishes and
  * unpublishes (the approval). Each person may read their own portfolio.
+ * v1.390.0 (the CEO, 19-11-2026: "Portfolios should be able to visible by the staff for them to
+ * generate and download it by themselves"): each person on staff may also CREATE and EDIT their
+ * OWN portfolio (never anyone else's) and send it for approval. Still only the approver
+ * publishes, ticks a personal email or phone for the public, or unpublishes - so what the
+ * public sees is always approved, and an edit to a published card stays private until the
+ * approver publishes it again.
+ * The review (0219, the CEO 19-11-2026: "Pre-checked COO, CCO based on the flow reporting chart"):
+ * Send for approval goes first to the nearest COO or CCO ABOVE the person on the Organisation chart,
+ * who marks it pre-checked or returns it with a note; then the approvers (`portfolio_publish`: the
+ * CEO and the super admin) are asked to publish. No COO / CCO above them (they report straight to
+ * the CEO, or are one) = straight to the approvers. The approver may still publish at any time.
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { currentStaffSql, notify } from "./staff";
-import { canUser } from "./permissions";
+import { currentStaffSql, leaveOrgList, notify } from "./staff";
+import { leaveAbove } from "./leave-chain";
+import { canUser, rolesFor } from "./permissions";
 import { portfolioOf } from "./responsibilities";
 import { audit, err, json, putGuarded } from "./shared";
 
@@ -179,7 +191,51 @@ async function uniqueSlug(env: Env, base: string): Promise<string> {
   return `${b.slice(0, 30)}-${Date.now().toString(36)}`;
 }
 
-function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Awaited<ReturnType<typeof itemsOf>>, user: StaffUser, duties: { public: string[]; key: string[]; all: number }) {
+type ReviewRow = { id: number; version: number; step: "submitted" | "prechecked" | "returned"; actor_id: number; assignee_id: number | null; note: string | null; created_at: string; actor_name: string | null; assignee_name: string | null; assignee_role: string | null };
+/** 0219 - where the portfolio's review stands: its latest step, unless a publish came after it */
+async function reviewOf(env: Env, p: PortfolioRow): Promise<ReviewRow | null> {
+  const r = await env.DB.prepare(
+    `SELECT r.id, r.version, r.step, r.actor_id, r.assignee_id, r.note, r.created_at,
+            COALESCE(NULLIF(TRIM(a.full_name), ''), a.name) AS actor_name, COALESCE(NULLIF(TRIM(b.full_name), ''), b.name) AS assignee_name, b.role AS assignee_role
+       FROM staff_portfolio_reviews r LEFT JOIN users a ON a.id = r.actor_id LEFT JOIN users b ON b.id = r.assignee_id
+      WHERE r.portfolio_id = ?1 ORDER BY r.id DESC LIMIT 1`,
+  ).bind(p.id).first<ReviewRow>().catch(() => null); // before 0219: no review yet
+  if (!r) return null;
+  if (p.state === "published" && p.published_at && p.published_at >= r.created_at) return null; // published since: done
+  return r;
+}
+/** the pre-checker: the nearest COO or CCO above the person on the Organisation chart, or null */
+async function prechecker(env: Env, userId: number): Promise<{ id: number; name: string; role: string } | null> {
+  const above = leaveAbove(await leaveOrgList(env), userId);
+  for (const a of above) {
+    if (a.role === "ceo") return null; // reached the top first: nobody to pre-check
+    if (a.role === "coo" || a.role === "cco") return { id: a.id, name: a.name, role: a.role };
+  }
+  return null;
+}
+async function approversOf(env: Env, except: number): Promise<number[]> {
+  const roles = rolesFor("portfolio_publish") as readonly string[];
+  return ((await env.DB.prepare(`SELECT id, role FROM users WHERE is_active = 1`).all<{ id: number; role: string }>()).results ?? [])
+    .filter((u) => roles.includes(u.role) && u.id !== except).map((u) => u.id);
+}
+function reviewView(r: ReviewRow | null, p: PortfolioRow, user: StaffUser) {
+  if (!r) return null;
+  const stage = r.step === "returned" ? "returned" : r.step === "submitted" && r.assignee_id ? "precheck" : "approval";
+  return {
+    stage, version: r.version, at: r.created_at, note: r.note, by: r.actor_name,
+    prechecker: stage === "precheck" ? { name: r.assignee_name, role: r.assignee_role } : null,
+    prechecked_by: r.step === "prechecked" ? r.actor_name : null,
+    changed_since: p.version !== r.version,
+    mine_to_precheck: stage === "precheck" && r.assignee_id === user.id,
+  };
+}
+
+/** v1.390.0 - the person's own portfolio, while they are on staff: they may build and edit it, never publish it */
+const isOwn = (p: { user_id: number }, s: { current: number } | null, user: StaffUser) => p.user_id === user.id && Boolean(s?.current);
+
+function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Awaited<ReturnType<typeof itemsOf>>, user: StaffUser, duties: { public: string[]; key: string[]; all: number }, review: ReviewRow | null = null) {
+  const own = isOwn(p, s, user);
+  const rv = reviewView(review, p, user);
   const live = p.published_json ? (JSON.parse(p.published_json) as PublicSnapshot) : null;
   return {
     portfolio: {
@@ -206,9 +262,36 @@ function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Aw
     },
     /* the Public ones are what the card and the page show; Key and the count say what is not public yet */
     duties,
+    /* 0219 - where the review stands (null: not sent, or published since) */
+    review: rv,
     items: items.map((i) => ({ ...i, featured: Boolean(i.featured) })),
-    can: { edit: canUser(user, "portfolio_manage"), publish: canUser(user, "portfolio_publish"), upload_staff_photo: canUser(user, "hr_manage") },
+    can: {
+      edit: canUser(user, "portfolio_manage") || own, publish: canUser(user, "portfolio_publish"), upload_staff_photo: canUser(user, "hr_manage"),
+      /* v1.390.0 - "Send for approval": the owner, when they cannot publish it themselves */
+      submit: own && !canUser(user, "portfolio_publish"),
+      /* 0219 - the COO / CCO this submission waits on */
+      precheck: Boolean(rv?.mine_to_precheck),
+    },
   };
+}
+
+/** one way to make a draft - by a manager for a person, or by the person for themselves (v1.390.0) */
+async function createFor(env: Env, s: StaffBits, user: StaffUser): Promise<Response> {
+  const uid = s.id;
+  const had = await env.DB.prepare(`SELECT id FROM staff_portfolios WHERE user_id = ?1`).bind(uid).first<{ id: number }>();
+  if (had) return json({ id: had.id, existed: true });
+  const slug = await uniqueSlug(env, slugOf(displayName(s)));
+  const email = s.email && /@a2zcreative\.my$/i.test(s.email) ? s.email : null;
+  const row = await env.DB.prepare(
+    `INSERT INTO staff_portfolios (user_id, slug, contact_email, contact_phone, created_by, updated_by, updated_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?5, datetime('now') WHERE NOT EXISTS (SELECT 1 FROM staff_portfolios WHERE user_id = ?1) RETURNING id`,
+  ).bind(uid, slug, email, s.phone ?? null, user.id).first<{ id: number }>();
+  if (!row) {
+    const again = await env.DB.prepare(`SELECT id FROM staff_portfolios WHERE user_id = ?1`).bind(uid).first<{ id: number }>();
+    return json({ id: again?.id ?? null, existed: true });
+  }
+  await audit(env, user.id, "portfolio.create", "staff_portfolios", String(row.id), { user_id: uid, slug, ...(uid === user.id ? { self: true } : {}) });
+  return json({ id: row.id, slug }, 201);
 }
 
 export async function handlePortfolios(
@@ -217,18 +300,54 @@ export async function handlePortfolios(
   const manage = canUser(user, "portfolio_manage");
   const publish = canUser(user, "portfolio_publish");
 
-  /* ---- your own portfolio, for the Profile tab: download and share once published ---- */
+  /* ---- your own portfolio, for the Profile tab: build it, send it for approval, download and share once published ---- */
+  if (path === "/portfolios/mine" && method === "POST") {
+    const s = await staffOf(env, user.id);
+    if (!s || !s.current) return err("not_on_staff", "Only people on staff have a portfolio", 403);
+    return createFor(env, s, user);
+  }
+  if (path === "/portfolios/mine/submit" && method === "POST") {
+    const p = await env.DB.prepare(`SELECT * FROM staff_portfolios WHERE user_id = ?1`).bind(user.id).first<PortfolioRow>();
+    if (!p) return err("not_found", "Create your portfolio first", 404);
+    const s = await staffOf(env, user.id);
+    if (!s || !s.current) return err("not_on_staff", "Only people on staff have a portfolio", 403);
+    if (!positionOf(s)) return err("incomplete", "Your staff record has no position yet - ask HR to add it before sending for approval", 409);
+    /* 0219 - first the nearest COO / CCO above on the chart; nobody there = straight to the approvers */
+    const pc = await prechecker(env, user.id);
+    /* already waiting on this very version (a second tap): the same submission, nobody told twice */
+    const last = await reviewOf(env, p);
+    if (last && last.step !== "returned" && last.version === p.version) {
+      return json({ ok: true, already: true, stage: last.step === "submitted" && last.assignee_id ? "precheck" : "approval", prechecker: last.assignee_id ? { name: last.assignee_name, role: last.assignee_role } : null, sent_to: 0 });
+    }
+    const row = await env.DB.prepare(`INSERT INTO staff_portfolio_reviews (portfolio_id, version, step, actor_id, assignee_id) VALUES (?1, ?2, 'submitted', ?3, ?4) RETURNING id`)
+      .bind(p.id, p.version, user.id, pc?.id ?? null).first<{ id: number }>();
+    const who = pc ? [pc.id] : await approversOf(env, user.id);
+    const msg = pc
+      ? `${displayName(s)} sent their portfolio card for your pre-check - open Staff -> Portfolios, check it and mark it pre-checked or return it`
+      : `${displayName(s)} sent their portfolio card for approval - open Staff -> Portfolios to check and publish it`;
+    for (const id of who) await notify(env, id, "portfolio", msg, `portfolio:${p.id}:ask:${row?.id ?? p.version}`, { once: true });
+    await audit(env, user.id, "portfolio.submit", "staff_portfolios", String(p.id), { version: p.version, prechecker: pc?.id ?? null, to: who.length });
+    return json({ ok: true, stage: pc ? "precheck" : "approval", prechecker: pc ? { name: pc.name, role: pc.role } : null, sent_to: who.length });
+  }
   if (path === "/portfolios/mine" && method === "GET") {
     const p = await env.DB.prepare(`SELECT * FROM staff_portfolios WHERE user_id = ?1`).bind(user.id).first<PortfolioRow>();
     if (!p) return json({ portfolio: null });
     const s = await staffOf(env, p.user_id);
     if (!s) return json({ portfolio: null });
-    return json(detailOf(p, s, await snapshotOf(env, p, s), await itemsOf(env, p.id), user, await publicDuties(env, p.user_id)));
+    return json(detailOf(p, s, await snapshotOf(env, p, s), await itemsOf(env, p.id), user, await publicDuties(env, p.user_id), await reviewOf(env, p)));
   }
 
+  /* v1.390.0 - without a portfolio permission, a person reaches only their OWN portfolio's record routes */
   if (!manage && !publish) {
-    if (path === "/portfolios" || path.startsWith("/portfolios/")) return err("forbidden", "Portfolio access required", 403);
-    return null;
+    const own = /^\/portfolios\/(\d+)(\/.*)?$/.exec(path);
+    const row = own ? await env.DB.prepare(`SELECT user_id FROM staff_portfolios WHERE id = ?1`).bind(Number(own[1])).first<{ user_id: number }>() : null;
+    const assigned = row && row.user_id !== user.id
+      ? await env.DB.prepare(`SELECT assignee_id FROM staff_portfolio_reviews WHERE portfolio_id = ?1 ORDER BY id DESC LIMIT 1`).bind(Number(own![1])).first<{ assignee_id: number | null }>().catch(() => null)
+      : null;
+    if (!row || (row.user_id !== user.id && assigned?.assignee_id !== user.id)) {
+      if (path === "/portfolios" || path.startsWith("/portfolios/")) return err("forbidden", "Portfolio access required", 403);
+      return null;
+    }
   }
 
   /* ---- the list: every person on staff, with their portfolio if they have one ---- */
@@ -252,6 +371,23 @@ export async function handlePortfolios(
         portrait_stale: Boolean(r.portrait_key) && !portraitCurrent(r.portrait_key as string | null, r.portrait_source_key as string | null, r.photo_key as string | null),
       } : null,
     }));
+    /* 0219 - where each review stands (the latest step, unless published since) */
+    const revs = ((await env.DB.prepare(
+      `SELECT r.portfolio_id, r.step, r.assignee_id, r.created_at, COALESCE(NULLIF(TRIM(b.full_name), ''), b.name) AS assignee_name, b.role AS assignee_role
+         FROM staff_portfolio_reviews r LEFT JOIN users b ON b.id = r.assignee_id
+        WHERE r.id IN (SELECT MAX(id) FROM staff_portfolio_reviews GROUP BY portfolio_id)`,
+    ).all<{ portfolio_id: number; step: string; assignee_id: number | null; created_at: string; assignee_name: string | null; assignee_role: string | null }>().catch(() => ({ results: [] }))).results ?? []);
+    const revOf = new Map(revs.map((r) => [r.portfolio_id, r]));
+    for (const x of people) {
+      const r = x.portfolio ? revOf.get(x.portfolio.id) : undefined;
+      const pubAt = x.portfolio?.published_at as string | null | undefined;
+      const live = r && !(x.portfolio?.state === "published" && pubAt && pubAt >= r.created_at);
+      (x as Record<string, unknown>).review = live && r ? {
+        stage: r.step === "returned" ? "returned" : r.step === "submitted" && r.assignee_id ? "precheck" : "approval",
+        prechecker: r.step === "submitted" && r.assignee_id ? { name: r.assignee_name, role: r.assignee_role } : null,
+        mine: r.step === "submitted" && r.assignee_id === user.id,
+      } : null;
+    }
     const n = (st: string) => people.filter((x) => x.portfolio?.state === st).length;
     return json({
       people,
@@ -266,20 +402,7 @@ export async function handlePortfolios(
     const uid = Number(body?.user_id);
     const s = Number.isInteger(uid) ? await staffOf(env, uid) : null;
     if (!s || !s.current) return err("not_found", "That person is not on staff", 404);
-    const had = await env.DB.prepare(`SELECT id FROM staff_portfolios WHERE user_id = ?1`).bind(uid).first<{ id: number }>();
-    if (had) return json({ id: had.id, existed: true });
-    const slug = await uniqueSlug(env, slugOf(displayName(s)));
-    const email = s.email && /@a2zcreative\.my$/i.test(s.email) ? s.email : null;
-    const row = await env.DB.prepare(
-      `INSERT INTO staff_portfolios (user_id, slug, contact_email, contact_phone, created_by, updated_by, updated_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?5, datetime('now') WHERE NOT EXISTS (SELECT 1 FROM staff_portfolios WHERE user_id = ?1) RETURNING id`,
-    ).bind(uid, slug, email, s.phone ?? null, user.id).first<{ id: number }>();
-    if (!row) {
-      const again = await env.DB.prepare(`SELECT id FROM staff_portfolios WHERE user_id = ?1`).bind(uid).first<{ id: number }>();
-      return json({ id: again?.id ?? null, existed: true });
-    }
-    await audit(env, user.id, "portfolio.create", "staff_portfolios", String(row.id), { user_id: uid, slug });
-    return json({ id: row.id, slug }, 201);
+    return createFor(env, s, user);
   }
 
   const m = /^\/portfolios\/(\d+)(\/.*)?$/.exec(path);
@@ -289,14 +412,16 @@ export async function handlePortfolios(
   const s = await staffOf(env, p.user_id);
   if (!s) return err("not_found", "Staff record not found", 404);
   const rest = m[2] ?? "";
+  /* v1.390.0 - a manager edits anyone's; a person on staff edits their own (publish stays the approver's) */
+  const writer = manage || isOwn(p, s, user);
 
   if (rest === "" && method === "GET") {
-    return json(detailOf(p, s, await snapshotOf(env, p, s), await itemsOf(env, p.id), user, await publicDuties(env, p.user_id)));
+    return json(detailOf(p, s, await snapshotOf(env, p, s), await itemsOf(env, p.id), user, await publicDuties(env, p.user_id), await reviewOf(env, p)));
   }
 
   /* ---- edit the draft (the version guards two editors) ---- */
   if (rest === "" && method === "PUT") {
-    if (!manage) return err("forbidden", "Only portfolio managers edit a portfolio", 403);
+    if (!writer) return err("forbidden", "Only portfolio managers edit a portfolio", 403);
     if (Number(body?.version) !== p.version) return err("stale", "Someone else changed this portfolio - reload it", 409);
     const sets: string[] = []; const vals: unknown[] = [];
     const put = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = ?${vals.length}`); };
@@ -363,7 +488,7 @@ export async function handlePortfolios(
 
   /* ---- the processed portrait (cropped, or with the background removed) ---- */
   if (rest === "/portrait" && method === "POST") {
-    if (!manage) return err("forbidden", "Only portfolio managers change the portrait", 403);
+    if (!writer) return err("forbidden", "Only portfolio managers change the portrait", 403);
     const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim();
     if (!IMAGE_TYPES.includes(ct)) return err("invalid_input", "Only JPG, PNG or WebP images", 400);
     const key = `private/portfolio/${p.id}-portrait-${Date.now()}.${ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : "jpg"}`;
@@ -377,7 +502,7 @@ export async function handlePortfolios(
     return json({ portrait_key: key }, 201);
   }
   if (rest === "/portrait/reset" && method === "POST") {
-    if (!manage) return err("forbidden", "Only portfolio managers change the portrait", 403);
+    if (!writer) return err("forbidden", "Only portfolio managers change the portrait", 403);
     await env.DB.prepare(`UPDATE staff_portfolios SET portrait_key = NULL, portrait_source_key = NULL, updated_by = ?1, updated_at = datetime('now'), version = version + 1 WHERE id = ?2`).bind(user.id, p.id).run();
     await audit(env, user.id, "portfolio.portrait_reset", "staff_portfolios", String(p.id));
     return json({ ok: true });
@@ -385,7 +510,7 @@ export async function handlePortfolios(
 
   /* ---- the work: a project image or a video ---- */
   if (rest === "/items" && method === "POST") {
-    if (!manage) return err("forbidden", "Only portfolio managers add work", 403);
+    if (!writer) return err("forbidden", "Only portfolio managers add work", 403);
     const kind = body?.kind === "video" ? "video" : "image";
     const title = trimTo(body?.title, 120);
     if (!title) return err("invalid_input", "Give the work a title", 400);
@@ -401,7 +526,7 @@ export async function handlePortfolios(
   }
   const it = /^\/items\/(\d+)(\/media|\/remove)?$/.exec(rest);
   if (it) {
-    if (!manage) return err("forbidden", "Only portfolio managers change work", 403);
+    if (!writer) return err("forbidden", "Only portfolio managers change work", 403);
     const item = await env.DB.prepare(`SELECT id, kind FROM staff_portfolio_items WHERE id = ?1 AND portfolio_id = ?2 AND removed_at IS NULL`).bind(Number(it[1]), p.id).first<{ id: number; kind: string }>();
     if (!item) return err("not_found", "That work is not on this portfolio", 404);
     if (it[2] === "/media" && method === "POST") {
@@ -439,6 +564,32 @@ export async function handlePortfolios(
       await audit(env, user.id, "portfolio.item_edit", "staff_portfolios", String(p.id), { item: item.id });
       return json({ ok: true });
     }
+  }
+
+  /* ---- 0219 the pre-check: only the COO / CCO the submission waits on ---- */
+  if (rest === "/precheck" && method === "POST") {
+    const r = await reviewOf(env, p);
+    if (!r || r.step !== "submitted" || !r.assignee_id) return err("invalid_state", "This portfolio is not waiting for a pre-check", 409);
+    if (r.assignee_id !== user.id) return err("forbidden", "Only the pre-checker on the reporting chart may pre-check it", 403);
+    const ok = body?.decision === "ok";
+    if (!ok && body?.decision !== "return") return err("invalid_input", "Mark it pre-checked or return it", 400);
+    const note = trimTo(body?.note, 500);
+    if (!ok && (!note || note.length < 5)) return err("invalid_input", "Say what needs changing (5 characters or more)", 400);
+    /* the row is written only while the submission is still the latest step (two clicks, one step) */
+    const res = await env.DB.prepare(
+      `INSERT INTO staff_portfolio_reviews (portfolio_id, version, step, actor_id, assignee_id, note)
+       SELECT ?1, ?2, ?3, ?4, NULL, ?5 WHERE (SELECT id FROM staff_portfolio_reviews WHERE portfolio_id = ?1 ORDER BY id DESC LIMIT 1) = ?6`,
+    ).bind(p.id, p.version, ok ? "prechecked" : "returned", user.id, note, r.id).run();
+    if (!res.meta.changes) return err("already_decided", "Someone already acted on this - reload it", 409);
+    const me = displayName({ name: user.name, full_name: (user as { full_name?: string | null }).full_name ?? null });
+    if (ok) {
+      for (const id of await approversOf(env, user.id)) await notify(env, id, "portfolio", `${displayName(s)}'s portfolio card was pre-checked by ${me} - open Staff -> Portfolios to publish it`, `portfolio:${p.id}:pre:${r.id}`, { once: true });
+      await notify(env, p.user_id, "portfolio", `${me} pre-checked your portfolio card - it now waits for the CEO's approval`, `portfolio:${p.id}:pre-own:${r.id}`, { once: true });
+    } else {
+      await notify(env, p.user_id, "portfolio", `${me} returned your portfolio card: ${note} - open Profile, edit it and send it again`, `portfolio:${p.id}:ret:${r.id}`, { once: true });
+    }
+    await audit(env, user.id, ok ? "portfolio.prechecked" : "portfolio.returned", "staff_portfolios", String(p.id), { version: p.version, ...(note ? { note } : {}) });
+    return json({ ok: true, stage: ok ? "approval" : "returned" });
   }
 
   /* ---- publish: the approval. It freezes exactly what the public will see ---- */

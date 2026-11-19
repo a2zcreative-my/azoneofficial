@@ -172,7 +172,8 @@ try {
 
   /* unpublish; a leaver */
   ok((await call(`/staff/portfolios/${pid}/unpublish`, 2, "POST", {})).status === 403, "HR cannot unpublish");
-  ok((await call(`/staff/portfolios/${pid}/unpublish`, 3, "POST", {})).status === 200, "the COO unpublishes");
+  ok((await call(`/staff/portfolios/${pid}/unpublish`, 3, "POST", {})).status === 403, "the COO cannot unpublish (v1.390.0: the CEO and super admin approve)");
+  ok((await call(`/staff/portfolios/${pid}/unpublish`, 1, "POST", {})).status === 200, "the CEO unpublishes");
   ok((await call("/public/portfolio/nurfarah", null)).status === 404 && (await call("/public/portfolio/nurfarah/portrait", null)).status === 404, "unpublished: the page and the photo are gone (404)");
   r = await call("/staff/portfolios", 1, "POST", { user_id: 12 });
   const p2 = r.j?.id;
@@ -185,6 +186,75 @@ try {
   /* own card on Profile; the record kept */
   ok((await call("/staff/portfolios/mine", 11)).j?.portfolio?.slug === "nurfarah", "the person reads their own portfolio (Profile)");
   ok((await call("/staff/portfolios/mine", 4)).j?.portfolio === null, "someone without one gets none");
+
+  /* v1.390.0 (the CEO, 19-11-2026: "Portfolios should be able to visible by the staff for them to generate
+     and download it by themselves") - a person on staff builds and edits their OWN portfolio, never
+     anyone else's, and sends it for approval; publishing stays the approver's */
+  r = await call("/staff/portfolios/mine", 4, "POST", {});
+  ok(r.status === 201 && r.j?.id, "self: a sales executive creates their own portfolio", r.text);
+  const own4 = r.j?.id;
+  ok((await call("/staff/portfolios/mine", 4, "POST", {})).j?.existed === true, "self: a second create opens the same one");
+  r = await call("/staff/portfolios/mine", 14, "POST", {});
+  ok(r.status === 401 || r.status === 403, "self: a leaver cannot create one", `${r.status} ${r.text}`);
+  let o = (await call(`/staff/portfolios/${own4}`, 4)).j;
+  ok(o?.can?.edit === true && o?.can?.publish === false && o?.can?.submit === true, "self: may edit and send for approval, not publish", JSON.stringify(o?.can));
+  ok((await call(`/staff/portfolios/${own4}`, 4, "PUT", { version: o.portfolio.version, tagline: "My own line", specialties: ["Sales", "Client Relationship", "Live Selling"] })).status === 200, "self: edits their own draft");
+  ok((await call(`/staff/portfolios/${own4}/portrait?own=1`, 4, "POST", PNG("self"), "image/png")).status === 201, "self: uploads their own portfolio photo");
+  ok((await call(`/staff/portfolios/${own4}/items`, 4, "POST", { kind: "image", title: "My work" })).status === 201, "self: adds their own work");
+  o = (await call(`/staff/portfolios/${own4}`, 4)).j;
+  ok((await call(`/staff/portfolios/${own4}`, 4, "PUT", { version: o.portfolio.version, show_phone: true })).status === 403, "self: cannot approve their own phone for the public");
+  ok((await call(`/staff/portfolios/${own4}/publish`, 4, "POST", { version: o.portfolio.version })).status === 403, "self: cannot publish their own portfolio");
+  ok((await call(`/staff/portfolios/${pid}`, 4)).status === 403 && (await call(`/staff/portfolios/${pid}`, 4, "PUT", { version: 1, tagline: "x" })).status === 403, "self: cannot open or edit someone else's portfolio");
+  ok((await call(`/staff/portfolios/${pid}/portrait`, 4, "POST", PNG("x"), "image/png")).status === 403 && (await call(`/staff/portfolios/${pid}/items`, 4, "POST", { kind: "image", title: "x" })).status === 403, "self: cannot change someone else's photo or work");
+  ok((await call("/staff/portfolios", 4)).status === 403, "self: the Staff -> Portfolios list stays closed");
+  r = await call("/staff/portfolios/mine/submit", 4, "POST", {});
+  ok(r.status === 200 && r.j?.sent_to >= 1, "self: sends it for approval", r.text);
+  ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND ref LIKE 'portfolio:${own4}:ask:%'`).get().n === 1, "self: the approver is told");
+  ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 2 AND ref LIKE 'portfolio:${own4}:ask:%'`).get().n === 0, "self: HR (cannot publish) is not asked");
+  ok(r.j?.stage === "approval", "chart: with nobody placed above them, it goes straight to the approvers", r.text);
+  ok((await call("/staff/portfolios/mine/submit", 4, "POST", {})).j?.already === true, "chart: a second tap is the same submission");
+
+  /* 0219 - the reporting chart: the nearest COO / CCO above pre-checks first */
+  db.exec(`UPDATE users SET reports_to = 3 WHERE id = 4; UPDATE users SET reports_to = 1 WHERE id = 3`);
+  o = (await call(`/staff/portfolios/${own4}`, 4)).j;
+  await call(`/staff/portfolios/${own4}`, 4, "PUT", { version: o.portfolio.version, intro: "Hello" });
+  r = await call("/staff/portfolios/mine/submit", 4, "POST", {});
+  ok(r.status === 200 && r.j?.stage === "precheck" && r.j?.prechecker?.role === "coo", "chart: sent to the COO above them for a pre-check", r.text);
+  const ask = (uid) => db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND ref LIKE 'portfolio:${own4}:ask:%'`).get(uid).n;
+  ok(ask(3) === 1 && ask(1) === 1, "chart: the COO is asked; the CEO is not asked again yet");
+  o = (await call(`/staff/portfolios/${own4}`, 3)).j;
+  ok(o?.can?.precheck === true && o?.review?.stage === "precheck" && o?.can?.publish === false, "chart: the COO sees it waiting on them, and cannot publish", JSON.stringify([o?.can, o?.review]));
+  ok((await call(`/staff/portfolios/${own4}`, 1)).j?.can?.precheck === false, "chart: the pre-check is the COO's, not the CEO's");
+  ok((await call(`/staff/portfolios/${own4}/precheck`, 2, "POST", { decision: "ok" })).status === 403, "chart: HR cannot pre-check");
+  ok((await call(`/staff/portfolios/${own4}/precheck`, 3, "POST", { decision: "return" })).status === 400, "chart: returning needs a note");
+  r = await call(`/staff/portfolios/${own4}/precheck`, 3, "POST", { decision: "return", note: "Add a clearer photo" });
+  ok(r.status === 200 && r.j?.stage === "returned", "chart: the COO returns it with a note", r.text);
+  ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 4 AND ref LIKE 'portfolio:${own4}:ret:%'`).get().n === 1, "chart: the person is told why");
+  ok((await call("/staff/portfolios/mine", 4)).j?.review?.stage === "returned", "chart: Profile shows it returned");
+  r = await call("/staff/portfolios/mine/submit", 4, "POST", {});
+  ok(r.j?.stage === "precheck" && ask(3) === 2, "chart: sent again, the COO is asked again", r.text);
+  r = await call(`/staff/portfolios/${own4}/precheck`, 3, "POST", { decision: "ok" });
+  ok(r.status === 200 && r.j?.stage === "approval", "chart: the COO marks it pre-checked", r.text);
+  ok((await call(`/staff/portfolios/${own4}/precheck`, 3, "POST", { decision: "ok" })).status === 409, "chart: a second pre-check is refused (already decided)");
+  ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND ref LIKE 'portfolio:${own4}:pre:%'`).get().n === 1, "chart: the CEO is asked to approve once it is pre-checked");
+  o = (await call(`/staff/portfolios/${own4}`, 1)).j;
+  ok(o?.review?.stage === "approval" && o?.review?.prechecked_by, "chart: the CEO sees who pre-checked it", JSON.stringify(o?.review));
+  ok((await call("/staff/portfolios", 1)).j?.people?.find((x) => x.user_id === 4)?.review?.stage === "approval", "chart: the list shows it ready to approve");
+  let upd = false; try { db.exec(`UPDATE staff_portfolio_reviews SET step = 'prechecked'`); } catch { upd = true; }
+  ok(upd, "chart: a review step is never edited (trigger)");
+  db.exec(`UPDATE users SET reports_to = NULL WHERE id IN (3, 4)`);
+
+  const slug4 = (await call("/staff/portfolios/mine", 4)).j?.portfolio?.slug;
+  ok((await call(`/public/portfolio/${slug4}`, null)).status === 404, "self: a sent draft is still not public");
+  o = (await call(`/staff/portfolios/${own4}`, 1)).j;
+  ok((await call(`/staff/portfolios/${own4}/publish`, 3, "POST", { version: o.portfolio.version })).status === 403, "chart: the COO cannot publish");
+  ok((await call(`/staff/portfolios/${own4}/publish`, 1, "POST", { version: o.portfolio.version })).status === 200 && (await call(`/public/portfolio/${slug4}`, null)).j?.portfolio?.tagline === "My own line", "self: the CEO publishes it, and the page shows their own words");
+  o = (await call(`/staff/portfolios/${own4}`, 4)).j;
+  await call(`/staff/portfolios/${own4}`, 4, "PUT", { version: o.portfolio.version, tagline: "Changed after approval" });
+  ok((await call(`/public/portfolio/${slug4}`, null)).j?.portfolio?.tagline === "My own line", "self: an edit after approval stays private until published again");
+  ok((await call("/staff/portfolios/mine", 4)).j?.review === null, "chart: once published, the review is done");
+  ok(db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'portfolio.edit' AND user_id = 4`).get().n >= 2, "self: their edits are in the audit log");
+
   let threw = false; try { db.exec(`DELETE FROM staff_portfolios`); } catch { threw = true; }
   ok(threw, "a portfolio is never deleted (trigger)");
   const crud = await call("/portfolio", null);
@@ -198,15 +268,16 @@ const SRC = {
   idx: read("worker/src/index.ts"), pf: read("worker/src/portfolios.ts"), staff: read("worker/src/staff.ts"), perms: read("worker/src/permissions.ts"),
   redirects: read("public/_redirects"), render: read("lib/portfolio-render.ts"), card: read("lib/portfolio-card.ts"), studio: read("components/portal/portfolio-studio.tsx"),
   studioCss: read("components/portal/portfolio-studio.module.css"), page: read("app/portfolio/staff/page.tsx"), mig: read("worker/migrations/0216_staff_portfolios.sql"),
-  dir: read("components/staff/staff-directory.tsx"),
+  dir: read("components/staff/staff-directory.tsx"), mine: read("components/portal/my-portfolio.tsx"),
 };
 function checks(s) {
   const out = [];
   const t = (c, m) => out.push([!!c, m]);
   t(/\/portfolio\/elfia\s+\/portfolio\s+301[\s\S]*\/portfolio\/:name\s+\/portfolio\/staff\s+200/.test(s.redirects), "every /portfolio/<name> is the one static page (rewrite 200), after the /portfolio/elfia 301");
   t(/\\\/api\\\/v1\\\/public\\\/portfolio\\\//.test(s.idx), "the public API lives under /api/v1/public/portfolio (the content list keeps /api/v1/portfolio)");
-  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name|0218_portfolio_name_case)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?("0218_portfolio_name_case",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
-  t(/portfolio_manage: \[[^\]]*"hr_admin"[^\]]*\]/.test(s.perms) && /portfolio_publish: \["super_admin", "ceo", "coo"\]/.test(s.perms), "portfolio_manage and portfolio_publish are PERMS caps (publish = CEO, COO, super admin)");
+  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name|0218_portfolio_name_case|0219_portfolio_review)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?("0218_portfolio_name_case",\n\s*)?("0219_portfolio_review",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
+  t(/if \(r\.assignee_id !== user\.id\) return err\("forbidden"/.test(s.pf) && /a\.role === "coo" \|\| a\.role === "cco"/.test(s.pf), "0219: only the COO / CCO on the reporting chart pre-checks");
+  t(/portfolio_manage: \[[^\]]*"hr_admin"[^\]]*\]/.test(s.perms) && /portfolio_publish: \["super_admin", "ceo"\]/.test(s.perms), "portfolio_manage and portfolio_publish are PERMS caps (publish = CEO and super admin; the COO / CCO pre-check)");
   t(/cap: "portfolio_manage"/.test(s.perms) && /cap: "portfolio_publish"/.test(s.perms), "both are rows of the editable matrix");
   t(/handlePortfolios\(env, path, method, body, user, request\)/.test(s.staff) && /portfolios\\\/\\d\+\\\/\(portrait\|items\\\/\\d\+\\\/media\)/.test(s.staff), "one door in staff.ts; the uploads are raw bodies");
   t(/qrUrl: d\.portfolio\.state === "published" \? d\.portfolio\.public_url : null/.test(s.render), "the card's QR is only the published address - never a placeholder");
@@ -219,6 +290,9 @@ function checks(s) {
   t(!/\b(p|portfolio)\.(user_id|employee_id|ic_number|salary|bank\w*|base_salary|email_personal)\b/.test(s.page) && !/user_id|employee_id|ic_number/.test(s.page.replace(/\/\*[\s\S]*?\*\//g, "")), "the public page reads no HR field");
   t(!/\bDROP\b|\bALTER\s+TABLE\s+users\b/i.test(s.mig) && /BEFORE DELETE ON staff_portfolios/.test(s.mig), "0216 is additive; portfolios are never deleted");
   t(/"portfolios"/.test(s.dir) && /data-testid="peek-portfolio"/.test(s.dir), "Staff has a Portfolios view and a Portfolio action on the profile");
+  t(/const writer = manage \|\| isOwn\(p, s, user\);/.test(s.pf) && /isOwn = \(p: \{ user_id: number \}, s: \{ current: number \} \| null, user: StaffUser\) => p\.user_id === user\.id && Boolean\(s\?\.current\)/.test(s.pf), "self (v1.390.0): a person writes only their OWN portfolio, while on staff");
+  t(/rest === "\/publish" && method === "POST"\) \{\n\s*if \(!publish\)/.test(s.pf) && /rest === "\/unpublish" && method === "POST"\) \{\n\s*if \(!publish\)/.test(s.pf), "self: publishing and unpublishing stay the approver's");
+  t(/data-testid="my-portfolio-create"/.test(s.mine) && /data-testid="my-portfolio-edit"/.test(s.mine) && /PortfolioEditor/.test(s.mine) && /data-testid="pf-submit"/.test(s.studio), "self: Profile offers Create / Edit my portfolio with the one editor, and Send for approval");
   return out;
 }
 const base = checks(SRC);
@@ -226,9 +300,12 @@ let failed = 0;
 for (const [p, m] of [...runtime, ...base]) if (!p) { failed++; console.log(`  x ${m}`); }
 const MUT = [
   ["render", "a QR drawn for a draft", `qrUrl: d.portfolio.state === "published" ? d.portfolio.public_url : null`, `qrUrl: d.portfolio.public_url ?? d.portfolio.address`],
-  ["perms", "HR may publish", `portfolio_publish: ["super_admin", "ceo", "coo"]`, `portfolio_publish: ["super_admin", "ceo", "coo", "hr_admin"]`],
+  ["perms", "HR may publish", `portfolio_publish: ["super_admin", "ceo"]`, `portfolio_publish: ["super_admin", "ceo", "hr_admin"]`],
   ["redirects", "the rewrite dropped", "/portfolio/:name  /portfolio/staff  200", ""],
   ["pf", "drafts made public", "state = 'published' AND published_json IS NOT NULL", "published_json IS NOT NULL OR 1 = 1"],
+  ["pf", "anyone writes any portfolio", "const writer = manage || isOwn(p, s, user);", "const writer = true;"],
+  ["pf", "anyone may pre-check", `if (r.assignee_id !== user.id) return err("forbidden"`, `if (false) return err("forbidden"`],
+  ["pf", "the owner may publish", `if (rest === "/publish" && method === "POST") {\n    if (!publish)`, `if (rest === "/publish" && method === "POST") {\n    if (!publish && !writer)`],
 ];
 let caught = 0;
 if (!process.env.NOMUT) for (const [k, name, from, to] of MUT) {

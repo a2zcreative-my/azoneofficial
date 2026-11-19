@@ -30,7 +30,7 @@ import { csrfFetch, makeApi } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { CARD_SIZES, type CardCrop, type CardSize, type CardTemplate } from "@/lib/portfolio-card";
 import {
-  cardDataOf, decodePortrait, fetchBlob, fileBase, loadLogo, mediaUrl, paint, pdfOf, pngOf, qrPng, qrSvg, saveBlob, shareCard, testScan,
+  cardDataOf, reviewWords, decodePortrait, fetchBlob, fileBase, loadLogo, mediaUrl, paint, pdfOf, pngOf, qrPng, qrSvg, saveBlob, shareCard, testScan,
   type LoadedPortrait, type PortfolioDetail,
 } from "@/lib/portfolio-render";
 import { btnSm, btnSmPrimary, btnSmQuiet, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, fieldLabel, inputClass, selectClass, textareaClass, th, td } from "@/lib/ui-styles";
@@ -42,6 +42,8 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 interface Person {
   user_id: number; name: string; position: string | null; department: string | null; photo_key: string | null; public_duties: number;
   portfolio: { id: number; slug: string; state: string; updated_at: string | null; published_at: string | null; tagline: string | null; specialties: number; public_url: string | null; portrait_stale: boolean } | null;
+  /** 0219 - where the review stands */
+  review?: { stage: "precheck" | "approval" | "returned"; prechecker: { name: string | null; role: string | null } | null; mine: boolean } | null;
 }
 interface ListResp { people: Person[]; counts: { staff: number; published: number; draft: number; unpublished: number; none: number; no_photo: number }; can: { edit: boolean; publish: boolean } }
 
@@ -141,7 +143,8 @@ export function PortfolioStudio({ focusUserId, onFocused }: { focusUserId?: numb
                       <td className={td}><span className={css.who}><Avatar name={p.name} photoKey={p.photo_key} userId={p.user_id} size="sm" /><span><strong>{p.name}</strong>{!p.photo_key && <small className="erp-meta">{L("No photo yet", "Belum ada foto")}</small>}</span></span></td>
                       <td className={td}>{p.position ?? <span className="erp-meta">{L("Not set", "Belum ditetapkan")}</span>}</td>
                       <td className={td}>{p.department ?? <span className="erp-meta">-</span>}</td>
-                      <td className={td}>{st ? <span className={st[0]}>{st[1]()}</span> : <span className={chipSmInfo}>{L("No portfolio", "Tiada portfolio")}</span>}{p.portfolio?.portrait_stale && <small className="erp-meta"> {L("New staff photo", "Foto baharu")}</small>}</td>
+                      <td className={td}>{st ? <span className={st[0]}>{st[1]()}</span> : <span className={chipSmInfo}>{L("No portfolio", "Tiada portfolio")}</span>}{p.portfolio?.portrait_stale && <small className="erp-meta"> {L("New staff photo", "Foto baharu")}</small>}
+                        {p.review && <small className="erp-meta" data-testid={`pf-review-${p.user_id}`}> {p.review.mine ? L("Waiting for your pre-check", "Menunggu semakan awal anda") : p.review.stage === "approval" ? L("Ready to approve", "Sedia untuk diluluskan") : reviewWords(p.review, getLang() === "ms")}</small>}</td>
                       <td className={td}>{p.portfolio?.public_url ? <a href={p.portfolio.public_url} target="_blank" rel="noopener" className={css.link}>/portfolio/{p.portfolio.slug}</a> : <span className="erp-meta">{L("None until published", "Tiada sehingga diterbitkan")}</span>}</td>
                       <td className={td}>
                         {p.portfolio
@@ -180,6 +183,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
      keystroke ate the space after a word and the Enter for a new line (the CEO, 19-11-2026) */
   const [listText, setListText] = useState<{ specialties?: string; expertise?: string }>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState(""); // 0219 - the pre-checker's note (needed to return it)
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
   const front = useRef<HTMLCanvasElement | null>(null);
@@ -288,6 +292,33 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
     if (r.ok) { notify(L("Published", "Diterbitkan"), r.data?.public_url ?? ""); void load(); }
     else notify(L("Not published", "Tidak diterbitkan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? "", "error");
   };
+  /* v1.390.0 - the person's own portfolio: save, then ask the approvers to check and publish it */
+  const submit = async () => {
+    if (!d) return;
+    if (dirty && !(await save())) return;
+    setBusy("submit");
+    const r = await api<{ stage: "precheck" | "approval"; prechecker: { name: string | null; role: string | null } | null; already?: boolean }>("/portfolios/mine/submit", { method: "POST", body: "{}" });
+    setBusy(null);
+    if (r.ok && r.data) {
+      notify(r.data.already ? L("Already sent", "Sudah dihantar") : L("Sent for approval", "Dihantar untuk kelulusan"),
+        r.data.stage === "precheck" && r.data.prechecker
+          ? L(`${r.data.prechecker.name} (${(r.data.prechecker.role ?? "").toUpperCase()}) pre-checks it first, then the CEO approves it. Downloads open once it is published.`, `${r.data.prechecker.name} (${(r.data.prechecker.role ?? "").toUpperCase()}) menyemak dahulu, kemudian CEO meluluskannya. Muat turun dibuka selepas diterbitkan.`)
+          : L("The CEO will check it and publish it. Downloads open once it is published.", "CEO akan menyemak dan menerbitkannya. Muat turun dibuka selepas diterbitkan."));
+      void load();
+    } else notify(L("Not sent", "Tidak dihantar"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? "", "error");
+  };
+  /* 0219 - the COO / CCO on the reporting chart: pre-checked, or returned with a note */
+  const precheck = async (decision: "ok" | "return") => {
+    if (!d) return;
+    if (decision === "return" && reviewNote.trim().length < 5) { notify(L("Say what needs changing", "Nyatakan apa yang perlu diubah"), L("Write a short note (5 characters or more) before returning it", "Tulis nota ringkas (5 aksara atau lebih) sebelum mengembalikannya"), "error"); return; }
+    setBusy("precheck");
+    const r = await api(`/portfolios/${d.portfolio.id}/precheck`, { method: "POST", body: JSON.stringify({ decision, note: reviewNote.trim() || null }) });
+    setBusy(null);
+    if (r.ok) {
+      notify(decision === "ok" ? L("Pre-checked", "Disemak awal") : L("Returned", "Dikembalikan"), decision === "ok" ? L("The CEO is asked to approve and publish it", "CEO diminta meluluskan dan menerbitkannya") : L("The person is told what to change", "Orang itu dimaklumkan apa yang perlu diubah"));
+      setReviewNote(""); void load();
+    } else notify(L("Not done", "Tidak dibuat"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? "", "error");
+  };
   const unpublish = async () => {
     if (!d) return;
     const r = await api(`/portfolios/${d.portfolio.id}/unpublish`, { method: "POST", body: "{}" });
@@ -345,6 +376,23 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
       subtitle={d ? <span className="erp-flex">{st && <span className={st[0]} data-testid="pf-state">{st[1]()}</span>}<span>{d.staff.position ?? L("No position on the staff record", "Tiada jawatan pada rekod")}{d.staff.department ? ` · ${d.staff.department}` : ""}</span></span> : undefined}>
       {!d ? <SkelRows rows={6} /> : (
         <DrawerForm aside={preview} testid="pf-editor">
+          {d.review && (
+            <section className={css.photoBox} data-testid="pf-review">
+              <strong>{L("Review", "Semakan")}</strong>
+              <p className="erp-meta" data-testid="pf-review-words">{reviewWords(d.review, getLang() === "ms")}{d.review.changed_since && d.review.stage !== "returned" ? L(" - changed since it was sent", " - berubah sejak dihantar") : ""}</p>
+              {d.can.precheck && (
+                <>
+                  <label className={fieldLabel}>{L("Note (needed to return it)", "Nota (perlu untuk mengembalikan)")}
+                    <textarea className={textareaClass} rows={2} maxLength={500} value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} data-testid="pf-review-note" />
+                  </label>
+                  <div className={css.actions}>
+                    <button type="button" className={btnSmPrimary} disabled={Boolean(busy)} onClick={() => void precheck("ok")} data-testid="pf-precheck-ok"><AppIcon name="verify" />{L("Pre-check OK", "Semakan awal OK")}</button>
+                    <button type="button" className={btnSm} disabled={Boolean(busy)} onClick={() => void precheck("return")} data-testid="pf-precheck-return"><AppIcon name="blocked" />{L("Return with note", "Kembalikan dengan nota")}</button>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
           <LineTabs value={tab} onChange={setTab} label={L("Portfolio sections", "Bahagian portfolio")} testid="pf-tab"
             tabs={[["card", L("Card", "Kad")], ["details", L("Details", "Butiran")], ["work", L("Work", "Kerja"), d.items.length], ["publish", L("Publish & share", "Terbit & kongsi")]]} />
 
@@ -480,6 +528,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
           <DrawerFoot>
             <button type="button" className={btnSm} onClick={onClose}>{L("Close", "Tutup")}</button>
             {edit && <button type="button" className={btnSm} disabled={!dirty || Boolean(busy)} onClick={() => void save()} data-testid="pf-save"><AppIcon name="save" />{L("Save", "Simpan")}</button>}
+            {d.can.submit && <button type="button" className={btnSmPrimary} disabled={Boolean(busy) || !d.staff.position} onClick={() => void submit()} title={!d.staff.position ? L("Your staff record has no position yet - ask HR", "Rekod kakitangan anda belum ada jawatan - minta HR") : undefined} data-testid="pf-submit"><AppIcon name="send" />{busy === "submit" ? L("Sending...", "Menghantar...") : published ? L("Send changes for approval", "Hantar perubahan untuk kelulusan") : L("Send for approval", "Hantar untuk kelulusan")}</button>}
             {d.can.publish && published && <button type="button" className={btnSm} onClick={() => void unpublish()} data-testid="pf-unpublish"><AppIcon name="blocked" />{L("Unpublish", "Tarik balik")}</button>}
             {d.can.publish && <button type="button" className={btnSmPrimary} disabled={Boolean(busy) || !d.staff.position} onClick={() => void publish()} title={!d.staff.position ? L("Give this person a position on their staff record first", "Beri jawatan pada rekod kakitangan dahulu") : undefined} data-testid="pf-publish"><AppIcon name="verify" />{published ? L("Publish changes", "Terbit perubahan") : L("Publish", "Terbit")}</button>}
           </DrawerFoot>

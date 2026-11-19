@@ -209,7 +209,7 @@ export const PERMS: Record<string, readonly Role[]> = {
      portfolio and its card: the HR tier and the executives. Publish / unpublish, and
      showing a person's email or phone in public, is the approval: CEO, COO, super admin. */
   portfolio_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
-  portfolio_publish: ["super_admin", "ceo", "coo"],
+  portfolio_publish: ["super_admin", "ceo"], // v1.390.0 (the CEO, 19-11-2026): the CEO and super admin approve; the COO / CCO pre-check
 
   /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
      record: "I want to have a roles assigned for me to assigned her role.

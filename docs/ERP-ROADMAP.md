@@ -582,3 +582,5 @@ The portfolio nickname (the CEO 19-11-2026) adds `0217_portfolio_display_name`: 
 nullable column on `staff_portfolios`. `users` is not altered; the staff record keeps the full name.
 The name lettering (the CEO 19-11-2026) adds `0218_portfolio_name_case`: additive only - one nullable
 column on `staff_portfolios` (upper = capitals, NULL = normal letters). `users` is not altered.
+The portfolio review (the CEO 19-11-2026) adds `0219_portfolio_review`: additive only - one new
+append-only table `staff_portfolio_reviews` (submitted / prechecked / returned, triggers refuse UPDATE and DELETE). No existing table is altered.
