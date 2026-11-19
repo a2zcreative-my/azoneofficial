@@ -257,7 +257,11 @@ export async function pollElfiaOrders(env: Env): Promise<void> {
     if (cursor === null) {
       cursor = new Date().toISOString().slice(0, 19).replace("T", " ");
       await metaSet(env, CURSOR_KEY, cursor);
-      await logError(env, "elfia_orders_poll", `first run — cursor seeded to ${cursor}; historical orders are deliberately not imported (OD-16a)`);
+      /* 19-11-2026 (the CEO: "keep appear in my dashboard") - seeding is the
+         designed first step, not a fault: it is RECORDED (when, and from which
+         moment orders count), never written to the error log, which System
+         health and the Dashboard read as faults. */
+      await metaSet(env, "elfia_orders_seeded_at", cursor);
     }
 
     let rejected = 0;
@@ -323,13 +327,19 @@ export async function pollElfiaOrders(env: Env): Promise<void> {
     await metaSet(env, "elfia_last_poll", new Date().toISOString().slice(0, 19).replace("T", " "));
     await metaSet(env, POLL_FAIL_KEY, "0");
   } catch (e) {
-    await logError(env, "elfia_orders_poll", e instanceof Error ? e.message : String(e));
     /* AUDIT minor: alert from the third consecutive failure, then once per
        day while the outage lasts (the old `=== 3` fired once per outage at
-       most, and a skipped count never fired at all). */
+       most, and a skipped count never fired at all).
+       19-11-2026 (the CEO) - ONE missed poll is not a fault: the poll runs
+       every 5 minutes and the next one reads from the same cursor, so nothing
+       is lost. A single timeout ("The operation was aborted due to timeout")
+       is counted, not logged; the error log gets it from the SECOND poll in a
+       row (10 minutes), with the count, and the alert stays at the third. */
+    const why = e instanceof Error ? e.message : String(e);
     try {
       const fails = (Number(await metaGet(env, POLL_FAIL_KEY)) || 0) + 1;
       await metaSet(env, POLL_FAIL_KEY, String(fails));
+      if (fails >= 2) await logError(env, "elfia_orders_poll", `ELFIA orders feed failed ${fails} polls in a row: ${why}`);
       if (fails >= 3) {
         const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
         await notifyRole(env, ["super_admin", "ceo"], "system",

@@ -7,7 +7,9 @@
 
    Six tabs about A2Z CREATIVE MARKETING and AZ ONE OFFICIAL themselves:
    Company Overview · Corporate Details · Ownership & Directors ·
-   Documents & Signing · Audit & History · Access Summary.
+   Documents & Signing · Audit & History. (19-11-2026, the CEO: no Access
+   Summary here - company access lives only in Users & Security > Company
+   Access; the Overview links to it.)
 
    The rule the page keeps: Companies manages legal entities. Users &
    Security manages access. HR manages employment. Finance manages financial
@@ -24,7 +26,6 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
-import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { LineTabs } from "@/components/ui/line-tabs";
 import { PillSwitch } from "@/components/ui/panel";
 import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
@@ -43,8 +44,8 @@ import { btnSm, card, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib
 import css from "./companies.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
-type View = "overview" | "details" | "ownership" | "signing" | "audit" | "access";
-const VIEWS: readonly View[] = ["overview", "details", "ownership", "signing", "audit", "access"];
+type View = "overview" | "details" | "ownership" | "signing" | "audit";
+const VIEWS: readonly View[] = ["overview", "details", "ownership", "signing", "audit"];
 
 /* the CEO's decision recorded in lib/issuers.ts: "A2Z invoices, A2Z employs"
    from 19-08-2026; every document before it keeps AZ ONE OFFICIAL */
@@ -70,7 +71,6 @@ function useRead<T>(path: string | null, tick = 0): Read<T> {
 }
 type ByCompany = { month: string; companies: Record<CompanyCode, { invoices: number; invoiced_cents: number; paid_cents: number; outstanding_n: number; outstanding_cents: number }> };
 type Cash = { totals: { in_cents: number; out_cents: number }; banks: { id: number; active: number; company: string | null }[] };
-type ReviewSummary = { totals: { unassigned: number; pending: number }; checklist: { done: boolean }[]; registers: unknown[]; staff: { active: number; with_access: number; without_access: number } };
 type Owner = { owner: { name: string; verified: boolean; set_at: string; set_by_name: string | null } | null };
 type Signing = { authorities: { id: number; user_id: number; issuer_code: string; capacity: string; doc_types: string; granted_at: string }[]; people: { id: number; name: string; role: string; position: string | null; is_active: number }[]; policies?: { issuer_code?: string; personal?: number | boolean }[] };
 type AuditRow = { id: number; action: string; entity: string | null; entity_id: string | null; detail: string | null; created_at: string; user_name: string | null };
@@ -90,7 +90,6 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
   const cashZ = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=azoo`);
   const cash: Record<CompanyCode, Read<Cash>> = { a2z: cashA, azoo: cashZ };
   const reviewStaff = useRead<{ staff: CompanyStaffSetup[] }>(canReview ? "/staff/companies/staff" : null);
-  const summary = useRead<ReviewSummary>(canReview && (view === "overview" || view === "access") ? "/staff/companies/summary" : null);
   const owner = useRead<Owner>(view === "ownership" || view === "overview" ? "/staff/owner" : null);
   const signing = useRead<Signing>(view === "ownership" ? "/staff/signing/overview" : null);
 
@@ -105,7 +104,6 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
     ["ownership", L("Ownership & Directors", "Pemilikan & Pengarah")],
     ["signing", L("Documents & Signing", "Dokumen & Tandatangan")],
     ["audit", L("Audit & History", "Audit & Sejarah")],
-    ["access", L("Access Summary", "Ringkasan Akses")],
   ];
 
   return (
@@ -153,7 +151,7 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
             <div className={css.qaList}>
               <button type="button" className={css.qa} onClick={() => setView("ownership")}><AppIcon name="edit" /><span>{L("Signatories & owner", "Penandatangan & pemilik")}</span><AppIcon name="next" /></button>
               <button type="button" className={css.qa} onClick={() => setView("signing")}><AppIcon name="document" /><span>{L("Signatures & stamps", "Tandatangan & cop")}</span><AppIcon name="next" /></button>
-              <button type="button" className={css.qa} onClick={() => setView("access")}><AppIcon name="lock" /><span>{L("View access summary", "Lihat ringkasan akses")}</span><AppIcon name="next" /></button>
+              {canOpen("Users") && <button type="button" className={css.qa} onClick={() => openUsers(canReview ? "company_access" : undefined)}><AppIcon name="lock" /><span>{canReview ? L("Open Company Access", "Buka Akses Syarikat") : L("Open Users & Security", "Buka Pengguna & Keselamatan")}</span><AppIcon name="next" /></button>}
               <button type="button" className={css.qa} onClick={() => setView("details")}><AppIcon name="building" /><span>{L("Corporate details", "Butiran korporat")}</span><AppIcon name="next" /></button>
             </div>
           </section>
@@ -248,21 +246,6 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
         {view === "audit" && <CorporateAudit allowed={canAudit} />}
       </div>
 
-      {/* ================= Access Summary ================= */}
-      <div className={css.body} hidden={view !== "access"} data-testid="companies-access">
-        <p className={css.notice} role="status"><AppIcon name="warning" /><span><strong>{L("Reconciliation only.", "Penyesuaian sahaja.")}</strong> {L("Company access restrictions are not active - roles still decide what each person can open. Access is managed only in Users & Security.", "Sekatan akses syarikat belum aktif - peranan masih menentukan apa yang boleh dibuka. Akses diurus hanya dalam Pengguna & Keselamatan.")}</span></p>
-        {canReview ? (
-          <KpiRow label={L("Company access at a glance", "Akses syarikat sepintas lalu")} testid="access-summary-figures">
-            <KpiTile icon="pending" tone="gold" busy={!summary} label={L("Records not yet reviewed", "Rekod belum disemak")} value={summary?.d?.totals.unassigned ?? "—"} sub={L(`across ${summary?.d?.registers.length ?? 9} registers`, `merentasi ${summary?.d?.registers.length ?? 9} daftar`)} />
-            <KpiTile icon="verify" tone="blue" busy={!summary} label={L("Reviewed, not settled", "Disemak, belum muktamad")} value={summary?.d?.totals.pending ?? "—"} />
-            {COMPANY_CODES.map((co) => <KpiTile key={co} icon="users" tone="navy" busy={!reviewStaff} label={L(`Proposed for ${SHORT[co]}`, `Dicadang untuk ${SHORT[co]}`)} value={members(co) ?? "—"} sub={L("active staff in the plan · not enforced", "staf aktif dalam pelan · belum dikuatkuasa")} />)}
-            <KpiTile icon="lock" tone="red" busy={!summary} label={L("Access readiness", "Kesediaan akses")} value={summary?.d ? `${summary.d.checklist.filter((c) => c.done).length} / ${summary.d.checklist.length}` : "—"} sub={L("Not active", "Belum aktif")} />
-          </KpiRow>
-        ) : (
-          <section className={`${card} ${css.panel}`}><p className={css.meta}>{L("Everyone sees both companies as their role allows. The company access review is kept by the CEO.", "Semua orang melihat kedua-dua syarikat mengikut peranan. Semakan akses syarikat dipegang oleh CEO.")}</p></section>
-        )}
-        {canOpen("Users") && <div className={css.formRow}><button type="button" className="erp-button erp-button-accent" onClick={() => openUsers(canReview ? "company_access" : undefined)} data-testid="access-summary-open">{canReview ? L("Open Users & Security > Company Access", "Buka Pengguna & Keselamatan > Akses Syarikat") : L("Open Users & Security", "Buka Pengguna & Keselamatan")}<AppIcon name="next" /></button></div>}
-      </div>
     </TabPage>
   );
 }

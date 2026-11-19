@@ -46,6 +46,7 @@ ok(/\? \{ employer_code: employer \|\| null, memberships: employee\.memberships,
   "S3: the employer save keeps the saved access plan; the access save keeps the saved employer");
 ok(/data-testid="company-access-save-access"/.test(ca) && /data-testid="company-access-save-employer"/.test(ca), "S3: two buttons, two separate requests");
 ok(/overview: "users", staff: "users", customers: "users", health: "security"/.test(up) && !/\["overview", L\("Overview", "Gambaran"\)\],\s*\["staff"/.test(up) && !/<UsersOverview /.test(up), "S5: the old start words open the new tabs, and the Overview tab is gone");
+ok(!/"access", L\("Access Summary"/.test(co) && !/"access"\]/.test(co), "S5: Companies has no Access Summary tab - company access lives only in Users & Security (the CEO, 19-11-2026)");
 ok(/initialView=\{startOf\("Companies"\)\}/.test(read("app/portal/page.tsx")), "S5: Companies opens at a start word too");
 const literalTile = (src) => /<KpiTile[^>]*\bvalue=\{\d+\}/.test(src);
 ok(!literalTile(co) && !literalTile(ca) && !literalTile(up), "S6: no KPI tile shows a typed number");
