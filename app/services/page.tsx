@@ -6,7 +6,7 @@ import css from "@/components/landing/landing.module.css";
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
 import { PAGE_WORDS } from "@/constants/home-copy";
-import { SERVICE_PAGES, servicePath } from "@/constants/services";
+import { SERVICE_PAGES, STAGES, servicePath } from "@/constants/services";
 
 /* Website restructure (18-11-2026, unreleased) - the services hub: the eight official services, each linking to
    its own page. The old /services anchors are kept on the nearest card (or
@@ -46,26 +46,37 @@ export default function ServicesPage() {
             <p className={css.svcIntro}>{w.hubIntro}</p>
           </div>
         </section>
-        <section className={`${css.section} ${css.grey}`}>
+        <section className={css.section}>
           <div className={css.wrap}>
-            <ul className={css.cards}>
-              {SERVICE_PAGES.map((s) => {
-                const Icon = s.icon;
-                return (
-                  <li key={s.key} id={OLD_ANCHORS[s.key]}>
-                    <Link className={css.card} href={servicePath(s, "en")}>
-                      <span className={css.cardIcon} aria-hidden="true"><Icon /></span>
-                      <h2 className={css.cardTitle}>{s.en.name}</h2>
-                      <p className={css.cardText}>{s.en.card}</p>
-                      <span className={css.cardMore} aria-hidden="true">Learn more<ArrowRight /></span>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+            <ol className={css.stages}>
+              {STAGES.map((st, i) => (
+                <li key={st.key} className={css.stage}>
+                  <div className={css.stageHead}>
+                    <span className={css.stageNum}>Stage 0{i + 1}</span>
+                    <span className={css.stageName}>{st.en.name}</span>
+                    <span className={css.stageLine}>{st.en.line}</span>
+                  </div>
+                  <ul className={css.svcList}>
+                    {SERVICE_PAGES.filter((s) => s.stage === st.key).map((s) => {
+                      const Icon = s.icon;
+                      return (
+                        <li key={s.key} id={OLD_ANCHORS[s.key]}>
+                          <Link className={css.svc} href={servicePath(s, "en")}>
+                            <span className={css.svcIcon} aria-hidden="true"><Icon /></span>
+                            <h2 className={css.svcName}>{s.en.name}</h2>
+                            <ArrowRight className={css.svcArrow} aria-hidden="true" />
+                            <p className={css.svcText}>{s.en.card}</p>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
+            </ol>
           </div>
         </section>
-        <section className={css.section} id="digital-marketing">
+        <section className={`${css.section} ${css.grey}`} id="digital-marketing">
           <div className={css.wrap} id="consultancy-and-business-development">
             <h2 className={css.h3}>{w.consultancyTitle}</h2>
             <p className={css.body}>{w.consultancyText}</p>

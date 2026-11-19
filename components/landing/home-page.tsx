@@ -5,7 +5,7 @@
    because the site has one root layout). */
 import { Footer } from "@/components/layout/footer";
 import { Navbar } from "@/components/layout/navbar";
-import { Consultation, Hero, SelectedWork, ServicesGrid, WhyA2z } from "@/components/landing/home-sections";
+import { Consultation, Hero, ProofBar, SelectedWork, ServicesGrid, Team, WhyA2z } from "@/components/landing/home-sections";
 import { CONTACT } from "@/constants/content";
 import { HOME_COPY } from "@/constants/home-copy";
 import { SERVICE_PAGES, servicePath, type Lang } from "@/constants/services";
@@ -60,8 +60,10 @@ export function HomePage({ lang }: { lang: Lang }) {
       <Navbar />
       <main lang={lang === "ms" ? "ms" : undefined}>
         <Hero lang={lang} />
+        <ProofBar lang={lang} />
         <ServicesGrid lang={lang} />
         <SelectedWork lang={lang} />
+        <Team lang={lang} />
         <WhyA2z lang={lang} />
         <Consultation lang={lang} />
       </main>

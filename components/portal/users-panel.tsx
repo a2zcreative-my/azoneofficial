@@ -35,7 +35,14 @@
 import { holds as holdsCap } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { L } from "@/components/portal/page-shared";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
-import { UsersOverview, type UsersView } from "@/components/portal/users-overview";
+/* v1.387.0 (the CEO's decision D5) - the Overview tab is gone: its figures are
+   the Users strip. users-overview.tsx stays in the repository for rollback. */
+type UsersView = "users" | "roles" | "company_access" | "security" | "audit";
+import { CompanyAccess } from "@/components/portal/company-access"; // v1.387.0 (D1) - moved from Companies
+import { PillSwitch } from "@/components/ui/panel";
+import { verbOf, VERBS } from "@/components/portal/roles-permissions";
+import { downloadCsv } from "@/lib/csv";
+import { COMPANY_CODES, type CompanyStaffSetup } from "@/lib/company-review";
 import { GeofenceCard, TabAccessCard } from "@/components/portal/lazy-panels";
 import { AccessReviewDrawer, ExceptionsCard, usePolicy, useReview } from "@/components/portal/access-policy";
 import { RolesPermissions } from "@/components/portal/roles-permissions"; // v1.331.0 - replaces the AccessPolicyCard matrix
@@ -79,20 +86,27 @@ export { mytStamp2 };
 /* v1.251.0 - the Users tabs (the owner, 02-11-2026; claude/CEO-ADMIN-USERS-AUDIT.md):
    Signatures & Stamps moved to Companies > Document & Signing; the full
    audit log is its own tab */
-const USERS_VIEWS: readonly string[] = ["overview", "staff", "customers", "roles", "security", "audit"];
+const USERS_VIEWS: readonly string[] = ["users", "roles", "company_access", "security", "audit"];
+/* v1.387.0 - the start words other pages and old links still use: the old
+   Overview, Staff Accounts and Customers & Agents views open Users (its
+   Customers part for "customers"); "health" opens Security & MFA; the
+   Companies reconciliation's words open Company Access at their part. */
+const verbWord = (v: string) => ({ view: L("View", "Lihat"), create: L("Create", "Cipta"), edit: L("Edit", "Sunting"), approve: L("Approve", "Lulus"), delete: L("Delete", "Padam"), export: L("Export", "Eksport"), manage: L("Manage", "Urus") } as Record<string, string>)[v] ?? v;
+const START_ALIAS: Record<string, UsersView> = { overview: "users", staff: "users", customers: "users", health: "security", company_review: "company_access", ownership_review: "company_access" };
 type StaffFilter = "all" | "active" | "disabled" | "no2fa";
 const PAGE = 25; // v1.253.0 - accounts shown before Show more
 
-export function UsersPanel({ role, owner = false, go, initialView }: { role: string; owner?: boolean; go?: (tab: TabName) => void; initialView?: string }) {
+export function UsersPanel({ role, owner = false, go: _go, initialView }: { role: string; owner?: boolean; go?: (tab: TabName) => void; initialView?: string }) {
   /* v1.250.2 - Agents > Manage Agent Access opens Customer Accounts directly */
   const [secPart, setSecPart] = useState<"overview" | "owner" | "location" | "reports" | "health">(() => (initialView === "health" ? "health" : "overview"));
   const [secSeen, setSecSeen] = useState(initialView === "health"); // the owner part opens first once, while no owner is verified
   /* v1.327.0 - "health" is a start word, not a view: Security & Sessions opened at its System health part
      (the Dashboard's alert), so the card is on the page before revealAnchor looks for it */
-  const startOfView = (v?: string): UsersView => (v === "health" ? "security" : USERS_VIEWS.includes(v ?? "") ? v as UsersView : "overview");
+  const startOfView = (v?: string): UsersView => (v && START_ALIAS[v] ? START_ALIAS[v]! : USERS_VIEWS.includes(v ?? "") ? v as UsersView : "users");
   const [view, setView] = useState<UsersView>(() => startOfView(initialView));
   const [seenStart, setSeenStart] = useState(initialView);
-  if (initialView !== seenStart) { setSeenStart(initialView); if (initialView && (USERS_VIEWS.includes(initialView) || initialView === "health")) { setView(startOfView(initialView)); if (initialView === "health") { setSecPart("health"); setSecSeen(true); } } }
+  const [userPart, setUserPart] = useState<"staff" | "customers">(() => (initialView === "customers" ? "customers" : "staff"));
+  if (initialView !== seenStart) { setSeenStart(initialView); if (initialView && (USERS_VIEWS.includes(initialView) || START_ALIAS[initialView])) { setView(startOfView(initialView)); if (initialView === "customers") setUserPart("customers"); else if (initialView === "staff" || initialView === "overview") setUserPart("staff"); if (initialView === "health") { setSecPart("health"); setSecSeen(true); } } }
   /* v1.251.0 - Add User (invite) and the one person the Audit History shows */
   const [inviteOpen, setInviteOpen] = useState(false);
   const [auditPerson, setAuditPerson] = useState<{ id: number; name: string } | null>(null);
@@ -130,6 +144,15 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   /* 18-11-2026 (the CEO's Users & Security reference) - a role pick beside the status pick, and the
      email move opened as a page of Staff Accounts (a breadcrumb, never another tab) */
   const [rf, setRf] = useState("all");
+  const [cf, setCf] = useState<"all" | "a2z" | "azoo">("all"); // v1.387.0 - company (proposed plan), Company Access holders only
+  const planReader = holdsCap("company_review", ["super_admin", "ceo"].includes(role));
+  const [companyPlan, setCompanyPlan] = useState<CompanyStaffSetup[]>([]);
+  useEffect(() => {
+    if (!planReader || view !== "users") return;
+    const c = new AbortController();
+    void api<{ staff: CompanyStaffSetup[] }>("/staff/companies/staff", { signal: c.signal }).then((r) => { if (!c.signal.aborted && r.ok && r.data) setCompanyPlan(r.data.staff); });
+    return () => c.abort();
+  }, [planReader, view]);
   const [staffPart, setStaffPart] = useState<"list" | "move">("list");
   /* v1.253.0 (the owner, D3) - one page scroll: no list scrolls inside the
      page; 25 accounts, then Show more (the HR and Finance pattern). A new
@@ -300,7 +323,9 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const dimRank = (u: Account) => (leftOf(u) ? 2 : !u.is_active ? 1 : 0);
   const leaversLast = <T extends Account>(list: T[]): T[] => [0, 1, 2].flatMap((r) => list.filter((u) => dimRank(u) === r));
   const roleOk = (u: Account) => rf === "all" || u.role === rf;
-  const staffRows = leaversLast(allStaff.filter(match).filter(statusOk).filter(roleOk));
+  const planOf = (id: number) => companyPlan.find((p) => p.id === id)?.memberships ?? null;
+  const coOk = (u: Account) => cf === "all" || (planOf(u.id) ?? []).some((m) => m.company_code === cf);
+  const staffRows = leaversLast(allStaff.filter(match).filter(statusOk).filter(roleOk).filter(coOk));
   /* the roles the staff list holds, for the role pick - from the accounts, never a fixed list */
   const staffRoles = [...new Set(allStaff.map((u) => u.role))].sort((a, b) => roleLabel(a).localeCompare(roleLabel(b)));
   /* the strip's figures: the same tests as the status pick, over every staff account */
@@ -322,6 +347,23 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
      ever says 3 cannot be told from a list that lost nine rows. */
   const countOf = (shown: number, all: number) => (shown !== all ? `${shown}/${all}` : `${all}`);
   const headcount = allStaff.reduce<Record<string, number>>((m, u) => { if (u.is_active) m[u.role] = (m[u.role] ?? 0) + 1; return m; }, {});
+  /* v1.387.0 - the reference's strip and columns, from what the server says:
+     roles in use = distinct roles of active staff; MFA = active staff with
+     2FA on; Permissions = the verbs the role holds in the access matrix (the
+     same reading Roles & Permissions uses); Company access = EFFECTIVE access,
+     which is the role while company restrictions are not active, with the
+     proposed plan (Company Access) beside it for those who keep the review. */
+  const activeStaff = allStaff.filter((u) => u.is_active);
+  const rolesInUse = [...new Set(activeStaff.map((u) => u.role))];
+  const mfaOn = activeStaff.filter((u) => u.totp_enabled).length;
+  const mfaPct = activeStaff.length ? Math.round((mfaOn / activeStaff.length) * 100) : 0;
+  const verbsOf = (r: string): string | null => {
+    if (!policy?.d) return null;
+    const held = new Set(policy.d.actions.filter((a) => a.roles.includes(r)).map((a) => verbOf(a.key)));
+    const words = VERBS.filter((v) => v !== "manage" && held.has(v)).map((v) => verbWord(v));
+    return words.length ? words.join(" · ") : held.has("manage") ? verbWord("manage") : L("None", "Tiada");
+  };
+
 
   /* One row, drawn the same in both tables. The name on its own line and the
      email under it: on a 390px screen they cannot share one without the email
@@ -361,20 +403,27 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           </div>
         )}
         {kind === "staff" && (
-          <div className={`${css.cell} ${css.deskCell}`} data-col="department">
-            {u.department ? <span className={chipSmNeutral}>{u.department}</span> : <span className={css.dim}>—</span>}
+          <div className={`${css.cell} ${css.deskCell}`} data-col="company">
+            <span className={chipSmInfo} title={L("Effective today: restrictions are not active - the role decides", "Berkuat kuasa hari ini: sekatan belum aktif - peranan menentukan")}>A2Z</span>
+            <span className={chipSmInfo} title={L("Effective today: restrictions are not active - the role decides", "Berkuat kuasa hari ini: sekatan belum aktif - peranan menentukan")}>AZ ONE</span>
+            {planReader && (() => { const p = planOf(u.id); return p && p.length ? <span className={css.planLine} title={L("Proposed plan in Company Access - not enforced", "Pelan dicadang dalam Akses Syarikat - belum dikuatkuasa")}>{L("plan", "pelan")}: {p.map((m) => `${m.company_code === "a2z" ? "A2Z" : "AZ ONE"} ${m.access_mode === "write" ? L("write", "tulis") : L("read", "baca")}`).join(" · ")}</span> : null; })()}
           </div>
         )}
-        <div className={css.cell}>
+        {kind === "staff" && (
+          <div className={`${css.cell} ${css.deskCell} ${css.perm}`} data-col="permissions">
+            {verbsOf(u.role) ?? <span className={css.dim}>{policy?.e ? "—" : "···"}</span>}
+          </div>
+        )}
+        {kind === "customer" && <div className={css.cell}>
           {u.is_active
             ? <span className={chipSmSuccess}>{L("Active", "Aktif")}</span>
             : <span className={chipSmDanger}>{L("Disabled", "Dinyahaktif")}</span>}
-        </div>
+        </div>}
         {kind === "staff" ? (
           <div className={css.cell}>
             {u.totp_enabled
-              ? <span className={chipSmSuccess}>{L("2FA on", "2FA hidup")}</span>
-              : <span className={chipSmWarn}>{L("No 2FA", "Tiada 2FA")}</span>}
+              ? <span className={chipSmSuccess} title={L("Two-factor sign-in is on", "Log masuk dua faktor hidup")}><AppIcon name="success" />{L("On", "Hidup")}</span>
+              : <span className={chipSmWarn} title={L("Two-factor sign-in is off", "Log masuk dua faktor mati")}>{L("Off", "Mati")}</span>}
           </div>
         ) : (
           <div className={css.cell}>
@@ -398,6 +447,11 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
               : <span className={css.dim}>{eventsLoaded ? L("Not in recent log", "Tiada dalam log terkini") : "···"}</span>}
           </div>
         )}
+        {kind === "staff" && <div className={css.cell}>
+          {u.is_active
+            ? <span className={chipSmSuccess}>{L("Active", "Aktif")}</span>
+            : <span className={chipSmDanger}>{L("Disabled", "Dinyahaktif")}</span>}
+        </div>}
       </div>
       {((canEdit && (superAdmin || (u.role !== "ceo" && u.role !== "super_admin"))) || ((kind === "staff" || u.role === "customer") && recovery)) && (
         <div className={css.act}>
@@ -474,6 +528,16 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
           <option value="no2fa">{L("Active without 2FA", "Aktif tanpa 2FA")}</option>
         </select>
       )}
+      {withFilter && planReader && (
+        <select className={selectClassSm} value={cf} aria-label={L("Company (proposed plan)", "Syarikat (pelan dicadang)")} data-testid="staff-company-filter" onChange={(e) => setCf(e.target.value as typeof cf)}>
+          <option value="all">{L("Company (proposed): All", "Syarikat (dicadang): Semua")}</option>
+          <option value="a2z">{L("Proposed for A2Z", "Dicadang untuk A2Z")}</option>
+          <option value="azoo">{L("Proposed for AZ ONE", "Dicadang untuk AZ ONE")}</option>
+        </select>
+      )}
+      {withFilter && (q || rf !== "all" || sf !== "all" || cf !== "all") && (
+        <button type="button" className={btnSm} data-testid="staff-reset" onClick={() => { setQ(""); setRf("all"); setSf("all"); setCf("all"); }}><AppIcon name="refresh" />{L("Reset", "Set semula")}</button>
+      )}
       <span className={css.count}>{L(`${countOf(shown, all)} shown`, `${countOf(shown, all)} dipaparkan`)}</span>
     </div>
   );
@@ -494,16 +558,30 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   }, [editing, canEdit]);
 
   const auditTab = ["ceo", "admin", "super_admin"].includes(role); // = PERMS.audit_read
+  /* v1.387.0 - USERS & SECURITY: the single source of truth for accounts,
+     login identities, roles, company access and security (the CEO's brief,
+     18-11-2026). Five tabs; Company Access only for the holder of
+     company_review (the CEO, the super admin) - the server refuses everyone
+     else, so the COO sees exactly what they saw before. */
+  const companyAccess = holdsCap("company_review", ["super_admin", "ceo"].includes(role));
   const tabs: readonly (readonly [UsersView, string])[] = [
-    ["overview", L("Overview", "Gambaran")],
-    ["staff", L("Staff Accounts", "Akaun kakitangan")],
-    ["customers", L("Customers & Agents", "Pelanggan & Ejen")],
+    ["users", L("Users", "Pengguna")],
     ["roles", L("Roles & Permissions", "Peranan & kebenaran")],
-    ["security", L("Security & Sessions", "Keselamatan & sesi")],
-    /* v1.251.0 - the full audit trail, its own tab; Signatures & Stamps
-       moved to Companies > Document & Signing (the owner, 02-11-2026) */
-    ...(auditTab ? [["audit", L("Audit History", "Sejarah audit")] as const] : []),
+    ...(companyAccess ? [["company_access", L("Company Access", "Akses Syarikat")] as const] : []),
+    ["security", L("Security & MFA", "Keselamatan & MFA")],
+    ...(auditTab ? [["audit", L("Audit Logs", "Log Audit")] as const] : []),
   ];
+  const partSwitch = (
+    <PillSwitch testid="users-part" label={L("Accounts", "Akaun")} value={userPart} onChange={setUserPart}
+      options={[["staff", L("Staff", "Kakitangan")], ["customers", L("Customers & Agents", "Pelanggan & Ejen")]]} />
+  );
+  /* the shown list as a CSV: what the table shows, never a secret or a token */
+  const exportStaff = () => downloadCsv(`user-accounts-${new Date().toISOString().slice(0, 10)}.csv`, [
+    ["Name", "Email", "Role", "Department", "Status", "2FA", "Last sign-in (recent log)"],
+    ...staffRows.map((u) => [properName(u.full_name || u.name), u.email, roleLabel(u.role), u.department ?? "", u.is_active ? "Active" : "Disabled", u.totp_enabled ? "On" : "Off", lastIn.get(u.email.toLowerCase()) ?? ""]),
+  ]);
+  const [caSeen, setCaSeen] = useState(false);
+  if (view === "company_access" && !caSeen) setCaSeen(true);
   const canInvite = ["super_admin", "admin", "ceo"].includes(role); // POST /api/v1/users (atLeast admin); executive roles: the server's mayGrant
   /* v1.251.0 - THE OWNER SWITCH, said where the CEO works (the owner,
      02-11-2026: the restriction was real but explained only at the bottom
@@ -517,7 +595,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const [policyTick, setPolicyTick] = useState(0); // v1.237.0 - reload after a matrix edit
   /* v1.331.0 - an address that opens on Roles & Permissions (?view=roles) reads the policy too, not only a press */
   const rolesOn = seenRoles || view === "roles";
-  const policy = usePolicy(rolesOn, policyTick);
+  const policy = usePolicy(rolesOn || view === "users", policyTick); // v1.387.0 - the Users list's Permissions column reads it too
   const review = useReview(rolesOn && holds, reviewTick);
   const [ownerTick, setOwnerTick] = useState(0);
 
@@ -534,7 +612,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
   const ownerZone = (
     <TabZone label={L("Company owner", "Pemilik syarikat")}>
       {/* v1.344.0 (image 04) - the Company owner page: strip, ownership and control, protected actions, the recovery panel and its audit; OwnerCard is inside it (first, until an owner is verified) */}
-      <OwnerPage state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} onRoles={() => openView("roles")} onStaff={() => openView("staff")} onAudit={auditTab ? () => openView("audit") : undefined} />
+      <OwnerPage state={ownerState} onChanged={() => setOwnerTick((n) => n + 1)} onRoles={() => openView("roles")} onStaff={() => { setUserPart("staff"); openView("users"); }} onAudit={auditTab ? () => openView("audit") : undefined} />
     </TabZone>
   );
 
@@ -585,11 +663,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
       )}
       {msg && <p className="text-destructive mt-2 text-xs font-medium">{msg}</p>}
 
-      <div hidden={view !== "overview"} className={css.body}>
-        <UsersOverview rows={rows} events={events} loaded={loaded} eventsLoaded={eventsLoaded} open={openView} role={role} go={go} onAddUser={canInvite ? () => setInviteOpen(true) : undefined} />
-      </div>
-
-      <div hidden={view !== "staff"} className={css.body}>
+      <div hidden={view !== "users" || userPart !== "staff"} className={css.body}>
         <TabZone label={L("Staff accounts", "Akaun kakitangan")}>
           {/* 18-11-2026 (the CEO's Users & Security reference) - the email move is a page OF Staff
               Accounts: a breadcrumb and a way back, never another tab. Both stay mounted (hidden),
@@ -607,7 +681,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
                 <span className={css.well}><AppIcon name="person" /></span>
                 <div className={css.headText}>
                   <p className={css.title}>
-                    {L("Staff accounts", "Akaun kakitangan")}{" "}
+                    {L("User Accounts", "Akaun Pengguna")}{" "}
                     <span className={css.sub}>{countOf(staffRows.length, allStaff.length)}</span>
                   </p>
                   <p className={css.sub}>
@@ -625,25 +699,26 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
               </div>
               {/* a phone lays these four out two by two, with their short names (the full ones on a desk) */}
               <div className={`${css.quick} ${css.quickStaff}`}>
-                {canInvite && <button type="button" className={btnClass} data-testid="add-user" onClick={() => setInviteOpen(true)}><AppIcon name="add" />{L("Add User", "Tambah Pengguna")}</button>}
+                {partSwitch}
+                <button type="button" className={btnSm} data-testid="users-export" disabled={!loaded || staffRows.length === 0} onClick={exportStaff}><AppIcon name="download" />{L("Export", "Eksport")}</button>
+                {canInvite && <button type="button" className="erp-button erp-button-accent" data-testid="add-user" onClick={() => setInviteOpen(true)}><AppIcon name="add" />{L("Add User", "Tambah Pengguna")}</button>}
                 {canMove && <button type="button" className={btnSm} data-testid="email-move-open" onClick={() => setStaffPart("move")}><AppIcon name="send" /><span className="erp-desktop-only">{L("Move to @a2zcreative.my", "Pindah ke @a2zcreative.my")}</span><span className="erp-phone-only">{L("Email move", "Pindah e-mel")}</span></button>}
-                <button type="button" className={btnSm} onClick={() => openView("roles")}><AppIcon name="lock" /><span className="erp-desktop-only">{L("Roles & permissions", "Peranan & kebenaran")}</span><span className="erp-phone-only">{L("Roles", "Peranan")}</span></button>
                 {adminDoor && <Link className={btnSm} href="/admin"><AppIcon name="external" /><span className="erp-desktop-only">{L("Passwords & deactivation", "Kata laluan & penyahaktifan")}</span><span className="erp-phone-only">{L("Passwords", "Kata laluan")}</span></Link>}
               </div>
             </div>
             {/* the one connected KPI strip (the Tasks module's); each figure is the status pick it names */}
             <div className={css.strip}>
-              <KpiRow label={L("Staff account figures", "Angka akaun kakitangan")} testid="staff-figures">
-                <KpiTile icon="users" tone="blue" label={L("Total accounts", "Jumlah akaun")} value={fig.all} busy={!loaded} sub={L("Every staff account", "Setiap akaun kakitangan")} onClick={() => setSf("all")} pressed={sf === "all"} cell="all" />
-                <KpiTile icon="success" tone="green" label={L("Active", "Aktif")} value={fig.active} busy={!loaded} sub={L("Can sign in", "Boleh log masuk")} onClick={() => setSf("active")} pressed={sf === "active"} cell="active" />
-                <KpiTile icon="warning" tone="gold" label={L("Active without 2FA", "Aktif tanpa 2FA")} value={fig.no2fa} busy={!loaded} sub={L("Worth chasing", "Perlu dikejar")} onClick={() => setSf("no2fa")} pressed={sf === "no2fa"} cell="no2fa" />
-                <KpiTile icon="blocked" tone="red" label={L("Disabled", "Dinyahaktif")} value={fig.disabled} busy={!loaded} sub={L("Cannot sign in", "Tidak boleh log masuk")} onClick={() => setSf("disabled")} pressed={sf === "disabled"} cell="disabled" />
+              <KpiRow label={L("User account figures", "Angka akaun pengguna")} testid="staff-figures">
+                <KpiTile icon="users" tone="blue" label={L("Active Users", "Pengguna Aktif")} value={fig.active} busy={!loaded} sub={L(`of ${fig.all} accounts`, `daripada ${fig.all} akaun`)} onClick={() => setSf(sf === "active" ? "all" : "active")} pressed={sf === "active"} cell="active" />
+                <KpiTile icon="lock" tone="navy" label={L("Roles in use", "Peranan digunakan")} value={rolesInUse.length} busy={!loaded} sub={rolesInUse.map((r) => roleLabel(r)).slice(0, 4).join(", ") + (rolesInUse.length > 4 ? "…" : "")} cell="roles" />
+                <KpiTile icon="building" tone="purple" label={L("Companies", "Syarikat")} value={COMPANY_CODES.length} sub={L("Restrictions not active · by role", "Sekatan belum aktif · ikut peranan")} cell="companies" onClick={companyAccess ? () => openView("company_access") : undefined} />
+                <KpiTile icon="verify" tone="gold" label={L("MFA (two-factor)", "MFA (dua faktor)")} value={`${mfaOn} / ${activeStaff.length}`} busy={!loaded} sub={L(`${mfaPct}% of active users · ${fig.no2fa} without`, `${mfaPct}% pengguna aktif · ${fig.no2fa} tanpa`)} onClick={() => setSf(sf === "no2fa" ? "all" : "no2fa")} pressed={sf === "no2fa"} cell="no2fa" />
               </KpiRow>
             </div>
             {toolbar(staffRows.length, allStaff.length, true)}
             <div className={`${css.table} ${css.staffTable}`}>
               <div className={css.header} aria-hidden="true">
-                <span>{L("Account", "Akaun")}</span><span>{L("Role", "Peranan")}</span><span>{L("Department", "Jabatan")}</span><span>{L("Status", "Status")}</span><span>2FA</span><span>{L("Last sign-in", "Log masuk terakhir")}</span><span>{canEdit ? L("Manage", "Urus") : ""}</span>
+                <span>{L("User", "Pengguna")}</span><span>{L("Role", "Peranan")}</span><span>{L("Company access", "Akses syarikat")}</span><span>{L("Permissions (role)", "Kebenaran (peranan)")}</span><span>MFA</span><span>{L("Last login", "Log masuk terakhir")}</span><span>{L("Status", "Status")}</span><span>{L("Actions", "Tindakan")}</span>
               </div>
               <ul className={css.list}>
                 {/* v1.77.0 - skeleton until the first fetch lands. */}
@@ -678,7 +753,8 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
         </TabZone>
       </div>
 
-      <div hidden={view !== "customers"} className={css.body}>
+      <div hidden={view !== "users" || userPart !== "customers"} className={css.body}>
+        <div className={css.partBar}>{partSwitch}</div>
         {/* v1.327.0 (the CEO's Users & Security brief) - the directory beside the chosen account:
             status, portal access and the authorised Grant / Revoke Agent Access (customers-agents.tsx).
             The same accounts, the same actions and the same gates as the list it replaces. */}
@@ -713,6 +789,14 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
         {holds && <AccessReviewDrawer open={reviewOpen} onClose={() => setReviewOpen(false)} review={review} />}
       </div>
 
+      {/* v1.387.0 (D1) - COMPANY ACCESS: the whole reconciliation, moved from
+          Companies unchanged in its routes, forms, versions, reasons and history */}
+      {companyAccess && caSeen && (
+        <div hidden={view !== "company_access"} className={css.body}>
+          <CompanyAccess initialPart={initialView === "ownership_review" ? "review" : undefined} />
+        </div>
+      )}
+
       <div hidden={view !== "security"} className={css.body}>
         {/* v1.327.0 (the Security & Sessions picture) - one row of parts: the workspace (figure strip,
             Authentication Controls, Security Attention, the Sign-in Log, the principles) fills the screen;
@@ -722,7 +806,7 @@ export function UsersPanel({ role, owner = false, go, initialView }: { role: str
         {secPart === "overview" && (
           <TabZone label={L("Security", "Keselamatan")}>
             <SecuritySessions staff={allStaff} loaded={loaded} events={events} eventsLoaded={eventsLoaded} canSettings={holds} status={secStatus} onHealth={auditRead ? () => setSecPart("health") : undefined}
-              onManage={recovery ? (id) => setSheetId(id) : undefined} onStaffAccounts={() => openView("staff")} onAudit={auditTab ? () => openView("audit") : undefined} />
+              onManage={recovery ? (id) => setSheetId(id) : undefined} onStaffAccounts={() => { setUserPart("staff"); openView("users"); }} onAudit={auditTab ? () => openView("audit") : undefined} />
           </TabZone>
         )}
         {secPart === "owner" && ownerState && ownerZone}

@@ -101,7 +101,7 @@ function checks(src) {
   ok("R8 one 35:65 split (the directory, the editor), held to the screen from 1024px",
     /<WorkspaceSplit testid="roles-split" ratio="35-65">/.test(rp) && /"35-65"/.test(ws) && /\.r35_65 > \* \{ flex-grow: 35; \}\s*\.r35_65 > \* \+ \* \{ flex-grow: 65; \}/.test(wsc));
   /* R9 */
-  ok("R9 an address that opens on Roles & Permissions reads the policy", /const rolesOn = seenRoles \|\| view === "roles";\s*const policy = usePolicy\(rolesOn, policyTick\);/.test(users));
+  ok("R9 an address that opens on Roles & Permissions reads the policy", /const rolesOn = seenRoles \|\| view === "roles";\s*const policy = usePolicy\(rolesOn( \|\| view === "users")?, policyTick\);/.test(users) /* v1.387.0 - the Users list's Permissions column reads it too */);
   ok("R10 a switch is the house Switch (components/ui/switch.tsx), never a private track", /import \{ Switch \} from "@\/components\/ui\/switch";/.test(rp) && /<Switch checked=\{st === "on"\} mixed=/.test(rp) && !/\.(track|thumb|toggle)\b/.test(rpc));
   /* R10 */
   ok("R10 tokens and --type-* only, house breakpoints, every grid names its tracks",
@@ -130,7 +130,7 @@ const MUT = [
   ["a custom role switched on a protected cell", "rp", "  if (a.custom_forbidden && isExtraRole(role)) return true;", ""],
   ["CEO Access written in", "rp", 'value={gapActs.length === 0 ? L("Equivalent", "Setara")', 'value={true ? L("Equivalent", "Setara")'],
   ["the split back to 60:40", "rp", '<WorkspaceSplit testid="roles-split" ratio="35-65">', '<WorkspaceSplit testid="roles-split">'],
-  ["a deep link reads nothing", "users", "const policy = usePolicy(rolesOn, policyTick);", "const policy = usePolicy(seenRoles, policyTick);"],
+  ["a deep link reads nothing", "users", "const policy = usePolicy(rolesOn || view === \"users\", policyTick);", "const policy = usePolicy(seenRoles, policyTick);"],
   ["a private switch track", "rpc", ".cellSwitch {", ".track { display: block; }\n.cellSwitch {"],
   ["a hex colour", "rpc", ".gain { color: var(--success); }", ".gain { color: #15803d; }"],
 ];

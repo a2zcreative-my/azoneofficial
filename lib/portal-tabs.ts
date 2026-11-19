@@ -465,7 +465,7 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
 /** One line saying what a tab is for, shown under its name in the 🔐 card.
     Tabs whose name says it all are absent rather than padded. */
 export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
-  Companies: { en: "ownership review - CEO; document & signing", ms: "semakan pemilikan - CEO; dokumen & tandatangan" },
+  Companies: { en: "the two legal entities: details, signatories, documents", ms: "dua entiti sah: butiran, penandatangan, dokumen" }, // v1.387.0 - the access review moved to Users & Security
   Attendance: { en: "punches + records", ms: "rekod kehadiran" }, // v1.328.0 - the roster moved to Roster & Scheduling
   "Roster & Scheduling": { en: "lives, shifts + templates", ms: "live, syif + templat" },
   Ecommerce: { en: "TikTok + map", ms: "TikTok + peta" },
@@ -486,7 +486,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
      that un-parking is one deletion from PARKED_TABS and nothing else. */
   Stokis: { en: "reseller network", ms: "rangkaian pengedar" },
   Assets: { en: "equipment register", ms: "daftar peralatan" },
-  Users: { en: "accounts — keep tight", ms: "akaun — kawal ketat" },
+  Users: { en: "accounts, roles, company access, MFA — keep tight", ms: "akaun, peranan, akses syarikat, MFA — kawal ketat" },
   "Automation & Rules": { en: "task email, watcher rules — the CEO changes them", ms: "e-mel tugasan, peraturan pemerhati — CEO mengubahnya" }, // v1.337.0 - task email settings live here
   Cards: { en: "share a director's card", ms: "kongsi kad pengarah" },
 };

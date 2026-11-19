@@ -1,6 +1,6 @@
 # Companies & Users & Security restructuring: audit and proposal
 
-Status: **audit and proposal only, nothing is implemented.** No code, route, migration or permission has changed. It was written on 18-11-2026 from the source on the owner's PC (local main, version after 1.375).
+Status: **approved and built (local, not deployed).** The CEO approved D1-D5 as recommended on 18-11-2026; it was built on 19-11-2026 with no migration and no permission change (see CHANGELOG, Unreleased). The audit below is kept as written. It was written on 18-11-2026 from the source on the owner's PC (local main, version after 1.375).
 
 The rule this follows comes from the brief: **Companies manages legal entities. Users & Security manages access. HR manages employment. Finance manages financial ownership.**
 

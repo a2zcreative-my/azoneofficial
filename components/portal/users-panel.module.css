@@ -924,10 +924,12 @@
     display: none !important;
   }
 }
+/* v1.387.0 - the reference's eight columns: User, Role, Company access,
+   Permissions (role), MFA, Last login, Status, Actions */
 @media (min-width: 1024px) {
   .staffTable .header,
   .staffTable .row {
-    grid-template-columns: minmax(14rem, 2.3fr) minmax(7rem, 1fr) minmax(7rem, 1fr) minmax(5.5rem, 0.75fr) minmax(5rem, 0.7fr) minmax(8.5rem, 1fr) 6.5rem;
+    grid-template-columns: minmax(13rem, 2.1fr) minmax(6.5rem, 0.9fr) minmax(8rem, 1fr) minmax(10rem, 1.35fr) minmax(4.75rem, 0.6fr) minmax(8rem, 0.95fr) minmax(5rem, 0.6fr) 6.5rem;
   }
 }
 @media (max-width: 767px) {
@@ -952,10 +954,45 @@
 @media (min-width: 1024px) and (max-width: 1279px) {
   .staffTable .header,
   .staffTable .row {
-    grid-template-columns: minmax(11rem, 2.2fr) minmax(6.5rem, 1fr) minmax(6rem, 1fr) minmax(5rem, 0.75fr) minmax(4.75rem, 0.7fr) 6.5rem;
+    grid-template-columns: minmax(11rem, 2.2fr) minmax(6.5rem, 1fr) minmax(7.5rem, 1fr) minmax(4.75rem, 0.7fr) minmax(5rem, 0.7fr) 6.5rem;
   }
+  .staffTable .header > span:nth-child(4),
   .staffTable .header > span:nth-child(6),
+  .staffTable .perm,
   .staffTable .seen {
     display: none !important;
+  }
+}
+.perm {
+  font-size: var(--type-caption-size);
+  color: var(--foreground);
+  line-height: 1.4;
+}
+.planLine {
+  flex-basis: 100%;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.partBar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+}
+@media (max-width: 1023px) {
+  .perm {
+    display: none !important;
+  }
+}
+/* v1.387.0 - the Staff / Customers & Agents switch takes its own full row on a phone */
+@media (max-width: 767px) {
+  .quickStaff > [role="group"] {
+    grid-column: 1 / -1;
+    display: flex;
+    width: 100%;
+  }
+  .quickStaff > [role="group"] > button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
   }
 }

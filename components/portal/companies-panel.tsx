@@ -1,802 +1,373 @@
 "use client";
 
-/* v1.221.0 - COMPANIES 2.0. The owner's answers, 28-10-2026: "Build the 3
-   tabs", "Bulk with preview", "Checklist now, enforce later", "Count them,
-   read-only".
+/* v1.387.0 - COMPANIES MANAGES THE LEGAL ENTITIES (the CEO's restructuring
+   brief, 18-11-2026, and his decisions D1-D5 on
+   docs/COMPANIES-USERS-RESTRUCTURE-AUDIT.md; reference: his "Companies"
+   picture).
 
-   Three tabs - Ownership Review, Staff Access, Audit & History - over the
-   same reconciliation the page has always done. Nothing here restricts
-   anyone: roles still decide what each person can open, and the company
-   access plan is planning data until a separate, approved release turns it
-   on. A proposal never changes an invoice, its Paid status or commission.
-   Ownership is never inferred from a supplier name, a category or any other
-   text: every proposal is a person's decision with a reason. */
+   Six tabs about A2Z CREATIVE MARKETING and AZ ONE OFFICIAL themselves:
+   Company Overview · Corporate Details · Ownership & Directors ·
+   Documents & Signing · Audit & History · Access Summary.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+   The rule the page keeps: Companies manages legal entities. Users &
+   Security manages access. HR manages employment. Finance manages financial
+   ownership. So nothing here grants, plans or restricts access (that
+   reconciliation moved WHOLE to Users & Security > Company Access - D1), no
+   figure is typed in: identity is lib/issuers.ts (the letterhead every
+   document prints, held by the document-issuer guard), the glance is
+   Finance's and Sales' own reads (D3: /staff/docs/by-company, read-only, by
+   the issuer stamped on each invoice), signatories are the signing records,
+   the owner is the verified owner record. A read the person may not open
+   says so instead of a number. The picture's controls the system cannot do
+   (Update Company Details, Upload Documents, a directors register, the
+   "Established" date) are left out, never drawn dead (D4). */
+
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AppIcon } from "@/components/ui/app-icon";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
-import { LineTabs, TabAside } from "@/components/ui/line-tabs";
-import { SideDrawer } from "@/components/ui/side-drawer";
-import { useSaveToast } from "@/components/ui/save-toast";
-import { makeApi, type ApiResult } from "@/lib/api";
-import { COMPANY_CODES, COMPANY_NAMES, REVIEW_KINDS, type CompanyCode, type CompanyStaffSetup, type ReviewDetail, type ReviewKind, type ReviewRecord, type ReviewState } from "@/lib/company-review";
-import { dmy, dmyMYT, fmtRM, ym } from "@/lib/format";
-import { roleLabel } from "@/components/portal/users-shared";
-import { getLang } from "@/lib/i18n";
-import { btnClass, btnSm, btnSmPrimary, card, chipGold, chipInfo, chipNeutral, chipSuccess, chipWarn, fieldLabel, inputClass } from "@/lib/ui-styles";
-import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { LineTabs } from "@/components/ui/line-tabs";
+import { PillSwitch } from "@/components/ui/panel";
+import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
 import { SkelRows } from "@/components/ui/skeleton";
-import { useConfirm } from "@/components/ui/confirm-dialog";
-import css from "./companies.module.css";
-import { SigningPanel } from "@/components/portal/signing-panel"; // v1.251.0 - Document & Signing
+import { TabPage, TabZone } from "@/components/portal/tab-concept";
+import { SigningPanel } from "@/components/portal/signing-panel";
+import { usePortal } from "@/components/portal/portal-provider";
+import { roleLabel } from "@/components/portal/users-shared";
+import { api } from "@/lib/api";
 import { holds as holdsCap } from "@/lib/caps";
+import { COMPANY_CODES, type CompanyCode, type CompanyStaffSetup } from "@/lib/company-review";
+import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
+import { getLang } from "@/lib/i18n";
+import { resolveIssuer } from "@/lib/issuers";
+import { btnSm, card, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
+import css from "./companies.module.css";
 
-const api = makeApi("/staff/companies");
-const L = (en: string, ms: string) => getLang() === "ms" ? ms : en;
-const companyName = (code: CompanyCode | string | null | undefined) => code && code in COMPANY_NAMES ? COMPANY_NAMES[code as CompanyCode] : L("Unassigned", "Belum ditetapkan");
-const kindName = (kind: string) => kind in REVIEW_KINDS ? L(REVIEW_KINDS[kind as ReviewKind].en, REVIEW_KINDS[kind as ReviewKind].ms) : kind;
-const stateLabel = (state: ReviewState) => ({
-  unassigned: L("Not yet reviewed", "Belum disemak"), proposed: L("Proposed", "Dicadangkan"),
-  deferred: L("Deferred", "Ditangguhkan"), stale: L("Changed since review", "Berubah selepas semakan"),
-})[state];
-const stateChip = (state: ReviewState) => state === "stale" ? chipWarn : state === "proposed" ? chipInfo : state === "deferred" ? chipGold : chipNeutral;
-const message = (result: ApiResult<unknown>) => (result.data as { error?: { message?: string } } | null)?.error?.message ?? L("Connection failed. Retry when online.", "Sambungan gagal. Cuba semula apabila dalam talian.");
-type Attempt = { signature: string; id: string } | null;
-function requestId(ref: { current: Attempt }, payload: object) {
-  const signature = JSON.stringify(payload);
-  if (ref.current?.signature !== signature) ref.current = { signature, id: crypto.randomUUID() };
-  return ref.current.id;
-}
+const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
+type View = "overview" | "details" | "ownership" | "signing" | "audit" | "access";
+const VIEWS: readonly View[] = ["overview", "details", "ownership", "signing", "audit", "access"];
 
-type View = "review" | "staff" | "history" | "signing"; // v1.251.0 - Document & Signing (moved from Users)
-type StateFilter = "all" | ReviewState;
-interface Summary {
-  registers: { kind: ReviewKind; total: number; unassigned: number; proposed: number; deferred: number; stale: number; by_company: Record<string, number> }[];
-  totals: { unassigned: number; proposed: number; deferred: number; stale: number; pending: number };
-  staff: { active: number; with_employer: number; with_access: number; without_access: number };
-  stamped: { register: string; company: string; n: number }[];
-  checklist: { key: string; done: boolean; detail: string }[];
-  enforcement: string;
-}
-interface EventRow { seq: number; created_at: string; subject_kind: string; subject_id: number; before_json: string | null; after_json: string; actor_name: string | null; staff_name: string | null }
-type Plan = { proposed_company?: string | null; reason?: string; bulk?: boolean; employer_code?: string | null; memberships?: { company_code: string; access_mode: string }[] };
-const parse = (s: string | null): Plan | null => { if (!s) return null; try { return JSON.parse(s) as Plan | null; } catch { return null; } };
-const accessWord = (mode: string | undefined) => mode === "write" ? L("Read and write", "Baca dan tulis") : mode === "read" ? L("Read only", "Baca sahaja") : L("No access planned", "Tiada akses dirancang");
+/* the CEO's decision recorded in lib/issuers.ts: "A2Z invoices, A2Z employs"
+   from 19-08-2026; every document before it keeps AZ ONE OFFICIAL */
+const SWITCH_DAY = "19-08-2026";
+const LAST_AZOO_DAY = "18-08-2026";
+const LOGO: Record<CompanyCode, string> = { a2z: "/logo.png", azoo: "/brands/azone.png" };
+const SHORT: Record<CompanyCode, string> = { a2z: "A2Z", azoo: "AZ ONE" };
+const SHORT_NAME: Record<CompanyCode, string> = { a2z: "A2Z Creative Marketing", azoo: "AZ One Official" };
+const last4 = (t: string) => t.replace(/\D/g, "").slice(-4);
+const bankShown = (bank: string) => { const w = bank.split(/\s+/)[0] ?? ""; return `${w.charAt(0)}${w.slice(1).toLowerCase()} •••• ${last4(bank)}`; };
 
-/* ------------------------------------------------------------------ *
- * One record's review - the save flow the page has always had.
- * ------------------------------------------------------------------ */
-type History = ReviewDetail["history"];
-function HistoryList({ rows }: { rows: History }) {
-  return <details className={css.fold}>
-    <summary>{L("Review history", "Sejarah semakan")} ({rows.length})</summary>
-    <ol className={css.history}>
-      {rows.map((row, index) => {
-        const detail = parse(row.after_json) ?? {};
-        return <li key={`${row.created_at}-${index}`}>
-          <strong>{row.actor_name ?? L("Former user", "Bekas pengguna")} <span className={css.muted}>{dmyMYT(row.created_at)}</span></strong>
-          <span>{detail.employer_code !== undefined ? `${L("Employer", "Majikan")}: ${companyName(detail.employer_code)}` : detail.proposed_company ? companyName(detail.proposed_company) : L("Deferred", "Ditangguhkan")}{detail.bulk ? ` · ${L("bulk review", "semakan pukal")}` : ""}</span>
-          {detail.memberships?.map(m => <span key={m.company_code}>{companyName(m.company_code)}: {accessWord(m.access_mode)}</span>)}
-          <span className={css.reason}>{detail.reason}</span>
-        </li>;
-      })}
-    </ol>
-  </details>;
-}
-
-function RecordReview({ detail, onSaved, onRelated }: { detail: ReviewDetail; onSaved: (company: CompanyCode | null) => void; onRelated: (kind: ReviewKind, id: number) => void }) {
-  const [company, setCompany] = useState<CompanyCode | "">(detail.decision?.proposed_company ?? "");
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const attempt = useRef<Attempt>(null);
-  const { confirm, node } = useConfirm();
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    try {
-      if (!(await confirm({ title: company ? L("Save ownership proposal?", "Simpan cadangan pemilikan?") : L("Defer ownership decision?", "Tangguhkan keputusan pemilikan?"), message: `${detail.title}\n${companyName(company || null)}`, confirmLabel: L("Confirm review", "Sahkan semakan") }))) return;
-      setError("");
-      const payload = { proposed_company: company || null, reason, snapshot: detail.snapshot, version: detail.decision?.version ?? 0 };
-      const r = await api(`/records/${detail.kind}/${detail.id}`, { method: "PUT", body: JSON.stringify({ ...payload, request_id: requestId(attempt, payload) }) });
-      if (r.ok) onSaved(company || null); else setError(message(r));
-    } finally { setBusy(false); }
-  };
-  const conflicts = detail.related.filter(r => company && r.proposed_company && r.proposed_company !== company);
-  const tab = REVIEW_KINDS[detail.kind].tab;
-  return <section aria-label={L("Ownership review", "Semakan pemilikan")} className={css.drawerBody}>
-    {node}
-    <div className={css.drawerHead}>
-      <p className={css.sub}>{kindName(detail.kind)} #{detail.id} · <span className={stateChip(detail.state)}>{stateLabel(detail.state)}</span></p>
-      {tab && <a href={`/portal?tab=${encodeURIComponent(tab)}`} target="_blank" rel="noopener noreferrer" title={L("Open source register", "Buka daftar sumber")} aria-label={L("Open source register", "Buka daftar sumber")} className={btnSm}><AppIcon name="external" /></a>}
-    </div>
-    <details className={css.fold} open>
-      <summary>{L("Source record", "Rekod sumber")}</summary>
-      <dl className={css.facts}>
-        {Object.entries(detail.source).filter(([, value]) => value !== null && value !== "").map(([key, value]) => <div key={key}>
-          <dt>{key.replaceAll("_", " ")}</dt><dd>{String(value)}</dd>
-        </div>)}
-      </dl>
-    </details>
-    {detail.related.length > 0 && <div>
-      <h3 className={fieldLabel}>{L("Linked records", "Rekod berkaitan")}</h3>
-      <ul className={css.related}>
-        {detail.related.map(r => <li key={`${r.kind}-${r.id}`}><button type="button" disabled={busy} className={css.linkBtn} onClick={() => onRelated(r.kind, r.id)}>{r.title} (#{r.id})</button><span className={css.recId}>{kindName(r.kind)} · {companyName(r.proposed_company)}{r.stale ? ` / ${stateLabel("stale")}` : ""}</span></li>)}
-      </ul>
-      {detail.related_truncated && <p className={css.warnLine}>{L("Additional linked records remain to be reviewed.", "Rekod berkaitan tambahan masih perlu disemak.")}</p>}
-    </div>}
-    <form onSubmit={e => void submit(e)}>
-      <fieldset disabled={busy} className={css.form}>
-        <label>{L("Proposed company", "Syarikat dicadangkan")}
-          <select aria-label={L("Proposed company", "Syarikat dicadangkan")} className={inputClass} value={company} onChange={e => setCompany(e.target.value as CompanyCode | "")}>
-            <option value="">{L("Uncertain / defer", "Tidak pasti / tangguh")}</option>
-            {COMPANY_CODES.map(code => <option key={code} value={code}>{COMPANY_NAMES[code]}</option>)}
-          </select>
-        </label>
-        {conflicts.length > 0 && <p role="status" className={css.warnLine}>{L("Linked records have a different proposed company. Reconciliation is unresolved.", "Rekod berkaitan mempunyai syarikat cadangan berbeza. Penyesuaian belum selesai.")}</p>}
-        <label>{L("Evidence / reason", "Bukti / sebab")}
-          <textarea className={inputClass} required minLength={8} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} />
-        </label>
-        <p className={css.sub}>{L("A proposal is a review decision only. It does not change the record, an invoice's Paid status or any commission.", "Cadangan hanyalah keputusan semakan. Ia tidak mengubah rekod, status Dibayar invois atau sebarang komisen.")}</p>
-        <div className={css.formRow}><button type="submit" className={btnClass} disabled={reason.trim().length < 8}><AppIcon name="save" />{L("Save review", "Simpan semakan")}</button></div>
-      </fieldset>
-      {error && <p role="alert" className={css.error}>{error}</p>}
-    </form>
-    <HistoryList rows={detail.history} />
-  </section>;
-}
-
-function RecordDrawer({ target, onClose, onSaved, onRelated }: { target: { kind: ReviewKind; id: number } | null; onClose: () => void; onSaved: (company: CompanyCode | null) => void; onRelated: (kind: ReviewKind, id: number) => void }) {
-  /* the answer is kept with the request it answers, so a reopened record
-     never shows the previous read while its own is on the way */
-  const [got, setGot] = useState<{ for: typeof target; detail: ReviewDetail | null; error: string } | null>(null);
+/* ---------------- the reads (each says when it is refused) ---------------- */
+type Read<T> = { d: T | null; refused: boolean } | null;
+function useRead<T>(path: string | null, tick = 0): Read<T> {
+  const [got, setGot] = useState<{ path: string; r: Read<T> } | null>(null);
   useEffect(() => {
-    if (!target) return;
-    const controller = new AbortController();
-    void api<ReviewDetail>(`/records/${target.kind}/${target.id}`, { signal: controller.signal }).then(r => {
-      if (controller.signal.aborted) return;
-      setGot({ for: target, detail: r.ok && r.data ? r.data : null, error: r.ok && r.data ? "" : message(r) });
-    });
-    return () => controller.abort();
-  }, [target]);
-  const mine = got && got.for === target ? got : null;
-  const detail = mine?.detail ?? null;
-  const error = mine?.error ?? "";
-  const ready = detail && target && detail.kind === target.kind && detail.id === target.id;
-  return <SideDrawer open={Boolean(target)} onClose={onClose} wide title={ready ? detail.title : target ? `${kindName(target.kind)} #${target.id}` : ""} subtitle={ready ? [detail.date ? dmy(detail.date) : "", detail.amount_cents !== null ? fmtRM(detail.amount_cents) : "", detail.party ?? ""].filter(Boolean).join(" · ") : undefined}>
-    {error ? <p role="alert" className={css.error}>{error}</p> : ready ? <RecordReview key={`${detail.kind}-${detail.id}-${detail.snapshot}-${detail.decision?.version ?? 0}`} detail={detail} onSaved={onSaved} onRelated={onRelated} /> : <SkelRows rows={6} />}
-  </SideDrawer>;
+    if (!path) return;
+    const c = new AbortController();
+    void api<T>(path, { signal: c.signal }).then((r) => { if (!c.signal.aborted) setGot({ path, r: { d: r.ok ? (r.data as T) : null, refused: !r.ok } }); });
+    return () => c.abort();
+  }, [path, tick]);
+  return path && got?.path === path ? got.r : null;
 }
+type ByCompany = { month: string; companies: Record<CompanyCode, { invoices: number; invoiced_cents: number; paid_cents: number; outstanding_n: number; outstanding_cents: number }> };
+type Cash = { totals: { in_cents: number; out_cents: number }; banks: { id: number; active: number; company: string | null }[] };
+type ReviewSummary = { totals: { unassigned: number; pending: number }; checklist: { done: boolean }[]; registers: unknown[]; staff: { active: number; with_access: number; without_access: number } };
+type Owner = { owner: { name: string; verified: boolean; set_at: string; set_by_name: string | null } | null };
+type Signing = { authorities: { id: number; user_id: number; issuer_code: string; capacity: string; doc_types: string; granted_at: string }[]; people: { id: number; name: string; role: string; position: string | null; is_active: number }[]; policies?: { issuer_code?: string; personal?: number | boolean }[] };
+type AuditRow = { id: number; action: string; entity: string | null; entity_id: string | null; detail: string | null; created_at: string; user_name: string | null };
 
-/* ------------------------------------------------------------------ *
- * Bulk review - the single review repeated, previewed, all or nothing.
- * ------------------------------------------------------------------ */
-function BulkDrawer({ kind, items, preset, onClose, onSaved }: { kind: ReviewKind; items: ReviewRecord[]; preset: CompanyCode | ""; onClose: () => void; onSaved: (count: number, company: CompanyCode | null) => void }) {
-  const [company, setCompany] = useState<CompanyCode | "">(preset);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [preview, setPreview] = useState<{ signature: string; count: number; total_cents: number } | null>(null);
-  const attempt = useRef<Attempt>(null);
-  const payload = useMemo(() => ({
-    kind, proposed_company: company || null, reason: reason.trim(),
-    items: items.map(r => ({ id: r.id, snapshot: r.snapshot ?? "", version: r.decision?.version ?? 0 })),
-  }), [kind, company, reason, items]);
-  const signature = JSON.stringify(payload);
-  const previewed = preview?.signature === signature ? preview : null;
-  const replacing = items.filter(r => r.decision?.proposed_company && r.decision.proposed_company !== (company || null)).length;
-  const changed = items.filter(r => r.state === "stale").length;
-  const run = async (dry: boolean) => {
-    if (busy) return;
-    setBusy(true); setError("");
-    try {
-      const r = await api<{ count?: number; total_cents?: number }>("/records/bulk", { method: "PUT", body: JSON.stringify({ ...payload, request_id: requestId(attempt, payload), ...(dry ? { dry_run: true } : {}) }) });
-      if (!r.ok) { setError(message(r)); setPreview(null); return; }
-      const fallback = items.reduce((a, x) => a + (x.amount_cents ?? 0), 0);
-      if (dry) setPreview({ signature, count: r.data?.count ?? items.length, total_cents: r.data?.total_cents ?? fallback });
-      else onSaved(r.data?.count ?? items.length, company || null);
-    } finally { setBusy(false); }
-  };
-  return <SideDrawer open onClose={onClose} title={L("Review selected records", "Semak rekod dipilih")} subtitle={`${items.length} · ${kindName(kind)}`}>
-    <div className={css.drawerBody}>
-      <fieldset disabled={busy} className={css.form}>
-        <label>{L("Proposed company", "Syarikat dicadangkan")}
-          <select aria-label={L("Proposed company for the selection", "Syarikat dicadangkan untuk pilihan")} className={inputClass} value={company} onChange={e => setCompany(e.target.value as CompanyCode | "")}>
-            <option value="">{L("Uncertain / defer", "Tidak pasti / tangguh")}</option>
-            {COMPANY_CODES.map(code => <option key={code} value={code}>{COMPANY_NAMES[code]}</option>)}
-          </select>
-        </label>
-        <label>{L("Evidence / reason (saved on every record)", "Bukti / sebab (disimpan pada setiap rekod)")}
-          <textarea aria-label={L("Reason for the selection", "Sebab untuk pilihan")} className={inputClass} required minLength={8} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} />
-        </label>
-        {!previewed && <div className={css.formRow}><button type="button" className={btnClass} disabled={reason.trim().length < 8} onClick={() => void run(true)}><AppIcon name="preview" />{L("Preview impact", "Pratonton kesan")}</button></div>}
-      </fieldset>
-      {previewed && <section className={css.preview} aria-label={L("Impact preview", "Pratonton kesan")}>
-        <dl>
-          <dt>{L("Records", "Rekod")}</dt><dd>{previewed.count} · {kindName(kind)}</dd>
-          <dt>{L("Their value", "Nilainya")}</dt><dd>{fmtRM(previewed.total_cents)}</dd>
-          <dt>{L("Decision", "Keputusan")}</dt><dd>{company ? `${L("Propose", "Cadang")} ${COMPANY_NAMES[company]}` : L("Defer", "Tangguh")}</dd>
-        </dl>
-        {replacing > 0 && <p className={css.warnLine}>{L(`${replacing} already have a different proposal - saving replaces it.`, `${replacing} sudah mempunyai cadangan berbeza - menyimpan akan menggantikannya.`)}</p>}
-        {changed > 0 && <p className={css.warnLine}>{L(`${changed} changed since their last review - this review records the record as it is now.`, `${changed} berubah sejak semakan terakhir - semakan ini merekod keadaan semasa.`)}</p>}
-        <p className={css.sub}>{L("Nothing is saved yet. Saving writes one review, with your name and reason, on each record - all of them or none. Records, invoices, Paid status and commission are not changed.", "Belum disimpan. Menyimpan menulis satu semakan, dengan nama dan sebab anda, pada setiap rekod - semua atau tiada. Rekod, invois, status Dibayar dan komisen tidak diubah.")}</p>
-        <div className={css.formRow}>
-          <button type="button" className={btnClass} disabled={busy} onClick={() => void run(false)}><AppIcon name="save" />{L(`Save ${previewed.count} reviews`, `Simpan ${previewed.count} semakan`)}</button>
-          <button type="button" className={btnSm} disabled={busy} onClick={() => setPreview(null)}>{L("Change", "Ubah")}</button>
-        </div>
-      </section>}
-      {error && <p role="alert" className={css.error}>{error}</p>}
-    </div>
-  </SideDrawer>;
-}
-
-/* ------------------------------------------------------------------ *
- * One person's planned company access.
- * ------------------------------------------------------------------ */
-function StaffSetup({ employee, onSaved }: { employee: CompanyStaffSetup; onSaved: () => void }) {
-  /* v1.221.1 - with no employer saved yet, the one printed on their latest
-     payslip is chosen for you - shown as such, saved only on confirm */
-  const suggested = !employee.employer_code && employee.payslip ? employee.payslip : null;
-  const [employer, setEmployer] = useState<CompanyCode | "">(employee.employer_code ?? suggested?.company ?? "");
-  const [memberships, setMemberships] = useState(employee.memberships);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [history, setHistory] = useState<History | null>(null);
-  const [historyError, setHistoryError] = useState("");
-  const attempt = useRef<Attempt>(null);
-  const { confirm, node } = useConfirm();
-  useEffect(() => {
-    const controller = new AbortController();
-    void api<{ history: History }>(`/staff/${employee.id}`, { signal: controller.signal }).then(r => {
-      if (controller.signal.aborted) return;
-      if (r.ok && r.data) setHistory(r.data.history); else setHistoryError(message(r));
-    });
-    return () => controller.abort();
-  }, [employee.id]);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    try {
-      if (!(await confirm({ title: L("Save staff company setup?", "Simpan tetapan syarikat staf?"), message: `${employee.name}\n${companyName(employer || null)}`, confirmLabel: L("Confirm setup", "Sahkan tetapan") }))) return;
-      const payload = { employer_code: employer || null, memberships, reason, version: employee.version };
-      const r = await api(`/staff/${employee.id}`, { method: "PUT", body: JSON.stringify({ ...payload, request_id: requestId(attempt, payload) }) });
-      if (r.ok) onSaved(); else setError(message(r));
-    } finally { setBusy(false); }
-  };
-  return <section className={css.drawerBody} aria-label={L("Staff company setup", "Tetapan syarikat staf")}>
-    {node}
-    <p className={css.notice}><AppIcon name="info" /><span>{L("Planned access - not enforced yet. Roles still decide what this person can open.", "Akses dirancang - belum dikuatkuasakan. Peranan masih menentukan apa yang boleh dibuka.")}</span></p>
-    <form onSubmit={e => void submit(e)}>
-      <fieldset disabled={busy} className={css.form}>
-        <label>{L("Employer", "Majikan")}
-          <select aria-label={L("Employer", "Majikan")} className={inputClass} value={employer} onChange={e => setEmployer(e.target.value as CompanyCode | "")}>
-            <option value="">{L("Unassigned", "Belum ditetapkan")}</option>{COMPANY_CODES.map(code => <option key={code} value={code}>{COMPANY_NAMES[code]}</option>)}
-          </select>
-        </label>
-        {suggested && employer === suggested.company && <p className={css.hint}><AppIcon name="document" />{L(`Printed on their latest payslip (${ym(suggested.month)}) - not saved until you confirm`, `Tercetak pada slip gaji terkini (${ym(suggested.month)}) - belum disimpan sehingga anda sahkan`)}</p>}
-        <div className={css.planRow}>
-          <span className={fieldLabel}>{L("Company access plan", "Pelan akses syarikat")}</span>
-          {COMPANY_CODES.map(code => {
-            const member = memberships.find(m => m.company_code === code);
-            return <div key={code} className={css.planRow}>
-              <label className={css.planCheck}><input type="checkbox" checked={Boolean(member)} onChange={e => setMemberships(current => e.target.checked ? [...current, { company_code: code, access_mode: "read" }] : current.filter(m => m.company_code !== code))} />{COMPANY_NAMES[code]}</label>
-              {member && <select aria-label={`${COMPANY_NAMES[code]} ${L("access", "akses")}`} className={inputClass} value={member.access_mode} onChange={e => setMemberships(current => current.map(m => m.company_code === code ? { ...m, access_mode: e.target.value as "read" | "write" } : m))}>
-                <option value="read">{L("Read only", "Baca sahaja")}</option><option value="write">{L("Read and write", "Baca dan tulis")}</option>
-              </select>}
-            </div>;
-          })}
-        </div>
-        <label>{L("Reason", "Sebab")}<textarea className={inputClass} required minLength={8} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} /></label>
-        <div className={css.formRow}><button type="submit" className={btnClass} disabled={reason.trim().length < 8}><AppIcon name="save" />{L("Save setup", "Simpan tetapan")}</button></div>
-      </fieldset>
-    </form>
-    {error && <p role="alert" className={css.error}>{error}</p>}
-    {history ? <HistoryList rows={history} /> : historyError ? <p role="alert" className={css.error}>{historyError}</p> : <SkelRows rows={2} />}
-  </section>;
-}
-
-/* ------------------------------------------------------------------ *
- * v1.221.1 - several people at once: one employer, one access plan (or
- * each person's own kept), one reason - previewed, then all or nothing.
- * ------------------------------------------------------------------ */
-type StaffChange = { id: number; name: string; from: CompanyCode | null; to: CompanyCode | null; memberships_from: { company_code: CompanyCode; access_mode: string }[]; memberships_to: { company_code: CompanyCode; access_mode: string }[] };
-const planWord = (ms: { company_code: string; access_mode: string }[]) => ms.length ? ms.map(m => `${companyName(m.company_code)} ${m.access_mode === "write" ? L("R/W", "B/T") : L("read", "baca")}`).join(", ") : L("none", "tiada");
-function StaffBulkDrawer({ people, onClose, onSaved }: { people: CompanyStaffSetup[]; onClose: () => void; onSaved: (count: number) => void }) {
-  const common = people.every(p => !p.employer_code && p.payslip && p.payslip.company === people[0]?.payslip?.company) ? people[0]?.payslip?.company ?? null : null;
-  const [employer, setEmployer] = useState<CompanyCode | "">(common ?? "");
-  const [keep, setKeep] = useState(true);
-  const [memberships, setMemberships] = useState<{ company_code: CompanyCode; access_mode: "read" | "write" }[]>([]);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [preview, setPreview] = useState<{ signature: string; changes: StaffChange[] } | null>(null);
-  const attempt = useRef<Attempt>(null);
-  const payload = useMemo(() => ({ employer_code: employer || null, memberships: keep ? null : memberships, reason: reason.trim(), items: people.map(p => ({ id: p.id, version: p.version })) }), [employer, keep, memberships, reason, people]);
-  const signature = JSON.stringify(payload);
-  const previewed = preview?.signature === signature ? preview : null;
-  const run = async (dry: boolean) => {
-    if (busy) return;
-    setBusy(true); setError("");
-    try {
-      const r = await api<{ count?: number; changes?: StaffChange[] }>("/staff/bulk", { method: "PUT", body: JSON.stringify({ ...payload, request_id: requestId(attempt, payload), ...(dry ? { dry_run: true } : {}) }) });
-      if (!r.ok) { setError(message(r)); setPreview(null); return; }
-      if (dry) setPreview({ signature, changes: r.data?.changes ?? people.map(p => ({ id: p.id, name: p.name, from: p.employer_code, to: employer || null, memberships_from: p.memberships, memberships_to: keep ? p.memberships : memberships })) });
-      else onSaved(r.data?.count ?? people.length);
-    } finally { setBusy(false); }
-  };
-  return <SideDrawer open onClose={onClose} title={L("Set up selected staff", "Tetapkan staf dipilih")} subtitle={`${people.length} ${L("people", "orang")}`}>
-    <div className={css.drawerBody}>
-      <p className={css.notice}><AppIcon name="info" /><span>{L("Planned access - not enforced yet. Roles still decide what each person can open.", "Akses dirancang - belum dikuatkuasakan. Peranan masih menentukan apa yang boleh dibuka.")}</span></p>
-      <fieldset disabled={busy} className={css.form}>
-        <label>{L("Employer", "Majikan")}
-          <select aria-label={L("Employer for the selection", "Majikan untuk pilihan")} className={inputClass} value={employer} onChange={e => setEmployer(e.target.value as CompanyCode | "")}>
-            <option value="">{L("Unassigned", "Belum ditetapkan")}</option>{COMPANY_CODES.map(code => <option key={code} value={code}>{COMPANY_NAMES[code]}</option>)}
-          </select>
-        </label>
-        {common && employer === common && <p className={css.hint}><AppIcon name="document" />{L("Printed on every selected person's latest payslip - not saved until you confirm", "Tercetak pada slip gaji terkini setiap orang dipilih - belum disimpan sehingga anda sahkan")}</p>}
-        <div className={css.planRow}>
-          <span className={fieldLabel}>{L("Company access plan", "Pelan akses syarikat")}</span>
-          <label className={css.planCheck}><input type="radio" name="bulk-plan" checked={keep} onChange={() => setKeep(true)} />{L("Keep each person's current plan", "Kekalkan pelan semasa setiap orang")}</label>
-          <label className={css.planCheck}><input type="radio" name="bulk-plan" checked={!keep} onChange={() => setKeep(false)} />{L("Give everyone the same plan", "Beri semua orang pelan yang sama")}</label>
-          {!keep && COMPANY_CODES.map(code => {
-            const member = memberships.find(m => m.company_code === code);
-            return <div key={code} className={css.planRow}>
-              <label className={css.planCheck}><input type="checkbox" checked={Boolean(member)} onChange={e => setMemberships(current => e.target.checked ? [...current, { company_code: code, access_mode: "read" }] : current.filter(m => m.company_code !== code))} />{COMPANY_NAMES[code]}</label>
-              {member && <select aria-label={`${COMPANY_NAMES[code]} ${L("access for the selection", "akses untuk pilihan")}`} className={inputClass} value={member.access_mode} onChange={e => setMemberships(current => current.map(m => m.company_code === code ? { ...m, access_mode: e.target.value as "read" | "write" } : m))}>
-                <option value="read">{L("Read only", "Baca sahaja")}</option><option value="write">{L("Read and write", "Baca dan tulis")}</option>
-              </select>}
-            </div>;
-          })}
-        </div>
-        <label>{L("Reason (saved for every person)", "Sebab (disimpan untuk setiap orang)")}
-          <textarea aria-label={L("Reason for the staff selection", "Sebab untuk pilihan staf")} className={inputClass} required minLength={8} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} />
-        </label>
-        {!previewed && <div className={css.formRow}><button type="button" className={btnClass} disabled={reason.trim().length < 8} onClick={() => void run(true)}><AppIcon name="preview" />{L("Preview changes", "Pratonton perubahan")}</button></div>}
-      </fieldset>
-      {previewed && <section className={css.preview} aria-label={L("Staff changes preview", "Pratonton perubahan staf")}>
-        <ul className={css.history}>
-          {previewed.changes.map(c => <li key={c.id}>
-            <strong>{c.name}</strong>
-            <span>{L("Employer", "Majikan")}: {companyName(c.from)} → {companyName(c.to)}</span>
-            <span className={css.muted}>{L("Access", "Akses")}: {planWord(c.memberships_from)} → {planWord(c.memberships_to)}</span>
-          </li>)}
-        </ul>
-        <p className={css.sub}>{L("Nothing is saved yet. Saving records one setup, with your name and reason, for each person - all of them or none. It is a plan: nobody's access changes today.", "Belum disimpan. Menyimpan merekod satu tetapan, dengan nama dan sebab anda, untuk setiap orang - semua atau tiada. Ia pelan: akses sesiapa tidak berubah hari ini.")}</p>
-        <div className={css.formRow}>
-          <button type="button" className={btnClass} disabled={busy} onClick={() => void run(false)}><AppIcon name="save" />{L(`Save ${previewed.changes.length} setups`, `Simpan ${previewed.changes.length} tetapan`)}</button>
-          <button type="button" className={btnSm} disabled={busy} onClick={() => setPreview(null)}>{L("Change", "Ubah")}</button>
-        </div>
-      </section>}
-      {error && <p role="alert" className={css.error}>{error}</p>}
-    </div>
-  </SideDrawer>;
-}
-
-/* ------------------------------------------------------------------ *
- * The readiness checklist - what must be true before access could ever
- * be switched on. Nothing here switches it on.
- * ------------------------------------------------------------------ */
-const CHECKS: Record<string, { en: string; ms: string; stage: "data" | "build" }> = {
-  reviewed: { en: "Every operational record reviewed", ms: "Setiap rekod operasi disemak", stage: "data" },
-  settled: { en: "No deferred or changed reviews left", ms: "Tiada semakan ditangguh atau berubah", stage: "data" },
-  staff_setup: { en: "Every active staff member has an employer and an access plan", ms: "Setiap staf aktif mempunyai majikan dan pelan akses", stage: "data" },
-  management: { en: "CEO, COO and super admin planned with write access to both companies", ms: "CEO, COO dan super admin dirancang dengan akses tulis ke kedua-dua syarikat", stage: "data" },
-  ownership_columns: { en: "Each operational record stores its company", ms: "Setiap rekod operasi menyimpan syarikatnya", stage: "build" },
-  scoped_queries: { en: "Every list, report and export filtered by company", ms: "Setiap senarai, laporan dan eksport ditapis ikut syarikat", stage: "build" },
-  jobs_scope: { en: "Scheduled jobs, syncs and webhooks company-aware", ms: "Tugas berjadual, segerak dan webhook sedar syarikat", stage: "build" },
-  pilot: { en: "A pilot with one team, read-only first", ms: "Perintis dengan satu pasukan, baca sahaja dahulu", stage: "build" },
-  rollback_switch: { en: "One switch that turns restrictions off again", ms: "Satu suis untuk mematikan sekatan semula", stage: "build" },
-};
-function checkDetail(key: string, detail: string) {
-  if (detail === "not_built") return L("Not built", "Belum dibina");
-  if (detail === "not_run") return L("Not run", "Belum dijalankan");
-  if (key === "reviewed") return L(`${detail} not yet reviewed`, `${detail} belum disemak`);
-  if (key === "settled") { const [s, d] = detail.split("/"); return L(`${s} changed · ${d} deferred`, `${s} berubah · ${d} ditangguh`); }
-  return L(`${detail} set up`, `${detail} ditetapkan`);
-}
-function Checklist({ summary }: { summary: Summary | null }) {
-  if (!summary) return <SkelRows rows={5} />;
-  const stage = (s: "data" | "build") => summary.checklist.filter(c => CHECKS[c.key]?.stage === s);
-  return <div>
-    {(["data", "build"] as const).map(s => <div key={s}>
-      <p className={css.checkStage}>{s === "data" ? L("The data - done on this page", "Data - dibuat di halaman ini") : L("The build - a separate release you approve", "Binaan - keluaran berasingan yang anda luluskan")}</p>
-      <ul className={css.checklist} aria-label={s === "data" ? L("Data readiness", "Kesediaan data") : L("Build readiness", "Kesediaan binaan")}>
-        {stage(s).map(c => <li key={c.key} className={c.done ? css.done : css.todo}>
-          <AppIcon name={c.done ? "success" : "pending"} />
-          <span>{L(CHECKS[c.key]!.en, CHECKS[c.key]!.ms)}<span className={css.checkDetail}>{checkDetail(c.key, c.detail)}</span></span>
-          <span className={c.done ? chipSuccess : c.detail === "not_built" || c.detail === "not_run" ? chipNeutral : chipWarn}>{c.done ? L("Done", "Selesai") : c.detail === "not_built" || c.detail === "not_run" ? L("Later", "Kemudian") : L("To do", "Perlu dibuat")}</span>
-        </li>)}
-      </ul>
-    </div>)}
-  </div>;
-}
-
-/* ------------------------------------------------------------------ */
-const STAMPED: Record<string, [string, string]> = {
-  invoices: ["Invoices", "Invois"], quotations: ["Quotations", "Sebut harga"], delivery_orders: ["Delivery orders", "Pesanan penghantaran"],
-  receipts: ["Receipts", "Resit"], credit_notes: ["Credit notes", "Nota kredit"], claims: ["Claims", "Tuntutan"], payslip_months: ["Payslip months", "Bulan slip gaji"],
-};
-
-/* v1.251.0 - DOCUMENT & SIGNING LIVES HERE (the owner, 02-11-2026: "REMOVE
-   SIGNATURE/STAMP ADMINISTRATION FROM USERS MAIN INTERFACE"; "Move or
-   consolidate the relevant UI under the EXISTING Companies -> Document &
-   Signing Settings"; claude/CEO-ADMIN-USERS-AUDIT.md). The same SigningPanel,
-   the same signing.ts routes, R2 assets and rows - only where it is drawn
-   changed. The CEO and the super admin manage it; anyone else who opens
-   Companies (the COO; the CCO once the CEO shows them the tab) reads it -
-   signing.ts decides. A role without the ownership review (company_review)
-   sees only this view: the review's routes would refuse them anyway. */
-export function CompaniesPanel({ role = "" }: { role?: string }) {
+export function CompaniesPanel({ role = "", initialView }: { role?: string; initialView?: string }) {
+  const { setTab, setTabStart, canOpen } = usePortal();
+  const [view, setView] = useState<View>(() => (VIEWS.includes(initialView as View) ? (initialView as View) : "overview"));
+  const [seenStart, setSeenStart] = useState(initialView);
+  if (initialView !== seenStart) { setSeenStart(initialView); if (VIEWS.includes(initialView as View)) setView(initialView as View); }
   const canReview = holdsCap("company_review", ["super_admin", "ceo"].includes(role));
-  if (!canReview) {
-    return <TabPage className={css.page}>
-      <LineTabs value="signing" onChange={() => {}} tabs={[["signing", L("Document & Signing", "Dokumen & Tandatangan")]]} label={L("Companies", "Syarikat")} />
-      <div className={css.body} data-testid="companies-signing"><TabZone label={L("Document & signing", "Dokumen & tandatangan")}><SigningPanel /></TabZone></div>
-    </TabPage>;
-  }
-  return <CompaniesReview />;
+  const canAudit = holdsCap("audit_read", ["super_admin", "admin", "ceo"].includes(role));
+  const today = mytToday();
+  const month = today.slice(0, 7);
+
+  const byCo = useRead<ByCompany>("/staff/docs/by-company");
+  const cashA = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=a2z`);
+  const cashZ = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=azoo`);
+  const cash: Record<CompanyCode, Read<Cash>> = { a2z: cashA, azoo: cashZ };
+  const reviewStaff = useRead<{ staff: CompanyStaffSetup[] }>(canReview ? "/staff/companies/staff" : null);
+  const summary = useRead<ReviewSummary>(canReview && (view === "overview" || view === "access") ? "/staff/companies/summary" : null);
+  const owner = useRead<Owner>(view === "ownership" || view === "overview" ? "/staff/owner" : null);
+  const signing = useRead<Signing>(view === "ownership" ? "/staff/signing/overview" : null);
+
+  const members = (co: CompanyCode) => reviewStaff?.d?.staff.filter((s) => s.is_active && s.memberships.some((m) => m.company_code === co)).length ?? null;
+  const banks = (co: CompanyCode) => cash[co]?.d ? cash[co]!.d!.banks.filter((b) => b.active && b.company === co).length : null;
+  const openUsers = (part?: string) => { if (part) setTabStart({ tab: "Users", view: part }); setTab("Users"); };
+  const openTab = (t: "Finance" | "Staff Details" | "HR") => setTab(t);
+
+  const tabs: readonly (readonly [View, string])[] = [
+    ["overview", L("Company Overview", "Gambaran Syarikat")],
+    ["details", L("Corporate Details", "Butiran Korporat")],
+    ["ownership", L("Ownership & Directors", "Pemilikan & Pengarah")],
+    ["signing", L("Documents & Signing", "Dokumen & Tandatangan")],
+    ["audit", L("Audit & History", "Audit & Sejarah")],
+    ["access", L("Access Summary", "Ringkasan Akses")],
+  ];
+
+  return (
+    <TabPage className={css.page}>
+      <LineTabs value={view} onChange={setView} tabs={tabs} label={L("Companies", "Syarikat")} testid="companies-tabs" />
+
+      {/* ================= Company Overview ================= */}
+      <div className={css.body} hidden={view !== "overview"} data-testid="companies-overview">
+        <div className={css.coGrid}>
+          {COMPANY_CODES.map((co) => <CompanyCard key={co} co={co} banks={banks(co)} members={members(co)} reviewer={canReview} />)}
+        </div>
+        <div className={css.glanceRow}>
+          <section className={`${card} ${css.panel}`} aria-label={L("Company at a glance", "Syarikat sepintas lalu")} data-testid="companies-glance">
+            <div className={css.panelHead}>
+              <h2 className={css.h2}><AppIcon name="chart" />{L("Company at a Glance", "Syarikat Sepintas Lalu")}</h2>
+              {canOpen("Finance") && <button type="button" className={btnSm} onClick={() => openTab("Finance")}>{L("Open Finance", "Buka Kewangan")}<AppIcon name="next" /></button>}
+            </div>
+            <p className={css.meta}>{L(`This month so far, in RM · invoices by the company that issued them (Sales) · Money In / Out from Finance (verified receipts only). Read-only.`, `Bulan ini setakat ini, dalam RM · invois ikut syarikat pengeluar (Jualan) · Tunai Masuk / Keluar dari Kewangan (penerimaan disahkan sahaja). Baca sahaja.`)}</p>
+            <div className={css.tableWrap}>
+              <table className={css.table}>
+                <thead><tr><th>{L("Company", "Syarikat")}</th><th className={css.num}>{L("Invoices", "Invois")}</th><th className={css.num}>{L("Invoiced", "Diinvois")}</th><th className={css.num}>{L("Money In", "Tunai Masuk")}</th><th className={css.num}>{L("Money Out", "Tunai Keluar")}</th><th className={css.num}>{L("Outstanding", "Tertunggak")}</th></tr></thead>
+                <tbody>
+                  {COMPANY_CODES.map((co) => {
+                    const s = byCo?.d?.companies[co];
+                    const c = cash[co]?.d;
+                    const cell = (r: Read<unknown>, v: ReactNode) => (!r ? <span className={css.skel} aria-hidden="true" /> : r.refused ? <span className={css.muted} title={L("Not available to your role", "Tiada untuk peranan anda")}>—</span> : v);
+                    return (
+                      <tr key={co} data-testid={`glance-${co}`}>
+                        <th scope="row" title={resolveIssuer(co).name}>{SHORT_NAME[co]}</th>
+                        <td className={css.num}>{cell(byCo, s?.invoices)}</td>
+                        <td className={css.num}>{cell(byCo, s ? fmtRM(s.invoiced_cents).replace(/^RM\s?/, "") : undefined)}</td>
+                        <td className={css.num}>{cell(cash[co], c ? fmtRM(c.totals.in_cents).replace(/^RM\s?/, "") : undefined)}</td>
+                        <td className={css.num}>{cell(cash[co], c ? fmtRM(c.totals.out_cents).replace(/^RM\s?/, "") : undefined)}</td>
+                        <td className={css.num}>{cell(byCo, s ? <span className={s.outstanding_cents > 0 ? css.outChip : undefined} title={L(`${s.outstanding_n} unpaid invoice(s), all time`, `${s.outstanding_n} invois belum dibayar, sepanjang masa`)}>{fmtRM(s.outstanding_cents).replace(/^RM\s?/, "")}</span> : undefined)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className={css.meta}>{L("Outstanding is every unpaid invoice, less part payments. A dash: your role does not read that figure.", "Tertunggak ialah semua invois belum dibayar, tolak bayaran separa. Sengkang: peranan anda tidak membaca angka itu.")}</p>
+          </section>
+          <section className={`${card} ${css.panel}`} aria-label={L("Quick actions", "Tindakan pantas")}>
+            <h2 className={css.h2}><AppIcon name="fast" />{L("Quick Actions", "Tindakan Pantas")}</h2>
+            <div className={css.qaList}>
+              <button type="button" className={css.qa} onClick={() => setView("ownership")}><AppIcon name="edit" /><span>{L("Signatories & owner", "Penandatangan & pemilik")}</span><AppIcon name="next" /></button>
+              <button type="button" className={css.qa} onClick={() => setView("signing")}><AppIcon name="document" /><span>{L("Signatures & stamps", "Tandatangan & cop")}</span><AppIcon name="next" /></button>
+              <button type="button" className={css.qa} onClick={() => setView("access")}><AppIcon name="lock" /><span>{L("View access summary", "Lihat ringkasan akses")}</span><AppIcon name="next" /></button>
+              <button type="button" className={css.qa} onClick={() => setView("details")}><AppIcon name="building" /><span>{L("Corporate details", "Butiran korporat")}</span><AppIcon name="next" /></button>
+            </div>
+          </section>
+        </div>
+        <div className={css.linkRow}>
+          <LinkCard icon="users" title={L("Company Access & Roles", "Akses Syarikat & Peranan")} text={L("Who can open each company, roles and permissions.", "Siapa boleh membuka setiap syarikat, peranan dan kebenaran.")}
+            action={canOpen("Users") ? { label: L("Go to Users & Security", "Ke Pengguna & Keselamatan"), go: () => openUsers(canReview ? "company_access" : undefined) } : null} />
+          <LinkCard icon="person" title={L("Employment & Staff", "Pekerjaan & Staf")} text={L("Employment, department, position and reporting line.", "Pekerjaan, jabatan, jawatan dan garis pelaporan.")}
+            action={canOpen("Staff Details") ? { label: L("Go to HR / Staff", "Ke HR / Staf"), go: () => openTab("Staff Details") } : canOpen("HR") ? { label: L("Go to HR", "Ke HR"), go: () => openTab("HR") } : null} />
+          <section className={css.notes} aria-label={L("Important notes", "Nota penting")}>
+            <h2 className={css.h3}><AppIcon name="info" />{L("Important Notes", "Nota Penting")}</h2>
+            <ul>
+              <li>{L("Companies manages the two legal entities, their details, documents and signatories.", "Syarikat mengurus dua entiti sah, butiran, dokumen dan penandatangannya.")}</li>
+              <li>{L("Accounts, roles and company access are managed in Users & Security.", "Akaun, peranan dan akses syarikat diurus dalam Pengguna & Keselamatan.")}</li>
+              <li>{L("Employment and the employer are managed in HR / Staff.", "Pekerjaan dan majikan diurus dalam HR / Staf.")}</li>
+              <li>{L("Financial records and their company are managed in Finance.", "Rekod kewangan dan syarikatnya diurus dalam Kewangan.")}</li>
+            </ul>
+          </section>
+        </div>
+      </div>
+
+      {/* ================= Corporate Details ================= */}
+      <div className={css.body} hidden={view !== "details"} data-testid="companies-details">
+        <p className={css.notice}><AppIcon name="info" /><span>{L("The registered identity printed on every document. It is legal data kept with the system's documents and changes only by an approved release - not on this page.", "Identiti berdaftar yang dicetak pada setiap dokumen. Ia data sah yang disimpan bersama dokumen sistem dan hanya berubah melalui keluaran yang diluluskan - bukan di halaman ini.")}</span></p>
+        <div className={css.coGrid}>
+          {COMPANY_CODES.map((co) => {
+            const i = resolveIssuer(co);
+            return (
+              <section key={co} className={`${card} ${css.panel}`} aria-label={i.name} data-testid={`details-${co}`}>
+                <h2 className={css.h2}><AppIcon name="building" />{i.name}</h2>
+                <dl className={css.kv}>
+                  <div><dt>{L("Registration", "Pendaftaran")}</dt><dd>SSM {i.ssm}<span className={css.muted}> · {L("old", "lama")} {i.oldReg}</span></dd></div>
+                  <div><dt>{L("Business activity", "Aktiviti perniagaan")}</dt><dd>{i.descriptor}</dd></div>
+                  <div><dt>{L("Registered address", "Alamat berdaftar")}</dt><dd>{i.addressLines.map((l) => <span key={l} className={css.line}>{l}</span>)}</dd></div>
+                  <div><dt>{L("Official email", "E-mel rasmi")}</dt><dd>{i.email}</dd></div>
+                  <div><dt>WhatsApp</dt><dd>{i.whatsapp}</dd></div>
+                  <div><dt>{L("Website", "Laman web")}</dt><dd>{i.website}</dd></div>
+                  <div><dt>{L("Bank account on invoices", "Akaun bank pada invois")}</dt><dd>{bankShown(i.bank)}<span className={css.muted}> · {i.bankHolder}</span></dd></div>
+                  <div><dt>SST</dt><dd>{i.sstRegistered ? L("Registered", "Berdaftar") : L("Not registered - documents say no SST is charged", "Tidak berdaftar - dokumen menyatakan tiada SST dikenakan")}</dd></div>
+                  <div><dt>{L("Documents", "Dokumen")}</dt><dd>{co === "a2z" ? L(`Issues every new document since ${SWITCH_DAY}`, `Mengeluarkan setiap dokumen baharu sejak ${SWITCH_DAY}`) : L(`Issued every document until ${LAST_AZOO_DAY}; those keep this letterhead`, `Mengeluarkan setiap dokumen hingga ${LAST_AZOO_DAY}; ia kekal dengan kepala surat ini`)}</dd></div>
+                </dl>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ================= Ownership & Directors ================= */}
+      <div className={css.body} hidden={view !== "ownership"} data-testid="companies-ownership">
+        <TabZone label={L("Verified owner", "Pemilik disahkan")} hint={L("The one verified company owner (a CEO account with two-factor on). Designated in Users & Security > Security & MFA.", "Satu pemilik syarikat yang disahkan (akaun CEO dengan dua faktor). Ditetapkan dalam Pengguna & Keselamatan > Keselamatan & MFA.")}>
+          <section className={`${card} ${css.panel}`}>
+            {!owner ? <SkelRows rows={2} /> : owner.refused ? <p className={css.meta}>{L("Your role does not read the owner record.", "Peranan anda tidak membaca rekod pemilik.")}</p>
+              : !owner.d?.owner ? <p className={css.meta} data-testid="owner-none">{L("No company owner is designated yet.", "Belum ada pemilik syarikat ditetapkan.")}</p>
+              : <div className={css.ownerRow} data-testid="owner-row">
+                  <span className={css.avatar} aria-hidden="true">{owner.d.owner.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("")}</span>
+                  <span><strong>{owner.d.owner.name}</strong><span className={css.meta}>{L(`Designated ${owner.d.owner.set_at ? dmy(String(owner.d.owner.set_at).slice(0, 10)) : ""}${owner.d.owner.set_by_name ? ` by ${owner.d.owner.set_by_name}` : ""}`, `Ditetapkan ${owner.d.owner.set_at ? dmy(String(owner.d.owner.set_at).slice(0, 10)) : ""}${owner.d.owner.set_by_name ? ` oleh ${owner.d.owner.set_by_name}` : ""}`)}</span></span>
+                  <span className={owner.d.owner.verified ? chipSuccess : chipWarn}>{owner.d.owner.verified ? L("Verified", "Disahkan") : L("Not verified", "Belum disahkan")}</span>
+                </div>}
+          </section>
+        </TabZone>
+        <TabZone label={L("Authorised signatories", "Penandatangan diberi kuasa")} hint={L("Who may prepare or approve documents for each company - the signing records. They are granted and removed in Documents & Signing.", "Siapa boleh menyediakan atau meluluskan dokumen bagi setiap syarikat - rekod tandatangan. Diberi dan ditarik dalam Dokumen & Tandatangan.")}>
+          <div className={css.coGrid}>
+            {COMPANY_CODES.map((co) => {
+              const rows = (signing?.d?.authorities ?? []).filter((a) => a.issuer_code === co);
+              const person = (id: number) => signing?.d?.people.find((p) => p.id === id);
+              return (
+                <section key={co} className={`${card} ${css.panel}`} aria-label={resolveIssuer(co).name} data-testid={`signatories-${co}`}>
+                  <h2 className={css.h3}>{resolveIssuer(co).name}</h2>
+                  {!signing ? <SkelRows rows={2} /> : signing.refused ? <p className={css.meta}>{L("Your role does not read the signing records.", "Peranan anda tidak membaca rekod tandatangan.")}</p>
+                    : rows.length === 0 ? <p className={css.meta}>{L("No signing authority granted yet.", "Belum ada kuasa tandatangan diberi.")}</p>
+                    : <ul className={css.people}>{rows.map((a) => { const p = person(a.user_id); return (
+                        <li key={a.id}><strong>{p?.name ?? `#${a.user_id}`}</strong><span className={css.meta}>{p ? roleLabel(p.role) : ""}{p?.position ? ` · ${p.position}` : ""}</span>
+                          <span className={a.capacity === "approve" ? chipInfo : chipNeutral}>{a.capacity === "approve" ? L("Approves", "Meluluskan") : L("Prepares", "Menyediakan")}</span>
+                          <span className={css.meta}>{a.doc_types}</span></li>); })}</ul>}
+                </section>
+              );
+            })}
+          </div>
+        </TabZone>
+        <TabZone label={L("Directors and management appointments", "Pengarah dan pelantikan pengurusan")}>
+          <section className={`${card} ${css.panel}`}>
+            <p className={css.meta} data-testid="directors-none">{L("A directors register is not kept in A2Z OS yet. The registered directors are in each company's SSM records; a register here would be a separate feature you approve.", "Daftar pengarah belum disimpan dalam A2Z OS. Pengarah berdaftar ada dalam rekod SSM setiap syarikat; daftar di sini ialah ciri berasingan yang anda luluskan.")}</p>
+          </section>
+        </TabZone>
+      </div>
+
+      {/* ================= Documents & Signing ================= */}
+      <SigningBody show={view === "signing"} />
+
+      {/* ================= Audit & History ================= */}
+      <div className={css.body} hidden={view !== "audit"} data-testid="companies-audit">
+        {view === "audit" && <CorporateAudit allowed={canAudit} />}
+      </div>
+
+      {/* ================= Access Summary ================= */}
+      <div className={css.body} hidden={view !== "access"} data-testid="companies-access">
+        <p className={css.notice} role="status"><AppIcon name="warning" /><span><strong>{L("Reconciliation only.", "Penyesuaian sahaja.")}</strong> {L("Company access restrictions are not active - roles still decide what each person can open. Access is managed only in Users & Security.", "Sekatan akses syarikat belum aktif - peranan masih menentukan apa yang boleh dibuka. Akses diurus hanya dalam Pengguna & Keselamatan.")}</span></p>
+        {canReview ? (
+          <KpiRow label={L("Company access at a glance", "Akses syarikat sepintas lalu")} testid="access-summary-figures">
+            <KpiTile icon="pending" tone="gold" busy={!summary} label={L("Records not yet reviewed", "Rekod belum disemak")} value={summary?.d?.totals.unassigned ?? "—"} sub={L(`across ${summary?.d?.registers.length ?? 9} registers`, `merentasi ${summary?.d?.registers.length ?? 9} daftar`)} />
+            <KpiTile icon="verify" tone="blue" busy={!summary} label={L("Reviewed, not settled", "Disemak, belum muktamad")} value={summary?.d?.totals.pending ?? "—"} />
+            {COMPANY_CODES.map((co) => <KpiTile key={co} icon="users" tone="navy" busy={!reviewStaff} label={L(`Proposed for ${SHORT[co]}`, `Dicadang untuk ${SHORT[co]}`)} value={members(co) ?? "—"} sub={L("active staff in the plan · not enforced", "staf aktif dalam pelan · belum dikuatkuasa")} />)}
+            <KpiTile icon="lock" tone="red" busy={!summary} label={L("Access readiness", "Kesediaan akses")} value={summary?.d ? `${summary.d.checklist.filter((c) => c.done).length} / ${summary.d.checklist.length}` : "—"} sub={L("Not active", "Belum aktif")} />
+          </KpiRow>
+        ) : (
+          <section className={`${card} ${css.panel}`}><p className={css.meta}>{L("Everyone sees both companies as their role allows. The company access review is kept by the CEO.", "Semua orang melihat kedua-dua syarikat mengikut peranan. Semakan akses syarikat dipegang oleh CEO.")}</p></section>
+        )}
+        {canOpen("Users") && <div className={css.formRow}><button type="button" className="erp-button erp-button-accent" onClick={() => openUsers(canReview ? "company_access" : undefined)} data-testid="access-summary-open">{canReview ? L("Open Users & Security > Company Access", "Buka Pengguna & Keselamatan > Akses Syarikat") : L("Open Users & Security", "Buka Pengguna & Keselamatan")}<AppIcon name="next" /></button></div>}
+      </div>
+    </TabPage>
+  );
 }
 
-export function CompaniesReview() {
-  const [view, setView] = useState<View>("review");
-  const [seen, setSeen] = useState<Record<View, boolean>>({ review: true, staff: false, history: false, signing: false });
-  const [revision, setRevision] = useState(0);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [summaryError, setSummaryError] = useState("");
-  const { show: toast, node: toastNode } = useSaveToast();
-  const open = (v: View) => { setView(v); setSeen(s => ({ ...s, [v]: true })); };
-  const reload = useCallback(() => setRevision(v => v + 1), []);
-  useEffect(() => {
-    const controller = new AbortController();
-    void api<Summary>("/summary", { signal: controller.signal }).then(r => {
-      if (controller.signal.aborted) return;
-      if (r.ok && r.data) { setSummary(r.data); setSummaryError(""); } else setSummaryError(message(r));
-    });
-    return () => controller.abort();
-  }, [revision]);
-
-  /* ---- Ownership Review ---- */
-  const [kind, setKind] = useState<ReviewKind>("expenses");
-  const [state, setState] = useState<StateFilter>("unassigned");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [qInput, setQInput] = useState("");
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(0);
-  const [list, setList] = useState<{ key: string; records: ReviewRecord[] | null; total: number; error: string } | null>(null);
-  const [picked, setPicked] = useState<Map<number, ReviewRecord>>(new Map());
-  const [target, setTarget] = useState<{ kind: ReviewKind; id: number } | null>(null);
-  const [bulk, setBulk] = useState<CompanyCode | "" | null>(null);
-  useEffect(() => { const t = window.setTimeout(() => { setQ(qInput.trim()); setPage(0); }, 300); return () => window.clearTimeout(t); }, [qInput]);
-  const listKey = `${new URLSearchParams({ kind, state, page: String(page), ...(q ? { q } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) }).toString()}#${revision}`;
-  useEffect(() => {
-    const controller = new AbortController();
-    void api<{ records: ReviewRecord[]; total: number }>(`/records?${listKey.split("#")[0]}`, { signal: controller.signal }).then(r => {
-      if (controller.signal.aborted) return;
-      setList(r.ok && r.data ? { key: listKey, records: r.data.records, total: r.data.total, error: "" } : { key: listKey, records: null, total: 0, error: message(r) });
-    });
-    return () => controller.abort();
-  }, [listKey]);
-  const current = list?.key === listKey ? list : null;
-  const records = current?.records ?? null;
-  const total = current?.total ?? 0;
-  const recordsError = current?.error ?? "";
-  const resetList = () => { setPage(0); setPicked(new Map()); };
-  const pickRegister = (k: ReviewKind) => { setKind(k); resetList(); };
-  const toggle = (r: ReviewRecord) => setPicked(current => {
-    const next = new Map(current);
-    if (next.has(r.id)) next.delete(r.id); else if (next.size < 100) next.set(r.id, r);
-    return next;
-  });
-  const pageAll = records !== null && records.length > 0 && records.every(r => picked.has(r.id));
-  const togglePage = () => setPicked(current => {
-    const next = new Map(current);
-    if (pageAll) records?.forEach(r => next.delete(r.id));
-    else records?.forEach(r => { if (next.size < 100) next.set(r.id, r); });
-    return next;
-  });
-  const reviewSaved = (company: CompanyCode | null) => {
-    toast(L("Review saved", "Semakan disimpan"), company ? L(`Proposed for ${COMPANY_NAMES[company]} - reconciliation still pending`, `Dicadangkan untuk ${COMPANY_NAMES[company]} - penyesuaian masih belum selesai`) : L("Deferred, with your reason", "Ditangguhkan, dengan sebab anda"));
-    setTarget(null); setPicked(new Map()); reload();
-  };
-  const bulkSaved = (count: number, company: CompanyCode | null) => {
-    toast(L(`${count} reviews saved`, `${count} semakan disimpan`), company ? L(`Proposed for ${COMPANY_NAMES[company]}, with your reason on each`, `Dicadangkan untuk ${COMPANY_NAMES[company]}, dengan sebab anda pada setiap satu`) : L("Deferred, with your reason on each", "Ditangguhkan, dengan sebab anda pada setiap satu"));
-    setBulk(null); setPicked(new Map()); reload();
-  };
-
-  /* ---- Staff Access ---- */
-  const [staff, setStaff] = useState<CompanyStaffSetup[] | null>(null);
-  const [staffError, setStaffError] = useState("");
-  const [staffQ, setStaffQ] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
-  const [person, setPerson] = useState<number | null>(null);
-  const [staffPicked, setStaffPicked] = useState<Set<number>>(new Set());
-  const [staffBulk, setStaffBulk] = useState(false);
-  useEffect(() => {
-    if (!seen.staff) return;
-    const controller = new AbortController();
-    void api<{ staff: CompanyStaffSetup[] }>("/staff", { signal: controller.signal }).then(r => {
-      if (controller.signal.aborted) return;
-      if (r.ok && r.data) { setStaff(r.data.staff); setStaffError(""); } else setStaffError(message(r));
-    });
-    return () => controller.abort();
-  }, [seen.staff, revision]);
-  const shownStaff = (staff ?? []).filter(s => (showInactive || s.is_active) && (!staffQ.trim() || s.name.toLowerCase().includes(staffQ.trim().toLowerCase())));
-  const employee = staff?.find(s => s.id === person) ?? null;
-  const toggleStaff = (id: number) => setStaffPicked(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else if (next.size < 50) next.add(id); return next; });
-  const allStaff = shownStaff.length > 0 && shownStaff.every(s => staffPicked.has(s.id));
-  const toggleAllStaff = () => setStaffPicked(current => { const next = new Set(current); if (allStaff) shownStaff.forEach(s => next.delete(s.id)); else shownStaff.forEach(s => { if (next.size < 50) next.add(s.id); }); return next; });
-  const pickedPeople = (staff ?? []).filter(s => staffPicked.has(s.id));
-
-  /* ---- Audit & History ---- */
-  const [evType, setEvType] = useState<"all" | "ownership" | "staff">("all");
-  const [evFrom, setEvFrom] = useState("");
-  const [evTo, setEvTo] = useState("");
-  const [evPage, setEvPage] = useState(0);
-  const [log, setLog] = useState<{ key: string; events: EventRow[] | null; total: number; error: string } | null>(null);
-  const logKey = `${new URLSearchParams({ type: evType, page: String(evPage), ...(evFrom ? { from: evFrom } : {}), ...(evTo ? { to: evTo } : {}) }).toString()}#${revision}`;
-  useEffect(() => {
-    if (!seen.history) return;
-    const controller = new AbortController();
-    void api<{ events: EventRow[]; total: number }>(`/events?${logKey.split("#")[0]}`, { signal: controller.signal }).then(r => {
-      if (controller.signal.aborted) return;
-      setLog(r.ok && r.data ? { key: logKey, events: r.data.events, total: r.data.total, error: "" } : { key: logKey, events: null, total: 0, error: message(r) });
-    });
-    return () => controller.abort();
-  }, [seen.history, logKey]);
-  const shownLog = log?.key === logKey ? log : null;
-  const events = shownLog?.events ?? null;
-  const evTotal = shownLog?.total ?? 0;
-  const evError = shownLog?.error ?? "";
-
-  const tabs: [View, string][] = [
-    ["review", L("Ownership Review", "Semakan Pemilikan")],
-    ["staff", L("Staff Access", "Akses Staf")],
-    ["history", L("Audit & History", "Audit & Sejarah")],
-    ["signing", L("Document & Signing", "Dokumen & Tandatangan")],
-  ];
-  const doneSteps = summary?.checklist.filter(c => c.done).length ?? 0;
-  const pickedList = [...picked.values()];
-
-  return <TabPage className={css.page}>
-    {toastNode}
-    <LineTabs value={view} onChange={open} tabs={tabs} label={L("Companies", "Syarikat")}
-      aside={<TabAside><button type="button" className={btnSm} title={L("Refresh", "Muat semula")} aria-label={L("Refresh companies", "Muat semula syarikat")} onClick={reload}><AppIcon name="refresh" /></button></TabAside>} />
-    {view !== "signing" && <>
-    <p role="status" className={css.notice}><AppIcon name="warning" /><span><strong>{L("Reconciliation only.", "Penyesuaian sahaja.")}</strong> {L("Company access restrictions are not active - roles still decide what each person can open. Proposals never change a record, an invoice's Paid status or commission.", "Sekatan akses syarikat belum aktif - peranan masih menentukan apa yang boleh dibuka. Cadangan tidak mengubah rekod, status Dibayar invois atau komisen.")}</span></p>
-    {summaryError && <p role="alert" className={css.error}>{summaryError}</p>}
-    <KpiRow label={L("Companies at a glance", "Ringkasan syarikat")}>
-      <KpiTile icon="store" tone="navy" label={L("Companies", "Syarikat")} value={COMPANY_CODES.length} sub={COMPANY_CODES.map(c => COMPANY_NAMES[c]).join(" · ")} />
-      <KpiTile icon="pending" tone="gold" busy={!summary} label={L("Not yet reviewed", "Belum disemak")} value={summary?.totals.unassigned ?? 0} sub={L(`across ${summary?.registers.length ?? 9} registers`, `merentasi ${summary?.registers.length ?? 9} daftar`)} onClick={() => { open("review"); setState("unassigned"); resetList(); }} />
-      <KpiTile icon="verify" tone="blue" busy={!summary} label={L("Reviewed, not settled", "Disemak, belum muktamad")} value={summary?.totals.pending ?? 0} sub={summary ? L(`${summary.totals.proposed} proposed · ${summary.totals.deferred} deferred · ${summary.totals.stale} changed`, `${summary.totals.proposed} dicadang · ${summary.totals.deferred} ditangguh · ${summary.totals.stale} berubah`) : undefined} />
-      {/* v1.247.1 - a figure tile shows a figure: the readiness count, with the state in words under it */}
-      <KpiTile icon="lock" tone="red" busy={!summary} label={L("Company access readiness", "Kesediaan akses syarikat")} value={`${doneSteps} / ${summary?.checklist.length ?? 9}`} sub={L("Not active - roles still decide what each person opens", "Belum aktif - peranan masih menentukan apa yang dibuka")} onClick={() => open("staff")} />
-    </KpiRow>
-    </>}
-
-    {/* ================= Ownership Review ================= */}
-    <div className={css.body} hidden={view !== "review"}>
-      <TabZone label={L("Registers", "Daftar")} hint={L("Where each register stands. Choose one to review its records.", "Kedudukan setiap daftar. Pilih satu untuk menyemak rekodnya.")}>
-        <div className={card}>
-          {!summary ? <SkelRows rows={5} /> : <div className={css.tableWrap}>
-            <table className={`${css.table} ${css.regTable}`} aria-label={L("Registers", "Daftar")}>
-              <thead><tr><th>{L("Register", "Daftar")}</th><th className={css.num}>{L("Not reviewed", "Belum disemak")}</th>{COMPANY_CODES.map(c => <th key={c} className={css.num}>{COMPANY_NAMES[c]}</th>)}<th className={css.num}>{L("Deferred", "Ditangguh")}</th><th className={css.num}>{L("Changed", "Berubah")}</th><th className={css.num}>{L("Records", "Rekod")}</th></tr></thead>
-              <tbody>
-                {summary.registers.map(r => <tr key={r.kind} className={r.kind === kind ? css.regOn : undefined}>
-                  <td><button type="button" aria-pressed={r.kind === kind} onClick={() => pickRegister(r.kind)}>{kindName(r.kind)}</button></td>
-                  <td className={`${css.num} ${r.unassigned ? "" : css.zero}`}>{r.unassigned}</td>
-                  {COMPANY_CODES.map(c => <td key={c} className={`${css.num} ${r.by_company[c] ? "" : css.zero}`}>{r.by_company[c] ?? 0}</td>)}
-                  <td className={`${css.num} ${r.deferred ? "" : css.zero}`}>{r.deferred}</td>
-                  <td className={`${css.num} ${r.stale ? "" : css.zero}`}>{r.stale}</td>
-                  <td className={css.num}>{r.total}</td>
-                </tr>)}
-              </tbody>
+/* Documents & Signing: the same SigningPanel (signing.ts decides who
+   manages - CEO, super admin; the COO and CCO read), mounted once opened,
+   with the letterhead and controlled form numbers of each company above it */
+function SigningBody({ show }: { show: boolean }) {
+  const [opened, setOpened] = useState(show);
+  if (show && !opened) setOpened(true);
+  if (!opened) return null;
+  return (
+    <div className={css.body} hidden={!show} data-testid="companies-signing">
+      <TabZone label={L("Letterheads & controlled forms", "Kepala surat & borang terkawal")} hint={L("Each document prints the company that issued it - an AZ ONE OFFICIAL document never wears A2Z's letterhead, and the reverse.", "Setiap dokumen mencetak syarikat yang mengeluarkannya - dokumen AZ ONE OFFICIAL tidak memakai kepala surat A2Z, dan sebaliknya.")}>
+        <section className={`${card} ${css.panel}`}>
+          <div className={css.tableWrap}>
+            <table className={css.table}>
+              <thead><tr><th>{L("Company", "Syarikat")}</th><th>{L("Letterhead", "Kepala surat")}</th><th>{L("Claim form", "Borang tuntutan")}</th><th>{L("Leave form", "Borang cuti")}</th><th>{L("Issues", "Mengeluarkan")}</th></tr></thead>
+              <tbody>{COMPANY_CODES.map((co) => { const i = resolveIssuer(co); return (
+                <tr key={co}><th scope="row">{i.name}</th><td>{i.descriptor} · {i.registration}</td><td>{i.claimFormNo} v{i.claimFormVersion}</td><td>{i.leaveFormNo} v{i.leaveFormVersion}</td>
+                  <td>{co === "a2z" ? L(`New documents since ${SWITCH_DAY}`, `Dokumen baharu sejak ${SWITCH_DAY}`) : L(`Documents until ${LAST_AZOO_DAY}`, `Dokumen hingga ${LAST_AZOO_DAY}`)}</td></tr>); })}</tbody>
             </table>
-          </div>}
-        </div>
-      </TabZone>
-
-      <TabZone label={L("Records", "Rekod")} hint={L("Open a record to review it, or tick several from one register to review them together.", "Buka rekod untuk menyemak, atau tanda beberapa dari satu daftar untuk disemak bersama.")}>
-        <div className={card}>
-          <div className={css.filters}>
-            <label><span className={fieldLabel}>{L("Register", "Daftar")}</span>
-              <select aria-label={L("Register", "Daftar")} className={inputClass} value={kind} onChange={e => pickRegister(e.target.value as ReviewKind)}>
-                {(Object.keys(REVIEW_KINDS) as ReviewKind[]).map(k => { const n = summary?.registers.find(r => r.kind === k)?.unassigned; return <option key={k} value={k}>{kindName(k)}{n ? ` (${n})` : ""}</option>; })}
-              </select>
-            </label>
-            <label><span className={fieldLabel}>{L("Review status", "Status semakan")}</span>
-              <select aria-label={L("Review status", "Status semakan")} className={inputClass} value={state} onChange={e => { setState(e.target.value as StateFilter); resetList(); }}>
-                <option value="unassigned">{stateLabel("unassigned")}</option>
-                <option value="proposed">{stateLabel("proposed")}</option>
-                <option value="deferred">{stateLabel("deferred")}</option>
-                <option value="stale">{stateLabel("stale")}</option>
-                <option value="all">{L("All records", "Semua rekod")}</option>
-              </select>
-            </label>
-            <label><span className={fieldLabel}>{L("From", "Dari")}</span><input type="date" aria-label={L("From date", "Tarikh dari")} className={inputClass} value={from} max={to || undefined} onChange={e => { setFrom(e.target.value); resetList(); }} /></label>
-            <label><span className={fieldLabel}>{L("To", "Hingga")}</span><input type="date" aria-label={L("To date", "Tarikh hingga")} className={inputClass} value={to} min={from || undefined} onChange={e => { setTo(e.target.value); resetList(); }} /></label>
-            <label className={css.search}><span className={fieldLabel}>{L("Search", "Cari")}</span><input type="search" aria-label={L("Search records", "Cari rekod")} className={inputClass} placeholder={L("Description, party, category or #id", "Keterangan, pihak, kategori atau #id")} value={qInput} onChange={e => setQInput(e.target.value)} /></label>
           </div>
-          {recordsError ? <p role="alert" className={css.error}>{recordsError}</p> : records === null ? <div className={css.tableWrap}><SkelRows rows={6} /></div> : records.length === 0 ? <p className={css.empty}>{state === "unassigned" && !q && !from && !to ? L(`Every ${kindName(kind).toLowerCase()} record has been reviewed.`, `Setiap rekod ${kindName(kind).toLowerCase()} telah disemak.`) : L("No records match these filters.", "Tiada rekod sepadan dengan penapis ini.")}</p> : <>
-            <div className={`${css.desk} ${css.tableWrap}`}>
-              <table className={css.table} aria-label={L("Records to review", "Rekod untuk disemak")}>
-                <thead><tr>
-                  <th className={css.checkCell}><input type="checkbox" aria-label={L("Select this page", "Pilih halaman ini")} checked={pageAll} onChange={togglePage} /></th>
-                  <th>{L("Date", "Tarikh")}</th><th>{L("Record", "Rekod")}</th><th>{L("Party", "Pihak")}</th><th>{L("Category", "Kategori")}</th><th className={css.num}>{L("Amount", "Amaun")}</th><th>{L("Status", "Status")}</th><th>{L("Proposed company", "Syarikat dicadangkan")}</th><th><span className="erp-sr-only">{L("Open", "Buka")}</span></th>
-                </tr></thead>
-                <tbody>
-                  {records.map(r => <tr key={r.id} className={picked.has(r.id) ? css.picked : undefined} onClick={() => setTarget({ kind, id: r.id })}>
-                    <td className={css.checkCell} onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={L(`Select #${r.id}`, `Pilih #${r.id}`)} checked={picked.has(r.id)} onChange={() => toggle(r)} /></td>
-                    <td className={css.nowrap}>{r.date ? dmy(r.date) : <span className={css.muted}>-</span>}</td>
-                    <td><span className={css.recTitle}>{r.title}</span><span className={css.recId}>#{r.id}{r.quantity !== null ? ` · ${r.quantity} ${L("units", "unit")}` : ""}</span></td>
-                    <td>{r.party ?? <span className={css.muted}>-</span>}</td>
-                    <td>{r.category ?? <span className={css.muted}>-</span>}</td>
-                    <td className={css.num}>{r.amount_cents !== null ? fmtRM(r.amount_cents) : <span className={css.muted}>-</span>}</td>
-                    <td><span className={stateChip(r.state)}>{stateLabel(r.state)}</span></td>
-                    <td>{r.decision ? (r.decision.proposed_company ? companyName(r.decision.proposed_company) : <span className={css.muted}>{L("Deferred", "Ditangguhkan")}</span>) : <span className={css.muted}>-</span>}</td>
-                    <td><button type="button" className={css.openBtn} aria-label={L(`Review #${r.id}`, `Semak #${r.id}`)} onClick={e => { e.stopPropagation(); setTarget({ kind, id: r.id }); }}><AppIcon name="next" /></button></td>
-                  </tr>)}
-                </tbody>
-              </table>
-            </div>
-            <ul className={css.phone} aria-label={L("Records to review", "Rekod untuk disemak")}>
-              {records.map(r => <li key={r.id} className={`${css.card} ${picked.has(r.id) ? css.picked : ""}`}>
-                <span className={css.cardCheck}><input type="checkbox" aria-label={L(`Select #${r.id}`, `Pilih #${r.id}`)} checked={picked.has(r.id)} onChange={() => toggle(r)} /></span>
-                <button type="button" className={css.cardOpen} onClick={() => setTarget({ kind, id: r.id })}>
-                  <span className={css.cardTop}><span>{r.date ? dmy(r.date) : "-"} · #{r.id}</span>{r.amount_cents !== null && <strong>{fmtRM(r.amount_cents)}</strong>}</span>
-                  <span className={css.recTitle}>{r.title}</span>
-                  <span className={css.cardChips}><span className={stateChip(r.state)}>{stateLabel(r.state)}</span>{r.decision?.proposed_company && <span>{companyName(r.decision.proposed_company)}</span>}{r.party && <span className={css.muted}>{r.party}</span>}</span>
-                </button>
-              </li>)}
-            </ul>
-            <div className={css.pager}>
-              <span>{total} {L("records", "rekod")} · {L("page", "halaman")} {page + 1} / {Math.max(1, Math.ceil(total / 25))}</span>
-              <div className={css.pagerBtns}>
-                <button type="button" className={btnSm} aria-label={L("Previous page", "Halaman sebelumnya")} title={L("Previous page", "Halaman sebelumnya")} disabled={page === 0} onClick={() => setPage(p => p - 1)}><AppIcon name="previous" /></button>
-                <button type="button" className={btnSm} aria-label={L("Next page", "Halaman seterusnya")} title={L("Next page", "Halaman seterusnya")} disabled={(page + 1) * 25 >= total} onClick={() => setPage(p => p + 1)}><AppIcon name="next" /></button>
-              </div>
-            </div>
-          </>}
-          {picked.size > 0 && <div className={css.bulk} role="region" aria-label={L("Selected records", "Rekod dipilih")}>
-            <span><strong>{picked.size}</strong> {L("selected", "dipilih")} · {kindName(kind)}{picked.size >= 100 ? ` · ${L("100 at a time", "100 pada satu masa")}` : ""}</span>
-            <div className={css.bulkBtns}>
-              {COMPANY_CODES.map(c => <button key={c} type="button" className={btnSmPrimary} onClick={() => setBulk(c)}>{L(`Propose ${COMPANY_NAMES[c]}…`, `Cadang ${COMPANY_NAMES[c]}…`)}</button>)}
-              <button type="button" className={btnSm} onClick={() => setBulk("")}>{L("Defer…", "Tangguh…")}</button>
-              <button type="button" className={btnSm} onClick={() => setPicked(new Map())}>{L("Clear", "Kosongkan")}</button>
-            </div>
-          </div>}
-        </div>
+        </section>
       </TabZone>
-
-      <TabZone label={L("Already stamped when issued", "Sudah dicop semasa dikeluarkan")} hint={L("Counted only. These documents carry their company from the moment they were issued; nothing here reviews or changes them.", "Dikira sahaja. Dokumen ini membawa syarikatnya sejak dikeluarkan; tiada apa di sini menyemak atau mengubahnya.")}>
-        <div className={card}>
-          {!summary ? <SkelRows rows={4} /> : summary.stamped.length === 0 ? <p className={css.empty}>{L("No issued documents yet.", "Tiada dokumen dikeluarkan lagi.")}</p> : <div className={css.tableWrap}>
-            <table className={`${css.table} ${css.regTable}`} aria-label={L("Stamped documents", "Dokumen bercop")}>
-              <thead><tr><th>{L("Document", "Dokumen")}</th>{COMPANY_CODES.map(c => <th key={c} className={css.num}>{COMPANY_NAMES[c]}</th>)}<th className={css.num}>{L("Before stamping", "Sebelum dicop")}</th></tr></thead>
-              <tbody>
-                {Object.keys(STAMPED).filter(k => summary.stamped.some(s => s.register === k)).map(k => {
-                  const n = (c: string) => summary.stamped.filter(s => s.register === k && s.company === c).reduce((a, s) => a + s.n, 0);
-                  const other = summary.stamped.filter(s => s.register === k && !(COMPANY_CODES as readonly string[]).includes(s.company)).reduce((a, s) => a + s.n, 0);
-                  return <tr key={k}><td>{L(STAMPED[k]![0], STAMPED[k]![1])}</td>{COMPANY_CODES.map(c => <td key={c} className={`${css.num} ${n(c) ? "" : css.zero}`}>{n(c)}</td>)}<td className={`${css.num} ${other ? "" : css.zero}`}>{other}</td></tr>;
-                })}
-              </tbody>
-            </table>
-          </div>}
-        </div>
-      </TabZone>
+      <TabZone label={L("Signatures, stamps and signing policy", "Tandatangan, cop dan polisi tandatangan")}><SigningPanel /></TabZone>
     </div>
+  );
+}
 
-    {/* ================= Staff Access ================= */}
-    <div className={css.body} hidden={view !== "staff"}>
-      <TabZone label={L("Planned access - not enforced yet", "Akses dirancang - belum dikuatkuasakan")} hint={L("Each person's employer and the companies they would see once access is switched on. Today, roles alone decide.", "Majikan setiap orang dan syarikat yang akan dilihat apabila akses dihidupkan. Hari ini, peranan sahaja yang menentukan.")}>
-        <div className={card}>
-          <div className={`${css.filters} ${css.filters3}`}>
-            <label className={css.search}><span className={fieldLabel}>{L("Search", "Cari")}</span><input type="search" aria-label={L("Search staff", "Cari staf")} className={inputClass} value={staffQ} onChange={e => setStaffQ(e.target.value)} placeholder={L("Name", "Nama")} /></label>
-            <label className={css.planCheck}><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />{L("Show inactive", "Tunjuk tidak aktif")}</label>
-          </div>
-          {summary && <p className={css.sub}>{L(`${summary.staff.active} active · ${summary.staff.with_employer} with an employer · ${summary.staff.with_access} with an access plan · ${summary.staff.without_access} without`, `${summary.staff.active} aktif · ${summary.staff.with_employer} dengan majikan · ${summary.staff.with_access} dengan pelan akses · ${summary.staff.without_access} tanpa`)}</p>}
-          {staffError ? <p role="alert" className={css.error}>{staffError}</p> : staff === null ? <div className={css.tableWrap}><SkelRows rows={6} /></div> : shownStaff.length === 0 ? <p className={css.empty}>{L("No staff match.", "Tiada staf sepadan.")}</p> : <>
-            <div className={`${css.desk} ${css.tableWrap}`}>
-              <table className={css.table} aria-label={L("Staff access plan", "Pelan akses staf")}>
-                <thead><tr><th className={css.checkCell}><input type="checkbox" aria-label={L("Select everyone shown", "Pilih semua yang dipaparkan")} checked={allStaff} onChange={toggleAllStaff} /></th><th>{L("Name", "Nama")}</th><th>{L("Role", "Peranan")}</th><th>{L("Employer", "Majikan")}</th><th>{L("Latest payslip", "Slip gaji terkini")}</th>{COMPANY_CODES.map(c => <th key={c}>{COMPANY_NAMES[c]}</th>)}<th><span className="erp-sr-only">{L("Open", "Buka")}</span></th></tr></thead>
-                <tbody>
-                  {shownStaff.map(s => <tr key={s.id} className={staffPicked.has(s.id) ? css.picked : undefined} onClick={() => setPerson(s.id)}>
-                    <td className={css.checkCell} onClick={e => e.stopPropagation()}><input type="checkbox" aria-label={L(`Select ${s.name}`, `Pilih ${s.name}`)} checked={staffPicked.has(s.id)} onChange={() => toggleStaff(s.id)} /></td>
-                    <td><span className={css.recTitle}>{s.name}</span>{!s.is_active && <span className={css.recId}>{L("Inactive", "Tidak aktif")}</span>}</td>
-                    <td className={css.muted}>{roleLabel(s.role)}</td>
-                    <td>{s.employer_code ? companyName(s.employer_code) : <span className={chipWarn}>{L("Unassigned", "Belum ditetapkan")}</span>}</td>
-                    <td>{s.payslip ? <><span>{companyName(s.payslip.company)}</span><span className={css.recId}>{ym(s.payslip.month)}</span></> : <span className={css.muted}>-</span>}</td>
-                    {COMPANY_CODES.map(c => { const m = s.memberships.find(x => x.company_code === c); return <td key={c}><span className={m ? css.access : `${css.access} ${css.none}`}>{m ? accessWord(m.access_mode) : "-"}</span></td>; })}
-                    <td><button type="button" className={css.openBtn} aria-label={L(`Set up ${s.name}`, `Tetapkan ${s.name}`)} onClick={e => { e.stopPropagation(); setPerson(s.id); }}><AppIcon name="next" /></button></td>
-                  </tr>)}
-                </tbody>
-              </table>
-            </div>
-            <ul className={css.phone} aria-label={L("Staff access plan", "Pelan akses staf")}>
-              {shownStaff.map(s => <li key={s.id} className={`${css.card} ${staffPicked.has(s.id) ? css.picked : ""}`}>
-                <span className={css.cardCheck}><input type="checkbox" aria-label={L(`Select ${s.name}`, `Pilih ${s.name}`)} checked={staffPicked.has(s.id)} onChange={() => toggleStaff(s.id)} /></span>
-                <button type="button" className={css.cardOpen} onClick={() => setPerson(s.id)}>
-                  <span className={css.cardTop}><span>{roleLabel(s.role)}{!s.is_active ? ` · ${L("Inactive", "Tidak aktif")}` : ""}</span><strong>{companyName(s.employer_code)}</strong></span>
-                  <span className={css.recTitle}>{s.name}</span>
-                  <span className={css.cardChips}>{COMPANY_CODES.map(c => { const m = s.memberships.find(x => x.company_code === c); return <span key={c} className={m ? chipNeutral : css.none}>{COMPANY_NAMES[c]}: {m ? accessWord(m.access_mode) : "-"}</span>; })}</span>
-                  {s.payslip && <span className={css.recId}>{L("Latest payslip", "Slip gaji terkini")}: {companyName(s.payslip.company)} · {ym(s.payslip.month)}</span>}
-                </button>
-              </li>)}
-            </ul>
-          </>}
-          {staffPicked.size > 0 && <div className={css.bulk} role="region" aria-label={L("Selected staff", "Staf dipilih")}>
-            <span><strong>{staffPicked.size}</strong> {L("selected", "dipilih")}{staffPicked.size >= 50 ? ` · ${L("50 at a time", "50 pada satu masa")}` : ""}</span>
-            <div className={css.bulkBtns}>
-              <button type="button" className={btnSmPrimary} onClick={() => setStaffBulk(true)}>{L("Set up selected…", "Tetapkan dipilih…")}</button>
-              <button type="button" className={btnSm} onClick={() => setStaffPicked(new Set())}>{L("Clear", "Kosongkan")}</button>
-            </div>
-          </div>}
+/* Audit & History: the corporate trail - signing and owner records from the
+   audit log (the access review's own history is in Users & Security >
+   Company Access). Read-only, newest first, 10 a page. */
+const AUDIT_KINDS = { all: ["signing.", "owner."], signing: ["signing."], owner: ["owner."] } as const;
+function CorporateAudit({ allowed }: { allowed: boolean }) {
+  const [kind, setKind] = useState<keyof typeof AUDIT_KINDS>("all");
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState<PageSize>(10);
+  const sig = useRead<{ entries: AuditRow[] }>(allowed ? "/audit?action=signing.&limit=300" : null);
+  const own = useRead<{ entries: AuditRow[] }>(allowed ? "/audit?action=owner.&limit=300" : null);
+  const rows = useMemo(() => [...(sig?.d?.entries ?? []), ...(own?.d?.entries ?? [])]
+    .filter((r) => AUDIT_KINDS[kind].some((p) => r.action.startsWith(p)))
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : b.id - a.id)), [sig, own, kind]);
+  if (!allowed) return <section className={`${card} ${css.panel}`}><p className={css.meta}>{L("Only the CEO, the admin and the super admin read the audit log.", "Hanya CEO, admin dan super admin membaca log audit.")}</p></section>;
+  const loading = !sig || !own;
+  const shown = rows.slice((page - 1) * size, page * size);
+  const company = (r: AuditRow) => { const m = /"issuer(?:_code)?":"(a2z|azoo)"/.exec(r.detail ?? ""); return m ? SHORT[m[1] as CompanyCode] : "—"; };
+  return (
+    <section className={`${card} ${css.panel}`} data-testid="corporate-audit">
+      <div className={css.panelHead}>
+        <h2 className={css.h2}><AppIcon name="time" />{L("Corporate changes", "Perubahan korporat")}</h2>
+        <PillSwitch testid="audit-kind" label={L("Changes", "Perubahan")} value={kind} onChange={(k) => { setKind(k); setPage(1); }}
+          options={[["all", L("All", "Semua")], ["signing", L("Signing", "Tandatangan")], ["owner", L("Owner", "Pemilik")]]} />
+      </div>
+      <p className={css.meta}>{L("Who did what and when, in Malaysia time. Entries are never edited or removed.", "Siapa buat apa dan bila, waktu Malaysia. Catatan tidak pernah diubah atau dibuang.")}</p>
+      {loading ? <SkelRows rows={5} /> : rows.length === 0 ? <p className={css.meta}>{L("No corporate changes recorded yet.", "Belum ada perubahan korporat direkod.")}</p> : <>
+        <div className={css.tableWrap}>
+          <table className={css.table}>
+            <thead><tr><th>{L("When", "Bila")}</th><th>{L("Who", "Siapa")}</th><th>{L("Change", "Perubahan")}</th><th>{L("Company", "Syarikat")}</th></tr></thead>
+            <tbody>{shown.map((r) => (
+              <tr key={r.id}><td className={css.nowrap}>{dmyMYT(r.created_at)}</td><td>{r.user_name ?? L("System", "Sistem")}</td><td>{r.action.replace(/[._]/g, " ")}</td><td>{company(r)}</td></tr>
+            ))}</tbody>
+          </table>
         </div>
-      </TabZone>
-      <TabZone label={L("Before access can be switched on", "Sebelum akses boleh dihidupkan")} hint={L("A checklist only. Switching restrictions on is a separate release that you approve; nothing on this page turns it on.", "Senarai semak sahaja. Menghidupkan sekatan ialah keluaran berasingan yang anda luluskan; tiada apa di halaman ini menghidupkannya.")}>
-        <div className={card}><Checklist summary={summary} /></div>
-      </TabZone>
-    </div>
+        <PaginationControls page={page} total={rows.length} size={size} onPage={setPage} onSize={(n) => { setSize(n); setPage(1); }} label={L("Corporate change pages", "Halaman perubahan korporat")} testid="audit-pages" />
+      </>}
+    </section>
+  );
+}
 
-    {/* ================= Audit & History ================= */}
-    <div className={css.body} hidden={view !== "history"}>
-      <TabZone label={L("Every decision, with who and why", "Setiap keputusan, dengan siapa dan mengapa")} hint={L("Ownership reviews and staff access plans, newest first, in Malaysia time. Entries are never edited or removed.", "Semakan pemilikan dan pelan akses staf, terbaru dahulu, waktu Malaysia. Catatan tidak pernah diubah atau dibuang.")}>
-        <div className={card}>
-          <div className={`${css.filters} ${css.filters3}`}>
-            <label><span className={fieldLabel}>{L("Activity", "Aktiviti")}</span>
-              <select aria-label={L("Activity", "Aktiviti")} className={inputClass} value={evType} onChange={e => { setEvType(e.target.value as typeof evType); setEvPage(0); }}>
-                <option value="all">{L("All activity", "Semua aktiviti")}</option>
-                <option value="ownership">{L("Ownership reviews", "Semakan pemilikan")}</option>
-                <option value="staff">{L("Staff access plans", "Pelan akses staf")}</option>
-              </select>
-            </label>
-            <label><span className={fieldLabel}>{L("From", "Dari")}</span><input type="date" aria-label={L("History from", "Sejarah dari")} className={inputClass} value={evFrom} max={evTo || undefined} onChange={e => { setEvFrom(e.target.value); setEvPage(0); }} /></label>
-            <label><span className={fieldLabel}>{L("To", "Hingga")}</span><input type="date" aria-label={L("History to", "Sejarah hingga")} className={inputClass} value={evTo} min={evFrom || undefined} onChange={e => { setEvTo(e.target.value); setEvPage(0); }} /></label>
-          </div>
-          {evError ? <p role="alert" className={css.error}>{evError}</p> : events === null ? <div className={css.tableWrap}><SkelRows rows={6} /></div> : events.length === 0 ? <p className={css.empty}>{L("No decisions in this range.", "Tiada keputusan dalam julat ini.")}</p> : <>
-            <ul className={`${css.history} ${css.tableWrap}`} aria-label={L("Company history", "Sejarah syarikat")}>
-              {events.map(e => {
-                const after = parse(e.after_json) ?? {};
-                const before = parse(e.before_json);
-                const isStaff = e.subject_kind === "staff";
-                return <li key={e.seq}>
-                  <span className={css.cardTop}><span>{dmyMYT(e.created_at)}</span><span>{e.actor_name ?? L("Former user", "Bekas pengguna")}</span></span>
-                  <strong>{isStaff ? `${e.staff_name ?? L("Former staff", "Bekas staf")} · ${L("access plan", "pelan akses")}` : `${kindName(e.subject_kind)} #${e.subject_id}`}</strong>
-                  {isStaff ? <span className={css.change}>
-                    <span>{L("Employer", "Majikan")}: {companyName(before?.employer_code)} → {companyName(after.employer_code)}</span>
-                    {(after.memberships ?? []).map(m => <span key={m.company_code} className={chipNeutral}>{companyName(m.company_code)}: {accessWord(m.access_mode)}</span>)}
-                  </span> : <span className={css.change}>
-                    <span>{before ? (before.proposed_company ? companyName(before.proposed_company) : L("Deferred", "Ditangguhkan")) : L("Not yet reviewed", "Belum disemak")}</span><span aria-hidden="true">→</span>
-                    <span className={after.proposed_company ? chipInfo : chipGold}>{after.proposed_company ? companyName(after.proposed_company) : L("Deferred", "Ditangguhkan")}</span>
-                    {after.bulk && <span className={chipNeutral}>{L("Bulk review", "Semakan pukal")}</span>}
-                  </span>}
-                  <span className={css.reason}>{after.reason}</span>
-                </li>;
-              })}
-            </ul>
-            <div className={css.pager}>
-              <span>{evTotal} {L("entries", "catatan")} · {L("page", "halaman")} {evPage + 1} / {Math.max(1, Math.ceil(evTotal / 25))}</span>
-              <div className={css.pagerBtns}>
-                <button type="button" className={btnSm} aria-label={L("Previous page", "Halaman sebelumnya")} title={L("Previous page", "Halaman sebelumnya")} disabled={evPage === 0} onClick={() => setEvPage(p => p - 1)}><AppIcon name="previous" /></button>
-                <button type="button" className={btnSm} aria-label={L("Next page", "Halaman seterusnya")} title={L("Next page", "Halaman seterusnya")} disabled={(evPage + 1) * 25 >= evTotal} onClick={() => setEvPage(p => p + 1)}><AppIcon name="next" /></button>
-              </div>
-            </div>
-          </>}
+function CompanyCard({ co, banks, members, reviewer }: { co: CompanyCode; banks: number | null; members: number | null; reviewer: boolean }) {
+  const i = resolveIssuer(co);
+  const operating = co === "a2z";
+  return (
+    <section className={`${card} ${css.coCard} ${operating ? css.coOn : ""}`} aria-label={i.name} data-testid={`company-card-${co}`}>
+      <div className={css.coTop}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={LOGO[co]} alt="" className={css.logo} />
+        <div className={css.coName}>
+          <span className={operating ? chipSuccess : chipNeutral}>{operating ? L("Operating issuer", "Pengeluar semasa") : L("Legacy issuer", "Pengeluar lama")}</span>
+          <h2 className={css.coTitle}>{i.name}</h2>
+          <span className={css.meta}>SSM {i.ssm} ({i.oldReg})</span>
         </div>
-      </TabZone>
-    </div>
-
-    {/* v1.251.0 - Document & Signing: mounted once opened */}
-    {seen.signing && <div className={css.body} hidden={view !== "signing"} data-testid="companies-signing"><SigningPanel /></div>}
-
-    <RecordDrawer target={target} onClose={() => setTarget(null)} onSaved={reviewSaved} onRelated={(k, id) => setTarget({ kind: k, id })} />
-    {bulk !== null && pickedList.length > 0 && <BulkDrawer kind={kind} items={pickedList} preset={bulk} onClose={() => setBulk(null)} onSaved={bulkSaved} />}
-    {staffBulk && pickedPeople.length > 0 && <StaffBulkDrawer people={pickedPeople} onClose={() => setStaffBulk(false)} onSaved={n => { toast(L(`${n} setups saved`, `${n} tetapan disimpan`), L("Planned only - not enforced", "Dirancang sahaja - belum dikuatkuasakan")); setStaffBulk(false); setStaffPicked(new Set()); reload(); }} />}
-    <SideDrawer open={Boolean(employee)} onClose={() => setPerson(null)} title={employee?.name ?? ""} subtitle={employee ? `${roleLabel(employee.role)} · ${companyName(employee.employer_code)}` : undefined}>
-      {employee && <StaffSetup key={`${employee.id}-${employee.version}`} employee={employee} onSaved={() => { toast(L("Access plan saved", "Pelan akses disimpan"), L("Planned only - not enforced", "Dirancang sahaja - belum dikuatkuasakan")); setPerson(null); reload(); }} />}
-    </SideDrawer>
-  </TabPage>;
+      </div>
+      <div className={css.facts}>
+        <Fact icon="date" label={operating ? L("Issuing since", "Mengeluarkan sejak") : L("Issued until", "Mengeluarkan hingga")} value={operating ? SWITCH_DAY : LAST_AZOO_DAY} />
+        <Fact icon="store" label={L("Business type", "Jenis perniagaan")} value={i.descriptor} />
+        <Fact icon="money" label={L("Bank accounts", "Akaun bank")} value={banks === null ? "—" : L(`${banks} account${banks === 1 ? "" : "s"}`, `${banks} akaun`)} />
+        <Fact icon="users" label={L("Proposed members", "Ahli dicadang")} value={reviewer ? (members === null ? "—" : L(`${members} · planned`, `${members} · dirancang`)) : L("By role", "Ikut peranan")} />
+      </div>
+    </section>
+  );
+}
+function Fact({ icon, label, value }: { icon: "date" | "store" | "money" | "users"; label: string; value: string }) {
+  return <div className={css.fact}><AppIcon name={icon} /><span><span className={css.meta}>{label}</span><strong>{value}</strong></span></div>;
+}
+function LinkCard({ icon, title, text, action }: { icon: "users" | "person"; title: string; text: string; action: { label: string; go: () => void } | null }) {
+  return (
+    <section className={`${card} ${css.link}`}>
+      <span className={css.linkWell}><AppIcon name={icon} /></span>
+      <span className={css.linkBody}>
+        <h2 className={css.h3}>{title}</h2>
+        <span className={css.meta}>{text}</span>
+        {action && <button type="button" className={css.linkBtn} onClick={action.go}>{action.label}<AppIcon name="next" /></button>}
+      </span>
+    </section>
+  );
 }

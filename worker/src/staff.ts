@@ -11528,6 +11528,39 @@ async function handleStaffRoutes(
                    target spread over the month's calendar days ("pace") -
                    none set, none shown. Read-only; "mine" = the documents
                    where you are the salesperson (the screen's own rule). */
+  /* v1.387.0 - COMPANIES > COMPANY AT A GLANCE (the CEO's decision D3,
+     18-11-2026). A READ-ONLY split of the invoice figures by the company that
+     ISSUED them - the issuer_code stamped on each invoice (NULL = a legacy
+     AZ ONE OFFICIAL invoice, the lib/issuers.ts rule). The same gate and the
+     same rules as /docs/summary: a paid invoice counts on its paid day
+     (Malaysia), void invoices never count, the outstanding balance is the
+     total less live part payments. Nothing is written. */
+  if (path === "/docs/by-company" && method === "GET") {
+    if (!canUser(user, "sales") && !canUser(user, "exec_view")) return err("forbidden", "Sales access required", 403);
+    const sp = new URL(request.url).searchParams;
+    const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const month = /^\d{4}-\d{2}$/.test(sp.get("month") ?? "") ? String(sp.get("month")) : today.slice(0, 7);
+    const endD = new Date(`${month}-01T00:00:00Z`); endD.setUTCMonth(endD.getUTCMonth() + 1); endD.setUTCDate(0);
+    const [from, to] = [`${month}-01`, endD.toISOString().slice(0, 10)];
+    let hasParts = true;
+    try { await env.DB.prepare(`SELECT 1 FROM invoice_payments LIMIT 1`).first(); } catch { hasParts = false; }
+    const PARTS = hasParts ? `COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = d.id AND p.voided_at IS NULL), 0)` : "0";
+    const CO = `CASE WHEN d.issuer_code = 'a2z' THEN 'a2z' ELSE 'azoo' END`;
+    const { results } = await env.DB.prepare(
+      `SELECT ${CO} AS company,
+              COALESCE(SUM(CASE WHEN date(d.created_at, '+8 hours') BETWEEN ?1 AND ?2 THEN 1 ELSE 0 END), 0) AS invoices,
+              COALESCE(SUM(CASE WHEN date(d.created_at, '+8 hours') BETWEEN ?1 AND ?2 THEN d.total_cents ELSE 0 END), 0) AS invoiced_cents,
+              COALESCE(SUM(CASE WHEN d.payment_status = 'paid' AND date(COALESCE(d.paid_at, d.created_at), '+8 hours') BETWEEN ?1 AND ?2 THEN d.total_cents ELSE 0 END), 0) AS paid_cents,
+              COALESCE(SUM(CASE WHEN COALESCE(d.payment_status, '') NOT IN ('paid', 'void') THEN 1 ELSE 0 END), 0) AS outstanding_n,
+              COALESCE(SUM(CASE WHEN COALESCE(d.payment_status, '') NOT IN ('paid', 'void') THEN d.total_cents - ${PARTS} ELSE 0 END), 0) AS outstanding_cents
+         FROM sales_documents d
+        WHERE d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'void'
+        GROUP BY company`,
+    ).bind(from, to).all<{ company: string; invoices: number; invoiced_cents: number; paid_cents: number; outstanding_n: number; outstanding_cents: number }>();
+    const zero = { invoices: 0, invoiced_cents: 0, paid_cents: 0, outstanding_n: 0, outstanding_cents: 0 };
+    const of = (c: string) => { const r = (results ?? []).find((x) => x.company === c); return r ? { invoices: r.invoices, invoiced_cents: r.invoiced_cents, paid_cents: r.paid_cents, outstanding_n: r.outstanding_n, outstanding_cents: r.outstanding_cents } : zero; };
+    return json({ month, from, to, companies: { a2z: of("a2z"), azoo: of("azoo") }, basis: "issuer_code" });
+  }
   if (path === "/docs/summary" && method === "GET") {
     if (!canUser(user, "sales") && !canUser(user, "exec_view")) return err("forbidden", "Sales access required", 403);
     const sp = new URL(request.url).searchParams;

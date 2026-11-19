@@ -77,8 +77,19 @@ export interface ServiceCopy {
   whatsapp: string;
 }
 
+export type Stage = "brand" | "content" | "live" | "scale";
+
+/** The A-to-Z route: four stages, two services each (the homepage's 4 x 2). */
+export const STAGES: readonly { key: Stage; en: { name: string; line: string }; ms: { name: string; line: string } }[] = [
+  { key: "brand", en: { name: "Brand", line: "Look the part everywhere you appear." }, ms: { name: "Jenama", line: "Kelihatan meyakinkan di mana-mana jenama anda muncul." } },
+  { key: "content", en: { name: "Content", line: "Show the product the way buyers want to see it." }, ms: { name: "Kandungan", line: "Tunjukkan produk seperti yang pembeli mahu lihat." } },
+  { key: "live", en: { name: "Live", line: "Sell in real time, with hosts who close." }, ms: { name: "Live", line: "Menjual secara langsung, dengan host yang menutup jualan." } },
+  { key: "scale", en: { name: "Scale", line: "More sessions, more sellers, more reach." }, ms: { name: "Kembang", line: "Lebih banyak sesi, penjual dan capaian." } },
+];
+
 export interface ServiceDef {
   key: ServiceKey;
+  stage: Stage;
   /** the URL segment under /services (and /ms/services) */
   slug: string;
   icon: LucideIcon;
@@ -184,6 +195,7 @@ const real = (xs: (WorkRef | null)[]): WorkRef[] => xs.filter((x): x is WorkRef 
 export const SERVICE_PAGES: readonly ServiceDef[] = [
   {
     key: "live-host",
+    stage: "live",
     slug: "live-host-malaysia",
     icon: Mic,
     serviceType: "Live streaming host",
@@ -271,6 +283,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "live-commerce",
+    stage: "live",
     slug: "live-commerce-management",
     icon: Radio,
     serviceType: "Live commerce management",
@@ -358,6 +371,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "studio",
+    stage: "scale",
     slug: "studio-rental-johor-bahru",
     icon: Warehouse,
     serviceType: "Studio rental",
@@ -443,6 +457,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "video",
+    stage: "content",
     slug: "product-video-production",
     icon: Clapperboard,
     serviceType: "Product video production",
@@ -530,6 +545,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "design",
+    stage: "brand",
     slug: "creative-design",
     icon: Palette,
     serviceType: "Graphic design",
@@ -615,6 +631,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "mobilegraphy",
+    stage: "content",
     slug: "mobile-videography",
     icon: Smartphone,
     serviceType: "Mobile videography",
@@ -700,6 +717,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "website",
+    stage: "brand",
     slug: "website-design-johor-bahru",
     icon: Globe,
     serviceType: "Website design",
@@ -785,6 +803,7 @@ export const SERVICE_PAGES: readonly ServiceDef[] = [
   },
   {
     key: "affiliate",
+    stage: "scale",
     slug: "affiliate-marketing",
     icon: Handshake,
     serviceType: "Affiliate marketing",

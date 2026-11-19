@@ -28,7 +28,10 @@ export interface HomeCopy {
     panelText: string;
     panelCta: string;
   };
-  services: { eyebrow: string; title: string; lede: string; all: string; more: string };
+  services: { eyebrow: string; title: string; lede: string; all: string; more: string; stage: string };
+  proof: { registered: string; companies: string; client: string; channels: string };
+  route: { label: string; a: string; z: string };
+  team: { title: string; lede: string; card: string };
   work: { eyebrow: string; title: string; lede: string; all: string; note: string };
   why: { eyebrow: string; title: string; lede: string; points: { title: string; text: string }[] };
   consult: {
@@ -73,7 +76,7 @@ export const HOME_COPY: Record<Lang, HomeCopy> = {
       line1: "Build the brand.",
       line2: "Sell it live.",
       lede:
-        "A2Z Creative Marketing is a creative marketing, digital production and live commerce team in Johor Bahru. We host and run your live sessions, produce your product videos and designs, build your website and grow your affiliate sales - for businesses across Malaysia.",
+        "Creative marketing, digital production and live commerce from one team in Johor Bahru - from the first design to the sale on TikTok Live, for businesses across Malaysia.",
       primary: "Get a Free Consultation",
       secondary: "View Our Work",
       whatsapp: "WhatsApp us",
@@ -88,21 +91,34 @@ export const HOME_COPY: Record<Lang, HomeCopy> = {
     },
     services: {
       eyebrow: "Our services",
-      title: "Everything your brand needs to be seen and to sell",
-      lede: "Eight services from one team - pick one, or combine them into a single plan.",
+      title: "Eight services, one team, from A to Z",
+      lede: "Start at the stage you need, or hand us the whole route - the same team carries your brand from the first design to the sale.",
       all: "All services",
       more: "Learn more",
+      stage: "Stage",
+    },
+    proof: {
+      registered: "Registered Malaysian company",
+      companies: "Our companies",
+      client: "Client",
+      channels: "Selling live on TikTok Live and Shopee Live",
+    },
+    route: { label: "The A2Z route", a: "Your brand", z: "Your sale" },
+    team: {
+      title: "The people you will work with",
+      lede: "A2Z is run by its three directors. You speak to the people who make the decisions.",
+      card: "Contact card",
     },
     work: {
       eyebrow: "Selected work",
-      title: "Work we have done and channels we run",
+      title: "Work we have built, and still run",
       lede: "Real projects only. A client is named here only with their permission.",
       all: "View portfolio",
       note: "Live channel",
     },
     why: {
       eyebrow: "Why A2Z",
-      title: "One team, from the idea to the sale",
+      title: "Why businesses work with A2Z",
       lede: "",
       points: [
         { title: "A registered company", text: "A2Z Creative Marketing (202603003468 / CA0414729-A), a Malaysian business you can verify." },
@@ -113,8 +129,8 @@ export const HOME_COPY: Record<Lang, HomeCopy> = {
     },
     consult: {
       eyebrow: "Consultation & enquiries",
-      title: "Get a free consultation",
-      lede: "Tell us about your business and what you want to achieve. We reply with practical advice and a quotation - no obligation.",
+      title: "Tell us what you want to build",
+      lede: "A free consultation with our team: we look at your products and channels, and reply with practical advice and a quotation - no obligation.",
       whatsapp: "WhatsApp",
       call: "Call",
       email: "Email",
@@ -151,7 +167,7 @@ export const HOME_COPY: Record<Lang, HomeCopy> = {
       line1: "Build the brand.",
       line2: "Sell it live.",
       lede:
-        "A2Z Creative Marketing ialah pasukan pemasaran kreatif, produksi digital dan live commerce di Johor Bahru. Kami hoskan dan uruskan sesi live anda, hasilkan video produk dan reka bentuk, bina laman web dan kembangkan jualan affiliate anda - untuk perniagaan di seluruh Malaysia.",
+        "Pemasaran kreatif, produksi digital dan live commerce daripada satu pasukan di Johor Bahru - dari reka bentuk pertama hingga jualan di TikTok Live, untuk perniagaan di seluruh Malaysia.",
       primary: "Dapatkan Konsultasi Percuma",
       secondary: "Lihat Hasil Kerja Kami",
       whatsapp: "WhatsApp kami",
@@ -166,21 +182,34 @@ export const HOME_COPY: Record<Lang, HomeCopy> = {
     },
     services: {
       eyebrow: "Perkhidmatan kami",
-      title: "Semua yang jenama anda perlukan untuk dilihat dan menjual",
-      lede: "Lapan perkhidmatan daripada satu pasukan - pilih satu, atau gabungkan dalam satu pelan.",
+      title: "Lapan perkhidmatan, satu pasukan, dari A hingga Z",
+      lede: "Mula di peringkat yang anda perlukan, atau serahkan seluruh laluan kepada kami - pasukan yang sama membawa jenama anda dari reka bentuk pertama hingga jualan.",
       all: "Semua perkhidmatan",
       more: "Ketahui lanjut",
+      stage: "Peringkat",
+    },
+    proof: {
+      registered: "Syarikat berdaftar di Malaysia",
+      companies: "Syarikat kami",
+      client: "Klien",
+      channels: "Menjual secara live di TikTok Live dan Shopee Live",
+    },
+    route: { label: "Laluan A2Z", a: "Jenama anda", z: "Jualan anda" },
+    team: {
+      title: "Pasukan yang akan bekerja dengan anda",
+      lede: "A2Z diterajui oleh tiga pengarahnya. Anda berurusan terus dengan mereka yang membuat keputusan.",
+      card: "Kad hubungan",
     },
     work: {
       eyebrow: "Hasil kerja terpilih",
-      title: "Kerja yang telah kami lakukan dan saluran yang kami uruskan",
+      title: "Kerja yang kami bina, dan masih kami uruskan",
       lede: "Projek sebenar sahaja. Klien hanya dinamakan di sini dengan kebenaran mereka.",
       all: "Lihat portfolio",
       note: "Saluran live",
     },
     why: {
       eyebrow: "Kenapa A2Z",
-      title: "Satu pasukan, dari idea hingga jualan",
+      title: "Kenapa perniagaan memilih A2Z",
       lede: "",
       points: [
         { title: "Syarikat berdaftar", text: "A2Z Creative Marketing (202603003468 / CA0414729-A), perniagaan Malaysia yang boleh anda semak." },
@@ -191,8 +220,8 @@ export const HOME_COPY: Record<Lang, HomeCopy> = {
     },
     consult: {
       eyebrow: "Konsultasi & pertanyaan",
-      title: "Dapatkan konsultasi percuma",
-      lede: "Ceritakan tentang perniagaan anda dan apa yang ingin dicapai. Kami balas dengan nasihat praktikal dan sebut harga - tanpa sebarang komitmen.",
+      title: "Ceritakan apa yang anda mahu bina",
+      lede: "Konsultasi percuma dengan pasukan kami: kami teliti produk dan saluran anda, dan membalas dengan nasihat praktikal serta sebut harga - tanpa sebarang komitmen.",
       whatsapp: "WhatsApp",
       call: "Telefon",
       email: "E-mel",

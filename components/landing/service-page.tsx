@@ -10,7 +10,7 @@
 
    Structured data: Service, FAQPage and BreadcrumbList, all from the same
    words the visitor reads. */
-import { ArrowRight, MessageCircle } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Check, MessageCircle } from "lucide-react";
 import Link from "next/link";
 
 import { EnquiryForm } from "@/components/landing/enquiry-form";
@@ -19,6 +19,7 @@ import { Navbar } from "@/components/layout/navbar";
 import { PAGE_WORDS } from "@/constants/home-copy";
 import {
   SERVICE_PAGES,
+  STAGES,
   displayPhone,
   serviceByKey,
   servicePath,
@@ -90,8 +91,11 @@ export function ServicePage({ s, lang }: { s: ServiceDef; lang: Lang }) {
               </ol>
             </nav>
             <div className={css.svcTitleRow}>
-              <span className={css.svcIcon} aria-hidden="true"><Icon /></span>
-              <p className={css.svcName}>{c.name}</p>
+              <span className={css.svcBadge} aria-hidden="true"><Icon /></span>
+              <p className={css.svcLabel}>
+                {c.name}
+                <small>{lang === "ms" ? "Peringkat" : "Stage"} {STAGES.findIndex((x) => x.key === s.stage) + 1} · {STAGES.find((x) => x.key === s.stage)?.[lang].name}</small>
+              </p>
             </div>
             <h1 id="svc-title" className={css.svcH1}>{c.h1}</h1>
             <p className={css.svcIntro}>{c.intro}</p>
@@ -102,6 +106,13 @@ export function ServicePage({ s, lang }: { s: ServiceDef; lang: Lang }) {
               </a>
               <a className={css.btnGhost} href="#enquiry">{w.enquire}</a>
             </div>
+            <ol className={css.mini} aria-label={lang === "ms" ? "Laluan A2Z" : "The A2Z route"}>
+              {STAGES.map((st, i) => (
+                <li key={st.key} className={st.key === s.stage ? css.on : undefined} aria-current={st.key === s.stage ? "step" : undefined}>
+                  0{i + 1}<b>{st[lang].name}</b>
+                </li>
+              ))}
+            </ol>
           </div>
         </section>
 
@@ -111,11 +122,11 @@ export function ServicePage({ s, lang }: { s: ServiceDef; lang: Lang }) {
               <div>
                 <div className={css.svcBlock}>
                   <h2 className={css.h3}>{w.included}</h2>
-                  <ul className={css.ticks}>{c.scope.map((x) => <li key={x}>{x}</li>)}</ul>
+                  <ul className={`${css.ticks} ${css.ticks2}`}>{c.scope.map((x) => <li key={x}><Check aria-hidden="true" /><span>{x}</span></li>)}</ul>
                 </div>
                 <div className={css.svcBlock}>
                   <h2 className={css.h3}>{w.forWho}</h2>
-                  <ul className={css.ticks}>{c.forWho.map((x) => <li key={x}>{x}</li>)}</ul>
+                  <ul className={css.ticks}>{c.forWho.map((x) => <li key={x}><Check aria-hidden="true" /><span>{x}</span></li>)}</ul>
                 </div>
                 <div className={css.svcBlock}>
                   <h2 className={css.h3}>{w.how}</h2>
@@ -128,14 +139,14 @@ export function ServicePage({ s, lang }: { s: ServiceDef; lang: Lang }) {
                     <h2 className={css.h3}>{w.work}</h2>
                     <ul className={css.workList}>
                       {work.map((x) => (
-                        <li key={x.name + x.href} className={css.workRow}>
+                        <li key={x.name + x.href} className={css.workItem}>
                           <div>
                             <strong data-no-translate>{x.name}</strong>
                             <span>{x.what}</span>
                           </div>
                           {x.external ? (
                             <a className={css.textLink} href={x.href} target="_blank" rel="noopener noreferrer">
-                              {w.visit}<ArrowRight aria-hidden="true" />
+                              {w.visit}<ArrowUpRight aria-hidden="true" />
                             </a>
                           ) : (
                             <Link className={css.textLink} href={x.href}>{w.visit}<ArrowRight aria-hidden="true" /></Link>
@@ -188,10 +199,11 @@ export function ServicePage({ s, lang }: { s: ServiceDef; lang: Lang }) {
                 const RIcon = r.icon;
                 return (
                   <li key={r.key}>
-                    <Link className={css.card} href={servicePath(r, lang)}>
-                      <span className={css.cardIcon} aria-hidden="true"><RIcon /></span>
-                      <h3 className={css.cardTitle}>{r[lang].name}</h3>
-                      <p className={css.cardText}>{r[lang].card}</p>
+                    <Link className={css.svc} href={servicePath(r, lang)}>
+                      <span className={css.svcIcon} aria-hidden="true"><RIcon /></span>
+                      <h3 className={css.svcName}>{r[lang].name}</h3>
+                      <ArrowRight className={css.svcArrow} aria-hidden="true" />
+                      <p className={css.svcText}>{r[lang].card}</p>
                     </Link>
                   </li>
                 );

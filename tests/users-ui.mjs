@@ -109,13 +109,13 @@ ok("the vocabulary is imported, not approximated",
 /* v1.327.0 - each list is its own tab with its own find box: the staff list
    (match + status) and the Customer & Agent Directory (name or email, then type) */
 ok("each list has its find box, over every row of that list",
-   /const staffRows = (leaversLast\()?allStaff\.filter\(match\)\.filter\(statusOk\)(\.filter\(roleOk\))?\)?;/.test(src) /* v1.377.0 - leavers ordered last, after the search over every row; 18-11-2026 - and the role pick */
+   /const staffRows = (leaversLast\()?allStaff\.filter\(match\)\.filter\(statusOk\)(\.filter\(roleOk\))?(\.filter\(coOk\))?\)?;/.test(src) /* v1.377.0 - leavers ordered last, after the search over every row; 18-11-2026 - and the role pick; v1.387.0 - and the company (proposed plan) pick */
    && /accounts\.filter\(\(u\) => \(!needle \|\| \[u\.email, u\.full_name \?\? "", u\.name\]\.some/.test(cust)
    && /<CustomersAgents accounts=\{allCustomers\}/.test(src),
    "a search that only narrows part of a list is a trap");
 ok("...over name, email and role", /u\.email\.toLowerCase\(\)\.includes\(needle\)[\s\S]{0,200}?u\.role\.replace/.test(src));
 ok("each list is its own tab, both mounted and hidden - never two lists stacked inside the page scroll",
-   /hidden=\{view !== "staff"\}/.test(src) && /hidden=\{view !== "customers"\}/.test(src)
+   /hidden=\{view !== "users" \|\| userPart !== "staff"\}/.test(src) && /hidden=\{view !== "users" \|\| userPart !== "customers"\}/.test(src) /* v1.387.0 (D5) - the two lists are one switch inside Users, both mounted */
    && !/SectionTabs className="lg:hidden"/.test(src),
    "two lists of their own height stacked inside the page scroll was two scroll traps before the log");
 ok("both lists carry a count, and say 'shown of all' while a search is on",

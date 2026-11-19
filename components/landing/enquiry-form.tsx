@@ -18,6 +18,7 @@
    what the details are for and links the Privacy Policy. */
 
 import { useState } from "react";
+import Link from "next/link";
 
 import { HOME_COPY } from "@/constants/home-copy";
 import { SERVICE_PAGES, serviceWhatsApp, type Lang, type ServiceKey } from "@/constants/services";
@@ -106,6 +107,7 @@ export function EnquiryForm({ lang, service }: { lang: Lang; service?: ServiceKe
   return (
     <form className={css.form} onSubmit={submit} noValidate aria-labelledby="enquiry-title">
       <h3 id="enquiry-title" className={css.formTitle}>{t.title}</h3>
+      <p className={css.formLede}>{t.messageHint}</p>
       <div className={css.fields}>
         <label className={css.field}>
           <span className={css.label}>{t.name} <span className={css.req}>({t.required})</span></span>
@@ -134,7 +136,7 @@ export function EnquiryForm({ lang, service }: { lang: Lang; service?: ServiceKe
       </div>
       <div className={css.formFoot}>
         <p className={css.privacy}>
-          {t.privacy} <a href="/privacy">{t.privacyLink}</a>
+          {t.privacy} <Link href="/privacy">{t.privacyLink}</Link>
         </p>
         <button type="submit" className={css.btnNavy} disabled={!ready || status === "sending"}>
           {status === "sending" ? t.sending : t.send}

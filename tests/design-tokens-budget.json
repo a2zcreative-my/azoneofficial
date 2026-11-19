@@ -103,7 +103,7 @@
     "bp": 5,
     "radius": 7
   },
-  "components/portal/companies.module.css": {
+  "components/portal/company-access.module.css": {
     "radius": 5
   },
   "components/portal/corrections.module.css": {

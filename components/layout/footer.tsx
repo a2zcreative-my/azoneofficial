@@ -59,6 +59,15 @@ export function Footer() {
   return (
     <footer id="site-footer" className={css.foot}>
       <div className={css.wrap}>
+        <div className={css.statement}>
+          <p className={css.statementTitle} data-no-translate>
+            Build the brand.<span>Sell it live.</span>
+          </p>
+          <a href={wa} target="_blank" rel="noopener noreferrer" className={css.statementBtn}>
+            <span>{CTA_LABEL}</span>
+            <ArrowRight aria-hidden="true" />
+          </a>
+        </div>
         <div className={css.top}>
           <div>
             {/* eslint-disable-next-line @next/next/no-img-element */}

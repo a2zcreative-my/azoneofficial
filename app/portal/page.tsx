@@ -75,7 +75,7 @@ export default function PortalPage() {
 
   return (
     <>
-          {activeTab === "Companies" && <CompaniesPanel role={user.role} />}
+          {activeTab === "Companies" && <CompaniesPanel role={user.role} initialView={startOf("Companies")} />}
           {activeTab === "On Shift" && (
             <Dashboard user={user} go={setTab} canOpen={canOpen} lang={lang} shiftOnly />
           )}
