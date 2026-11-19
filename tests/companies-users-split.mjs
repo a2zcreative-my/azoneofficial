@@ -40,7 +40,9 @@ ok(/const companyAccess = holdsCap\("company_review", \["super_admin", "ceo"\]\.
   && /\.\.\.\(companyAccess \? \[\["company_access", L\("Company Access", "Akses Syarikat"\)\] as const\] : \[\]\)/.test(up)
   && /\{companyAccess && caSeen && \(/.test(up), "S1: the Company Access tab and its body exist only for the holder of company_review");
 ok(/Company access restrictions are not active/.test(ca) && /makeApi\("\/staff\/companies"\)/.test(ca), "S2: the 'not active' notice and the same /staff/companies routes moved with Company Access");
-ok(!/method: "(POST|PUT|PATCH|DELETE)"/.test(co) && !/\/staff\/companies\/(staff|records)\/|\/access\/policy|\/role\b|\/users\//.test(co), "S2: Companies writes nothing and draws no access, role or reconciliation form");
+/* 19-11-2026 (the CEO) - the only write Companies makes is a company's own BANK ACCOUNT, through Finance's existing route (edit / archive / restore, and delete only when unused) */
+const writes = [...co.matchAll(/api<[^>]*>\(`([^`]+)`, \{ method: "(POST|PUT|PATCH|DELETE)"/g)].map((m) => m[1]);
+ok(writes.length > 0 && writes.every((u) => u.startsWith("/staff/erp/cashbook/banks/")) && !/\/staff\/companies\/(staff|records)\/|\/access\/policy|\/role\b|\/users\//.test(co), "S2: Companies draws no access, role or reconciliation form; its only writes are a company's bank accounts, through Finance's route", JSON.stringify(writes));
 ok(!/CompanyStaffSetup[\s\S]{0,40}PUT/.test(co) && /<SigningPanel \/>/.test(co), "S2: Documents & Signing is the same SigningPanel (signing.ts decides who manages)");
 ok(/\? \{ employer_code: employer \|\| null, memberships: employee\.memberships, reason, version: employee\.version \}\s*: \{ employer_code: employee\.employer_code, memberships, reason, version: employee\.version \}/.test(ca),
   "S3: the employer save keeps the saved access plan; the access save keeps the saved employer");
@@ -109,6 +111,19 @@ try {
   const after = db.prepare(`SELECT COUNT(*) n, SUM(total_cents) t FROM sales_documents`).get();
   ok(before.n === after.n && before.t === after.t, "S4: the read writes nothing");
   ok((await call("/docs/by-company", 6)).status === 403, "S4: a role without Sales access is refused, as on /docs/summary");
+  /* S7 - removing a company's bank account (the CEO, 19-11-2026) */
+  db.exec(`INSERT INTO bank_accounts (id, name, bank, number_masked, company, active) VALUES (71,'AZ ONE - Maybank','Maybank','•••• 7032','azoo',1),(72,'AZ ONE - Maybank (copy)','Maybank','•••• 7032','azoo',1)`);
+  try { db.exec(`INSERT INTO cashflow_entries (entry_date, type, amount_cents, description, bank_id, created_by) VALUES ('2026-11-10','in',1000,'used',71,1)`); } catch (e) { ok(false, "S7 setup: a movement on account 71", String(e)); }
+  const del = (id, who, reason) => call(`/erp/cashbook/banks/${id}${reason === undefined ? "" : `?reason=${encodeURIComponent(reason)}`}`, who, "DELETE");
+  ok((await del(72, 4, "duplicate of 71")).status === 403, "S7: a salesperson may not remove an account");
+  ok((await del(72, 1, "dup")).status === 400, "S7: a removal needs a reason of 8 characters or more");
+  const used = await del(71, 1, "duplicate of the other one");
+  ok(used.status === 409 && used.j?.error?.code === "in_use" && db.prepare(`SELECT COUNT(*) n FROM bank_accounts WHERE id = 71`).get().n === 1, "S7: an account a movement used is never deleted (archive instead)", JSON.stringify(used.j));
+  const gone = await del(72, 2, "duplicate of the Maybank account");
+  ok(gone.status === 200 && db.prepare(`SELECT COUNT(*) n FROM bank_accounts WHERE id = 72`).get().n === 0, "S7: the COO deletes an unused duplicate", JSON.stringify(gone.j));
+  ok(db.prepare(`SELECT COUNT(*) n FROM audit_log WHERE action = 'cashbook.bank_delete' AND entity_id = '72'`).get().n === 1, "S7: the deletion is audited with what the account was");
+  const arch = await call(`/erp/cashbook/banks/71`, 1, "PATCH", { active: false });
+  ok(arch.status === 200 && db.prepare(`SELECT active FROM bank_accounts WHERE id = 71`).get().active === 0 && db.prepare(`SELECT COUNT(*) n FROM cashflow_entries WHERE bank_id = 71`).get().n === 1, "S7: archiving keeps the account and its movement");
 } catch (e) { ok(false, `the run threw: ${e?.stack ?? e}`); }
 
 /* ---------- the mutation pass: each rule catches its own breakage ---------- */

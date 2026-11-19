@@ -4,9 +4,25 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Live Reports: the AI fills the figures it reads; staff type only the rest (19-11-2026, the CEO) - NO MIGRATION
+- The CEO: "Duration, AI read 60, but the textbox appear 1 ... Manual filled should only the textbox that AI doesnt filled". Supersedes v1.386.0's "fill only EMPTY boxes, never over a typed figure", which is why a typed 1 stayed beside an AI reading of 60.
+- A reading writes every figure it read into the draft (`aiFilled` / `aiFillStatement` in worker/src/live-reports.ts; the newest reading of this submission's screenshots wins per figure). The draft refuses a different value for one of them (409 `ai_filled`); submit writes them again before the version freezes, so a draft typed before this change is corrected when it is submitted.
+- The report form: an AI figure is tinted, locked and says "Read by AI from the screenshot"; the others say "Not read by the AI - type it" / "Typed by staff". The "Use the AI reading" button is gone. A wrong reading is corrected with a clearer screenshot read again, or by the reviewer's Return. `GET /staff/live-reports/:id` returns `ai_keys` (the draft's, or the submitted version's for the reviewer).
+- Guards: new `live-ai-fill` (runtime, 16 checks); `live-reports-v2` check and mutation moved to the new rule.
+
+### Sign-in: staff reset a forgotten password by email (19-11-2026, the CEO) - NO MIGRATION
+- "Forgot password?" opens a form: the staff member's email -> `POST /api/v1/auth/forgot-password` -> the existing single-use set-password link, ONE hour (`RESET_PASSWORD_TTL_HOURS`), emailed through `sendMail` with the subject "A2Z OS: reset your password", so it is drawn in the one A2Z OS template (mail.ts `osAccountMail`).
+- Only an active staff account is emailed (never a customer, agent, leaver or disabled account); every address gets the same answer, so the page never says whether an account exists. Cloudflare's check (`signin`) first, 5 asks per IP in 15 minutes, 3 emails per account an hour; audited `auth.password_reset_requested`. The authenticator code is still asked at sign-in, and setting the password signs every device out.
+- Guards: new `forgot-password` (runtime, 18 checks); `login-ux` check 9 reworded to the self-service reset (55 checks).
+- Verify after release: send a reset to your own account and confirm the email arrives.
+
 ## [1.387.0] - 2026-11-19 - Companies and Users & Security reorganised; no false ELFIA errors; Finance history account step; Attendance report; account emails - BUILT, NOT DEPLOYED (MIGRATION 0214 if not yet applied)
 
 A new version number so the errors the previous release (1.386.0) logged are marked as fixed history and no longer raise the Dashboard's red alert.
+
+- **Companies → each company's details and bank accounts** (the CEO, 19-11-2026): every company card has View details (registration, address, contacts, the account printed on invoices, SST, and its bank accounts); the same list is under each company on Corporate Details. The CEO and COO can Edit an account (name, bank, masked number) or Remove it: an account nothing has ever used is deleted (new `DELETE /staff/erp/cashbook/banks/:id`, reason required, audited); one that was used is archived instead and can be restored, so no money record loses its account. Two active accounts of one company ending in the same digits are marked Possible duplicate.
+- **Companies → Ownership & Directors** lists the directors as the CEO stated them: A2Z CREATIVE MARKETING (sole proprietorship) - CEO, Director; AZ ONE OFFICIAL (partnership) - CEO, Managing Director and Partner; COO, Director and Partner. The person shown is read from the staff list by role.
+- **A Live Report notification opens the report** (the CEO: it opened Tasks): the bell and the phone push both open Roster & Scheduling → Live Reports with that report open, for the reviewer and for the host.
 
 ### ELFIA orders: no more false errors on System health and the Dashboard (19-11-2026, the CEO) - NO MIGRATION
 - The first poll's "cursor seeded" line was the designed first step, not a fault; it is now recorded (`elfia_orders_seeded_at`) and never written to the error log.

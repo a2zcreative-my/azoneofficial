@@ -130,6 +130,10 @@
 @media (max-width: 639px) { .figs, .formGrid { grid-template-columns: minmax(0, 1fr); } }
 .fig { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; font-size: var(--type-body-sm-size); color: var(--muted-foreground); }
 .aiSame { color: var(--success); font-size: var(--type-caption-size); }
+/* 19-11-2026 - a figure the AI filled: locked, tinted, and said so */
+.figAi { background: var(--brand-accent-soft); color: var(--foreground); cursor: default; }
+.aiSame svg { width: 0.875rem; height: 0.875rem; vertical-align: -2px; margin-right: 0.25rem; }
+.byStaff { color: var(--muted-foreground); font-size: var(--type-caption-size); }
 .aiDiff { color: var(--brand-accent-deep); font-size: var(--type-caption-size); font-weight: 600; }
 .note { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; font-size: var(--type-body-sm-size); color: var(--muted-foreground); }
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }

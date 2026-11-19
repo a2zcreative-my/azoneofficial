@@ -45,6 +45,7 @@ import { mytToday } from "@/lib/format";
 import { properName } from "@/lib/names";
 import type { TabName } from "@/lib/portal-tabs";
 import { useTabViewAddress } from "@/lib/tab-view";
+import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import { btnSm, card, chipSmInfo, chipSmNeutral, chipSmSuccess } from "@/lib/ui-styles";
 import { leaveWord } from "./attendance-shared";
 import css from "./attendance4.module.css";
@@ -63,7 +64,7 @@ type Day = { d: string; kind: "work" | "rest" | "leave" | "holiday" | "not_emplo
 type Roster = { scope: "team" | "own"; staff: { id: number; name: string; position: string | null; department: string | null; days: Day[] }[] };
 type Session = { id: number; session_date: string; status: string; host_user_id?: number };
 
-export function RosterScheduling({ user, go, startView }: { user: User; go: (t: TabName) => void; startView?: string }) {
+export function RosterScheduling({ user, go, startView, focus = null }: { user: User; go: (t: TabName) => void; startView?: string; focus?: RecordFocus | null }) {
   const manage = MANAGE_ROLES.includes(user.role);
   const canTemplates = TEMPLATE_ROLES.includes(user.role);
   const views: readonly RosterView[] = canTemplates ? ["today", "board", "shifts", "templates", "reports"] : ["today", "board", "shifts", "reports"];
@@ -77,6 +78,9 @@ export function RosterScheduling({ user, go, startView }: { user: User; go: (t: 
   const on = (v: RosterView) => seen.includes(v);
   const [person, setPerson] = useState<{ id: number; day: string } | null>(null);
   const openPerson = (id: number, day: string) => setPerson({ id, day });
+  /* 19-11-2026 (the CEO) - a Live Report notification opens Live Reports here,
+     and LiveReports opens the report itself from the same focus */
+  useRecordFocus(focus, true, (f) => { if (f.kind !== "live_report") return; setView("reports"); });
 
   /* an anchor revealed from elsewhere opens the view that holds it first */
   useEffect(() => {
@@ -149,7 +153,7 @@ export function RosterScheduling({ user, go, startView }: { user: User; go: (t: 
 
       {on("reports") && (
         <div hidden={view !== "reports"} className={css.body}>
-          <div id="live-host-card"><LiveReports /></div>
+          <div id="live-host-card"><LiveReports focus={focus} /></div>
         </div>
       )}
 

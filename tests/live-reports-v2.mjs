@@ -44,7 +44,7 @@ function checks(src) {
   ok("the daily cap and the Neuron ceiling are reserved BEFORE the call, in one conditional write", /UPDATE ai_budget SET calls = calls \+ 1, neurons = neurons \+ \?\d WHERE day = \?\d AND calls < \?\d AND neurons \+ \?\d <= \?\d/.test(s));
   ok("the ceiling never exceeds the free allowance", /NEURON_CEILING_MAX = 8_000;/.test(s) && /FREE_NEURONS_A_DAY = 10_000;/.test(s) && /Math\.min\(s\.ceiling, NEURON_CEILING_MAX\)/.test(s));
   ok("the AI reading is kept apart from the confirmed figures (append-only)", /live_report_ai_readings/.test(s) && /BEFORE UPDATE ON live_report_ai_readings/.test(src.mig) && /BEFORE DELETE ON live_report_ai_readings/.test(src.mig));
-  ok("v1.386.0: what the AI read fills only EMPTY draft boxes, and only while the report is a draft", /\$\{dcol\} = COALESCE\(\$\{dcol\}, \?/.test(s) && /AND state IN \('draft', 'returned'\)`\)\.bind\(\.\.\.vals\)/.test(s) && /\(next\[k\] \?\? ""\) === "" && ai0\[k\]/.test(src.ui));
+  ok("19-11-2026 (supersedes v1.386.0): the AI fills the figures it read, staff cannot type over them, submit writes them again", /export async function aiFilled/.test(s) && /if \(v !== filled\[key\]\) return err\("ai_filled"/.test(s) && /const fill = aiFillStatement\(env, r\.id, filled\);\n      if \(fill\) await fill\.run\(\);/.test(s) && /\.\.\.\(fill \? \[fill\] : \[\]\),/.test(s));
   ok("submission never waits for the AI", !/submit[\s\S]{0,400}readScreenshot/.test(s));
   ok("only the CEO sets the AI", /live_ai_settings: \["ceo"\]/.test(src.perms));
   ok("the fake reading only works on a local test origin", /function testFake[\s\S]{0,300}127\\\.0\\\.0\\\.1[\s\S]{0,200}return local && v/.test(s));
@@ -52,7 +52,7 @@ function checks(src) {
   ok("the analysis has the three flags and no AI", /viewers_high_orders_low/.test(s) && /conversion_below_project/.test(s) && /gmv_down_three/.test(s) && !/function analysisOf[\s\S]{0,1200}env\.AI/.test(s));
   /* no new module */
   ok("no new tab or sidebar item", !/"Live Reports"/.test(src.tabs));
-  ok("it lives in Roster & Scheduling's Live Reports view", /<div id="live-host-card"><LiveReports \/><\/div>/.test(src.roster));
+  ok("it lives in Roster & Scheduling's Live Reports view", /<div id="live-host-card"><LiveReports( focus=\{focus\})? \/><\/div>/.test(src.roster) /* 19-11-2026 - a notification's focus opens the report */);
   ok("the AI use is shown in the existing System health", /\/staff\/live-reports\/ai/.test(src.health) && /infra-live-ai/.test(src.health));
   ok("GMV is said to be the staff's own figure, not sales, cash, invoice or commission", /never verified sales, cash, an invoice or commission/.test(src.ui));
   ok("manual entry is always offered", /manual entry \(always allowed\)/.test(src.ui));
@@ -80,7 +80,7 @@ for (const [pass, name] of base) if (!pass) { failed++; console.log(`  ✗ ${nam
 const MUT = [
   ["perms", "the COO may switch the AI on", 'live_ai_settings: ["ceo"]', 'live_ai_settings: ["ceo", "coo"]'],
   ["srv", "a ceiling above the free allowance", "NEURON_CEILING_MAX = 8_000;", "NEURON_CEILING_MAX = 20_000;"],
-  ["roster", "the old card back", "<div id=\"live-host-card\"><LiveReports /></div>", "<div id=\"live-host-card\"><LiveHostCard /></div>"],
+  ["roster", "the old card back", "<div id=\"live-host-card\"><LiveReports focus={focus} /></div>", "<div id=\"live-host-card\"><LiveHostCard /></div>"],
   ["tabs", "a new Live Reports tab", '"Roster & Scheduling",', '"Roster & Scheduling",\n  "Live Reports",'],
   ["srv", "a voided invoice tagged", "AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS inv_number", "ORDER BY i.id DESC LIMIT 1) AS inv_number"],
   ["srv", "the image sent as numbers again", "image_url: { url: image }", "image_url: { url: Array.from(bytes) }"],
@@ -88,7 +88,7 @@ const MUT = [
   ["srv", "an own live without a company", 'if (own && !ownCompany) return err("company_required"', 'if (false) return err("company_required"'],
   ["srv", "a submit with no company", 'if (!r.company) return err("company_required"', 'if (false) return err("company_required"'],
   ["srv", "an AZ ONE own live merged into an A2Z one", "COALESCE((SELECT lr.company FROM live_reports lr WHERE lr.session_id = s.id), ?${c}) = ?${c}", "1 = 1"],
-  ["srv", "the AI overwriting a figure a person typed", "${dcol} = COALESCE(${dcol}, ?${vals.length})", "${dcol} = ?${vals.length}"],
+  ["srv", "a person typing over a figure the AI read", "if (v !== filled[key]) return err(\"ai_filled\"", "if (false) return err(\"ai_filled\""],
   ["ui", "the GMV disclaimer dropped", "never verified sales, cash, an invoice or commission", "verified sales"],
 ];
 let caught = 0;

@@ -64,7 +64,7 @@ function checks(src) {
   ok("…takes screenshots as images, from the camera on a phone", /accept="image\/jpeg,image\/png,image\/webp" capture="environment"/.test(lh));
   ok("…a return or a reopen asks the reviewer for the words", /required: true, confirmLabel: action === "return"/.test(lh));
   /* v1.328.0 - R-4: the Live Host Report and its figure moved to Roster & Scheduling > Live Reports */
-  ok("…and it lives beside the live it reports, in Roster & Scheduling, not in Tasks > Reports", /<LiveReports \/>/.test(read("components/portal/roster-scheduling.tsx")) /* v1.368.0: LiveReports replaced it there */ && !/LiveHostCard|Live Host Sessions/.test(strip(t)));
+  ok("…and it lives beside the live it reports, in Roster & Scheduling, not in Tasks > Reports", /<LiveReports( focus=\{focus\})? \/>/.test(read("components/portal/roster-scheduling.tsx")) /* 19-11-2026 - a notification's focus opens the report */ /* v1.368.0: LiveReports replaced it there */ && !/LiveHostCard|Live Host Sessions/.test(strip(t)));
 
   ok("At Risk is the written rule (TK-8): an overdue task, past due, or due in 7 days under 50%", /if \(\(r\.late \?\? 0\) > 0\) return \{ word: L\("At Risk"/.test(src.pw) && /if \(r\.due_date && r\.due_date < today\) return \{ word: L\("At Risk"/.test(src.pw) && /r\.due_date <= week && r\.progress < 50\) return \{ word: L\("At Risk"/.test(src.pw));
   ok("normal reads Medium (TK-3), review reads Review", /export const prioWord = \(p: string\) => \(p === "normal" \? L\("Medium", "Sederhana"\)/.test(t5) && /k === "review" \? L\("Review", "Semakan"\)/.test(src.progress));

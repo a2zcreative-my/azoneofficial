@@ -115,7 +115,7 @@ export default function PortalPage() {
           {/* v1.328.0 - People > Roster & Scheduling (R-1): Today, Roster Board,
               Shift Roster, Shift Templates, Live Reports - the existing cards,
               moved whole from Tasks > Calendar, Attendance and Tasks > Reports */}
-          {activeTab === "Roster & Scheduling" && <RosterScheduling user={user} go={setTab} startView={startOf("Roster & Scheduling")} />}
+          {activeTab === "Roster & Scheduling" && <RosterScheduling user={user} go={setTab} startView={startOf("Roster & Scheduling")} focus={focusOf("Roster & Scheduling")} />}
           {activeTab === "Attendance" && (
             /* v1.188.0 - the page is its own tabbed panel (attendance-panel.tsx):
                Overview · My Attendance · Team Attendance · Schedule & Roster ·

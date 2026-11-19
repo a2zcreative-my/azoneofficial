@@ -308,7 +308,10 @@ export function PortalProvider({ children }: { children: ReactNode }) {
            the Tasks tab opens on that record through the same focus a bell
            uses, with every task permission still the server's */
         const taskId = Number(new URL(window.location.href).searchParams.get("task") ?? 0);
+        /* 19-11-2026 - a Live Report push (/portal?tab=Roster%20%26%20Scheduling&view=reports&live_report=12) opens the report */
+        const liveId = Number(new URL(window.location.href).searchParams.get("live_report") ?? 0);
         if (wanted === "Tasks" && Number.isInteger(taskId) && taskId > 0) openRecord("Tasks", "task", taskId);
+        else if (wanted === "Roster & Scheduling" && Number.isInteger(liveId) && liveId > 0) openRecord("Roster & Scheduling", "live_report", liveId);
         else setTabState(wanted as TabName);
         /* v1.292.0 (Sales Workspace 4.0, decision S2) - a link may also name
            the view inside the tab (/portal?tab=Sales&view=payments): a short
@@ -321,6 +324,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
         const clean = new URL(window.location.href);
         clean.searchParams.delete("tab");
         clean.searchParams.delete("task");
+        clean.searchParams.delete("live_report");
         clean.searchParams.delete("view");
         window.history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
         settle();

@@ -279,7 +279,7 @@ ok("a tile is a figure the server states, never a guess: revenue and orders from
     && /<AttendanceAdminPanel role=\{role\} areas=\{\["hours"\]\} showPending=\{false\} bare \/>/.test(read("components/portal/shift-templates.tsx"))
     && ['"today"', '"board"', '"shifts"', '"templates"', '"reports"'].every((v) => rsSrc.includes(`hidden={view !== ${v}}`))
     && /useTabViewAddress\(ROSTER_TAB, view, setView, isView\);/.test(rsSrc) && /<LineTabs value=\{view\}/.test(rsSrc) && /<ViewSwitch value=\{view\}/.test(rsSrc)
-    && /\{activeTab === "Roster & Scheduling" && <RosterScheduling user=\{user\} go=\{setTab\} startView=\{startOf\("Roster & Scheduling"\)\} \/>\}/.test(page));
+    && /\{activeTab === "Roster & Scheduling" && <RosterScheduling user=\{user\} go=\{setTab\} startView=\{startOf\("Roster & Scheduling"\)\}( focus=\{focusOf\("Roster & Scheduling"\)\})? \/>\}/.test(page)); /* 19-11-2026 - and the focus a Live Report notification opens */
   ok("the five views are the shared underline tabs (a view switch on a phone), in the address, and a seen view stays mounted (hidden, never unmounted)",
     /<LineTabs value=\{view\} onChange=\{\(k\) => setView\(k\)\}/.test(attendance)
     && /<ViewSwitch value=\{view\}/.test(attendance)

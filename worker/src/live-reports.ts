@@ -88,6 +88,39 @@ function figure(v: unknown, unit: string): number | null | undefined {
   return n > 1_000_000_000 ? Number.NaN : Math.round(n);
 }
 
+/* 19-11-2026 - THE AI FILLS, STAFF TYPE THE REST (the CEO: "Manual filled should only the
+   textbox that AI doesnt filled"). A figure the screenshot AI read is written into the draft
+   for the staff and kept there: the draft refuses a different value for it, and submit writes
+   it again before the version freezes. Staff type only the figures the AI did not read. The
+   figure comes from the newest reading that has it, among the readings of this submission's
+   screenshots (version NULL = not yet submitted; a version = what was submitted with it). A
+   wrong reading is corrected with a clearer screenshot read again, or by the reviewer's Return. */
+export async function aiFilled(env: Env, reportId: number, version: number | null): Promise<Record<string, number>> {
+  const rows = (await env.DB.prepare(
+    `SELECT a.figures FROM live_report_ai_readings a JOIN live_report_files f ON f.id = a.file_id AND f.report_id = a.report_id
+      WHERE a.report_id = ?1 AND a.outcome = 'read' AND a.figures IS NOT NULL AND ${version === null ? "f.version IS NULL" : "f.version = ?2"}
+      ORDER BY a.id DESC`,
+  ).bind(...(version === null ? [reportId] : [reportId, version])).all<{ figures: string }>().catch(() => ({ results: [] as { figures: string }[] }))).results ?? [];
+  const out: Record<string, number> = {};
+  for (const row of rows) {
+    let o: Record<string, unknown>;
+    try { o = JSON.parse(row.figures) as Record<string, unknown>; } catch { continue; }
+    for (const [, , key, unit] of FIGURES) {
+      if (key in out) continue;
+      const v = figure(o[key], unit);
+      if (typeof v === "number" && !Number.isNaN(v)) out[key] = v;
+    }
+  }
+  return out;
+}
+/** the UPDATE that writes the AI's figures into the draft (null when the AI read none) */
+function aiFillStatement(env: Env, reportId: number, filled: Record<string, number>) {
+  const cols = FIGURES.filter(([, , key]) => key in filled);
+  if (!cols.length) return null;
+  return env.DB.prepare(`UPDATE live_reports SET ${cols.map(([col]) => `${col} = ?`).join(", ")}, updated_at = datetime('now') WHERE id = ? AND state IN ('draft', 'returned')`)
+    .bind(...cols.map(([, , key]) => filled[key]), reportId);
+}
+
 function pending(e: unknown): Response | null {
   return /no such table|no such column/i.test(String(e)) ? err("pending_migration", "Run PUSH.bat so migrations 0201 and 0210 apply, then retry", 409) : null;
 }
@@ -520,8 +553,10 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       const readings = (await env.DB.prepare(`SELECT id, file_id, figures, model, neurons, outcome, created_at FROM live_report_ai_readings WHERE report_id = ?1 ORDER BY id DESC`).bind(r.id).all()).results ?? [];
       const reviews = (await env.DB.prepare(`SELECT w.id, w.version, w.action, w.note, w.actor_role, w.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name FROM live_report_reviews w LEFT JOIN users u ON u.id = w.actor_id WHERE w.report_id = ?1 ORDER BY w.id DESC`).bind(r.id).all()).results ?? [];
       const editable = part && ["draft", "returned"].includes(r.state);
+      /* which figures the AI filled - the draft's while it is being written, else the submitted version's */
+      const aiKeys = Object.keys(await aiFilled(env, r.id, editable || !r.current_version ? null : Number(r.current_version)));
       return json({
-        report: r, session: s, project, participants, versions, files, readings, reviews,
+        report: r, session: s, project, participants, versions, files, readings, reviews, ai_keys: aiKeys,
         analysis: ["submitted", "reviewed", "accepted"].includes(r.state) ? await analysisOf(env, r.id) : null,
         ai: editable ? await aiUsageToday(env) : null,
         can: { edit: editable, participate: part, review: reviewer && !part },
@@ -657,11 +692,17 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       if (!(await isParticipant(env, r.session_id, user.id))) return err("forbidden", "Only someone who took part edits this report", 403);
       if (!["draft", "returned"].includes(r.state)) return err("invalid_state", `This report is ${r.state} - it is kept as submitted`, 409);
       const sets: string[] = []; const vals: unknown[] = [];
+      const filled = await aiFilled(env, r.id, null);
       /* the figures (old clients send gmv and duration_min only - both still work) */
       for (const [col, , key, unit] of FIGURES) {
         const v = figure(body?.[key], unit);
         if (v === undefined) continue;
         if (Number.isNaN(v)) return err("invalid_input", `${key.replace(/_/g, " ")} is not a valid figure`, 400);
+        /* a figure the AI read stays the AI's - staff type only the ones it did not read */
+        if (key in filled) {
+          if (v !== filled[key]) return err("ai_filled", `${key.replace(/_/g, " ")} was read by the AI from the screenshot and cannot be typed over. If it is wrong, add a clearer screenshot and read it again.`, 409);
+          continue;
+        }
         sets.push(`${col} = ?`); vals.push(v);
       }
       for (const k of ["highlights", "blockers", "next_actions"] as const) if (body && k in body) { sets.push(`draft_${k} = ?`); vals.push(text(body[k], 2000)); }
@@ -747,24 +788,12 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       const outcome = res.figures ? "read" : "unreadable";
       const row = await env.DB.prepare(`INSERT INTO live_report_ai_readings (report_id, file_id, figures, model, neurons, outcome, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id`)
         .bind(r.id, f.id, res.figures ? JSON.stringify(res.figures) : null, res.model, res.neurons, outcome, user.id).first<{ id: number }>();
-      await audit(env, user.id, "live_report.ai_read", "live_reports", String(r.id), { file_id: f.id, reading_id: row?.id, outcome, neurons: res.neurons });
-      /* v1.386.0 - the CEO (18-11-2026): "AI should filled the textbox instead!" - what the AI read goes into the
-         DRAFT boxes that are still empty (never over a figure a person typed). It stays a draft: staff check it
-         and the figures freeze only when they submit. */
-      let filled = 0;
-      if (res.figures) {
-        const sets: string[] = []; const vals: unknown[] = [];
-        for (const [dcol, , key, unit] of FIGURES) {
-          const v = figure(res.figures[key], unit);
-          if (typeof v === "number" && Number.isFinite(v)) { vals.push(v); sets.push(`${dcol} = COALESCE(${dcol}, ?${vals.length})`); }
-        }
-        if (sets.length) {
-          vals.push(r.id);
-          await env.DB.prepare(`UPDATE live_reports SET ${sets.join(", ")} WHERE id = ?${vals.length} AND state IN ('draft', 'returned')`).bind(...vals).run();
-          filled = sets.length;
-        }
-      }
-      return json({ manual: outcome !== "read", reason: outcome === "read" ? null : "unreadable", reading_id: row?.id, figures: res.figures, filled, usage: await aiUsageToday(env) });
+      /* the AI's figures go straight into the draft; the boxes it did not read stay for staff to type */
+      const filled = outcome === "read" ? await aiFilled(env, r.id, null) : {};
+      const fill = aiFillStatement(env, r.id, filled);
+      if (fill) await fill.run();
+      await audit(env, user.id, "live_report.ai_read", "live_reports", String(r.id), { file_id: f.id, reading_id: row?.id, outcome, neurons: res.neurons, filled: Object.keys(filled) });
+      return json({ manual: outcome !== "read", reason: outcome === "read" ? null : "unreadable", reading_id: row?.id, figures: res.figures, filled: Object.keys(filled), usage: await aiUsageToday(env) });
     }
 
     /* ---------------- a participant submits: the figures freeze as a new version ---------------- */
@@ -776,6 +805,9 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       if (!["draft", "returned"].includes(r.state)) return err("invalid_state", `This report is already ${r.state}`, 409);
       const s = await sessionOf(env, r.session_id);
       if (!s) return err("not_found", "That live is not on the roster", 404);
+      /* 19-11-2026 - the AI's figures are what is submitted for the figures it read (a draft typed before is corrected here) */
+      const filled = await aiFilled(env, r.id, null);
+      if ("gmv" in filled) r.draft_gmv_cents = filled.gmv!;
       if (r.draft_gmv_cents == null) return err("invalid_input", "Enter the GMV reported (RM) first", 400);
       /* v1.385.0 - the project is optional; the company never is (a project sets it, an own live chooses it) */
       if (!r.company) return err("company_required", s.project_id ? "Choose the project again (it sets the company)" : "Choose the company of this own live: A2Z or AZ ONE", 400);
@@ -783,7 +815,9 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
       if (!Number(n?.n ?? 0)) return err("evidence_required", "Attach at least one screenshot of the GMV", 400);
       const people = await participantsOf(env, r.session_id);
       const v = r.current_version + 1;
+      const fill = aiFillStatement(env, r.id, filled);
       await env.DB.batch([
+        ...(fill ? [fill] : []),
         env.DB.prepare(`UPDATE live_reports SET state = 'submitted', current_version = ?1, updated_at = datetime('now') WHERE id = ?2 AND current_version = ?3 AND state IN ('draft', 'returned')`).bind(v, r.id, r.current_version),
         env.DB.prepare(`INSERT INTO live_report_versions (report_id, version, company, gmv_cents, duration_min, highlights, blockers, next_actions, submitted_by,
                           viewers, peak_viewers, avg_watch_sec, orders, items_sold, product_clicks, ctr_bp, conversion_bp, project_id, participants)

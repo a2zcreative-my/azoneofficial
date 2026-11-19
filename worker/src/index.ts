@@ -4987,6 +4987,35 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     if (!r.ok) return errorResponse(r.code, r.message, 409);
     return json({ ok: true, email: c.new_email });
   }
+  /* 19-11-2026 - FORGOT PASSWORD, for staff (the CEO). The person types their email on the
+     sign-in page; a staff account that may sign in gets the one-hour set-password link by
+     email (issueSetPasswordLink reset). The answer is the SAME whatever the email is - an
+     unknown address, a customer, an agent, a leaver, a disabled account or a per-account
+     limit all answer { ok: true } - so the door never says whether an account exists.
+     Cloudflare's check ("signin", the widget on that page) comes first; 5 asks per IP in 15
+     minutes, and at most 3 emails per account per hour (the rest are dropped silently). */
+  if (path === "/api/v1/auth/forgot-password" && method === "POST") {
+    if (!(await checkRateLimit(env, `forgot:${clientIp(request)}`, 5, 900))) return errorResponse("rate_limited", "Too many attempts - wait 15 minutes", 429);
+    const b = (await request.json().catch(() => null)) as { email?: unknown; bot_token?: unknown } | null;
+    const botF = await botCheck(env, request, b?.bot_token, "signin");
+    if (!botF.ok) return errorResponse(botF.code, BOT_REFUSED_MESSAGE, 403);
+    const email = typeof b?.email === "string" ? b.email.toLowerCase().trim() : "";
+    if (!/^[^\s@]{1,100}@[^\s@]{1,150}\.[^\s@]{2,40}$/.test(email)) return errorResponse("invalid_input", "Enter the email you sign in with", 400);
+    const done = json({ ok: true });
+    const u = await env.DB.prepare(
+      `SELECT id, email, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name FROM users
+       WHERE email = ?1 AND is_active = 1
+         AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated')
+         AND role NOT IN ('customer', 'agent')
+         AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)`,
+    ).bind(email).first<{ id: number; email: string; name: string }>().catch(() => null);
+    if (!u) return done;
+    if (!(await checkRateLimit(env, `forgotacct:${u.id}`, 3, 3600))) return done;
+    const { emailed } = await issueSetPasswordLink(env, { id: u.id, name: u.name }, { id: u.id, email: u.email, name: u.name }, false, false, true);
+    await audit(env, u.id, "auth.password_reset_requested", "users", String(u.id), { emailed });
+    return done;
+  }
+
   if (path === "/api/v1/auth/set-password" && method === "POST") {
     if (!(await checkRateLimit(env, `acctlink:${clientIp(request)}`, 20, 900))) return errorResponse("rate_limited", "Too many attempts - wait 15 minutes", 429);
     const b = (await request.json().catch(() => null)) as { token?: unknown; password?: unknown; bot_token?: unknown } | null;

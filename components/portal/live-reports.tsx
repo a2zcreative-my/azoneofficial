@@ -23,6 +23,7 @@ import { api, csrfFetch } from "@/lib/api";
 import { useFeedback as useFeedbackModal } from "@/components/ui/feedback-modal";
 import { btnSm, btnSmAccent, btnSmQuiet, card, companyBadge, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
 import css from "./live-reports.module.css";
+import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 
 /* ---------------- shapes from worker/src/live-reports.ts ---------------- */
 type Person = { user_id: number; role: string; name: string; photo_key: string | null };
@@ -48,6 +49,8 @@ type Detail = {
   versions: (Record<string, number | string | null> & { version: number; by_name: string | null; submitted_at: string })[];
   files: { id: number; version: number | null; file_name: string | null }[];
   readings: { id: number; file_id: number; figures: string | null; outcome: string; neurons: number | null; created_at: string }[];
+  /** 19-11-2026 - the figures the screenshot AI filled (absent from an older worker = none) */
+  ai_keys?: string[];
   reviews: { id: number; version: number; action: string; note: string | null; by_name: string | null; created_at: string }[];
   analysis: Analysis | null; ai: AiUsage | null; can: { edit: boolean; participate: boolean; review: boolean };
 };
@@ -148,13 +151,15 @@ function Thumb({ row }: { row: Pick<Row, "id" | "thumb_file_id" | "duration_min"
 
 /* ======================================================================= */
 
-export function LiveReports() {
+export function LiveReports({ focus = null }: { focus?: RecordFocus | null } = {}) {
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
   const ov = useLoad<Overview>("/staff/live-reports/overview", tick);
   const list = useLoad<List>("/staff/live-reports", tick);
   const ai = useLoad<AiUsage>(ov?.can_review ? "/staff/live-reports/ai" : null, tick);
   const [open, setOpen] = useState<number | null>(null);
+  /* 19-11-2026 (the CEO) - the notification of a submitted or decided report opens it */
+  useRecordFocus(focus, true, (f) => { if (f.kind !== "live_report") return; setOpen(f.id); });
   const [newOpen, setNewOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | "mine" | "waiting">("all");
   const rows = useMemo(() => (list?.reports ?? []).filter((r) => filter === "all" ? true : filter === "waiting" ? r.state === "submitted" : r.participants.some((p) => p.user_id === list?.me)), [list, filter]);
@@ -291,7 +296,7 @@ export function LiveReports() {
           <ul className={css.ticks}>
             <li>{L("Project is optional: an own live chooses its company; a live for a project takes client & company from the project", "Projek pilihan: live sendiri memilih syarikatnya; live untuk projek ambil pelanggan & syarikat daripada projek")}</li>
             <li>{L("Roster or unplanned live (system creates \"Unplanned\" roster)", "Live roster atau tidak dirancang (sistem cipta roster \"Tidak dirancang\")")}</li>
-            <li>{L("Report stores both AI reading and staff-confirmed figures", "Laporan simpan bacaan AI dan angka yang disahkan staf")}</li>
+            <li>{L("The AI fills the figures it reads; staff type only the rest", "AI mengisi angka yang dibacanya; staf mengisi yang selebihnya")}</li>
             <li>{L("Analysis is rule-based (GMV/hour, conversion, AOV, trend)", "Analisis berasaskan peraturan (GMV/jam, penukaran, AOV, trend)")}</li>
             <li>{L("Staff only access (customers & agents not allowed)", "Akses staf sahaja (pelanggan & ejen tidak dibenarkan)")}</li>
             <li>{L("Reported GMV is not verified sales, cash, invoice or commission", "GMV dilaporkan bukan jualan disahkan, tunai, invois atau komisen")}</li>
@@ -507,13 +512,6 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
     const draft = d.can.edit;
     const next: Record<string, string> = {};
     for (const [k, , unit, dcol, vcol] of FIGS) next[k] = toForm(unit, draft ? r[dcol] : v?.[vcol]);
-    /* v1.386.0 - the CEO: "AI should filled the textbox instead!" - a draft's empty box shows what the AI read
-       (the worker now also saves it into the draft); a figure a person typed is never replaced */
-    const rd0 = d.readings.find((x) => x.outcome === "read" && x.figures);
-    if (draft && rd0?.figures) {
-      const ai0 = JSON.parse(rd0.figures) as Record<string, number | null>;
-      for (const [k] of FIGS) if ((next[k] ?? "") === "" && ai0[k] !== null && ai0[k] !== undefined) next[k] = String(ai0[k]);
-    }
     next.highlights = String((draft ? r.draft_highlights : v?.highlights) ?? "");
     next.blockers = String((draft ? r.draft_blockers : v?.blockers) ?? "");
     next.next_actions = String((draft ? r.draft_next_actions : v?.next_actions) ?? "");
@@ -521,8 +519,6 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
   }, [d, r]);
   if (!id) return null;
   const refresh = () => { setTick((t) => t + 1); onChanged(); };
-  const reading = d?.readings.find((x) => x.outcome === "read" && x.figures);
-  const aiFig: Record<string, number | null> = reading?.figures ? JSON.parse(reading.figures) as Record<string, number | null> : {};
   const call = async (key: string, path: string, method: string, body?: unknown, okWord?: string): Promise<boolean> => {
     setBusy(key);
     const res = await api<{ error?: { message?: string } }>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -531,7 +527,9 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
     if (okWord) fb.done(okWord);
     refresh(); return true;
   };
-  const saveDraft = (okWord?: string) => call("save", `/staff/live-reports/${id}/draft`, "PUT", Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v === "" ? null : v])), okWord);
+  /* 19-11-2026 - the AI fills the figures it read and they stay its own; staff type only the rest */
+  const aiKeys = new Set(d?.ai_keys ?? []);
+  const saveDraft = (okWord?: string) => call("save", `/staff/live-reports/${id}/draft`, "PUT", Object.fromEntries(Object.entries(form).filter(([k]) => !aiKeys.has(k)).map(([k, v]) => [k, v === "" ? null : v])), okWord);
   const upload = async (file: File) => {
     setBusy("upload");
     const res = await csrfFetch(`/api/v1/staff/live-reports/${id}/files`, { method: "POST", body: file, headers: { "Content-Type": file.type, "X-File-Name": file.name } });
@@ -548,10 +546,12 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
       const why: Record<string, string> = { off: L("The screenshot AI is off", "AI tangkapan skrin dimatikan"), not_bound: L("The screenshot AI is not connected", "AI tangkapan skrin tidak disambung"), cap_reached: L("Today's AI cap is reached", "Had AI hari ini telah dicapai"), ceiling_reached: L("The free AI allowance guard is reached", "Had peruntukan AI percuma dicapai"), unreadable: L("The AI could not find figures on this screenshot", "AI tidak menemui angka pada tangkapan skrin ini"), timeout: L("The AI was too slow", "AI terlalu perlahan"), failed: L("The AI failed", "AI gagal") };
       const cf = res.data.reason === "failed" && res.data.detail ? ` (Cloudflare: ${res.data.detail.slice(0, 120)})` : "";
       fb.notice(`${why[res.data.reason ?? "failed"] ?? why.failed} - ${L("type the figures below", "isi angka di bawah")}${cf}`);
-    } else fb.done(L("Figures read and filled in - check each one before you submit", "Angka dibaca dan diisi - semak setiap satu sebelum hantar"));
+    } else {
+      const n = res.data.figures ? Object.values(res.data.figures).filter((x) => x !== null && x !== undefined).length : 0;
+      fb.done(n >= FIGS.length ? L("The AI filled every figure", "AI telah mengisi semua angka") : L(`The AI filled ${n} of ${FIGS.length} figures - type the empty ones`, `AI telah mengisi ${n} daripada ${FIGS.length} angka - isi yang kosong`));
+    }
     refresh();
   };
-  const useAi = () => setForm((fm) => { const n = { ...fm }; for (const [k] of FIGS) if (aiFig[k] !== null && aiFig[k] !== undefined) n[k] = String(aiFig[k]); return n; });
   const edit = Boolean(d?.can.edit);
   const s = d?.session;
   return (
@@ -637,18 +637,28 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
             {edit && d.ai && <p className="erp-meta" data-testid="live-ai-line">{d.ai.manual_entry ? L("Screenshot AI is not available now - type the figures (always allowed).", "AI tangkapan skrin tidak tersedia - isi angka sendiri (sentiasa dibenarkan).") : L(`Screenshot AI on · ${d.ai.screenshots}/${d.ai.cap} today`, `AI tangkapan skrin hidup · ${d.ai.screenshots}/${d.ai.cap} hari ini`)}</p>}
           </Section>
 
-          <Section icon="chart" title={L("Figures (confirmed by staff)", "Angka (disahkan staf)")}
-            action={edit && reading ? <button type="button" className={btnSm} onClick={useAi} data-testid="live-use-ai">{L("Use the AI reading", "Guna bacaan AI")}</button> : undefined}>
+          <Section icon="chart" title={L("Figures", "Angka")}>
+            <p className="erp-meta" data-testid="live-fig-rule">{edit
+              ? L("Figures the AI read from the screenshot are filled for you and locked. Type only the empty ones. If the AI read one wrong, add a clearer screenshot and read it again.",
+                "Angka yang dibaca AI daripada tangkapan skrin diisi untuk anda dan dikunci. Isi yang kosong sahaja. Jika AI tersalah baca, tambah tangkapan skrin yang lebih jelas dan baca semula.")
+              : L("Each figure says whether the AI read it from the screenshot or the staff typed it.", "Setiap angka menyatakan sama ada AI membacanya daripada tangkapan skrin atau staf mengisinya.")}</p>
             <div className={css.figs}>
-              {FIGS.map(([k, label, unit]) => (
-                <label key={k} className={css.fig}>
-                  <span>{label}</span>
-                  <input className="erp-input" inputMode="decimal" type="number" min={0} step={unit === "rm" || unit === "percent" ? "0.01" : "1"} value={form[k] ?? ""} disabled={!edit}
-                    placeholder={!edit && aiFig[k] !== undefined && aiFig[k] !== null ? L(`AI: ${aiFig[k]} (not confirmed)`, `AI: ${aiFig[k]} (belum disahkan)`) : undefined}
-                    onChange={(e) => setForm({ ...form, [k]: e.target.value })} data-testid={`live-fig-${k}`} />
-                  {aiFig[k] !== undefined && aiFig[k] !== null && <small className={String(aiFig[k]) === (form[k] ?? "") ? css.aiSame : css.aiDiff}>{L("AI read", "Bacaan AI")}: {aiFig[k]}</small>}
-                </label>
-              ))}
+              {FIGS.map(([k, label, unit]) => {
+                const byAi = aiKeys.has(k);
+                const typed = !byAi && (form[k] ?? "") !== "";
+                return (
+                  <label key={k} className={css.fig}>
+                    <span>{label}</span>
+                    <input className={`erp-input${byAi ? ` ${css.figAi}` : ""}`} inputMode="decimal" type="number" min={0} step={unit === "rm" || unit === "percent" ? "0.01" : "1"} value={form[k] ?? ""}
+                      disabled={!edit} readOnly={byAi} aria-readonly={byAi || undefined}
+                      onChange={(e) => { if (!byAi) setForm({ ...form, [k]: e.target.value }); }} data-testid={`live-fig-${k}`} data-source={byAi ? "ai" : typed ? "staff" : "empty"} />
+                    {byAi
+                      ? <small className={css.aiSame}><AppIcon name="cloud" />{L("Read by AI from the screenshot", "Dibaca AI daripada tangkapan skrin")}</small>
+                      : typed ? <small className={css.byStaff}>{L("Typed by staff", "Diisi oleh staf")}</small>
+                      : edit ? <small className={css.byStaff}>{L("Not read by the AI - type it", "Tidak dibaca AI - isi sendiri")}</small> : null}
+                  </label>
+                );
+              })}
             </div>
           </Section>
 

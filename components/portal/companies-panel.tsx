@@ -30,6 +30,10 @@ import { LineTabs } from "@/components/ui/line-tabs";
 import { PillSwitch } from "@/components/ui/panel";
 import { PaginationControls, type PageSize } from "@/components/ui/pagination-controls";
 import { SkelRows } from "@/components/ui/skeleton";
+import { SideDrawer } from "@/components/ui/side-drawer";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { usePrompt } from "@/components/ui/prompt-dialog";
+import { useSaveToast } from "@/components/ui/save-toast";
 import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { SigningPanel } from "@/components/portal/signing-panel";
 import { usePortal } from "@/components/portal/portal-provider";
@@ -40,7 +44,7 @@ import { COMPANY_CODES, type CompanyCode, type CompanyStaffSetup } from "@/lib/c
 import { dmy, dmyMYT, fmtRM, mytToday } from "@/lib/format";
 import { getLang } from "@/lib/i18n";
 import { resolveIssuer } from "@/lib/issuers";
-import { btnSm, card, chipInfo, chipNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
+import { btnSm, card, chipInfo, chipNeutral, chipSuccess, chipWarn, inputClass } from "@/lib/ui-styles";
 import css from "./companies.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -54,6 +58,22 @@ const LAST_AZOO_DAY = "18-08-2026";
 const LOGO: Record<CompanyCode, string> = { a2z: "/logo.png", azoo: "/brands/azone.png" };
 const SHORT: Record<CompanyCode, string> = { a2z: "A2Z", azoo: "AZ ONE" };
 const SHORT_NAME: Record<CompanyCode, string> = { a2z: "A2Z Creative Marketing", azoo: "AZ One Official" };
+/* 19-11-2026 - THE DIRECTORS, as the CEO stated them ("CEO is the Director
+   for A2Z Creative Marketing, while AZ ONE OFFICIAL CEO is Managing Director
+   while COO is Director (partnership)"). Legal appointments are kept like the
+   letterhead: here, changed only by an approved release, never on screen.
+   Each appointment names the ROLE that holds it; the person shown is read
+   from the live staff list, so a change of holder needs no code change. */
+type Appointment = { role: "ceo" | "coo" | "cco"; title: { en: string; ms: string }; partner?: boolean };
+const DIRECTORS: Record<CompanyCode, { form: { en: string; ms: string }; seats: Appointment[] }> = {
+  a2z: { form: { en: "Sole proprietorship", ms: "Pemilikan tunggal" }, seats: [
+    { role: "ceo", title: { en: "Director", ms: "Pengarah" } },
+  ] },
+  azoo: { form: { en: "Partnership", ms: "Perkongsian" }, seats: [
+    { role: "ceo", title: { en: "Managing Director", ms: "Pengarah Urusan" }, partner: true },
+    { role: "coo", title: { en: "Director", ms: "Pengarah" }, partner: true },
+  ] },
+};
 const last4 = (t: string) => t.replace(/\D/g, "").slice(-4);
 const bankShown = (bank: string) => { const w = bank.split(/\s+/)[0] ?? ""; return `${w.charAt(0)}${w.slice(1).toLowerCase()} •••• ${last4(bank)}`; };
 
@@ -70,7 +90,8 @@ function useRead<T>(path: string | null, tick = 0): Read<T> {
   return path && got?.path === path ? got.r : null;
 }
 type ByCompany = { month: string; companies: Record<CompanyCode, { invoices: number; invoiced_cents: number; paid_cents: number; outstanding_n: number; outstanding_cents: number }> };
-type Cash = { totals: { in_cents: number; out_cents: number }; banks: { id: number; active: number; company: string | null }[] };
+type Bank = { id: number; name: string; bank: string | null; number_masked: string | null; active: number; company: string | null };
+type Cash = { totals: { in_cents: number; out_cents: number }; banks: Bank[]; can_correct?: boolean };
 type Owner = { owner: { name: string; verified: boolean; set_at: string; set_by_name: string | null } | null };
 type Signing = { authorities: { id: number; user_id: number; issuer_code: string; capacity: string; doc_types: string; granted_at: string }[]; people: { id: number; name: string; role: string; position: string | null; is_active: number }[]; policies?: { issuer_code?: string; personal?: number | boolean }[] };
 type AuditRow = { id: number; action: string; entity: string | null; entity_id: string | null; detail: string | null; created_at: string; user_name: string | null };
@@ -86,15 +107,21 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
   const month = today.slice(0, 7);
 
   const byCo = useRead<ByCompany>("/staff/docs/by-company");
-  const cashA = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=a2z`);
-  const cashZ = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=azoo`);
+  const [cashTick, setCashTick] = useState(0);
+  const [detail, setDetail] = useState<CompanyCode | null>(null);
+  const cashA = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=a2z`, cashTick);
+  const cashZ = useRead<Cash>(`/staff/erp/cashbook?from=${month}-01&to=${today}&company=azoo`, cashTick);
   const cash: Record<CompanyCode, Read<Cash>> = { a2z: cashA, azoo: cashZ };
   const reviewStaff = useRead<{ staff: CompanyStaffSetup[] }>(canReview ? "/staff/companies/staff" : null);
   const owner = useRead<Owner>(view === "ownership" || view === "overview" ? "/staff/owner" : null);
   const signing = useRead<Signing>(view === "ownership" ? "/staff/signing/overview" : null);
+  const staffList = useRead<{ staff: { id: number; name: string; role: string; position: string | null }[] }>(view === "ownership" ? "/staff/staff-list" : null);
+  const holderOf = (r: string) => staffList?.d?.staff.find((p) => p.role === r) ?? null;
 
   const members = (co: CompanyCode) => reviewStaff?.d?.staff.filter((s) => s.is_active && s.memberships.some((m) => m.company_code === co)).length ?? null;
   const banks = (co: CompanyCode) => cash[co]?.d ? cash[co]!.d!.banks.filter((b) => b.active && b.company === co).length : null;
+  const banksOf = (co: CompanyCode): Bank[] | null => (cash[co]?.d ? cash[co]!.d!.banks.filter((b) => b.company === co) : null);
+  const canFix = Boolean(cashA?.d?.can_correct ?? cashZ?.d?.can_correct) || ["ceo", "coo"].includes(role);
   const openUsers = (part?: string) => { if (part) setTabStart({ tab: "Users", view: part }); setTab("Users"); };
   const openTab = (t: "Finance" | "Staff Details" | "HR") => setTab(t);
 
@@ -113,7 +140,7 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
       {/* ================= Company Overview ================= */}
       <div className={css.body} hidden={view !== "overview"} data-testid="companies-overview">
         <div className={css.coGrid}>
-          {COMPANY_CODES.map((co) => <CompanyCard key={co} co={co} banks={banks(co)} members={members(co)} reviewer={canReview} />)}
+          {COMPANY_CODES.map((co) => <CompanyCard key={co} co={co} banks={banks(co)} members={members(co)} reviewer={canReview} onOpen={() => setDetail(co)} />)}
         </div>
         <div className={css.glanceRow}>
           <section className={`${card} ${css.panel}`} aria-label={L("Company at a glance", "Syarikat sepintas lalu")} data-testid="companies-glance">
@@ -182,17 +209,7 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
             return (
               <section key={co} className={`${card} ${css.panel}`} aria-label={i.name} data-testid={`details-${co}`}>
                 <h2 className={css.h2}><AppIcon name="building" />{i.name}</h2>
-                <dl className={css.kv}>
-                  <div><dt>{L("Registration", "Pendaftaran")}</dt><dd>SSM {i.ssm}<span className={css.muted}> · {L("old", "lama")} {i.oldReg}</span></dd></div>
-                  <div><dt>{L("Business activity", "Aktiviti perniagaan")}</dt><dd>{i.descriptor}</dd></div>
-                  <div><dt>{L("Registered address", "Alamat berdaftar")}</dt><dd>{i.addressLines.map((l) => <span key={l} className={css.line}>{l}</span>)}</dd></div>
-                  <div><dt>{L("Official email", "E-mel rasmi")}</dt><dd>{i.email}</dd></div>
-                  <div><dt>WhatsApp</dt><dd>{i.whatsapp}</dd></div>
-                  <div><dt>{L("Website", "Laman web")}</dt><dd>{i.website}</dd></div>
-                  <div><dt>{L("Bank account on invoices", "Akaun bank pada invois")}</dt><dd>{bankShown(i.bank)}<span className={css.muted}> · {i.bankHolder}</span></dd></div>
-                  <div><dt>SST</dt><dd>{i.sstRegistered ? L("Registered", "Berdaftar") : L("Not registered - documents say no SST is charged", "Tidak berdaftar - dokumen menyatakan tiada SST dikenakan")}</dd></div>
-                  <div><dt>{L("Documents", "Dokumen")}</dt><dd>{co === "a2z" ? L(`Issues every new document since ${SWITCH_DAY}`, `Mengeluarkan setiap dokumen baharu sejak ${SWITCH_DAY}`) : L(`Issued every document until ${LAST_AZOO_DAY}; those keep this letterhead`, `Mengeluarkan setiap dokumen hingga ${LAST_AZOO_DAY}; ia kekal dengan kepala surat ini`)}</dd></div>
-                </dl>
+                <CompanyDetail co={co} banks={banksOf(co)} canFix={canFix} onChanged={() => setCashTick((t) => t + 1)} />
               </section>
             );
           })}
@@ -231,10 +248,23 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
             })}
           </div>
         </TabZone>
-        <TabZone label={L("Directors and management appointments", "Pengarah dan pelantikan pengurusan")}>
-          <section className={`${card} ${css.panel}`}>
-            <p className={css.meta} data-testid="directors-none">{L("A directors register is not kept in A2Z OS yet. The registered directors are in each company's SSM records; a register here would be a separate feature you approve.", "Daftar pengarah belum disimpan dalam A2Z OS. Pengarah berdaftar ada dalam rekod SSM setiap syarikat; daftar di sini ialah ciri berasingan yang anda luluskan.")}</p>
-          </section>
+        <TabZone label={L("Directors and management appointments", "Pengarah dan pelantikan pengurusan")} hint={L("Each company's directors, as the CEO stated them. The person is read from the staff list by role.", "Pengarah setiap syarikat, seperti dinyatakan oleh CEO. Orangnya dibaca dari senarai staf mengikut peranan.")}>
+          <div className={css.coGrid}>
+            {COMPANY_CODES.map((co) => (
+              <section key={co} className={`${card} ${css.panel}`} aria-label={resolveIssuer(co).name} data-testid={`directors-${co}`}>
+                <div className={css.panelHead}><h2 className={css.h3}>{resolveIssuer(co).name}</h2><span className={chipNeutral}>{L(DIRECTORS[co].form.en, DIRECTORS[co].form.ms)}</span></div>
+                {!staffList ? <SkelRows rows={2} /> : (
+                  <ul className={css.people}>{DIRECTORS[co].seats.map((a) => { const p = holderOf(a.role); return (
+                    <li key={a.role}>
+                      <span className={css.avatar} aria-hidden="true">{(p?.name ?? roleLabel(a.role)).split(/\s+/).slice(0, 2).map((w) => w[0]).join("")}</span>
+                      <span className={css.personName}><strong>{p?.name ?? (staffList.refused ? roleLabel(a.role) : L("Not on the staff list", "Tiada dalam senarai staf"))}</strong><span className={css.meta}>{roleLabel(a.role)}</span></span>
+                      <span className={chipInfo}>{L(a.title.en, a.title.ms)}</span>
+                      {a.partner && <span className={chipNeutral}>{L("Partner", "Rakan kongsi")}</span>}
+                    </li>); })}</ul>
+                )}
+              </section>
+            ))}
+          </div>
         </TabZone>
       </div>
 
@@ -246,6 +276,10 @@ export function CompaniesPanel({ role = "", initialView }: { role?: string; init
         {view === "audit" && <CorporateAudit allowed={canAudit} />}
       </div>
 
+      <SideDrawer open={detail !== null} onClose={() => setDetail(null)} wide icon="building"
+        title={detail ? resolveIssuer(detail).name : ""} subtitle={detail ? `SSM ${resolveIssuer(detail).ssm} (${resolveIssuer(detail).oldReg})` : ""}>
+        {detail && <div data-testid={`company-drawer-${detail}`}><CompanyDetail co={detail} banks={banksOf(detail)} canFix={canFix} onChanged={() => setCashTick((t) => t + 1)} /></div>}
+      </SideDrawer>
     </TabPage>
   );
 }
@@ -316,7 +350,7 @@ function CorporateAudit({ allowed }: { allowed: boolean }) {
   );
 }
 
-function CompanyCard({ co, banks, members, reviewer }: { co: CompanyCode; banks: number | null; members: number | null; reviewer: boolean }) {
+function CompanyCard({ co, banks, members, reviewer, onOpen }: { co: CompanyCode; banks: number | null; members: number | null; reviewer: boolean; onOpen: () => void }) {
   const i = resolveIssuer(co);
   const operating = co === "a2z";
   return (
@@ -329,6 +363,7 @@ function CompanyCard({ co, banks, members, reviewer }: { co: CompanyCode; banks:
           <h2 className={css.coTitle}>{i.name}</h2>
           <span className={css.meta}>SSM {i.ssm} ({i.oldReg})</span>
         </div>
+        <button type="button" className={`${btnSm} ${css.coOpen}`} onClick={onOpen} data-testid={`company-open-${co}`}>{L("View details", "Lihat butiran")}<AppIcon name="next" /></button>
       </div>
       <div className={css.facts}>
         <Fact icon="date" label={operating ? L("Issuing since", "Mengeluarkan sejak") : L("Issued until", "Mengeluarkan hingga")} value={operating ? SWITCH_DAY : LAST_AZOO_DAY} />
@@ -352,5 +387,112 @@ function LinkCard({ icon, title, text, action }: { icon: "users" | "person"; tit
         {action && <button type="button" className={css.linkBtn} onClick={action.go}>{action.label}<AppIcon name="next" /></button>}
       </span>
     </section>
+  );
+}
+
+/* 19-11-2026 (the CEO: "I should be able to view the details of each
+   company ... I need to have the button for me to delete or to edit it") -
+   ONE company's details: the registered identity (lib/issuers.ts, read-only)
+   and its bank accounts, which are Finance's records edited through Finance's
+   own routes: PATCH /staff/erp/cashbook/banks/:id (name, bank, number,
+   archive / restore) and DELETE (only an account nothing refers to; a used
+   one is archived so no record loses its account). CEO / COO only - the
+   server decides (cashbook_correct). */
+function CompanyDetail({ co, banks, canFix, onChanged }: { co: CompanyCode; banks: Bank[] | null; canFix: boolean; onChanged: () => void }) {
+  const i = resolveIssuer(co);
+  const { confirm, node: confirmNode } = useConfirm();
+  const { prompt, node: promptNode } = usePrompt();
+  const { show: toast } = useSaveToast();
+  const [edit, setEdit] = useState<Bank | null>(null);
+  const [form, setForm] = useState({ name: "", bank: "", number_masked: "" });
+  const [busy, setBusy] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const printed = last4(i.bank);
+  const live = (banks ?? []).filter((b) => b.active);
+  const archived = (banks ?? []).filter((b) => !b.active);
+  const twins = (b: Bank) => live.filter((x) => x.id !== b.id && last4(x.number_masked ?? "") !== "" && last4(x.number_masked ?? "") === last4(b.number_masked ?? "")).length > 0;
+  const patch = (id: number, body: Record<string, unknown>) => api<{ error?: { message?: string } }>(`/staff/erp/cashbook/banks/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  const openEdit = (b: Bank) => { setEdit(b); setForm({ name: b.name, bank: b.bank ?? "", number_masked: b.number_masked ?? "" }); };
+  const saveEdit = async () => {
+    if (!edit || !form.name.trim()) return;
+    setBusy(true);
+    const r = await patch(edit.id, { name: form.name.trim(), bank: form.bank.trim(), number_masked: form.number_masked.trim() });
+    setBusy(false);
+    if (r.ok) { toast(L("Account saved", "Akaun disimpan"), form.name.trim()); setEdit(null); onChanged(); }
+    else toast(L("Not saved", "Tidak disimpan"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "error");
+  };
+  const remove = async (b: Bank) => {
+    const r0 = await prompt({ title: L(`Remove ${b.name}?`, `Buang ${b.name}?`), message: L("An account no record has used is deleted. One that was ever used is archived instead: it keeps its history and leaves every list and count.", "Akaun yang tiada rekod menggunakannya dipadam. Yang pernah digunakan diarkibkan: sejarahnya kekal dan ia keluar dari semua senarai dan kiraan."), label: L("Reason (8 characters or more)", "Sebab (8 aksara atau lebih)"), placeholder: L("e.g. duplicate of the Maybank account", "cth. pendua akaun Maybank"), required: true, confirmLabel: L("Remove", "Buang"), variant: "danger" });
+    if (!r0) return;
+    if (r0.value.trim().length < 8) { toast(L("Not removed", "Tidak dibuang"), L("The reason needs 8 characters or more", "Sebab perlu 8 aksara atau lebih"), "error"); return; }
+    setBusy(true);
+    const r = await api<{ error?: { code?: string; message?: string } }>(`/staff/erp/cashbook/banks/${b.id}?reason=${encodeURIComponent(r0.value.trim())}`, { method: "DELETE" });
+    setBusy(false);
+    if (r.ok) { toast(L("Account deleted", "Akaun dipadam"), b.name); onChanged(); return; }
+    if (r.data?.error?.code === "in_use" || r.status === 409) {
+      const ok = await confirm({ title: L("Archive it instead?", "Arkibkan sahaja?"), message: `${r.data?.error?.message ?? ""}`, confirmLabel: L("Archive", "Arkib") });
+      if (!ok) return;
+      setBusy(true);
+      const a = await patch(b.id, { active: false });
+      setBusy(false);
+      if (a.ok) { toast(L("Account archived", "Akaun diarkibkan"), L(`${b.name} - its history is kept`, `${b.name} - sejarahnya kekal`)); onChanged(); }
+      else toast(L("Not archived", "Tidak diarkibkan"), a.data?.error?.message ?? L("Try again", "Cuba lagi"), "error");
+      return;
+    }
+    toast(L("Not removed", "Tidak dibuang"), r.data?.error?.message ?? L("Try again", "Cuba lagi"), "error");
+  };
+  const restore = async (b: Bank) => {
+    setBusy(true);
+    const a = await patch(b.id, { active: true });
+    setBusy(false);
+    if (a.ok) { toast(L("Account restored", "Akaun dipulihkan"), b.name); onChanged(); }
+    else toast(L("Not restored", "Tidak dipulihkan"), a.data?.error?.message ?? L("Try again", "Cuba lagi"), "error");
+  };
+  const row = (b: Bank) => (
+    <li key={b.id} className={css.bankRow} data-testid="company-bank">
+      <span className={css.personName}><strong>{b.name}</strong><span className={css.meta}>{[b.bank, b.number_masked ? `•••• ${last4(b.number_masked)}` : null].filter(Boolean).join(" · ") || L("No bank or number recorded", "Tiada bank atau nombor direkod")}</span></span>
+      {b.active ? <span className={chipSuccess}>{L("Active", "Aktif")}</span> : <span className={chipNeutral}>{L("Archived", "Diarkibkan")}</span>}
+      {Boolean(b.active) && Boolean(printed) && last4(b.number_masked ?? "") === printed && <span className={chipInfo}>{L("On invoices", "Pada invois")}</span>}
+      {Boolean(b.active) && twins(b) && <span className={chipWarn}>{L("Possible duplicate", "Mungkin pendua")}</span>}
+      {canFix && <span className={css.rowBtns}>
+        {b.active ? <>
+          <button type="button" className={btnSm} disabled={busy} onClick={() => openEdit(b)} aria-label={L(`Edit ${b.name}`, `Sunting ${b.name}`)} data-testid="bank-edit"><AppIcon name="edit" />{L("Edit", "Sunting")}</button>
+          <button type="button" className={btnSm} disabled={busy} onClick={() => void remove(b)} aria-label={L(`Remove ${b.name}`, `Buang ${b.name}`)} data-testid="bank-remove"><AppIcon name="close" />{L("Remove", "Buang")}</button>
+        </> : <button type="button" className={btnSm} disabled={busy} onClick={() => void restore(b)} data-testid="bank-restore">{L("Restore", "Pulihkan")}</button>}
+      </span>}
+    </li>
+  );
+  return (
+    <>
+      {confirmNode}{promptNode}
+      <dl className={css.kv}>
+        <div><dt>{L("Registration", "Pendaftaran")}</dt><dd>SSM {i.ssm}<span className={css.muted}> · {L("old", "lama")} {i.oldReg}</span></dd></div>
+        <div><dt>{L("Business activity", "Aktiviti perniagaan")}</dt><dd>{i.descriptor}</dd></div>
+        <div><dt>{L("Registered address", "Alamat berdaftar")}</dt><dd>{i.addressLines.map((l) => <span key={l} className={css.line}>{l}</span>)}</dd></div>
+        <div><dt>{L("Official email", "E-mel rasmi")}</dt><dd>{i.email}</dd></div>
+        <div><dt>WhatsApp</dt><dd>{i.whatsapp}</dd></div>
+        <div><dt>{L("Website", "Laman web")}</dt><dd>{i.website}</dd></div>
+        <div><dt>{L("Bank account on invoices", "Akaun bank pada invois")}</dt><dd>{bankShown(i.bank)}<span className={css.muted}> · {i.bankHolder}</span></dd></div>
+        <div><dt>SST</dt><dd>{i.sstRegistered ? L("Registered", "Berdaftar") : L("Not registered - documents say no SST is charged", "Tidak berdaftar - dokumen menyatakan tiada SST dikenakan")}</dd></div>
+        <div><dt>{L("Documents", "Dokumen")}</dt><dd>{co === "a2z" ? L(`Issues every new document since ${SWITCH_DAY}`, `Mengeluarkan setiap dokumen baharu sejak ${SWITCH_DAY}`) : L(`Issued every document until ${LAST_AZOO_DAY}; those keep this letterhead`, `Mengeluarkan setiap dokumen hingga ${LAST_AZOO_DAY}; ia kekal dengan kepala surat ini`)}</dd></div>
+      </dl>
+      <div className={css.bankHead}>
+        <h3 className={css.h3}><AppIcon name="money" />{L("Bank accounts", "Akaun bank")}{banks ? ` · ${live.length}` : ""}</h3>
+        {archived.length > 0 && <button type="button" className={btnSm} onClick={() => setShowArchived((v) => !v)} data-testid="bank-archived-toggle">{showArchived ? L("Hide archived", "Sorok arkib") : L(`Show archived (${archived.length})`, `Tunjuk arkib (${archived.length})`)}</button>}
+      </div>
+      {banks === null ? <SkelRows rows={2} /> : banks.length === 0 ? <p className={css.meta}>{L("No bank account recorded for this company yet.", "Belum ada akaun bank direkod untuk syarikat ini.")}</p> : (
+        <ul className={css.people} data-testid={`company-banks-${co}`}>{live.map(row)}{showArchived && archived.map(row)}</ul>
+      )}
+      {!canFix && banks && banks.length > 0 && <p className={css.meta}>{L("Only the CEO or COO edits or removes an account.", "Hanya CEO atau COO menyunting atau membuang akaun.")}</p>}
+      <SideDrawer open={edit !== null} onClose={() => setEdit(null)} form icon="edit" title={L("Edit bank account", "Sunting akaun bank")} subtitle={i.name}
+        footer={<><button type="button" className={btnSm} onClick={() => setEdit(null)}>{L("Cancel", "Batal")}</button><button type="button" className="erp-button erp-button-accent" disabled={busy || !form.name.trim()} onClick={() => void saveEdit()} data-testid="bank-save">{L("Save", "Simpan")}</button></>}>
+        <div className={css.formStack}>
+          <label className={css.field}>{L("Account name", "Nama akaun")}<input className={inputClass} value={form.name} maxLength={100} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="bank-name" /></label>
+          <label className={css.field}>{L("Bank", "Bank")}<input className={inputClass} value={form.bank} maxLength={100} onChange={(e) => setForm({ ...form, bank: e.target.value })} /></label>
+          <label className={css.field}>{L("Account number (masked, e.g. •••• 7032)", "Nombor akaun (bertopeng, cth. •••• 7032)")}<input className={inputClass} value={form.number_masked} maxLength={40} onChange={(e) => setForm({ ...form, number_masked: e.target.value })} /></label>
+          <p className={css.meta}>{L("The company of an account is not changed here: once money went through it, its company stays (Finance's rule).", "Syarikat akaun tidak diubah di sini: sebaik wang melaluinya, syarikatnya kekal (peraturan Kewangan).")}</p>
+        </div>
+      </SideDrawer>
+    </>
   );
 }

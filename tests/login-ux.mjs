@@ -34,9 +34,12 @@
  *      and inputMode="numeric" (so the keypad and the SMS/authenticator
  *      autofill appear), the pasted value is stripped to digits and capped
  *      at six, and the sixth digit signs in by itself.
- *   9. THE FORGOTTEN PASSWORD IS ANSWERED NEUTRALLY (v1.211.0). There is no
- *      self-service reset; the page says to contact A2Z - and no longer how
- *      accounts are run inside (no "administrator", no "Users tab").
+ *   9. THE FORGOTTEN PASSWORD IS ANSWERED NEUTRALLY (v1.211.0; self-service
+ *      by email from 19-11-2026). The page asks for the email and says the
+ *      same thing whatever it is; the worker answers { ok: true } for any
+ *      address, mails only an active staff account, through the one
+ *      set-password link (one hour, the A2Z OS frame) - and still never says
+ *      how accounts are run inside (no "administrator", no "Users tab").
  *  10. STILL BILINGUAL, STILL STATIC-EXPORT SAFE. Every string is L(en, ms),
  *      and the language is read in an effect - never at module scope, which
  *      would render "en" into login.html and "ms" on the client (v1.27.0).
@@ -162,7 +165,18 @@ const i18n = read("lib/i18n.ts");
 
 /* ---- 9 + 10. honest help, and still bilingual ---- */
 {
-  ok("the forgotten password is answered, neutrally", /Forgot password\?/.test(src) && /To reset your password, please contact A2Z Creative Marketing\./.test(src) && /sila hubungi A2Z Creative Marketing/.test(src) && !/Users tab|self-service|administrator/i.test(strip(src)));
+  ok("the forgotten password is answered, neutrally", /Forgot password\?/.test(src) && /If this email belongs to an A2Z OS staff account/.test(src) && /Jika e-mel ini milik akaun kakitangan A2Z OS/.test(src) && /"\/auth\/forgot-password"/.test(src) && !/Users tab|self-service|administrator/.test(strip(src)));
+  {
+    const w = read("worker/src/index.ts");
+    const i = w.indexOf('path === "/api/v1/auth/forgot-password"');
+    const r = i < 0 ? "" : w.slice(i, w.indexOf("\n  }\n", i));
+    const st = read("worker/src/staff.ts");
+    ok("forgot password: every answer after the checks is the same { ok: true }", i > 0 && /const done = json\(\{ ok: true \}\)/.test(r) && (r.match(/return done;/g) || []).length === 3 && !/"(not_found|no_account|unknown_email)"|, 404\)/.test(r));
+    ok("forgot password: Cloudflare check and an IP limit come first", i > 0 && r.indexOf("checkRateLimit(env, `forgot:") < r.indexOf("botCheck(") && r.indexOf("botCheck(") < r.indexOf("SELECT id, email"));
+    ok("forgot password: staff only, never a customer, agent or leaver", /role NOT IN \('customer', 'agent'\)/.test(r) && /NOT IN \('resigned', 'terminated'\)/.test(r) && /is_active = 1/.test(r));
+    ok("forgot password: one email per account kept to 3 an hour, audited", /forgotacct:\$\{u\.id\}`, 3, 3600/.test(r) && /auth\.password_reset_requested/.test(r));
+    ok("forgot password: the one set-password link, one hour, in the A2Z OS frame", /issueSetPasswordLink\([^)]*true\)/.test(r) && /RESET_PASSWORD_TTL_HOURS = 1;/.test(st) && /subject: "A2Z OS: reset your password"/.test(st));
+  }
   ok("the help is disclosed, not always shouting", /aria-expanded=\{helpOpen\}/.test(src));
   const bare = [...src.matchAll(/>([A-Z][A-Za-z' ]{6,})</g)].map((m) => m[1].trim())
     .filter((t) => !/^(A2Z|EN|BM)/.test(t));

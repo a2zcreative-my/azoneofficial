@@ -1192,5 +1192,32 @@ export async function handleCashbook(
     return json({ ok: true });
   }
 
+  /* 19-11-2026 (the CEO: "AZ One Official seem having duplication of bank
+     account which is I need to remove it") - REMOVING an account. Only an
+     account NOTHING refers to is deleted: no cash movement, no marked receipt
+     or payment, no payment report, no expense and no company-review decision.
+     One that was ever used is ARCHIVED instead (PATCH active=false), so no
+     financial record ever loses its account. CEO / COO, a reason, audited
+     with what the account was. */
+  if (mBank && method === "DELETE") {
+    if (!canFix) return err("forbidden", "Only the CEO or COO can remove an account", 403);
+    const id = Number(mBank[1]);
+    const reason = (params.get("reason") ?? "").trim().slice(0, 500); // a DELETE carries no body here
+    if (reason.length < 8) return err("validation", "Say why it is removed (8 characters or more)", 400);
+    const cur = await env.DB.prepare(`SELECT * FROM bank_accounts WHERE id = ?1`).bind(id).first<Record<string, unknown>>();
+    if (!cur) return err("not_found", "Account not found", 404);
+    const count = async (sql: string) => { try { return Number((await env.DB.prepare(sql).bind(id).first<{ n: number }>())?.n ?? 0); } catch (e) { if (/no such (table|column)/i.test(String(e))) return 0; throw e; } };
+    const used = (await count(`SELECT COUNT(*) AS n FROM cashflow_entries WHERE bank_id = ?1`))
+      + (await count(`SELECT COUNT(*) AS n FROM cashbook_marks WHERE bank_id = ?1`))
+      + (await count(`SELECT COUNT(*) AS n FROM invoice_payment_reports WHERE bank_id = ?1`))
+      + (await count(`SELECT COUNT(*) AS n FROM expenses WHERE bank_id = ?1`))
+      + (await count(`SELECT COUNT(*) AS n FROM company_review_decisions WHERE record_kind = 'bank_accounts' AND record_id = ?1`));
+    if (used > 0) return err("in_use", `${used} record(s) already use this account, so it cannot be deleted - archive it instead (it keeps its history and leaves every list)`, 409);
+    const r = await env.DB.prepare(`DELETE FROM bank_accounts WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM cashflow_entries WHERE bank_id = ?1)`).bind(id).run();
+    if (!Number(r.meta?.changes ?? 0)) return err("in_use", "The account was used a moment ago - archive it instead", 409);
+    await audit(env, user.id, "cashbook.bank_delete", "bank_accounts", String(id), { reason, name: cur.name ?? null, bank: cur.bank ?? null, number_masked: cur.number_masked ?? null, company: cur.company ?? null });
+    return json({ ok: true, deleted: id });
+  }
+
   return null;
 }

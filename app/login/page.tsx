@@ -16,7 +16,8 @@
  *   - every failed sign-in, by password or by Google, says the same
  *     sentence, so the page never tells anyone whether an account exists,
  *     is switched off, or has left;
- *   - "Forgot password?" says to contact A2Z, not how accounts are run;
+ *   - "Forgot password?" emails a staff member a one-hour reset link (19-11-2026) and
+ *     answers the same whatever the email is;
  *   - no Create account (the owner: hide it from the page).
  * Password, Google and two-factor sign-in are exactly what they were, and
  * the server decides every one of them (worker/src/index.ts, /auth/*).
@@ -251,6 +252,11 @@ export default function LoginPage() {
   const [botKey, setBotKey] = useState<string | null>(null);
   const bot = useBotCheck(botKey, "signin");
   const [helpOpen, setHelpOpen] = useState(false);
+  /* 19-11-2026 - forgot password: the staff member asks for a reset link by email */
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState("");
   /* v1.264.0 - the worker says which ways in are on (GET /auth/methods);
      until it answers the Google button shows, as it always has */
   const [googleOn, setGoogleOn] = useState(true);
@@ -413,6 +419,33 @@ export default function LoginPage() {
       /* v1.211.0 - one sentence, whatever the reason */
       setError(L(...FAILED));
     }
+  };
+
+  /* 19-11-2026 - ask for a reset link. The server answers the same whatever the email is,
+     so the page says the same thing too - it never tells whether an account exists. */
+  const requestReset = async () => {
+    const e = resetEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+      setResetError(L("Enter the email you sign in with.", "Masukkan e-mel yang anda gunakan untuk log masuk."));
+      return;
+    }
+    if (!bot.canSend) {
+      setResetError(L("Please wait - Cloudflare is still checking your browser.", "Sila tunggu - Cloudflare masih menyemak pelayar anda."));
+      return;
+    }
+    setResetBusy(true);
+    setResetError("");
+    const res = await api<{ ok: boolean }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: e, bot_token: bot.token }),
+    });
+    bot.spend(); // a token is good for one try
+    setResetBusy(false);
+    if (res.ok) { setResetSent(true); return; }
+    if (res.status === 429) setResetError(L("Too many requests - try again in 15 minutes.", "Terlalu banyak permintaan - cuba lagi dalam 15 minit."));
+    else if (res.status === 403) setResetError(L(...BOT_FAILED));
+    else if (res.status === 0) setResetError(L("Can't reach the server just now - please try again shortly.", "Tidak dapat menghubungi pelayan buat masa ini - sila cuba lagi sebentar nanti."));
+    else setResetError(L("Enter the email you sign in with.", "Masukkan e-mel yang anda gunakan untuk log masuk."));
   };
 
   /* v1.269.0 - sign in with a passkey: the worker binds the challenge to this
@@ -592,16 +625,57 @@ export default function LoginPage() {
 
             <div className={css.help}>
               <button type="button" className={css.linkBtn}
-                aria-expanded={helpOpen} onClick={() => setHelpOpen((v) => !v)}>
+                aria-expanded={helpOpen} aria-controls="forgot-panel"
+                onClick={() => { setHelpOpen((v) => !v); setResetEmail((v) => v || email); setResetError(""); }}>
                 {L("Forgot password?", "Lupa kata laluan?")}
               </button>
               {helpOpen && (
-                <p className={css.helpNote}>
-                  {L(
-                    "To reset your password, please contact A2Z Creative Marketing.",
-                    "Untuk menetapkan semula kata laluan anda, sila hubungi A2Z Creative Marketing.",
+                <div id="forgot-panel" className={css.forgot} data-testid="forgot-panel">
+                  {resetSent ? (
+                    <p className={css.forgotDone} role="status" data-testid="forgot-sent">
+                      {L(
+                        "If this email belongs to an A2Z OS staff account, we have sent a link to choose a new password. It works once, for 1 hour - check your inbox and spam folder.",
+                        "Jika e-mel ini milik akaun kakitangan A2Z OS, kami telah menghantar pautan untuk memilih kata laluan baharu. Ia berfungsi sekali, selama 1 jam - semak peti masuk dan folder spam anda.",
+                      )}
+                    </p>
+                  ) : (
+                    <form className={css.forgotForm} noValidate onSubmit={(e) => { e.preventDefault(); if (!resetBusy) void requestReset(); }}>
+                      <p className={css.forgotLede}>
+                        {L(
+                          "Enter the email you sign in with. We will email you a link to choose a new password.",
+                          "Masukkan e-mel yang anda gunakan untuk log masuk. Kami akan menghantar pautan untuk memilih kata laluan baharu.",
+                        )}
+                      </p>
+                      <Field id="reset-email" label={L("Your work email", "E-mel kerja anda")}>
+                        <input
+                          id="reset-email"
+                          className={inputClassLg}
+                          type="email"
+                          inputMode="email"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          autoComplete="username"
+                          placeholder={L("Enter your work email", "Masukkan e-mel kerja anda")}
+                          aria-invalid={resetError ? true : undefined}
+                          aria-describedby={resetError ? "reset-error" : undefined}
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                        />
+                      </Field>
+                      {resetError && <ErrorNote id="reset-error" message={resetError} />}
+                      <button type="submit" className={css.forgotBtn} disabled={resetBusy} data-testid="forgot-send">
+                        {resetBusy ? L("Sending…", "Menghantar…") : L("Email me a reset link", "Hantar pautan tetapan semula")}
+                      </button>
+                      <p className={css.forgotNote}>
+                        {L(
+                          "Your authenticator code is still asked when you sign in. No access to this email? Contact A2Z Creative Marketing.",
+                          "Kod pengesah anda masih diminta semasa log masuk. Tiada akses ke e-mel ini? Hubungi A2Z Creative Marketing.",
+                        )}
+                      </p>
+                    </form>
                   )}
-                </p>
+                </div>
               )}
             </div>
             <p className={css.pwaTag}><AppIcon name="devices" /><strong>{L("A2Z PWA", "A2Z PWA")}</strong><span>{L("Mobile experience", "Pengalaman mudah alih")}</span></p>

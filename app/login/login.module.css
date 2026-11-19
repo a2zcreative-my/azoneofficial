@@ -440,6 +440,60 @@
   font-size: 0.8125rem;
   text-align: center;
 }
+/* 19-11-2026 - forgot password */
+.forgot {
+  margin-top: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--secondary);
+  text-align: left;
+}
+.forgotForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.forgotLede,
+.forgotNote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.forgotNote {
+  font-size: 0.8125rem;
+}
+.forgotBtn {
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--brand-primary);
+  border-radius: var(--radius-full);
+  background: var(--card);
+  color: var(--brand-primary);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.forgotBtn:hover {
+  background: var(--brand-primary);
+  color: var(--primary-foreground);
+}
+.forgotBtn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.forgotBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.forgotDone {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
 .codeInput {
   text-align: center;
   font-size: 1.5rem;

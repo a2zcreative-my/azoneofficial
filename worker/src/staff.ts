@@ -1950,8 +1950,12 @@ export async function notify(
   // ~20 notification kinds — the portal is A2Z CREATIVE MARKETING's.
   // v1.226.0: a shift reminder names itself ("Shift starting soon").
   const tab = kind === "attendance" && ref?.startsWith("shift_") ? "On Shift" : PUSH_TAB[kind];
+  /* 19-11-2026 (the CEO) - a Live Report push opens the report itself:
+     Roster & Scheduling > Live Reports, whatever kind the row was filed under */
+  const liveReport = /^live_report:(\d+)(?::|$)/.exec(ref ?? "");
   const t = await pushToUser(env, userId, opts.title ?? "A2Z CREATIVE MARKETING", message, ref,
-    tab && tab !== "Dashboard" ? `/portal?tab=${encodeURIComponent(tab)}` : "/portal", opts.push);
+    liveReport ? `/portal?tab=${encodeURIComponent("Roster & Scheduling")}&view=reports&live_report=${liveReport[1]}`
+      : tab && tab !== "Dashboard" ? `/portal?tab=${encodeURIComponent(tab)}` : "/portal", opts.push);
   if (opts.tally) {
     opts.tally.sent += t.sent; opts.tally.failed += t.failed; opts.tally.pruned += t.pruned; opts.tally.statuses.push(...t.statuses);
   }
@@ -2074,16 +2078,32 @@ export function legacyNotice(env: Env, c: { name: string; email: string }, until
   };
 }
 
+/* 19-11-2026 - THE STAFF'S OWN "FORGOT PASSWORD" (the CEO: "my staff should be able to forgot
+   password using email ... the template use globally in this OS"). The same single-use
+   set-password token, asked for from the sign-in page by the person: it lives one hour (an
+   administrator's link keeps SET_PASSWORD_TTL_HOURS), its subject names "A2Z OS" so
+   sendMailResult draws it in the one A2Z OS frame (mail.ts osAccountMail), and the person's
+   authenticator code is still asked at the next sign-in. */
+export const RESET_PASSWORD_TTL_HOURS = 1;
+
 export async function issueSetPasswordLink(
-  env: Env, actor: { id: number; name: string }, target: { id: number; email: string }, invite: boolean, customer = false,
+  env: Env, actor: { id: number; name: string }, target: { id: number; email: string; name?: string }, invite: boolean, customer = false, reset = false,
 ): Promise<{ emailed: boolean; link: string }> {
   const tok = newToken();
+  const ttl = reset ? RESET_PASSWORD_TTL_HOURS : SET_PASSWORD_TTL_HOURS;
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM account_tokens WHERE user_id = ?1 AND kind = 'set_password' AND used_at IS NULL`).bind(target.id),
-    env.DB.prepare(`INSERT INTO account_tokens (user_id, kind, token_hash, expires_at, created_by) VALUES (?1, 'set_password', ?2, datetime('now', '+${SET_PASSWORD_TTL_HOURS} hours'), ?3)`).bind(target.id, await sha256Acct(tok), actor.id),
+    env.DB.prepare(`INSERT INTO account_tokens (user_id, kind, token_hash, expires_at, created_by) VALUES (?1, 'set_password', ?2, datetime('now', '+${ttl} hours'), ?3)`).bind(target.id, await sha256Acct(tok), actor.id),
   ]);
   const link = `${primaryOrigin(env)}/set-password#token=${tok}`;
-  const emailed = await sendMail(env, customer
+  const emailed = await sendMail(env, reset
+    ? { to: target.email, subject: "A2Z OS: reset your password",
+        text: `Hello ${target.name || "there"},\n\n`
+          + `We received a request to reset the password of your A2Z OS account (${target.email}). Choose a new password with this link - it works once, for 1 hour:\n${link}\n\n`
+          + `Your authenticator code is still asked when you sign in, and every device signed in to your account is signed out when the new password is set.\n\n`
+          + `A2Z will never ask you for your password or a code by email, phone or WhatsApp.\n\n`
+          + `If you did not ask for this, ignore this email - your password stays as it is.` }
+    : customer
     /* v1.266.0 - a customer: no "A2Z OS", no two-factor line */
     ? { to: target.email, subject: "Set the password of your A2Z account", text: `A2Z Creative Marketing sent you a link to set a password for your A2Z account. It works once, for ${SET_PASSWORD_TTL_HOURS} hours:\n${link}\n\nIf you did not ask us for this, ignore this email and tell A2Z Creative Marketing.` }
     : invite
