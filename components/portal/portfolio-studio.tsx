@@ -361,6 +361,12 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
                 <input className={inputClass} maxLength={60} value={merged!.display_name ?? ""} disabled={!edit} onChange={(e) => set({ display_name: e.target.value })} placeholder={d.staff.name} data-testid="pf-display-name" />
                 <span className="erp-meta">{L("Shown on the card and the public page. Leave empty to use the full name. The staff record keeps the full name.", "Dipaparkan pada kad dan halaman awam. Biarkan kosong untuk nama penuh. Rekod kakitangan kekal dengan nama penuh.")}</span>
               </label>
+              <label className={fieldLabel}>{L("Letters for the name", "Huruf untuk nama")}
+                <select className={selectClass} value={merged!.name_case === "upper" ? "upper" : "normal"} disabled={!edit} onChange={(e) => set({ name_case: e.target.value === "upper" ? "upper" : "normal" })} data-testid="pf-name-case">
+                  <option value="normal">{L("Normal letters (Nurul Fasehah)", "Huruf biasa (Nurul Fasehah)")}</option>
+                  <option value="upper">{L("CAPITAL LETTERS (NURUL FASEHAH)", "HURUF BESAR (NURUL FASEHAH)")}</option>
+                </select>
+              </label>
               <label className={fieldLabel}>{L("Professional tagline", "Slogan profesional")}
                 <input className={inputClass} maxLength={120} value={merged!.tagline ?? ""} disabled={!edit} onChange={(e) => set({ tagline: e.target.value })} placeholder={L("One short line about how they work", "Satu baris ringkas tentang cara mereka bekerja")} data-testid="pf-tagline" />
               </label>

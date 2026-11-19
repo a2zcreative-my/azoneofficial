@@ -580,3 +580,5 @@ additive only - two new tables (`staff_portfolios`, `staff_portfolio_items`) wit
 access table is touched.
 The portfolio nickname (the CEO 19-11-2026) adds `0217_portfolio_display_name`: additive only - one
 nullable column on `staff_portfolios`. `users` is not altered; the staff record keeps the full name.
+The name lettering (the CEO 19-11-2026) adds `0218_portfolio_name_case`: additive only - one nullable
+column on `staff_portfolios` (upper = capitals, NULL = normal letters). `users` is not altered.

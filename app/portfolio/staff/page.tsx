@@ -20,7 +20,7 @@ import { A2Z_CREATIVE } from "@/lib/issuers";
 import css from "./staff.module.css";
 
 interface PublicPortfolio {
-  slug: string; url: string; name: string; position: string | null; department: string | null;
+  slug: string; url: string; name: string; name_case?: "upper" | "normal"; position: string | null; department: string | null;
   tagline: string | null; intro: string | null; specialties: string[]; expertise: string[]; experience: string | null;
   responsibilities: string[]; email: string | null; phone: string | null; socials: Record<string, string>; template: string;
   has_photo: boolean; published_at: string | null;
@@ -100,7 +100,7 @@ export default function StaffPortfolioPage() {
     );
   }
 
-  const name = titleCase(p.name);
+  const name = p.name_case === "upper" ? p.name.toLocaleUpperCase("ms-MY") : titleCase(p.name);
   const email = p.email ?? CONTACT.email;
   const waNumber = p.phone ? p.phone.replace(/\D/g, "").replace(/^0/, "60") : CONTACT.whatsapp;
   const featured = p.items.filter((i) => i.featured);

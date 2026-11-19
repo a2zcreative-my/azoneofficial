@@ -12,7 +12,7 @@
    printed card's proportion). Everything vertical is laid out against the card's height.
    The canvas never fetches anything: the caller hands in decoded images. */
 
-import { CARD_ICONS, type CardIcon } from "@/lib/card-icons";
+import { CARD_ICONS, iconFor, iconsFor, type CardIcon } from "@/lib/card-icons";
 import { qrMatrix } from "@/lib/qr";
 
 export type CardTemplate = "navy" | "gold" | "light";
@@ -24,6 +24,8 @@ export const CARD_SIZES: Record<CardSize, { w: number; h: number; mm?: [number, 
 
 export interface CardData {
   name: string;
+  /** 0218 - 'upper' draws the name in CAPITAL LETTERS; otherwise normal letters (an all-caps record name is title-cased) */
+  nameCase?: "upper" | "normal";
   position: string;
   department: string | null;
   tagline: string | null;
@@ -64,17 +66,8 @@ export function cardFont(): string {
 
 const titleCase = (s: string) => (s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_m, a: string, b: string) => a + b.toUpperCase()) : s);
 
-/** the specialty's icon, chosen by its words; a star when nothing fits */
-export function iconFor(label: string): CardIcon {
-  const t = label.toLowerCase();
-  const rules: [RegExp, CardIcon][] = [
-    [/video|edit|film|reel/, "video"], [/photo|camera|shoot/, "camera"], [/live|stream|host/, "live"], [/content|copy|writ|script/, "layers"],
-    [/campaign|ads?\b|advert|promot|marketing/, "megaphone"], [/design|graphic|brand|creative/, "design"], [/sales|selling|closing|deal/, "growth"],
-    [/client|customer|relation|partner/, "team"], [/social|tiktok|instagram|media/, "message"], [/data|report|analy|insight/, "chart"],
-    [/team|people|hr|recruit/, "team"], [/shop|commerce|product|store/, "shop"], [/voice|mc|present|speak/, "mic"], [/plan|project|manage|coordinat/, "target"],
-  ];
-  return rules.find(([re]) => re.test(t))?.[1] ?? "star";
-}
+/** the specialty icon rules live in lib/card-icons.ts (iconFor / iconsFor) - one place, tested */
+export { iconFor };
 
 function icon(ctx: CanvasRenderingContext2D, name: CardIcon, x: number, y: number, size: number, color: string, width = 2) {
   ctx.save();
@@ -184,9 +177,12 @@ export function drawFront(ctx: CanvasRenderingContext2D, d: CardData, a: CardAss
     const maxW = W * 0.7 * crop.zoom;
     if (fw > maxW) { fh *= maxW / fw; fw = maxW; }
     /* keep the left edge clear of the name column; the right edge may run off the card */
-    let cx = area.x + area.w * 0.56 + crop.x * area.w * 0.5;
+    /* the starting spot keeps clear of the name column; the Left / right slider then moves the person
+       BOTH ways from it (it used to pull every left move back to the start - the CEO, 19-11-2026) */
+    let cx = area.x + area.w * 0.56;
     const leftLimit = W * 0.43;
-    if (cx - fw / 2 < leftLimit && crop.x <= 0.0001) cx = Math.min(leftLimit + fw / 2, W - fw * 0.38);
+    if (cx - fw / 2 < leftLimit) cx = Math.min(leftLimit + fw / 2, W - fw * 0.38);
+    cx += crop.x * area.w * 0.5;
     const by = area.y + area.h + crop.y * area.h * 0.4 + 10 * k;
     ctx.save();
     ctx.beginPath(); ctx.rect(area.x - W * 0.08, 0, W, bandTop + 90 * k); ctx.clip();
@@ -242,7 +238,7 @@ export function drawFront(ctx: CanvasRenderingContext2D, d: CardData, a: CardAss
 
   /* name, position, department, tagline: the left column, centred in the space it has */
   const colW = W * 0.47;
-  const name = titleCase(d.name.trim());
+  const name = d.nameCase === "upper" ? d.name.trim().toLocaleUpperCase("ms-MY") : titleCase(d.name.trim());
   const nameMax = W * 0.52;
   const ns = fitFont(ctx, (s) => F(700, s), name, nameMax, Math.round(124 * k), Math.round(64 * k), 3);
   ctx.font = F(700, ns);
@@ -315,13 +311,14 @@ export function drawFront(ctx: CanvasRenderingContext2D, d: CardData, a: CardAss
     const slot = (W - 100) / n;
     const cy = bandTop + 200 * k;
     const r = Math.min(66 * k, slot * 0.34);
+    const spIcons = iconsFor(sp.slice(0, n)); // each specialty its best-fitting icon, none repeated when another fits
     for (let i = 0; i < n; i++) {
       const cx = 50 + slot * i + slot / 2;
       ctx.fillStyle = "rgba(255,255,255,0.1)";
       ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 2; ctx.stroke();
       const is = r * 0.95;
-      icon(ctx, iconFor(sp[i]!), cx - is / 2, cy - is / 2, is, "#ffffff", 1.8);
+      icon(ctx, spIcons[i] ?? "star", cx - is / 2, cy - is / 2, is, "#ffffff", 1.8);
       ctx.font = F(500, 29 * k); ctx.fillStyle = "#ffffff"; ctx.textAlign = "center";
       const lines = clampLines(ctx, wrap(ctx, sp[i]!, slot - 24), 2, slot - 24);
       let ty = cy + r + 50 * k;

@@ -4,6 +4,14 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Staff > Portfolios: each specialty gets a fitting icon (19-11-2026, the CEO) - NO MIGRATION
+- "Key specialties require to find correct svc to ensure it is related to it ... not related for Multimedia and Branding": `lib/card-icons.ts` now holds 65 Lucide icons (32 new: branding, multimedia, scissors, copywriting, images, clapperboard, idea, presentation, SEO, digital ads, cart, package, truck, headset, calculator, wallet, code, mobile, heart, share, layout, typography, brush, aperture, clipboard, shield, languages, wand, book, school, trophy) and one matcher (`iconFor` / `iconsFor`) that goes from the most specific phrase to the general word, in English and Malay. "Multimedia" no longer matches social "media"; "Branding" no longer shares Graphic Design's pen; "Video Editing" is a clapperboard. On one card, two specialties that fall on the same rule take different icons.
+- Every icon regenerated from lucide-react's own files: a piece that began with a relative "m" had been drawn from the end of the piece before it (stray strokes on design, film, handshake, check, mail and YouTube). Guard staff-portfolios checks 31 specialties, the no-repeat rule and that no icon piece starts relative.
+
+### Staff > Portfolios: capitals or normal letters for the name, and Left / right after Remove background (19-11-2026, the CEO) - MIGRATION 0218
+- "For the Nickname I should be able to choose either caplock, or uncaplock": **Letters for the name** on the Card tab - Normal letters or CAPITAL LETTERS (migration 0218, `staff_portfolios.name_case`). The card follows at once; the public page after the next Publish.
+- "On the left/right after remove background it doesnt able to left/right": the cut-out portrait pulled every move to the left back to its starting spot. The slider now moves the person both ways from where it starts.
+
 ### Staff > Portfolios: a nickname and the portfolio's own photo (19-11-2026, the CEO) - MIGRATION 0217
 - "I dont want to touch staff photo, just want to add another photo of them for their portfolio": the Photo box's "Replace staff photo" is now **Upload portfolio photo**. The photo is kept on the portfolio (`?own=1`), never stale when the staff photo changes, and the staff record photo is never written from the portfolio. Remove background and the sliders work on it; "Use the staff record photo instead" goes back.
 - "I want to have a function to change their name to nickname instead": **Name on the card (nickname)** on the Card tab (migration 0217, `staff_portfolios.display_name`). The card shows it at once; the public page after the next Publish; empty = the full name. The staff record keeps the full name.

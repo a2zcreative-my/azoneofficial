@@ -43,6 +43,8 @@ export type PortfolioRow = {
   tagline: string | null; intro: string | null; specialties: string | null; expertise: string | null;
   /** 0217 - the name the card and the public page show (a nickname); NULL = the staff record's full name */
   display_name?: string | null;
+  /** 0218 - 'upper' = CAPITAL LETTERS, 'normal' / NULL = normal letters */
+  name_case?: string | null;
   experience: string | null; contact_email: string | null; contact_phone: string | null; show_email: number; show_phone: number;
   socials: string | null; portrait_key: string | null; portrait_source_key: string | null; photo_crop: string | null;
   published_json: string | null; published_at: string | null; published_by: number | null; published_version: number | null;
@@ -55,6 +57,8 @@ type StaffBits = {
 export type PublicSnapshot = {
   /** 0217 - only when a nickname is set, so an older snapshot reads the same */
   display_name?: string;
+  /** 0218 - only when set to capitals, so an older snapshot reads the same */
+  name_case?: "upper";
   tagline: string | null; intro: string | null; specialties: string[]; expertise: string[];
   experience: string | null; email: string | null; phone: string | null; socials: Record<string, string>;
   portrait_key: string | null; template: string;
@@ -141,6 +145,7 @@ async function snapshotOf(env: Env, p: PortfolioRow, s: StaffBits): Promise<Publ
   const items = await itemsOf(env, p.id);
   return {
     ...(p.display_name?.trim() ? { display_name: p.display_name.trim() } : {}),
+    ...(p.name_case === "upper" ? { name_case: "upper" as const } : {}),
     tagline: p.tagline, intro: p.intro, specialties: parseList(p.specialties),
     expertise: parseList(p.expertise), experience: p.experience,
     email: p.show_email ? (p.contact_email ?? null) : null, phone: p.show_phone ? (p.contact_phone ?? null) : null,
@@ -180,6 +185,7 @@ function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Aw
     portfolio: {
       id: p.id, user_id: p.user_id, slug: p.slug, state: p.state, template: p.template, tagline: p.tagline, intro: p.intro,
       display_name: p.display_name ?? null,
+      name_case: p.name_case === "upper" ? "upper" : "normal",
       specialties: parseList(p.specialties), expertise: parseList(p.expertise),
       experience: p.experience, contact_email: p.contact_email, contact_phone: p.contact_phone,
       show_email: Boolean(p.show_email), show_phone: Boolean(p.show_phone), socials: parseObj(p.socials),
@@ -296,6 +302,10 @@ export async function handlePortfolios(
     const put = (col: string, v: unknown) => { vals.push(v); sets.push(`${col} = ?${vals.length}`); };
     const text = (k: string, n: number) => { if (body && k in body) put(k, trimTo(body[k], n)); };
     text("tagline", 120); text("intro", 1200); text("experience", 40);
+    if (body && "name_case" in body) { // 0218 - capitals or normal letters for the name on the card
+      if (!["upper", "normal", null].includes(body.name_case as string | null)) return err("invalid_input", "The name is shown in capitals or in normal letters", 400);
+      put("name_case", body.name_case === "upper" ? "upper" : null);
+    }
     text("display_name", 60); // 0217 - the nickname on the card and the page; the staff record is never changed
     for (const k of ["specialties", "expertise"] as const) {
       const l = listOf(body?.[k], 60);
@@ -475,7 +485,7 @@ export async function publicPortfolio(env: Env, slug: string): Promise<{ p: Port
 export function publicView(x: { p: PortfolioRow; s: StaffBits; snap: PublicSnapshot; duties: string[] }) {
   const { p, s, snap } = x;
   return {
-    slug: p.slug, url: publicUrl(p.slug), name: snap.display_name?.trim() || displayName(s), position: positionOf(s), department: (s.department ?? "").trim() || null,
+    slug: p.slug, url: publicUrl(p.slug), name: snap.display_name?.trim() || displayName(s), name_case: snap.name_case === "upper" ? "upper" : "normal", position: positionOf(s), department: (s.department ?? "").trim() || null,
     tagline: snap.tagline, intro: snap.intro, specialties: snap.specialties, expertise: snap.expertise, experience: snap.experience,
     responsibilities: x.duties,
     email: snap.email, phone: snap.phone, socials: snap.socials, template: snap.template,

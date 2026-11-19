@@ -145,6 +145,15 @@ try {
   d = (await call(`/staff/portfolios/${pid}`, 1)).j;
   ok(d.portfolio.display_name === null, "nickname: emptied, the full name is used again");
 
+  /* 0218 - capitals or normal letters for the name */
+  ok(d.portfolio.name_case === "normal", "letters: normal by default");
+  ok((await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, name_case: "shout" })).status === 400, "letters: only capitals or normal");
+  await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, name_case: "upper" });
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  ok(d.portfolio.name_case === "upper", "letters: capitals saved");
+  await call(`/staff/portfolios/${pid}/publish`, 1, "POST", { version: d.portfolio.version });
+  ok((await call("/public/portfolio/nurfarah", null)).j?.portfolio?.name_case === "upper", "letters: once published, the page draws the name in capitals");
+
   /* the approver shows the phone */
   await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, show_phone: true });
   d = (await call(`/staff/portfolios/${pid}`, 1)).j;
@@ -196,7 +205,7 @@ function checks(s) {
   const t = (c, m) => out.push([!!c, m]);
   t(/\/portfolio\/elfia\s+\/portfolio\s+301[\s\S]*\/portfolio\/:name\s+\/portfolio\/staff\s+200/.test(s.redirects), "every /portfolio/<name> is the one static page (rewrite 200), after the /portfolio/elfia 301");
   t(/\\\/api\\\/v1\\\/public\\\/portfolio\\\//.test(s.idx), "the public API lives under /api/v1/public/portfolio (the content list keeps /api/v1/portfolio)");
-  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
+  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name|0218_portfolio_name_case)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?("0218_portfolio_name_case",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
   t(/portfolio_manage: \[[^\]]*"hr_admin"[^\]]*\]/.test(s.perms) && /portfolio_publish: \["super_admin", "ceo", "coo"\]/.test(s.perms), "portfolio_manage and portfolio_publish are PERMS caps (publish = CEO, COO, super admin)");
   t(/cap: "portfolio_manage"/.test(s.perms) && /cap: "portfolio_publish"/.test(s.perms), "both are rows of the editable matrix");
   t(/handlePortfolios\(env, path, method, body, user, request\)/.test(s.staff) && /portfolios\\\/\\d\+\\\/\(portrait\|items\\\/\\d\+\\\/media\)/.test(s.staff), "one door in staff.ts; the uploads are raw bodies");
@@ -225,6 +234,34 @@ let caught = 0;
 if (!process.env.NOMUT) for (const [k, name, from, to] of MUT) {
   if (!SRC[k].includes(from)) { failed++; console.log(`  x mutation did not apply: ${name}`); continue; }
   if (checks({ ...SRC, [k]: SRC[k].replace(from, to) }).some(([p]) => !p)) caught++; else { failed++; console.log(`  x mutation not caught: ${name}`); }
+}
+/* 19-11-2026 (the CEO: "Key specialties require to find correct svc ... make sure that it is able to check
+   and match it properly") - the specialty icons: each common specialty its own fitting icon (English and
+   Malay), no two on one card when another fits, and every icon drawn from absolute starts (a piece that
+   began with a relative "m" had been drawn from the end of the piece before it) */
+{
+  const { execSync } = await import("node:child_process");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { pathToFileURL } = await import("node:url");
+  const outF = join(mkdtempSync(join(tmpdir(), "icons-")), "ci.mjs");
+  execSync(`npx esbuild "${join(root, "lib/card-icons.ts")}" --format=esm --outfile="${outF}" --log-level=error`, { cwd: root });
+  const { iconFor, iconsFor, CARD_ICONS } = await import(pathToFileURL(outF).href);
+  const want = {
+    "Graphic Design": "design", "Branding": "brand", "Multimedia": "multimedia", "Video Editing": "clapper", "Marketing Design": "megaphone",
+    "Live Selling": "live", "Content Creation": "content", "Copywriting": "copywrite", "Social Media Management": "share", "Photography": "camera",
+    "Facebook Ads": "click", "SEO": "seo", "Customer Service": "headset", "Client Relationship": "handshake", "E-commerce": "cart",
+    "Inventory Management": "package", "Accounting": "calculator", "Data Analysis": "chart", "Event Management": "calendar", "Project Management": "clipboard",
+    "Recruitment": "team", "UI/UX Design": "layout", "Motion Graphics": "wand", "Illustration": "brush", "Public Speaking": "mic",
+    "Reka Bentuk Grafik": "design", "Penjenamaan": "brand", "Suntingan Video": "clapper", "Pemasaran Digital": "click", "Media Sosial": "share", "Canva": "design",
+  };
+  let bad = Object.entries(want).filter(([l, ic]) => iconFor(l) !== ic).map(([l, ic]) => `${l}: ${iconFor(l)} (want ${ic})`);
+  if (bad.length) { failed++; console.log(`  x a specialty gets the wrong icon - ${bad.join("; ")}`); }
+  const card = iconsFor(["Graphic Design", "Poster Design", "Layout Design"]);
+  if (new Set(card).size !== 3) { failed++; console.log(`  x two specialties on one card share an icon when another fits - ${card.join(", ")}`); }
+  bad = Object.entries(CARD_ICONS).filter(([, d]) => !/^M/.test(d) || / m[-.\d]/.test(d)).map(([k]) => k);
+  if (bad.length) { failed++; console.log(`  x an icon piece starts with a relative move (drawn in the wrong place) - ${bad.join(", ")}`); }
+  if (iconFor("Hardware") !== "star") { failed++; console.log("  x a specialty nothing fits should get the star"); }
 }
 if (failed) { console.log(`staff-portfolios: ${failed} failed`); process.exit(1); }
 console.log(`PASS - staff portfolios: real worker on every migration; draft/unpublished/leaver never public; publish is the approval and freezes photo + work; no private field public; the address fixed; no QR without a page (${runtime.length} runtime + ${base.length} static checks${process.env.NOMUT ? "" : `, ${caught} mutations caught`})`);
