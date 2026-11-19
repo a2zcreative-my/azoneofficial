@@ -12,13 +12,15 @@
                          photo is taken at a punch, so none is shown)
      Punch History       every punch that day, marked real / manual /
                          amended / waiting for approval
-     Corrections         that day's forgotten punches; they are decided in
-                         Exceptions & Approvals, never here
+     Corrections         that day's forgotten punches (decided in Exceptions &
+                         Approvals) and, from 19-11-2026, the corrections
+                         themselves for attendance_correct: change a punch's
+                         time, remove one, add a missing one - with a reason
      Audit Log           the person's attendance and overtime events
                          (GET /staff/attendance/audit - read only)
 
    Export: this day as CSV, and the month's punches for Payroll (the
-   existing /attendance/export, payroll_export). Nothing here writes. */
+   existing /attendance/export, payroll_export). Only the Corrections tab writes (attendance-correct.tsx). */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { L } from "@/components/portal/page-shared";
@@ -36,6 +38,9 @@ import { properName } from "@/lib/names";
 import { btnSm, card, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClassSm, selectClassSm } from "@/lib/ui-styles";
 import { TodayRows } from "./attendance-overview";
 import { STATUS, StatusChip, addDays, dayLabel, hhmm, hm, leaveWord, locText, mytHm, type DayRegister, type DayStatus, type PersonDay } from "./attendance-shared";
+import { DayCorrections } from "./attendance-correct"; // 19-11-2026 - correct the day inside its own drawer
+import { usePortal } from "./portal-provider";
+import { holds } from "@/lib/caps";
 import css from "./attendance4.module.css";
 
 /* the six figures of the day (the reference's KPI strip) - each is the filter it names.
@@ -170,9 +175,15 @@ const ACTION: Record<string, [string, string]> = {
   "ot.decide": ["Overtime decided", "OT diputuskan"], "ot.replacement_leave": ["Overtime to replacement leave", "OT ke cuti gantian"], "ot.amend": ["Overtime amended", "OT dipinda"],
 };
 
+/* 19-11-2026 - the reason a correction was made, when the audit row carries one */
+const reasonOf = (detail: string | null) => { try { const o = detail ? JSON.parse(detail) as { reason?: unknown } : null; return typeof o?.reason === "string" ? o.reason : null; } catch { return null; } };
+
 /** One person's day - the drawer the Overview, Records and the Roster open. */
 export function PersonDayDrawer({ target, onClose, goExceptions }: { target: { id: number; day: string } | null; onClose: () => void; goExceptions: () => void }) {
   const reg = useCachedApi<DayRegister>(target ? `/staff/attendance/day?date=${target.day}` : null, true, ["attendance"]);
+  const { user } = usePortal();
+  /* 19-11-2026 - who may correct here: the server's attendance_correct, never on your own record */
+  const canCorrect = holds("attendance_correct", ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"].includes(user.role)) && target?.id !== user.id;
   const p: PersonDay | null = target ? reg.data?.staff.find((x) => x.id === target.id) ?? null : null;
   const [tab, setTab] = useState<Tab>("details");
   const [audit, setAudit] = useState<{ id: number; rows: AuditRow[] | null; failed: boolean } | null>(null);
@@ -240,17 +251,19 @@ export function PersonDayDrawer({ target, onClose, goExceptions }: { target: { i
               {pending.length === 0 ? <p className={css.empty}>{L("No correction request for this date.", "Tiada permohonan pembetulan untuk tarikh ini.")}</p> : (
                 <ul className={css.list}>{pending.map((x) => <li key={x.id}><span className={css.listText}><strong>{L(`Forgotten ${x.type === "clock_in" ? "clock-in" : "clock-out"} at ${mytHm(x.at)}`, `${x.type === "clock_in" ? "Daftar masuk" : "Daftar keluar"} terlupa pada ${mytHm(x.at)}`)}</strong><span className={css.sub}>{L("Counts for nothing until it is approved.", "Tidak dikira sehingga diluluskan.")}</span></span><span className={chipSmWarn}>{L("Pending", "Menunggu")}</span></li>)}</ul>
               )}
-              <p className={css.boundary}>{L("Corrections are decided in ", "Pembetulan diputuskan dalam ")}<button type="button" className={btnSm} onClick={goExceptions}>{L("Exceptions & Approvals", "Pengecualian & Kelulusan")}</button>{L(" - never by the person who asked.", " - bukan oleh pemohon.")}</p>
+              {pending.length > 0 && <p className={css.boundary}>{L("A forgotten punch someone asked for is decided in ", "Ketukan terlupa yang dimohon diputuskan dalam ")}<button type="button" className={btnSm} onClick={goExceptions}>{L("Exceptions & Approvals", "Pengecualian & Kelulusan")}</button>{L(" - never by the person who asked.", " - bukan oleh pemohon.")}</p>}
+              {canCorrect ? <DayCorrections key={`${target.id}:${target.day}`} userId={target.id} name={properName(p.name)} day={target.day} punches={punches} onChanged={() => reg.refresh()} />
+                : <p className={css.sub}>{target.id === user.id ? L("Your own record is corrected by someone else.", "Rekod anda sendiri dibetulkan oleh orang lain.") : L("Corrections are made by the CEO, COO, CCO or HR.", "Pembetulan dibuat oleh CEO, COO, CCO atau HR.")}</p>}
             </>
           )}
           {tab === "audit" && (
             !audit || audit.id !== target.id ? <SkelRows rows={3} /> : audit.failed ? <p className={css.empty}>{L("The audit log could not be read just now.", "Log audit tidak dapat dibaca sekarang.")}</p> : (audit.rows ?? []).length === 0 ? <p className={css.empty}>{L("No attendance change recorded for this person.", "Tiada perubahan kehadiran direkod untuk orang ini.")}</p> : (
               <ol className={css.timeline} data-testid="att-audit">
-                {(audit.rows ?? []).map((r) => <li key={r.id}><strong>{ACTION[r.action] ? L(ACTION[r.action]![0], ACTION[r.action]![1]) : r.action}</strong><span className={css.muted}>{dmyMYT(r.created_at)} · {r.user_name ?? "—"}</span></li>)}
+                {(audit.rows ?? []).map((r) => { const why = reasonOf(r.detail); return <li key={r.id}><strong>{ACTION[r.action] ? L(ACTION[r.action]![0], ACTION[r.action]![1]) : r.action}</strong>{why && <span>{L("Reason: ", "Sebab: ")}{why}</span>}<span className={css.muted}>{dmyMYT(r.created_at)} · {r.user_name ?? "—"}</span></li>; })}
               </ol>
             )
           )}
-          <p className={css.sub}>{L("Read only. Records change only through a decided correction.", "Baca sahaja. Rekod berubah hanya melalui pembetulan yang diputuskan.")} <span className={chipSmNeutral}>{hhmm(p.verdict.start)}–{hhmm(p.verdict.end)}</span></p>
+          {tab !== "corrections" && <p className={css.sub}>{canCorrect ? <>{L("To fix a punch, open ", "Untuk membetulkan ketukan, buka ")}<button type="button" className={btnSm} onClick={() => setTab("corrections")} data-testid="att-go-correct">{L("Corrections", "Pembetulan")}</button></> : L("Read only. Records change only through a decided correction.", "Baca sahaja. Rekod berubah hanya melalui pembetulan yang diputuskan.")} <span className={chipSmNeutral}>{hhmm(p.verdict.start)}–{hhmm(p.verdict.end)}</span></p>}
         </div>
       )}
     </SideDrawer>

@@ -13538,7 +13538,9 @@ async function handleStaffRoutes(
       `INSERT INTO attendance_records (user_id, type, created_at, manual_by)
        VALUES (?1, ?2, ?3, ?4)`,
     ).bind(body.user_id, body.type, createdAt, user.id).run();
-    await audit(env, user.id, "attendance.manual", "users", String(body.user_id), { type: body.type, myt });
+    /* 19-11-2026 - the reason the correction was made (the person-day drawer asks for one) */
+    const whyM = str(body?.reason, 300) ? String(body!.reason).trim() : null;
+    await audit(env, user.id, "attendance.manual", "users", String(body.user_id), { type: body.type, myt, ...(whyM ? { reason: whyM } : {}) });
     /* v1.243.0 (go-live audit D3) - the day this punch belongs to is derived
        again, and the day before it (a clock-out after midnight closes
        yesterday's session). Released or paid months are never recomputed:
@@ -14009,6 +14011,8 @@ async function handleStaffRoutes(
       return err("invalid_input", "myt (YYYY-MM-DD HH:MM, Malaysia time) is required", 400);
     }
     const utc = new Date(new Date(myt.replace(" ", "T") + ":00Z").getTime() - 8 * 3600 * 1000);
+    /* 19-11-2026 - an amended punch cannot be moved into the future (the same rule as a manual one) */
+    if (!Number.isFinite(utc.getTime()) || utc.getTime() > Date.now() + 5 * 60 * 1000) return err("invalid_input", "The time must be a real moment, not in the future", 400);
     const createdAt = utc.toISOString().slice(0, 19).replace("T", " ");
     /* v1.139.0 - the day BEFORE the change, so a punch moved across midnight
        re-derives both days rather than leaving the old claim on the old one. */
@@ -14022,7 +14026,8 @@ async function handleStaffRoutes(
       `UPDATE attendance_records SET created_at = ?1, amended_by = ?2, amended_at = datetime('now') WHERE id = ?3`,
     ).bind(createdAt, user.id, attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
-    await audit(env, user.id, "attendance.amend", "attendance_records", attMatch[1], { from: beforeA?.d, to: myt.slice(0, 10) });
+    const whyA = str(body?.reason, 300) ? String(body!.reason).trim() : null;
+    await audit(env, user.id, "attendance.amend", "attendance_records", attMatch[1], { from: beforeA?.d, to: myt.slice(0, 10), ...(whyA ? { reason: whyA } : {}) });
     await reDeriveDays(env, beforeA?.user_id ?? 0, [beforeA?.d, myt.slice(0, 10)]);
     return json({ ok: true });
   }
@@ -14036,7 +14041,9 @@ async function handleStaffRoutes(
     if (selfDel) return selfDel;
     const res = await env.DB.prepare(`DELETE FROM attendance_records WHERE id = ?1`).bind(attMatch[1]).run();
     if (!res.meta.changes) return err("not_found", "Record not found", 404);
-    await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1], { day: beforeD?.d });
+    /* 19-11-2026 - a DELETE has no body here: the reason rides in ?reason= */
+    const whyD = (new URL(request.url).searchParams.get("reason") ?? "").trim().slice(0, 300);
+    await audit(env, user.id, "attendance.delete", "attendance_records", attMatch[1], { day: beforeD?.d, ...(whyD ? { reason: whyD } : {}) });
     await reDeriveDays(env, beforeD?.user_id ?? 0, [beforeD?.d]);
     return json({ ok: true });
   }

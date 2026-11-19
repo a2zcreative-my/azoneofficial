@@ -161,3 +161,12 @@
 .repTitle { font-weight: 700; }
 .repSel > select { width: 12rem; }
 .repSelWide > select { width: 14rem; }
+
+/* 19-11-2026 - corrections inside a person's day */
+.correct { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+.correctRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.correctForm { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--secondary); }
+.correctFields { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.correctFields > * { flex: 1 1 8rem; min-width: 0; }
+.correctActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.correctActions > .sub { margin-right: auto; }

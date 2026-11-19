@@ -4,6 +4,39 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Attendance: correct a day from the person's day (19-11-2026, the CEO) - NO MIGRATION
+- The CEO: "on attendance & record I should be able to perform correction". The Corrections tab of a person's day (Attendance Records -> View, and Roster & Scheduling) now carries the corrections for those who hold `attendance_correct` (CEO, COO, CCO, HR admin, admin): Change time, Remove, and Add a missing clock-in / clock-out (components/portal/attendance-correct.tsx). Each asks for a reason (5+ characters); a removal asks first.
+- The same routes as before (`PATCH` / `DELETE /staff/attendance/:id`, `POST /staff/attendance/manual`): the punch is marked Amended or Manual, the day's hours and overtime are worked out again, and the reason is now kept in the audit log (shown in the drawer's Audit Log). An amended time can no longer be in the future. Nobody corrects their own record; a forgotten punch someone asked for is still decided in Exceptions & Approvals.
+- Guard: new `attendance-correct` (runtime, 17 checks).
+
+### Assets: a QR label in the asset's details, ready to print (19-11-2026, the CEO) - NO MIGRATION
+- The CEO: "a QR code for the asset which is easier for me to print and paste it to the physical. this QR must visible on the card details instead of outside". The asset drawer now opens with a QR label (components/portal/asset-label.tsx): the code, the asset tag and a Print label button. Nothing changes on the register rows.
+- The code holds only the link `/portal?tab=Assets&asset=<id>` - never the price, the holder or the serial. Scanning it with a phone camera opens that asset's drawer after the usual sign-in (portal-provider deep link, the same focus a search hit uses); who may see the asset is still the server's rule.
+- Print label prints one 70 x 35 mm label (code, company, tag, name) from a hidden frame - cut it out or print onto a sticker sheet.
+- The QR is drawn by lib/qr.ts (QR Model 2, byte mode, error correction M, after Project Nayuki's reference generator): no package added, no network call.
+- Guard: new `asset-qr` (14 checks; the encoder's output was checked with OpenCV's QR reader).
+
+### Live Reports: the AI fills the figures it reads; staff type only the rest (19-11-2026, the CEO) - NO MIGRATION
+- The CEO: "Duration, AI read 60, but the textbox appear 1 ... Manual filled should only the textbox that AI doesnt filled". Supersedes v1.386.0's "fill only EMPTY boxes, never over a typed figure", which is why a typed 1 stayed beside an AI reading of 60.
+- A reading writes every figure it read into the draft (`aiFilled` / `aiFillStatement` in worker/src/live-reports.ts; the newest reading of this submission's screenshots wins per figure). The draft refuses a different value for one of them (409 `ai_filled`); submit writes them again before the version freezes, so a draft typed before this change is corrected when it is submitted.
+- The report form: an AI figure is tinted, locked and says "Read by AI from the screenshot"; the others say "Not read by the AI - type it" / "Typed by staff". The "Use the AI reading" button is gone. A wrong reading is corrected with a clearer screenshot read again, or by the reviewer's Return. `GET /staff/live-reports/:id` returns `ai_keys` (the draft's, or the submitted version's for the reviewer).
+- Guards: new `live-ai-fill` (runtime, 16 checks); `live-reports-v2` check and mutation moved to the new rule.
+
+### Sign-in: staff reset a forgotten password by email (19-11-2026, the CEO) - NO MIGRATION
+- "Forgot password?" opens a form: the staff member's email -> `POST /api/v1/auth/forgot-password` -> the existing single-use set-password link, ONE hour (`RESET_PASSWORD_TTL_HOURS`), emailed through `sendMail` with the subject "A2Z OS: reset your password", so it is drawn in the one A2Z OS template (mail.ts `osAccountMail`).
+- Only an active staff account is emailed (never a customer, agent, leaver or disabled account); every address gets the same answer, so the page never says whether an account exists. Cloudflare's check (`signin`) first, 5 asks per IP in 15 minutes, 3 emails per account an hour; audited `auth.password_reset_requested`. The authenticator code is still asked at sign-in, and setting the password signs every device out.
+- Guards: new `forgot-password` (runtime, 18 checks); `login-ux` check 9 reworded to the self-service reset (55 checks).
+- Verify after release: send a reset to your own account and confirm the email arrives.
+
+## [1.387.0] - 2026-11-19 - Companies and Users & Security reorganised; no false ELFIA errors; Finance history account step; Attendance report; account emails - BUILT, NOT DEPLOYED (MIGRATION 0214 if not yet applied)
+
+A new version number so the errors the previous release (1.386.0) logged are marked as fixed history and no longer raise the Dashboard's red alert.
+
+- **Companies → each company's details and bank accounts** (the CEO, 19-11-2026): every company card has View details (registration, address, contacts, the account printed on invoices, SST, and its bank accounts); the same list is under each company on Corporate Details. The CEO and COO can Edit an account (name, bank, masked number) or Remove it: an account nothing has ever used is deleted (new `DELETE /staff/erp/cashbook/banks/:id`, reason required, audited); one that was used is archived instead and can be restored, so no money record loses its account. Two active accounts of one company ending in the same digits are marked Possible duplicate.
+- **Companies → Ownership & Directors** lists the directors as the CEO stated them: A2Z CREATIVE MARKETING (sole proprietorship) - CEO, Director; AZ ONE OFFICIAL (partnership) - CEO, Managing Director and Partner; COO, Director and Partner. The person shown is read from the staff list by role.
+- **A Live Report notification opens the report** (the CEO: it opened Tasks): the bell and the phone push both open Roster & Scheduling → Live Reports with that report open, for the reviewer and for the host.
+
+
 ## [1.387.0] - 2026-11-19 - Companies and Users & Security reorganised; no false ELFIA errors; Finance history account step; Attendance report; account emails - BUILT, NOT DEPLOYED (MIGRATION 0214 if not yet applied)
 
 A new version number so the errors the previous release (1.386.0) logged are marked as fixed history and no longer raise the Dashboard's red alert.
