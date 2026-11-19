@@ -130,6 +130,21 @@ try {
   d = (await call(`/staff/portfolios/${pid}`, 1)).j;
   ok(d.portfolio.portrait_own === true && d.portfolio.portrait_stale === false, "own photo: a new staff photo does not replace it");
 
+  /* 19-11-2026 (the CEO) - a nickname on the portfolio: the card and the page show it, the staff record keeps the full name */
+  const fullBefore = db.prepare("SELECT name, full_name FROM users WHERE id = 11").get();
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  ok((await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, display_name: "  Farah  " })).status === 200, "nickname: saved on the portfolio");
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  ok(d.portfolio.display_name === "Farah" && d.staff.name !== "Farah", "nickname: the portfolio holds it; the staff name is the record's", JSON.stringify([d.portfolio.display_name, d.staff.name]));
+  ok(JSON.stringify(db.prepare("SELECT name, full_name FROM users WHERE id = 11").get()) === JSON.stringify(fullBefore), "nickname: the staff record is not changed");
+  ok((await call("/public/portfolio/nurfarah", null)).j?.portfolio?.name !== "Farah", "nickname: the public page changes only when published again");
+  await call(`/staff/portfolios/${pid}/publish`, 1, "POST", { version: d.portfolio.version });
+  ok((await call("/public/portfolio/nurfarah", null)).j?.portfolio?.name === "Farah", "nickname: once published, the public page shows it");
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, display_name: "" });
+  d = (await call(`/staff/portfolios/${pid}`, 1)).j;
+  ok(d.portfolio.display_name === null, "nickname: emptied, the full name is used again");
+
   /* the approver shows the phone */
   await call(`/staff/portfolios/${pid}`, 1, "PUT", { version: d.portfolio.version, show_phone: true });
   d = (await call(`/staff/portfolios/${pid}`, 1)).j;
@@ -181,7 +196,7 @@ function checks(s) {
   const t = (c, m) => out.push([!!c, m]);
   t(/\/portfolio\/elfia\s+\/portfolio\s+301[\s\S]*\/portfolio\/:name\s+\/portfolio\/staff\s+200/.test(s.redirects), "every /portfolio/<name> is the one static page (rewrite 200), after the /portfolio/elfia 301");
   t(/\\\/api\\\/v1\\\/public\\\/portfolio\\\//.test(s.idx), "the public API lives under /api/v1/public/portfolio (the content list keeps /api/v1/portfolio)");
-  t(/const LATEST_MIGRATION = "0216_staff_portfolios"/.test(s.idx) && /"0216_staff_portfolios",\n\s*\];/.test(s.idx), "0216 is the latest migration and in the expected list");
+  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
   t(/portfolio_manage: \[[^\]]*"hr_admin"[^\]]*\]/.test(s.perms) && /portfolio_publish: \["super_admin", "ceo", "coo"\]/.test(s.perms), "portfolio_manage and portfolio_publish are PERMS caps (publish = CEO, COO, super admin)");
   t(/cap: "portfolio_manage"/.test(s.perms) && /cap: "portfolio_publish"/.test(s.perms), "both are rows of the editable matrix");
   t(/handlePortfolios\(env, path, method, body, user, request\)/.test(s.staff) && /portfolios\\\/\\d\+\\\/\(portrait\|items\\\/\\d\+\\\/media\)/.test(s.staff), "one door in staff.ts; the uploads are raw bodies");

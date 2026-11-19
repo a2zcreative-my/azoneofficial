@@ -176,6 +176,9 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
   const [portrait, setPortrait] = useState<LoadedPortrait | null>(null);
   const [pending, setPending] = useState<Blob | null>(null); // a cut-out or a new portfolio photo, not saved yet
   const [pendingOwn, setPendingOwn] = useState(false); // the pending picture is the portfolio's own photo
+  /* the list boxes as typed: the saved list is cleaned (trimmed, blank lines dropped), but cleaning on every
+     keystroke ate the space after a word and the Enter for a new line (the CEO, 19-11-2026) */
+  const [listText, setListText] = useState<{ specialties?: string; expertise?: string }>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [logo, setLogo] = useState<HTMLImageElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
@@ -189,7 +192,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
   const load = useCallback(async () => {
     if (!id) return;
     const r = await api<PortfolioDetail>(`/portfolios/${id}`);
-    if (r.ok && r.data) { setD(r.data); setDraft({}); setPending(null); setPendingOwn(false); }
+    if (r.ok && r.data) { setD(r.data); setDraft({}); setPending(null); setPendingOwn(false); setListText({}); }
     else notifyRef.current(L("Could not open the portfolio", "Tidak dapat membuka portfolio"), "", "error");
   }, [id]);
   useEffect(() => { setD(null); setTab("card"); if (id) void load(); }, [id, load]);
@@ -354,11 +357,15 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
                   <option value="light">{L("Light blue", "Biru cerah")}</option>
                 </select>
               </label>
+              <label className={fieldLabel}>{L("Name on the card (nickname)", "Nama pada kad (nama panggilan)")}
+                <input className={inputClass} maxLength={60} value={merged!.display_name ?? ""} disabled={!edit} onChange={(e) => set({ display_name: e.target.value })} placeholder={d.staff.name} data-testid="pf-display-name" />
+                <span className="erp-meta">{L("Shown on the card and the public page. Leave empty to use the full name. The staff record keeps the full name.", "Dipaparkan pada kad dan halaman awam. Biarkan kosong untuk nama penuh. Rekod kakitangan kekal dengan nama penuh.")}</span>
+              </label>
               <label className={fieldLabel}>{L("Professional tagline", "Slogan profesional")}
                 <input className={inputClass} maxLength={120} value={merged!.tagline ?? ""} disabled={!edit} onChange={(e) => set({ tagline: e.target.value })} placeholder={L("One short line about how they work", "Satu baris ringkas tentang cara mereka bekerja")} data-testid="pf-tagline" />
               </label>
               <label className={fieldLabel}>{L("Key specialties (3 to 5, one per line)", "Kepakaran utama (3 hingga 5, satu sebaris)")}
-                <textarea className={textareaClass} rows={5} value={(merged!.specialties ?? []).join("\n")} disabled={!edit} onChange={(e) => set({ specialties: lines(e.target.value).slice(0, 5) })} data-testid="pf-specialties" />
+                <textarea className={textareaClass} rows={5} value={listText.specialties ?? (merged!.specialties ?? []).join("\n")} disabled={!edit} onChange={(e) => { setListText((t) => ({ ...t, specialties: e.target.value })); set({ specialties: lines(e.target.value).slice(0, 5) }); }} data-testid="pf-specialties" />
               </label>
               {(merged!.specialties ?? []).length > 0 && (merged!.specialties ?? []).length < 3 && <p className="erp-meta">{L("The card is designed for three to five.", "Kad direka untuk tiga hingga lima.")}</p>}
 
@@ -406,7 +413,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
                       : L("None written yet.", "Belum ada yang ditulis.")}</p>}
               </section>
               <label className={fieldLabel}>{L("Expertise and services (one per line)", "Kepakaran dan perkhidmatan (satu sebaris)")}
-                <textarea className={textareaClass} rows={4} value={(merged!.expertise ?? []).join("\n")} disabled={!edit} onChange={(e) => set({ expertise: lines(e.target.value).slice(0, 8) })} data-testid="pf-expertise" />
+                <textarea className={textareaClass} rows={4} value={listText.expertise ?? (merged!.expertise ?? []).join("\n")} disabled={!edit} onChange={(e) => { setListText((t) => ({ ...t, expertise: e.target.value })); set({ expertise: lines(e.target.value).slice(0, 8) }); }} data-testid="pf-expertise" />
               </label>
               <label className={fieldLabel}>{L("Experience (optional, e.g. 3 years)", "Pengalaman (pilihan, cth. 3 tahun)")}
                 <input className={inputClass} maxLength={40} value={merged!.experience ?? ""} disabled={!edit} onChange={(e) => set({ experience: e.target.value })} data-testid="pf-experience" />

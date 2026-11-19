@@ -13,6 +13,8 @@ export interface PortfolioDetail {
   portfolio: {
     id: number; user_id: number; slug: string; state: "draft" | "published" | "unpublished"; template: CardTemplate;
     tagline: string | null; intro: string | null; specialties: string[]; expertise: string[];
+    /** 0217 - a nickname for the card and the page; empty = the staff record's full name */
+    display_name?: string | null;
     experience: string | null; contact_email: string | null; contact_phone: string | null; show_email: boolean; show_phone: boolean;
     socials: Record<string, string>; portrait_key: string | null; photo_crop: CardCrop | null; portrait_stale: boolean; portrait_own?: boolean;
     version: number; published_at: string | null; unpublished_at: string | null; updated_at: string | null;
@@ -38,7 +40,7 @@ export function cardDataOf(d: PortfolioDetail, draft: Partial<PortfolioDetail["p
     : [{ kind: "instagram" as CardIcon, label: "instagram" }, { kind: "tiktok" as CardIcon, label: "tiktok" }, { kind: "facebook" as CardIcon, label: "facebook" }];
   const firstOwn = own.find(([k]) => k === "instagram" || k === "tiktok")?.[1];
   return {
-    name: d.staff.name, position: d.staff.position ?? "", department: d.staff.department,
+    name: p.display_name?.trim() || d.staff.name, position: d.staff.position ?? "", department: d.staff.department,
     tagline: p.tagline ?? null, specialties: p.specialties ?? [], responsibilities: d.duties.public.slice(0, 5),
     expertise: p.expertise ?? [], experience: p.experience ?? null,
     email: p.show_email && p.contact_email ? p.contact_email : CONTACT.email,

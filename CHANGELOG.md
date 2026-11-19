@@ -4,6 +4,11 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Staff > Portfolios: a nickname and the portfolio's own photo (19-11-2026, the CEO) - MIGRATION 0217
+- "I dont want to touch staff photo, just want to add another photo of them for their portfolio": the Photo box's "Replace staff photo" is now **Upload portfolio photo**. The photo is kept on the portfolio (`?own=1`), never stale when the staff photo changes, and the staff record photo is never written from the portfolio. Remove background and the sliders work on it; "Use the staff record photo instead" goes back.
+- "I want to have a function to change their name to nickname instead": **Name on the card (nickname)** on the Card tab (migration 0217, `staff_portfolios.display_name`). The card shows it at once; the public page after the next Publish; empty = the full name. The staff record keeps the full name.
+- Guard staff-portfolios: own-photo and nickname runtime checks (each fails with the feature switched off).
+
 ### Staff Portfolio Card Generator: the card, its QR and the public page (19-11-2026, the CEO) - v1.389.0, MIGRATION 0216 (ADDITIVE)
 - The CEO's brief "A2Z OS - Professional Staff Portfolio Card Generator" and his reference card, with his photos of Nurfarah, Noraleeya and Fasehah. New **Staff -> Portfolios** view (drawn for `portfolio_manage`), a **Portfolio** button on a person's profile, and **Profile -> My portfolio card** for the person once it is published.
 - One portfolio per person beside the staff record (`staff_portfolios`, `staff_portfolio_items`, migration 0216, never deleted). Name, position, department and photo are read from `users` every time; the responsibilities are the person's list from 0215 and ONLY the ones ticked Public reach a card or the page. Nothing writes the staff record except the existing staff photo door (`POST /users/:id/photo`).

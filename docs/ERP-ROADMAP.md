@@ -578,3 +578,5 @@ Staff portfolios (the CEO 19-11-2026, v1.389.0) adds `0216_staff_portfolios`:
 additive only - two new tables (`staff_portfolios`, `staff_portfolio_items`) with no-delete triggers.
 `users` is not altered; the responsibilities shown are read from 0215 (Public only); no money, pay or
 access table is touched.
+The portfolio nickname (the CEO 19-11-2026) adds `0217_portfolio_display_name`: additive only - one
+nullable column on `staff_portfolios`. `users` is not altered; the staff record keeps the full name.
