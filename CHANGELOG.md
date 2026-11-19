@@ -4,6 +4,10 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+## [1.387.0] - 2026-11-19 - Companies and Users & Security reorganised; no false ELFIA errors; Finance history account step; Attendance report; account emails - BUILT, NOT DEPLOYED (MIGRATION 0214 if not yet applied)
+
+A new version number so the errors the previous release (1.386.0) logged are marked as fixed history and no longer raise the Dashboard's red alert.
+
 ### ELFIA orders: no more false errors on System health and the Dashboard (19-11-2026, the CEO) - NO MIGRATION
 - The first poll's "cursor seeded" line was the designed first step, not a fault; it is now recorded (`elfia_orders_seeded_at`) and never written to the error log.
 - One missed poll (e.g. "The operation was aborted due to timeout") is no longer an error: the poll runs every 5 minutes and the next one reads from the same place, so no order is lost. The error log records it from the second poll in a row, with the count; the alert to the CEO stays at the third.
