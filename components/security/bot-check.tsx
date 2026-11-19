@@ -45,7 +45,13 @@ function loadScript(): Promise<void> {
 export type BotState = "off" | "checking" | "ready" | "unavailable";
 
 export function useBotCheck(siteKey: string | null, action: "signin" | "set_password" | "partner_apply" | "growth_check") { // v1.351.0 - the public partner application asks too; v1.369.0 - and the Business Growth Check
-  const box = useRef<HTMLDivElement | null>(null);
+  /* v1.387.1 - the box is a CALLBACK ref held in state. The partner and growth
+     forms draw it only on their last step, so on the first step there is no
+     box; a plain ref never told the effect when it appeared, the widget was
+     never drawn, the check sat on "checking" and Submit stayed disabled
+     (the CEO, 19-11-2026: neither /apply form could be sent). Now the effect
+     runs again whenever the box mounts, and lets go of it when it unmounts. */
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
   const widget = useRef<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [state, setState] = useState<BotState>(siteKey ? "checking" : "off");
@@ -53,9 +59,9 @@ export function useBotCheck(siteKey: string | null, action: "signin" | "set_pass
   if (seenKey !== siteKey) { setSeenKey(siteKey); setState(siteKey ? "checking" : "off"); setToken(null); }
 
   useEffect(() => {
-    if (!siteKey || !box.current) return;
+    if (!siteKey || !box) return;
     let live = true;
-    const el = box.current;
+    const el = box;
     loadScript().then(() => {
       if (!live || !window.turnstile || widget.current) return;
       widget.current = window.turnstile.render(el, {
@@ -71,7 +77,7 @@ export function useBotCheck(siteKey: string | null, action: "signin" | "set_pass
       if (widget.current && window.turnstile) { try { window.turnstile.remove(widget.current); } catch { /* gone */ } }
       widget.current = null;
     };
-  }, [siteKey, action]);
+  }, [siteKey, action, box]);
 
   /** after a token is spent (one sign-in try), ask for a fresh one */
   const spend = useCallback(() => {
@@ -82,7 +88,7 @@ export function useBotCheck(siteKey: string | null, action: "signin" | "set_pass
   const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
   const node = siteKey ? (
     <div className={css.wrap} data-testid="bot-check" data-state={state}>
-      <div ref={box} className={css.box} />
+      <div ref={setBox} className={css.box} />
       {state === "checking" && <p className={css.note} role="status">{L("Checking your browser with Cloudflare…", "Menyemak pelayar anda dengan Cloudflare…")}</p>}
       {state === "unavailable" && <p className={css.note} role="status">{L("Cloudflare's security check could not load. You can still try to sign in.", "Semakan keselamatan Cloudflare tidak dapat dimuatkan. Anda masih boleh cuba log masuk.")}</p>}
     </div>
@@ -91,7 +97,7 @@ export function useBotCheck(siteKey: string | null, action: "signin" | "set_pass
   /** v1.345.0 - the widget alone, for a page that words the state itself (the sign-in page's
       Cloudflare notice). Render EITHER node OR widgetNode - one box per page. */
   const widgetNode = siteKey ? (
-    <div className={css.wrap} data-testid="bot-check" data-state={state}><div ref={box} className={css.box} /></div>
+    <div className={css.wrap} data-testid="bot-check" data-state={state}><div ref={setBox} className={css.box} /></div>
   ) : null;
 
   /** may the form be sent now? (off, a token in hand, or the check could not load) */
