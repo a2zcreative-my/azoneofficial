@@ -3108,7 +3108,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && !/^\/portfolios\/\d+\/(portrait|items\/\d+\/media)$/.test(path) && path !== "/leave/attachment" // v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && !/^\/portfolios\/\d+\/(portrait|items\/\d+\/media)$/.test(path) && path !== "/leave/attachment" && !/^\/card-templates\/\d+\/pages\/\d+\/file$/.test(path) // v1.393.0 - a template page is a raw image body; v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -3229,7 +3229,7 @@ async function handleStaffRoutes(
   }
   /* ---- v1.392.0 Digital Cards Stage 3 (card-templates.ts, 0222): the template master records ---- */
   if (path === "/card-templates" || path.startsWith("/card-templates/")) {
-    const ct = await handleCardTemplates(env, path, method, body, user, new URL(request.url).searchParams);
+    const ct = await handleCardTemplates(env, path, method, body, user, new URL(request.url).searchParams, request);
     if (ct) return ct;
   }
   /* ---- v1.315.0 Tasks 5.0 Gate 4: the Live Host Report (live-reports.ts) ---- */

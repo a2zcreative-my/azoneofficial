@@ -1225,7 +1225,7 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   /* v1.392.0 - Digital Cards Stage 3: invented templates in every state the lists draw */
   {
     const VIEWERS = ["super_admin", "ceo", "coo", "cco", "sales_marketing"];
-    const tp = (id, name, state, cat, catMs, fmt, w, h, designer_id, designer_name, extra = {}) => ({ id, code: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, description: null, category_id: 1, format_id: 1, language: "both", packages: ["silver", "gold", "diamond"], state, version: 1, published_version: null, designer_id, designer_name, created_at: "2026-11-20 02:00:00", updated_at: "2026-11-20 08:30:00", category_name: cat, category_name_ms: catMs, format_name: fmt, format_name_ms: null, width_px: w, height_px: h, mine: designer_id === 9001, can_edit: designer_id === 9001 && ["draft", "returned"].includes(state) && ["super_admin", "ceo", "sales_marketing"].includes(ROLE), ...extra });
+    const tp = (id, name, state, cat, catMs, fmt, w, h, designer_id, designer_name, extra = {}) => ({ id, code: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, description: null, category_id: 1, format_id: 1, language: "both", packages: ["silver", "gold", "diamond"], state, version: 1, published_version: null, designer_id, designer_name, created_at: "2026-11-20 02:00:00", updated_at: "2026-11-20 08:30:00", category_name: cat, category_name_ms: catMs, format_name: fmt, format_name_ms: null, width_px: w, height_px: h, mine: designer_id === 9001, can_edit: designer_id === 9001 && ["draft", "returned"].includes(state) && ["super_admin", "ceo", "sales_marketing"].includes(ROLE), step: 1, pages_done: id === 1 ? 1 : id === 3 ? 3 : 0, pages_total: id === 1 ? 3 : id === 3 ? 3 : 0, ...extra });
     const TPL = [
       tp(1, "Elegant Navy Wedding", "draft", "Wedding", "Perkahwinan", "Portrait", 1080, 1920, 9001, "Fixture Person", { description: "Navy and gold florals, three pages" }),
       tp(2, "Romantic Blush Engagement Evening with a Very Long Name", "in_review", "Engagement", "Pertunangan", "Portrait", 1080, 1920, 9002, "Nur Aisyah binti Rahman"),
@@ -1240,7 +1240,19 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       data = !VIEWERS.includes(ROLE) ? deny : { templates: list, view: v, can_create: ["super_admin", "ceo", "sales_marketing"].includes(ROLE) };
     }
     const one = /^\/staff\/card-templates\/(\d+)$/.exec(p);
-    if (one) { const t = TPL.find((x) => x.id === Number(one[1])); data = !t ? { error: { code: "not_found", message: "That template does not exist" } } : { template: t, events: [{ id: 1, version: 1, kind: "created", note: null, created_at: t.created_at, actor_name: t.designer_name }] }; }
+    /* v1.393.0 - the editor of each template: template 1 is at Upload Pages with the Cover in, template 4 at Design Specs */
+    const FMT = { id: 1, code: "portrait", name: "Portrait", name_ms: "Potret", width_px: 1080, height_px: 1920, margin_top: 40, margin_right: 40, margin_bottom: 40, margin_left: 40, accepted_types: ["image/png", "image/jpeg"], max_bytes: 10485760, sort: 1, active: true, version: 1, updated_at: null };
+    const CAT = { id: 1, code: "wedding", name: "Wedding", name_ms: "Perkahwinan", min_pages: 2, max_pages: 10, allow_reorder: true, sort: 1, active: true, version: 1, updated_at: null,
+      pages: [{ title: "Cover", title_ms: "Muka depan", required: true }, { title: "Event Details", title_ms: "Butiran majlis", required: true }, { title: "RSVP / Map", title_ms: "RSVP / Peta", required: false }] };
+    const pg = (id, position, title, title_ms, required, file) => ({ id, position, title, title_ms, required, has_file: Boolean(file), mime: file ? "image/png" : null, width_px: file ? 1080 : null, height_px: file ? 1920 : null, bytes: file ? 2411724 : null, sha256: file ? "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12" : null, file_name: file ? "cover.png" : null, uploaded_at: file ? "2026-11-20 09:10:00" : null, problems: [], duplicate: false });
+    const EDITOR = {
+      1: { step: 3, steps: 3, format: FMT, category: CAT, specs_ok: true, specs_confirmed_at: "2026-11-20 09:00:00", rules_on: true, plan_started: true,
+        pages: [pg(101, 1, "Cover", "Muka depan", true, true), pg(102, 2, "Event Details", "Butiran majlis", true, false), pg(103, 3, "RSVP / Map", "RSVP / Peta", false, false)],
+        missing: ["Event Details: no artwork uploaded yet", "RSVP / Map: no artwork uploaded yet"] },
+      4: { step: 2, steps: 3, format: { ...FMT, id: 3, code: "square", name: "Square", name_ms: "Segi empat sama", height_px: 1080 }, category: { ...CAT, id: 4, code: "birthday", name: "Birthday", name_ms: "Hari jadi", min_pages: 1 }, specs_ok: false, specs_confirmed_at: null, rules_on: true, plan_started: false, pages: [], missing: [] },
+    };
+    if (one) { const t = TPL.find((x) => x.id === Number(one[1])); data = !t ? { error: { code: "not_found", message: "That template does not exist" } } : { template: { ...t, step: EDITOR[t.id]?.step ?? 1, pages_done: t.id === 1 ? 1 : 0, pages_total: t.id === 1 ? 3 : 0 }, events: [{ id: 2, version: 4, kind: "page_uploaded", note: "Cover", created_at: "2026-11-20 09:10:00", actor_name: t.designer_name }, { id: 1, version: 1, kind: "created", note: null, created_at: t.created_at, actor_name: t.designer_name }],
+      editor: EDITOR[t.id] ?? { step: 1, steps: 3, format: FMT, category: CAT, specs_ok: false, specs_confirmed_at: null, rules_on: true, plan_started: false, pages: [], missing: [] } }; }
   }
   if (p === "/staff/card-rules/history") data = { history: q.get("id") === "1" ? [{ id: 1, version: 2, reason: "Confirmed with the design team - more room under the notch", created_at: "2026-11-20 06:10:00", actor_name: "Fixture Person", snapshot: {} }] : [] };
   if (p === "/staff/hotels/" || p === "/staff/hotels") {

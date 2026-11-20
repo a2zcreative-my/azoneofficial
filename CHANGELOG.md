@@ -4,6 +4,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Digital Cards, Stage 4: the template editor (21-11-2026, the CEO) - MIGRATION 0223 (additive)
+- **New Template** and **Continue editing** open the editor: three steps in one drawer - **Template Info**, **Design Specs**, **Upload Pages**. Every step is saved on the server, so a draft opens again where it was left, on any device.
+- **Design Specs** shows this template's own canvas and safe area, the technical requirements, the blank layout to download and the category's pages. The designer confirms them before uploading; if the CEO changes a format or category later, they are asked again.
+- **Upload Pages**: the pages start from the category (Cover first, required pages marked). Each page shows its artwork, size, type and date; upload or replace a page, rename, add or remove optional pages, and move pages where the category allows. A side panel lists what is still to finish.
+- **Every page is checked on the server from the file's own bytes**: PNG or JPG only (whatever the file is called), exactly the format's size (1080 × 1920 for Portrait), RGB (CMYK is refused), up to 10 MB. A refused file is not stored and says why, in English or BM. The portal runs the same check first, so a wrong file is named before it uploads.
+- Artwork is private: it opens only inside Digital Cards, never through the public media address. A replaced or removed page's file is kept, and the history names it.
+- Once artwork is uploaded the template's format and category stay fixed (start a new template for another). Nothing on a template changes while it is in review.
+- The template view shows the pages as thumbnails and which step the editor reached; the list shows pages uploaded (for example 1/3).
+- Server: `PUT /staff/card-templates/:id/step`, `/pages`, `/pages/:p/file`, `GET /pages/:p/image`; `lib/card-image.ts` is the one page reader. Guard: new `card-template-pages` (66 checks, the real worker on every migration).
+- Not yet: editable content and the preview (Stage 5), review and publishing (Stage 6). azoneofficial.com is unchanged.
+
 ### Digital Cards, Stage 3: template management (21-11-2026, the CEO) - MIGRATION 0222 (additive)
 - **Digital Cards** now opens for **Sales & Marketing** (the designers, owner decision D1), the COO and CCO, the CEO and the super admin.
 - **One KPI strip** with the real counts: Total Templates, Drafts (draft or returned), Pending Review, Published. Each figure opens the list it counts. Archived templates count nowhere.

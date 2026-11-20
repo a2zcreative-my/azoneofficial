@@ -21,17 +21,19 @@ import { TabPage, TabZone } from "@/components/portal/tab-concept";
 import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { PillSwitch } from "@/components/ui/panel";
 import { AppIcon } from "@/components/ui/app-icon";
-import { DrawerFoot, DrawerForm, DrawerPanel, SideDrawer } from "@/components/ui/side-drawer";
+import { DrawerFoot, DrawerForm, DrawerPanel, DrawerSteps, SideDrawer } from "@/components/ui/side-drawer";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { usePrompt } from "@/components/ui/prompt-dialog";
 import { useCachedApi } from "@/lib/cached-api";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
-import { api, type ApiResult } from "@/lib/api";
+import { api, csrfFetch, type ApiResult } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { dmyMYT } from "@/lib/format";
 import { btnClass, btnGhost, btnSm, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClass, selectClassSm, td, th, tdR2, thR2 } from "@/lib/ui-styles";
-import { LANGUAGES, PACKAGES, TEMPLATE_LIMITS, checkTemplateInfo, type TemplateLanguage, type TemplatePackage, type TemplateState } from "@/lib/card-templates";
+import { LANGUAGES, PACKAGES, PAGE_TITLE_MAX, TEMPLATE_LIMITS, checkTemplateInfo, type TemplateLanguage, type TemplatePackage, type TemplateState } from "@/lib/card-templates";
+import { pageFileProblems, readImageHeader, type ImageMime } from "@/lib/card-image";
 import {
   CARD_TYPES, LIMITS, TYPE_LABEL, aspectLabel, checkCategory, checkFormat, orientationOf, requiredCount, safeArea, sizeLabel,
   type CardCategory, type CardFormat, type CardPage, type CardType, type Problems,
@@ -66,6 +68,7 @@ interface Template {
   designer_id: number; designer_name: string | null; created_at: string; updated_at: string;
   category_name: string | null; category_name_ms: string | null; format_name: string | null; format_name_ms: string | null;
   width_px: number | null; height_px: number | null; mine: boolean; can_edit: boolean;
+  step: number; pages_done: number; pages_total: number;
 }
 interface Summary { total: number; drafts: number; in_review: number; published: number; mine: number; can_create: boolean }
 const STATE_LABEL: Record<TemplateState, () => string> = {
@@ -88,7 +91,7 @@ export function DigitalCardsPage({ initialView }: { role: string; initialView?: 
   const [editing, setEditing] = useState<{ kind: "format"; row: CardFormat | null } | { kind: "category"; row: CardCategory | null } | null>(null);
   const [history, setHistory] = useState<{ entity: "format" | "category"; id: number; name: string } | null>(null);
   const [stateFilter, setStateFilter] = useState<"" | "draft">("");
-  const [info, setInfo] = useState<{ row: Template | null } | null>(null);
+  const [editor, setEditor] = useState<{ id: number | null } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [stamp, setStamp] = useState(0);
   const bump = () => setStamp((n) => n + 1);
@@ -116,7 +119,7 @@ export function DigitalCardsPage({ initialView }: { role: string; initialView?: 
           <TabAside>
             {canEdit && view === "rules"
               ? <TabAction icon="add" onClick={() => setEditing({ kind: "format", row: null })}>{L("Add format", "Tambah format")}</TabAction>
-              : <TabAction icon="add" onClick={() => setInfo({ row: null })}>{L("New Template", "Templat Baharu")}</TabAction>}
+              : <TabAction icon="add" onClick={() => setEditor({ id: null })}>{L("New Template", "Templat Baharu")}</TabAction>}
           </TabAside>
         ) : undefined} />
 
@@ -139,7 +142,7 @@ export function DigitalCardsPage({ initialView }: { role: string; initialView?: 
       {(["templates", "mine", "review", "published"] as const).map((v) => (
         <div key={v} hidden={view !== v}>
           {seen[v] && <TemplateList which={v} stamp={stamp} stateFilter={v === "templates" ? stateFilter : ""} onClearFilter={() => setStateFilter("")}
-            categories={rules.data?.categories ?? []} onOpen={setOpenId} canCreate={canCreate} onCreate={() => setInfo({ row: null })} />}
+            categories={rules.data?.categories ?? []} onOpen={setOpenId} canCreate={canCreate} onCreate={() => setEditor({ id: null })} />}
         </div>
       ))}
 
@@ -166,12 +169,12 @@ export function DigitalCardsPage({ initialView }: { role: string; initialView?: 
           onSaved={(r, msg) => { rules.setData(r); setEditing(null); toast.show(msg); }} />
       )}
       {history && <HistoryDrawer target={history} onClose={() => setHistory(null)} />}
-      {info && rules.data && (
-        <TemplateInfoDrawer row={info.row} rules={rules.data} onClose={() => setInfo(null)}
-          onSaved={(t, created) => { setInfo(null); bump(); toast.show(created ? L(`${t.name} saved as a draft`, `${t.name} disimpan sebagai draf`) : L(`${t.name} saved`, `${t.name} disimpan`)); if (created) { setOpenId(t.id); go("mine"); } }} />
+      {editor && rules.data && (
+        <TemplateEditor id={editor.id} rules={rules.data} onClose={() => { setEditor(null); bump(); }}
+          onDone={(t, msg) => { setEditor(null); bump(); toast.show(msg); if (editor.id == null) go("mine"); else setOpenId(t.id); }} />
       )}
       {openId != null && (
-        <TemplateDrawer id={openId} stamp={stamp} onClose={() => setOpenId(null)} onEdit={(t) => setInfo({ row: t })}
+        <TemplateDrawer id={openId} stamp={stamp} onClose={() => setOpenId(null)} onEdit={(t) => { setOpenId(null); setEditor({ id: t.id }); }}
           onChanged={(msg) => { bump(); toast.show(msg); }} />
       )}
       {toast.node}
@@ -259,7 +262,7 @@ function TemplateList({ which, stamp, stateFilter, onClearFilter, categories, on
                     <tr key={t.id} data-testid={`dc-row-${t.id}`}>
                       <td className={td}>
                         <span className={css.tName}><span className={css.thumb} aria-hidden><AppIcon name="document" /></span>
-                          <span className={css.tText}><strong>{t.name}</strong><small className={css.muted}>{t.code} · v{t.version}</small></span></span>
+                          <span className={css.tText}><strong>{t.name}</strong><small className={css.muted}>{t.code} · v{t.version}{t.pages_total ? ` · ${L(`${t.pages_done}/${t.pages_total} pages`, `${t.pages_done}/${t.pages_total} halaman`)}` : ""}</small></span></span>
                       </td>
                       <td className={`${td} ${css.cWide}`}>{catName(t)}</td>
                       <td className={`${td} ${css.cWide}`}><span className="erp-nowrap">{fmtName(t)}</span></td>
@@ -281,7 +284,7 @@ function TemplateList({ which, stamp, stateFilter, onClearFilter, categories, on
 
 /** one template: its information and its history; the designer edits or archives a draft here */
 function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number; stamp: number; onClose: () => void; onEdit: (t: Template) => void; onChanged: (msg: string) => void }) {
-  const one = useCachedApi<{ template: Template; events: { id: number; version: number; kind: string; note: string | null; created_at: string; actor_name: string | null }[] }>(`/staff/card-templates/${id}`);
+  const one = useCachedApi<Detail>(`/staff/card-templates/${id}`);
   const { refresh } = one;
   useEffect(() => { if (stamp) refresh(); }, [stamp, refresh]);
   const { prompt, node: promptNode } = usePrompt();
@@ -305,12 +308,17 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
     if (r.ok) { refresh(); onChanged(kind === "archive" ? L(`${t.name} archived`, `${t.name} diarkibkan`) : L(`${t.name} is a draft again`, `${t.name} menjadi draf semula`)); }
     else setError(r.data?.error?.message ?? L("Not saved - try again.", "Tidak disimpan - cuba lagi."));
   };
-  const eventText = (k: string) => ({ created: L("Created", "Dicipta"), edited: L("Information changed", "Maklumat diubah"), archived: L("Archived", "Diarkibkan"), restored: L("Brought back as a draft", "Dikembalikan sebagai draf") }[k] ?? k);
+  const eventText = (k: string) => ({
+    created: L("Created", "Dicipta"), edited: L("Information changed", "Maklumat diubah"), archived: L("Archived", "Diarkibkan"), restored: L("Brought back as a draft", "Dikembalikan sebagai draf"),
+    specs_confirmed: L("Design specs confirmed", "Spesifikasi reka bentuk disahkan"), pages_planned: L("Pages set up from the category", "Halaman disediakan dari kategori"),
+    pages_changed: L("Pages changed", "Halaman diubah"), page_uploaded: L("Artwork uploaded", "Seni dimuat naik"),
+  }[k] ?? k);
+  const ed = one.data?.editor;
   return (
     <SideDrawer open onClose={onClose} title={t?.name ?? L("Template", "Templat")} subtitle={t ? `${t.code} · v${t.version}` : undefined}
       footer={t && (t.can_edit || (t.mine && t.state === "archived")) ? (
         <div className={css.rowActions}>
-          {t.can_edit && <button type="button" className={btnClass} onClick={() => onEdit(t)} disabled={busy} data-testid="dc-t-edit"><AppIcon name="edit" /> {L("Edit information", "Sunting maklumat")}</button>}
+          {t.can_edit && <button type="button" className={btnClass} onClick={() => onEdit(t)} disabled={busy} data-testid="dc-t-edit"><AppIcon name="edit" /> {L("Continue editing", "Teruskan menyunting")}</button>}
           {t.can_edit && <button type="button" className={btnGhost} onClick={() => void act("archive")} disabled={busy} data-testid="dc-t-archive">{L("Archive", "Arkibkan")}</button>}
           {t.mine && t.state === "archived" && <button type="button" className={btnClass} onClick={() => void act("restore")} disabled={busy} data-testid="dc-t-restore">{L("Bring back as a draft", "Kembalikan sebagai draf")}</button>}
         </div>
@@ -325,13 +333,30 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
             <div><dt>{L("Packages", "Pakej")}</dt><dd>{t.packages.map((p) => PACKAGE_LABEL[p]).join(", ")}</dd></div>
             <div><dt>{L("Designer", "Pereka")}</dt><dd>{t.designer_name ?? "—"}</dd></div>
             <div><dt>{L("Description", "Penerangan")}</dt><dd>{t.description ?? <span className={css.muted}>—</span>}</dd></div>
+            {ed && <div><dt>{L("Editor", "Penyunting")}</dt><dd>{STEP_NAMES()[Math.min(ed.step, ed.steps) - 1]} · {L(`${t.pages_done} of ${t.pages_total || ed.category?.pages.length || 0} pages uploaded`, `${t.pages_done} daripada ${t.pages_total || ed.category?.pages.length || 0} halaman dimuat naik`)}</dd></div>}
           </dl>
+          {ed && ed.pages.length > 0 && (
+            <>
+              <h3 className={css.subhead}>{L("Pages", "Halaman")}</h3>
+              <ol className={css.pageStrip} data-testid="dc-t-pages">
+                {ed.pages.map((p) => (
+                  <li key={p.id}>
+                    <div className={css.pageThumb} style={{ aspectRatio: ed.format ? `${ed.format.width_px} / ${ed.format.height_px}` : "9 / 16" }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element -- a private, staff-only file; the static export has no image optimiser */}
+                      {p.has_file ? <img src={pageImg(t.id, p)} alt={L(`${ptitle(p)} artwork`, `Seni ${ptitle(p)}`)} loading="lazy" /> : <small className={css.pageEmpty}>{L("Not uploaded", "Belum dimuat naik")}</small>}
+                    </div>
+                    <small>{p.position}. {ptitle(p)}</small>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
           {error && <p className="erp-error" role="alert">{error}</p>}
           <h3 className={css.subhead}>{L("History", "Sejarah")}</h3>
           <ol className={css.history}>
             {one.data.events.map((e) => (
-              <li key={e.id}><strong>{eventText(e.kind)}</strong> <small className={css.muted}>v{e.version} · {dmyMYT(e.created_at)}{e.actor_name ? ` · ${e.actor_name}` : ""}</small>
-                {e.note && <p className={css.reason}>“{e.note}”</p>}</li>
+              <li key={e.id}><strong>{eventText(e.kind)}{e.note && (e.kind === "page_uploaded") ? `: ${e.note}` : ""}</strong> <small className={css.muted}>v{e.version} · {dmyMYT(e.created_at)}{e.actor_name ? ` · ${e.actor_name}` : ""}</small>
+                {e.note && e.kind !== "page_uploaded" && <p className={css.reason}>“{e.note}”</p>}</li>
             ))}
           </ol>
         </div>
@@ -341,88 +366,341 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
   );
 }
 
-/** New Template / Edit information: the template's information, checked by lib/card-templates.ts as the server checks it */
-function TemplateInfoDrawer({ row, rules, onClose, onSaved }: { row: Template | null; rules: Rules; onClose: () => void; onSaved: (t: Template, created: boolean) => void }) {
-  const cats = rules.categories.filter((c) => c.active || c.id === row?.category_id);
-  const fmts = rules.formats.filter((f) => f.active || f.id === row?.format_id);
-  const [f, setF] = useState({
-    name: row?.name ?? "", description: row?.description ?? "",
-    category_id: String(row?.category_id ?? cats.find((c) => c.active)?.id ?? ""), format_id: String(row?.format_id ?? fmts.find((x) => x.active)?.id ?? ""),
-    language: (row?.language ?? "both") as TemplateLanguage, packages: (row?.packages ?? [...PACKAGES]) as TemplatePackage[],
-  });
-  const [server, setServer] = useState<{ error: string | null; fields: Record<string, string> }>({ error: null, fields: {} });
+/* ============================ v1.393.0 - THE TEMPLATE EDITOR ============================
+   Template Info -> Design Specs -> Upload Pages, in one form drawer. Every Next is saved on the
+   server (PUT /staff/card-templates/:id/step), so the draft opens again at the step it reached -
+   after a refresh, on another device, or tomorrow. Pages are checked twice with the same
+   lib/card-image.ts: here so the designer hears at once, and on the server, whose answer counts. */
+
+interface EditorPage {
+  id: number; position: number; title: string; title_ms: string | null; required: boolean; has_file: boolean;
+  mime: string | null; width_px: number | null; height_px: number | null; bytes: number | null; sha256: string | null;
+  file_name: string | null; uploaded_at: string | null; problems: string[]; duplicate: boolean;
+}
+interface Editor {
+  step: number; steps: number; format: CardFormat | null; category: CardCategory | null; specs_ok: boolean; specs_confirmed_at: string | null;
+  rules_on: boolean; pages: EditorPage[]; plan_started: boolean; missing: string[];
+}
+interface TemplateEvent { id: number; version: number; kind: string; note: string | null; created_at: string; actor_name: string | null }
+interface Detail { template: Template; events: TemplateEvent[]; editor: Editor }
+type ErrBody = { error?: { code?: string; message?: string; fields?: Record<string, string>; problems?: string[] } };
+
+const STEP_NAMES = () => [L("Template Info", "Maklumat Templat"), L("Design Specs", "Spesifikasi Reka Bentuk"), L("Upload Pages", "Muat Naik Halaman")];
+const pageImg = (templateId: number, p: { id: number; sha256: string | null }) =>
+  `/api/v1/staff/card-templates/${templateId}/pages/${p.id}/image?v=${(p.sha256 ?? "").slice(0, 16)}`;
+const ptitle = (p: { title: string; title_ms: string | null }) => (getLang() === "ms" && p.title_ms ? p.title_ms : p.title);
+/** the reasons a page is not ready, in the reader's language, from the same lib/card-image.ts the server uses */
+const pageIssues = (p: EditorPage, f: CardFormat | null): string[] =>
+  !p.has_file ? [L("No artwork uploaded yet", "Belum ada seni dimuat naik")]
+    : f ? pageFileProblems({ mime: (p.mime ?? "image/png") as ImageMime, width: p.width_px ?? 0, height: p.height_px ?? 0, components: 3 }, p.bytes ?? 0, f, getLang() === "ms" ? "ms" : "en") : [];
+
+function TemplateEditor({ id, rules, onClose, onDone }: { id: number | null; rules: Rules; onClose: () => void; onDone: (t: Template, msg: string) => void }) {
+  const [d, setD] = useState<Detail | null>(null);
+  const [tid, setTid] = useState<number | null>(id);
+  const [step, setStep] = useState(0);
+  const [loading, setLoading] = useState(id != null);
   const [busy, setBusy] = useState(false);
-  const active = { categories: rules.categories.filter((c) => c.active).map((c) => c.id), formats: rules.formats.filter((x) => x.active).map((x) => x.id) };
-  const local = checkTemplateInfo(f, active).problems;
-  const problems = { ...local, ...server.fields };
-  const fmt = rules.formats.find((x) => String(x.id) === f.format_id);
-  const cat = rules.categories.find((c) => String(c.id) === f.category_id);
-  const save = async () => {
-    setBusy(true);
-    const payload = JSON.stringify({ ...f, category_id: Number(f.category_id), format_id: Number(f.format_id), version: row?.version });
-    const r = row
-      ? await api<{ template?: Template; error?: { message?: string; fields?: Record<string, string> } }>(`/staff/card-templates/${row.id}`, { method: "PUT", body: payload })
-      : await api<{ template?: Template; error?: { message?: string; fields?: Record<string, string> } }>("/staff/card-templates", { method: "POST", body: payload });
-    setBusy(false);
-    if (r.ok && r.data?.template) onSaved(r.data.template, !row);
-    else setServer({ error: r.data?.error?.message ?? L("Not saved - check your connection and try again.", "Tidak disimpan - semak sambungan dan cuba lagi."), fields: r.data?.error?.fields ?? {} });
+  const [error, setError] = useState<string | null>(null);
+  const [agree, setAgree] = useState(false);
+  const read = useCallback(async (which: number, jump: boolean) => {
+    const r = await api<Detail & ErrBody>(`/staff/card-templates/${which}`);
+    setLoading(false);
+    if (!r.ok || !r.data?.editor) { setError(r.data?.error?.message ?? L("The template could not be read.", "Templat tidak dapat dibaca.")); return; }
+    setD(r.data);
+    setAgree(r.data.editor.specs_ok);
+    if (jump) { const e = r.data.editor; setStep(Math.max(0, Math.min(e.step, e.steps) - 1 - (e.step >= 3 && !e.specs_ok ? 1 : 0))); }
+  }, []);
+  useEffect(() => { if (id != null) void read(id, true); }, [id, read]);
+  /* every editor write answers with the whole template, the same shape as the read */
+  const take = (r: ApiResult<Detail & ErrBody>, okStep?: number): boolean => {
+    if (r.ok && r.data?.editor) { setD(r.data); setAgree(r.data.editor.specs_ok); setError(null); if (okStep != null) setStep(okStep); return true; }
+    if (r.status === 409 && r.data?.error?.code === "changed" && tid != null) void read(tid, false);
+    setError(r.data?.error?.message ?? (r.status === 0 ? L("No connection - nothing was saved. Try again.", "Tiada sambungan - tiada yang disimpan. Cuba lagi.") : L("Not saved - try again.", "Tidak disimpan - cuba lagi.")));
+    return false;
   };
-  const ready = !Object.keys(local).length && !busy;
+  const saveStep = async (to: number, confirm = false, version = d?.template.version, which = tid) => {
+    if (which == null) return false;
+    const r = await api<Detail & ErrBody>(`/staff/card-templates/${which}/step`, { method: "PUT", body: JSON.stringify({ version, step: to + 1, ...(confirm ? { specs_confirmed: true } : {}) }) });
+    return take(r, to);
+  };
+  const t = d?.template ?? null;
+  const e = d?.editor ?? null;
+  const title = t ? t.name : L("New Template", "Templat Baharu");
   return (
-    <SideDrawer open onClose={onClose} form icon="document" dirty="auto"
-      title={row ? L(`Edit information: ${row.name}`, `Sunting maklumat: ${row.name}`) : L("New Template", "Templat Baharu")}
-      subtitle={row ? L(`Version ${row.version}`, `Versi ${row.version}`) : L("Template information - saved as your draft", "Maklumat templat - disimpan sebagai draf anda")}>
-      <DrawerForm testid="dc-info-form" aside={fmt || cat ? (
-        <DrawerPanel icon="info" title={L("What this design needs", "Keperluan reka bentuk ini")} sub={L("From Guidelines", "Dari Garis Panduan")}>
-          <dl className={css.facts}>
-            {fmt && <div><dt>{L("Canvas", "Kanvas")}</dt><dd>{fmt.width_px} × {fmt.height_px} px · {aspectLabel(fmt.width_px, fmt.height_px)}</dd></div>}
-            {fmt && <div><dt>{L("Safe area", "Kawasan selamat")}</dt><dd>{safeArea(fmt).w} × {safeArea(fmt).h} px</dd></div>}
-            {fmt && <div><dt>{L("Files", "Fail")}</dt><dd>{fmt.accepted_types.map((x) => TYPE_LABEL[x]).join(", ")} · {sizeLabel(fmt.max_bytes)}</dd></div>}
-            {cat && <div><dt>{L("Pages", "Halaman")}</dt><dd>{cat.min_pages}–{cat.max_pages}</dd></div>}
-          </dl>
-          {cat && <PageChips pages={cat.pages} />}
-        </DrawerPanel>
-      ) : undefined}>
-        <label className="erp-field"><span className="erp-label" data-required="">{L("Template name", "Nama templat")}</span>
-          <input className={inputClass} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={TEMPLATE_LIMITS.name} data-testid="dc-i-name"
-            placeholder={L("e.g. Elegant Navy Wedding", "cth. Perkahwinan Biru Laut Elegan")} /><Err p={problems} k="name" /></label>
-        <label className="erp-field"><span className="erp-label">{L("Description", "Penerangan")}</span>
-          <textarea className="erp-input erp-textarea" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={TEMPLATE_LIMITS.description} data-testid="dc-i-desc" />
-          <Err p={problems} k="description" /></label>
-        <div className="erp-field-row">
-          <label className="erp-field"><span className="erp-label" data-required="">{L("Category", "Kategori")}</span>
-            <select className={selectClass} value={f.category_id} onChange={(e) => setF({ ...f, category_id: e.target.value })} data-testid="dc-i-category">
-              {cats.map((c) => <option key={c.id} value={c.id} disabled={!c.active}>{nameOf(c)}</option>)}
-            </select><Err p={problems} k="category_id" /></label>
-          <label className="erp-field"><span className="erp-label" data-required="">{L("Format", "Format")}</span>
-            <select className={selectClass} value={f.format_id} onChange={(e) => setF({ ...f, format_id: e.target.value })} data-testid="dc-i-format">
-              {fmts.map((x) => <option key={x.id} value={x.id} disabled={!x.active}>{nameOf(x)} · {x.width_px} × {x.height_px}</option>)}
-            </select><Err p={problems} k="format_id" /></label>
-        </div>
-        <label className="erp-field"><span className="erp-label" data-required="">{L("Language on the card", "Bahasa pada kad")}</span>
-          <select className={selectClass} value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as TemplateLanguage })} data-testid="dc-i-language">
-            {LANGUAGES.map((x) => <option key={x} value={x}>{LANG_LABEL[x]()}</option>)}
-          </select><Err p={problems} k="language" /></label>
-        <fieldset className={`erp-field ${css.fieldset}`}>
-          <legend className="erp-label" data-required="">{L("Offered under the AZ ONE packages", "Ditawarkan di bawah pakej AZ ONE")}</legend>
-          <div className={css.checks}>
-            {PACKAGES.map((x) => (
-              <label key={x} className="erp-flex"><input type="checkbox" className="erp-check" checked={f.packages.includes(x)} data-testid={`dc-i-pkg-${x}`}
-                onChange={(e) => setF({ ...f, packages: e.target.checked ? [...f.packages, x] : f.packages.filter((y) => y !== x) })} /> {PACKAGE_LABEL[x]}</label>
-            ))}
-          </div>
-          <Err p={problems} k="packages" />
-        </fieldset>
-        <p className="erp-help">{L(`Designer: you. ${row ? "" : "The template is saved as your draft; only you can change it."}`, `Pereka: anda. ${row ? "" : "Templat disimpan sebagai draf anda; hanya anda boleh mengubahnya."}`)}</p>
-        {server.error && <p className="erp-error" role="alert" data-testid="dc-info-error">{server.error}</p>}
-        <DrawerFoot testid="dc-info-actions">
-          <button type="button" className={btnGhost} onClick={onClose}>{L("Cancel", "Batal")}</button>
-          <button type="button" className={btnClass} disabled={!ready} onClick={() => void save()} data-testid="dc-info-save">{busy ? L("Saving…", "Menyimpan…") : row ? L("Save", "Simpan") : L("Save draft", "Simpan draf")}</button>
-        </DrawerFoot>
-      </DrawerForm>
+    <SideDrawer open onClose={onClose} form wide icon="document" title={title}
+      subtitle={t ? `${t.code} · v${t.version} · ${L("saved at every step", "disimpan pada setiap langkah")}` : L("Template information - saved as your draft", "Maklumat templat - disimpan sebagai draf anda")}>
+      <DrawerSteps steps={STEP_NAMES()} current={step + 1} label={L("Template editor steps", "Langkah penyunting templat")} testid="dc-steps" />
+      {loading ? <SkelRows rows={6} /> : (
+        <>
+          {step === 0 && (
+            <InfoStep row={t} rules={rules} locked={(t?.pages_done ?? 0) > 0} busy={busy} error={error}
+              onCancel={onClose}
+              onNext={async (payload, changed) => {
+                setBusy(true); setError(null);
+                let row = t;
+                if (!row || changed) {
+                  const r = row
+                    ? await api<{ template?: Template } & ErrBody>(`/staff/card-templates/${row.id}`, { method: "PUT", body: JSON.stringify({ ...payload, version: row.version }) })
+                    : await api<{ template?: Template } & ErrBody>("/staff/card-templates", { method: "POST", body: JSON.stringify(payload) });
+                  if (!r.ok || !r.data?.template) { setBusy(false); setError(r.data?.error?.message ?? L("Not saved - try again.", "Tidak disimpan - cuba lagi.")); return r.data?.error?.fields ?? {}; }
+                  row = r.data.template; setTid(row.id);
+                }
+                await saveStep(1, false, row.version, row.id);
+                setBusy(false);
+                return {};
+              }} />
+          )}
+          {step === 1 && e && t && (
+            <SpecsStep e={e} agree={agree} setAgree={setAgree} busy={busy} error={error}
+              onBack={() => { setError(null); setStep(0); }}
+              onNext={async () => { setBusy(true); setError(null); await saveStep(2, !e.specs_ok); setBusy(false); }} />
+          )}
+          {step === 2 && e && t && (
+            <PagesStep t={t} e={e} busy={busy} setBusy={setBusy} error={error} setError={setError} take={take}
+              onBack={() => { setError(null); setStep(1); }}
+              onDone={() => onDone(t, e.missing.length ? L(`${t.name} saved - pages still to finish`, `${t.name} disimpan - halaman belum selesai`) : L(`${t.name} saved - every page is in`, `${t.name} disimpan - semua halaman lengkap`))} />
+          )}
+          {step > 0 && !e && error && <p className="erp-error" role="alert">{error}</p>}
+        </>
+      )}
     </SideDrawer>
   );
 }
+
+/** step 1 - the template's information, checked by lib/card-templates.ts as the server checks it */
+function InfoStep({ row, rules, locked, busy, error, onCancel, onNext }: {
+  row: Template | null; rules: Rules; locked: boolean; busy: boolean; error: string | null; onCancel: () => void;
+  onNext: (payload: Record<string, unknown>, changed: boolean) => Promise<Record<string, string>>;
+}) {
+  const cats = rules.categories.filter((c) => c.active || c.id === row?.category_id);
+  const fmts = rules.formats.filter((f) => f.active || f.id === row?.format_id);
+  const first = {
+    name: row?.name ?? "", description: row?.description ?? "",
+    category_id: String(row?.category_id ?? cats.find((c) => c.active)?.id ?? ""), format_id: String(row?.format_id ?? fmts.find((x) => x.active)?.id ?? ""),
+    language: (row?.language ?? "both") as TemplateLanguage, packages: (row?.packages ?? [...PACKAGES]) as TemplatePackage[],
+  };
+  const [f, setF] = useState(first);
+  const [touched, setTouched] = useState(Boolean(row));
+  const [fields, setFields] = useState<Record<string, string>>({});
+  const active = { categories: rules.categories.filter((c) => c.active).map((c) => c.id), formats: rules.formats.filter((x) => x.active).map((x) => x.id) };
+  const local = checkTemplateInfo(f, active).problems;
+  const problems = touched ? { ...local, ...fields } : fields;
+  const fmt = rules.formats.find((x) => String(x.id) === f.format_id);
+  const cat = rules.categories.find((c) => String(c.id) === f.category_id);
+  const changed = JSON.stringify(f) !== JSON.stringify(first);
+  const next = async () => {
+    setTouched(true);
+    if (Object.keys(local).length) return;
+    setFields(await onNext({ ...f, category_id: Number(f.category_id), format_id: Number(f.format_id) }, changed));
+  };
+  return (
+    <DrawerForm testid="dc-info-form" aside={fmt || cat ? (
+      <DrawerPanel icon="info" title={L("What this design needs", "Keperluan reka bentuk ini")} sub={L("From Guidelines", "Dari Garis Panduan")}>
+        <dl className={css.facts}>
+          {fmt && <div><dt>{L("Canvas", "Kanvas")}</dt><dd>{fmt.width_px} × {fmt.height_px} px · {aspectLabel(fmt.width_px, fmt.height_px)}</dd></div>}
+          {fmt && <div><dt>{L("Safe area", "Kawasan selamat")}</dt><dd>{safeArea(fmt).w} × {safeArea(fmt).h} px</dd></div>}
+          {fmt && <div><dt>{L("Files", "Fail")}</dt><dd>{fmt.accepted_types.map((x) => TYPE_LABEL[x]).join(", ")} · {sizeLabel(fmt.max_bytes)}</dd></div>}
+          {cat && <div><dt>{L("Pages", "Halaman")}</dt><dd>{cat.min_pages}–{cat.max_pages}</dd></div>}
+        </dl>
+        {cat && <PageChips pages={cat.pages} />}
+      </DrawerPanel>
+    ) : undefined}>
+      <label className="erp-field"><span className="erp-label" data-required="">{L("Template name", "Nama templat")}</span>
+        <input className={inputClass} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={TEMPLATE_LIMITS.name} data-testid="dc-i-name"
+          placeholder={L("e.g. Elegant Navy Wedding", "cth. Perkahwinan Biru Laut Elegan")} /><Err p={problems} k="name" /></label>
+      <label className="erp-field"><span className="erp-label">{L("Description", "Penerangan")}</span>
+        <textarea className="erp-input erp-textarea" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={TEMPLATE_LIMITS.description} data-testid="dc-i-desc" />
+        <Err p={problems} k="description" /></label>
+      <div className="erp-field-row">
+        <label className="erp-field"><span className="erp-label" data-required="">{L("Category", "Kategori")}</span>
+          <select className={selectClass} value={f.category_id} disabled={locked} onChange={(e) => setF({ ...f, category_id: e.target.value })} data-testid="dc-i-category">
+            {cats.map((c) => <option key={c.id} value={c.id} disabled={!c.active}>{nameOf(c)}</option>)}
+          </select><Err p={problems} k="category_id" /></label>
+        <label className="erp-field"><span className="erp-label" data-required="">{L("Format", "Format")}</span>
+          <select className={selectClass} value={f.format_id} disabled={locked} onChange={(e) => setF({ ...f, format_id: e.target.value })} data-testid="dc-i-format">
+            {fmts.map((x) => <option key={x.id} value={x.id} disabled={!x.active}>{nameOf(x)} · {x.width_px} × {x.height_px}</option>)}
+          </select><Err p={problems} k="format_id" /></label>
+      </div>
+      {locked && <p className="erp-help" data-testid="dc-i-locked">{L("Artwork is uploaded for this category and format, so they stay as they are. Start a new template for another one.", "Seni telah dimuat naik untuk kategori dan format ini, jadi ia kekal. Mulakan templat baharu untuk yang lain.")}</p>}
+      <label className="erp-field"><span className="erp-label" data-required="">{L("Language on the card", "Bahasa pada kad")}</span>
+        <select className={selectClass} value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as TemplateLanguage })} data-testid="dc-i-language">
+          {LANGUAGES.map((x) => <option key={x} value={x}>{LANG_LABEL[x]()}</option>)}
+        </select><Err p={problems} k="language" /></label>
+      <fieldset className={`erp-field ${css.fieldset}`}>
+        <legend className="erp-label" data-required="">{L("Offered under the AZ ONE packages", "Ditawarkan di bawah pakej AZ ONE")}</legend>
+        <div className={css.checks}>
+          {PACKAGES.map((x) => (
+            <label key={x} className="erp-flex"><input type="checkbox" className="erp-check" checked={f.packages.includes(x)} data-testid={`dc-i-pkg-${x}`}
+              onChange={(e) => setF({ ...f, packages: e.target.checked ? [...f.packages, x] : f.packages.filter((y) => y !== x) })} /> {PACKAGE_LABEL[x]}</label>
+          ))}
+        </div>
+        <Err p={problems} k="packages" />
+      </fieldset>
+      <p className="erp-help">{row ? L("Designer: you.", "Pereka: anda.") : L("Designer: you. Next saves it as your draft; only you can change it.", "Pereka: anda. Seterusnya menyimpannya sebagai draf anda; hanya anda boleh mengubahnya.")}</p>
+      {error && <p className="erp-error" role="alert" data-testid="dc-info-error">{error}</p>}
+      <DrawerFoot testid="dc-info-actions">
+        <button type="button" className={btnGhost} onClick={onCancel}>{L("Cancel", "Batal")}</button>
+        <button type="button" className={btnClass} disabled={busy} onClick={() => void next()} data-testid="dc-info-save">{busy ? L("Saving…", "Menyimpan…") : L("Save and continue", "Simpan dan teruskan")}</button>
+      </DrawerFoot>
+    </DrawerForm>
+  );
+}
+
+/** step 2 - the canvas, safe area, files and pages of THIS template's format and category, confirmed once */
+function SpecsStep({ e, agree, setAgree, busy, error, onBack, onNext }: {
+  e: Editor; agree: boolean; setAgree: (v: boolean) => void; busy: boolean; error: string | null; onBack: () => void; onNext: () => void;
+}) {
+  const f = e.format, c = e.category;
+  if (!f || !c) return <p className="erp-error" role="alert">{L("The format or category of this template no longer exists.", "Format atau kategori templat ini sudah tiada.")}</p>;
+  return (
+    <DrawerForm testid="dc-specs" aside={
+      <DrawerPanel icon="documents" title={L(`${nameOf(c)} pages`, `Halaman ${nameOf(c)}`)} sub={c.min_pages === c.max_pages ? L(`${c.min_pages} pages`, `${c.min_pages} halaman`) : L(`${c.min_pages}–${c.max_pages} pages`, `${c.min_pages}–${c.max_pages} halaman`)}>
+        <PageChips pages={c.pages} />
+        <p className="erp-help">{c.allow_reorder ? L("You may add optional pages and change their order. The Cover stays first.", "Anda boleh menambah halaman pilihan dan mengubah susunannya. Muka depan kekal pertama.") : L("The pages keep this order. Optional pages are added at the end.", "Halaman kekal dalam susunan ini. Halaman pilihan ditambah di hujung.")}</p>
+      </DrawerPanel>
+    }>
+      <div className={css.specsGrid}>
+        <SafeAreaDiagram f={f} />
+        <div>
+          <Requirements f={f} categories={[c]} only />
+          <button type="button" className={btnSm} onClick={() => downloadBlankLayout(f)} data-testid="dc-specs-blank">
+            <AppIcon name="download" /> {L(`Download blank layout (${f.width_px} × ${f.height_px})`, `Muat turun susun atur kosong (${f.width_px} × ${f.height_px})`)}
+          </button>
+        </div>
+      </div>
+      <ul className={css.rulesList}>
+        <li>{L("Upload the artwork only. Names, dates and other details the customer types are added later, in the safe area - never put them in the image.", "Muat naik seni sahaja. Nama, tarikh dan butiran lain yang pelanggan taip ditambah kemudian, dalam kawasan selamat - jangan masukkan dalam imej.")}</li>
+        <li>{L(`Every page is exactly ${f.width_px} × ${f.height_px} px. A page of any other size is refused, never stretched or cropped.`, `Setiap halaman tepat ${f.width_px} × ${f.height_px} px. Halaman saiz lain ditolak, tidak diregang atau dipotong.`)}</li>
+        <li>{L("RGB colour. CMYK print files are refused.", "Warna RGB. Fail cetakan CMYK ditolak.")}</li>
+      </ul>
+      {!e.specs_ok && e.specs_confirmed_at && <p className="erp-help" role="status" data-testid="dc-specs-changed"><AppIcon name="warning" /> {L("The CEO changed these specs since you confirmed them. Check them and confirm again.", "CEO telah mengubah spesifikasi ini sejak anda mengesahkannya. Semak dan sahkan semula.")}</p>}
+      <label className="erp-flex"><input type="checkbox" className="erp-check" checked={agree} onChange={(ev) => setAgree(ev.target.checked)} data-testid="dc-specs-agree" />
+        {L("I have read these specs and my artwork follows them.", "Saya telah membaca spesifikasi ini dan seni saya mematuhinya.")}</label>
+      {error && <p className="erp-error" role="alert">{error}</p>}
+      <DrawerFoot testid="dc-specs-actions">
+        <button type="button" className={btnGhost} onClick={onBack}>{L("Back", "Kembali")}</button>
+        <button type="button" className={btnClass} disabled={busy || !agree || !e.rules_on} onClick={onNext} data-testid="dc-specs-next">{busy ? L("Saving…", "Menyimpan…") : L("Continue to pages", "Teruskan ke halaman")}</button>
+      </DrawerFoot>
+      {!e.rules_on && <p className="erp-error" role="alert">{L("This format or category is switched off. Choose another in Template Info.", "Format atau kategori ini dimatikan. Pilih yang lain dalam Maklumat Templat.")}</p>}
+    </DrawerForm>
+  );
+}
+
+/** step 3 - one row per planned page: its artwork (checked here, then by the server), its title, its place */
+function PagesStep({ t, e, busy, setBusy, error, setError, take, onBack, onDone }: {
+  t: Template; e: Editor; busy: boolean; setBusy: (v: boolean) => void; error: string | null; setError: (v: string | null) => void;
+  take: (r: ApiResult<Detail & ErrBody>) => boolean; onBack: () => void; onDone: () => void;
+}) {
+  const { confirm, node: confirmNode } = useConfirm();
+  const [pageErr, setPageErr] = useState<Record<number, string[]>>({});
+  const [uploading, setUploading] = useState<number | null>(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [names, setNames] = useState<Record<number, string>>({});
+  const f = e.format, c = e.category;
+  const pages = e.pages;
+  const plan = (list: { id: number | null; title: string; title_ms: string | null }[]) =>
+    api<Detail & ErrBody>(`/staff/card-templates/${t.id}/pages`, { method: "PUT", body: JSON.stringify({ version: t.version, pages: list.map((p) => ({ id: p.id, title: p.title, title_ms: p.title_ms })) }) });
+  const run = async (call: Promise<ApiResult<Detail & ErrBody>>) => { setBusy(true); setError(null); const ok = take(await call); setBusy(false); return ok; };
+  const upload = async (p: EditorPage, file: File) => {
+    if (!f) return;
+    setPageErr((s) => ({ ...s, [p.id]: [] }));
+    /* the same check the server makes, so a wrong file is named before it is sent */
+    const head = readImageHeader(new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer()));
+    const local = pageFileProblems(head, file.size, f, getLang() === "ms" ? "ms" : "en");
+    if (local.length) { setPageErr((s) => ({ ...s, [p.id]: local })); return; }
+    setUploading(p.id); setError(null);
+    try {
+      const res = await csrfFetch(`/api/v1/staff/card-templates/${t.id}/pages/${p.id}/file?version=${t.version}`, {
+        method: "PUT", headers: { "Content-Type": "mime" in head ? head.mime : file.type, "X-File-Name": file.name.replace(/[^\x20-\x7e]/g, "_").slice(0, 120) }, body: file,
+      });
+      const data = (await res.json().catch(() => null)) as (Detail & ErrBody) | null;
+      if (!res.ok && data?.error?.code === "invalid_page") setPageErr((s) => ({ ...s, [p.id]: data.error?.problems ?? [data.error?.message ?? ""] }));
+      else take({ ok: res.ok, status: res.status, data });
+    } catch { setError(L("No connection - the page was not uploaded. Try again.", "Tiada sambungan - halaman tidak dimuat naik. Cuba lagi.")); }
+    setUploading(null);
+  };
+  const move = (i: number, by: -1 | 1) => { const l = [...pages]; const [x] = l.splice(i, 1); l.splice(i + by, 0, x!); void run(plan(l)); };
+  const remove = async (p: EditorPage) => {
+    if (p.has_file && !(await confirm({ title: L(`Remove ${ptitle(p)}?`, `Buang ${ptitle(p)}?`), message: L("The page and its artwork leave this template. The file stays in the history.", "Halaman dan senirnya keluar dari templat ini. Fail kekal dalam sejarah."), confirmLabel: L("Remove", "Buang"), variant: "danger" }))) return;
+    void run(plan(pages.filter((x) => x.id !== p.id)));
+  };
+  const rename = (p: EditorPage) => {
+    const v = (names[p.id] ?? "").trim();
+    if (!v || v === p.title) return;
+    void run(plan(pages.map((x) => (x.id === p.id ? { ...x, title: v } : x)))).then((ok) => { if (ok) setNames((s) => { const n = { ...s }; delete n[p.id]; return n; }); });
+  };
+  const add = async () => { const v = newTitle.trim(); if (!v) return; if (await run(plan([...pages, { id: null, title: v, title_ms: null } as unknown as EditorPage]))) setNewTitle(""); };
+  const issues = pages.flatMap((p) => pageIssues(p, f).slice(0, 1).map((x) => `${ptitle(p)}: ${x}`));
+  if (c && pages.length < c.min_pages) issues.unshift(L(`At least ${c.min_pages} pages`, `Sekurang-kurangnya ${c.min_pages} halaman`));
+  const done = pages.filter((p) => p.has_file && !pageIssues(p, f).length).length;
+  const ratio = f ? `${f.width_px} / ${f.height_px}` : "9 / 16";
+  return (
+    <DrawerForm testid="dc-pages" aside={
+      <DrawerPanel icon={issues.length ? "warning" : "success"} title={issues.length ? L("Still to finish", "Belum selesai") : L("Every page is in", "Semua halaman lengkap")}
+        sub={L(`${done} of ${pages.length} pages ready`, `${done} daripada ${pages.length} halaman sedia`)} testid="dc-pages-status">
+        {issues.length ? <ul className={css.rulesList}>{issues.map((x) => <li key={x}>{x}</li>)}</ul>
+          : <p className="erp-help">{L("Each page is the exact size, type and file size this format asks for. The server checked every one.", "Setiap halaman tepat saiz, jenis dan saiz fail yang diminta format ini. Pelayan telah menyemak setiap satu.")}</p>}
+        {f && <p className="erp-help">{L(`${TYPE_LIST(f)} · exactly ${f.width_px} × ${f.height_px} px · up to ${sizeLabel(f.max_bytes)}`, `${TYPE_LIST(f)} · tepat ${f.width_px} × ${f.height_px} px · sehingga ${sizeLabel(f.max_bytes)}`)}</p>}
+      </DrawerPanel>
+    }>
+      <ol className={css.pageRows} data-testid="dc-page-rows">
+        {pages.map((p, i) => {
+          const errs = pageErr[p.id] ?? [];
+          const now = pageIssues(p, f).filter(() => p.has_file);
+          const lockedFirst = p.required && i === 0;
+          return (
+            <li key={p.id} className={css.pageRow} data-testid={`dc-page-${p.position}`}>
+              <div className={css.pageThumb} style={{ aspectRatio: ratio }}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- a private, staff-only file; the static export has no image optimiser */}
+                {p.has_file ? <img src={pageImg(t.id, p)} alt={L(`${ptitle(p)} artwork`, `Seni ${ptitle(p)}`)} loading="lazy" />
+                  : <span className={css.pageEmpty}><AppIcon name="upload" /></span>}
+              </div>
+              <div className={css.pageInfo}>
+                <div className={css.pageHead}>
+                  <span className={css.pageNo}>{i + 1}</span>
+                  {p.required ? <strong>{ptitle(p)}</strong> : (
+                    <input className={inputClassSm} value={names[p.id] ?? p.title} maxLength={PAGE_TITLE_MAX} aria-label={L("Page title", "Tajuk halaman")} disabled={busy}
+                      onChange={(ev) => setNames((s) => ({ ...s, [p.id]: ev.target.value }))} onBlur={() => rename(p)} onKeyDown={(ev) => { if (ev.key === "Enter") rename(p); }} data-testid={`dc-page-title-${p.position}`} />
+                  )}
+                  <span className={p.required ? chipSmWarn : chipSmNeutral}>{p.required ? L("Required", "Wajib") : L("Optional", "Pilihan")}</span>
+                  {p.has_file && !now.length && <span className={chipSmSuccess}>{L("Checked", "Disemak")}</span>}
+                </div>
+                {p.has_file && <p className={css.muted}><span className="erp-nowrap">{p.width_px} × {p.height_px} px</span> · {p.mime === "image/png" ? "PNG" : "JPG"} · {sizeLabel(p.bytes ?? 0)}{p.uploaded_at ? ` · ${dmyMYT(p.uploaded_at)}` : ""}</p>}
+                {now.map((x) => <p key={x} className="erp-error">{x}</p>)}
+                {errs.map((x) => <p key={x} className="erp-error" role="alert" data-testid={`dc-page-err-${p.position}`}>{x}</p>)}
+                {p.duplicate && <p className="erp-help"><AppIcon name="warning" /> {L("The same artwork is on another page.", "Seni yang sama ada pada halaman lain.")}</p>}
+                <div className={css.rowActions}>
+                  <label className={`${btnSm} ${css.fileBtn}`} aria-disabled={busy || uploading != null}>
+                    <AppIcon name="upload" /> {uploading === p.id ? L("Uploading…", "Memuat naik…") : p.has_file ? L("Replace", "Ganti") : L("Upload artwork", "Muat naik seni")}
+                    <input type="file" accept={f?.accepted_types.join(",") ?? "image/png,image/jpeg"} className="erp-sr-only" disabled={busy || uploading != null} data-testid={`dc-page-file-${p.position}`}
+                      onChange={(ev) => { const file = ev.target.files?.[0]; ev.target.value = ""; if (file) void upload(p, file); }} />
+                  </label>
+                  {c?.allow_reorder && !lockedFirst && i > 1 && <button type="button" className={btnSm} disabled={busy} onClick={() => move(i, -1)} aria-label={L(`Move ${ptitle(p)} up`, `Naikkan ${ptitle(p)}`)}>{L("Move up", "Naikkan")}</button>}
+                  {c?.allow_reorder && !lockedFirst && i < pages.length - 1 && <button type="button" className={btnSm} disabled={busy} onClick={() => move(i, 1)} aria-label={L(`Move ${ptitle(p)} down`, `Turunkan ${ptitle(p)}`)}>{L("Move down", "Turunkan")}</button>}
+                  {!p.required && c && pages.length > c.min_pages && <button type="button" className={btnGhost} disabled={busy} onClick={() => void remove(p)} data-testid={`dc-page-remove-${p.position}`}>{L("Remove", "Buang")}</button>}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {c && pages.length < c.max_pages && (
+        <div className={css.addPage}>
+          <input className={inputClassSm} value={newTitle} maxLength={PAGE_TITLE_MAX} onChange={(ev) => setNewTitle(ev.target.value)} disabled={busy}
+            placeholder={L("New optional page, e.g. Gallery", "Halaman pilihan baharu, cth. Galeri")} aria-label={L("New page title", "Tajuk halaman baharu")} data-testid="dc-page-new" />
+          <button type="button" className={btnSm} disabled={busy || !newTitle.trim()} onClick={() => void add()} data-testid="dc-page-add"><AppIcon name="add" /> {L("Add page", "Tambah halaman")}</button>
+        </div>
+      )}
+      {error && <p className="erp-error" role="alert" data-testid="dc-pages-error">{error}</p>}
+      <DrawerFoot testid="dc-pages-actions">
+        <button type="button" className={btnGhost} onClick={onBack}>{L("Back", "Kembali")}</button>
+        <button type="button" className={btnClass} disabled={busy || uploading != null} onClick={onDone} data-testid="dc-pages-done">{L("Save and close", "Simpan dan tutup")}</button>
+      </DrawerFoot>
+      {confirmNode}
+    </DrawerForm>
+  );
+}
+const TYPE_LIST = (f: CardFormat) => f.accepted_types.map((x) => TYPE_LABEL[x]).join(" or ");
 
 /* ================================ GUIDELINES ================================ */
 
@@ -521,7 +799,7 @@ function SafeAreaDiagram({ f }: { f: CardFormat }) {
   );
 }
 
-function Requirements({ f, categories }: { f: CardFormat; categories: CardCategory[] }) {
+function Requirements({ f, categories, only = false }: { f: CardFormat; categories: CardCategory[]; only?: boolean }) {
   const lo = categories.length ? Math.min(...categories.map((c) => c.min_pages)) : LIMITS.pages[0];
   const hi = categories.length ? Math.max(...categories.map((c) => c.max_pages)) : LIMITS.pages[1];
   const rows: [string, string][] = [
@@ -530,11 +808,11 @@ function Requirements({ f, categories }: { f: CardFormat; categories: CardCatego
     [L("Largest file", "Fail terbesar"), L(`${sizeLabel(f.max_bytes)} per page`, `${sizeLabel(f.max_bytes)} setiap halaman`)],
     [L("Safe area", "Kawasan selamat"), `${safeArea(f).w} × ${safeArea(f).h} px · ${marginText(f)}`],
     [L("Colour", "Warna"), L("RGB (sRGB). CMYK print files are refused.", "RGB (sRGB). Fail cetakan CMYK ditolak.")],
-    [L("Pages", "Halaman"), L(`${lo} to ${hi} per card, by category (below)`, `${lo} hingga ${hi} setiap kad, ikut kategori (di bawah)`)],
+    [L("Pages", "Halaman"), only ? L(`${lo} to ${hi} per card`, `${lo} hingga ${hi} setiap kad`) : L(`${lo} to ${hi} per card, by category (below)`, `${lo} hingga ${hi} setiap kad, ikut kategori (di bawah)`)],
     [L("Resolution", "Resolusi"), L("Pixels only - DPI is not checked for screen cards.", "Piksel sahaja - DPI tidak disemak untuk kad skrin.")],
   ];
   return (
-    <dl className={css.reqs} data-testid="dc-requirements">
+    <dl className={`${css.reqs} ${only ? css.reqsTight : ""}`} data-testid="dc-requirements">
       <dt className={css.reqHead}>{L("Technical requirements", "Keperluan teknikal")}</dt>
       {rows.map(([k, v]) => (
         <div key={k} className={css.req}><dt>{k}</dt><dd>{v}</dd></div>

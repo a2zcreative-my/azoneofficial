@@ -187,6 +187,12 @@ const server = http.createServer((req, res) => {
       res.end(readFileSync(join(dir, "icon-192.png")));
       return;
     }
+    /* v1.393.0 - a digital card template page's artwork is an image, through Digital Cards */
+    if (req.method === "GET" && /^\/staff\/card-templates\/\d+\/pages\/\d+\/image$/.test(p)) {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(readFileSync(join(dir, "icon-192.png")));
+      return;
+    }
     if (req.method === "GET" && p.startsWith("/media/file/")) {
       res.writeHead(200, { "content-type": "image/png" });
       res.end(readFileSync(join(dir, "icon-192.png")));

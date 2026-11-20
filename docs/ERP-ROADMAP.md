@@ -592,3 +592,6 @@ with the approved starting rules seeded. No existing table is altered; not the b
 The digital card templates (the CEO 21-11-2026, Digital Cards Stage 3) add `0222_card_templates`: additive only - the
 template master record `card_templates` (never deleted, trigger) and the append-only `card_template_events`. No existing
 table is altered; not the business.ts door (worker/src/card-templates.ts).
+The template editor (the CEO 21-11-2026, Digital Cards Stage 4) adds `0223_card_template_pages`: additive only - the
+new `card_template_pages` (planned pages and their checked artwork, triggers keep them to drafts) and three added
+columns on `card_templates` (step, specs_key, specs_confirmed_at). Not the business.ts door (worker/src/card-templates.ts).
