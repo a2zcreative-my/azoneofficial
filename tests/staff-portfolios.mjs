@@ -253,6 +253,26 @@ try {
   await call(`/staff/portfolios/${own4}`, 4, "PUT", { version: o.portfolio.version, tagline: "Changed after approval" });
   ok((await call(`/public/portfolio/${slug4}`, null)).j?.portfolio?.tagline === "My own line", "self: an edit after approval stays private until published again");
   ok((await call("/staff/portfolios/mine", 4)).j?.review === null, "chart: once published, the review is done");
+
+  /* 0220 - BM words (the CEO 19-11-2026: "text doesn't change to BM"): Translate proposes, staff save, publish freezes */
+  const hadAI = rt.env.AI; delete rt.env.AI;
+  ok((await call(`/staff/portfolios/${own4}/translate`, 4, "POST", {})).status === 503, "bm: no AI on the server - said plainly (503)");
+  rt.env.AI = { run: async (_m, i) => ({ response: JSON.stringify(JSON.parse(i.messages[1].content).map((t) => `BM ${t}`)) }) };
+  ok((await call(`/staff/portfolios/${pid}/translate`, 4, "POST", {})).status === 403, "bm: nobody translates someone else's portfolio");
+  r = await call(`/staff/portfolios/${own4}/translate`, 4, "POST", {});
+  ok(r.status === 200 && r.j?.content_ms?.tagline === "BM Changed after approval" && r.j?.content_ms?.phrases?.["Live Selling"] === "BM Live Selling" && r.j?.content_ms?.items && Object.values(r.j.content_ms.items).some((x) => x.title === "BM My work"), "bm: Translate proposes the tagline, the phrases and the work titles", r.text);
+  o = (await call(`/staff/portfolios/${own4}`, 4)).j;
+  ok(!o.portfolio.content_ms, "bm: a proposal saves nothing");
+  ok((await call(`/staff/portfolios/${own4}`, 4, "PUT", { version: o.portfolio.version, content_ms: { tagline: "  Garisan saya  ", intro: 5, phrases: { "Live Selling": "Jualan Langsung", "Empty": "  " }, items: { abc: { title: "x" } } } })).status === 200, "bm: the person saves the checked BM words");
+  o = (await call(`/staff/portfolios/${own4}`, 4)).j;
+  ok(JSON.stringify(o.portfolio.content_ms) === JSON.stringify({ tagline: "Garisan saya", phrases: { "Live Selling": "Jualan Langsung" } }), "bm: what is saved is cleaned (trimmed, strings only, empties and bad keys dropped)", JSON.stringify(o.portfolio.content_ms));
+  ok(!(await call(`/public/portfolio/${slug4}`, null)).j?.portfolio?.ms, "bm: the public page has no BM until it is published");
+  await call(`/staff/portfolios/${own4}/publish`, 1, "POST", { version: o.portfolio.version });
+  r = await call(`/public/portfolio/${slug4}`, null);
+  ok(r.j?.portfolio?.ms?.tagline === "Garisan saya" && r.j?.portfolio?.ms?.phrases?.["Live Selling"] === "Jualan Langsung", "bm: once published, the page carries the approved BM words", r.text.slice(0, 300));
+  rt.env.AI = { run: async () => ({ response: "not json" }) };
+  ok((await call(`/staff/portfolios/${own4}/translate`, 4, "POST", {})).status === 502, "bm: a translation that does not come back is said, never half-saved (502)");
+  if (hadAI) rt.env.AI = hadAI; else delete rt.env.AI;
   ok(db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'portfolio.edit' AND user_id = 4`).get().n >= 2, "self: their edits are in the audit log");
 
   let threw = false; try { db.exec(`DELETE FROM staff_portfolios`); } catch { threw = true; }
@@ -275,7 +295,7 @@ function checks(s) {
   const t = (c, m) => out.push([!!c, m]);
   t(/\/portfolio\/elfia\s+\/portfolio\s+301[\s\S]*\/portfolio\/:name\s+\/portfolio\/staff\s+200/.test(s.redirects), "every /portfolio/<name> is the one static page (rewrite 200), after the /portfolio/elfia 301");
   t(/\\\/api\\\/v1\\\/public\\\/portfolio\\\//.test(s.idx), "the public API lives under /api/v1/public/portfolio (the content list keeps /api/v1/portfolio)");
-  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name|0218_portfolio_name_case|0219_portfolio_review)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?("0218_portfolio_name_case",\n\s*)?("0219_portfolio_review",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
+  t(/const LATEST_MIGRATION = "(0216_staff_portfolios|0217_portfolio_display_name|0218_portfolio_name_case|0219_portfolio_review|0220_portfolio_bm)"/.test(s.idx) && /"0216_staff_portfolios",\n\s*("0217_portfolio_display_name",\n\s*)?("0218_portfolio_name_case",\n\s*)?("0219_portfolio_review",\n\s*)?("0220_portfolio_bm",\n\s*)?\];/.test(s.idx), "0216 is in the expected list (0217 the nickname after it)");
   t(/if \(r\.assignee_id !== user\.id\) return err\("forbidden"/.test(s.pf) && /a\.role === "coo" \|\| a\.role === "cco"/.test(s.pf), "0219: only the COO / CCO on the reporting chart pre-checks");
   t(/portfolio_manage: \[[^\]]*"hr_admin"[^\]]*\]/.test(s.perms) && /portfolio_publish: \["super_admin", "ceo"\]/.test(s.perms), "portfolio_manage and portfolio_publish are PERMS caps (publish = CEO and super admin; the COO / CCO pre-check)");
   t(/cap: "portfolio_manage"/.test(s.perms) && /cap: "portfolio_publish"/.test(s.perms), "both are rows of the editable matrix");
@@ -294,6 +314,8 @@ function checks(s) {
   t(/rest === "\/publish" && method === "POST"\) \{\n\s*if \(!publish\)/.test(s.pf) && /rest === "\/unpublish" && method === "POST"\) \{\n\s*if \(!publish\)/.test(s.pf), "self: publishing and unpublishing stay the approver's");
   t(/<dialog ref=\{sheet\}/.test(s.page) && /data-testid="portfolio-dock"/.test(s.page) && /data-testid="portfolio-form"/.test(s.page) && /\/public\/portfolio\/\$\{slug\}\/enquiry/.test(s.page), "v1.391.0 page: an inline enquiry card on a wide screen, a sticky dock and a native sheet on a phone, the same enquiry route");
   t(/const email = p\.email \?\? A2Z_CREATIVE\.email;/.test(s.page) && !/CONTACT\.email/.test(s.page), "v1.391.0 page: with no approved email it shows A2Z Creative Marketing's own, never another company's");
+  t(/const bm = lang === "ms" \? \(p\.ms \?\? null\) : null;/.test(s.page) && /const T = \(en: string\) => bm\?\.phrases\?\.\[en\] \?\? en;/.test(s.page), "0220 page: BM visitors read the approved BM words, English where none is written");
+  t(/if \(rest === "\/translate" && method === "POST"\) \{\n\s*if \(!writer\)/.test(s.pf) && /portfolio_translate:\$\{user\.id\}/.test(s.pf), "0220: Translate is the writer's, budgeted per person");
   t(!/portfolio-card/.test(s.page), "v1.391.0 page: the public page does not draw or change the card (PNG / PDF stay in lib/portfolio-card.ts)");
   t(/data-testid="my-portfolio-create"/.test(s.mine) && /data-testid="my-portfolio-edit"/.test(s.mine) && /PortfolioEditor/.test(s.mine) && /data-testid="pf-submit"/.test(s.studio), "self: Profile offers Create / Edit my portfolio with the one editor, and Send for approval");
   return out;

@@ -14,7 +14,10 @@
    chip grid, responsibilities that open, a gallery that scrolls sideways, and a sticky bar
    (Enquire now + WhatsApp) that opens the SAME enquiry form in a native bottom sheet. Same API,
    same enquiry route, same address and QR; the card PNG / PDF is drawn elsewhere and untouched.
-   Every section hides when it has nothing to show - no placeholder is ever drawn. */
+   Every section hides when it has nothing to show - no placeholder is ever drawn.
+   0220 (the CEO 19-11-2026: "text doesn't change to BM") - with BM chosen, the person's own words
+   are the approved BM ones (`ms`, frozen at publish; Translate to BM in the editor, checked by
+   staff). A word with no BM shows in English. */
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,6 +36,8 @@ interface PublicPortfolio {
   tagline: string | null; intro: string | null; specialties: string[]; expertise: string[]; experience: string | null;
   responsibilities: string[]; email: string | null; phone: string | null; socials: Record<string, string>; template: string;
   has_photo: boolean; published_at: string | null;
+  /** 0220 - the approved BM words; lists are a phrase map (English -> BM) */
+  ms?: { tagline?: string; intro?: string; experience?: string; phrases?: Record<string, string>; items?: Record<string, { title?: string; description?: string }> } | null;
   items: { id: number; kind: "image" | "video"; title: string; description: string | null; video_url: string | null; has_media: boolean; media_type: string | null; featured: boolean }[];
 }
 type Item = PublicPortfolio["items"][number];
@@ -58,6 +63,7 @@ function ChipIcon({ icon }: { icon: CardIcon }) {
 
 /* one piece of work - at module scope so React keeps it between renders */
 function Work({ i, media, L }: { i: Item; media: (id: number) => string; L: (en: string, ms: string) => string }) {
+  /* i arrives already in the visitor's language (the page maps title / description) */
   const isVideo = i.has_media && i.media_type?.startsWith("video/");
   return (
     <article className={css.work} data-testid={`portfolio-item-${i.id}`}>
@@ -175,10 +181,19 @@ export default function StaffPortfolioPage() {
   const waNumber = p.phone ? p.phone.replace(/\D/g, "").replace(/^0/, "60") : CONTACT.whatsapp;
   const waText = encodeURIComponent(L(`Hi, I saw ${name}'s portfolio on a2zcreative.my`, `Hai, saya lihat portfolio ${name} di a2zcreative.my`));
   const waHref = `https://wa.me/${waNumber}?text=${waText}`;
-  const chips = [...p.specialties, ...p.expertise.filter((x) => !p.specialties.includes(x))];
-  const chipIcons = iconsFor(chips);
+  /* 0220 - the visitor's language: the approved BM word, else the English */
+  const bm = lang === "ms" ? (p.ms ?? null) : null;
+  const T = (en: string) => bm?.phrases?.[en] ?? en;
+  const tagline = bm?.tagline ?? p.tagline;
+  const intro = bm?.intro ?? p.intro;
+  const experience = bm?.experience ?? p.experience;
+  const duties = p.responsibilities.map(T);
+  const chipsEn = [...p.specialties, ...p.expertise.filter((x) => !p.specialties.includes(x))];
+  const chips = chipsEn.map(T);
+  const chipIcons = iconsFor(chipsEn); // the icon is chosen from the English words, so both languages match
   /* the work: featured first, then the rest in the order the studio keeps */
-  const work = [...p.items.filter((i) => i.featured), ...p.items.filter((i) => !i.featured)];
+  const inLang = (i: Item): Item => (bm?.items?.[String(i.id)] ? { ...i, title: bm.items[String(i.id)]!.title ?? i.title, description: bm.items[String(i.id)]!.description ?? i.description } : i);
+  const work = [...p.items.filter((i) => i.featured), ...p.items.filter((i) => !i.featured)].map(inLang);
   const WORK_FIRST = 6;
   const shownWork = phone || allWork ? work : work.slice(0, WORK_FIRST);
   const DUTIES_FIRST = 2;
@@ -235,14 +250,14 @@ export default function StaffPortfolioPage() {
           <div className={css.heroText}>
             <p className={css.kicker}><Link href="/">A2Z Creative Marketing</Link><span aria-hidden> / </span>{L("Team portfolio", "Portfolio pasukan")}</p>
             <h1 id="portfolio-name" data-testid="portfolio-name">{name}</h1>
-            {p.position && <p className={css.pill} data-testid="portfolio-position">{p.position}</p>}
-            {(p.department || p.experience) && (
+            {p.position && <p className={css.pill} data-testid="portfolio-position">{T(p.position)}</p>}
+            {(p.department || experience) && (
               <p className={css.dept}>
-                {p.department && <span><Building2 aria-hidden />{L("Department", "Jabatan")}: {p.department}</span>}
-                {p.experience && <span><Star aria-hidden />{p.experience}</span>}
+                {p.department && <span><Building2 aria-hidden />{L("Department", "Jabatan")}: {T(p.department)}</span>}
+                {experience && <span><Star aria-hidden />{experience}</span>}
               </p>
             )}
-            {p.tagline && <p className={css.tagline}>{p.tagline}</p>}
+            {tagline && <p className={css.tagline}>{tagline}</p>}
             <p className={`${css.ctaRow} ${css.heroCtas}`}>
               <a className={css.ctaGold} href="#enquire" onClick={enquire} data-testid="portfolio-enquire">{L("Work with me", "Bekerja dengan saya")}<ArrowRight aria-hidden /></a>
               {work.length > 0 && <a className={css.ctaGhost} href="#projects"><Play aria-hidden />{L("View portfolio", "Lihat portfolio")}</a>}
@@ -260,27 +275,27 @@ export default function StaffPortfolioPage() {
       {chips.length > 0 && (
         <section className={css.expertise} aria-labelledby="expertise-title" data-testid="portfolio-expertise">
           <h2 id="expertise-title"><Layers aria-hidden />{L("Expertise & specialties", "Kepakaran & keistimewaan")}</h2>
-          <ul className={css.chips}>{chips.map((t, i) => <li key={t}><ChipIcon icon={chipIcons[i] ?? "star"} />{t}</li>)}</ul>
+          <ul className={css.chips}>{chips.map((t, i) => <li key={`${i}-${t}`}><ChipIcon icon={chipIcons[i] ?? "star"} />{t}</li>)}</ul>
         </section>
       )}
 
       <div className={css.body}>
         <div className={css.main}>
-          {p.intro && (
+          {intro && (
             <section className={css.section} aria-labelledby="about-title">
               <h2 id="about-title">{L("About me", "Tentang saya")}</h2>
-              <p className={css.intro}>{p.intro}</p>
+              <p className={css.intro}>{intro}</p>
             </section>
           )}
-          {p.responsibilities.length > 0 && (
+          {duties.length > 0 && (
             <section className={css.section} aria-labelledby="duties-title" data-testid="portfolio-duties">
               <h2 id="duties-title">{L("Key responsibilities", "Tanggungjawab utama")}</h2>
               <ul className={`${css.ticks} ${allDuties ? css.ticksAll : ""}`} id="portfolio-duty-list">
-                {p.responsibilities.map((t) => <li key={t}><Check aria-hidden /><span>{t}</span></li>)}
+                {duties.map((t, n) => <li key={`${n}-${t}`}><Check aria-hidden /><span>{t}</span></li>)}
               </ul>
-              {p.responsibilities.length > DUTIES_FIRST && (
+              {duties.length > DUTIES_FIRST && (
                 <button type="button" className={css.more} aria-expanded={allDuties} aria-controls="portfolio-duty-list" onClick={() => setAllDuties((x) => !x)} data-testid="portfolio-duties-more">
-                  {allDuties ? L("Show less", "Tunjuk kurang") : L(`Show all ${p.responsibilities.length}`, `Tunjuk semua ${p.responsibilities.length}`)}<ChevronDown aria-hidden className={allDuties ? css.flip : undefined} />
+                  {allDuties ? L("Show less", "Tunjuk kurang") : L(`Show all ${duties.length}`, `Tunjuk semua ${duties.length}`)}<ChevronDown aria-hidden className={allDuties ? css.flip : undefined} />
                 </button>
               )}
             </section>

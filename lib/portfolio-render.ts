@@ -17,6 +17,8 @@ export interface PortfolioDetail {
     display_name?: string | null;
     /** 0218 - capitals or normal letters for the name */
     name_case?: "upper" | "normal";
+    /** 0220 - the BM words; null = English only */
+    content_ms?: PortfolioMs | null;
     experience: string | null; contact_email: string | null; contact_phone: string | null; show_email: boolean; show_phone: boolean;
     socials: Record<string, string>; portrait_key: string | null; photo_crop: CardCrop | null; portrait_stale: boolean; portrait_own?: boolean;
     version: number; published_at: string | null; unpublished_at: string | null; updated_at: string | null;
@@ -29,6 +31,12 @@ export interface PortfolioDetail {
   can: { edit: boolean; publish: boolean; upload_staff_photo: boolean; /** v1.390.0 - the owner sends it for approval */ submit?: boolean; /** 0219 - you are its pre-checker */ precheck?: boolean };
   /** 0219 - where the review stands: null = not sent, or published since */
   review?: PortfolioReview | null;
+}
+/** 0220 - a portfolio's words in Bahasa Melayu: lists are a phrase map (English -> BM) */
+export interface PortfolioMs {
+  tagline?: string; intro?: string; experience?: string;
+  phrases?: Record<string, string>;
+  items?: Record<string, { title?: string; description?: string }>;
 }
 export interface PortfolioReview {
   stage: "precheck" | "approval" | "returned"; version: number; at: string; note: string | null; by: string | null;

@@ -31,7 +31,7 @@ import { getLang } from "@/lib/i18n";
 import { CARD_SIZES, type CardCrop, type CardSize, type CardTemplate } from "@/lib/portfolio-card";
 import {
   cardDataOf, reviewWords, decodePortrait, fetchBlob, fileBase, loadLogo, mediaUrl, paint, pdfOf, pngOf, qrPng, qrSvg, saveBlob, shareCard, testScan,
-  type LoadedPortrait, type PortfolioDetail,
+  type LoadedPortrait, type PortfolioDetail, type PortfolioMs,
 } from "@/lib/portfolio-render";
 import { btnSm, btnSmPrimary, btnSmQuiet, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, fieldLabel, inputClass, selectClass, textareaClass, th, td } from "@/lib/ui-styles";
 import css from "./portfolio-studio.module.css";
@@ -167,7 +167,7 @@ export function PortfolioStudio({ focusUserId, onFocused }: { focusUserId?: numb
   );
 }
 
-type Tab = "card" | "details" | "work" | "publish";
+type Tab = "card" | "details" | "work" | "bm" | "publish";
 type Draft = Partial<PortfolioDetail["portfolio"]>;
 
 export function PortfolioEditor({ id, onClose, notify }: { id: number | null; onClose: () => void; notify: (t: string, s?: string, v?: "success" | "notice" | "error") => void }) {
@@ -292,6 +292,22 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
     if (r.ok) { notify(L("Published", "Diterbitkan"), r.data?.public_url ?? ""); void load(); }
     else notify(L("Not published", "Tidak diterbitkan"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? "", "error");
   };
+  /* 0220 - Translate to BM: a proposal from the English in the editor; it fills only the empty BM boxes */
+  const translate = async () => {
+    if (!d || !merged) return;
+    setBusy("translate");
+    const r = await api<{ content_ms: PortfolioMs | null }>(`/portfolios/${d.portfolio.id}/translate`, { method: "POST", body: JSON.stringify({ tagline: merged.tagline ?? "", intro: merged.intro ?? "", experience: merged.experience ?? "", specialties: merged.specialties ?? [], expertise: merged.expertise ?? [] }) });
+    setBusy(null);
+    if (!r.ok || !r.data?.content_ms) { notify(L("Not translated", "Tidak diterjemah"), (r.data as { error?: { message?: string } } | null)?.error?.message ?? "", "error"); return; }
+    const got = r.data.content_ms; const cur: PortfolioMs = merged.content_ms ?? {};
+    const keep = (a?: string, b?: string) => (a && a.trim() ? a : b);
+    const items: NonNullable<PortfolioMs["items"]> = { ...(got.items ?? {}) };
+    for (const [k, v] of Object.entries(cur.items ?? {})) items[k] = { title: keep(v.title, items[k]?.title), description: keep(v.description, items[k]?.description) };
+    const phrases: Record<string, string> = { ...(got.phrases ?? {}) };
+    for (const [k, v] of Object.entries(cur.phrases ?? {})) if (v.trim()) phrases[k] = v;
+    set({ content_ms: { tagline: keep(cur.tagline, got.tagline), intro: keep(cur.intro, got.intro), experience: keep(cur.experience, got.experience), phrases, items } });
+    notify(L("Translated - check every line", "Diterjemah - semak setiap baris"), L("Boxes you had already written were kept. Save to keep the BM words.", "Kotak yang telah anda tulis dikekalkan. Simpan untuk mengekalkan perkataan BM."));
+  };
   /* v1.390.0 - the person's own portfolio: save, then ask the approvers to check and publish it */
   const submit = async () => {
     if (!d) return;
@@ -394,7 +410,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
             </section>
           )}
           <LineTabs value={tab} onChange={setTab} label={L("Portfolio sections", "Bahagian portfolio")} testid="pf-tab"
-            tabs={[["card", L("Card", "Kad")], ["details", L("Details", "Butiran")], ["work", L("Work", "Kerja"), d.items.length], ["publish", L("Publish & share", "Terbit & kongsi")]]} />
+            tabs={[["card", L("Card", "Kad")], ["details", L("Details", "Butiran")], ["work", L("Work", "Kerja"), d.items.length], ["bm", L("BM text", "Teks BM")], ["publish", L("Publish & share", "Terbit & kongsi")]]} />
 
           {tab === "card" && (
             <div className="erp-stack" data-testid="pf-sec-card">
@@ -485,6 +501,58 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
           )}
 
           {tab === "work" && <WorkSection d={d} edit={edit} onChanged={() => void load()} notify={notify} />}
+
+          {/* 0220 - the words a BM visitor reads: Translate proposes them, the person checks them, Save keeps them */}
+          {tab === "bm" && (() => {
+            const ms: PortfolioMs = merged!.content_ms ?? {};
+            const setMs = (patch: PortfolioMs) => set({ content_ms: { ...ms, ...patch } });
+            const phrases = [...new Set([d.staff.position ?? "", d.staff.department ?? "", ...(merged!.specialties ?? []), ...(merged!.expertise ?? []), ...d.duties.public].filter(Boolean))];
+            const phrase = (en: string, v: string) => setMs({ phrases: { ...(ms.phrases ?? {}), [en]: v } });
+            const item = (id: number, k: "title" | "description", v: string) => setMs({ items: { ...(ms.items ?? {}), [id]: { ...(ms.items?.[id] ?? {}), [k]: v } } });
+            return (
+              <div className="erp-stack" data-testid="pf-sec-bm">
+                <section className={css.photoBox}>
+                  <strong>{L("Bahasa Melayu on the public page", "Bahasa Melayu pada halaman awam")}</strong>
+                  <p className="erp-meta">{L("A visitor who chooses BM reads these words. A box left empty shows the English. Translate to BM fills the empty boxes from the English in this editor - check every line, then Save. The public page changes when it is published.", "Pelawat yang memilih BM membaca perkataan ini. Kotak kosong memaparkan Bahasa Inggeris. Terjemah ke BM mengisi kotak kosong daripada Bahasa Inggeris dalam editor ini - semak setiap baris, kemudian Simpan. Halaman awam berubah apabila diterbitkan.")}</p>
+                  {edit && <div className={css.actions}><button type="button" className={btnSmPrimary} disabled={Boolean(busy)} onClick={() => void translate()} data-testid="pf-translate"><AppIcon name="fix" />{busy === "translate" ? L("Translating...", "Menterjemah...") : L("Translate to BM", "Terjemah ke BM")}</button></div>}
+                </section>
+                <label className={fieldLabel}>{L("Tagline (BM)", "Slogan (BM)")}
+                  <input className={inputClass} maxLength={120} value={ms.tagline ?? ""} disabled={!edit} placeholder={merged!.tagline ?? ""} onChange={(e) => setMs({ tagline: e.target.value })} data-testid="pf-ms-tagline" />
+                </label>
+                {(merged!.intro || ms.intro) && <label className={fieldLabel}>{L("Introduction (BM)", "Pengenalan (BM)")}
+                  <textarea className={textareaClass} rows={4} maxLength={1200} value={ms.intro ?? ""} disabled={!edit} placeholder={merged!.intro ?? ""} onChange={(e) => setMs({ intro: e.target.value })} data-testid="pf-ms-intro" />
+                </label>}
+                {(merged!.experience || ms.experience) && <label className={fieldLabel}>{L("Experience (BM)", "Pengalaman (BM)")}
+                  <input className={inputClass} maxLength={40} value={ms.experience ?? ""} disabled={!edit} placeholder={merged!.experience ?? ""} onChange={(e) => setMs({ experience: e.target.value })} data-testid="pf-ms-experience" />
+                </label>}
+                {phrases.length > 0 && (
+                  <fieldset className={css.duties} data-testid="pf-ms-phrases">
+                    <legend className={fieldLabel}>{L("Position, department, specialties, expertise and responsibilities", "Jawatan, jabatan, kepakaran, keistimewaan dan tanggungjawab")}</legend>
+                    {phrases.map((en) => (
+                      <label key={en} className={fieldLabel}><span className="erp-meta">{en}</span>
+                        <input className={inputClass} maxLength={600} value={ms.phrases?.[en] ?? ""} disabled={!edit} placeholder={L("BM - empty shows the English", "BM - kosong memaparkan Bahasa Inggeris")} onChange={(e) => phrase(en, e.target.value)} />
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {d.items.length > 0 && (
+                  <fieldset className={css.duties} data-testid="pf-ms-items">
+                    <legend className={fieldLabel}>{L("Work", "Kerja")}</legend>
+                    {d.items.map((i) => (
+                      <div key={i.id} className="erp-stack">
+                        <label className={fieldLabel}><span className="erp-meta">{i.title}</span>
+                          <input className={inputClass} maxLength={120} value={ms.items?.[i.id]?.title ?? ""} disabled={!edit} placeholder={L("Title in BM", "Tajuk dalam BM")} onChange={(e) => item(i.id, "title", e.target.value)} />
+                        </label>
+                        {i.description && <label className={fieldLabel}><span className="erp-meta">{i.description}</span>
+                          <textarea className={textareaClass} rows={2} maxLength={600} value={ms.items?.[i.id]?.description ?? ""} disabled={!edit} placeholder={L("Description in BM", "Penerangan dalam BM")} onChange={(e) => item(i.id, "description", e.target.value)} />
+                        </label>}
+                      </div>
+                    ))}
+                  </fieldset>
+                )}
+              </div>
+            );
+          })()}
 
           {tab === "publish" && (
             <div className="erp-stack" data-testid="pf-sec-publish">

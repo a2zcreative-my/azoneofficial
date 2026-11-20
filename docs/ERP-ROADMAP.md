@@ -584,3 +584,5 @@ The name lettering (the CEO 19-11-2026) adds `0218_portfolio_name_case`: additiv
 column on `staff_portfolios` (upper = capitals, NULL = normal letters). `users` is not altered.
 The portfolio review (the CEO 19-11-2026) adds `0219_portfolio_review`: additive only - one new
 append-only table `staff_portfolio_reviews` (submitted / prechecked / returned, triggers refuse UPDATE and DELETE). No existing table is altered.
+The portfolio in BM (the CEO 19-11-2026) adds `0220_portfolio_bm`: additive only - one nullable
+column `staff_portfolios.content_ms` (the BM words as JSON). `users` is not altered.

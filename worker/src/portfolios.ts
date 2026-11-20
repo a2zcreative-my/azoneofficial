@@ -40,6 +40,7 @@ import { leaveAbove } from "./leave-chain";
 import { canUser, rolesFor } from "./permissions";
 import { portfolioOf } from "./responsibilities";
 import { audit, err, json, putGuarded } from "./shared";
+import { checkRateLimit } from "./index"; // 0220 - the Translate to BM button is budgeted per person
 
 export const PORTFOLIO_SITE = "https://a2zcreative.my";
 /** words that are pages, or would read as one, never a person's address */
@@ -57,6 +58,8 @@ export type PortfolioRow = {
   display_name?: string | null;
   /** 0218 - 'upper' = CAPITAL LETTERS, 'normal' / NULL = normal letters */
   name_case?: string | null;
+  /** 0220 - the BM words (JSON, MsContent); NULL = English only */
+  content_ms?: string | null;
   experience: string | null; contact_email: string | null; contact_phone: string | null; show_email: number; show_phone: number;
   socials: string | null; portrait_key: string | null; portrait_source_key: string | null; photo_crop: string | null;
   published_json: string | null; published_at: string | null; published_by: number | null; published_version: number | null;
@@ -66,11 +69,80 @@ type StaffBits = {
   id: number; name: string; full_name: string | null; position: string | null; role_title: string | null; department: string | null;
   photo_key: string | null; email: string | null; phone: string | null; current: number;
 };
+/** 0220 - a portfolio's words in Bahasa Melayu. Lists are a phrase map (English -> BM), so a
+    reordered or edited list never shows the wrong translation: a phrase with no BM shows in English. */
+export type MsContent = {
+  tagline?: string; intro?: string; experience?: string;
+  phrases?: Record<string, string>;
+  items?: Record<string, { title?: string; description?: string }>;
+};
+const MS_CAPS = { tagline: 120, intro: 1200, experience: 40 } as const;
+/** clean whatever arrives (the editor, the AI, an old row): strings only, trimmed, capped, empties dropped */
+function cleanMs(v: unknown): MsContent | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const str = (x: unknown, n: number) => (typeof x === "string" && x.trim() ? x.trim().slice(0, n) : undefined);
+  const out: MsContent = {};
+  for (const k of ["tagline", "intro", "experience"] as const) { const t = str(o[k], MS_CAPS[k]); if (t) out[k] = t; }
+  if (o.phrases && typeof o.phrases === "object") {
+    const ph: Record<string, string> = {};
+    for (const [en, ms] of Object.entries(o.phrases as Record<string, unknown>).slice(0, 80)) {
+      const k = str(en, 600); const t = str(ms, 600);
+      if (k && t) ph[k] = t;
+    }
+    if (Object.keys(ph).length) out.phrases = ph;
+  }
+  if (o.items && typeof o.items === "object") {
+    const it: Record<string, { title?: string; description?: string }> = {};
+    for (const [id, x] of Object.entries(o.items as Record<string, unknown>).slice(0, 30)) {
+      if (!/^\d+$/.test(id) || !x || typeof x !== "object") continue;
+      const t = str((x as Record<string, unknown>).title, 120); const d = str((x as Record<string, unknown>).description, 600);
+      if (t || d) it[id] = { ...(t ? { title: t } : {}), ...(d ? { description: d } : {}) };
+    }
+    if (Object.keys(it).length) out.items = it;
+  }
+  return Object.keys(out).length ? out : null;
+}
+const msOf = (p: PortfolioRow): MsContent | null => { try { return p.content_ms ? cleanMs(JSON.parse(p.content_ms)) : null; } catch { return null; } };
+
+const AI_TRANSLATE_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const AI_TRANSLATE_FALLBACK = "@cf/meta/m2m100-1.2b";
+/** English -> Bahasa Melayu, one string each, same order and count - or null when it could not be done */
+async function translateToMs(env: Env, texts: string[]): Promise<string[] | null> {
+  const ai = (env as unknown as { AI?: { run: (m: string, i: unknown) => Promise<unknown> } }).AI;
+  if (!ai || !texts.length) return null;
+  try {
+    const r = await ai.run(AI_TRANSLATE_MODEL, {
+      messages: [
+        { role: "system", content: "You translate a staff member's professional profile from English into natural, professional Bahasa Melayu (Malaysia). Keep brand names, platform names (TikTok, Shopee, SEO, Canva) and proper nouns as they are. Do not add, remove or embellish anything. Reply with ONE JSON array of strings and nothing else: the same number of strings, in the same order." },
+        { role: "user", content: JSON.stringify(texts) },
+      ],
+      max_tokens: 4096, temperature: 0.1,
+    }) as { response?: unknown };
+    const raw = typeof r?.response === "string" ? r.response : JSON.stringify(r?.response ?? "");
+    const m = /\[[\s\S]*\]/.exec(raw);
+    const arr = m ? (JSON.parse(m[0]) as unknown[]) : null;
+    if (Array.isArray(arr) && arr.length === texts.length && arr.every((x) => typeof x === "string" && x.trim())) return arr.map((x) => (x as string).trim());
+  } catch { /* the fallback below */ }
+  /* the translation model, one string at a time */
+  try {
+    const out: string[] = [];
+    for (const t of texts) {
+      const r = await ai.run(AI_TRANSLATE_FALLBACK, { text: t, source_lang: "english", target_lang: "malay" }) as { translated_text?: string };
+      if (!r?.translated_text?.trim()) return null;
+      out.push(r.translated_text.trim());
+    }
+    return out;
+  } catch { return null; }
+}
+
 export type PublicSnapshot = {
   /** 0217 - only when a nickname is set, so an older snapshot reads the same */
   display_name?: string;
   /** 0218 - only when set to capitals, so an older snapshot reads the same */
   name_case?: "upper";
+  /** 0220 - only when BM words are written, so an older snapshot reads the same */
+  ms?: MsContent;
   tagline: string | null; intro: string | null; specialties: string[]; expertise: string[];
   experience: string | null; email: string | null; phone: string | null; socials: Record<string, string>;
   portrait_key: string | null; template: string;
@@ -158,6 +230,7 @@ async function snapshotOf(env: Env, p: PortfolioRow, s: StaffBits): Promise<Publ
   return {
     ...(p.display_name?.trim() ? { display_name: p.display_name.trim() } : {}),
     ...(p.name_case === "upper" ? { name_case: "upper" as const } : {}),
+    ...((): { ms?: MsContent } => { const ms = msOf(p); return ms ? { ms } : {}; })(),
     tagline: p.tagline, intro: p.intro, specialties: parseList(p.specialties),
     expertise: parseList(p.expertise), experience: p.experience,
     email: p.show_email ? (p.contact_email ?? null) : null, phone: p.show_phone ? (p.contact_phone ?? null) : null,
@@ -242,6 +315,7 @@ function detailOf(p: PortfolioRow, s: StaffBits, snap: PublicSnapshot, items: Aw
       id: p.id, user_id: p.user_id, slug: p.slug, state: p.state, template: p.template, tagline: p.tagline, intro: p.intro,
       display_name: p.display_name ?? null,
       name_case: p.name_case === "upper" ? "upper" : "normal",
+      content_ms: msOf(p), // 0220
       specialties: parseList(p.specialties), expertise: parseList(p.expertise),
       experience: p.experience, contact_email: p.contact_email, contact_phone: p.contact_phone,
       show_email: Boolean(p.show_email), show_phone: Boolean(p.show_phone), socials: parseObj(p.socials),
@@ -431,6 +505,7 @@ export async function handlePortfolios(
       if (!["upper", "normal", null].includes(body.name_case as string | null)) return err("invalid_input", "The name is shown in capitals or in normal letters", 400);
       put("name_case", body.name_case === "upper" ? "upper" : null);
     }
+    if (body && "content_ms" in body) put("content_ms", ((ms) => (ms ? JSON.stringify(ms) : null))(cleanMs(body.content_ms))); // 0220 - the BM words
     text("display_name", 60); // 0217 - the nickname on the card and the page; the staff record is never changed
     for (const k of ["specialties", "expertise"] as const) {
       const l = listOf(body?.[k], 60);
@@ -484,6 +559,38 @@ export async function handlePortfolios(
     if (!res.meta.changes) return err("stale", "Someone else changed this portfolio - reload it", 409);
     await audit(env, user.id, "portfolio.edit", "staff_portfolios", String(p.id), { fields: Object.keys(body ?? {}).filter((k) => k !== "version") });
     return json({ ok: true, version: p.version + 1 });
+  }
+
+  /* ---- 0220 Translate to BM: a PROPOSAL from the English words now in the draft - nothing is saved;
+     the editor shows it for checking and Save keeps it ---- */
+  if (rest === "/translate" && method === "POST") {
+    if (!writer) return err("forbidden", "Only portfolio managers edit a portfolio", 403);
+    if (!(env as unknown as { AI?: unknown }).AI) return err("ai_unavailable", "Translation is not available on this server", 503);
+    if (!(await checkRateLimit(env, `portfolio_translate:${user.id}`, 20, 86400))) return err("rate_limited", "Translation has been used 20 times today - try again tomorrow, or type the BM words", 429);
+    const b = (body ?? {}) as Record<string, unknown>;
+    const str = (k: string, fall: string | null) => (typeof b[k] === "string" ? (b[k] as string).trim() : (fall ?? "").trim());
+    const list = (k: string, fall: string[]) => (Array.isArray(b[k]) ? (b[k] as unknown[]).filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean) : fall);
+    const duties = (await publicDuties(env, p.user_id)).public;
+    const items = await itemsOf(env, p.id);
+    const src: { key: string; text: string }[] = [];
+    const add = (key: string, text: string) => { if (text && text.length <= 1200) src.push({ key, text }); };
+    add("tagline", str("tagline", p.tagline)); add("intro", str("intro", p.intro)); add("experience", str("experience", p.experience));
+    /* the position and department are read from the staff record: their BM is a phrase too */
+    const phrases = [...new Set([positionOf(s) ?? "", (s.department ?? "").trim(), ...list("specialties", parseList(p.specialties)), ...list("expertise", parseList(p.expertise)), ...duties].filter(Boolean))].slice(0, 60);
+    phrases.forEach((t, i) => add(`p${i}`, t));
+    for (const i of items) { add(`t${i.id}`, i.title); if (i.description) add(`d${i.id}`, i.description); }
+    if (!src.length) return err("nothing_to_translate", "Write the English words first", 400);
+    const got = await translateToMs(env, src.map((x) => x.text));
+    if (!got) return err("translate_failed", "The translation did not come back - try again, or type the BM words", 502);
+    const ms: MsContent = { phrases: {}, items: {} };
+    src.forEach((x, n) => {
+      const v = got[n]!;
+      if (x.key === "tagline" || x.key === "intro" || x.key === "experience") ms[x.key] = v;
+      else if (x.key.startsWith("p")) ms.phrases![phrases[Number(x.key.slice(1))]!] = v;
+      else { const id = x.key.slice(1); (ms.items![id] ??= {})[x.key[0] === "t" ? "title" : "description"] = v; }
+    });
+    await audit(env, user.id, "portfolio.translate", "staff_portfolios", String(p.id), { strings: src.length });
+    return json({ content_ms: cleanMs(ms) });
   }
 
   /* ---- the processed portrait (cropped, or with the background removed) ---- */
@@ -637,6 +744,7 @@ export function publicView(x: { p: PortfolioRow; s: StaffBits; snap: PublicSnaps
   const { p, s, snap } = x;
   return {
     slug: p.slug, url: publicUrl(p.slug), name: snap.display_name?.trim() || displayName(s), name_case: snap.name_case === "upper" ? "upper" : "normal", position: positionOf(s), department: (s.department ?? "").trim() || null,
+    ms: snap.ms ?? null, // 0220 - the BM words, frozen at publish
     tagline: snap.tagline, intro: snap.intro, specialties: snap.specialties, expertise: snap.expertise, experience: snap.experience,
     responsibilities: x.duties,
     email: snap.email, phone: snap.phone, socials: snap.socials, template: snap.template,
