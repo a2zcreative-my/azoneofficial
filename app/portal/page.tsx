@@ -254,7 +254,7 @@ export default function PortalPage() {
           {activeTab === "Threads" && <ThreadsPanel />}
           {activeTab === "Hotels" && <HotelsPanel focus={focusOf("Hotels")} />}
           {/* v1.391.0 - Digital Cards (Stage 2: Guidelines and the card rules) */}
-          {activeTab === "Digital Cards" && <DigitalCardsPage role={user.role} initialView={startOf("Digital Cards")} />}
+          {activeTab === "Digital Cards" && <DigitalCardsPage role={user.role} initialView={startOf("Digital Cards")} focus={focusOf("Digital Cards")} />}
           {activeTab === "Agents" && (
             /* v1.347.0 - Sales & management: the panel is its own page (the CEO's four
                pictures: the tab row first, each tab its own layout, no zone caption above

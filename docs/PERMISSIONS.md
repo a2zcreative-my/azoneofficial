@@ -24,6 +24,8 @@ Regenerate whenever PERMS changes; this file documents, the code decides.
 | card_format_admin (v1.391.0) | ✓ | · | ✓ | · | · | · | · | · | · | · | · |
 | card_template_view (v1.392.0) | ✓ | · | ✓ | ✓ | ✓ | · | ✓ | · | · | · | · |
 | card_template_manage (v1.392.0) | ✓ | · | ✓ | · | · | · | ✓ | · | · | · | · |
+| card_template_precheck (v1.395.0) | · | · | · | ✓ | ✓ | · | · | · | · | · | · |
+| card_template_publish (v1.395.0) | ✓ | · | ✓ | · | · | · | · | · | · | · | · |
 
 ## Beyond the PERMS table (route-level rules)
 
@@ -36,6 +38,7 @@ Regenerate whenever PERMS changes; this file documents, the code decides.
 - **Payroll processors**: ceo/coo/admin tier; staff read released payslips only (release 5th 10:00 MYT rule).
 - **Tab access**: `TAB_ROLES` + per-tab overrides via 🔐 Tab access card (system_meta `tab_access`); super_admin escape hatch (v1.4.219–221).
 - **/admin**: super_admin + admin only; admins hidden from staff lists.
+- **Digital card review** (v1.395.0): `POST /staff/card-templates/:id/submit|revise` the designer; `/precheck` card_template_precheck; `/publish`, `/unpublish`, `/sync/:s/retry` card_template_publish; nobody reviews their own design. The AZ ONE feed `/api/v1/bridge/card-templates` has no session - only an HMAC signature with the secret `CARD_BRIDGE_KEY`.
 - **Digital card editable content** (v1.394.0): `PUT /staff/card-templates/:id/zones` only by the template's designer, while a draft or returned, at its version; the preview reads `GET /staff/card-templates/:id` (card_template_view).
 - **Digital card template editor** (v1.393.0): `PUT /staff/card-templates/:id/step`, `/pages`, `/pages/:p/file` only by the template's designer (card_template_manage), while a draft or returned, at its version; `GET /staff/card-templates/:id/pages/:p/image` with `card_template_view`. `/media/file` refuses `private/card-templates/`.
 - **Digital card templates** (v1.392.0): `/staff/card-templates...` read with `card_template_view`, created with `card_template_manage`; only the designer changes their own draft or returned template (version-guarded); never deleted, archived with a reason.

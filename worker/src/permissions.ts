@@ -222,6 +222,10 @@ export const PERMS: Record<string, readonly Role[]> = {
      pre-check and publish capabilities arrive with the review stage. */
   card_template_view: ["super_admin", "ceo", "coo", "cco", "sales_marketing"],
   card_template_manage: ["super_admin", "ceo", "sales_marketing"],
+  /* v1.395.0 - Stage 6 (the CEO's chain: designer -> COO/CCO pre-check -> CEO/super admin publish).
+     Nobody pre-checks or publishes their OWN design (the worker refuses it, whatever a cell says). */
+  card_template_precheck: ["coo", "cco"],
+  card_template_publish: ["super_admin", "ceo"],
 
   /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
      record: "I want to have a roles assigned for me to assigned her role.
@@ -708,6 +712,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },
   { module: "Digital Cards", key: "card_template_view", en: "Open Digital Cards: see the templates and the Guidelines", ms: "Buka Kad Digital: lihat templat dan Garis Panduan", cap: "card_template_view" },
   { module: "Digital Cards", key: "card_template_manage", en: "Create a card template and edit your own drafts", ms: "Cipta templat kad dan sunting draf anda sendiri", cap: "card_template_manage", note_en: "A designer edits only their own draft; publishing needs the review that follows", note_ms: "Pereka hanya menyunting draf sendiri; penerbitan perlukan semakan selepasnya", needs: "card_template_view" },
+  { module: "Digital Cards", key: "card_template_precheck", en: "Pre-check a submitted card template, or return it to its designer", ms: "Pra-semak templat kad yang dihantar, atau kembalikan kepada pereka", cap: "card_template_precheck", note_en: "Never your own design", note_ms: "Bukan reka bentuk anda sendiri", needs: "card_template_view" },
+  { module: "Digital Cards", key: "card_template_publish", en: "Publish a pre-checked card template to AZ ONE, unpublish one, or resend it", ms: "Terbitkan templat kad yang telah dipra-semak ke AZ ONE, tarik balik, atau hantar semula", cap: "card_template_publish", note_en: "Only after a COO or CCO pre-check; never your own design", note_ms: "Hanya selepas pra-semakan COO atau CCO; bukan reka bentuk anda sendiri", needs: "card_template_view" },
   { module: "Digital Cards", key: "card_format_admin", en: "Keep the digital card rules (formats, safe margins, file limits, pages per category)", ms: "Urus peraturan kad digital (format, margin selamat, had fail, halaman bagi setiap kategori)", cap: "card_format_admin", note_en: "Every save needs a reason and is kept in the rule history", note_ms: "Setiap simpanan perlukan sebab dan disimpan dalam sejarah peraturan" },
   { module: "Hotels", key: "hotels", en: "Manage the hotel directory", ms: "Urus direktori hotel", cap: "hotels_manage" },
   { module: "Companies", key: "company_review", en: "Review company ownership", ms: "Semak pemilikan syarikat", cap: "company_review" },

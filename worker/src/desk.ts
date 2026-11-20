@@ -53,7 +53,7 @@ import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth"; // v1.369.0 growth: Business Growth Check enquiries to pick up or follow up // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth" | "cards"; // v1.395.0 cards: Digital Card templates to pre-check, publish or change // v1.369.0 growth: Business Growth Check enquiries to pick up or follow up // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -472,6 +472,37 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
         } else if (g.owner_id === user.id && g.next_follow_up_on && g.next_follow_up_on <= today) {
           items.push({ ...base, title: `${g.ref} - ${g.business_name}`, sub: `Business Growth Check · follow-up ${dmy(g.next_follow_up_on)}`, since: g.next_follow_up_on, overdue: g.next_follow_up_on < today, kind: "do", next: "Follow up and record it" });
         }
+      }
+    });
+  }
+  /* v1.395.0 - DIGITAL CARD TEMPLATES (card-review.ts): a submitted template waits on a COO or CCO to
+     pre-check it, then on the CEO or the super admin to publish it - never the designer's own; a returned
+     one waits on its designer; a failed hand-over to AZ ONE waits on whoever publishes. Read only; the row
+     opens the template in Digital Cards, where the actions live. */
+  const cardPre = canUser(user, "card_template_precheck"), cardPub = canUser(user, "card_template_publish");
+  if (cardPre || cardPub || canUser(user, "card_template_manage")) {
+    await guard("cards", async () => {
+      const { results } = await env.DB.prepare(
+        `SELECT t.id, t.name, t.state, t.designer_id, t.review_version_no, t.prechecked_by, t.updated_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS designer
+           FROM card_templates t LEFT JOIN users u ON u.id = t.designer_id
+          WHERE (t.state = 'in_review' AND t.designer_id != ?1) OR (t.state = 'returned' AND t.designer_id = ?1) ORDER BY t.updated_at ASC LIMIT 100`,
+      ).bind(user.id).all<{ id: number; name: string; state: string; designer_id: number; review_version_no: number | null; prechecked_by: number | null; updated_at: string; designer: string | null }>();
+      for (const c of results) {
+        const base = { bucket: "cards" as const, id: `card_template:${c.id}`, tab: "Digital Cards", who: c.designer, since: c.updated_at, overdue: ageDays(c.updated_at) > 2 };
+        if (c.state === "in_review" && !c.prechecked_by && cardPre)
+          items.push({ ...base, title: c.name, sub: `Card template v${c.review_version_no ?? "?"} · submitted, not pre-checked`, kind: "decide", next: "Pre-check it or return it" });
+        else if (c.state === "in_review" && c.prechecked_by && cardPub)
+          items.push({ ...base, title: c.name, sub: `Card template v${c.review_version_no ?? "?"} · pre-checked, not published`, kind: "decide", next: "Publish it or return it" });
+        else if (c.state === "returned" && c.designer_id === user.id)
+          items.push({ ...base, title: c.name, sub: "Card template · returned to you", kind: "do", next: "Change it and send it again" });
+      }
+      if (cardPub) {
+        const { results: failed } = await env.DB.prepare(
+          `SELECT s.id, s.template_id, s.version_no, s.last_error, s.created_at, t.name FROM card_template_sync s JOIN card_templates t ON t.id = s.template_id
+            WHERE s.status = 'failed' AND NOT EXISTS (SELECT 1 FROM card_template_sync r WHERE r.retry_of = s.id) ORDER BY s.id LIMIT 50`,
+        ).all<{ id: number; template_id: number; version_no: number; last_error: string | null; created_at: string; name: string }>();
+        for (const f of failed)
+          items.push({ bucket: "cards", id: `card_template:${f.template_id}:sync:${f.id}`, tab: "Digital Cards", who: null, title: f.name, sub: `AZ ONE could not import v${f.version_no}${f.last_error ? ` · ${f.last_error.slice(0, 80)}` : ""}`, since: f.created_at, overdue: true, kind: "decide", next: "Check it and send it again" });
       }
     });
   }

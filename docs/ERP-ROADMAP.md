@@ -597,3 +597,6 @@ new `card_template_pages` (planned pages and their checked artwork, triggers kee
 columns on `card_templates` (step, specs_key, specs_confirmed_at). Not the business.ts door (worker/src/card-templates.ts).
 Editable content (the CEO 21-11-2026, Digital Cards Stage 5) adds `0224_card_template_zones`: additive only - the new
 `card_template_zones` (the fields a customer fills in, triggers keep them to drafts). Not the business.ts door.
+Review and publishing (the CEO 21-11-2026, Digital Cards Stage 6) add `0225_card_template_publish`: additive only - the
+frozen `card_template_versions`, the `card_template_sync` records AZ ONE pulls, and three review columns on `card_templates`.
+Not the business.ts door (worker/src/card-review.ts, worker/src/card-bridge.ts).

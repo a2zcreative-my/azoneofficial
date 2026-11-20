@@ -42,11 +42,12 @@ import type { StaffUser } from "./staff";
 import { canUser } from "./permissions";
 import { audit, err, json } from "./shared";
 import { loadCardRules } from "./card-rules";
+import { handleCardReview, liveOf, reviewInfo } from "./card-review"; // v1.395.0 - Stage 6
 import { pageFileProblems, readImageHeader } from "../../lib/card-image";
 import { EDITABLE_STATES, EDITOR_STEPS, KPI_OF, PACKAGES, TEMPLATE_LIMITS, canEditTemplate, checkPagePlan, checkTemplateInfo, checkZones, initialPlan, pagesReady, specsKey, templateCode, zonesReady, type PlanPage, type TemplatePackage } from "../../lib/card-templates";
 import type { CardZone } from "../../lib/card-render";
 
-interface Row {
+export interface Row {
   id: number; code: string; name: string; description: string | null; category_id: number; format_id: number;
   language: string; packages: string; state: string; version: number; published_version: number | null;
   designer_id: number; created_at: string; updated_at: string;
@@ -54,7 +55,7 @@ interface Row {
   category_name: string | null; category_name_ms: string | null; format_name: string | null; format_name_ms: string | null;
   width_px: number | null; height_px: number | null; designer_name: string | null;
 }
-const SELECT = `SELECT t.*, c.name AS category_name, c.name_ms AS category_name_ms, f.name AS format_name, f.name_ms AS format_name_ms,
+export const SELECT = `SELECT t.*, c.name AS category_name, c.name_ms AS category_name_ms, f.name AS format_name, f.name_ms AS format_name_ms,
   f.width_px, f.height_px, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS designer_name,
   (SELECT COUNT(*) FROM card_template_pages p WHERE p.template_id = t.id AND p.r2_key IS NOT NULL) AS pages_done,
   (SELECT COUNT(*) FROM card_template_pages p WHERE p.template_id = t.id) AS pages_total
@@ -66,7 +67,7 @@ const view = (r: Row, user: StaffUser) => ({
 });
 const placeholders = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `?${i + from}`).join(", ");
 const notMigrated = (e: unknown) => /no such table|no such column/i.test(String((e as Error)?.message ?? e));
-const invalid = (problems: Record<string, string>) =>
+export const invalid = (problems: Record<string, string>) =>
   json({ error: { code: "invalid", message: Object.values(problems)[0] ?? "Check the highlighted fields", fields: problems } }, 422);
 
 async function activeRules(env: Env) {
@@ -76,26 +77,26 @@ async function activeRules(env: Env) {
   ]);
   return { categories: (c.results ?? []).map((r) => r.id), formats: (f.results ?? []).map((r) => r.id) };
 }
-interface PageRow {
+export interface PageRow {
   id: number; template_id: number; position: number; title: string; title_ms: string | null; required: number;
   r2_key: string | null; mime: string | null; width_px: number | null; height_px: number | null; bytes: number | null;
   sha256: string | null; file_name: string | null; uploaded_at: string | null;
 }
-const pageRows = async (env: Env, id: number) =>
+export const pageRows = async (env: Env, id: number) =>
   (await env.DB.prepare(`SELECT * FROM card_template_pages WHERE template_id = ?1 ORDER BY position, id`).bind(id).all<PageRow>()).results ?? [];
-interface ZoneRow { id: number; page_id: number; sort: number; key: string; kind: string; label: string; label_ms: string | null; x: number; y: number; w: number; h: number; font: string; weight: number; size: number; colour: string; align: string; max_chars: number; required: number; sample: string; sample_ms: string | null }
-const zoneRows = async (env: Env, id: number) =>
+export interface ZoneRow { id: number; page_id: number; sort: number; key: string; kind: string; label: string; label_ms: string | null; x: number; y: number; w: number; h: number; font: string; weight: number; size: number; colour: string; align: string; max_chars: number; required: number; sample: string; sample_ms: string | null }
+export const zoneRows = async (env: Env, id: number) =>
   (await env.DB.prepare(`SELECT z.* FROM card_template_zones z JOIN card_template_pages p ON p.id = z.page_id WHERE z.template_id = ?1 ORDER BY p.position, z.sort, z.id`).bind(id).all<ZoneRow>()).results ?? [];
-const zoneOf = (r: ZoneRow): CardZone => ({
+export const zoneOf = (r: ZoneRow): CardZone => ({
   key: r.key, page_id: r.page_id, kind: r.kind as CardZone["kind"], label: r.label, label_ms: r.label_ms, x: r.x, y: r.y, w: r.w, h: r.h,
   font: r.font as CardZone["font"], weight: r.weight, size: r.size, colour: r.colour, align: r.align as CardZone["align"],
   max_chars: r.max_chars, required: Boolean(r.required), sample: r.sample, sample_ms: r.sample_ms,
 });
 const planOf = (rows: PageRow[]): PlanPage[] => rows.map((r) => ({ id: r.id, title: r.title, title_ms: r.title_ms, required: Boolean(r.required) }));
-const changed = () => err("changed", "This template was saved since you opened it - reload and try again", 409);
+export const changed = () => err("changed", "This template was saved since you opened it - reload and try again", 409);
 
 /** one template, its history, and its editor: the step, the specs, the pages and what still stops them */
-async function detail(env: Env, id: number, user: StaffUser): Promise<Response> {
+export async function detail(env: Env, id: number, user: StaffUser): Promise<Response> {
   const t = await env.DB.prepare(`${SELECT} WHERE t.id = ?1`).bind(id).first<Row>();
   if (!t || (t.state === "archived" && t.designer_id !== user.id)) return err("not_found", "That template does not exist", 404);
   const [{ results: events }, rows, rules, zrows] = await Promise.all([
@@ -131,16 +132,18 @@ async function detail(env: Env, id: number, user: StaffUser): Promise<Response> 
       /* v1.394.0 - the fields, and what still stops Editable Content (a format changed since shows here) */
       zones, zones_missing: format ? zonesReady(zones, format) : [],
     },
+    /* v1.395.0 - the review, the frozen versions and what AZ ONE reported (card-review.ts) */
+    review: await reviewInfo(env, t, user),
   });
 }
 
 /** claim the next version of a template the caller may change; false when someone saved first */
-async function claim(env: Env, t: Row, user: StaffUser, set = "", args: unknown[] = []): Promise<boolean> {
+export async function claim(env: Env, t: Row, user: StaffUser, set = "", args: unknown[] = []): Promise<boolean> {
   const r = await env.DB.prepare(`UPDATE card_templates SET ${set ? `${set}, ` : ""}version = ?1, updated_at = datetime('now'), updated_by = ?2 WHERE id = ?3 AND version = ?4`)
     .bind(t.version + 1, user.id, t.id, t.version, ...args).run();
   return Boolean(r.meta.changes);
 }
-const event = (env: Env, t: Row, user: StaffUser, kind: string, note: string | null, detailJson: unknown) =>
+export const event = (env: Env, t: Row, user: StaffUser, kind: string, note: string | null, detailJson: unknown) =>
   env.DB.prepare(`INSERT INTO card_template_events (template_id, version, kind, actor_id, note, detail_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`)
     .bind(t.id, t.version + 1, kind, user.id, note, detailJson == null ? null : JSON.stringify(detailJson)).run();
 
@@ -210,6 +213,10 @@ export async function handleCardTemplates(
         "Cache-Control": "private, max-age=86400", "Content-Disposition": "inline",
       } });
     }
+
+    /* v1.395.0 - submit, pre-check, publish, unpublish, revise, resend (card-review.ts) */
+    const rv = await handleCardReview(env, path, method, body, user);
+    if (rv) return rv;
 
     /* v1.393.0 - the editor's writes: the designer's own draft or returned template, at its version */
     const ed = path.match(/^\/card-templates\/(\d+)\/(step|pages|zones)(?:\/(\d+)\/file)?$/);
@@ -371,6 +378,7 @@ export async function handleCardTemplates(
         if (act[2] === "archive") {
           if (!(EDITABLE_STATES as readonly string[]).includes(t.state)) return err("locked", "Only a draft or a returned template can be archived", 409);
           if (reason.length < TEMPLATE_LIMITS.reason || reason.length > 500) return invalid({ reason: `Say why, in at least ${TEMPLATE_LIMITS.reason} characters` });
+          if ((await liveOf(env, id)) != null) return err("live", "A version of this template is on AZ ONE - ask the CEO to unpublish it first", 409); // v1.395.0
           set = `state = 'archived'`; kind = "archived"; note = reason;
         } else {
           if (t.state !== "archived") return err("locked", "Only an archived template can be brought back", 409);
@@ -391,7 +399,7 @@ export async function handleCardTemplates(
       return json({ ok: true, template: view(fresh!, user) });
     }
   } catch (e) {
-    if (notMigrated(e)) return err("migration_needed", "Digital card templates need database updates 0222 to 0224 - run PUSH-A2ZCREATIVE.bat", 409);
+    if (notMigrated(e)) return err("migration_needed", "Digital card templates need database updates 0222 to 0225 - run PUSH-A2ZCREATIVE.bat", 409);
     throw e;
   }
   return err("not_found", "Not found", 404);

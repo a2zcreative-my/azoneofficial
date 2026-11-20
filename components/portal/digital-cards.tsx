@@ -36,6 +36,8 @@ import { LANGUAGES, PACKAGES, PAGE_TITLE_MAX, TEMPLATE_LIMITS, checkTemplateInfo
 import { pageFileProblems, readImageHeader, type ImageMime } from "@/lib/card-image";
 import type { CardZone } from "@/lib/card-render";
 import { CardPreview, ZonesStep } from "@/components/portal/card-zones";
+import { ReviewSection, ReviewStep, type ReviewInfo } from "@/components/portal/card-review";
+import { useRecordFocus, type RecordFocus } from "@/lib/record-focus";
 import {
   CARD_TYPES, LIMITS, TYPE_LABEL, aspectLabel, checkCategory, checkFormat, orientationOf, requiredCount, safeArea, sizeLabel,
   type CardCategory, type CardFormat, type CardPage, type CardType, type Problems,
@@ -85,7 +87,7 @@ const LANG_LABEL: Record<TemplateLanguage, () => string> = { en: () => "English"
 const catName = (t: Template) => (getLang() === "ms" && t.category_name_ms ? t.category_name_ms : t.category_name) ?? "—";
 const fmtName = (t: Template) => `${(getLang() === "ms" && t.format_name_ms ? t.format_name_ms : t.format_name) ?? "—"}${t.width_px ? ` · ${t.width_px} × ${t.height_px}` : ""}`;
 
-export function DigitalCardsPage({ initialView }: { role: string; initialView?: string }) {
+export function DigitalCardsPage({ initialView, focus }: { role: string; initialView?: string; focus?: RecordFocus | null }) {
   const rules = useRules();
   const [view, setView] = useState<View>((VIEWS as readonly string[]).includes(initialView ?? "") ? (initialView as View) : "templates");
   const [seen, setSeen] = useState<Record<string, boolean>>({ [view]: true });
@@ -95,6 +97,8 @@ export function DigitalCardsPage({ initialView }: { role: string; initialView?: 
   const [stateFilter, setStateFilter] = useState<"" | "draft">("");
   const [editor, setEditor] = useState<{ id: number | null } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  /* v1.395.0 - a Desk row or a bell (card_template:<id>) opens that template's drawer */
+  useRecordFocus(focus, true, (f) => { if (f.kind === "card_template") setOpenId(f.id); });
   const [stamp, setStamp] = useState(0);
   const bump = () => setStamp((n) => n + 1);
   const summary = useCachedApi<Summary>("/staff/card-templates/summary");
@@ -315,7 +319,8 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
     created: L("Created", "Dicipta"), edited: L("Information changed", "Maklumat diubah"), archived: L("Archived", "Diarkibkan"), restored: L("Brought back as a draft", "Dikembalikan sebagai draf"),
     specs_confirmed: L("Design specs confirmed", "Spesifikasi reka bentuk disahkan"), pages_planned: L("Pages set up from the category", "Halaman disediakan dari kategori"),
     pages_changed: L("Pages changed", "Halaman diubah"), page_uploaded: L("Artwork uploaded", "Seni dimuat naik"),
-    zones_saved: L("Fields saved", "Medan disimpan"),
+    zones_saved: L("Fields saved", "Medan disimpan"), submitted: L("Sent for review", "Dihantar untuk semakan"), prechecked: L("Pre-checked", "Dipra-semak"),
+    returned: L("Returned to the designer", "Dikembalikan kepada pereka"), published: L("Published", "Diterbitkan"), unpublished: L("Unpublished", "Ditarik balik"), revised: L("Opened again for a new version", "Dibuka semula untuk versi baharu"),
   }[k] ?? k);
   const ed = one.data?.editor;
   return (
@@ -338,7 +343,7 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
             <div><dt>{L("Packages", "Pakej")}</dt><dd>{t.packages.map((p) => PACKAGE_LABEL[p]).join(", ")}</dd></div>
             <div><dt>{L("Designer", "Pereka")}</dt><dd>{t.designer_name ?? "—"}</dd></div>
             <div><dt>{L("Description", "Penerangan")}</dt><dd>{t.description ?? <span className={css.muted}>—</span>}</dd></div>
-            {ed && <div><dt>{L("Editor", "Penyunting")}</dt><dd>{STEP_NAMES()[Math.min(ed.step, ed.steps) - 1]} · {L(`${t.pages_done} of ${t.pages_total || ed.category?.pages.length || 0} pages uploaded`, `${t.pages_done} daripada ${t.pages_total || ed.category?.pages.length || 0} halaman dimuat naik`)}</dd></div>}
+            {ed && (t.state === "draft" || t.state === "returned") && <div><dt>{L("Editor", "Penyunting")}</dt><dd>{STEP_NAMES()[Math.min(ed.step, ed.steps) - 1]} · {L(`${t.pages_done} of ${t.pages_total || ed.category?.pages.length || 0} pages uploaded`, `${t.pages_done} daripada ${t.pages_total || ed.category?.pages.length || 0} halaman dimuat naik`)}</dd></div>}
           </dl>
           {ed && ed.pages.length > 0 && (
             <>
@@ -357,6 +362,7 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
             </>
           )}
           {error && <p className="erp-error" role="alert">{error}</p>}
+          {one.data.review && <ReviewSection templateId={t.id} version={t.version} state={t.state} review={one.data.review} onChanged={(msg) => { refresh(); onChanged(msg); }} />}
           <h3 className={css.subhead}>{L("History", "Sejarah")}</h3>
           <ol className={css.history}>
             {one.data.events.map((e) => (
@@ -389,10 +395,10 @@ interface Editor {
   zones: CardZone[]; zones_missing: string[];
 }
 interface TemplateEvent { id: number; version: number; kind: string; note: string | null; created_at: string; actor_name: string | null }
-interface Detail { template: Template; events: TemplateEvent[]; editor: Editor }
+interface Detail { template: Template; events: TemplateEvent[]; editor: Editor; review?: ReviewInfo }
 type ErrBody = { error?: { code?: string; message?: string; fields?: Record<string, string>; problems?: string[] } };
 
-const STEP_NAMES = () => [L("Template Info", "Maklumat Templat"), L("Design Specs", "Spesifikasi Reka Bentuk"), L("Upload Pages", "Muat Naik Halaman"), L("Editable Content", "Kandungan Boleh Sunting")];
+const STEP_NAMES = () => [L("Template Info", "Maklumat Templat"), L("Design Specs", "Spesifikasi Reka Bentuk"), L("Upload Pages", "Muat Naik Halaman"), L("Editable Content", "Kandungan Boleh Sunting"), L("Review & Publish", "Semak & Terbit")];
 const pageImg = (templateId: number, p: { id: number; sha256: string | null }) =>
   `/api/v1/staff/card-templates/${templateId}/pages/${p.id}/image?v=${(p.sha256 ?? "").slice(0, 16)}`;
 const ptitle = (p: { title: string; title_ms: string | null }) => (getLang() === "ms" && p.title_ms ? p.title_ms : p.title);
@@ -476,8 +482,12 @@ function TemplateEditor({ id, rules, onClose, onDone }: { id: number | null; rul
               onDone={() => onDone(t, e.missing.length ? L(`${t.name} saved - pages still to finish`, `${t.name} disimpan - halaman belum selesai`) : L(`${t.name} saved - every page is in`, `${t.name} disimpan - semua halaman lengkap`))} />
           )}
           {step === 3 && e && t && e.format && (
-            <ZonesStep t={t} e={e} take={(r) => take(r as ApiResult<Detail & ErrBody>)} onBack={() => { setError(null); setStep(2); }} onPreview={() => setPreview(true)}
+            <ZonesStep t={t} e={e} take={(r) => take(r as ApiResult<Detail & ErrBody>)} onBack={() => { setError(null); setStep(2); }} onPreview={() => setPreview(true)} onNext={() => setStep(4)}
               onDone={() => onDone(t, e.zones_missing.length ? L(`${t.name} saved - fields still to finish`, `${t.name} disimpan - medan belum selesai`) : L(`${t.name} saved`, `${t.name} disimpan`))} />
+          )}
+          {step === 4 && e && t && (
+            <ReviewStep templateId={t.id} version={t.version} ready={e} onBack={() => setStep(3)} onPreview={() => setPreview(true)}
+              onSubmitted={() => onDone(t, L(`${t.name} sent for review`, `${t.name} dihantar untuk semakan`))} />
           )}
           {step > 0 && !e && error && <p className="erp-error" role="alert">{error}</p>}
           {preview && t && <CardPreview templateId={t.id} onClose={() => setPreview(false)} />}

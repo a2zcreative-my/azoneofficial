@@ -134,6 +134,9 @@ TIKTOK_APP_KEY     = "6kraboau1veif"
 #   SETUP_TOKEN             — random 32+ chars; one-time super admin bootstrap
 #   TIKTOK_APP_SECRET       — from Partner Center → your app (NEVER commit)
 #   TIKTOK_WEBHOOK_SECRET   — optional; only for a relay (Make/Zapier) path
+#   CARD_BRIDGE_KEY         — v1.395.0, shared with azoneofficial.com (the same
+#                             secret on its Worker): signs the Digital Card feed.
+#                             `npx wrangler secret put CARD_BRIDGE_KEY` - never in this file.
 #   ELFIA_BRIDGE_KEY        — shared with the ELFIA store's BRIDGE_KEY (same
 #                             value both sides); unset = bridge answers 501
 #   ELFIA_ORDERS_URL        — the store's orders feed, e.g.

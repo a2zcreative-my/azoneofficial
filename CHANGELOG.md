@@ -4,6 +4,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Digital Cards, Stage 6: review, publishing and the AZ ONE feed (21-11-2026, the CEO) - MIGRATION 0225 (additive)
+- The editor's last step, **Review & Publish**, checks that the specs are confirmed, every page is in and every field fits, then **Send for review**. The design is frozen as a numbered version (v1, v2 ...) - what is reviewed is exactly what gets published.
+- **The chain**: the **COO or the CCO** pre-checks it or returns it with a note; then the **CEO or the super admin** publishes it or returns it. Nobody reviews their own design. Each waiting step appears on the **Desk** and in the bell, and opens the template.
+- The template view shows where the review stands, a returned note, every version (with its fingerprint), and what **AZ ONE** reported: waiting to be collected, collected, AZ ONE has it, or AZ ONE could not import it (with **Send again**).
+- **Publishing to azoneofficial.com**: AZ ONE collects published templates through a signed, read-only feed and reports back. A template only shows as on AZ ONE when AZ ONE itself says so. Nothing leaves without the shared secret `CARD_BRIDGE_KEY` - not set yet, so published templates wait in A2Z OS and the view says AZ ONE is not connected.
+- **Unpublish** (CEO or super admin, with a reason) takes a template off AZ ONE; cards customers already made keep working. **Make a new version** reopens a published template as a draft - the published version stays on AZ ONE until the next one is published. A template that is on AZ ONE cannot be archived.
+- New permissions on Roles & Permissions: pre-check card templates (COO, CCO) and publish card templates (CEO, super admin).
+- Guard: new `card-review` (59 checks, the real worker on every migration).
+- Not yet: AZ ONE's side - collecting, the storefront and the customer editor (Stage 7). azoneofficial.com is unchanged.
+
 ### Digital Cards, Stage 5: Editable Content and the preview (21-11-2026, the CEO) - MIGRATION 0224 (additive)
 - The editor has a fourth step, **Editable Content**, once every page is uploaded and fits. On each page the designer adds the fields the customer fills in - **Text**, **Several lines**, **Date**, **Photo** - and drags and resizes them on the artwork. A field always stays inside the safe area.
 - Each field has a label (EN and BM), font, weight, size, colour, alignment, the most characters a customer may type, whether it must be filled in, and a sample (EN and BM) shown until the customer types. A field's name is unique across the whole card.

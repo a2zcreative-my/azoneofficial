@@ -1,0 +1,12 @@
+/* v1.395.0 - Digital Cards Stage 6: the review step and the review section of the template drawer. Tokens only. */
+.section { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.subhead { margin: var(--space-3) 0 0; font-size: var(--type-card-size); line-height: var(--type-card-lh); }
+.status { margin: 0; font-size: var(--type-body-sm-size); }
+.note { margin: 0; padding: var(--space-2) var(--space-3); border-inline-start: 3px solid var(--danger); background: var(--surface-subtle); font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.syncList, .checks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); font-size: var(--type-body-sm-size); }
+.syncList li { min-width: 0; overflow-wrap: break-word; }
+.checks li { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.why { margin: var(--space-1) 0 0; padding-inline-start: 1.25rem; color: var(--muted-foreground); }
+.steps { margin: 0; padding-inline-start: 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); font-size: var(--type-body-sm-size); }
+.muted { color: var(--muted-foreground); }

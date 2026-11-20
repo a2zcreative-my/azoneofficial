@@ -1,3 +1,4 @@
+import { handleCardBridge } from "./card-bridge"; // v1.395.0 - Digital Cards Stage 6
 import { handleChat, chatRecheck, chatCronSweep } from "./chat"; // v1.364.0 - staff chat
 import { exportPaged, gzipText, type PagedManifest } from "./backup-manifest";
 import { backupStore, backupStamp, backupUnits, pruneDbBackups, runMediaCopy, runMediaReconcile, pruneMediaBackups } from "./backup-store";
@@ -79,6 +80,8 @@ export interface Env {
       Optional: unset = the bridge endpoints answer 501 and nothing is
       exposed. Set the SAME value as BRIDGE_KEY on the store's worker. */
   ELFIA_BRIDGE_KEY?: string;
+  /** v1.395.0 - shared with azoneofficial.com: signs the Digital Card feed (card-bridge.ts). A SECRET. */
+  CARD_BRIDGE_KEY?: string;
   /** v1.37.0 — the store's orders feed (feed C), e.g.
       https://<store-domain>/api/v1/bridge/orders. A SECRET, not a var —
       the client's domain never enters a committed file (same posture the
@@ -333,7 +336,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0224_card_template_zones";
+const LATEST_MIGRATION = "0225_card_template_publish";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -2885,6 +2888,11 @@ async function route(request: Request, env: Env, path: string): Promise<Response
      silently add or drop a product from a client-facing store. 0075
      backfills the flag from the old LIKE so the visible set is unchanged.
      Shaping/filtering lives in bridge-feed.ts, proven by guard #10. */
+  /* v1.395.0 - the Digital Card feed for azoneofficial.com: signed, read-only, plus AZ ONE's report (card-bridge.ts) */
+  if (path.startsWith("/api/v1/bridge/card-templates")) {
+    const cb = await handleCardBridge(request, env, path, method);
+    if (cb) return cb;
+  }
   if (path === "/api/v1/bridge/elfia-inventory" && method === "GET") {
     if (!env.ELFIA_BRIDGE_KEY) return errorResponse("not_configured", "Bridge is not enabled", 501);
     const given = request.headers.get("X-Bridge-Key") ?? "";
@@ -5886,6 +5894,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0222 (digital card templates and their history)", `SELECT t.code, t.state, t.designer_id, e.kind FROM card_templates t, card_template_events e LIMIT 0`],
       ["0223 (digital card template pages and the editor's step)", `SELECT p.position, p.sha256, t.step, t.specs_key FROM card_template_pages p, card_templates t LIMIT 0`],
       ["0224 (digital card editable content)", `SELECT key, kind, x, y, w, h, font, sample FROM card_template_zones LIMIT 0`],
+      ["0225 (digital card versions, publishing and the AZ ONE feed)", `SELECT v.version_no, v.content_hash, s.status, s.action, t.review_version_no, t.prechecked_by FROM card_template_versions v, card_template_sync s, card_templates t LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -6134,6 +6143,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0222_card_templates",
       "0223_card_template_pages",
       "0224_card_template_zones",
+      "0225_card_template_publish",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

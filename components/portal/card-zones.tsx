@@ -76,8 +76,8 @@ const saveZones = (templateId: number, version: number, pageId: number, zones: C
   api<Detail>(`/staff/card-templates/${templateId}/zones`, { method: "PUT", body: JSON.stringify({ version, page_id: pageId, zones }) });
 
 /** step 4 of the editor: the fields on each page */
-export function ZonesStep({ t, e, take, onBack, onDone, onPreview }: {
-  t: ZTemplate; e: ZEditor; take: (r: ApiResult<Detail>) => boolean; onBack: () => void; onDone: () => void; onPreview: () => void;
+export function ZonesStep({ t, e, take, onBack, onDone, onPreview, onNext }: {
+  t: ZTemplate; e: ZEditor; take: (r: ApiResult<Detail>) => boolean; onBack: () => void; onDone: () => void; onPreview: () => void; onNext?: () => void;
 }) {
   const f = e.format!;
   const [pageId, setPageId] = useState(e.pages[0]?.id ?? 0);
@@ -225,9 +225,13 @@ export function ZonesStep({ t, e, take, onBack, onDone, onPreview }: {
       <DrawerFoot testid="dc-zones-actions">
         <button type="button" className={btnGhost} onClick={onBack} disabled={busy}>{L("Back", "Kembali")}</button>
         <button type="button" className={btnSm} onClick={async () => { if (!dirty || (await save())) onPreview(); }} disabled={busy} data-testid="dc-zones-preview"><AppIcon name="preview" /> {L("Preview", "Pratonton")}</button>
-        <button type="button" className={btnClass} disabled={busy} data-testid="dc-zones-save"
-          onClick={async () => { if (dirty) { if (await save()) return; return; } onDone(); }}>
-          {busy ? L("Saving…", "Menyimpan…") : dirty ? L("Save page", "Simpan halaman") : L("Save and close", "Simpan dan tutup")}</button>
+        {dirty || !onNext ? (
+          <button type="button" className={btnClass} disabled={busy} data-testid="dc-zones-save"
+            onClick={async () => { if (dirty) { await save(); return; } onDone(); }}>
+            {busy ? L("Saving…", "Menyimpan…") : dirty ? L("Save page", "Simpan halaman") : L("Save and close", "Simpan dan tutup")}</button>
+        ) : (
+          <button type="button" className={btnClass} disabled={busy || e.zones_missing.length > 0} onClick={onNext} data-testid="dc-zones-next">{L("Continue to review", "Teruskan ke semakan")}</button>
+        )}
       </DrawerFoot>
       {confirmNode}
     </DrawerForm>

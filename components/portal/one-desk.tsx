@@ -56,7 +56,7 @@ import css from "./one-desk.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth"; // v1.351.0 partners; v1.365.0 payments to verify; v1.369.0 Business Growth Check
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth" | "cards"; // v1.395.0 cards: Digital Card templates to review // v1.351.0 partners; v1.365.0 payments to verify; v1.369.0 Business Growth Check
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
@@ -91,6 +91,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   partners: ["Partner applications", "Permohonan rakan kongsi"], // v1.351.0
   payments: ["Payments to verify", "Bayaran untuk disahkan"], // v1.365.0
   growth: ["Business Growth Check", "Semakan Pertumbuhan Bisnes"], // v1.369.0
+  cards: ["Card templates", "Templat kad"], // v1.395.0
 };
 
 /** v1.291.0 - the module a Desk item comes from, in words (the Dashboard's decision queue) */

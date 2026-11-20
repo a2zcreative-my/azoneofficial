@@ -122,7 +122,7 @@ ok(/pageBoxes\(/.test(ui) && /boxStyle\(b\)/.test(ui) && /frameStyle\(page\)/.te
 ok(/clampZone\(/.test(ui) && /newZone\(/.test(ui), "dragging and new fields use the shared rules");
 ok(/href="\/card-fonts\/card-fonts\.css"/.test(ui), "the card fonts load from our own site");
 ok(/EDITOR_STEPS = 4/.test(read("lib/card-templates.ts")), "the editor has four steps now");
-ok(/const LATEST_MIGRATION = "0224_card_template_zones"/.test(idx) && /"0224_card_template_zones",/.test(idx), "0224 is the latest migration and in the expected list");
+ok(/"0224_card_template_zones",/.test(idx) && /\["0224 \(digital card editable content\)/.test(idx), "0224 is in the expected list and probed (v1.395.0: 0225 follows it)");
 const mig = read("worker/migrations/0224_card_template_zones.sql").replace(/--.*$/gm, "");
 ok(!/\b(DROP|ALTER)\b/i.test(mig), "0224 is additive only");
 
