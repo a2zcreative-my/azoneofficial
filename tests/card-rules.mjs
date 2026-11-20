@@ -2,7 +2,8 @@
  *
  * Runs the REAL worker (bundled worker/src/index.ts) on every migration in an in-memory SQLite and
  * proves the rules that matter:
- *   - only card_format_admin (the CEO and the super admin) reads or changes the card rules
+ *   - only card_format_admin (the CEO and the super admin) changes the card rules; the people who
+ *     work on templates (card_template_view) read them for the Guidelines (v1.392.0)
  *   - the approved starting rules are seeded: 1080 x 1920 / 1920 x 1080 / 1080 x 1080, a 40 px safe
  *     margin, 10 MB a page, PNG and JPG; 1-10 pages a card, the Cover first and required
  *   - a save needs a reason and the version it started from (stale = 409, never an overwrite),
@@ -62,9 +63,15 @@ try {
   const wedding = cats.find((c) => c.code === "wedding");
   ok(wedding && wedding.pages.map((p) => `${p.title}:${p.required}`).join("|") === "Cover:true|Event Details:true|RSVP / Map:false", "Wedding: Cover and Event Details required, RSVP / Map optional");
 
-  for (const [uid, who] of [[2, "HR"], [3, "the COO"], [4, "a sales executive"]]) {
-    ok((await call("/staff/card-rules", uid)).status === 403, `${who} cannot read the card rules (403)`);
+  ok((await call("/staff/card-rules", 2)).status === 403, "HR, who does not work on templates, cannot read the card rules (403)");
+  /* v1.392.0 - the designers and the COO / CCO read the rules (their Guidelines); they never change them */
+  for (const [uid, who] of [[3, "the COO"], [4, "a sales & marketing designer"]]) {
+    const rr = await call("/staff/card-rules", uid);
+    ok(rr.status === 200 && rr.j?.can_edit === false, `${who} reads the card rules for the Guidelines, and may not edit them`, rr.text);
+  }
+  for (const [uid, who] of [[2, "HR"], [3, "the COO"], [4, "a sales & marketing designer"]]) {
     ok((await call(`/staff/card-rules/formats/${fm.portrait.id}`, uid, "PUT", { ...fm.portrait, reason: "trying to change it" })).status === 403, `${who} cannot change a format (403)`);
+    ok((await call("/staff/card-rules/categories", uid, "POST", { name: "Nope", min_pages: 1, max_pages: 2, pages: [{ title: "Cover", required: true }], reason: "trying to add one" })).status === 403, `${who} cannot add a category (403)`);
   }
 
   const body = { ...fm.portrait, margin_top: 60, reason: "confirmed with the design team" };
@@ -108,13 +115,13 @@ try {
 /* ---- 3. the wiring ---- */
 const tabs = read("lib/portal-tabs.ts");
 const perms = read("worker/src/permissions.ts");
-const capRoles = (perms.match(/card_format_admin:\s*\[([^\]]*)\]/) ?? [])[1]?.replace(/\s/g, "");
+const capRoles = (perms.match(/card_template_view:\s*\[([^\]]*)\]/) ?? [])[1]?.replace(/\s/g, "");
 const tabRoles = (tabs.match(/"Digital Cards":\s*\[([^\]]*)\]/) ?? [])[1]?.replace(/\s/g, "");
-ok(capRoles && capRoles === tabRoles, "the tab is drawn for exactly the roles that hold card_format_admin", `${capRoles} vs ${tabRoles}`);
+ok(capRoles && capRoles === tabRoles, "the tab is drawn for exactly the roles that hold card_template_view", `${capRoles} vs ${tabRoles}`);
 ok(/\{ id: "operations", title: "Operations", tabs: \["Tasks", "Assets", "Digital Cards", "Hotels"\] \}/.test(tabs), "Digital Cards sits in Operations after Assets");
 ok(/"Digital Cards": \{ slug: "digital-cards" \}/.test(tabs), "the address is /portal/digital-cards");
 ok(/key: "card_format_admin"[^}]*cap: "card_format_admin"/.test(perms), "the capability is on the Roles & Permissions catalogue");
-ok(/LATEST_MIGRATION = "0221_card_rules"/.test(read("worker/src/index.ts")) && /"0221_card_rules",\n\s*\];/.test(read("worker/src/index.ts")), "the health check expects migration 0221");
+ok(/"0221_card_rules",\n/.test(read("worker/src/index.ts")) && /\["0221 \(digital card rules/.test(read("worker/src/index.ts")), "the health check expects migration 0221");
 const mig = read("worker/migrations/0221_card_rules.sql").replace(/--.*$/gm, "");
 ok(!/\b(DROP|ALTER|DELETE FROM|UPDATE)\b/i.test(mig.replace(/BEFORE (UPDATE|DELETE) ON card_rule_history/g, "")), "0221 is additive only (no DROP, ALTER, DELETE or UPDATE of existing data)");
 const ui = read("components/portal/digital-cards.tsx");

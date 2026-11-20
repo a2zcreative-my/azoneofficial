@@ -4,6 +4,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Digital Cards, Stage 3: template management (21-11-2026, the CEO) - MIGRATION 0222 (additive)
+- **Digital Cards** now opens for **Sales & Marketing** (the designers, owner decision D1), the COO and CCO, the CEO and the super admin.
+- **One KPI strip** with the real counts: Total Templates, Drafts (draft or returned), Pending Review, Published. Each figure opens the list it counts. Archived templates count nowhere.
+- Views as in the brief: **Templates** (search and category filter) · **My Drafts** (yours, with an Archived switch) · **Pending Review** · **Published** · **Guidelines**; **Card Rules** stays for the CEO and the super admin.
+- **New Template** (Sales & Marketing, CEO, super admin) saves the template's information as your draft: name, description, category, format, language on the card and the AZ ONE packages (Silver, Gold, Diamond). The drawer shows what the chosen format and category need.
+- A template opens in a drawer with its information and history. Only its designer edits it, and only as a draft or returned; nobody else - not even the CEO - edits a designer's draft. A draft is never deleted: it is archived with a reason and can be brought back.
+- Server: `worker/src/card-templates.ts` (`/staff/card-templates`, `/summary`, `/:id`, `/:id/archive`, `/:id/restore`), capabilities `card_template_view` and `card_template_manage` on the Roles & Permissions catalogue; `lib/card-templates.ts` is the one copy of the checks. The card rules are now read by everyone on Digital Cards (for the Guidelines) and still changed only by the CEO and the super admin.
+- Guard: new `card-templates` (44 checks, the real worker on every migration); `card-rules` updated for the wider reads.
+- Not yet: uploading pages, editable content, review and publishing (Stages 4-6). azoneofficial.com is unchanged.
+
 ### Digital Cards, Stage 2: the card rules (20-11-2026, the CEO) - MIGRATION 0221 (additive)
 - New tab **Operations -> Digital Cards** (`/portal/digital-cards`), drawn for the CEO and the super admin until the template stages arrive. Two views:
   - **Guidelines**: each card format drawn to scale with its safe area and margins, the technical requirements (canvas, PNG/JPG, size per page, sRGB, pages; DPI is not checked for screen cards), a **blank layout PNG** made at the full canvas size from the same numbers, the pages per category with Required / Optional, and correct vs incorrect artwork.

@@ -408,9 +408,10 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      admin, admin") — the hotel directory. Mirrors hotels_view in
      worker/src/permissions.ts, which is the matrix actually enforced. */
   Hotels: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
-  /* v1.391.0 - Digital Cards Stage 2: mirrors card_format_admin (worker/src/permissions.ts), the
-     only capability the tab holds so far. Widened when the template stages arrive. */
-  "Digital Cards": ["super_admin", "ceo"],
+  /* v1.392.0 - Digital Cards (Stage 3): mirrors card_template_view (worker/src/permissions.ts) -
+     the designers (Sales & Marketing, D1), the COO and CCO, the CEO and the super admin. Card
+     Rules inside the tab stays card_format_admin, decided by the server. */
+  "Digital Cards": ["super_admin", "ceo", "coo", "cco", "sales_marketing"],
   Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14)
   /* v1.293.0 (D4) - the five roles that read the watchers today (worker/src/watchers.ts);
      only the CEO and the super admin change a rule, the server's own rule */

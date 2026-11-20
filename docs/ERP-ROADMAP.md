@@ -589,3 +589,6 @@ column `staff_portfolios.content_ms` (the BM words as JSON). `users` is not alte
 The digital card rules (the CEO 20-11-2026, Digital Cards Stage 2) add `0221_card_rules`: additive only - three new
 tables `card_formats`, `card_category_rules` and the append-only `card_rule_history` (triggers refuse UPDATE and DELETE),
 with the approved starting rules seeded. No existing table is altered; not the business.ts door (worker/src/card-rules.ts).
+The digital card templates (the CEO 21-11-2026, Digital Cards Stage 3) add `0222_card_templates`: additive only - the
+template master record `card_templates` (never deleted, trigger) and the append-only `card_template_events`. No existing
+table is altered; not the business.ts door (worker/src/card-templates.ts).

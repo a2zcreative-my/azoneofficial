@@ -22,12 +22,16 @@ import { LineTabs, TabAction, TabAside } from "@/components/ui/line-tabs";
 import { PillSwitch } from "@/components/ui/panel";
 import { AppIcon } from "@/components/ui/app-icon";
 import { DrawerFoot, DrawerForm, DrawerPanel, SideDrawer } from "@/components/ui/side-drawer";
+import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { usePrompt } from "@/components/ui/prompt-dialog";
+import { useCachedApi } from "@/lib/cached-api";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { api, type ApiResult } from "@/lib/api";
 import { getLang } from "@/lib/i18n";
 import { dmyMYT } from "@/lib/format";
-import { btnClass, btnGhost, btnSm, card, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, td, th, tdR2, thR2 } from "@/lib/ui-styles";
+import { btnClass, btnGhost, btnSm, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClass, selectClassSm, td, th, tdR2, thR2 } from "@/lib/ui-styles";
+import { LANGUAGES, PACKAGES, TEMPLATE_LIMITS, checkTemplateInfo, type TemplateLanguage, type TemplatePackage, type TemplateState } from "@/lib/card-templates";
 import {
   CARD_TYPES, LIMITS, TYPE_LABEL, aspectLabel, checkCategory, checkFormat, orientationOf, requiredCount, safeArea, sizeLabel,
   type CardCategory, type CardFormat, type CardPage, type CardType, type Problems,
@@ -39,7 +43,8 @@ const nameOf = (r: { name: string; name_ms: string | null }) => (getLang() === "
 const pageTitle = (p: CardPage) => (getLang() === "ms" && p.title_ms ? p.title_ms : p.title);
 
 interface Rules { formats: CardFormat[]; categories: CardCategory[]; can_edit: boolean }
-type View = "guidelines" | "rules";
+type View = "templates" | "mine" | "review" | "published" | "guidelines" | "rules";
+const VIEWS: readonly View[] = ["templates", "mine", "review", "published", "guidelines", "rules"];
 
 /** the rules, read once and re-read after a save; the server's own message on a refusal */
 function useRules() {
@@ -54,40 +59,104 @@ function useRules() {
   return { data, error, load, setData };
 }
 
+/* v1.392.0 - Stage 3: the template master records (worker/src/card-templates.ts, 0222) */
+interface Template {
+  id: number; code: string; name: string; description: string | null; category_id: number; format_id: number;
+  language: TemplateLanguage; packages: TemplatePackage[]; state: TemplateState; version: number; published_version: number | null;
+  designer_id: number; designer_name: string | null; created_at: string; updated_at: string;
+  category_name: string | null; category_name_ms: string | null; format_name: string | null; format_name_ms: string | null;
+  width_px: number | null; height_px: number | null; mine: boolean; can_edit: boolean;
+}
+interface Summary { total: number; drafts: number; in_review: number; published: number; mine: number; can_create: boolean }
+const STATE_LABEL: Record<TemplateState, () => string> = {
+  draft: () => L("Draft", "Draf"), in_review: () => L("Pending review", "Menunggu semakan"), returned: () => L("Returned", "Dikembalikan"),
+  published: () => L("Published", "Diterbitkan"), unpublished: () => L("Unpublished", "Ditarik balik"), archived: () => L("Archived", "Diarkib"),
+};
+const STATE_CHIP: Record<TemplateState, string> = {
+  draft: chipSmNeutral, in_review: chipSmWarn, returned: chipSmDanger, published: chipSmSuccess, unpublished: chipSmNeutral, archived: chipSmNeutral,
+};
+const PACKAGE_LABEL: Record<TemplatePackage, string> = { silver: "Silver", gold: "Gold", diamond: "Diamond" };
+const LANG_LABEL: Record<TemplateLanguage, () => string> = { en: () => "English", ms: () => "Bahasa Melayu", both: () => L("English and BM", "Inggeris dan BM") };
+const catName = (t: Template) => (getLang() === "ms" && t.category_name_ms ? t.category_name_ms : t.category_name) ?? "—";
+const fmtName = (t: Template) => `${(getLang() === "ms" && t.format_name_ms ? t.format_name_ms : t.format_name) ?? "—"}${t.width_px ? ` · ${t.width_px} × ${t.height_px}` : ""}`;
+
 export function DigitalCardsPage({ initialView }: { role: string; initialView?: string }) {
   const rules = useRules();
-  const [view, setView] = useState<View>(initialView === "rules" ? "rules" : "guidelines");
+  const [view, setView] = useState<View>((VIEWS as readonly string[]).includes(initialView ?? "") ? (initialView as View) : "templates");
   const [seen, setSeen] = useState<Record<string, boolean>>({ [view]: true });
   const open = (v: View) => { setView(v); setSeen((s) => (s[v] ? s : { ...s, [v]: true })); };
   const [editing, setEditing] = useState<{ kind: "format"; row: CardFormat | null } | { kind: "category"; row: CardCategory | null } | null>(null);
   const [history, setHistory] = useState<{ entity: "format" | "category"; id: number; name: string } | null>(null);
+  const [stateFilter, setStateFilter] = useState<"" | "draft">("");
+  const [info, setInfo] = useState<{ row: Template | null } | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [stamp, setStamp] = useState(0);
+  const bump = () => setStamp((n) => n + 1);
+  const summary = useCachedApi<Summary>("/staff/card-templates/summary");
+  const { refresh: refreshSummary } = summary;
+  useEffect(() => { if (stamp) refreshSummary(); }, [stamp, refreshSummary]);
   const toast = useSaveToast();
   const canEdit = rules.data?.can_edit === true;
+  const canCreate = summary.data?.can_create === true;
+  const s = summary.data;
 
-  const views: (readonly [View, string])[] = [["guidelines", L("Guidelines", "Garis Panduan")], ["rules", L("Card Rules", "Peraturan Kad")]];
+  const views: (readonly [View, string] | readonly [View, string, number | null | undefined])[] = [
+    ["templates", L("Templates", "Templat")],
+    ["mine", L("My Drafts", "Draf Saya"), s?.mine || null],
+    ["review", L("Pending Review", "Menunggu Semakan"), s?.in_review || null],
+    ["published", L("Published", "Diterbitkan")],
+    ["guidelines", L("Guidelines", "Garis Panduan")],
+    ...(canEdit ? [["rules", L("Card Rules", "Peraturan Kad")] as const] : []),
+  ];
+  const go = (v: View, f: "" | "draft" = "") => { setStateFilter(f); open(v); };
   return (
     <TabPage>
-      <LineTabs value={view} onChange={open} label={L("Digital Cards views", "Paparan Kad Digital")} testid="dc-view" tabs={views}
-        aside={canEdit && view === "rules" ? (
+      <LineTabs value={view} onChange={(v) => go(v)} label={L("Digital Cards views", "Paparan Kad Digital")} testid="dc-view" tabs={views}
+        aside={canCreate || (canEdit && view === "rules") ? (
           <TabAside>
-            <TabAction icon="add" onClick={() => setEditing({ kind: "format", row: null })}>{L("Add format", "Tambah format")}</TabAction>
+            {canEdit && view === "rules"
+              ? <TabAction icon="add" onClick={() => setEditing({ kind: "format", row: null })}>{L("Add format", "Tambah format")}</TabAction>
+              : <TabAction icon="add" onClick={() => setInfo({ row: null })}>{L("New Template", "Templat Baharu")}</TabAction>}
           </TabAside>
         ) : undefined} />
-      {!rules.data ? (
+
+      <TabZone label={L("Templates at a glance", "Ringkasan templat")}>
+        {/* v1.392.0 - THE ONE KPI STRIP (KpiRow / KpiTile), real counts from GET /staff/card-templates/summary;
+            each figure opens the list it counts */}
+        <KpiRow label={L("Digital card templates", "Templat kad digital")} testid="dc-kpis">
+          <KpiTile cell="total" icon="documents" tone="navy" label={L("Total Templates", "Jumlah Templat")} value={s?.total ?? 0} busy={!s}
+            onClick={() => go("templates")} pressed={view === "templates" && !stateFilter} />
+          <KpiTile cell="drafts" icon="edit" tone="blue" label={L("Drafts", "Draf")} value={s?.drafts ?? 0} busy={!s}
+            sub={L("draft or returned", "draf atau dikembalikan")} onClick={() => go("templates", "draft")} pressed={view === "templates" && stateFilter === "draft"} />
+          <KpiTile cell="review" icon="pending" tone="gold" label={L("Pending Review", "Menunggu Semakan")} value={s?.in_review ?? 0} busy={!s}
+            onClick={() => go("review")} pressed={view === "review"} />
+          <KpiTile cell="published" icon="success" tone="green" label={L("Published", "Diterbitkan")} value={s?.published ?? 0} busy={!s}
+            sub={L("live on AZ ONE only once confirmed", "di AZ ONE hanya selepas disahkan")} onClick={() => go("published")} pressed={view === "published"} />
+        </KpiRow>
+        {summary.failed && !s && <p className="erp-error" role="alert">{L("The template figures could not be read.", "Angka templat tidak dapat dibaca.")}</p>}
+      </TabZone>
+
+      {(["templates", "mine", "review", "published"] as const).map((v) => (
+        <div key={v} hidden={view !== v}>
+          {seen[v] && <TemplateList which={v} stamp={stamp} stateFilter={v === "templates" ? stateFilter : ""} onClearFilter={() => setStateFilter("")}
+            categories={rules.data?.categories ?? []} onOpen={setOpenId} canCreate={canCreate} onCreate={() => setInfo({ row: null })} />}
+        </div>
+      ))}
+
+      {(view === "guidelines" || view === "rules") && !rules.data ? (
         rules.error ? (
           <section className={`${card} ${css.card}`} role="alert" data-testid="dc-error">
             <p className={css.lead}><AppIcon name="warning" /> {rules.error}</p>
             <button type="button" className={btnSm} onClick={() => void rules.load()}><AppIcon name="refresh" /> {L("Try again", "Cuba lagi")}</button>
           </section>
         ) : <section className={`${card} ${css.card}`}><SkelRows rows={5} /></section>
-      ) : (
+      ) : rules.data && (
         <>
           <div hidden={view !== "guidelines"}>{seen.guidelines && <Guidelines rules={rules.data} />}</div>
-          <div hidden={view !== "rules"}>
-            {seen.rules && <RulesView rules={rules.data} onEdit={setEditing} onHistory={setHistory} />}
-          </div>
+          {canEdit && <div hidden={view !== "rules"}>{seen.rules && <RulesView rules={rules.data} onEdit={setEditing} onHistory={setHistory} />}</div>}
         </>
       )}
+
       {editing?.kind === "format" && (
         <FormatDrawer row={editing.row} onClose={() => setEditing(null)}
           onSaved={(r, msg) => { rules.setData(r); setEditing(null); toast.show(msg); }} />
@@ -97,8 +166,261 @@ export function DigitalCardsPage({ initialView }: { role: string; initialView?: 
           onSaved={(r, msg) => { rules.setData(r); setEditing(null); toast.show(msg); }} />
       )}
       {history && <HistoryDrawer target={history} onClose={() => setHistory(null)} />}
+      {info && rules.data && (
+        <TemplateInfoDrawer row={info.row} rules={rules.data} onClose={() => setInfo(null)}
+          onSaved={(t, created) => { setInfo(null); bump(); toast.show(created ? L(`${t.name} saved as a draft`, `${t.name} disimpan sebagai draf`) : L(`${t.name} saved`, `${t.name} disimpan`)); if (created) { setOpenId(t.id); go("mine"); } }} />
+      )}
+      {openId != null && (
+        <TemplateDrawer id={openId} stamp={stamp} onClose={() => setOpenId(null)} onEdit={(t) => setInfo({ row: t })}
+          onChanged={(msg) => { bump(); toast.show(msg); }} />
+      )}
       {toast.node}
     </TabPage>
+  );
+}
+
+/* ============================== TEMPLATE LISTS ============================== */
+
+function TemplateList({ which, stamp, stateFilter, onClearFilter, categories, onOpen, canCreate, onCreate }: {
+  which: "templates" | "mine" | "review" | "published"; stamp: number; stateFilter: "" | "draft"; onClearFilter: () => void;
+  categories: CardCategory[]; onOpen: (id: number) => void; canCreate: boolean; onCreate: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("");
+  const [archived, setArchived] = useState(false);
+  const apiView = which === "templates" ? "all" : which === "mine" && archived ? "archived" : which;
+  const path = `/staff/card-templates?view=${apiView}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ""}${cat ? `&category=${cat}` : ""}`;
+  const list = useCachedApi<{ templates: Template[] }>(path);
+  const { refresh } = list;
+  useEffect(() => { if (stamp) refresh(); }, [stamp, refresh]);
+  const rows = (list.data?.templates ?? []).filter((t) => !stateFilter || t.state === "draft" || t.state === "returned");
+  const empty: Record<typeof which, string> = {
+    templates: L("No templates yet.", "Belum ada templat."),
+    mine: archived ? L("You have no archived drafts.", "Anda tiada draf yang diarkib.") : L("You have no drafts. Start one with New Template.", "Anda tiada draf. Mulakan dengan Templat Baharu."),
+    review: L("Nothing is waiting for review.", "Tiada yang menunggu semakan."),
+    published: L("No template is published yet.", "Belum ada templat yang diterbitkan."),
+  };
+  const zone = { templates: L("All templates", "Semua templat"), mine: L("My drafts", "Draf saya"), review: L("Waiting for review", "Menunggu semakan"), published: L("Published templates", "Templat diterbitkan") }[which];
+  return (
+    <TabZone label={zone}>
+      <section className={`${card} ${css.card}`} data-testid={`dc-list-${which}`}>
+        <div className={css.toolbar}>
+          {which === "templates" && (
+            <>
+              <input type="search" className={inputClassSm} value={q} onChange={(e) => setQ(e.target.value)} placeholder={L("Search templates…", "Cari templat…")} aria-label={L("Search templates", "Cari templat")} data-testid="dc-search" />
+              <select className={selectClassSm} value={cat} onChange={(e) => setCat(e.target.value)} aria-label={L("Category", "Kategori")} data-testid="dc-filter-category">
+                <option value="">{L("All categories", "Semua kategori")}</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{nameOf(c)}</option>)}
+              </select>
+              {stateFilter && <button type="button" className={btnSm} onClick={onClearFilter}>{L("Drafts only", "Draf sahaja")} <AppIcon name="close" /></button>}
+            </>
+          )}
+          {which === "mine" && (
+            <PillSwitch value={archived ? "archived" : "open"} onChange={(k) => setArchived(k === "archived")} label={L("Show", "Tunjuk")} testid="dc-mine-switch"
+              options={[["open", L("Drafts", "Draf")], ["archived", L("Archived", "Diarkib")]] as const} />
+          )}
+        </div>
+        {!list.data ? (list.failed ? <p className="erp-error" role="alert">{L("The templates could not be read.", "Templat tidak dapat dibaca.")}</p> : <SkelRows rows={4} />)
+          : rows.length === 0 ? (
+            <div className={css.empty}>
+              <p>{empty[which]}</p>
+              {canCreate && (which === "mine" || which === "templates") && !archived && <button type="button" className={btnSm} onClick={onCreate}><AppIcon name="add" /> {L("New Template", "Templat Baharu")}</button>}
+            </div>
+          ) : (
+            <>
+            <ul className={css.cardList} data-testid="dc-cards">
+              {rows.map((t) => (
+                <li key={t.id} className={css.cardItem}>
+                  <button type="button" className={css.cardBtn} onClick={() => onOpen(t.id)} data-testid={`dc-card-${t.id}`}>
+                    <span className={css.thumb} aria-hidden><AppIcon name="document" /></span>
+                    <span className={css.tText}>
+                      <strong>{t.name}</strong>
+                      <small className={css.muted}>{catName(t)} · <span className="erp-nowrap">{fmtName(t)}</span></small>
+                      <small className={css.muted}>{t.designer_name ?? "—"}{t.mine ? ` · ${L("you", "anda")}` : ""} · v{t.version}</small>
+                    </span>
+                    <span className={STATE_CHIP[t.state]}>{STATE_LABEL[t.state]()}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className={`erp-table-scroll ${css.tableWrap} ${css.deskTable}`}>
+              <table className={css.table}>
+                <thead><tr>
+                  <th className={th}>{L("Template", "Templat")}</th>
+                  <th className={`${th} ${css.cWide}`}>{L("Category", "Kategori")}</th>
+                  <th className={`${th} ${css.cWide}`}>{L("Format", "Format")}</th>
+                  <th className={`${th} ${css.cWide}`}>{L("Designer", "Pereka")}</th>
+                  <th className={th}>{L("Status", "Status")}</th>
+                  <th className={`${th} ${css.cWide}`}>{L("Updated", "Dikemas kini")}</th>
+                  <th className={th}><span className="erp-sr-only">{L("Open", "Buka")}</span></th>
+                </tr></thead>
+                <tbody>
+                  {rows.map((t) => (
+                    <tr key={t.id} data-testid={`dc-row-${t.id}`}>
+                      <td className={td}>
+                        <span className={css.tName}><span className={css.thumb} aria-hidden><AppIcon name="document" /></span>
+                          <span className={css.tText}><strong>{t.name}</strong><small className={css.muted}>{t.code} · v{t.version}</small></span></span>
+                      </td>
+                      <td className={`${td} ${css.cWide}`}>{catName(t)}</td>
+                      <td className={`${td} ${css.cWide}`}><span className="erp-nowrap">{fmtName(t)}</span></td>
+                      <td className={`${td} ${css.cWide}`}>{t.designer_name ?? "—"}{t.mine && <small className={css.muted}> · {L("you", "anda")}</small>}</td>
+                      <td className={td}><span className={STATE_CHIP[t.state]}>{STATE_LABEL[t.state]()}</span></td>
+                      <td className={`${td} ${css.cWide}`}><small className={css.muted}>{dmyMYT(t.updated_at)}</small></td>
+                      <td className={td}><button type="button" className={btnSm} onClick={() => onOpen(t.id)} data-testid={`dc-open-${t.id}`}>{L("Open", "Buka")}</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            </>
+          )}
+      </section>
+    </TabZone>
+  );
+}
+
+/** one template: its information and its history; the designer edits or archives a draft here */
+function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number; stamp: number; onClose: () => void; onEdit: (t: Template) => void; onChanged: (msg: string) => void }) {
+  const one = useCachedApi<{ template: Template; events: { id: number; version: number; kind: string; note: string | null; created_at: string; actor_name: string | null }[] }>(`/staff/card-templates/${id}`);
+  const { refresh } = one;
+  useEffect(() => { if (stamp) refresh(); }, [stamp, refresh]);
+  const { prompt, node: promptNode } = usePrompt();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const t = one.data?.template;
+  const act = async (kind: "archive" | "restore") => {
+    if (!t) return;
+    let reason = "";
+    if (kind === "archive") {
+      const r = await prompt({ title: L(`Archive ${t.name}?`, `Arkibkan ${t.name}?`), message: L("It leaves your drafts and the figures. Nothing is deleted - you can bring it back from My Drafts → Archived.", "Ia keluar dari draf dan angka anda. Tiada yang dipadam - anda boleh kembalikannya dari Draf Saya → Diarkib."),
+        label: L("Why?", "Kenapa?"), required: true, confirmLabel: L("Archive", "Arkibkan"), variant: "danger" });
+      if (!r) return;
+      reason = r.value;
+    }
+    setBusy(true); setError(null);
+    const r = kind === "archive"
+      ? await api<{ template?: Template; error?: { message?: string } }>(`/staff/card-templates/${t.id}/archive`, { method: "POST", body: JSON.stringify({ version: t.version, reason }) })
+      : await api<{ template?: Template; error?: { message?: string } }>(`/staff/card-templates/${t.id}/restore`, { method: "POST", body: JSON.stringify({ version: t.version }) });
+    setBusy(false);
+    if (r.ok) { refresh(); onChanged(kind === "archive" ? L(`${t.name} archived`, `${t.name} diarkibkan`) : L(`${t.name} is a draft again`, `${t.name} menjadi draf semula`)); }
+    else setError(r.data?.error?.message ?? L("Not saved - try again.", "Tidak disimpan - cuba lagi."));
+  };
+  const eventText = (k: string) => ({ created: L("Created", "Dicipta"), edited: L("Information changed", "Maklumat diubah"), archived: L("Archived", "Diarkibkan"), restored: L("Brought back as a draft", "Dikembalikan sebagai draf") }[k] ?? k);
+  return (
+    <SideDrawer open onClose={onClose} title={t?.name ?? L("Template", "Templat")} subtitle={t ? `${t.code} · v${t.version}` : undefined}
+      footer={t && (t.can_edit || (t.mine && t.state === "archived")) ? (
+        <div className={css.rowActions}>
+          {t.can_edit && <button type="button" className={btnClass} onClick={() => onEdit(t)} disabled={busy} data-testid="dc-t-edit"><AppIcon name="edit" /> {L("Edit information", "Sunting maklumat")}</button>}
+          {t.can_edit && <button type="button" className={btnGhost} onClick={() => void act("archive")} disabled={busy} data-testid="dc-t-archive">{L("Archive", "Arkibkan")}</button>}
+          {t.mine && t.state === "archived" && <button type="button" className={btnClass} onClick={() => void act("restore")} disabled={busy} data-testid="dc-t-restore">{L("Bring back as a draft", "Kembalikan sebagai draf")}</button>}
+        </div>
+      ) : undefined}>
+      {!one.data ? (one.failed ? <p className="erp-error" role="alert">{L("The template could not be read.", "Templat tidak dapat dibaca.")}</p> : <SkelRows rows={5} />) : t && (
+        <div className={css.drawerBody} data-testid="dc-template">
+          <p><span className={STATE_CHIP[t.state]}>{STATE_LABEL[t.state]()}</span></p>
+          <dl className={css.facts}>
+            <div><dt>{L("Category", "Kategori")}</dt><dd>{catName(t)}</dd></div>
+            <div><dt>{L("Format", "Format")}</dt><dd>{fmtName(t)}</dd></div>
+            <div><dt>{L("Language", "Bahasa")}</dt><dd>{LANG_LABEL[t.language]()}</dd></div>
+            <div><dt>{L("Packages", "Pakej")}</dt><dd>{t.packages.map((p) => PACKAGE_LABEL[p]).join(", ")}</dd></div>
+            <div><dt>{L("Designer", "Pereka")}</dt><dd>{t.designer_name ?? "—"}</dd></div>
+            <div><dt>{L("Description", "Penerangan")}</dt><dd>{t.description ?? <span className={css.muted}>—</span>}</dd></div>
+          </dl>
+          {error && <p className="erp-error" role="alert">{error}</p>}
+          <h3 className={css.subhead}>{L("History", "Sejarah")}</h3>
+          <ol className={css.history}>
+            {one.data.events.map((e) => (
+              <li key={e.id}><strong>{eventText(e.kind)}</strong> <small className={css.muted}>v{e.version} · {dmyMYT(e.created_at)}{e.actor_name ? ` · ${e.actor_name}` : ""}</small>
+                {e.note && <p className={css.reason}>“{e.note}”</p>}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {promptNode}
+    </SideDrawer>
+  );
+}
+
+/** New Template / Edit information: the template's information, checked by lib/card-templates.ts as the server checks it */
+function TemplateInfoDrawer({ row, rules, onClose, onSaved }: { row: Template | null; rules: Rules; onClose: () => void; onSaved: (t: Template, created: boolean) => void }) {
+  const cats = rules.categories.filter((c) => c.active || c.id === row?.category_id);
+  const fmts = rules.formats.filter((f) => f.active || f.id === row?.format_id);
+  const [f, setF] = useState({
+    name: row?.name ?? "", description: row?.description ?? "",
+    category_id: String(row?.category_id ?? cats.find((c) => c.active)?.id ?? ""), format_id: String(row?.format_id ?? fmts.find((x) => x.active)?.id ?? ""),
+    language: (row?.language ?? "both") as TemplateLanguage, packages: (row?.packages ?? [...PACKAGES]) as TemplatePackage[],
+  });
+  const [server, setServer] = useState<{ error: string | null; fields: Record<string, string> }>({ error: null, fields: {} });
+  const [busy, setBusy] = useState(false);
+  const active = { categories: rules.categories.filter((c) => c.active).map((c) => c.id), formats: rules.formats.filter((x) => x.active).map((x) => x.id) };
+  const local = checkTemplateInfo(f, active).problems;
+  const problems = { ...local, ...server.fields };
+  const fmt = rules.formats.find((x) => String(x.id) === f.format_id);
+  const cat = rules.categories.find((c) => String(c.id) === f.category_id);
+  const save = async () => {
+    setBusy(true);
+    const payload = JSON.stringify({ ...f, category_id: Number(f.category_id), format_id: Number(f.format_id), version: row?.version });
+    const r = row
+      ? await api<{ template?: Template; error?: { message?: string; fields?: Record<string, string> } }>(`/staff/card-templates/${row.id}`, { method: "PUT", body: payload })
+      : await api<{ template?: Template; error?: { message?: string; fields?: Record<string, string> } }>("/staff/card-templates", { method: "POST", body: payload });
+    setBusy(false);
+    if (r.ok && r.data?.template) onSaved(r.data.template, !row);
+    else setServer({ error: r.data?.error?.message ?? L("Not saved - check your connection and try again.", "Tidak disimpan - semak sambungan dan cuba lagi."), fields: r.data?.error?.fields ?? {} });
+  };
+  const ready = !Object.keys(local).length && !busy;
+  return (
+    <SideDrawer open onClose={onClose} form icon="document" dirty="auto"
+      title={row ? L(`Edit information: ${row.name}`, `Sunting maklumat: ${row.name}`) : L("New Template", "Templat Baharu")}
+      subtitle={row ? L(`Version ${row.version}`, `Versi ${row.version}`) : L("Template information - saved as your draft", "Maklumat templat - disimpan sebagai draf anda")}>
+      <DrawerForm testid="dc-info-form" aside={fmt || cat ? (
+        <DrawerPanel icon="info" title={L("What this design needs", "Keperluan reka bentuk ini")} sub={L("From Guidelines", "Dari Garis Panduan")}>
+          <dl className={css.facts}>
+            {fmt && <div><dt>{L("Canvas", "Kanvas")}</dt><dd>{fmt.width_px} × {fmt.height_px} px · {aspectLabel(fmt.width_px, fmt.height_px)}</dd></div>}
+            {fmt && <div><dt>{L("Safe area", "Kawasan selamat")}</dt><dd>{safeArea(fmt).w} × {safeArea(fmt).h} px</dd></div>}
+            {fmt && <div><dt>{L("Files", "Fail")}</dt><dd>{fmt.accepted_types.map((x) => TYPE_LABEL[x]).join(", ")} · {sizeLabel(fmt.max_bytes)}</dd></div>}
+            {cat && <div><dt>{L("Pages", "Halaman")}</dt><dd>{cat.min_pages}–{cat.max_pages}</dd></div>}
+          </dl>
+          {cat && <PageChips pages={cat.pages} />}
+        </DrawerPanel>
+      ) : undefined}>
+        <label className="erp-field"><span className="erp-label" data-required="">{L("Template name", "Nama templat")}</span>
+          <input className={inputClass} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={TEMPLATE_LIMITS.name} data-testid="dc-i-name"
+            placeholder={L("e.g. Elegant Navy Wedding", "cth. Perkahwinan Biru Laut Elegan")} /><Err p={problems} k="name" /></label>
+        <label className="erp-field"><span className="erp-label">{L("Description", "Penerangan")}</span>
+          <textarea className="erp-input erp-textarea" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={TEMPLATE_LIMITS.description} data-testid="dc-i-desc" />
+          <Err p={problems} k="description" /></label>
+        <div className="erp-field-row">
+          <label className="erp-field"><span className="erp-label" data-required="">{L("Category", "Kategori")}</span>
+            <select className={selectClass} value={f.category_id} onChange={(e) => setF({ ...f, category_id: e.target.value })} data-testid="dc-i-category">
+              {cats.map((c) => <option key={c.id} value={c.id} disabled={!c.active}>{nameOf(c)}</option>)}
+            </select><Err p={problems} k="category_id" /></label>
+          <label className="erp-field"><span className="erp-label" data-required="">{L("Format", "Format")}</span>
+            <select className={selectClass} value={f.format_id} onChange={(e) => setF({ ...f, format_id: e.target.value })} data-testid="dc-i-format">
+              {fmts.map((x) => <option key={x.id} value={x.id} disabled={!x.active}>{nameOf(x)} · {x.width_px} × {x.height_px}</option>)}
+            </select><Err p={problems} k="format_id" /></label>
+        </div>
+        <label className="erp-field"><span className="erp-label" data-required="">{L("Language on the card", "Bahasa pada kad")}</span>
+          <select className={selectClass} value={f.language} onChange={(e) => setF({ ...f, language: e.target.value as TemplateLanguage })} data-testid="dc-i-language">
+            {LANGUAGES.map((x) => <option key={x} value={x}>{LANG_LABEL[x]()}</option>)}
+          </select><Err p={problems} k="language" /></label>
+        <fieldset className={`erp-field ${css.fieldset}`}>
+          <legend className="erp-label" data-required="">{L("Offered under the AZ ONE packages", "Ditawarkan di bawah pakej AZ ONE")}</legend>
+          <div className={css.checks}>
+            {PACKAGES.map((x) => (
+              <label key={x} className="erp-flex"><input type="checkbox" className="erp-check" checked={f.packages.includes(x)} data-testid={`dc-i-pkg-${x}`}
+                onChange={(e) => setF({ ...f, packages: e.target.checked ? [...f.packages, x] : f.packages.filter((y) => y !== x) })} /> {PACKAGE_LABEL[x]}</label>
+            ))}
+          </div>
+          <Err p={problems} k="packages" />
+        </fieldset>
+        <p className="erp-help">{L(`Designer: you. ${row ? "" : "The template is saved as your draft; only you can change it."}`, `Pereka: anda. ${row ? "" : "Templat disimpan sebagai draf anda; hanya anda boleh mengubahnya."}`)}</p>
+        {server.error && <p className="erp-error" role="alert" data-testid="dc-info-error">{server.error}</p>}
+        <DrawerFoot testid="dc-info-actions">
+          <button type="button" className={btnGhost} onClick={onClose}>{L("Cancel", "Batal")}</button>
+          <button type="button" className={btnClass} disabled={!ready} onClick={() => void save()} data-testid="dc-info-save">{busy ? L("Saving…", "Menyimpan…") : row ? L("Save", "Simpan") : L("Save draft", "Simpan draf")}</button>
+        </DrawerFoot>
+      </DrawerForm>
+    </SideDrawer>
   );
 }
 

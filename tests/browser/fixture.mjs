@@ -1212,8 +1212,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     const fmt = (id, code, name, name_ms, w, h, extra = {}) => ({ id, code, name, name_ms, width_px: w, height_px: h, margin_top: 40, margin_right: 40, margin_bottom: 40, margin_left: 40, accepted_types: ["image/png", "image/jpeg"], max_bytes: 10485760, sort: id, active: true, version: 1, updated_at: null, updated_by_name: null, ...extra });
     const pg = (title, title_ms, required) => ({ title, title_ms, required });
     const cat = (id, code, name, name_ms, min, pages) => ({ id, code, name, name_ms, min_pages: min, max_pages: 10, pages, allow_reorder: true, sort: id, active: true, version: 1, updated_at: null, updated_by_name: null });
-    data = !["super_admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Only the CEO and the super admin manage the digital card rules" } } : {
-      can_edit: true,
+    data = !["super_admin", "ceo", "coo", "cco", "sales_marketing"].includes(ROLE) ? { error: { code: "forbidden", message: "Digital Cards is for the designers, the COO and CCO, the CEO and the super admin" } } : {
+      can_edit: ["super_admin", "ceo"].includes(ROLE),
       formats: [fmt(1, "portrait", "Portrait", "Potret", 1080, 1920, { version: 2, margin_top: 60, updated_at: "2026-11-20 06:10:00", updated_by_name: "Fixture Person" }), fmt(2, "landscape", "Landscape", "Landskap", 1920, 1080), fmt(3, "square", "Square", "Segi empat sama", 1080, 1080, { active: false, version: 2, updated_at: "2026-11-20 06:12:00", updated_by_name: "Fixture Person" })],
       categories: [
         cat(1, "wedding", "Wedding", "Perkahwinan", 2, [pg("Cover", "Muka depan", true), pg("Event Details", "Butiran majlis", true), pg("RSVP / Map", "RSVP / Peta", false)]),
@@ -1221,6 +1221,26 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
         cat(3, "corporate", "Corporate Annual Dinner and Appreciation Night", "Majlis Makan Malam Tahunan Korporat", 1, [pg("Cover", "Muka depan", true), pg("Programme", "Atur cara", false)]),
       ],
     };
+  }
+  /* v1.392.0 - Digital Cards Stage 3: invented templates in every state the lists draw */
+  {
+    const VIEWERS = ["super_admin", "ceo", "coo", "cco", "sales_marketing"];
+    const tp = (id, name, state, cat, catMs, fmt, w, h, designer_id, designer_name, extra = {}) => ({ id, code: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, description: null, category_id: 1, format_id: 1, language: "both", packages: ["silver", "gold", "diamond"], state, version: 1, published_version: null, designer_id, designer_name, created_at: "2026-11-20 02:00:00", updated_at: "2026-11-20 08:30:00", category_name: cat, category_name_ms: catMs, format_name: fmt, format_name_ms: null, width_px: w, height_px: h, mine: designer_id === 9001, can_edit: designer_id === 9001 && ["draft", "returned"].includes(state) && ["super_admin", "ceo", "sales_marketing"].includes(ROLE), ...extra });
+    const TPL = [
+      tp(1, "Elegant Navy Wedding", "draft", "Wedding", "Perkahwinan", "Portrait", 1080, 1920, 9001, "Fixture Person", { description: "Navy and gold florals, three pages" }),
+      tp(2, "Romantic Blush Engagement Evening with a Very Long Name", "in_review", "Engagement", "Pertunangan", "Portrait", 1080, 1920, 9002, "Nur Aisyah binti Rahman"),
+      tp(3, "Classic Corporate Annual Dinner", "published", "Corporate", "Korporat", "Landscape", 1920, 1080, 9002, "Nur Aisyah binti Rahman", { version: 3, published_version: 3 }),
+      tp(4, "Happy Birthday Balloons", "returned", "Birthday", "Hari jadi", "Square", 1080, 1080, 9001, "Fixture Person"),
+    ];
+    const deny = { error: { code: "forbidden", message: "Digital Cards is for the designers, the COO and CCO, the CEO and the super admin" } };
+    if (p === "/staff/card-templates/summary") data = !VIEWERS.includes(ROLE) ? deny : { total: 4, drafts: 2, in_review: 1, published: 1, mine: 2, can_create: ["super_admin", "ceo", "sales_marketing"].includes(ROLE) };
+    if (p === "/staff/card-templates") {
+      const v = q.get("view") ?? "all";
+      const list = v === "mine" ? TPL.filter((t) => t.mine && ["draft", "returned"].includes(t.state)) : v === "review" ? TPL.filter((t) => t.state === "in_review") : v === "published" ? TPL.filter((t) => t.state === "published") : v === "archived" ? [] : TPL;
+      data = !VIEWERS.includes(ROLE) ? deny : { templates: list, view: v, can_create: ["super_admin", "ceo", "sales_marketing"].includes(ROLE) };
+    }
+    const one = /^\/staff\/card-templates\/(\d+)$/.exec(p);
+    if (one) { const t = TPL.find((x) => x.id === Number(one[1])); data = !t ? { error: { code: "not_found", message: "That template does not exist" } } : { template: t, events: [{ id: 1, version: 1, kind: "created", note: null, created_at: t.created_at, actor_name: t.designer_name }] }; }
   }
   if (p === "/staff/card-rules/history") data = { history: q.get("id") === "1" ? [{ id: 1, version: 2, reason: "Confirmed with the design team - more room under the notch", created_at: "2026-11-20 06:10:00", actor_name: "Fixture Person", snapshot: {} }] : [] };
   if (p === "/staff/hotels/" || p === "/staff/hotels") {

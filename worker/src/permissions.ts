@@ -215,6 +215,13 @@ export const PERMS: Record<string, readonly Role[]> = {
      category. The CEO and the super admin. Template design, review and publish come in later stages
      with their own capabilities. */
   card_format_admin: ["super_admin", "ceo"],
+  /* v1.392.0 - Digital Cards Stage 3 (the CEO 21-11-2026, decision D1: the designers are Sales &
+     Marketing). card_template_view opens the Digital Cards tab and reads the templates and the
+     Guidelines: the designers, the COO and CCO who will pre-check, the CEO and super admin who
+     will publish. card_template_manage creates a template and edits one's OWN draft. The
+     pre-check and publish capabilities arrive with the review stage. */
+  card_template_view: ["super_admin", "ceo", "coo", "cco", "sales_marketing"],
+  card_template_manage: ["super_admin", "ceo", "sales_marketing"],
 
   /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
      record: "I want to have a roles assigned for me to assigned her role.
@@ -699,6 +706,8 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Staff Details", key: "portfolio_publish", en: "Publish or unpublish a staff portfolio, and approve its public contact", ms: "Terbit atau tarik balik portfolio kakitangan, dan luluskan hubungan awamnya", cap: "portfolio_publish", note_en: "The public page and its QR exist only once published", note_ms: "Halaman awam dan QR wujud hanya selepas diterbitkan" },
   { module: "Inventory", key: "inventory", en: "Manage inventory", ms: "Urus inventori", cap: "inventory" },
   { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },
+  { module: "Digital Cards", key: "card_template_view", en: "Open Digital Cards: see the templates and the Guidelines", ms: "Buka Kad Digital: lihat templat dan Garis Panduan", cap: "card_template_view" },
+  { module: "Digital Cards", key: "card_template_manage", en: "Create a card template and edit your own drafts", ms: "Cipta templat kad dan sunting draf anda sendiri", cap: "card_template_manage", note_en: "A designer edits only their own draft; publishing needs the review that follows", note_ms: "Pereka hanya menyunting draf sendiri; penerbitan perlukan semakan selepasnya", needs: "card_template_view" },
   { module: "Digital Cards", key: "card_format_admin", en: "Keep the digital card rules (formats, safe margins, file limits, pages per category)", ms: "Urus peraturan kad digital (format, margin selamat, had fail, halaman bagi setiap kategori)", cap: "card_format_admin", note_en: "Every save needs a reason and is kept in the rule history", note_ms: "Setiap simpanan perlukan sebab dan disimpan dalam sejarah peraturan" },
   { module: "Hotels", key: "hotels", en: "Manage the hotel directory", ms: "Urus direktori hotel", cap: "hotels_manage" },
   { module: "Companies", key: "company_review", en: "Review company ownership", ms: "Semak pemilikan syarikat", cap: "company_review" },

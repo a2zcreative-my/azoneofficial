@@ -17,8 +17,8 @@
  * - every save writes one card_rule_history row (append-only, 0221 triggers) and the audit;
  * - nothing is deleted: a rule is switched off (active = 0), and the last active format or
  *   category cannot be switched off;
- * - Stage 2 reads are card_format_admin too (the tab is the CEO's and the super admin's
- *   until the templates arrive in Stage 3). DPI is never a rule (screen cards, D9).
+ * - reads: card_template_view or card_format_admin (v1.392.0, Stage 3); writes: card_format_admin.
+ *   DPI is never a rule (screen cards, D9).
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
@@ -75,7 +75,10 @@ export async function handleCardRules(
 ): Promise<Response | null> {
   if (path !== "/card-rules" && !path.startsWith("/card-rules/")) return null;
   const admin = canUser(user, "card_format_admin");
-  if (!admin) return err("forbidden", "Only the CEO and the super admin manage the digital card rules", 403);
+  /* v1.392.0 - the rules are READ by everyone who works on templates (card_template_view: the
+     designers, the COO, CCO, CEO and super admin) - the Guidelines are theirs; only the admin writes */
+  if (!admin && !canUser(user, "card_template_view")) return err("forbidden", "Only the people who work on digital card templates read the card rules", 403);
+  if (method !== "GET" && !admin) return err("forbidden", "Only the CEO and the super admin change the digital card rules", 403);
   try {
     if (path === "/card-rules" && method === "GET") {
       return json({ ...(await loadCardRules(env)), can_edit: admin, limits: LIMITS, types: CARD_TYPES });

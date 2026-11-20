@@ -21,6 +21,7 @@ import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAcc
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
 import { handlePortfolios } from "./portfolios"; // v1.389.0 - staff portfolios
 import { handleCardRules } from "./card-rules"; // v1.391.0 - Digital Cards Stage 2: the card rules (0221)
+import { handleCardTemplates } from "./card-templates"; // v1.392.0 - Digital Cards Stage 3: the templates (0222)
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
 import { handleResponsibilities, itemsOf, RESP_ITEMS_SQL, RESP_TEXT_SQL } from "./responsibilities"; // v1.388.0 - responsibilities as records, templates, the portfolio (0215)
 import { handlePartners } from "./partners"; // v1.351.0
@@ -3225,6 +3226,11 @@ async function handleStaffRoutes(
   if (path === "/card-rules" || path.startsWith("/card-rules/")) {
     const cr = await handleCardRules(env, path, method, body, user, new URL(request.url).searchParams);
     if (cr) return cr;
+  }
+  /* ---- v1.392.0 Digital Cards Stage 3 (card-templates.ts, 0222): the template master records ---- */
+  if (path === "/card-templates" || path.startsWith("/card-templates/")) {
+    const ct = await handleCardTemplates(env, path, method, body, user, new URL(request.url).searchParams);
+    if (ct) return ct;
   }
   /* ---- v1.315.0 Tasks 5.0 Gate 4: the Live Host Report (live-reports.ts) ---- */
   if (path === "/live-reports" || path.startsWith("/live-reports/")) {
@@ -9904,7 +9910,7 @@ async function handleStaffRoutes(
     "Staff Details": (r) => can(r, "hr_manage") || can(r, "exec_view"),
     Users: (r) => can(r, "hr_manage") || can(r, "exec_view"),
     Hotels: (r) => can(r, "hotels_view"),
-    "Digital Cards": (r) => can(r, "card_format_admin"), // v1.391.0 - GET /staff/card-rules (Stage 2)
+    "Digital Cards": (r) => can(r, "card_template_view"), // v1.392.0 - GET /staff/card-templates, /staff/card-rules
     Inventory: (r) => can(r, "inventory"),
     "ELFIA Store": (r) => can(r, "inventory"),
     "ELFIA Traffic": (r) => can(r, "revenue_view"),
