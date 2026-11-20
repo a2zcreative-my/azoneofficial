@@ -595,3 +595,5 @@ table is altered; not the business.ts door (worker/src/card-templates.ts).
 The template editor (the CEO 21-11-2026, Digital Cards Stage 4) adds `0223_card_template_pages`: additive only - the
 new `card_template_pages` (planned pages and their checked artwork, triggers keep them to drafts) and three added
 columns on `card_templates` (step, specs_key, specs_confirmed_at). Not the business.ts door (worker/src/card-templates.ts).
+Editable content (the CEO 21-11-2026, Digital Cards Stage 5) adds `0224_card_template_zones`: additive only - the new
+`card_template_zones` (the fields a customer fills in, triggers keep them to drafts). Not the business.ts door.

@@ -200,7 +200,7 @@ ok(r.j.editor.step === 2 && r.j.editor.pages.length === 0 && r.j.editor.specs_ok
 const staff = read("worker/src/staff.ts"), idx = read("worker/src/index.ts"), ui = read("components/portal/digital-cards.tsx");
 ok(/!\/\^\\\/card-templates\\\/\\d\+\\\/pages\\\/\\d\+\\\/file\$\/\.test\(path\)/.test(staff) && /handleCardTemplates\(env, path, method, body, user, new URL\(request\.url\)\.searchParams, request\)/.test(staff), "the page upload is a raw body, read by the Digital Cards door");
 ok(/key\.startsWith\("private\/card-templates\/"\)/.test(idx), "/media/file refuses private/card-templates/");
-ok(/const LATEST_MIGRATION = "0223_card_template_pages"/.test(idx) && /"0223_card_template_pages",/.test(idx), "0223 is the latest migration and in the expected list");
+ok(/"0223_card_template_pages",/.test(idx) && /\["0223 \(digital card template pages/.test(idx), "0223 is in the expected list and probed (v1.394.0: 0224 follows it)");
 const mig = read("worker/migrations/0223_card_template_pages.sql").replace(/--.*$/gm, "");
 ok(!/\bDROP\b/i.test(mig) && (mig.match(/ALTER TABLE/g) ?? []).length === 3 && (mig.match(/ALTER TABLE card_templates ADD COLUMN/g) ?? []).length === 3, "0223 is additive: a new table and three added columns");
 ok(readdirSync(join(root, "worker/migrations")).filter((f) => f.startsWith("0223")).length === 1, "one 0223");

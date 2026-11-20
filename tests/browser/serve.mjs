@@ -190,7 +190,7 @@ const server = http.createServer((req, res) => {
     /* v1.393.0 - a digital card template page's artwork is an image, through Digital Cards */
     if (req.method === "GET" && /^\/staff\/card-templates\/\d+\/pages\/\d+\/image$/.test(p)) {
       res.writeHead(200, { "content-type": "image/png" });
-      res.end(readFileSync(join(dir, "icon-192.png")));
+      res.end(readFileSync(new URL("./card-art.png", import.meta.url))); // v1.394.0 - invented artwork, 1080 x 1920, no text
       return;
     }
     if (req.method === "GET" && p.startsWith("/media/file/")) {

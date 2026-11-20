@@ -1,0 +1,11 @@
+/* v1.394.0 - the digital card fonts, self-hosted (SIL Open Font License, see the *-OFL.txt files). Generated from lib/card-render.ts fontFaceCss(); tests/card-zones.mjs holds them equal. */
+@font-face{font-family:"A2Z Card Playfair";font-style:normal;font-weight:400;font-display:swap;src:url("/card-fonts/playfair-display-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Playfair";font-style:normal;font-weight:700;font-display:swap;src:url("/card-fonts/playfair-display-latin-700-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Cormorant";font-style:normal;font-weight:500;font-display:swap;src:url("/card-fonts/cormorant-garamond-latin-500-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Cormorant";font-style:normal;font-weight:700;font-display:swap;src:url("/card-fonts/cormorant-garamond-latin-700-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Great Vibes";font-style:normal;font-weight:400;font-display:swap;src:url("/card-fonts/great-vibes-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Dancing Script";font-style:normal;font-weight:600;font-display:swap;src:url("/card-fonts/dancing-script-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Montserrat";font-style:normal;font-weight:400;font-display:swap;src:url("/card-fonts/montserrat-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Montserrat";font-style:normal;font-weight:600;font-display:swap;src:url("/card-fonts/montserrat-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Poppins";font-style:normal;font-weight:400;font-display:swap;src:url("/card-fonts/poppins-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"A2Z Card Poppins";font-style:normal;font-weight:600;font-display:swap;src:url("/card-fonts/poppins-latin-600-normal.woff2") format("woff2")}

@@ -1246,13 +1246,21 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       pages: [{ title: "Cover", title_ms: "Muka depan", required: true }, { title: "Event Details", title_ms: "Butiran majlis", required: true }, { title: "RSVP / Map", title_ms: "RSVP / Peta", required: false }] };
     const pg = (id, position, title, title_ms, required, file) => ({ id, position, title, title_ms, required, has_file: Boolean(file), mime: file ? "image/png" : null, width_px: file ? 1080 : null, height_px: file ? 1920 : null, bytes: file ? 2411724 : null, sha256: file ? "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12" : null, file_name: file ? "cover.png" : null, uploaded_at: file ? "2026-11-20 09:10:00" : null, problems: [], duplicate: false });
     const EDITOR = {
-      1: { step: 3, steps: 3, format: FMT, category: CAT, specs_ok: true, specs_confirmed_at: "2026-11-20 09:00:00", rules_on: true, plan_started: true,
-        pages: [pg(101, 1, "Cover", "Muka depan", true, true), pg(102, 2, "Event Details", "Butiran majlis", true, false), pg(103, 3, "RSVP / Map", "RSVP / Peta", false, false)],
-        missing: ["Event Details: no artwork uploaded yet", "RSVP / Map: no artwork uploaded yet"] },
-      4: { step: 2, steps: 3, format: { ...FMT, id: 3, code: "square", name: "Square", name_ms: "Segi empat sama", height_px: 1080 }, category: { ...CAT, id: 4, code: "birthday", name: "Birthday", name_ms: "Hari jadi", min_pages: 1 }, specs_ok: false, specs_confirmed_at: null, rules_on: true, plan_started: false, pages: [], missing: [] },
+      1: { step: 4, steps: 4, format: FMT, category: CAT, specs_ok: true, specs_confirmed_at: "2026-11-20 09:00:00", rules_on: true, plan_started: true,
+        pages: [pg(101, 1, "Cover", "Muka depan", true, true), pg(102, 2, "Event Details", "Butiran majlis", true, true), pg(103, 3, "RSVP / Map", "RSVP / Peta", false, true)],
+        missing: [],
+        /* v1.394.0 - invented fields on the Cover and Event Details (the sample names are made up) */
+        zones: [
+          { key: "names", page_id: 101, kind: "text", label: "Couple's names", label_ms: "Nama pasangan", x: 140, y: 640, w: 800, h: 160, font: "greatvibes", weight: 400, size: 120, colour: "#e9d9a6", align: "center", max_chars: 40, required: true, sample: "Aiman & Nadia", sample_ms: null },
+          { key: "invite", page_id: 101, kind: "multiline", label: "Invitation line", label_ms: "Ayat jemputan", x: 160, y: 860, w: 760, h: 220, font: "cormorant", weight: 500, size: 52, colour: "#f4efe2", align: "center", max_chars: 160, required: true, sample: "Together with our families, we invite you to celebrate our wedding", sample_ms: "Bersama keluarga, kami menjemput anda meraikan perkahwinan kami" },
+          { key: "date", page_id: 101, kind: "date", label: "Date", label_ms: "Tarikh", x: 200, y: 1240, w: 680, h: 90, font: "montserrat", weight: 600, size: 44, colour: "#e9d9a6", align: "center", max_chars: 40, required: true, sample: "Saturday, 12 December 2026", sample_ms: "Sabtu, 12 Disember 2026" },
+          { key: "venue", page_id: 102, kind: "multiline", label: "Venue", label_ms: "Tempat", x: 160, y: 700, w: 760, h: 260, font: "montserrat", weight: 400, size: 46, colour: "#f4efe2", align: "center", max_chars: 120, required: true, sample: "Dewan Seri Harmoni, Johor Bahru", sample_ms: null },
+        ],
+        zones_missing: [] },
+      4: { step: 2, steps: 4, zones: [], zones_missing: [], format: { ...FMT, id: 3, code: "square", name: "Square", name_ms: "Segi empat sama", height_px: 1080 }, category: { ...CAT, id: 4, code: "birthday", name: "Birthday", name_ms: "Hari jadi", min_pages: 1 }, specs_ok: false, specs_confirmed_at: null, rules_on: true, plan_started: false, pages: [], missing: [] },
     };
-    if (one) { const t = TPL.find((x) => x.id === Number(one[1])); data = !t ? { error: { code: "not_found", message: "That template does not exist" } } : { template: { ...t, step: EDITOR[t.id]?.step ?? 1, pages_done: t.id === 1 ? 1 : 0, pages_total: t.id === 1 ? 3 : 0 }, events: [{ id: 2, version: 4, kind: "page_uploaded", note: "Cover", created_at: "2026-11-20 09:10:00", actor_name: t.designer_name }, { id: 1, version: 1, kind: "created", note: null, created_at: t.created_at, actor_name: t.designer_name }],
-      editor: EDITOR[t.id] ?? { step: 1, steps: 3, format: FMT, category: CAT, specs_ok: false, specs_confirmed_at: null, rules_on: true, plan_started: false, pages: [], missing: [] } }; }
+    if (one) { const t = TPL.find((x) => x.id === Number(one[1])); data = !t ? { error: { code: "not_found", message: "That template does not exist" } } : { template: { ...t, step: EDITOR[t.id]?.step ?? 1, pages_done: t.id === 1 ? 3 : 0, pages_total: t.id === 1 ? 3 : 0 }, events: [{ id: 2, version: 4, kind: "page_uploaded", note: "Cover", created_at: "2026-11-20 09:10:00", actor_name: t.designer_name }, { id: 1, version: 1, kind: "created", note: null, created_at: t.created_at, actor_name: t.designer_name }],
+      editor: EDITOR[t.id] ?? { step: 1, steps: 4, format: FMT, category: CAT, specs_ok: false, specs_confirmed_at: null, rules_on: true, plan_started: false, pages: [], missing: [], zones: [], zones_missing: [] } }; }
   }
   if (p === "/staff/card-rules/history") data = { history: q.get("id") === "1" ? [{ id: 1, version: 2, reason: "Confirmed with the design team - more room under the notch", created_at: "2026-11-20 06:10:00", actor_name: "Fixture Person", snapshot: {} }] : [] };
   if (p === "/staff/hotels/" || p === "/staff/hotels") {

@@ -29,6 +29,13 @@
  *   GET  /card-templates/:id/pages/:p/image           the page's artwork (card_template_view)
  * Files live under private/card-templates/<id>/ in MEDIA and are never served by /media/file.
  * A replaced file stays in storage; the history names its SHA-256.
+ *
+ * v1.394.0 - Stage 5: Editable Content (migration 0224). The fields a customer fills in, placed on
+ * a page in canvas pixels and drawn by lib/card-render.ts (the one renderer, AZ ONE gets a copy):
+ *   PUT  /card-templates/:id/zones        {version, page_id, zones} - one page's fields, checked by
+ *                                         lib/card-templates.ts checkZones (inside the safe area,
+ *                                         a card font, a key unique in the template, a sample)
+ * Step 4 opens only when every page is in and fits; a removed page takes its fields with it.
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
@@ -36,7 +43,8 @@ import { canUser } from "./permissions";
 import { audit, err, json } from "./shared";
 import { loadCardRules } from "./card-rules";
 import { pageFileProblems, readImageHeader } from "../../lib/card-image";
-import { EDITABLE_STATES, EDITOR_STEPS, KPI_OF, PACKAGES, TEMPLATE_LIMITS, canEditTemplate, checkPagePlan, checkTemplateInfo, initialPlan, pagesReady, specsKey, templateCode, type PlanPage, type TemplatePackage } from "../../lib/card-templates";
+import { EDITABLE_STATES, EDITOR_STEPS, KPI_OF, PACKAGES, TEMPLATE_LIMITS, canEditTemplate, checkPagePlan, checkTemplateInfo, checkZones, initialPlan, pagesReady, specsKey, templateCode, zonesReady, type PlanPage, type TemplatePackage } from "../../lib/card-templates";
+import type { CardZone } from "../../lib/card-render";
 
 interface Row {
   id: number; code: string; name: string; description: string | null; category_id: number; format_id: number;
@@ -75,6 +83,14 @@ interface PageRow {
 }
 const pageRows = async (env: Env, id: number) =>
   (await env.DB.prepare(`SELECT * FROM card_template_pages WHERE template_id = ?1 ORDER BY position, id`).bind(id).all<PageRow>()).results ?? [];
+interface ZoneRow { id: number; page_id: number; sort: number; key: string; kind: string; label: string; label_ms: string | null; x: number; y: number; w: number; h: number; font: string; weight: number; size: number; colour: string; align: string; max_chars: number; required: number; sample: string; sample_ms: string | null }
+const zoneRows = async (env: Env, id: number) =>
+  (await env.DB.prepare(`SELECT z.* FROM card_template_zones z JOIN card_template_pages p ON p.id = z.page_id WHERE z.template_id = ?1 ORDER BY p.position, z.sort, z.id`).bind(id).all<ZoneRow>()).results ?? [];
+const zoneOf = (r: ZoneRow): CardZone => ({
+  key: r.key, page_id: r.page_id, kind: r.kind as CardZone["kind"], label: r.label, label_ms: r.label_ms, x: r.x, y: r.y, w: r.w, h: r.h,
+  font: r.font as CardZone["font"], weight: r.weight, size: r.size, colour: r.colour, align: r.align as CardZone["align"],
+  max_chars: r.max_chars, required: Boolean(r.required), sample: r.sample, sample_ms: r.sample_ms,
+});
 const planOf = (rows: PageRow[]): PlanPage[] => rows.map((r) => ({ id: r.id, title: r.title, title_ms: r.title_ms, required: Boolean(r.required) }));
 const changed = () => err("changed", "This template was saved since you opened it - reload and try again", 409);
 
@@ -82,14 +98,16 @@ const changed = () => err("changed", "This template was saved since you opened i
 async function detail(env: Env, id: number, user: StaffUser): Promise<Response> {
   const t = await env.DB.prepare(`${SELECT} WHERE t.id = ?1`).bind(id).first<Row>();
   if (!t || (t.state === "archived" && t.designer_id !== user.id)) return err("not_found", "That template does not exist", 404);
-  const [{ results: events }, rows, rules] = await Promise.all([
+  const [{ results: events }, rows, rules, zrows] = await Promise.all([
     env.DB.prepare(
       `SELECT e.id, e.version, e.kind, e.note, e.created_at, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS actor_name
          FROM card_template_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.template_id = ?1 ORDER BY e.id DESC LIMIT 50`,
     ).bind(t.id).all<{ id: number; version: number; kind: string; note: string | null; created_at: string; actor_name: string | null }>(),
     pageRows(env, t.id),
     loadCardRules(env),
+    zoneRows(env, t.id),
   ]);
+  const zones = zrows.map(zoneOf);
   const format = rules.formats.find((f) => f.id === t.format_id) ?? null;
   const category = rules.categories.find((c) => c.id === t.category_id) ?? null;
   const shaCount = new Map<string, number>();
@@ -110,6 +128,8 @@ async function detail(env: Env, id: number, user: StaffUser): Promise<Response> 
       rules_on: Boolean(format?.active && category?.active),
       pages, plan_started: rows.length > 0,
       missing: category ? pagesReady(pages, category) : ["The category of this template no longer exists"],
+      /* v1.394.0 - the fields, and what still stops Editable Content (a format changed since shows here) */
+      zones, zones_missing: format ? zonesReady(zones, format) : [],
     },
   });
 }
@@ -192,7 +212,7 @@ export async function handleCardTemplates(
     }
 
     /* v1.393.0 - the editor's writes: the designer's own draft or returned template, at its version */
-    const ed = path.match(/^\/card-templates\/(\d+)\/(step|pages)(?:\/(\d+)\/file)?$/);
+    const ed = path.match(/^\/card-templates\/(\d+)\/(step|pages|zones)(?:\/(\d+)\/file)?$/);
     if (ed && method === "PUT") {
       const id = Number(ed[1]);
       const t = await env.DB.prepare(`${SELECT} WHERE t.id = ?1`).bind(id).first<Row>();
@@ -213,6 +233,11 @@ export async function handleCardTemplates(
         const confirm = body?.specs_confirmed === true;
         if (step === 3 && !confirm && t.specs_key !== keyNow) return err("specs_needed", "Confirm the design specs first - they changed or were not confirmed yet", 409);
         if (step >= 2 && !(format.active && category.active)) return err("rules_off", "The format or category of this template is switched off - choose another in Template Info", 409);
+        if (step === 4) {
+          const have = await pageRows(env, id);
+          const left = have.length ? pagesReady(have.map((r) => ({ title: r.title, has_file: Boolean(r.r2_key), problems: r.r2_key ? pageFileProblems({ mime: (r.mime ?? "image/png") as "image/png", width: r.width_px ?? 0, height: r.height_px ?? 0, components: 3 }, r.bytes ?? 0, format) : [] })), category) : ["no pages"];
+          if (t.specs_key !== keyNow || left.length) return err("pages_incomplete", "Finish Upload Pages first - every page needs its artwork, at the right size", 409);
+        }
         const rows = step === 3 ? await pageRows(env, id) : [];
         const ok = confirm
           ? await claim(env, t, user, `step = ?5, specs_key = ?6, specs_confirmed_at = datetime('now')`, [step, keyNow])
@@ -235,6 +260,25 @@ export async function handleCardTemplates(
       const rows = await pageRows(env, id);
       if (!rows.length) return err("no_pages", "Open Upload Pages first - the pages are set up there", 409);
 
+      if (ed[2] === "zones") {
+        const page = rows.find((r) => r.id === Number(body?.page_id));
+        if (!page) return err("not_found", "That page is not part of this template", 404);
+        const others = (await zoneRows(env, id)).filter((z) => z.page_id !== page.id).map((z) => z.key);
+        const { value, problem } = checkZones(body?.zones, page.id, format, others);
+        if (!value) return invalid({ zones: problem! });
+        if (!(await claim(env, t, user))) return changed();
+        await env.DB.batch([
+          env.DB.prepare(`DELETE FROM card_template_zones WHERE template_id = ?1 AND page_id = ?2`).bind(id, page.id),
+          ...value.map((z, i) => env.DB.prepare(
+            `INSERT INTO card_template_zones (template_id, page_id, sort, key, kind, label, label_ms, x, y, w, h, font, weight, size, colour, align, max_chars, required, sample, sample_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
+          ).bind(id, page.id, i, z.key, z.kind, z.label, z.label_ms, z.x, z.y, z.w, z.h, z.font, z.weight, z.size, z.colour, z.align, z.max_chars, z.required ? 1 : 0, z.sample, z.sample_ms)),
+        ]);
+        await event(env, t, user, "zones_saved", page.title, { page: page.title, fields: value.map((z) => z.key) });
+        await audit(env, user.id, "card_template.zones", "card_templates", String(id), { code: t.code, page: page.title, fields: value.map((z) => z.key) });
+        return await detail(env, id, user);
+      }
+
       if (!ed[3]) {
         const { value, problem } = checkPagePlan(planOf(rows), body?.pages, category);
         if (!value) return invalid({ pages: problem! });
@@ -242,7 +286,10 @@ export async function handleCardTemplates(
         const keep = new Set(value.filter((p) => p.id != null).map((p) => p.id!));
         const removed = rows.filter((r) => !keep.has(r.id));
         const stmts: D1PreparedStatement[] = [];
-        for (const r of removed) stmts.push(env.DB.prepare(`DELETE FROM card_template_pages WHERE id = ?1 AND template_id = ?2`).bind(r.id, id));
+        for (const r of removed) {
+          stmts.push(env.DB.prepare(`DELETE FROM card_template_zones WHERE page_id = ?1 AND template_id = ?2`).bind(r.id, id)); // v1.394.0 - a page takes its fields with it
+          stmts.push(env.DB.prepare(`DELETE FROM card_template_pages WHERE id = ?1 AND template_id = ?2`).bind(r.id, id));
+        }
         value.forEach((p, i) => stmts.push(p.id != null
           ? env.DB.prepare(`UPDATE card_template_pages SET position = ?1, title = ?2, title_ms = ?3 WHERE id = ?4 AND template_id = ?5`).bind(i + 1, p.title, p.title_ms, p.id, id)
           : env.DB.prepare(`INSERT INTO card_template_pages (template_id, position, title, title_ms, required) VALUES (?1, ?2, ?3, ?4, 0)`).bind(id, i + 1, p.title, p.title_ms)));
@@ -333,7 +380,10 @@ export async function handleCardTemplates(
       const r = await env.DB.prepare(`UPDATE card_templates SET ${set}, version = ?1, updated_at = datetime('now'), updated_by = ?2 WHERE id = ?3 AND version = ${t.version}`)
         .bind(next, user.id, id, ...extra).run();
       if (!r.meta.changes) return err("changed", "This template was saved since you opened it - reload and try again", 409);
-      if (replan) await env.DB.prepare(`DELETE FROM card_template_pages WHERE template_id = ?1 AND r2_key IS NULL`).bind(id).run();
+      if (replan) {
+        await env.DB.prepare(`DELETE FROM card_template_zones WHERE template_id = ?1 AND page_id IN (SELECT id FROM card_template_pages WHERE template_id = ?1 AND r2_key IS NULL)`).bind(id).run();
+        await env.DB.prepare(`DELETE FROM card_template_pages WHERE template_id = ?1 AND r2_key IS NULL`).bind(id).run();
+      }
       await env.DB.prepare(`INSERT INTO card_template_events (template_id, version, kind, actor_id, note, detail_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)`)
         .bind(id, next, kind, user.id, note, detail ? JSON.stringify(detail) : null).run();
       await audit(env, user.id, `card_template.${kind === "edited" ? "update" : kind === "archived" ? "archive" : "restore"}`, "card_templates", String(id), { code: t.code, version: next, ...(note ? { reason: note } : {}) });
@@ -341,7 +391,7 @@ export async function handleCardTemplates(
       return json({ ok: true, template: view(fresh!, user) });
     }
   } catch (e) {
-    if (notMigrated(e)) return err("migration_needed", "Digital card templates need database updates 0222 and 0223 - run PUSH-A2ZCREATIVE.bat", 409);
+    if (notMigrated(e)) return err("migration_needed", "Digital card templates need database updates 0222 to 0224 - run PUSH-A2ZCREATIVE.bat", 409);
     throw e;
   }
   return err("not_found", "Not found", 404);

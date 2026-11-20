@@ -1,0 +1,37 @@
+/* v1.394.0 - Digital Cards Stage 5: the card page, the field editor and the preview. Tokens only.
+   The card itself is drawn by lib/card-render.ts (inline styles from the designer's data); this
+   sheet is only the frame around it and the overlays, which are never part of the card. */
+.frame { background: var(--surface-subtle); border-radius: var(--radius-xs); user-select: none; touch-action: none; }
+.art { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; display: block; }
+.noArt { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.photo { border: 2px dashed currentColor; opacity: 0.6; font-family: inherit; }
+.safe { position: absolute; border: 2px dashed var(--info); pointer-events: none; }
+.outline { position: absolute; border: 1px dashed var(--brand-accent-deep); box-sizing: border-box; pointer-events: none; }
+.movable { pointer-events: auto; cursor: move; }
+.outlineOn { border: 2px solid var(--brand-accent); background: var(--brand-accent-soft); }
+.outlineOn.movable { background: transparent; box-shadow: 0 0 0 1px var(--card); }
+.tag { position: absolute; inset-block-start: 0; inset-inline-start: 0; transform: translateY(-100%); background: var(--brand-accent-deep); color: var(--card); font-size: var(--type-caption-size); padding: 0 var(--space-1); border-radius: var(--radius-xs); white-space: nowrap; max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; font-family: inherit; font-weight: 600; }
+.handle { position: absolute; inline-size: 1rem; block-size: 1rem; inset-block-end: -0.5rem; inset-inline-end: -0.5rem; background: var(--brand-accent); border: 2px solid var(--card); border-radius: var(--radius-full); cursor: nwse-resize; }
+
+.pagePick, .adds { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+.pageOn { border-color: var(--brand-accent); background: var(--brand-accent-soft); }
+.stage { inline-size: min(100%, 22rem); margin-inline: auto; }
+.form { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); }
+.three { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 5rem) minmax(0, 1fr); gap: var(--space-2); }
+.four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.colour { inline-size: 100%; block-size: 2.25rem; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--card); }
+.list { margin: 0; padding-inline-start: 1.25rem; font-size: var(--type-body-sm-size); }
+
+.preview { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.controls { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; }
+.phone { justify-self: center; inline-size: min(100%, 20rem); padding: var(--space-3) var(--space-2) var(--space-5); border: 8px solid var(--foreground); border-radius: var(--radius-shell); background: var(--foreground); }
+.phoneScreen { border-radius: var(--radius-control); overflow: hidden; background: var(--card); }
+.desktop { padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-subtle); display: grid; place-items: center; }
+.desktopPage { inline-size: min(100%, 26rem); box-shadow: 0 0.5rem 1.5rem var(--border-strong); }
+.pager { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; }
+.pageName { font-size: var(--type-body-sm-size); text-align: center; flex: 1 1 10rem; }
+@media (max-width: 767px) {
+  .three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

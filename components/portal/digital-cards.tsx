@@ -34,6 +34,8 @@ import { dmyMYT } from "@/lib/format";
 import { btnClass, btnGhost, btnSm, card, chipSmDanger, chipSmNeutral, chipSmSuccess, chipSmWarn, inputClass, inputClassSm, selectClass, selectClassSm, td, th, tdR2, thR2 } from "@/lib/ui-styles";
 import { LANGUAGES, PACKAGES, PAGE_TITLE_MAX, TEMPLATE_LIMITS, checkTemplateInfo, type TemplateLanguage, type TemplatePackage, type TemplateState } from "@/lib/card-templates";
 import { pageFileProblems, readImageHeader, type ImageMime } from "@/lib/card-image";
+import type { CardZone } from "@/lib/card-render";
+import { CardPreview, ZonesStep } from "@/components/portal/card-zones";
 import {
   CARD_TYPES, LIMITS, TYPE_LABEL, aspectLabel, checkCategory, checkFormat, orientationOf, requiredCount, safeArea, sizeLabel,
   type CardCategory, type CardFormat, type CardPage, type CardType, type Problems,
@@ -284,6 +286,7 @@ function TemplateList({ which, stamp, stateFilter, onClearFilter, categories, on
 
 /** one template: its information and its history; the designer edits or archives a draft here */
 function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number; stamp: number; onClose: () => void; onEdit: (t: Template) => void; onChanged: (msg: string) => void }) {
+  const [preview, setPreview] = useState(false);
   const one = useCachedApi<Detail>(`/staff/card-templates/${id}`);
   const { refresh } = one;
   useEffect(() => { if (stamp) refresh(); }, [stamp, refresh]);
@@ -312,12 +315,14 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
     created: L("Created", "Dicipta"), edited: L("Information changed", "Maklumat diubah"), archived: L("Archived", "Diarkibkan"), restored: L("Brought back as a draft", "Dikembalikan sebagai draf"),
     specs_confirmed: L("Design specs confirmed", "Spesifikasi reka bentuk disahkan"), pages_planned: L("Pages set up from the category", "Halaman disediakan dari kategori"),
     pages_changed: L("Pages changed", "Halaman diubah"), page_uploaded: L("Artwork uploaded", "Seni dimuat naik"),
+    zones_saved: L("Fields saved", "Medan disimpan"),
   }[k] ?? k);
   const ed = one.data?.editor;
   return (
     <SideDrawer open onClose={onClose} title={t?.name ?? L("Template", "Templat")} subtitle={t ? `${t.code} · v${t.version}` : undefined}
-      footer={t && (t.can_edit || (t.mine && t.state === "archived")) ? (
+      footer={t && (t.can_edit || (t.mine && t.state === "archived") || t.pages_done > 0) ? (
         <div className={css.rowActions}>
+          {t.pages_done > 0 && <button type="button" className={btnGhost} onClick={() => setPreview(true)} data-testid="dc-t-preview"><AppIcon name="preview" /> {L("Preview", "Pratonton")}</button>}
           {t.can_edit && <button type="button" className={btnClass} onClick={() => onEdit(t)} disabled={busy} data-testid="dc-t-edit"><AppIcon name="edit" /> {L("Continue editing", "Teruskan menyunting")}</button>}
           {t.can_edit && <button type="button" className={btnGhost} onClick={() => void act("archive")} disabled={busy} data-testid="dc-t-archive">{L("Archive", "Arkibkan")}</button>}
           {t.mine && t.state === "archived" && <button type="button" className={btnClass} onClick={() => void act("restore")} disabled={busy} data-testid="dc-t-restore">{L("Bring back as a draft", "Kembalikan sebagai draf")}</button>}
@@ -355,13 +360,14 @@ function TemplateDrawer({ id, stamp, onClose, onEdit, onChanged }: { id: number;
           <h3 className={css.subhead}>{L("History", "Sejarah")}</h3>
           <ol className={css.history}>
             {one.data.events.map((e) => (
-              <li key={e.id}><strong>{eventText(e.kind)}{e.note && (e.kind === "page_uploaded") ? `: ${e.note}` : ""}</strong> <small className={css.muted}>v{e.version} · {dmyMYT(e.created_at)}{e.actor_name ? ` · ${e.actor_name}` : ""}</small>
-                {e.note && e.kind !== "page_uploaded" && <p className={css.reason}>“{e.note}”</p>}</li>
+              <li key={e.id}><strong>{eventText(e.kind)}{e.note && (e.kind === "page_uploaded" || e.kind === "zones_saved") ? `: ${e.note}` : ""}</strong> <small className={css.muted}>v{e.version} · {dmyMYT(e.created_at)}{e.actor_name ? ` · ${e.actor_name}` : ""}</small>
+                {e.note && e.kind !== "page_uploaded" && e.kind !== "zones_saved" && <p className={css.reason}>“{e.note}”</p>}</li>
             ))}
           </ol>
         </div>
       )}
       {promptNode}
+      {preview && t && <CardPreview templateId={t.id} onClose={() => setPreview(false)} />}
     </SideDrawer>
   );
 }
@@ -380,12 +386,13 @@ interface EditorPage {
 interface Editor {
   step: number; steps: number; format: CardFormat | null; category: CardCategory | null; specs_ok: boolean; specs_confirmed_at: string | null;
   rules_on: boolean; pages: EditorPage[]; plan_started: boolean; missing: string[];
+  zones: CardZone[]; zones_missing: string[];
 }
 interface TemplateEvent { id: number; version: number; kind: string; note: string | null; created_at: string; actor_name: string | null }
 interface Detail { template: Template; events: TemplateEvent[]; editor: Editor }
 type ErrBody = { error?: { code?: string; message?: string; fields?: Record<string, string>; problems?: string[] } };
 
-const STEP_NAMES = () => [L("Template Info", "Maklumat Templat"), L("Design Specs", "Spesifikasi Reka Bentuk"), L("Upload Pages", "Muat Naik Halaman")];
+const STEP_NAMES = () => [L("Template Info", "Maklumat Templat"), L("Design Specs", "Spesifikasi Reka Bentuk"), L("Upload Pages", "Muat Naik Halaman"), L("Editable Content", "Kandungan Boleh Sunting")];
 const pageImg = (templateId: number, p: { id: number; sha256: string | null }) =>
   `/api/v1/staff/card-templates/${templateId}/pages/${p.id}/image?v=${(p.sha256 ?? "").slice(0, 16)}`;
 const ptitle = (p: { title: string; title_ms: string | null }) => (getLang() === "ms" && p.title_ms ? p.title_ms : p.title);
@@ -402,13 +409,20 @@ function TemplateEditor({ id, rules, onClose, onDone }: { id: number | null; rul
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agree, setAgree] = useState(false);
+  const [preview, setPreview] = useState(false);
   const read = useCallback(async (which: number, jump: boolean) => {
     const r = await api<Detail & ErrBody>(`/staff/card-templates/${which}`);
     setLoading(false);
     if (!r.ok || !r.data?.editor) { setError(r.data?.error?.message ?? L("The template could not be read.", "Templat tidak dapat dibaca.")); return; }
     setD(r.data);
     setAgree(r.data.editor.specs_ok);
-    if (jump) { const e = r.data.editor; setStep(Math.max(0, Math.min(e.step, e.steps) - 1 - (e.step >= 3 && !e.specs_ok ? 1 : 0))); }
+    if (jump) {
+      const e = r.data.editor;
+      let at = Math.min(e.step, e.steps) - 1;
+      if (at >= 2 && !e.specs_ok) at = 1; // a rule changed since: the specs again
+      else if (at >= 3 && e.missing.length) at = 2; // a page no longer fits: the pages again
+      setStep(Math.max(0, at));
+    }
   }, []);
   useEffect(() => { if (id != null) void read(id, true); }, [id, read]);
   /* every editor write answers with the whole template, the same shape as the read */
@@ -458,9 +472,15 @@ function TemplateEditor({ id, rules, onClose, onDone }: { id: number | null; rul
           {step === 2 && e && t && (
             <PagesStep t={t} e={e} busy={busy} setBusy={setBusy} error={error} setError={setError} take={take}
               onBack={() => { setError(null); setStep(1); }}
+              onNext={async () => { setBusy(true); setError(null); await saveStep(3); setBusy(false); }}
               onDone={() => onDone(t, e.missing.length ? L(`${t.name} saved - pages still to finish`, `${t.name} disimpan - halaman belum selesai`) : L(`${t.name} saved - every page is in`, `${t.name} disimpan - semua halaman lengkap`))} />
           )}
+          {step === 3 && e && t && e.format && (
+            <ZonesStep t={t} e={e} take={(r) => take(r as ApiResult<Detail & ErrBody>)} onBack={() => { setError(null); setStep(2); }} onPreview={() => setPreview(true)}
+              onDone={() => onDone(t, e.zones_missing.length ? L(`${t.name} saved - fields still to finish`, `${t.name} disimpan - medan belum selesai`) : L(`${t.name} saved`, `${t.name} disimpan`))} />
+          )}
           {step > 0 && !e && error && <p className="erp-error" role="alert">{error}</p>}
+          {preview && t && <CardPreview templateId={t.id} onClose={() => setPreview(false)} />}
         </>
       )}
     </SideDrawer>
@@ -587,9 +607,9 @@ function SpecsStep({ e, agree, setAgree, busy, error, onBack, onNext }: {
 }
 
 /** step 3 - one row per planned page: its artwork (checked here, then by the server), its title, its place */
-function PagesStep({ t, e, busy, setBusy, error, setError, take, onBack, onDone }: {
+function PagesStep({ t, e, busy, setBusy, error, setError, take, onBack, onNext, onDone }: {
   t: Template; e: Editor; busy: boolean; setBusy: (v: boolean) => void; error: string | null; setError: (v: string | null) => void;
-  take: (r: ApiResult<Detail & ErrBody>) => boolean; onBack: () => void; onDone: () => void;
+  take: (r: ApiResult<Detail & ErrBody>) => boolean; onBack: () => void; onNext: () => void; onDone: () => void;
 }) {
   const { confirm, node: confirmNode } = useConfirm();
   const [pageErr, setPageErr] = useState<Record<number, string[]>>({});
@@ -694,7 +714,8 @@ function PagesStep({ t, e, busy, setBusy, error, setError, take, onBack, onDone 
       {error && <p className="erp-error" role="alert" data-testid="dc-pages-error">{error}</p>}
       <DrawerFoot testid="dc-pages-actions">
         <button type="button" className={btnGhost} onClick={onBack}>{L("Back", "Kembali")}</button>
-        <button type="button" className={btnClass} disabled={busy || uploading != null} onClick={onDone} data-testid="dc-pages-done">{L("Save and close", "Simpan dan tutup")}</button>
+        <button type="button" className={btnGhost} disabled={busy || uploading != null} onClick={onDone} data-testid="dc-pages-done">{L("Save and close", "Simpan dan tutup")}</button>
+        <button type="button" className={btnClass} disabled={busy || uploading != null || issues.length > 0} onClick={onNext} data-testid="dc-pages-next">{L("Continue to fields", "Teruskan ke medan")}</button>
       </DrawerFoot>
       {confirmNode}
     </DrawerForm>

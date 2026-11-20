@@ -1,3 +1,4 @@
+import { ALIGNS, FONT_KEYS, ZONE_KINDS, weightFor, type CardFont, type CardZone, type ZoneAlign, type ZoneKind } from "./card-render";
 /* v1.392.0 - DIGITAL CARD TEMPLATES, the one copy of the template rules shared by the worker
    (worker/src/card-templates.ts) and the portal (components/portal/digital-cards.tsx).
    Digital Cards Stage 3 (the CEO 21-11-2026). Pure functions, no imports, imported directly by
@@ -65,8 +66,8 @@ export function templateCode(name: string): string {
 
 /* ============================ v1.393.0 - THE EDITOR (Stage 4) ============================ */
 
-/** the editor's steps this stage builds; later stages add Editable Content and Review & Publish */
-export const EDITOR_STEPS = 3;
+/** the editor's steps built so far; Review & Publish is a later stage */
+export const EDITOR_STEPS = 4; // v1.394.0 - Stage 5 adds Editable Content
 export const PAGE_TITLE_MAX = 40;
 
 /** the rule versions a designer confirmed on Design Specs. A rule changed since -> confirm again. */
@@ -135,4 +136,90 @@ export function pagesReady(pages: readonly { title: string; has_file: boolean; p
     else if (p.problems.length) out.push(`${p.title}: ${p.problems[0]}`);
   }
   return out;
+}
+
+/* ======================= v1.394.0 - EDITABLE CONTENT (Stage 5) ======================= */
+
+export const ZONE_LIMITS = { label: 40, sample: 200, chars: [1, 400] as const, size: [12, 400] as const, min_box: 24, per_page: 20 } as const;
+/** the zone's key, the name its value is stored under on a customer card: "Bride's name" -> "brides_name" */
+export const zoneKey = (label: string) => label.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 32) || "field";
+
+interface ZoneFormat { width_px: number; height_px: number; margin_top: number; margin_right: number; margin_bottom: number; margin_left: number }
+/** the safe area every zone must sit inside (the same rectangle lib/card-rules.ts safeArea draws) */
+const safeOf = (f: ZoneFormat) => ({ x: f.margin_left, y: f.margin_top, r: f.width_px - f.margin_right, b: f.height_px - f.margin_bottom });
+
+/** the zones of ONE page as the client sent them -> clean zones, or the problem. `otherKeys` are the keys
+    used on the template's other pages: a key names one value across the whole card. */
+export function checkZones(raw: unknown, pageId: number, f: ZoneFormat, otherKeys: readonly string[] = []): { value: CardZone[] | null; problem: string | null } {
+  const bad = (problem: string) => ({ value: null, problem });
+  if (!Array.isArray(raw)) return bad("Send the zones of the page");
+  if (raw.length > ZONE_LIMITS.per_page) return bad(`At most ${ZONE_LIMITS.per_page} editable fields on one page`);
+  const s = safeOf(f);
+  const keys = new Set(otherKeys);
+  const out: CardZone[] = [];
+  for (const [i, z] of (raw as Record<string, unknown>[]).entries()) {
+    const n = i + 1;
+    const label = typeof z?.label === "string" ? z.label.trim().replace(/\s+/g, " ") : "";
+    if (!label || label.length > ZONE_LIMITS.label) return bad(`Field ${n}: a label of 1-${ZONE_LIMITS.label} characters`);
+    const key = typeof z.key === "string" && /^[a-z0-9_]{1,32}$/.test(z.key) ? z.key : zoneKey(label);
+    if (keys.has(key)) return bad(`${label}: another field already uses the name "${key}" - give it a different label`);
+    keys.add(key);
+    const kind = (ZONE_KINDS as readonly string[]).includes(String(z.kind)) ? (z.kind as ZoneKind) : null;
+    if (!kind) return bad(`${label}: choose text, several lines, date or photo`);
+    const x = Math.round(Number(z.x)), y = Math.round(Number(z.y)), w = Math.round(Number(z.w)), h = Math.round(Number(z.h));
+    if (![x, y, w, h].every((v) => Number.isFinite(v))) return bad(`${label}: the position is missing`);
+    if (w < ZONE_LIMITS.min_box || h < ZONE_LIMITS.min_box) return bad(`${label}: the box is too small (at least ${ZONE_LIMITS.min_box} px each way)`);
+    if (x < s.x || y < s.y || x + w > s.r || y + h > s.b) return bad(`${label}: the box goes outside the safe area`);
+    const font = (FONT_KEYS as readonly string[]).includes(String(z.font)) ? (z.font as CardFont) : null;
+    if (!font) return bad(`${label}: choose one of the card fonts`);
+    const weight = weightFor(font, Number(z.weight) || 400);
+    const size = Math.round(Number(z.size));
+    if (!(size >= ZONE_LIMITS.size[0] && size <= ZONE_LIMITS.size[1])) return bad(`${label}: a text size of ${ZONE_LIMITS.size[0]}-${ZONE_LIMITS.size[1]} px`);
+    const colour = typeof z.colour === "string" && /^#[0-9a-fA-F]{6}$/.test(z.colour) ? z.colour.toLowerCase() : null;
+    if (!colour) return bad(`${label}: choose a colour`);
+    const align = (ALIGNS as readonly string[]).includes(String(z.align)) ? (z.align as ZoneAlign) : "center";
+    const max_chars = kind === "image" ? 1 : Math.round(Number(z.max_chars));
+    if (kind !== "image" && !(max_chars >= ZONE_LIMITS.chars[0] && max_chars <= ZONE_LIMITS.chars[1])) return bad(`${label}: allow ${ZONE_LIMITS.chars[0]}-${ZONE_LIMITS.chars[1]} characters`);
+    const sample = typeof z.sample === "string" ? z.sample.trim().slice(0, ZONE_LIMITS.sample) : "";
+    const sample_ms = typeof z.sample_ms === "string" && z.sample_ms.trim() ? z.sample_ms.trim().slice(0, ZONE_LIMITS.sample) : null;
+    if (kind !== "image" && !sample) return bad(`${label}: give a sample, shown in the preview until the customer types`);
+    if (kind !== "image" && (sample.length > max_chars || (sample_ms?.length ?? 0) > max_chars)) return bad(`${label}: the sample is longer than the ${max_chars} characters allowed`);
+    const label_ms = typeof z.label_ms === "string" && z.label_ms.trim() ? z.label_ms.trim().slice(0, ZONE_LIMITS.label) : null;
+    out.push({ key, page_id: pageId, kind, label, label_ms, x, y, w, h, font, weight, size, colour, align, max_chars, required: z.required === true, sample, sample_ms });
+  }
+  return { value: out, problem: null };
+}
+
+/** what stops Editable Content being complete: at least one field on the card, every field still inside the safe area */
+export function zonesReady(zones: readonly CardZone[], f: ZoneFormat): string[] {
+  const out: string[] = [];
+  if (!zones.length) out.push("Add at least one field the customer fills in");
+  const s = safeOf(f);
+  for (const z of zones) if (z.x < s.x || z.y < s.y || z.x + z.w > s.r || z.y + z.h > s.b) out.push(`${z.label}: now outside the safe area`);
+  return out;
+}
+
+/** a new field of a kind, centred in the safe area, with a key no other field on the card uses */
+export function newZone(kind: ZoneKind, pageId: number, f: ZoneFormat, used: readonly string[]): CardZone {
+  const s = safeOf(f);
+  const sw = s.r - s.x, sh = s.b - s.y;
+  const base = { text: "Name", multiline: "Message", date: "Date", image: "Photo" }[kind];
+  const baseMs = { text: "Nama", multiline: "Mesej", date: "Tarikh", image: "Foto" }[kind];
+  let label = base, n = 1;
+  while (used.includes(zoneKey(label))) label = `${base} ${++n}`;
+  const w = Math.round(sw * (kind === "image" ? 0.5 : 0.8)), h = Math.round(kind === "image" ? w : kind === "multiline" ? sh * 0.18 : Math.max(ZONE_LIMITS.min_box, sh * 0.07));
+  return {
+    key: zoneKey(label), page_id: pageId, kind, label, label_ms: n > 1 ? `${baseMs} ${n}` : baseMs,
+    x: Math.round(s.x + (sw - w) / 2), y: Math.round(s.y + (sh - h) / 2), w, h,
+    font: kind === "text" ? "playfair" : "montserrat", weight: kind === "text" ? 700 : 400, size: Math.round(f.width_px * (kind === "text" ? 0.06 : 0.035)),
+    colour: "#1f2a44", align: "center", max_chars: kind === "multiline" ? 240 : kind === "image" ? 1 : 40, required: kind !== "image",
+    sample: { text: "Aiman & Nadia", multiline: "Together with our families, we invite you to celebrate with us", date: "Saturday, 12 December 2026", image: "" }[kind],
+    sample_ms: { text: "Aiman & Nadia", multiline: "Bersama keluarga, kami menjemput anda meraikan bersama kami", date: "Sabtu, 12 Disember 2026", image: "" }[kind] || null,
+  };
+}
+/** keep a moved or resized box inside the safe area (the server refuses one outside) */
+export function clampZone(z: { x: number; y: number; w: number; h: number }, f: ZoneFormat) {
+  const s = safeOf(f);
+  const w = Math.max(ZONE_LIMITS.min_box, Math.min(Math.round(z.w), s.r - s.x)), h = Math.max(ZONE_LIMITS.min_box, Math.min(Math.round(z.h), s.b - s.y));
+  return { x: Math.min(Math.max(Math.round(z.x), s.x), s.r - w), y: Math.min(Math.max(Math.round(z.y), s.y), s.b - h), w, h };
 }

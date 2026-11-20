@@ -4,6 +4,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Digital Cards, Stage 5: Editable Content and the preview (21-11-2026, the CEO) - MIGRATION 0224 (additive)
+- The editor has a fourth step, **Editable Content**, once every page is uploaded and fits. On each page the designer adds the fields the customer fills in - **Text**, **Several lines**, **Date**, **Photo** - and drags and resizes them on the artwork. A field always stays inside the safe area.
+- Each field has a label (EN and BM), font, weight, size, colour, alignment, the most characters a customer may type, whether it must be filled in, and a sample (EN and BM) shown until the customer types. A field's name is unique across the whole card.
+- **Six card fonts**, hosted on our own site (Playfair Display, Cormorant Garamond, Great Vibes, Dancing Script, Montserrat, Poppins - all SIL Open Font License, licences included).
+- **Preview** (in the editor, and from the template view for everyone on Digital Cards): the card in a **phone** frame or on a **desktop** stage, page by page, in English or BM, with switches for the **safe area**, **field outlines** and **longest text** (shows where a long name would be cut off).
+- One renderer draws every card (`lib/card-render.ts`) - the same file AZ ONE will use, so a customer's card looks exactly like the preview.
+- If the CEO changes a format's margins later, the fields that no longer fit are named. A removed page takes its fields with it. Nothing changes while a template is in review.
+- The form step indicator now has a small gap between steps, so four step names no longer run together on a phone.
+- Guard: new `card-zones` (45 checks, the real worker on every migration).
+- Not yet: review and publishing (Stage 6). azoneofficial.com is unchanged.
+
 ### Digital Cards, Stage 4: the template editor (21-11-2026, the CEO) - MIGRATION 0223 (additive)
 - **New Template** and **Continue editing** open the editor: three steps in one drawer - **Template Info**, **Design Specs**, **Upload Pages**. Every step is saved on the server, so a draft opens again where it was left, on any device.
 - **Design Specs** shows this template's own canvas and safe area, the technical requirements, the blank layout to download and the category's pages. The designer confirms them before uploading; if the CEO changes a format or category later, they are asked again.
