@@ -45,6 +45,7 @@
    agent; the salesperson's internal share (3%) is never drawn on any agent
    screen. */
 
+import { viewFile } from "@/components/ui/open-file";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, csrfFetch } from "@/lib/api";
 import { L } from "@/components/portal/page-shared";
@@ -1212,7 +1213,7 @@ function RequestDrawer({ id, isAgent, canManage, onClose, onChanged }: { id: num
               <ul className={css.files}>
                 {d.files.map((f) => (
                   <li key={f.id}>
-                    <a className={css.linkBtn} href={`/api/v1/staff/agent/requests/${id}/files/${f.id}`} target="_blank" rel="noopener noreferrer">{f.file_name}</a>
+                    <a className={css.linkBtn} href={`/api/v1/staff/agent/requests/${id}/files/${f.id}`} onClick={viewFile(`/api/v1/staff/agent/requests/${id}/files/${f.id}`, f.file_name)}>{f.file_name}</a>
                     <span className={css.muted}>{f.uploader ?? ""} · {when(f.created_at)}</span>
                     {!isAgent && <span className={`${css.vis} ${f.visibility === "internal" ? css.bad : css.ok}`}>{f.visibility === "internal" ? L("Internal", "Dalaman") : L("Agent can see", "Ejen boleh lihat")}</span>}
                   </li>))}

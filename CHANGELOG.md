@@ -4,6 +4,11 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Files open inside the page, never a new tab (20-11-2026, the CEO) - NO MIGRATION
+- "When I view the screenshot, it opens new tabs instead of reviewing in the same tab and returning after review": a GMV screenshot in Live Reports now opens in the portal's own viewer (`openDocumentPreview`); Back returns to the report as it was. The same for every portal file that opened a new tab: task photos and files (Updates and Files), project files, agent request files, the leave attachment, expense Evidence, chat pictures, the old Live Host card screenshots and the business-card link-preview image.
+- One helper, `components/ui/open-file.ts` (`openFile`, `viewFile`): a plain click opens the viewer, Ctrl / Cmd / middle-click keeps the browser's own new tab. Pictures and PDFs are drawn; any other file says "This file cannot be shown here. Use Download" (`document-preview.tsx`). External links (WhatsApp, maps, TikTok, the shop, public pages) still open a new tab.
+- Guard: new `in-app-viewer` (15 checks) - no portal link to a held file uses `target="_blank"`.
+
 ### Staff portfolios: Share Portfolio (20-11-2026, the CEO) - NO MIGRATION
 - The CEO: "Add Portfolio Sharing to Existing Web & PWA" on his reference. Every published portfolio (/portfolio/<name>) gets a **Share Portfolio** button beside **Work with me** (a popover anchored to it from 768px; a Share button in the phone dock opening a bottom sheet inside the safe areas). Nothing else on the page changes.
 - Six ways, all for the PUBLISHED address the API gives (never the browser's): **Share via Device** (`navigator.share` straight from the tap - the system sheet offers AirDrop / Quick Share where the device has them; a cancel is silent; no share sheet = the other ways), **Copy Portfolio Link**, **Show QR Code** (the studio's own `qrSvg` / `qrPng`, same address, with Download QR), **Share via WhatsApp**, **Download Digital Card (PDF)** (the studio's own `pdfOf`, from the published copy via `cardDataOfPublic`; the card drawing is untouched) and **Save Contact (vCard)** (`vcardOf`: name, position, A2Z Creative Marketing, the approved business email and phone else A2Z's, the address - no HR data).

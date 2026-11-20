@@ -1,4 +1,5 @@
 "use client";
+import { viewFile } from "@/components/ui/open-file";
 import { holds } from "@/lib/caps"; // v1.237.0 - the server's answer, matrix edits included
 import { openPrintPreview } from "@/components/ui/document-preview";
 
@@ -1643,7 +1644,7 @@ export function Leave({ user, initialView, focus }: { user: User; initialView?: 
                 </div>
                 {/* v1.309.0 (L-4) - the supporting document, read through its own gated route (the applicant, the route, HR and the CEO) */}
                 {d.has_attachment && (
-                  <a className={rowBtn} href={`/api/v1/staff/leave/${d.id}/attachment`} target="_blank" rel="noopener noreferrer" data-testid="leave-attachment">
+                  <a className={rowBtn} href={`/api/v1/staff/leave/${d.id}/attachment`} onClick={viewFile(`/api/v1/staff/leave/${d.id}/attachment`, L("Leave attachment", "Lampiran cuti"))} data-testid="leave-attachment">
                     <AppIcon name="attach" /> {L("Open the attachment", "Buka lampiran")}
                   </a>
                 )}

@@ -32,6 +32,7 @@
  * drawers (entry, accounts, item) are kept and extended.
  */
 
+import { viewFile } from "@/components/ui/open-file";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
@@ -1086,7 +1087,7 @@ function Expenses({ v, period, company, toast, onChanged }: { v: CashbookView | 
         {s === "approved" && caps.authorise && <button type="button" className={btnSm} onClick={() => void step(e.id, "authorise")} data-testid="exp-authorise">{L("Authorise payment", "Benarkan bayaran")}</button>}
         {s === "authorised" && caps.pay && me?.id !== e.authorised_by && <button type="button" className={btnSmPrimary} onClick={() => setPaying(e)} data-testid="exp-pay">{L("Pay…", "Bayar…")}</button>}
         {!compact && !["paid", "cancelled"].includes(s) && (caps.approve || caps.authorise || mine) && <button type="button" className={btnSm} onClick={() => void cancel(e)}>{L("Cancel…", "Batal…")}</button>}
-        {!compact && e.receipt_key && <a className={btnSm} href={`/api/v1/staff/expenses/${e.id}/evidence`} target="_blank" rel="noreferrer">{L("Evidence", "Bukti")}</a>}
+        {!compact && e.receipt_key && <a className={btnSm} href={`/api/v1/staff/expenses/${e.id}/evidence`} onClick={viewFile(`/api/v1/staff/expenses/${e.id}/evidence`, L("Expense evidence", "Bukti perbelanjaan"))}>{L("Evidence", "Bukti")}</a>}
       </span>
     );
   };

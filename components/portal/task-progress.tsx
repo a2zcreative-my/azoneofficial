@@ -17,6 +17,7 @@
    record append-only. Nothing is shown as saved before the server says so -
    these writes are once-only, so they are never queued offline. */
 
+import { viewFile } from "@/components/ui/open-file";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, csrfFetch } from "@/lib/api";
 import { L } from "@/components/portal/page-shared";
@@ -824,7 +825,7 @@ function FileStrip({ taskId, files }: { taskId: number; files: TFile[] }) {
       {imgs.length > 0 && (
         <span className={tp.thumbs}>
           {imgs.slice(0, 4).map((f) => (
-            <a key={f.id} className={tp.thumb} href={fileUrl(taskId, f.id)} target="_blank" rel="noopener noreferrer" aria-label={f.file_name}>
+            <a key={f.id} className={tp.thumb} href={fileUrl(taskId, f.id)} onClick={viewFile(fileUrl(taskId, f.id), f.file_name)} aria-label={f.file_name}>
               {/* eslint-disable-next-line @next/next/no-img-element -- a private file streamed by the API, not a static asset */}
               <img src={fileUrl(taskId, f.id)} alt={f.file_name} loading="lazy" />
             </a>
@@ -836,7 +837,7 @@ function FileStrip({ taskId, files }: { taskId: number; files: TFile[] }) {
         <span className={tp.fileChips}>
           {docs.map((f) => f.open === false
             ? <span key={f.id} className={tp.fileChip}><AppIcon name="lock" className="erp-icon" />{f.file_name}<span className={tp.fileMeta}>{L("restricted", "terhad")}</span></span>
-            : <a key={f.id} className={tp.fileChip} href={fileUrl(taskId, f.id)} target="_blank" rel="noopener noreferrer"><AppIcon name="document" className="erp-icon" />{f.file_name}{f.size_bytes ? <span className={tp.fileMeta}>{size(f.size_bytes)}</span> : null}<AppIcon name="download" className="erp-icon" /></a>)}
+            : <a key={f.id} className={tp.fileChip} href={fileUrl(taskId, f.id)} onClick={viewFile(fileUrl(taskId, f.id), f.file_name)}><AppIcon name="document" className="erp-icon" />{f.file_name}{f.size_bytes ? <span className={tp.fileMeta}>{size(f.size_bytes)}</span> : null}<AppIcon name="download" className="erp-icon" /></a>)}
         </span>
       )}
     </>
@@ -868,7 +869,7 @@ export function FilesPanel({ d, tick, onChanged }: { d: TaskDetail; tick: number
           {files.map((f) => (
             <div key={f.id} className={tp.fileRow}>
               <span className={tp.fileName}><AppIcon name={f.open ? "document" : "lock"} className="erp-icon" />
-                {f.open ? <a className={tp.link} href={fileUrl(t.id, f.id)} target="_blank" rel="noopener noreferrer">{f.file_name}</a> : <span>{f.file_name}</span>}
+                {f.open ? <a className={tp.link} href={fileUrl(t.id, f.id)} onClick={viewFile(fileUrl(t.id, f.id), f.file_name)}>{f.file_name}</a> : <span>{f.file_name}</span>}
                 {f.level === "restricted" && <span className={chipSmWarn}>{L("Restricted", "Terhad")}</span>}
               </span>
               <span className={tp.fileMeta}>{f.uploader} · {stamp(f.created_at)}{f.size_bytes ? ` · ${size(f.size_bytes)}` : ""}</span>

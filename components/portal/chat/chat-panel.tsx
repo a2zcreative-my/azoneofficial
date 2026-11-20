@@ -13,6 +13,7 @@
    reactions (the brief). "Messages expire after 12 hours" is always on
    screen, and so is the rule that chat is never the official record. */
 
+import { viewFile } from "@/components/ui/open-file";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { SideDrawer } from "@/components/ui/side-drawer";
@@ -351,7 +352,7 @@ function FileChip({ f, sent }: { f: ChatFile; sent: boolean }) {
   }, [f.id, f.type, sent]);
   if (f.type.startsWith("image/") && url) {
     return (
-      <a className={css.picture} href={url} target="_blank" rel="noopener noreferrer" aria-label={L(`Open picture ${f.name}`, `Buka gambar ${f.name}`)}>
+      <a className={css.picture} href={url} onClick={viewFile(url, f.name)} aria-label={L(`Open picture ${f.name}`, `Buka gambar ${f.name}`)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={url} alt={f.name} />
       </a>

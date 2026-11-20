@@ -235,6 +235,13 @@ function DocumentPreview({ source }: { source: Source }) {
         />
       ) : data?.blob?.type.includes("pdf") ? (
         <PdfPaper blob={data.blob} />
+      ) : data?.blob ? (
+        <p role="status" className="app-viewer-tools">
+          {L(
+            "This file cannot be shown here. Use Download to open it.",
+            "Fail ini tidak boleh dipaparkan di sini. Guna Muat turun untuk membukanya."
+          )}
+        </p>
       ) : null}
     </>
   );

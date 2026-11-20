@@ -27,6 +27,7 @@
  * is copied from it and nothing is edited here.
  */
 
+import { viewFile } from "@/components/ui/open-file";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CardView } from "@/components/cards/card-view";
@@ -314,7 +315,7 @@ export function CardsPanel({ role = "" }: { role?: string }) {
             <AppIcon name="lock" />
             {L("Only the approved public details are on a card - name, title, work email, the printed mobile and the office. Staff ID, IC, payroll and private details never are. To change a card, ask the administrator: it is published, not edited here.",
                "Hanya butiran awam yang diluluskan ada pada kad - nama, jawatan, e-mel kerja, nombor telefon yang dicetak dan pejabat. ID kakitangan, IC, gaji dan butiran peribadi tidak sesekali. Untuk menukar kad, minta pentadbir: ia diterbitkan, bukan disunting di sini.")}
-            {" "}<a href={`/cards/${chosen.slug}-og.png`} target="_blank" rel="noopener noreferrer">{L("Link preview image", "Imej pratonton pautan")}</a>
+            {" "}<a href={`/cards/${chosen.slug}-og.png`} onClick={viewFile(`/cards/${chosen.slug}-og.png`, L("Link preview image", "Imej pratonton pautan"))}>{L("Link preview image", "Imej pratonton pautan")}</a>
           </p>
         </section>
       </TabZone>

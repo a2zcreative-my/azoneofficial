@@ -10,6 +10,7 @@
    projects); nothing here writes, and nothing is invented - a figure with
    no source is not drawn (TK-6, TK-10). */
 
+import { viewFile } from "@/components/ui/open-file";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { L, type Task, priorityL } from "@/components/portal/page-shared";
 import { stamp } from "@/components/portal/task-progress";
@@ -433,7 +434,7 @@ const sessionWord = (x: { session_date: string; start_time: string; end_time: st
 function Shot({ rid, fid, name }: { rid: number; fid: number; name: string | null }) {
   const src = `/api/v1/staff/live-reports/${rid}/files/${fid}`;
   return (
-    <a href={src} target="_blank" rel="noreferrer" className={t5.shot}>
+    <a href={src} onClick={viewFile(src, name ?? L("GMV screenshot", "Tangkapan skrin GMV"))} className={t5.shot}>
       {/* eslint-disable-next-line @next/next/no-img-element -- a private screenshot behind the staff session, not a static asset */}
       <img src={src} alt={name ?? L("GMV screenshot", "Tangkapan skrin GMV")} />
     </a>

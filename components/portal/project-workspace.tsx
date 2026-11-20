@@ -15,6 +15,7 @@
  *   <ProjectFiles projectId />       the project's private files
  *   <ProjectsBoard />                Tasks > Projects: Mine / I'm on / All
  */
+import { viewFile } from "@/components/ui/open-file";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, csrfFetch } from "@/lib/api";
 import { L } from "@/components/portal/page-shared";
@@ -835,7 +836,7 @@ export function ProjectFiles({ projectId }: { projectId: number }) {
           {files.map((f) => (
             <div key={f.id} className={pw.fileRow}>
               <span className={pw.fileName}><AppIcon name={f.open ? "document" : "lock"} className="erp-icon" />
-                {f.open ? <a className={pw.linkBtn} href={`/api/v1/staff/projects/${projectId}/files/${f.id}`} target="_blank" rel="noopener noreferrer">{f.file_name}</a> : <span>{f.file_name} · {L("restricted", "terhad")}</span>}
+                {f.open ? <a className={pw.linkBtn} href={`/api/v1/staff/projects/${projectId}/files/${f.id}`} onClick={viewFile(`/api/v1/staff/projects/${projectId}/files/${f.id}`, f.file_name)}>{f.file_name}</a> : <span>{f.file_name} · {L("restricted", "terhad")}</span>}
               </span>
               <span className={pw.factMuted}>{f.task_title ? `${f.task_title} · ` : ""}{f.uploader} · {fmtDay(f.created_at)}{f.level === "restricted" ? ` · ${L("restricted", "terhad")}` : ""}</span>
             </div>

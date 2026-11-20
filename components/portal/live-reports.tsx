@@ -12,6 +12,7 @@
    one step by the CEO, COO or CCO who did not take part (C3). The AI usage
    is ALSO shown in the existing System health (C2). */
 
+import { viewFile } from "@/components/ui/open-file";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { L } from "@/components/portal/page-shared";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
@@ -618,7 +619,7 @@ function ReportDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
                 const rd = d.readings.find((x) => x.file_id === f.id);
                 return (
                   <li key={f.id}>
-                    <a href={fileSrc(id, f.id)} target="_blank" rel="noopener noreferrer" className={css.shot}>
+                    <a href={fileSrc(id, f.id)} onClick={viewFile(fileSrc(id, f.id), f.file_name ?? L("Screenshot", "Tangkapan skrin"))} className={css.shot} data-testid={`live-shot-${f.id}`}>
                       <ShotImg src={fileSrc(id, f.id)} alt={f.file_name ?? L("Screenshot", "Tangkapan skrin")} />
                     </a>
                     {edit && <button type="button" className={btnSm} disabled={busy !== null || Boolean(d.ai?.manual_entry)} onClick={() => void readAi(f.id)} data-testid={`live-ai-read-${f.id}`}>
