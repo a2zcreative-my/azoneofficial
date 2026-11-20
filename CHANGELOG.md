@@ -4,6 +4,10 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### PUSH-A2ZCREATIVE.bat - a2zcreative.my only (20-11-2026, the CEO, Digital Cards Stage 1) - NO MIGRATION, NO CODE CHANGE
+- New `PUSH-A2ZCREATIVE.bat` beside `PUSH.bat`: checks it is in this folder and that `worker/wrangler.toml` routes `a2zcreative.my/api/*`, then runs `PUSH.bat portal` (every existing gate, the portal only). It never touches azoneofficial.com (the separate `azoneofficial-az` repo, Worker `azone-invite`) or the ELFIA store. `PUSH.bat` remains the release entry point; this is a named shortcut to its portal mode.
+- Digital Cards programme: Stage 0 plan approved with the owner's decisions; Stage 1 (safeguard azoneofficial.com) runs from the azoneofficial folder. Nothing in A2Z OS is built for it yet.
+
 ### Files open inside the page, never a new tab (20-11-2026, the CEO) - NO MIGRATION
 - "When I view the screenshot, it opens new tabs instead of reviewing in the same tab and returning after review": a GMV screenshot in Live Reports now opens in the portal's own viewer (`openDocumentPreview`); Back returns to the report as it was. The same for every portal file that opened a new tab: task photos and files (Updates and Files), project files, agent request files, the leave attachment, expense Evidence, chat pictures, the old Live Host card screenshots and the business-card link-preview image.
 - One helper, `components/ui/open-file.ts` (`openFile`, `viewFile`): a plain click opens the viewer, Ctrl / Cmd / middle-click keeps the browser's own new tab. Pictures and PDFs are drawn; any other file says "This file cannot be shown here. Use Download" (`document-preview.tsx`). External links (WhatsApp, maps, TikTok, the shop, public pages) still open a new tab.
