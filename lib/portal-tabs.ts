@@ -102,6 +102,11 @@ export const ALL_TABS = [
      belongs to ELFIA): it now sits after ELFIA Traffic below, so the ELFIA
      group stays one contiguous cut of this list. Access is unchanged. */
   "Assets",
+  /* v1.391.0 - DIGITAL CARDS (the CEO 20-11-2026, Digital Cards programme): the digital card
+     template studio, in Operations after Assets as in his reference. Stage 2 draws only the
+     Guidelines and the card rules, for the CEO and the super admin (card_format_admin);
+     templates, review and publishing arrive in later stages with their own gates. */
+  "Digital Cards",
   "Hotels",
   "Threads",
   "HR",
@@ -185,7 +190,7 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   { id: "workspace", title: "Workspace", tabs: ["Dashboard", "Desk", "Announcements"] },
   { id: "revenue", title: "Revenue", tabs: ["Sales", "Ecommerce", "Agents", "Financial Advisory"] },
-  { id: "operations", title: "Operations", tabs: ["Tasks", "Assets", "Hotels"] },
+  { id: "operations", title: "Operations", tabs: ["Tasks", "Assets", "Digital Cards", "Hotels"] },
   { id: "people", title: "People", tabs: ["HR", "Staff Details", "Attendance", "On Shift", "Roster & Scheduling", "Leave", "Claims", "Payroll"] },
   { id: "finance", title: "Finance", tabs: ["Finance", "Accounting", "Commission"] },
   { id: "elfia", title: "ELFIA", tabs: ["ELFIA Store", "ELFIA Traffic", "Inventory"] }, // v1.340.0 - Inventory belongs to ELFIA (the CEO)
@@ -403,6 +408,9 @@ export const TAB_ROLES: Partial<Record<TabName, readonly string[]>> = {
      admin, admin") — the hotel directory. Mirrors hotels_view in
      worker/src/permissions.ts, which is the matrix actually enforced. */
   Hotels: ["super_admin", "admin", "ceo", "coo", "cco", "hr_admin"],
+  /* v1.391.0 - Digital Cards Stage 2: mirrors card_format_admin (worker/src/permissions.ts), the
+     only capability the tab holds so far. Widened when the template stages arrive. */
+  "Digital Cards": ["super_admin", "ceo"],
   Users: ["super_admin", "admin", "ceo", "coo"], // v1.40.0 (AUDIT M14)
   /* v1.293.0 (D4) - the five roles that read the watchers today (worker/src/watchers.ts);
      only the CEO and the super admin change a rule, the server's own rule */
@@ -468,6 +476,7 @@ export const TAB_HINTS: Partial<Record<TabName, { en: string; ms: string }>> = {
   Companies: { en: "the two legal entities: details, signatories, documents", ms: "dua entiti sah: butiran, penandatangan, dokumen" }, // v1.387.0 - the access review moved to Users & Security
   Attendance: { en: "punches + records", ms: "rekod kehadiran" }, // v1.328.0 - the roster moved to Roster & Scheduling
   "Roster & Scheduling": { en: "lives, shifts + templates", ms: "live, syif + templat" },
+  "Digital Cards": { en: "card templates + rules", ms: "templat kad + peraturan" }, // v1.391.0
   Ecommerce: { en: "TikTok + map", ms: "TikTok + peta" },
   "ELFIA Store": { en: "store catalogue", ms: "katalog kedai" },
   "ELFIA Traffic": { en: "store visitor map", ms: "peta pelawat kedai" },
@@ -676,6 +685,7 @@ export const TAB_ROUTE: Partial<Record<TabName, TabRoute>> = {
   "Financial Advisory": { slug: "financial-advisory" },
   Inventory: { slug: "inventory" },
   Assets: { slug: "assets" },
+  "Digital Cards": { slug: "digital-cards" }, // v1.391.0
   Hotels: { slug: "hotels", record: "hotel", context: "detail" },
   /* v1.180.0 - FLAT, by the owner's ruling of 22-09-2026. The three ELFIA
      views are one external system and nesting them at /portal/elfia/* is

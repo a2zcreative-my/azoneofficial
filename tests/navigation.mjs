@@ -36,7 +36,7 @@ rmSync(dir, { recursive: true, force: true });
 const WANT = [
   ["Workspace", ["Dashboard", "Desk", "Announcements"]],
   ["Revenue", ["Sales", "Ecommerce", "Agents", "Financial Advisory"]],
-  ["Operations", ["Tasks", "Assets", "Hotels"]], // v1.340.0 - Inventory moved to ELFIA (the CEO, 17-11-2026)
+  ["Operations", ["Tasks", "Assets", "Digital Cards", "Hotels"]], // v1.391.0 - Digital Cards after Assets (the CEO's reference, 20-11-2026); v1.340.0 - Inventory moved to ELFIA (the CEO, 17-11-2026)
   ["People", ["HR", "Staff Details", "Attendance", "On Shift", "Roster & Scheduling", "Leave", "Claims", "Payroll"]], // v1.328.0 - R-1
   ["Finance", ["Finance", "Accounting", "Commission"]],
   ["ELFIA", ["ELFIA Store", "ELFIA Traffic", "Inventory"]], // v1.340.0 - Inventory belongs to ELFIA
@@ -62,13 +62,13 @@ const man = T.navManifest();
 ok("the derived manifest has one entry per shown module, each with a group and a route", man.length === shown.length && man.every((e) => e.group && e.route), JSON.stringify(man.filter((e) => !e.group || !e.route)));
 
 /* ---- routes and role defaults are unchanged ---- */
-const ROUTES = { Dashboard: "home", Desk: "desk", Ecommerce: "ecommerce", Sales: "sales", Agents: "agents", "Financial Advisory": "financial-advisory", Inventory: "inventory", Assets: "assets", Hotels: "hotels", "ELFIA Store": "elfia-store", "ELFIA Traffic": "elfia-traffic", HR: "hr", Attendance: "attendance", "On Shift": "on-shift", "Roster & Scheduling": "roster", Tasks: "tasks", Announcements: "news", "Staff Details": "staff", Leave: "leave", Claims: "claims", Payroll: "payroll", Finance: "finance", Accounting: "accounting", Commission: "commission", Companies: "companies", Cards: "cards", Profile: "profile", Users: "users", "Automation & Rules": "automation" }; // v1.293.0 - /portal/automation
+const ROUTES = { Dashboard: "home", Desk: "desk", Ecommerce: "ecommerce", Sales: "sales", Agents: "agents", "Financial Advisory": "financial-advisory", Inventory: "inventory", Assets: "assets", "Digital Cards": "digital-cards", Hotels: "hotels", "ELFIA Store": "elfia-store", "ELFIA Traffic": "elfia-traffic", HR: "hr", Attendance: "attendance", "On Shift": "on-shift", "Roster & Scheduling": "roster", Tasks: "tasks", Announcements: "news", "Staff Details": "staff", Leave: "leave", Claims: "claims", Payroll: "payroll", Finance: "finance", Accounting: "accounting", Commission: "commission", Companies: "companies", Cards: "cards", Profile: "profile", Users: "users", "Automation & Rules": "automation" }; // v1.293.0 - /portal/automation
 ok("every URL is what it was (/portal/news, /portal/staff, /portal/users ...)", Object.entries(ROUTES).every(([t, s]) => T.TAB_ROUTE[t]?.slug === s) && Object.keys(T.TAB_ROUTE).length === Object.keys(ROUTES).length);
 /* the default matrix as it stood in 1.286.0 (the blueprint's table): Y = drawn by default */
 const ROLES = ["ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host", "admin", "super_admin", "agent"];
 const MATRIX = {
   Dashboard: "YYYYYYYYYY-", Desk: "YYYYYYYYYY-", Announcements: "YYYYYYYYYY-", Sales: "YYYYY---YY-", Ecommerce: "YYYYYY--YY-", Agents: "YYY-Y----YY",
-  "Financial Advisory": "YYY-Y----Y-", Tasks: "YYYYYYYYYY-", Inventory: "YYYYYY--YY-", Assets: "YYYYYYYYYY-", Hotels: "YYYY----YY-", // v1.304.0 - Assets for every staff member (My assets, the CEO D-4); the register stays asset_view on the server
+  "Financial Advisory": "YYY-Y----Y-", Tasks: "YYYYYYYYYY-", Inventory: "YYYYYY--YY-", Assets: "YYYYYYYYYY-", Hotels: "YYYY----YY-", "Digital Cards": "Y--------Y-" /* v1.391.0 - Stage 2: card_format_admin only */, // v1.304.0 - Assets for every staff member (My assets, the CEO D-4); the register stays asset_view on the server
   HR: "YYYY----YY-", "Staff Details": "YYYY----YY-", Attendance: "YYYYYYYYYY-", "On Shift": "YYYYYYYYYY-", "Roster & Scheduling": "YYYYYYYYYY-" /* v1.328.0 - R-5: every staff member, as Tasks and Attendance */, Leave: "YYYYYYYYYY-", Claims: "YYYYYYYYYY-", Payroll: "YY------YY-",
   Finance: "YY------YY-", Accounting: "YYY-----YY-", /* v1.316.0 (Accounting 5.0 AC-1, the CEO 15-11-2026) - the COO and CCO read the books */ Commission: "YYY-Y---YY-", "ELFIA Store": "YYYYYY--YY-", "ELFIA Traffic": "YYYYYY--YY-",
   Companies: "YYY------Y-", Users: "YY------YY-", Cards: "YYY------Y-", Profile: "YYYYYYYYYYY",

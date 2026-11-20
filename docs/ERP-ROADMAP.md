@@ -586,3 +586,6 @@ The portfolio review (the CEO 19-11-2026) adds `0219_portfolio_review`: additive
 append-only table `staff_portfolio_reviews` (submitted / prechecked / returned, triggers refuse UPDATE and DELETE). No existing table is altered.
 The portfolio in BM (the CEO 19-11-2026) adds `0220_portfolio_bm`: additive only - one nullable
 column `staff_portfolios.content_ms` (the BM words as JSON). `users` is not altered.
+The digital card rules (the CEO 20-11-2026, Digital Cards Stage 2) add `0221_card_rules`: additive only - three new
+tables `card_formats`, `card_category_rules` and the append-only `card_rule_history` (triggers refuse UPDATE and DELETE),
+with the approved starting rules seeded. No existing table is altered; not the business.ts door (worker/src/card-rules.ts).

@@ -4,6 +4,14 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Digital Cards, Stage 2: the card rules (20-11-2026, the CEO) - MIGRATION 0221 (additive)
+- New tab **Operations -> Digital Cards** (`/portal/digital-cards`), drawn for the CEO and the super admin until the template stages arrive. Two views:
+  - **Guidelines**: each card format drawn to scale with its safe area and margins, the technical requirements (canvas, PNG/JPG, size per page, sRGB, pages; DPI is not checked for screen cards), a **blank layout PNG** made at the full canvas size from the same numbers, the pages per category with Required / Optional, and correct vs incorrect artwork.
+  - **Card Rules**: the formats and categories, edited in a drawer. Every save asks for a reason, is refused if someone saved first, and is kept in the rule's history; nothing is deleted, and the last format or category that is on stays on.
+- Starting rules (owner decision D9): Portrait 1080 x 1920, Landscape 1920 x 1080, Square 1080 x 1080; 40 px safe margin on every side; 10 MB a page; PNG and JPG; 1-10 pages a card with the Cover first and required (Wedding: Cover and Event Details required, RSVP / Map optional).
+- Server: `worker/src/card-rules.ts` (`/staff/card-rules`, `/formats`, `/categories`, `/history`), capability `card_format_admin` (super_admin, ceo) on the Roles & Permissions catalogue. `lib/card-rules.ts` is the one copy of the checks, shared by the server and the page. Migration 0221: `card_formats`, `card_category_rules`, `card_rule_history` (never edited or deleted).
+- Guard: new `card-rules` (52 checks, the real worker on every migration).
+
 ### PUSH-A2ZCREATIVE.bat - a2zcreative.my only (20-11-2026, the CEO, Digital Cards Stage 1) - NO MIGRATION, NO CODE CHANGE
 - New `PUSH-A2ZCREATIVE.bat` beside `PUSH.bat`: checks it is in this folder and that `worker/wrangler.toml` routes `a2zcreative.my/api/*`, then runs `PUSH.bat portal` (every existing gate, the portal only). It never touches azoneofficial.com (the separate `azoneofficial-az` repo, Worker `azone-invite`) or the ELFIA store. `PUSH.bat` remains the release entry point; this is a named shortcut to its portal mode.
 - Digital Cards programme: Stage 0 plan approved with the owner's decisions; Stage 1 (safeguard azoneofficial.com) runs from the azoneofficial folder. Nothing in A2Z OS is built for it yet.

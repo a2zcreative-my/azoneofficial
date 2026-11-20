@@ -108,6 +108,7 @@ const BODY = {
   "Inventory": ["components/portal/role-panels.tsx#InventoryPanel"],
   "Assets": ["components/portal/assets-panel.tsx"],
   "Hotels": ["components/portal/hotels-panel.tsx#HotelsPanel"],
+  "Digital Cards": ["components/portal/digital-cards.tsx"], // v1.391.0 - Guidelines and Card Rules (Stage 2)
   "Threads": ["components/portal/threads-panel.tsx#ThreadsPanel"],
   "ELFIA Store": ["components/portal/elfia-store-panel.tsx#ElfiaStorePanel"],
   "ELFIA Traffic": ["components/portal/elfia-traffic-panel.tsx"],

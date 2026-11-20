@@ -20,6 +20,7 @@ import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
 import { handlePortfolios } from "./portfolios"; // v1.389.0 - staff portfolios
+import { handleCardRules } from "./card-rules"; // v1.391.0 - Digital Cards Stage 2: the card rules (0221)
 import { handlePositions } from "./positions"; // v1.322.0 - the positions list
 import { handleResponsibilities, itemsOf, RESP_ITEMS_SQL, RESP_TEXT_SQL } from "./responsibilities"; // v1.388.0 - responsibilities as records, templates, the portfolio (0215)
 import { handlePartners } from "./partners"; // v1.351.0
@@ -3219,6 +3220,11 @@ async function handleStaffRoutes(
   if (path === "/portfolios" || path.startsWith("/portfolios/")) {
     const pf = await handlePortfolios(env, path, method, body, user, request);
     if (pf) return pf;
+  }
+  /* ---- v1.391.0 Digital Cards Stage 2 (card-rules.ts, 0221): formats and pages per category, card_format_admin ---- */
+  if (path === "/card-rules" || path.startsWith("/card-rules/")) {
+    const cr = await handleCardRules(env, path, method, body, user, new URL(request.url).searchParams);
+    if (cr) return cr;
   }
   /* ---- v1.315.0 Tasks 5.0 Gate 4: the Live Host Report (live-reports.ts) ---- */
   if (path === "/live-reports" || path.startsWith("/live-reports/")) {
@@ -9883,7 +9889,7 @@ async function handleStaffRoutes(
      Finance and the five ERP tabs, so the CEO could not override the tabs
      the portal actually shows. Stale override keys in system_meta are
      harmless — the client only reads keys for tabs it knows. */
-  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Roster & Scheduling", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users", "Automation & Rules"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
+  const TAB_ACCESS_TABS = ["Ecommerce", "Inventory", "Sales", "Agents", "Financial Advisory", "Assets", "Digital Cards", "Hotels", "ELFIA Store", "ELFIA Traffic", "HR", "Attendance", "Roster & Scheduling", "Tasks", "Announcements", "Staff Details", "Leave", "Claims", "Payroll", "Finance", "Accounting", "Commission", "Companies", "Cards", "Users", "Automation & Rules"]; // Mirrors governable tabs in lib/portal-tabs.ts. v1.224.0: Commission is back (the owner, 29-10-2026), over the new engine. v1.172.0: Reconciliation, Ads Fund and Purchasing retired - a stale override or grant naming one is ignored by the client and refused here. v1.183.0: Enquiries, Sales Performance, Hankeis, Web Orders and Commission likewise.
   const TAB_ACCESS_ROLES = ["admin", "ceo", "coo", "cco", "hr_admin", "sales_marketing", "marketing", "editor", "live_host"];
   /* v1.234.0 - what the SERVER lets a role read behind a tab, where one rule
      decides it (the same checks the routes make). A tab absent here has no
@@ -9898,6 +9904,7 @@ async function handleStaffRoutes(
     "Staff Details": (r) => can(r, "hr_manage") || can(r, "exec_view"),
     Users: (r) => can(r, "hr_manage") || can(r, "exec_view"),
     Hotels: (r) => can(r, "hotels_view"),
+    "Digital Cards": (r) => can(r, "card_format_admin"), // v1.391.0 - GET /staff/card-rules (Stage 2)
     Inventory: (r) => can(r, "inventory"),
     "ELFIA Store": (r) => can(r, "inventory"),
     "ELFIA Traffic": (r) => can(r, "revenue_view"),

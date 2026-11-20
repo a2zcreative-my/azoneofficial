@@ -87,6 +87,7 @@ export const FinancePage = lazy(() => import("@/components/portal/finance-panels
 export const GeofenceCard = lazy(() => import("@/components/portal/geofence-card").then((m) => m.GeofenceCard));
 export const FinancialAdvisoryPanel = lazy(() => import("@/components/portal/financial-advisory").then((m) => m.FinancialAdvisoryPanel)); // v1.284.0 - Financial Advisory
 export const AgentsPanel = lazy(() => import("@/components/portal/agents-panel").then((m) => m.AgentsPanel)); // v1.249.0 - the agent desk
+export const DigitalCardsPage = lazy(() => import("@/components/portal/digital-cards").then((m) => m.DigitalCardsPage)); // v1.391.0 - Digital Cards
 export const HotelsPanel = lazy(() => import("@/components/portal/hotels-panel").then((m) => m.HotelsPanel));
 export const CardsPanel = lazy(() => import("@/components/portal/cards-panel").then((m) => m.CardsPanel)); // v1.129.0
 /* v1.183.0 - CommissionPanel, EnquiriesPanel, SalesPerformancePanel,

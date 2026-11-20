@@ -210,6 +210,11 @@ export const PERMS: Record<string, readonly Role[]> = {
      showing a person's email or phone in public, is the approval: CEO, COO, super admin. */
   portfolio_manage: ["super_admin", "admin", "hr_admin", "ceo", "coo", "cco"],
   portfolio_publish: ["super_admin", "ceo"], // v1.390.0 (the CEO, 19-11-2026): the CEO and super admin approve; the COO / CCO pre-check
+  /* v1.391.0 - Digital Cards Stage 2 (the CEO 20-11-2026, card-rules.ts, 0221): keep the digital
+     card RULES - formats (canvas size, safe margins, file types, size per page) and the pages per
+     category. The CEO and the super admin. Template design, review and publish come in later stages
+     with their own capabilities. */
+  card_format_admin: ["super_admin", "ceo"],
 
   /* === the role on the staff record (v1.157.0). CEO, 13-09-2026, on Nurul's
      record: "I want to have a roles assigned for me to assigned her role.
@@ -694,6 +699,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Staff Details", key: "portfolio_publish", en: "Publish or unpublish a staff portfolio, and approve its public contact", ms: "Terbit atau tarik balik portfolio kakitangan, dan luluskan hubungan awamnya", cap: "portfolio_publish", note_en: "The public page and its QR exist only once published", note_ms: "Halaman awam dan QR wujud hanya selepas diterbitkan" },
   { module: "Inventory", key: "inventory", en: "Manage inventory", ms: "Urus inventori", cap: "inventory" },
   { module: "Ecommerce", key: "orders", en: "Manage orders", ms: "Urus pesanan", cap: "orders_manage" },
+  { module: "Digital Cards", key: "card_format_admin", en: "Keep the digital card rules (formats, safe margins, file limits, pages per category)", ms: "Urus peraturan kad digital (format, margin selamat, had fail, halaman bagi setiap kategori)", cap: "card_format_admin", note_en: "Every save needs a reason and is kept in the rule history", note_ms: "Setiap simpanan perlukan sebab dan disimpan dalam sejarah peraturan" },
   { module: "Hotels", key: "hotels", en: "Manage the hotel directory", ms: "Urus direktori hotel", cap: "hotels_manage" },
   { module: "Companies", key: "company_review", en: "Review company ownership", ms: "Semak pemilikan syarikat", cap: "company_review" },
   { module: "ELFIA Store", key: "elfia_publish", en: "Publish, price, discount, bulk changes, Update the shop now", ms: "Terbit, harga, diskaun, perubahan pukal, Kemas kini kedai", cap: "elfia_publish" },

@@ -25,7 +25,7 @@ import {
   AtSign, BadgePercent, CalendarRange, Handshake, Banknote, Building2, CalendarClock, Clapperboard, ClipboardList, Contact, FileText,
   Globe, Hotel, IdCard, Image, Inbox, Landmark, LayoutDashboard, LayoutPanelTop, ListChecks, Shirt,
   LogOut, Map, Megaphone, MessageSquareQuote, Package, Palmtree,
-  Receipt, ScrollText, Settings2, ShieldCheck, SlidersHorizontal,
+  Receipt, ScrollText, Settings2, ShieldCheck, SlidersHorizontal, LayoutTemplate,
   ShoppingCart, Signature, SquarePen, Square, Store, Timer, TrendingDown, UserRound,
   UsersRound, Video, Wallet, LayoutGrid, TrendingUp, Boxes, Users, Coins, ShoppingBag, Cog,
   type LucideIcon,
@@ -68,6 +68,7 @@ export const TAB_ICON: Record<string, LucideIcon> = {
   Ecommerce: ShoppingCart,
   Assets: Video,
   Threads: AtSign, // v1.89.0: the Threads workspace — a handle is what an account is; unused on every rail.
+  "Digital Cards": LayoutTemplate, // v1.391.0 - card templates; unused on every rail
   Hotels: Hotel, // v1.100.0: the hotel directory. Map is already the ELFIA Traffic tab on this same rail.
   Cards: Contact, // v1.129.0 - the digital business cards. Unused on every rail; a contact card IS the tab.
   Profile: UserRound,

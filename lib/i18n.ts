@@ -40,6 +40,7 @@ const DICT: Record<string, { en: string; ms: string }> = {
   "Assets": { en: "Assets", ms: "Aset" },
   "Threads": { en: "Threads", ms: "Threads" },
   "Hotels": { en: "Hotels", ms: "Hotel" },
+  "Digital Cards": { en: "Digital Cards", ms: "Kad Digital" }, // v1.391.0
   "Birthdays": { en: "Birthdays", ms: "Hari Lahir" },
   "Cards": { en: "Cards", ms: "Kad" }, // v1.129.0 - the digital business cards
   "Profile": { en: "Profile", ms: "Profil" },

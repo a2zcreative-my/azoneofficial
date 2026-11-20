@@ -1206,6 +1206,23 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   /* v1.202.0 - the list answers as the worker does: ?state, ?q (the hotel and
      its people), ?stage, ?due=1; by_state and state_pipeline are always the
      whole directory */
+  /* v1.391.0 - Digital Cards Stage 2: the card rules as 0221 seeds them (plus one edited and one
+     switched-off format, so both states draw); the CEO and super admin only, as the worker */
+  if (p === "/staff/card-rules") {
+    const fmt = (id, code, name, name_ms, w, h, extra = {}) => ({ id, code, name, name_ms, width_px: w, height_px: h, margin_top: 40, margin_right: 40, margin_bottom: 40, margin_left: 40, accepted_types: ["image/png", "image/jpeg"], max_bytes: 10485760, sort: id, active: true, version: 1, updated_at: null, updated_by_name: null, ...extra });
+    const pg = (title, title_ms, required) => ({ title, title_ms, required });
+    const cat = (id, code, name, name_ms, min, pages) => ({ id, code, name, name_ms, min_pages: min, max_pages: 10, pages, allow_reorder: true, sort: id, active: true, version: 1, updated_at: null, updated_by_name: null });
+    data = !["super_admin", "ceo"].includes(ROLE) ? { error: { code: "forbidden", message: "Only the CEO and the super admin manage the digital card rules" } } : {
+      can_edit: true,
+      formats: [fmt(1, "portrait", "Portrait", "Potret", 1080, 1920, { version: 2, margin_top: 60, updated_at: "2026-11-20 06:10:00", updated_by_name: "Fixture Person" }), fmt(2, "landscape", "Landscape", "Landskap", 1920, 1080), fmt(3, "square", "Square", "Segi empat sama", 1080, 1080, { active: false, version: 2, updated_at: "2026-11-20 06:12:00", updated_by_name: "Fixture Person" })],
+      categories: [
+        cat(1, "wedding", "Wedding", "Perkahwinan", 2, [pg("Cover", "Muka depan", true), pg("Event Details", "Butiran majlis", true), pg("RSVP / Map", "RSVP / Peta", false)]),
+        cat(2, "engagement", "Engagement", "Pertunangan", 1, [pg("Cover", "Muka depan", true), pg("Event Details", "Butiran majlis", false)]),
+        cat(3, "corporate", "Corporate Annual Dinner and Appreciation Night", "Majlis Makan Malam Tahunan Korporat", 1, [pg("Cover", "Muka depan", true), pg("Programme", "Atur cara", false)]),
+      ],
+    };
+  }
+  if (p === "/staff/card-rules/history") data = { history: q.get("id") === "1" ? [{ id: 1, version: 2, reason: "Confirmed with the design team - more room under the notch", created_at: "2026-11-20 06:10:00", actor_name: "Fixture Person", snapshot: {} }] : [] };
   if (p === "/staff/hotels/" || p === "/staff/hotels") {
     const st = q.get("state"), qq = (q.get("q") ?? "").toLowerCase(), stg = q.get("stage");
     let list = hotels.filter((h) => !st || h.state === st);

@@ -1,0 +1,84 @@
+/* v1.391.0 - Digital Cards (Stage 2: Guidelines and Card Rules). Tokens only. */
+.card { padding: 1rem 1.25rem; min-width: 0; }
+.lead { max-width: 72ch; margin: 0 0 var(--space-2); color: var(--muted-foreground); font-size: var(--type-body-sm-size); line-height: var(--type-body-sm-lh); }
+.muted { color: var(--muted-foreground); }
+
+/* ---- the format: the canvas to scale beside its legend ---- */
+.formatHead { margin-bottom: var(--space-3); min-width: 0; overflow-x: auto; }
+.formatGrid { display: grid; grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); gap: var(--space-5); align-items: start; min-width: 0; }
+.formatSide { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; justify-items: start; }
+.diagram { margin: 0; min-width: 0; }
+.diagram svg { display: block; inline-size: 100%; block-size: auto; max-block-size: 26rem; }
+.caption { margin-top: var(--space-1); color: var(--muted-foreground); font-size: var(--type-caption-size); text-align: center; }
+.dMargin { fill: var(--danger-soft); stroke: var(--border-strong); stroke-width: 2; }
+.dSafe { fill: var(--info-soft); stroke: var(--info); stroke-width: 3; stroke-dasharray: 18 10; }
+.dText { fill: var(--muted-foreground); }
+.dSmall { fill: var(--danger); }
+.dStrong { fill: var(--foreground); font-weight: 600; }
+
+.legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.legend li { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: var(--space-2); align-items: start; font-size: var(--type-body-sm-size); }
+.legend small { color: var(--muted-foreground); }
+.swatch { inline-size: 1.25rem; block-size: 1.25rem; border-radius: var(--radius-xs); border: 1px solid var(--border-strong); }
+.swSafe { background: var(--info-soft); border-color: var(--info); }
+.swMargin { background: var(--danger-soft); }
+
+/* ---- the technical requirements ---- */
+.reqs { margin: var(--space-5) 0 0; display: grid; grid-template-columns: minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.reqHead { padding: var(--space-2) var(--space-3); font-weight: 600; background: var(--surface-subtle); }
+.req { display: grid; grid-template-columns: minmax(0, 12rem) minmax(0, 1fr); gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--border); font-size: var(--type-body-sm-size); }
+.req dt { color: var(--muted-foreground); }
+.req dd { margin: 0; min-width: 0; }
+
+/* ---- tables ---- */
+.tableWrap { min-width: 0; }
+.table { inline-size: 100%; border-collapse: collapse; }
+.table tbody tr + tr { border-top: 1px solid var(--border); }
+.rowActions { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.zoneHead { display: flex; justify-content: flex-end; margin-bottom: var(--space-2); }
+
+.pages { list-style: none; margin: 0; padding: 0; font-size: var(--type-body-sm-size); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.pages li { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.pageNo { display: inline-flex; align-items: center; justify-content: center; inline-size: 1.375rem; block-size: 1.375rem; border-radius: var(--radius-full); background: var(--muted); font-size: var(--type-caption-size); font-weight: 600; flex: 0 0 auto; }
+
+.catList { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.catItem { display: grid; grid-template-columns: minmax(0, 14rem) minmax(0, 1fr); gap: var(--space-2) var(--space-4); align-items: start; padding: var(--space-3) 0; min-width: 0; }
+.catItem + .catItem { border-top: 1px solid var(--border); }
+.catHead { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-half); min-width: 0; font-size: var(--type-body-sm-size); }
+.catHead strong { overflow-wrap: break-word; }
+
+/* ---- correct vs incorrect ---- */
+.examples { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: var(--space-3); }
+.example { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr); gap: var(--space-3); align-items: start; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.example[data-ok] { border-color: var(--success); }
+.exArt { inline-size: 3.5rem; block-size: auto; overflow: visible; }
+.exPaper { fill: var(--surface-subtle); stroke: var(--border-strong); }
+.exSafe { fill: none; stroke: var(--info); stroke-dasharray: 4 3; }
+.exArtShape { fill: var(--tint-gold); }
+.exZone { fill: none; stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.exInk { fill: var(--danger); }
+.exText { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); font-size: var(--type-body-sm-size); min-width: 0; }
+.exText small { color: var(--muted-foreground); }
+.exOk { color: var(--success); display: inline-flex; gap: var(--space-1); align-items: center; }
+.exBad { color: var(--danger); display: inline-flex; gap: var(--space-1); align-items: center; }
+
+/* ---- the edit drawers ---- */
+.fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.margins { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-2); }
+.checks { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.pageEdit { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.pageRow { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) minmax(0, 1fr) auto auto; gap: var(--space-2); align-items: center; }
+.pageRow > :global(.erp-error) { grid-column: 1 / -1; }
+.history { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.reason { margin: var(--space-1) 0 0; font-size: var(--type-body-sm-size); }
+
+@media (max-width: 767px) {
+  .formatGrid { grid-template-columns: minmax(0, 1fr); }
+  .diagram svg { max-block-size: 22rem; }
+  .req { grid-template-columns: minmax(0, 1fr); gap: var(--space-half); }
+  .cWide { display: none; }
+  .catItem { grid-template-columns: minmax(0, 1fr); }
+  .margins { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pageRow { grid-template-columns: 1.5rem minmax(0, 1fr); }
+  .pageRow > :nth-child(n + 3) { grid-column: 2; }
+}
