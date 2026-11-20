@@ -277,7 +277,7 @@ export function PortfolioEditor({ id, onClose, notify }: { id: number | null; on
     if (!["image/jpeg", "image/png", "image/webp"].includes(f.type)) { notify(L("Use a JPG, PNG or WebP image", "Gunakan imej JPG, PNG atau WebP"), "", "error"); return; }
     setBusy("photo");
     const { compressImage } = await import("@/lib/compress-image");
-    const blob = await compressImage(f, 2000, 0.9).catch(() => null);
+    const blob = await compressImage(f, 2800, 0.92).catch(() => null); // v1.390.1 - enough detail for the 2x card (was 2000)
     setBusy(null);
     if (!blob) { notify(L("That photo could not be read", "Foto itu tidak dapat dibaca"), "", "error"); return; }
     setPending(blob); setPendingOwn(true);

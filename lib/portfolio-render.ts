@@ -95,18 +95,26 @@ export function loadLogo(): Promise<HTMLImageElement | null> {
   return logoP;
 }
 
-export function paint(canvas: HTMLCanvasElement, side: "front" | "back", size: CardSize, data: CardData, assets: CardAssets) {
+/** v1.390.1 (the CEO 20-11-2026: "make sure that the portfolio is on the high spec resolution") -
+    every download is drawn at TWICE the card's size: 2160 x 3840 (digital) and 2160 x 3440 (the
+    54 x 86 mm print, about 1000 dpi). The same drawing, scaled - text, icons and the QR are drawn
+    fresh at that size, never enlarged; the on-screen preview stays at 1x. */
+export const EXPORT_SCALE = 2;
+export function paint(canvas: HTMLCanvasElement, side: "front" | "back", size: CardSize, data: CardData, assets: CardAssets, scale = 1) {
   const { w, h } = CARD_SIZES[size];
-  if (canvas.width !== w) canvas.width = w;
-  if (canvas.height !== h) canvas.height = h;
+  if (canvas.width !== w * scale) canvas.width = w * scale;
+  if (canvas.height !== h * scale) canvas.height = h * scale;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
   if (side === "front") drawFront(ctx, data, assets, size); else drawBack(ctx, data, size);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
-function canvasOf(side: "front" | "back", size: CardSize, data: CardData, assets: CardAssets) {
+function canvasOf(side: "front" | "back", size: CardSize, data: CardData, assets: CardAssets, scale = EXPORT_SCALE) {
   const c = document.createElement("canvas");
-  paint(c, side, size, data, assets);
+  paint(c, side, size, data, assets, scale);
   return c;
 }
 export const toBlob = (c: HTMLCanvasElement, type = "image/png", q?: number) => new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("toBlob"))), type, q));
@@ -123,10 +131,11 @@ export const fileBase = (d: PortfolioDetail) => `A2Z-portfolio-${d.portfolio.slu
 export async function pngOf(side: "front" | "back", size: CardSize, data: CardData, assets: CardAssets): Promise<Blob> {
   return toBlob(canvasOf(side, size, data, assets));
 }
-/** both sides, one page each: the digital card at 540 x 960 pt, the printed card at 54 x 86 mm */
+/** both sides, one page each: the digital card at 540 x 960 pt, the printed card at 54 x 86 mm -
+    each page an image at EXPORT_SCALE (2160 px wide), so it stays sharp when zoomed or printed */
 export function pdfOf(size: CardSize, data: CardData, assets: CardAssets): Blob {
   const { w, h, mm } = CARD_SIZES[size];
-  const pages = (["front", "back"] as const).map((s) => ({ jpeg: canvasOf(s, size, data, assets).toDataURL("image/jpeg", 0.94), w, h }));
+  const pages = (["front", "back"] as const).map((s) => ({ jpeg: canvasOf(s, size, data, assets).toDataURL("image/jpeg", 0.95), w: w * EXPORT_SCALE, h: h * EXPORT_SCALE }));
   const page = mm ? { w: mm[0] * MM_TO_PT, h: mm[1] * MM_TO_PT } : { w: w / 2, h: h / 2 };
   return imagesToPdf(pages, page);
 }

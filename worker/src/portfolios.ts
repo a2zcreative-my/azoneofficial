@@ -48,6 +48,8 @@ const RESERVED = new Set(["staff", "elfia", "new", "edit", "admin", "portal", "i
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const VIDEO_TYPES = ["video/mp4", "video/webm"];
 const IMAGE_MAX = 8 * 1024 * 1024;
+/** v1.390.1 - a 2800 px cut-out is a PNG with transparency: room for it */
+const PORTRAIT_MAX = 16 * 1024 * 1024;
 const VIDEO_MAX = 60 * 1024 * 1024;
 const LIST_MAX = 8;
 
@@ -599,7 +601,7 @@ export async function handlePortfolios(
     const ct = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim();
     if (!IMAGE_TYPES.includes(ct)) return err("invalid_input", "Only JPG, PNG or WebP images", 400);
     const key = `private/portfolio/${p.id}-portrait-${Date.now()}.${ct === "image/png" ? "png" : ct === "image/webp" ? "webp" : "jpg"}`;
-    const rejected = await putGuarded(env.MEDIA, key, request, { max: IMAGE_MAX, contentType: ct });
+    const rejected = await putGuarded(env.MEDIA, key, request, { max: PORTRAIT_MAX, contentType: ct });
     if (rejected) return rejected;
     /* ?own=1 - the portfolio's own photo (or a cut-out of it): kept apart from the staff record photo */
     const own = new URL(request.url).searchParams.get("own") === "1";

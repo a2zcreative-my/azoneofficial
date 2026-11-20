@@ -68,7 +68,7 @@ export function hasTransparency(ctx: CanvasRenderingContext2D, w: number, h: num
      4. NO LEFTOVER SPECKS - only the person (the largest solid region, and anything touching it) is
         kept; stray bits of background the model half-believed in are dropped.
    The output is the same: a PNG with transparency, the same pixel size as the photo. */
-const WORK = 1024; // the longest side the edge refinement works at (the photo is never enlarged)
+const WORK = 1600; // the longest side the edge refinement works at (the photo is never enlarged); v1.390.1: 1024 -> 1600 for a sharper outline on the 2x card
 
 /** one model pass on an image already drawn into a SIZE x SIZE canvas; returns SIZE x SIZE values */
 async function runModel(sctx: CanvasRenderingContext2D): Promise<Float32Array> {
