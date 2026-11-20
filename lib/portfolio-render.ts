@@ -79,6 +79,55 @@ export function cardDataOf(d: PortfolioDetail, draft: Partial<PortfolioDetail["p
   };
 }
 
+/** 20-11-2026 - the published portfolio as the public page receives it (/api/v1/public/portfolio/<name>) */
+export interface PublicPortfolioCard {
+  slug: string; url: string; name: string; name_case?: "upper" | "normal"; position: string | null; department: string | null;
+  tagline: string | null; specialties: string[]; expertise: string[]; experience: string | null; responsibilities: string[];
+  email: string | null; phone: string | null; socials: Record<string, string>; template: string; has_photo: boolean;
+  photo_crop?: CardCrop | null;
+}
+/** 20-11-2026 - the SAME card words as cardDataOf, from the published portfolio: what the public
+    page's Download Digital Card draws. The rules are cardDataOf's (approved contact, else the
+    company's; the published address as the QR); only the source is the frozen public copy. */
+export function cardDataOfPublic(p: PublicPortfolioCard): CardData {
+  const own = Object.entries(p.socials ?? {}).filter(([k, v]) => SOCIAL_KINDS[k] && v);
+  const socials = own.length
+    ? own.map(([k]) => ({ kind: SOCIAL_KINDS[k]!, label: k }))
+    : [{ kind: "instagram" as CardIcon, label: "instagram" }, { kind: "tiktok" as CardIcon, label: "tiktok" }, { kind: "facebook" as CardIcon, label: "facebook" }];
+  const firstOwn = own.find(([k]) => k === "instagram" || k === "tiktok")?.[1];
+  return {
+    name: p.name, nameCase: p.name_case === "upper" ? "upper" : "normal", position: p.position ?? "", department: p.department,
+    tagline: p.tagline ?? null, specialties: p.specialties ?? [], responsibilities: (p.responsibilities ?? []).slice(0, 5),
+    expertise: p.expertise ?? [], experience: p.experience ?? null,
+    email: p.email ?? CONTACT.email,
+    phone: p.phone ?? `+${A2Z_CREATIVE.whatsapp.replace(/^\+/, "")}`,
+    location: "Johor Bahru, Malaysia", website: "a2zcreative.my",
+    socials, socialHandle: (firstOwn && handleOf(firstOwn)) || handleOf(CONTACT.socials.instagram),
+    qrUrl: p.url,
+    template: (p.template ?? "navy") as CardTemplate,
+  };
+}
+
+/** 20-11-2026 - Save Contact: a vCard 3.0 of what the public page already shows - the name, the
+    position, the company, the approved business email and phone (else A2Z's own) and the
+    portfolio address. Never anything from the HR record. */
+export function vcardOf(p: { name: string; position: string | null; url: string; email: string; phone: string }): string {
+  const esc = (v: string) => v.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+  const lines = [
+    "BEGIN:VCARD", "VERSION:3.0",
+    /* a Malaysian name has no family name to split off: the whole name is the given name */
+    `N:;${esc(p.name.trim())};;;`,
+    `FN:${esc(p.name)}`,
+    "ORG:A2Z Creative Marketing",
+    ...(p.position ? [`TITLE:${esc(p.position)}`] : []),
+    `EMAIL;TYPE=INTERNET,WORK:${esc(p.email)}`,
+    `TEL;TYPE=WORK,VOICE:${esc(p.phone)}`,
+    `URL:${p.url}`,
+    "END:VCARD",
+  ];
+  return lines.join("\r\n") + "\r\n";
+}
+
 export type LoadedPortrait = NonNullable<CardAssets["portrait"]>;
 export async function decodePortrait(blob: Blob): Promise<LoadedPortrait> {
   const bmp = await createImageBitmap(blob);

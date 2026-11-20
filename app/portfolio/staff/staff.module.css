@@ -210,3 +210,55 @@
   .body { grid-template-columns: minmax(0, 1fr) minmax(0, 26rem); }
   .enquire .form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ---------------- 20-11-2026 - Share Portfolio: the popover (768px up) and the sheet (phone) ---------------- */
+.dockShare { flex: none; display: grid; place-items: center; width: 3rem; height: 3rem; border: 0; border-radius: var(--radius-full); background: var(--secondary); color: var(--brand-primary); box-shadow: inset 0 0 0 1px var(--border); cursor: pointer; }
+.dockShare svg { width: 1.35rem; height: 1.35rem; }
+.dockShare:focus-visible, .shareItem:focus-visible, .shareClose:focus-visible, .shareBack:focus-visible { outline: 2px solid var(--gold-solid); outline-offset: 2px; }
+.sharePop {
+  /* a native <dialog open>: undo its centring and size, the script places it */
+  margin: 0; right: auto; bottom: auto; max-width: none; height: auto;
+  position: fixed; z-index: 40; width: min(24rem, calc(100vw - 1.5rem)); max-height: calc(100svh - 6rem); overflow-y: auto; box-sizing: border-box;
+  padding: 1rem; border-radius: var(--radius-card); background: var(--card); color: var(--foreground); box-shadow: var(--elev-overlay); border: 1px solid var(--border);
+}
+/* the small pointer towards the button */
+.sharePop::before { content: ""; position: absolute; width: 0.875rem; height: 0.875rem; background: var(--card); border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.sharePopRight::before { left: -0.5rem; top: calc(50% - 0.4375rem); transform: rotate(45deg); }
+.sharePopBelow::before { top: -0.5rem; left: 1.5rem; transform: rotate(135deg); }
+.shareHead { position: relative; display: flex; gap: 0.75rem; align-items: flex-start; padding-right: 2.5rem; margin-bottom: 0.75rem; }
+.shareHead h2 { margin: 0 0 0.15rem; font-size: var(--type-section-size); line-height: var(--type-section-lh); color: var(--brand-primary); font-weight: 700; }
+.shareHead p { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); line-height: var(--type-body-sm-lh); }
+.shareIcon { flex: none; display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-full); background: var(--brand-primary); color: var(--gold-solid); }
+.shareIcon svg { width: 1.15rem; height: 1.15rem; }
+.shareClose { position: absolute; top: -0.25rem; right: -0.25rem; display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border: 0; border-radius: var(--radius-full); background: var(--secondary); color: var(--brand-primary); cursor: pointer; }
+.shareClose svg { width: 1.1rem; height: 1.1rem; }
+.sheetBody .shareClose { top: 0; right: 0; }
+.shareList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.shareList li + li { border-top: 1px solid var(--border); }
+.shareItem {
+  display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 3rem; padding: 0.6rem 0.75rem; box-sizing: border-box;
+  border: 0; border-radius: var(--radius-control); background: transparent; color: var(--foreground); font: inherit; font-weight: 600; text-align: left; text-decoration: none; cursor: pointer;
+}
+.shareItem:hover { background: var(--secondary); }
+.shareItem:disabled { opacity: var(--disabled-opacity); cursor: progress; }
+.shareItem > svg { width: 1.3rem; height: 1.3rem; flex: none; color: var(--brand-primary); }
+.shareItem > span { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1; }
+.shareItem small { font-weight: 400; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.shareItemMain { margin-bottom: 0.35rem; background: var(--brand-accent-soft); }
+.shareItemMain:hover { background: var(--brand-accent-soft); filter: brightness(0.98); }
+.shareList li:first-child + li { border-top: 0; }
+.shareItem > svg.shareChev { margin-left: auto; color: var(--muted-foreground); width: 1.1rem; height: 1.1rem; }
+.shareItem > svg.shareWa { color: var(--success); }
+.shareOk, .shareErr { display: flex; align-items: center; gap: 0.4rem; margin: 0.6rem 0 0; font-size: var(--type-body-sm-size); font-weight: 600; }
+.shareOk { color: var(--foreground); }
+.shareOk svg { width: 1rem; height: 1rem; color: var(--success); flex: none; }
+.shareErr { color: var(--danger); overflow-wrap: anywhere; }
+.shareQr { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; text-align: center; }
+.shareQr img, .shareQrWait { display: block; width: 13.75rem; height: 13.75rem; border-radius: var(--radius-sm); background: white; border: 1px solid var(--border); }
+.shareBack { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2.5rem; padding: 0 0.5rem; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--brand-primary); font: inherit; font-weight: 600; cursor: pointer; }
+.shareBack svg { width: 1rem; height: 1rem; }
+.flipX { transform: rotate(180deg); }
+.shareUrl { margin: 0; font-weight: 700; color: var(--brand-primary); overflow-wrap: anywhere; }
+.shareHint { margin: 0; color: var(--muted-foreground); font-size: var(--type-body-sm-size); }
+.shareQr .shareItem { justify-content: center; border: 1px solid var(--border); }
+.shareQr .shareItem > span { flex: none; }

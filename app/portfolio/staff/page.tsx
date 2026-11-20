@@ -29,6 +29,7 @@ import { CompanyFooter } from "@/components/public/company-footer";
 import { CONTACT } from "@/constants/content";
 import { A2Z_CREATIVE } from "@/lib/issuers";
 import { CARD_ICONS, iconsFor, type CardIcon } from "@/lib/card-icons";
+import { SharePortfolio } from "./share-portfolio"; // 20-11-2026 - Share Portfolio (the same on every published portfolio)
 import css from "./staff.module.css";
 
 interface PublicPortfolio {
@@ -36,6 +37,8 @@ interface PublicPortfolio {
   tagline: string | null; intro: string | null; specialties: string[]; expertise: string[]; experience: string | null;
   responsibilities: string[]; email: string | null; phone: string | null; socials: Record<string, string>; template: string;
   has_photo: boolean; published_at: string | null;
+  /** 20-11-2026 - the photo's position on the card, for Download Digital Card */
+  photo_crop?: { zoom: number; x: number; y: number } | null;
   /** 0220 - the approved BM words; lists are a phrase map (English -> BM) */
   ms?: { tagline?: string; intro?: string; experience?: string; phrases?: Record<string, string>; items?: Record<string, { title?: string; description?: string }> } | null;
   items: { id: number; kind: "image" | "video"; title: string; description: string | null; video_url: string | null; has_media: boolean; media_type: string | null; featured: boolean }[];
@@ -181,6 +184,8 @@ export default function StaffPortfolioPage() {
   const waNumber = p.phone ? p.phone.replace(/\D/g, "").replace(/^0/, "60") : CONTACT.whatsapp;
   const waText = encodeURIComponent(L(`Hi, I saw ${name}'s portfolio on a2zcreative.my`, `Hai, saya lihat portfolio ${name} di a2zcreative.my`));
   const waHref = `https://wa.me/${waNumber}?text=${waText}`;
+  /* Save Contact gives exactly the contact this page shows */
+  const shareContact = { email, phone: p.phone ?? A2Z_CREATIVE.whatsapp };
   /* 0220 - the visitor's language: the approved BM word, else the English */
   const bm = lang === "ms" ? (p.ms ?? null) : null;
   const T = (en: string) => bm?.phrases?.[en] ?? en;
@@ -260,6 +265,7 @@ export default function StaffPortfolioPage() {
             {tagline && <p className={css.tagline}>{tagline}</p>}
             <p className={`${css.ctaRow} ${css.heroCtas}`}>
               <a className={css.ctaGold} href="#enquire" onClick={enquire} data-testid="portfolio-enquire">{L("Work with me", "Bekerja dengan saya")}<ArrowRight aria-hidden /></a>
+              <SharePortfolio p={p} name={name} contact={shareContact} L={L} place="hero" />
               {work.length > 0 && <a className={css.ctaGhost} href="#projects"><Play aria-hidden />{L("View portfolio", "Lihat portfolio")}</a>}
             </p>
           </div>
@@ -333,6 +339,7 @@ export default function StaffPortfolioPage() {
       {/* the phone's own actions: always one tap away, inside the safe area */}
       <div className={css.dock} data-testid="portfolio-dock">
         <button type="button" className={css.ctaGold} onClick={() => sheet.current?.showModal()} data-testid="portfolio-dock-enquire"><Send aria-hidden />{L("Enquire now", "Hubungi kami")}</button>
+        <SharePortfolio p={p} name={name} contact={shareContact} L={L} place="dock" />
         <a className={css.dockWa} href={waHref} target="_blank" rel="noopener" aria-label="WhatsApp"><MessageCircle aria-hidden /></a>
       </div>
       <dialog ref={sheet} className={css.sheet} aria-labelledby="enquire-title" data-testid="portfolio-sheet" onClick={(e) => { if (e.target === e.currentTarget) sheet.current?.close(); }}>

@@ -751,6 +751,9 @@ export function publicView(x: { p: PortfolioRow; s: StaffBits; snap: PublicSnaps
     responsibilities: x.duties,
     email: snap.email, phone: snap.phone, socials: snap.socials, template: snap.template,
     has_photo: Boolean(snap.portrait_key),
+    /* 20-11-2026 - the photo's position on the card (zoom / x / y only), so Download Digital Card
+       on the public page draws the same card the studio exports */
+    photo_crop: (() => { try { const c = p.photo_crop ? JSON.parse(p.photo_crop) as { zoom?: unknown; x?: unknown; y?: unknown } : null; return c && [c.zoom, c.x, c.y].every((n) => typeof n === "number" && Number.isFinite(n)) ? { zoom: c.zoom as number, x: c.x as number, y: c.y as number } : null; } catch { return null; } })(),
     items: snap.items.map((i) => ({ id: i.id, kind: i.kind, title: i.title, description: i.description, video_url: i.video_url, has_media: i.has_media, media_type: i.media_type, featured: i.featured })),
     published_at: p.published_at,
   };
