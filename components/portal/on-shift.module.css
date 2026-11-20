@@ -725,8 +725,16 @@ button.weekDay {
   font: inherit;
   cursor: pointer;
   min-height: 2.75rem;
-  grid-template-columns: 4.5rem auto minmax(0, 1fr);
+  /* v1.391.1 (System health 20-11-2026, ui_overflow at 344px): date | chip, and the shift times on
+     their own line under the chip - side by side, a time that may not wrap ran past a narrow phone */
+  grid-template-columns: 4.5rem minmax(0, 1fr);
   align-items: center;
+}
+button.weekDay > :nth-child(2) {
+  justify-self: start;
+}
+button.weekDay > .weekItems {
+  grid-column: 2;
 }
 button.weekDay[aria-pressed="true"] {
   border-radius: var(--radius-control);
@@ -741,6 +749,9 @@ button.weekDay:focus-visible {
   .week {
     grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 0.5rem;
+  }
+  button.weekDay > .weekItems {
+    grid-column: auto;
   }
   button.weekDay {
     grid-template-columns: minmax(0, 1fr);
