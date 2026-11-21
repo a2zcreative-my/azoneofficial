@@ -641,7 +641,14 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       proration: { basis: "calendar", month_days: 30, unpaid_divisor: 30 },
     };
   }
-  if (p === "/staff/payroll/base") data = { base: [{ user_id: 9001, base_salary_cents: 400000 }, { user_id: 9002, base_salary_cents: 210000 }, { user_id: 9004, base_salary_cents: 200000 }] };
+  /* v1.412.0 - the allowance setup. Two types always; amounts only with ALLOW=1, so payroll-figures.py's
+     captured nets (allowance pre-fill 0) stay exactly as they were */
+  if (p === "/staff/payroll/allowances") data = {
+    types: [{ id: 1, name_en: "Parking", name_ms: "Parkir", active: 1, sort: 1, version: 1 }, { id: 2, name_en: "Transport", name_ms: "Pengangkutan", active: 1, sort: 2, version: 1 }, { id: 3, name_en: "Meal", name_ms: "Makan", active: 0, sort: 3, version: 2 }],
+    amounts: process.env.ALLOW ? [{ user_id: 9001, type_id: 1, amount_cents: 15000 }, { user_id: 9001, type_id: 2, amount_cents: 10000 }, { user_id: 9002, type_id: 2, amount_cents: 5000 }] : [],
+    can_types: ["ceo", "super_admin"].includes(ROLE),
+  };
+  if (p === "/staff/payroll/base") data ={ base: [{ user_id: 9001, base_salary_cents: 400000 }, { user_id: 9002, base_salary_cents: 210000 }, { user_id: 9004, base_salary_cents: 200000 }] };
   if (p === "/staff/payroll/absences" && (q.get("month") ?? "") === "2026-09") {
     data = { staff: [{ user_id: 9002, name: "Nur Aisyah", missing: ["2026-09-08"], short: [{ d: "2026-09-10", hours: 5.5, of: 7, break_minutes: 60 }], pending: [{ d: "2026-09-11", type: "annual" }], partial_review: [] }] };
   }

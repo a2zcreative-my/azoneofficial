@@ -21,6 +21,7 @@ import { handleCrm } from "./crm"; // v1.398.0 - Sales Command Center, Phase 2 (
 import { handlePipeline, linkCreatedQuotation } from "./deals";
 import { handleCollections } from "./collections"; // v1.401.0 - Sales Command Center, Phase 5 (Collections) // v1.399.0 - Sales Command Center, Phase 3 (the Sales Pipeline)
 import { handleSalesReports } from "./sales-reports"; // v1.403.0 - Sales Command Center, Phase 6 (Reports)
+import { handlePayrollAllowances, allowanceItemsJson } from "./payroll-allowances"; // v1.412.0 - payroll allowance types and amounts (0231)
 import { handlePlaybook } from "./playbook"; // v1.404.0 - Sales Command Center, Phase 7 (the Sales Playbook, 0230)
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
@@ -1545,6 +1546,16 @@ export async function payslipsOutFor(env: Env, month: string): Promise<boolean> 
   if (nowMyt >= await payslipAvailableFromFor(env, month)) return true;
   const r = await env.DB.prepare(`SELECT 1 AS x FROM payslip_releases WHERE month = ?1`).bind(month).first().catch(() => null);
   return Boolean(r);
+}
+/** v1.412.0 - the allowance breakdown frozen on a SAVED row (0231). Written right after the row itself, on
+    the same Save that passed releasedMonthBlock; always written (NULL when the items do not add up to the
+    row's allowance), so an old breakdown can never outlive a changed allowance. Before 0231 it is skipped. */
+async function saveAllowanceItems(env: Env, uid: number, month: string, items: string | null): Promise<void> {
+  try {
+    await env.DB.prepare(`UPDATE payroll_entries SET allowance_items = ?1 WHERE user_id = ?2 AND month = ?3`).bind(items, uid, month).run();
+  } catch (e) {
+    if (!/no such column/i.test(String(e))) throw e;
+  }
 }
 async function releasedMonthBlock(env: Env, day: string, force: unknown, what = "Changing overtime", who?: { id: number; role: string }): Promise<Response | null> {
   const month = day.slice(0, 7);
@@ -3328,6 +3339,12 @@ async function handleStaffRoutes(
      stays retired) - deals apart from the money, Won only on an acceptance, an invoice or a reasoned override (migration 0227) ---- */
   /* ---- v1.404.0 Sales Command Center, Phase 7 (playbook.ts, 0230): the Sales Playbook - published versions for Sales,
      drafts and publishing for the CEO, COO and CCO; no price is ever typed in ---- */
+  /* ---- v1.412.0 (payroll-allowances.ts, 0231): allowance types (the CEO) and each person's monthly amounts -
+     the setup only; nothing here writes a payroll row ---- */
+  if (path === "/payroll/allowances" || path.startsWith("/payroll/allowances/") || path === "/payroll/allowance-types" || path.startsWith("/payroll/allowance-types/")) {
+    const pa = await handlePayrollAllowances(env, path, method, body, user);
+    if (pa) return pa;
+  }
   if (path === "/playbook" || path.startsWith("/playbook/")) {
     const pb = await handlePlaybook(env, path, method, body, user, request);
     if (pb) return pb;
@@ -17531,6 +17548,7 @@ async function handleStaffRoutes(
         if (!String(eH).includes("no such column")) throw eH;
         return err("migration_missing", "Run: npx wrangler d1 migrations apply azoneofficial --remote (0053_hourly_payroll)", 500);
       }
+      await saveAllowanceItems(env, body.user_id as number, month, allowanceItemsJson(body.allowance_items, cents(body.allowance_cents)));
       await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month, hourly: true, minutes: minsH, rate_cents: PART_TIME_LH_RATE_CENTS });
       return json({ ok: true, hourly: true, minutes: minsH, basic_cents: basicH, net_cents: netH });
     }
@@ -17550,6 +17568,7 @@ async function handleStaffRoutes(
       intOrNull(body.worked_days), intOrNull(body.month_working_days),
       str(body.note, 300) ? body.note : null, user.id, storedNet,
     ).run();
+    await saveAllowanceItems(env, body.user_id as number, month, allowanceItemsJson(body.allowance_items, cents(body.allowance_cents)));
     await audit(env, user.id, "payroll.save", "users", String(body.user_id), { month, ...(commMap ? { commission_cents: commP } : {}) });
     return json({ ok: true, commission_cents: commP, net_cents: storedNet });
   }

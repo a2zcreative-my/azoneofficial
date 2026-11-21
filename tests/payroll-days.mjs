@@ -629,7 +629,10 @@ const AUG = (() => {
   const i = panel.indexOf('api(`/payroll/base`, { method: "POST"');
   const win = i < 0 ? "" : panel.slice(i - 1200, i + 3000);
   ok("saving a base carries it into EVERY row of the open month and saves them (v1.159.2: the base IS the Basic)",
-     /if \(cur\.basic_cents === newBase\) continue;\s*const next: Entry = \{ \.\.\.cur, basic_cents: newBase \};/.test(win) && /await api\(`\/payroll`, \{/.test(win)
+     /* v1.412.0 - one save per person carries the base AND the allowance (D7); the base still reaches every row */
+     /const basicNext = baseChanged && !isHourly\(u\) \? newBase : cur\.basic_cents;/.test(win)
+     && /const saveRow = basicNext !== cur\.basic_cents \|\|/.test(win)
+     && /const next: Entry = \{ \.\.\.cur, basic_cents: basicNext, allowance_cents: allowNext \};/.test(win) && /await api\(`\/payroll`, \{/.test(win)
      && !/const following = /.test(win),
      "a table that disagrees with the panel above it is a bug however the manual explains it");
   ok("a month already released to staff, or a month that has passed, is left as saved (v1.159.3: the present month only)",

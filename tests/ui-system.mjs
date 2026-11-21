@@ -232,7 +232,7 @@ const MUT = [
   ["a Payments tab row by hand again", "payments", '<LineTabs label={L("Payments", "Bayaran")} value={tab} onChange={setTab} testid="pay-tab"', '<div role="tablist" /><LineTabs label={L("Payments", "Bayaran")} value={tab} onChange={setTab} testid="pay-tab"'],
   ["the period switch by hand again", "salesWs", '<PillSwitch testid="closed-period"', '<div role="group" aria-label={L("Period", "Tempoh")} /><PillSwitch testid="closed-period"'],
   ["Add Expense back on the page", "finance", '<SideDrawer open={openForm}', '<SideDrawer open={true}'],
-  ["the base salaries drawer without its warning", "payroll", '<SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); }} dirty="auto"', '<SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); }}'],
+  ["the base salaries drawer without its warning", "payroll", '<SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); setAllowDraft(allowAmt); }} dirty="auto"', '<SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); setAllowDraft(allowAmt); }}'],
   ["the payroll grid no longer fills", "payroll", '<FillPanel id="payroll-table"', '<FillPanel data-x="1" id="payroll-table"'],
   ["a disabled option with no reason", "panel", "title={disabled?.[k] ?? undefined}", ""],
   ["the Dashboard's 16px gap back", "dashCss", "gap: var(--space-3);\n  }\n}", "gap: var(--space-4);\n  }\n}"],

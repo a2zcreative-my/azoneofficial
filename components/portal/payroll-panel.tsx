@@ -32,7 +32,7 @@ import { resolveIssuer } from "@/lib/issuers";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { usePrompt } from "@/components/ui/prompt-dialog"; // v1.243.0 (E1) - the manual payment's method and reference
 import { incompleteCents } from "@/lib/payroll-days";
-import { btnSm, btnSmPrimary, card, chipAction, chipInfo, chipNeutral, chipSmWarn, chipSuccess, chipWarn, inputClassSm } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, card, chipAction, chipInfo, chipNeutral, chipSmWarn, chipSuccess, chipWarn, inputClassSm, thOneLine, thR2, tdOneLine, tdR2 } from "@/lib/ui-styles";
 import { rowBtn, rowBtnPrimary, rowActions } from "@/components/ui/row-button";
 /* v1.198.0 - the five-tab page */
 import { LineTabs } from "@/components/ui/line-tabs";
@@ -76,6 +76,34 @@ interface StaffRow {
   photo_key?: string | null; // v1.198.0 - the row's avatar
 }
 
+/* v1.412.0 - PAYROLL ALLOWANCES (the CEO 21-11-2026, D1-D8 "As recommended"; worker/src/payroll-allowances.ts, 0231).
+   Named types the CEO sets up and each person's fixed MONTHLY amount. The month's Allowance pre-fills from the
+   ACTIVE types' total only for a person with no saved row (as Basic does from the base); allowance_cents stays the
+   one allowance term in net, never prorated, never in ORP, OT, holiday pay or unpaid leave (D4, D5). */
+type AllowType = { id: number; name_en: string; name_ms: string; active: number; sort: number; version: number };
+type AllowItem = { type_id: number; name: string; cents: number };
+export function allowTotals(types: AllowType[], amounts: { user_id: number; type_id: number; amount_cents: number }[]): Record<number, number> {
+  const on = new Set(types.filter((t) => t.active).map((t) => t.id));
+  const out: Record<number, number> = {};
+  for (const a of amounts) if (on.has(a.type_id)) out[a.user_id] = (out[a.user_id] ?? 0) + a.amount_cents;
+  return out;
+}
+/** The payslip's allowance lines: each saved item when they add up to the row's allowance exactly (D3), else the
+    single ALLOWANCE line it always printed - so the net can never move. */
+export function allowanceLines(e: { allowance_cents: number; allowance_items?: string | null }): [string, number][] {
+  if (!(e.allowance_cents > 0)) return [];
+  let items: AllowItem[] = [];
+  try { items = e.allowance_items ? (JSON.parse(e.allowance_items) as AllowItem[]) : []; } catch { items = []; }
+  const ok = Array.isArray(items) && items.length > 0
+    && items.every((i) => i && typeof i.name === "string" && Number.isInteger(i.cents) && i.cents > 0)
+    && items.reduce((a, b) => a + b.cents, 0) === e.allowance_cents;
+  if (!ok) return [["ALLOWANCE", e.allowance_cents]];
+  return items.map((i) => {
+    const n = i.type_id === 0 ? "OTHER" : i.name.trim().toUpperCase();
+    return [/ALLOWANCE|ELAUN/.test(n) ? n : `${n} ALLOWANCE`, i.cents] as [string, number];
+  });
+}
+
 interface Entry {
   user_id: number;
   basic_cents: number;
@@ -87,6 +115,8 @@ interface Entry {
   ot_hours?: number | null;
   ot_cents?: number;
   note?: string | null;
+  /* v1.412.0 - the allowance breakdown frozen on the SAVED row (0231), JSON [{type_id, name, cents}]; NULL = one line */
+  allowance_items?: string | null;
   // v1.4.183 — hourly (part-time live host) figures; *_live come freshly
   // computed from attendance on every GET, the plain ones are what's stored.
   hourly_minutes?: number | null;
@@ -223,7 +253,7 @@ export function payslipData(
     ]);
   }
   if (e.commission_cents > 0) earnings.push(["COMMISSION", e.commission_cents]);
-  if (e.allowance_cents > 0) earnings.push(["ALLOWANCE", e.allowance_cents]);
+  earnings.push(...allowanceLines(e)); // v1.412.0 - itemised when the saved breakdown adds up (D3)
   if (otCents > 0) earnings.push([`OVERTIME (${e.ot_hours ?? 0} HRS × 1.5 × HOURLY ORP)`, otCents]);
 
   const deductions: [string, number][] = [];
@@ -492,6 +522,81 @@ interface CommSource {
 /** v1.224.0 - the approved policy in force for the month (commission.ts) */
 interface CommPolicy { id: number; version: number; name: string; rate_kind: "percent" | "fixed"; rate_bp: number | null; fixed_cents: number | null; basis: string; effective_from: string }
 
+/* v1.412.0 - ALLOWANCE TYPES (D1: the CEO; the super admin as the technical account - the server's
+   payroll_allowance_types decides, this drawer is only drawn for it). A type is renamed or retired, never deleted:
+   a retired type stops pre-filling and leaves the editor, and every saved month and payslip keeps its lines. */
+function AllowanceTypesDrawer({ open, onClose, types, onChanged, toast }: {
+  open: boolean; onClose: () => void; types: AllowType[]; onChanged: () => void;
+  toast: (title: string, body: string, tone?: "notice") => void;
+}) {
+  const [en, setEn] = useState("");
+  const [ms, setMs] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [edit, setEdit] = useState<Record<number, { en: string; ms: string }>>({});
+  const say = (ok: boolean, msg: string) => toast(ok ? L("Saved", "Disimpan") : L("Not saved", "Tidak disimpan"), msg, ok ? undefined : "notice");
+  const add = async () => {
+    setBusy(true);
+    const r = await api<{ error?: { message?: string } }>(`/payroll/allowance-types`, { method: "POST", body: JSON.stringify({ name_en: en, name_ms: ms || en }) });
+    setBusy(false);
+    say(r.ok, r.ok ? L(`${en} added`, `${ms || en} ditambah`) : r.data?.error?.message ?? L("Save failed", "Simpan gagal"));
+    if (r.ok) { setEn(""); setMs(""); onChanged(); }
+  };
+  const patch = async (t: AllowType, change: Record<string, unknown>, done: string) => {
+    setBusy(true);
+    const r = await api<{ error?: { message?: string } }>(`/payroll/allowance-types/${t.id}`, { method: "PATCH", body: JSON.stringify({ ...change, version: t.version }) });
+    setBusy(false);
+    say(r.ok, r.ok ? done : r.data?.error?.message ?? L("Save failed", "Simpan gagal"));
+    if (r.ok) { setEdit((m) => { const x = { ...m }; delete x[t.id]; return x; }); onChanged(); }
+  };
+  return (
+    <SideDrawer open={open} onClose={onClose} title={L("Allowance types", "Jenis elaun")}>
+      <p className="erp-meta">
+        {L("The kinds of allowance staff can be given, for example Parking or Transport. Each person's monthly amount is set in Edit salaries and allowances. A type is retired, never deleted, so saved months and payslips keep their lines.",
+           "Jenis elaun yang boleh diberi kepada kakitangan, contohnya Parkir atau Pengangkutan. Amaun bulanan setiap orang ditetapkan di Sunting gaji dan elaun. Jenis elaun dibersarakan, tidak dipadam, jadi bulan yang disimpan dan slip gaji mengekalkan barisnya.")}
+      </p>
+      <ul className={pp.typeList} data-testid="payroll-allow-type-list">
+        {types.length === 0 && <li className="erp-meta">{L("No allowance types yet.", "Belum ada jenis elaun.")}</li>}
+        {types.map((t) => {
+          const ed = edit[t.id];
+          return (
+            <li key={t.id} className={t.active ? undefined : pp.typeRetired}>
+              {ed ? (
+                <span className={pp.typeEdit}>
+                  <input className={inputClassSm} aria-label={L("Name (English)", "Nama (Inggeris)")} value={ed.en} maxLength={40} onChange={(ev) => setEdit((m) => ({ ...m, [t.id]: { ...ed, en: ev.target.value } }))} />
+                  <input className={inputClassSm} aria-label={L("Name (Malay)", "Nama (Melayu)")} value={ed.ms} maxLength={40} onChange={(ev) => setEdit((m) => ({ ...m, [t.id]: { ...ed, ms: ev.target.value } }))} />
+                </span>
+              ) : (
+                <span className={pp.typeName}>{L(t.name_en, t.name_ms)}{!t.active && <span className={chipNeutral}>{L("Retired", "Dibersarakan")}</span>}</span>
+              )}
+              <span className="erp-flex">
+                {ed ? (
+                  <>
+                    <button type="button" className={btnSmPrimary} disabled={busy} onClick={() => void patch(t, { name_en: ed.en, name_ms: ed.ms || ed.en }, L("Renamed", "Dinamakan semula"))}>{L("Save", "Simpan")}</button>
+                    <button type="button" className={btnSm} disabled={busy} onClick={() => setEdit((m) => { const x = { ...m }; delete x[t.id]; return x; })}>{L("Cancel", "Batal")}</button>
+                  </>
+                ) : (
+                  <>
+                    {t.active ? <button type="button" className={btnSm} disabled={busy} onClick={() => setEdit((m) => ({ ...m, [t.id]: { en: t.name_en, ms: t.name_ms } }))}>{L("Rename", "Namakan semula")}</button> : null}
+                    <button type="button" className={btnSm} disabled={busy} data-testid={`payroll-allow-type-toggle-${t.id}`}
+                      onClick={() => void patch(t, { active: !t.active }, t.active ? L(`${t.name_en} retired - it no longer fills new months`, `${t.name_ms} dibersarakan - ia tidak lagi mengisi bulan baharu`) : L(`${t.name_en} restored`, `${t.name_ms} dipulihkan`))}>
+                      {t.active ? L("Retire", "Bersarakan") : L("Restore", "Pulihkan")}
+                    </button>
+                  </>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className={pp.typeAdd}>
+        <input className={inputClassSm} placeholder={L("New type, e.g. Parking", "Jenis baharu, cth. Parking")} aria-label={L("Name (English)", "Nama (Inggeris)")} value={en} maxLength={40} onChange={(ev) => setEn(ev.target.value)} data-testid="payroll-allow-type-en" />
+        <input className={inputClassSm} placeholder={L("Malay name, e.g. Parkir", "Nama Melayu, cth. Parkir")} aria-label={L("Name (Malay)", "Nama (Melayu)")} value={ms} maxLength={40} onChange={(ev) => setMs(ev.target.value)} />
+        <button type="button" className={btnSmPrimary} disabled={busy || en.trim().length < 2} onClick={() => void add()} data-testid="payroll-allow-type-add"><AppIcon name="add" />{L("Add type", "Tambah jenis")}</button>
+      </div>
+    </SideDrawer>
+  );
+}
+
 export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boolean; role?: string }) {
   // Opens on the cycle month: July until 05-08, then August (v1.4.89).
   const [month, setMonth] = useState(payrollCycleMonth());
@@ -674,6 +779,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
         month_working_days: hasDays ? monthDays : null,
         net_cents: netFor(u.id),
         salary_advance_cents: unpaidInfo[u.id]?.salary_advance_cents ?? 0,
+        allowance_items: allowItemsFor(u.id, entry(u.id).allowance_cents),
       }, true);
       if (res.ok) n += 1;
     }
@@ -758,6 +864,26 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const baseRef = useRef<Record<number, number>>({}); // v1.224.0 - read by the commission fetch, which may land before or after the month's rows
   const [baseDraft, setBaseDraft] = useState<Record<number, number>>({});
   const [baseOpen, setBaseOpen] = useState(false); // v1.324.0 - the base salaries drawer
+  /* v1.412.0 - allowance types and amounts (0231). allowTot = each person's ACTIVE-type monthly total, the pre-fill */
+  const [allowTypes, setAllowTypes] = useState<AllowType[]>([]);
+  const [allowAmt, setAllowAmt] = useState<Record<number, Record<number, number>>>({});
+  const [allowTot, setAllowTot] = useState<Record<number, number>>({});
+  const allowTotRef = useRef<Record<number, number>>({});
+  const [allowDraft, setAllowDraft] = useState<Record<number, Record<number, number>>>({});
+  const [canAllowTypes, setCanAllowTypes] = useState(false);
+  const [allowMissing, setAllowMissing] = useState(false);
+  const [typesOpen, setTypesOpen] = useState(false);
+  const activeTypes = allowTypes.filter((t) => t.active);
+  const typeName = (t: { name_en: string; name_ms: string }) => L(t.name_en, t.name_ms);
+  /** the breakdown a Save sends: the setup's items, plus "Other" for a one-off on top; none when it cannot add up */
+  const allowItemsFor = (id: number, cents: number): AllowItem[] | undefined => {
+    const items: AllowItem[] = activeTypes
+      .map((t) => ({ type_id: t.id, name: t.name_en, cents: allowAmt[id]?.[t.id] ?? 0 }))
+      .filter((i) => i.cents > 0);
+    const tot = items.reduce((a, b) => a + b.cents, 0);
+    if (tot === 0 || cents < tot) return undefined;
+    return cents === tot ? items : [...items, { type_id: 0, name: "Other allowance", cents: cents - tot }];
+  };
   /* v1.198.0 - the five tabs, the row being explained in the drawer, and
      what was loaded: the pristine snapshot as state (render reads it to say
      which rows are unsaved; pristineRef stays the one Save compares with)
@@ -800,7 +926,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     const next = { ...m };
     for (const id of new Set([...Object.keys(m), ...Object.keys(cs.sums)].map(Number))) {
       const want = cs.sums[String(id)] ?? 0;
-      const cur = next[id] ?? { user_id: id, basic_cents: b[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+      const cur = next[id] ?? { user_id: id, basic_cents: b[id] ?? 0, commission_cents: 0, allowance_cents: allowTotRef.current[id] ?? 0, deduction_cents: 0 };
       if (cur.commission_cents !== want) { next[id] = { ...cur, commission_cents: want }; changed = true; }
     }
     return changed ? next : m;
@@ -827,12 +953,28 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   const [savedIds, setSavedIds] = useState<number[]>([]);
 
   const load = useCallback(async () => {
+    /* v1.412.0 - read beside the four below, never after them */
+    const alP = api<{ types: AllowType[]; amounts: { user_id: number; type_id: number; amount_cents: number }[]; can_types?: boolean; missing?: boolean }>(`/payroll/allowances`);
     const [u, p, a, b] = await Promise.all([
       api<{ users?: StaffRow[]; staff?: StaffRow[] }>(`/users`),
       api<{ entries: (Entry & { name: string })[]; release?: { available_from: string; released: { released_at: string; issuer_code?: string | null } | null; employer?: string; employer_is_legacy?: boolean }; population?: typeof population }>(`/payroll?month=${month}`),
       api<{ days: { user_id: number; days: number }[]; working_days?: number; unpaid_detail?: UnpaidDetail[]; ot_approved?: { user_id: number; minutes: number; days: number }[] }>(`/payroll/attendance-days?month=${month}`),
       api<{ base: { user_id: number; base_salary_cents: number }[] }>(`/payroll/base`),
     ]);
+    /* v1.412.0 - the allowance setup; a failure or a database without 0231 leaves every pre-fill at 0, as before */
+    const al = await alP;
+    const alTypes = al.ok && al.data?.types ? al.data.types : [];
+    const alAmounts = al.ok && al.data?.amounts ? al.data.amounts : [];
+    const amap: Record<number, Record<number, number>> = {};
+    for (const r of alAmounts) (amap[r.user_id] ??= {})[r.type_id] = r.amount_cents;
+    const atot = allowTotals(alTypes, alAmounts);
+    setAllowTypes(alTypes);
+    setAllowAmt(amap);
+    setAllowDraft(amap);
+    setAllowTot(atot);
+    allowTotRef.current = atot;
+    setCanAllowTypes(Boolean(al.data?.can_types));
+    setAllowMissing(Boolean(al.data?.missing));
     const dmap: Record<number, number> = {};
     for (const r of a.data?.days ?? []) dmap[r.user_id] = r.days;
     setAttDays(dmap);
@@ -944,7 +1086,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       if (cur && cur.ot_hours === h) continue;
       /* An entry that does not exist yet still pre-fills Basic from the base
          salary, exactly as entry() would have. */
-      map[id] = { ...(cur ?? { user_id: id, basic_cents: bmap[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 }), ot_hours: h };
+      map[id] = { ...(cur ?? { user_id: id, basic_cents: bmap[id] ?? 0, commission_cents: 0, allowance_cents: atot[id] ?? 0, deduction_cents: 0 }), ot_hours: h };
     }
     /* v1.224.0 - with the payroll switch on, the ledger's commission for
        this month (if its fetch already landed; otherwise it applies itself) */
@@ -955,7 +1097,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
     // Snapshot the just-loaded state per row for no-change detection.
     const snap: Record<number, string> = {};
     for (const u of list) {
-      const e = loadedEntries[u.id] ?? { user_id: u.id, basic_cents: bmap[u.id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+      const e = loadedEntries[u.id] ?? { user_id: u.id, basic_cents: bmap[u.id] ?? 0, commission_cents: 0, allowance_cents: atot[u.id] ?? 0, deduction_cents: 0 };
       const d = savedDays[u.id];
       // v1.4.128: the SAVED month_working_days anchors the snapshot — if the
       // calendar changed since this row was saved, it must count as dirty.
@@ -977,7 +1119,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
   // No saved entry for the month yet → Basic pre-fills from the fixed base
   // salary, so processors never retype it. Saving writes the real entry.
   const entry = (id: number): Entry =>
-    entries[id] ?? { user_id: id, basic_cents: base[id] ?? 0, commission_cents: 0, allowance_cents: 0, deduction_cents: 0 };
+    entries[id] ?? { user_id: id, basic_cents: base[id] ?? 0, commission_cents: 0, allowance_cents: allowTot[id] ?? 0, deduction_cents: 0 };
 
   const setField = (id: number, key: keyof Entry, rmValue: string) => {
     const cents = Math.max(0, Math.round(Number(rmValue || 0) * 100));
@@ -998,6 +1140,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       month_working_days: typeof d === "number" && !Number.isNaN(d) ? monthDays : null,
       net_cents: netFor(id),
       salary_advance_cents: unpaidInfo[id]?.salary_advance_cents ?? 0,
+      allowance_items: allowItemsFor(id, entry(id).allowance_cents),
     });
     if (res.ok) showToast(L("Saved", "Disimpan"), name ?? L("Payroll entry saved", "Entri gaji disimpan"));
     else setMsg(res.data?.error?.message ?? L("Save failed", "Simpan gagal"));
@@ -2242,90 +2385,165 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       {!readOnly && (
         <div id="payroll-base" className={`${card} scroll-mt-36`} data-testid="payroll-base">
           {/* v1.324.0 (Global UI System, inline forms to drawers) - the bases read as one list; the
-              fields open on demand in the drawer, with the same Save and the same carry-into-the-month rule */}
+              fields open on demand in the drawer, with the same Save and the same carry-into-the-month rule.
+              v1.412.0 (the CEO 21-11-2026, D1-D8) - each person's fixed monthly ALLOWANCES sit beside the basic:
+              the types are the CEO's (Allowance types), the amounts are set in the same drawer as the basic. */}
           <div className={pp.baseHead}>
-            <p className="erp-heading">{L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}</p>
-            <button type="button" className={btnSm} onClick={() => { setBaseDraft({ ...base }); setBaseOpen(true); }} data-testid="payroll-base-edit"><AppIcon name="edit" />{L("Edit base salaries", "Sunting gaji asas")}</button>
+            <p className="erp-heading">{L("Base salaries and allowances (fixed monthly)", "Gaji asas dan elaun (bulanan tetap)")}</p>
+            <span className="erp-flex erp-flex-wrap">
+              {canAllowTypes && <button type="button" className={btnSm} onClick={() => setTypesOpen(true)} data-testid="payroll-allow-types"><AppIcon name="filter" />{L("Allowance types", "Jenis elaun")}</button>}
+              <button type="button" className={btnSm} onClick={() => { setBaseDraft({ ...base }); setAllowDraft(allowAmt); setBaseOpen(true); }} data-testid="payroll-base-edit"><AppIcon name="edit" />{activeTypes.length > 0 ? L("Edit salaries and allowances", "Sunting gaji dan elaun") : L("Edit base salaries", "Sunting gaji asas")}</button>
+            </span>
           </div>
+          {allowMissing && <p className="erp-meta erp-mt-2">{L("Allowances arrive with database update 0231 - basic salaries work as before.", "Elaun tersedia dengan kemas kini pangkalan data 0231 - gaji asas berfungsi seperti biasa.")}</p>}
           <ul className={pp.baseList} aria-label={L("Base salaries", "Gaji asas")}>
-            {staff.map((u) => <li key={u.id}><span>{displayName(u)}</span><strong className="erp-num">{base[u.id] ? fmtRM(base[u.id]!) : "—"}</strong></li>)}
+            {staff.map((u) => {
+              const mine = activeTypes.filter((t) => (allowAmt[u.id]?.[t.id] ?? 0) > 0);
+              return (
+                <li key={u.id} data-testid={`payroll-base-row-${u.id}`}>
+                  <div className={pp.baseRow}><span className={pp.baseName}>{displayName(u)}</span><strong className="erp-num erp-nowrap">{base[u.id] ? fmtRM(base[u.id]!) : "—"}</strong></div>
+                  {mine.length > 0 && (
+                    <div className={pp.baseAllow} data-testid={`payroll-allow-row-${u.id}`}>
+                      {mine.map((t) => <span key={t.id} className="erp-nowrap">{typeName(t)} <strong className="erp-num">{fmtRM(allowAmt[u.id]![t.id]!)}</strong></span>)}
+                      <span className={`${pp.baseTotal} erp-nowrap`}>{L("Monthly", "Bulanan")} <strong className="erp-num">{fmtRM((base[u.id] ?? 0) + (allowTot[u.id] ?? 0))}</strong></span>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
-          <SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); }} dirty="auto" wide
-            title={L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}>
+          <AllowanceTypesDrawer open={typesOpen} onClose={() => setTypesOpen(false)} types={allowTypes} onChanged={() => void load()} toast={showToast} />
+          <SideDrawer open={baseOpen} onClose={() => { setBaseOpen(false); setBaseDraft({ ...base }); setAllowDraft(allowAmt); }} dirty="auto" wide
+            title={activeTypes.length > 0 ? L("Base salaries and allowances (fixed monthly)", "Gaji asas dan elaun (bulanan tetap)") : L("Base salaries (fixed monthly basic)", "Gaji asas (gaji pokok bulanan tetap)")}>
           <p className="text-muted-foreground mt-0.5 text-xs">
             {L(
               "Every new month's Basic auto-fills from these figures — no retyping. When someone gets an increment, change it here and it applies from the next unsaved month onwards; months already saved stay as saved.",
               "Gaji pokok setiap bulan baharu terisi automatik daripada angka ini — tiada taipan semula. Apabila seseorang menerima kenaikan, ubah di sini dan ia terpakai dari bulan belum disimpan yang berikutnya; bulan yang sudah disimpan kekal seperti disimpan.",
             )}
           </p>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {staff.map((u) => (
-              <label key={u.id} className="flex items-center justify-between gap-2 text-sm">
-                <span className="min-w-0 truncate">{displayName(u)}</span>
-                <span className="flex items-center gap-1 whitespace-nowrap">
-                  RM
-                  <input
-                    type="number" min={0} step="0.01"
-                    className={`${inputClassSm} w-24`}
-                    value={baseDraft[u.id] ? ((baseDraft[u.id] || 0) / 100).toString() : ""}
-                    placeholder="0.00"
-                    onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
-                  />
-                </span>
-              </label>
-            ))}
+          {activeTypes.length > 0 && (
+            <p className="erp-meta erp-mt-2">
+              {L("Allowances are fixed monthly amounts. They fill each month's Allowance for anyone whose month is not saved yet, and a change reaches this month's saved rows only where the Allowance still matches the old setup. They never count for overtime, holiday pay or unpaid leave, and a part month is not reduced - adjust that person's row by hand.",
+                 "Elaun ialah amaun bulanan tetap. Ia mengisi Elaun setiap bulan bagi sesiapa yang bulannya belum disimpan, dan perubahan sampai ke baris bulan ini yang telah disimpan hanya jika Elaun masih sama dengan tetapan lama. Ia tidak dikira untuk kerja lebih masa, gaji cuti umum atau cuti tanpa gaji, dan bulan tidak lengkap tidak dikurangkan - laraskan baris orang itu secara manual.")}
+            </p>
+          )}
+          {canAllowTypes && activeTypes.length === 0 && !allowMissing && (
+            <p className="erp-meta erp-mt-2">{L("To give staff allowances, add the types first under Allowance types.", "Untuk memberi elaun, tambah jenisnya dahulu di Jenis elaun.")}</p>
+          )}
+          <div className="erp-table-scroll erp-mt-2">
+            <table className={`tbl-sticky-lead ${pp.allowTable}`} data-testid="payroll-base-table">
+              <thead>
+                <tr>
+                  <th className={thOneLine}>{L("Staff", "Kakitangan")}</th>
+                  <th className={thR2}>{L("Basic (RM)", "Gaji pokok (RM)")}</th>
+                  {activeTypes.map((t) => <th key={t.id} className={thR2}>{typeName(t)} (RM)</th>)}
+                  {activeTypes.length > 0 && <th className={thR2}>{L("Monthly total", "Jumlah bulanan")}</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {staff.map((u) => {
+                  const tot = (baseDraft[u.id] ?? 0) + activeTypes.reduce((a, t) => a + (allowDraft[u.id]?.[t.id] ?? 0), 0);
+                  return (
+                    <tr key={u.id}>
+                      <td className={tdOneLine}>{displayName(u)}</td>
+                      <td className={tdR2}>
+                        <input
+                          type="number" min={0} step="0.01"
+                          className={`${inputClassSm} ${pp.moneyInput}`}
+                          aria-label={`${L("Basic (RM)", "Gaji pokok (RM)")} — ${displayName(u)}`}
+                          value={baseDraft[u.id] ? ((baseDraft[u.id] || 0) / 100).toString() : ""}
+                          placeholder="0.00"
+                          onChange={(ev) => setBaseDraft((m) => ({ ...m, [u.id]: Math.max(0, Math.round(Number(ev.target.value || 0) * 100)) }))}
+                        />
+                      </td>
+                      {activeTypes.map((t) => (
+                        <td key={t.id} className={tdR2}>
+                          <input
+                            type="number" min={0} step="0.01"
+                            className={`${inputClassSm} ${pp.moneyInput}`}
+                            aria-label={`${typeName(t)} (RM) — ${displayName(u)}`}
+                            data-testid={`payroll-allow-input-${u.id}-${t.id}`}
+                            value={allowDraft[u.id]?.[t.id] ? ((allowDraft[u.id]![t.id]!) / 100).toString() : ""}
+                            placeholder="0.00"
+                            onChange={(ev) => {
+                              const c = Math.max(0, Math.round(Number(ev.target.value || 0) * 100));
+                              setAllowDraft((m) => ({ ...m, [u.id]: { ...(m[u.id] ?? {}), [t.id]: c } }));
+                            }}
+                          />
+                        </td>
+                      ))}
+                      {activeTypes.length > 0 && <td className={tdR2}>{fmtRM(tot)}</td>}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
           <button
             type="button"
-            className={`${btnSmPrimary} mt-3`}
+            className={`${btnSmPrimary} erp-mt-3`}
             onClick={async () => {
               /* v1.97.1 (CEO: "Base salaries was not sync with staff table
                  Basic! then Net why didnt correcly count? this is something
-                 that bug or wrong flow!") — it was the flow. A base change
-                 used to reach only months not yet saved; the open month,
-                 already saved at the OLD base, kept it, and the only sign was
-                 a 10px "Base" link. Now a base change is carried into the
-                 open month at once, for every row that was simply following
-                 the base (Basic == old base, or never saved), and the row is
-                 saved with its net recomputed - so the table and the panel
-                 above it say the same figure the moment the button is
-                 pressed. Two things are deliberately NOT touched: a month
-                 already RELEASED to staff (a payslip somebody has read does
-                 not change under them - reopen it on purpose), and a Basic
-                 that was set by hand to something other than the old base
-                 (that was a decision; it is flagged in the row, not undone). */
-              let n = 0;
+                 that bug or wrong flow!") - a base change is carried into the
+                 open month at once and the row is saved with its net recomputed.
+                 v1.159.2 (CEO: "Once I click on Save Base Salaries button, it
+                 should update automatically Basic!") - every row of an unreleased
+                 month takes the new base, including one typed by hand.
+                 v1.159.3 (CEO: "previous month should not update the base, it is
+                 only the present month") - the PRESENT month only; a released
+                 month keeps its figures.
+                 v1.412.0 (D7) - an allowance change follows the same present-month,
+                 never-released rule, but reaches a SAVED row only while its
+                 Allowance still equals the old setup total: a figure typed by hand
+                 is kept and named. An unsaved row simply pre-fills the new total on
+                 reload. The net is netFor - the one formula. */
+              let n = 0, nA = 0;
               const carried: string[] = [];
               const held: string[] = [];
-              /* v1.159.3 (CEO: "previous month should not update the base, it
-                 is only the present month which is to avoid that they
-                 manipulate the payslip which is incorrect!") - a base change
-                 is carried into the PRESENT month only. A month that has
-                 passed is a payslip that was paid; it keeps its figures
-                 whatever the base becomes now. */
+              const keptAllow: string[] = [];
+              const failedAllow: string[] = [];
               const presentMonth = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 7);
               const pastMonth = month < presentMonth;
+              const oldTotOf = (id: number) => allowTot[id] ?? 0;
+              const newTotOf = (id: number) => activeTypes.reduce((a, t) => a + (allowDraft[id]?.[t.id] ?? 0), 0);
               for (const u of staff) {
                 const oldBase = base[u.id] ?? 0;
                 const newBase = baseDraft[u.id] ?? 0;
-                if (newBase === oldBase) continue;
-                const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: newBase }) });
-                if (!res.ok) continue;
-                n++;
-                if (isHourly(u)) continue;                 // an hourly basic comes from the clock, not from here
+                let baseChanged = false;
+                if (newBase !== oldBase) {
+                  const res = await api(`/payroll/base`, { method: "POST", body: JSON.stringify({ user_id: u.id, base_salary_cents: newBase }) });
+                  if (res.ok) { n++; baseChanged = true; }
+                }
+                /* the person's allowance amounts, from what the editor started with */
+                const amounts: Record<string, number> = {};
+                const expected: Record<string, number> = {};
+                for (const t of allowTypes) {
+                  const was = allowAmt[u.id]?.[t.id] ?? 0;
+                  const want = t.active ? (allowDraft[u.id]?.[t.id] ?? 0) : was;
+                  if (want !== was) { amounts[String(t.id)] = want; expected[String(t.id)] = was; }
+                }
+                let allowChanged = false;
+                if (Object.keys(amounts).length > 0) {
+                  const ra = await api<{ error?: { message?: string } }>(`/payroll/allowances/${u.id}`, { method: "PUT", body: JSON.stringify({ amounts, expected }) });
+                  if (ra.ok) { nA++; allowChanged = true; } else failedAllow.push(`${u.name}${ra.data?.error?.message ? ` (${ra.data.error.message})` : ""}`);
+                }
+                if (!baseChanged && !allowChanged) continue;
                 if (pastMonth || release?.released) { held.push(u.name); continue; }
                 const cur = entry(u.id);
-                /* v1.159.2 (CEO: "Once I click on Save Base Salaries button,
-                   it should update automatically Basic!") - the base IS the
-                   Basic. Every row of an unreleased month takes the new base,
-                   including one that was typed by hand: the base salary is
-                   where a person's pay is decided, and a Basic that disagrees
-                   with it is the thing he keeps finding. A released month is
-                   the one exception, as before. */
-                if (cur.basic_cents === newBase) continue;
-                const next: Entry = { ...cur, basic_cents: newBase };
+                const basicNext = baseChanged && !isHourly(u) ? newBase : cur.basic_cents; // an hourly basic comes from the clock
+                const allowFollows = cur.allowance_cents === oldTotOf(u.id); // D7 - the ALLOWANCE only; the base reaches every row
+                const allowNext = allowChanged && allowFollows ? newTotOf(u.id) : cur.allowance_cents;
+                if (allowChanged && !allowFollows && savedIds.includes(u.id)) keptAllow.push(`${u.name} (${fmtRM(cur.allowance_cents)})`);
+                const saveRow = basicNext !== cur.basic_cents || (allowNext !== cur.allowance_cents && savedIds.includes(u.id));
+                if (!saveRow) continue;
+                const next: Entry = { ...cur, basic_cents: basicNext, allowance_cents: allowNext };
                 const d = workedDays[u.id];
                 const hasDays = typeof d === "number" && !Number.isNaN(d);
+                const items = activeTypes
+                  .map((t) => ({ type_id: t.id, name: t.name_en, cents: allowDraft[u.id]?.[t.id] ?? 0 }))
+                  .filter((i) => i.cents > 0);
+                const itemsTot = items.reduce((a, b) => a + b.cents, 0);
                 const r2 = await api(`/payroll`, {
                   method: "POST",
                   body: JSON.stringify({
@@ -2335,31 +2553,43 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
                     month_working_days: hasDays ? monthDays : null,
                     net_cents: netFor(u.id, next),
                     salary_advance_cents: unpaidInfo[u.id]?.salary_advance_cents ?? 0,
+                    allowance_items: itemsTot > 0 && itemsTot <= allowNext
+                      ? (itemsTot === allowNext ? items : [...items, { type_id: 0, name: "Other allowance", cents: allowNext - itemsTot }])
+                      : undefined,
                   }),
                 });
-                if (r2.ok) carried.push(`${u.name} (${fmtRM(cur.basic_cents)} → ${fmtRM(newBase)})`);
-                else held.push(u.name);
+                if (r2.ok) {
+                  const what: string[] = [];
+                  if (basicNext !== cur.basic_cents) what.push(`${L("Basic", "Gaji pokok")} ${fmtRM(cur.basic_cents)} → ${fmtRM(basicNext)}`);
+                  if (allowNext !== cur.allowance_cents) what.push(`${L("Allowance", "Elaun")} ${fmtRM(cur.allowance_cents)} → ${fmtRM(allowNext)}`);
+                  carried.push(`${u.name} (${what.join(", ")})`);
+                } else held.push(u.name);
               }
-              if (n === 0) {
-                showToast(L("No changes", "Tiada perubahan"), L("Base salaries already match", "Gaji asas sudah sepadan"), "notice");
+              if (n === 0 && nA === 0 && failedAllow.length === 0) {
+                showToast(L("No changes", "Tiada perubahan"), L("Base salaries and allowances already match", "Gaji asas dan elaun sudah sepadan"), "notice");
               } else {
-                const parts = [L(`Base salary updated for ${n} staff.`, `Gaji asas dikemas kini untuk ${n} kakitangan.`)];
-                if (carried.length) parts.push(L(`${month} Basic re-filled and saved: ${carried.join(", ")}.`, `Gaji pokok ${month} diisi semula dan disimpan: ${carried.join(", ")}.`));
+                const parts: string[] = [];
+                if (n) parts.push(L(`Base salary updated for ${n} staff.`, `Gaji asas dikemas kini untuk ${n} kakitangan.`));
+                if (nA) parts.push(L(`Allowances updated for ${nA} staff.`, `Elaun dikemas kini untuk ${nA} kakitangan.`));
+                if (failedAllow.length) parts.push(L(`Allowances not saved for ${failedAllow.join(", ")}.`, `Elaun tidak disimpan untuk ${failedAllow.join(", ")}.`));
+                if (carried.length) parts.push(L(`${month} re-filled and saved: ${carried.join(", ")}.`, `${month} diisi semula dan disimpan: ${carried.join(", ")}.`));
+                if (keptAllow.length) parts.push(L(`${month} Allowance was typed by hand and kept for ${keptAllow.join(", ")} - change it in the row if it should follow the new setup.`,
+                  `Elaun ${month} ditaip secara manual dan dikekalkan untuk ${keptAllow.join(", ")} - ubah dalam baris jika perlu mengikut tetapan baharu.`));
                 if (held.length) parts.push(pastMonth
-                  ? L(`${month} has passed, so its Basic was left as paid for ${held.join(", ")} - the new base applies from ${presentMonth}.`,
-                      `${month} sudah berlalu, jadi Gaji pokoknya dikekalkan seperti yang dibayar untuk ${held.join(", ")} - asas baharu terpakai dari ${presentMonth}.`)
+                  ? L(`${month} has passed, so its figures were left as paid for ${held.join(", ")} - the new setup applies from ${presentMonth}.`,
+                      `${month} sudah berlalu, jadi angkanya dikekalkan seperti yang dibayar untuk ${held.join(", ")} - tetapan baharu terpakai dari ${presentMonth}.`)
                   : release?.released
-                  ? L(`${month} is already released to staff, so its Basic was left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
-                      `${month} sudah dikeluarkan kepada kakitangan, jadi Gaji pokoknya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
-                  : L(`Basic for ${held.join(", ")} could not be saved - press Save on the row.`,
-                      `Gaji pokok ${held.join(", ")} tidak dapat disimpan - tekan Simpan pada baris.`));
-                showToast(L("Saved", "Disimpan"), parts.join(" "), held.length ? "notice" : undefined);
+                  ? L(`${month} is already released to staff, so its figures were left as saved for ${held.join(", ")} - use "Use base" in the row if it must change.`,
+                      `${month} sudah dikeluarkan kepada kakitangan, jadi angkanya dikekalkan untuk ${held.join(", ")} - guna "Guna asas" dalam baris jika perlu diubah.`)
+                  : L(`The row for ${held.join(", ")} could not be saved - press Save on the row.`,
+                      `Baris ${held.join(", ")} tidak dapat disimpan - tekan Simpan pada baris.`));
+                showToast(L("Saved", "Disimpan"), parts.join(" "), held.length || keptAllow.length || failedAllow.length ? "notice" : undefined);
               }
               setBaseOpen(false);
               void load();
             }}
           >
-            {L("Save base salaries", "Simpan gaji asas")}
+            {activeTypes.length > 0 ? L("Save base salaries and allowances", "Simpan gaji asas dan elaun") : L("Save base salaries", "Simpan gaji asas")}
           </button>
           </SideDrawer>
         </div>

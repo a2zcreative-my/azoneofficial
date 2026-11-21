@@ -5,7 +5,9 @@ basic)*, add named allowance TYPES he sets up himself (parking, transport, ...) 
 monthly amount of each type per staff member, shown beside the basic and carried into the
 monthly payroll row's Allowance.
 
-Status: **audit only. Nothing is built until the CEO answers the decisions in section 3.**
+Status: **the CEO answered "As recommended" on D1-D8 (21-11-2026); built as 1.412.0, migration 0231, not deployed.**
+Reordering types was left out of the first build (types list in the order they were added); renaming,
+retiring and restoring are in.
 
 ## 1. What exists today (read from the code at 1.408.0, `22fcc79`)
 

@@ -939,18 +939,80 @@
   padding: 0;
   list-style: none;
 }
+/* v1.412.0 - a person is a name + the basic on one line (the figure never breaks: "RM 2,000.0 / 0" was
+   shredding in a narrow column), then their allowances and the monthly total underneath */
 .baseList li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
   min-width: 0;
   padding: 0.375rem 0;
   border-bottom: 1px solid var(--border);
   font-size: var(--type-body-sm-size);
 }
-.baseList li span {
+.baseRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.baseName {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.baseAllow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem var(--space-3);
+  margin-top: 0.125rem;
+  font-size: var(--type-caption-size);
+  color: var(--muted-foreground);
+}
+.baseTotal {
+  margin-left: auto;
+  color: var(--foreground);
+}
+.allowTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-body-sm-size);
+}
+.moneyInput {
+  width: 6.5rem;
+  text-align: right;
+}
+/* v1.412.0 - the allowance types drawer */
+.typeList {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.typeList li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.typeName {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.typeRetired .typeName {
+  color: var(--muted-foreground);
+}
+.typeEdit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.typeAdd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }

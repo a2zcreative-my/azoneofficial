@@ -388,6 +388,8 @@ export const PERMS: Record<string, readonly Role[]> = {
   payroll_process: ["super_admin", "admin", "ceo", "coo"],
   /** release payslips (was PAYROLL_RELEASE_ROLES) */
   payroll_release: ["super_admin", "ceo", "coo"],
+  /** v1.412.0 - create, rename, reorder, retire payroll allowance TYPES (the CEO 21-11-2026, D1: the CEO; the super admin as the technical account). Each person's amounts stay payroll_process (D2). */
+  payroll_allowance_types: ["super_admin", "ceo"],
   /** record the payroll bank run (was BANK_RUN_ROLES) */
   bank_run: ["ceo", "coo"], // v1.312.0 (CEO-10) - the Super Admin no longer records money moving
   /** see everyone's commission (was commission.ts VIEW_ALL) */
@@ -684,6 +686,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Accounting", key: "accounting_post", en: "Add accounts, post and reverse manual journals", ms: "Tambah akaun, catat dan balikkan jurnal manual", cap: "accounting_post" },
   { module: "Accounting", key: "books_close", en: "Close or reopen a month", ms: "Tutup atau buka semula bulan", cap: "books_close" },
   { module: "Payroll", key: "payroll_process", en: "View and process payroll", ms: "Lihat dan proses gaji", cap: "payroll_process" },
+  { module: "Payroll", key: "payroll_allowance_types", en: "Set up allowance types", ms: "Tetapkan jenis elaun", cap: "payroll_allowance_types", needs: "payroll_process", note_en: "Each person's amounts are set by whoever processes payroll", note_ms: "Amaun setiap orang ditetapkan oleh pemproses gaji" },
   { module: "Payroll", key: "payroll_release", en: "Release payslips", ms: "Keluarkan slip gaji", cap: "payroll_release", needs: "payroll_process" },
   { module: "Payroll", key: "payroll_export", en: "Export payroll", ms: "Eksport gaji", cap: "payroll_export" },
   { module: "Commission", key: "commission_all", en: "See everyone's commission", ms: "Lihat komisen semua", cap: "commission_view_all", note_en: "Sales staff see their own", note_ms: "Jurujual melihat milik sendiri", cond: { cco: ["Reviews only - no decisions", "Semak sahaja - tiada keputusan"], sales_marketing: ["Their own entries only", "Entri sendiri sahaja"] } },
