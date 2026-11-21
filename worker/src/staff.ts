@@ -4032,7 +4032,7 @@ async function handleStaffRoutes(
     const CORE = `u.id, u.name, u.full_name, u.email, u.role, u.employee_id, u.position, u.department, u.phone, u.employment_status, u.is_active, u.id_issued_on, u.birthday, u.blood_type, u.photo_key, u.bank_name, u.bank_account, u.joined_on, u.ic_number, u.left_on, u.rejoined_on,
                 u.address, u.emergency_name, u.emergency_phone, u.emergency_relation, u.epf_no, u.socso_no, u.tax_no,
                 CASE WHEN u.totp_secret IS NOT NULL THEN 1 ELSE 0 END AS totp_enabled,
-                CASE WHEN ${notStaffSql("u.")} THEN 0 ELSE 1 END AS not_staff`; // v1.384.0
+                CASE WHEN ${notStaffSql("u.")} AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) THEN 0 ELSE 1 END AS not_staff`; // v1.384.0; v1.417.0 - an own role that does not count as staff (Roles v2) is not staff on every screen either
     /* v1.174.0 - the roles-and-responsibilities columns (0137) get the top
        rung: the full list with them, then the 0113 list, then the older ones.
        The person who wrote them is joined by name so the card can say so. */

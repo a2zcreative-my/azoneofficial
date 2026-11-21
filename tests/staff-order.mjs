@@ -407,6 +407,11 @@ const page = readPortalSource(root);
   ok("the payroll staff list takes staff only - never an agent",
      /\(x\) => isStaffRole\(x\.role\)[^\n]*\.not_staff/.test(pay) && !pay.includes(`x.role !== "customer" && x.role !== "super_admin"`),
      "an agent appeared on Base salaries");
+  /* v1.417.0 - an own role with "Counts as company staff" off is not staff on the screens either:
+     GET /users marks it not_staff, the flag Payroll's list already reads (r_testing showed on Payroll) */
+  ok("an own role that does not count as staff reads not_staff on GET /users",
+     staff.includes("CASE WHEN ${notStaffSql(\"u.\")} AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) THEN 0 ELSE 1 END AS not_staff"),
+     "the Payroll screen listed a test role the server leaves out");
 }
 
 /* ---- 5. the review card, and what left the attendance panel ---- */
