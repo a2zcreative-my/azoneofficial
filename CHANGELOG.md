@@ -4,6 +4,14 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### A lead's completed task reads "Task closed" (21-11-2026, the CEO: "if there is a Task completed, the status should change to the Closed"; he chose the Next action cell, not the Status) - NO MIGRATION
+- **Leads & CRM -> Next action:** when a lead has nothing booked and no open task, but one of its tasks was completed, the cell now shows a green **Task closed · <date>** chip with the task's title, instead of the amber "No next action". The date is when the task was closed (Malaysia time), from the task's own history.
+- A **cancelled** task does not count; that lead still reads "No next action".
+- The **Status** column is unchanged: it stays what staff set. Nothing is written to the lead or the task.
+- The **No next action** figure and filter, and My Sales Action Center's "No next action" lead row, follow the same rule, so a lead with a closed task no longer counts there.
+- The lead record's Next action line names the closed task when nothing is open.
+- Guard `crm-leads` 82 checks, 18/18 mutations (new: a cancelled task counted as closed, a closed task left as No next action); `sales-today` 50/50; app and worker type checks pass. Not checked in a browser. Not deployed.
+
 ### Payroll allowances beside the basic (21-11-2026, the CEO: allowance types he sets up himself and a fixed monthly amount per person; his answer to the eight decisions in docs/PAYROLL-ALLOWANCES-STAGE-0-AUDIT.md: "As recommended") - MIGRATION 0231 (additive)
 - **Allowance types:** Payroll -> Settings & Audit has an **Allowance types** button for the CEO (and the super admin as the technical account): add a type (English and Malay name, e.g. Parking / Parkir), rename it, retire it or restore it. A type is never deleted, so saved months and payslips keep their lines.
 - **Amounts beside the basic:** the card is now **Base salaries and allowances (fixed monthly)**. Each person shows their basic, each allowance and the monthly total; **Edit salaries and allowances** opens one table - Basic, one column per type, the total - set by the same people who set the basic (CEO, COO, admin, super admin). The basic figure no longer breaks across two lines in a narrow column.
