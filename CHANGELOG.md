@@ -4,6 +4,18 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Sales Command Center, Phase 2: Leads & CRM (21-11-2026, the CEO, "As recommended") - MIGRATION 0226 (additive)
+- **Sales -> Customers & Follow-ups is now Leads & CRM.** The customer record is the lead. Each one can now have an **owner**, a **source** (website, Business Growth Check, agent, referral, walk-in, social media, TikTok, existing customer, other), the **services it is interested in** (picked from the Packages library - names only, never a price) and a **relationship status**: New lead, Contacted, Qualified, Customer, Inactive or Disqualified. Staff set the status; an invoice never sets it.
+- **Views**: All Leads, My Leads, Unassigned, New Enquiries, Business Growth, Active Customers, Follow-ups and the Board (kept until Phase 3). **Needs Action is retired** - My Sales Action Center owns that list. Old links still land.
+- One figure strip (open leads, new this week, unassigned, no next action, follow-ups overdue, active customers), then the list - paged, searchable by name, contact, phone or email, filtered by status and source - beside the lead you choose. On a phone the lead opens full screen.
+- **Every open lead needs an owner and a next action**: an unowned lead says "Unassigned", one with nothing booked says "No next action", a late one says "Overdue".
+- **The lead**: owner, next action, source, services, a **contact log** (call, WhatsApp, email, meeting, note, proposal), its documents and its ownership and status history. **Log contact** records what happened - it books nothing and is never a sale. Closing a follow-up adds exactly one entry to the log by itself; cancelling one adds none.
+- **Owners**: only the CEO, COO, CCO and super admin assign or reassign (new permission **crm_assign**, in Roles & Permissions). A reassignment needs a reason; every change is kept with who and why, and the new and old owners are told. **Suggested owners** (Unassigned view, managers): each customer without an owner is offered the salesperson on its latest quotation or invoice - nothing is set until a manager ticks it and confirms with a reason.
+- **Convert to lead** on a website enquiry or a Business Growth Check entry: the duplicate check runs first (same company name, phone - in any format - or email). Link it to the customer already on file, or confirm a new one. Pressing twice still makes one customer.
+- **My Sales Action Center**: a lead you own (new, contacted or qualified) with nothing booked next now appears as amber "No next action" - once, never beside its own follow-up or quotation. A logged contact shows under Done today and in Recent Activities.
+- Nothing about quotations, invoices, payments, CEO verification, the closer or commission changes. The quotation form's customer list is unchanged (its 300-customer limit is for Phase 4).
+- New guard `crm-leads` (72 checks, 11 mutations); browser test `tests/browser/crm.py`. Not deployed - `PUSH.bat` applies migration 0226.
+
 ### Sales Command Center, Phase 1: My Sales Action Center (21-11-2026, the CEO) - no migration
 - **Sales -> Overview** keeps its six figures exactly as they were, and its main column is now **My Sales Action Center**: one list of what needs you today, most urgent first - overdue follow-ups, late replies and overdue payments, then today's follow-ups, new enquiries and accepted quotations ready to invoice, then anything with no next action booked.
 - Each row says what it is in words as well as colour: **red** = overdue, **amber** = no next action, a **grey** "Open N days" chip = how old the quotation is (age is not lateness), **green** = done today. A legend explains them once.

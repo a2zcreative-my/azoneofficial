@@ -57,6 +57,10 @@ export const PERMS: Record<string, readonly Role[]> = {
   /* v1.239.0 - set weekly sales targets and goals, review recovery plans (was
      the inline WEEK_TARGET_ROLES list in weekly-sales.ts; now a matrix cell) */
   sales_week_target: ["super_admin", "ceo", "coo"],
+  /** v1.398.0 - Leads & CRM (the CEO, Phase 2 decision 3, 21-11-2026): assign, reassign or
+      unassign a lead's owner, and confirm the suggested owners. Every change is recorded
+      (customer_owner_events, append-only) with who and why. */
+  crm_assign: ["super_admin", "ceo", "coo", "cco"],
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -634,6 +638,7 @@ export interface PolicyAction {
 export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
+  { module: "Sales", key: "crm_assign", en: "Assign and reassign lead owners", ms: "Tetapkan dan tukar pemilik prospek", cap: "crm_assign", note_en: "A reason for every reassignment; history kept", note_ms: "Sebab bagi setiap pertukaran; sejarah disimpan" },
   { module: "Sales", key: "week_target", en: "Set weekly sales targets and goals; review recovery plans", ms: "Tetapkan sasaran dan matlamat jualan mingguan; semak pelan pemulihan", cap: "sales_week_target", note_en: "A reason for every change; history kept", note_ms: "Sebab bagi setiap perubahan; sejarah disimpan" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
   { module: "Sales", key: "confirm_paid", en: "Confirm Paid", ms: "Sahkan Dibayar", cap: "confirm_paid", note_en: "Never on their own sale", note_ms: "Tidak pada jualan sendiri", cond: { ceo: ["Never on their own sale", "Tidak pada jualan sendiri"], coo: ["Never on their own sale", "Tidak pada jualan sendiri"] }, na: ["super_admin", "admin"] },

@@ -24,6 +24,7 @@ import { getLang } from "@/lib/i18n";
 import { btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
 import type { WsScope } from "@/components/portal/sales-workspace";
 import { PillSwitch } from "@/components/ui/panel";
+import { ConvertToLead } from "@/components/portal/crm-leads"; // v1.398.0 - an enquiry becomes a lead after the duplicate check
 import css from "./sales-enquiries.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -47,7 +48,9 @@ export function useEnquiryList(): Enquiry[] {
   return useCachedApi<{ enquiries: Enquiry[] }>("/enquiries", true, ["enquiries"]).data?.enquiries ?? [];
 }
 
-export function SalesEnquiries({ scope, userId, onQuote }: { scope: WsScope; userId: number; onQuote: (e: Enquiry) => void }) {
+export function SalesEnquiries({ scope, userId, onQuote, onOpenLead }: { scope: WsScope; userId: number; onQuote: (e: Enquiry) => void;
+  /** v1.398.0 - set for people who may make a customer (Sales): Convert to lead, then open it in Leads & CRM */
+  onOpenLead?: (customerId: number) => void }) {
   const [rows, setRows] = useState<Enquiry[] | null>(null);
   const [people, setPeople] = useState<{ id: number; name: string }[]>([]);
   const [denied, setDenied] = useState(false);
@@ -135,6 +138,7 @@ export function SalesEnquiries({ scope, userId, onQuote }: { scope: WsScope; use
                   </label>
                 )}
                 {e.status !== "closed" && <button type="button" className={btnSmPrimary} onClick={() => onQuote(e)}>{L("Make quotation", "Buat sebut harga")}</button>}
+                {onOpenLead && <ConvertToLead source="enquiry" id={e.id} onOpenLead={onOpenLead} testid={`convert-enquiry-${e.id}`} />}
               </div>
             </li>
           ))}

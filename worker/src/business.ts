@@ -32,6 +32,7 @@ import { INV_OUTCOMES, QT_OUTCOMES, openDocFollowup } from "./weekly-sales"; // 
 import { personalApprove } from "./signing"; // v1.248.0 - a personal-signing company approves by signing
 import { glMonthFigures } from "./ledger"; // v1.222.0 - the ledger in the month-close snapshot (reads only)
 import { paymentVerificationOn } from "./payment-verify"; // v1.272.0 - the owner's switch (reads only)
+import { recordFollowupActivity } from "./crm"; // v1.398.0 - a closed follow-up is one CRM activity (writes sales_activities only)
 
 /* ── time ──────────────────────────────────────────────────────────────── */
 const mytNow = () => new Date(Date.now() + 8 * 3600 * 1000);
@@ -1176,6 +1177,7 @@ export async function handleBusiness(
       const r = await env.DB.prepare(`UPDATE customer_followups SET done_at = datetime('now'), done_by = ?2, done_note = ?3, outcome = ?4, obstacle = ?5 WHERE id = ?1 AND done_at IS NULL AND cancelled_at IS NULL`)
         .bind(id, user.id, doneNote, outcome, obstacle).run();
       if (!r.meta?.changes) return err("invalid_input", "That follow-up is already closed.", 400);
+      await recordFollowupActivity(env, id); // v1.398.0 - exactly one CRM activity per closed follow-up (crm.ts)
       await audit(env, user.id, "customer.followup_done", "customer_followups", String(id), { doc_id: fu.doc_id, outcome, obstacle });
       return json({ ok: true, outcome, doc_id: fu.doc_id, next: outcome === "accepted" && fu.doc_type === "QT" ? "record_acceptance" : null });
     }
@@ -1185,6 +1187,7 @@ export async function handleBusiness(
       : await env.DB.prepare(`UPDATE customer_followups SET cancelled_at = datetime('now'), done_by = ?2 WHERE id = ?1 AND done_at IS NULL AND cancelled_at IS NULL`)
         .bind(id, user.id).run();
     if (!r.meta?.changes) return err("invalid_input", "That follow-up is already closed.", 400);
+    if (mFuAct[2] === "done") await recordFollowupActivity(env, id); // v1.398.0 - a cancelled follow-up is not an activity
     await audit(env, user.id, `customer.followup_${mFuAct[2]}`, "customer_followups", String(id));
     return json({ ok: true });
   }

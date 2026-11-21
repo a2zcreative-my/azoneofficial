@@ -17,6 +17,7 @@ import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0: no ordina
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handleSalesToday } from "./sales-today"; // v1.397.0 - Sales Command Center, Phase 1
+import { handleCrm } from "./crm"; // v1.398.0 - Sales Command Center, Phase 2 (Leads & CRM)
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
@@ -3279,6 +3280,13 @@ async function handleStaffRoutes(
   if (path === "/sales/today") {
     const st = await handleSalesToday(env, path, method, user, new URL(request.url).searchParams);
     if (st) return st;
+  }
+
+  /* ---- v1.398.0 Sales Command Center, Phase 2 (crm.ts): Leads & CRM - owner, source,
+     services, status and the contact log on the customer record (migration 0226) ---- */
+  if (path === "/crm" || path.startsWith("/crm/")) {
+    const cr = await handleCrm(env, path, method, user, new URL(request.url).searchParams, body);
+    if (cr) return cr;
   }
 
   /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's

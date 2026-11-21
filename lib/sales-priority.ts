@@ -21,7 +21,7 @@
      green   done         an activity recorded today (the Done today list)
    Due today, new and ready-to-invoice are blue: work for today, not late. */
 
-export type SalesActionKind = "followup" | "quotation" | "invoice" | "enquiry" | "growth";
+export type SalesActionKind = "followup" | "quotation" | "invoice" | "enquiry" | "growth" | "lead"; // v1.398.0 lead: an owned CRM lead with nothing booked next
 export type SalesActionFlag = "overdue" | "waiting" | "payment_overdue" | "today" | "new" | "ready" | "no_next";
 export type SalesTone = "red" | "amber" | "blue" | "grey" | "green";
 
@@ -53,11 +53,13 @@ export interface SalesAction {
   phone: string | null;
   /** an accepted quotation whose follow-up is the row */
   accepted?: boolean;
+  /** v1.398.0 - a CRM lead's relationship status (new_lead, contacted, qualified) */
+  lead_status?: string;
 }
 
 export interface SalesDone {
   key: string;
-  kind: "followup_done" | "next_booked" | "enquiry_replied" | "growth_recorded" | "quotation_issued" | "payment_reported";
+  kind: "followup_done" | "next_booked" | "enquiry_replied" | "growth_recorded" | "quotation_issued" | "payment_reported" | "activity_logged";
   at: string;
   customer: string;
   ref: string | null;
@@ -144,7 +146,7 @@ export type ActivityGroup = "sales" | "followups" | "payments" | "enquiries";
 export interface SalesActivity {
   key: string;
   group: ActivityGroup;
-  kind: "quotation" | "invoice" | "followup_done" | "payment_reported" | "payment_verified" | "enquiry" | "growth";
+  kind: "quotation" | "invoice" | "followup_done" | "payment_reported" | "payment_verified" | "enquiry" | "growth" | "activity";
   at: string;
   title: string;
   customer: string | null;

@@ -37,6 +37,7 @@ import {
 import css from "./agents-panel.module.css";
 import pa from "./partner-applications.module.css";
 import gx from "./growth-enquiries.module.css";
+import { ConvertToLead } from "@/components/portal/crm-leads"; // v1.398.0 - a Growth Check entry becomes a lead after the duplicate check
 
 export type GStatus = "new" | "assigned" | "contacted" | "problem_identified" | "advice_delivered" | "qualified" | "follow_up" | "not_interested";
 export interface GRow {
@@ -128,8 +129,10 @@ function useGrowthRecord(id: number | null, onChanged: (msg?: string) => void) {
 
 type Form = "" | "contact" | "note" | "problem" | "advice" | "outcome" | "assign" | "quotation";
 
-function GrowthRecord({ id, onClose, onChanged, onQuote, testid, full = false }: {
+function GrowthRecord({ id, onClose, onChanged, onQuote, testid, full = false, onOpenLead }: {
   id: number; onClose: () => void; onChanged: (msg?: string) => void; onQuote: (e: GRow) => void; testid: string; full?: boolean;
+  /** v1.398.0 - for people who may make a customer (Sales) */
+  onOpenLead?: (customerId: number) => void;
 }) {
   const { d, problem, busy, run } = useGrowthRecord(id, onChanged);
   const [form, setForm] = useState<Form>("");
@@ -190,6 +193,7 @@ function GrowthRecord({ id, onClose, onChanged, onQuote, testid, full = false }:
             {can.advice && <button type="button" className={btnSm} disabled={busy} onClick={() => open("advice")} data-testid="growth-advice"><AppIcon name="success" />{L("Free advice given", "Cadangan percuma diberi")}</button>}
             {can.outcome && <button type="button" className={btnSm} disabled={busy} onClick={() => open("outcome")} data-testid="growth-outcome"><AppIcon name="target" />{L("Outcome", "Keputusan")}</button>}
             {can.quotation && <button type="button" className={btnSmPrimary} disabled={busy} onClick={() => onQuote(e)} data-testid="growth-quote"><AppIcon name="add" />{L("Create quotation", "Buat sebut harga")}</button>}
+            {onOpenLead && <ConvertToLead source="growth" id={e.id} onOpenLead={onOpenLead} testid="growth-convert" />}
             {can.quotation && <button type="button" className={btnSm} disabled={busy} onClick={() => open("quotation")} data-testid="growth-link-quote"><AppIcon name="documents" />{L("Link quotation", "Pautkan sebut harga")}</button>}
             {can.assign && <button type="button" className={btnSmQuiet} disabled={busy} onClick={() => open("assign")} data-testid="growth-assign">{L("Give to…", "Beri kepada…")}</button>}
             {can.release && <button type="button" className={btnSmQuiet} disabled={busy} onClick={() => void release()} data-testid="growth-release">{L("Hand back", "Serah semula")}</button>}
@@ -354,11 +358,12 @@ function GrowthAnalytics({ a }: { a: GAnalytics }) {
 /* =====================================================================
    Customers & Follow-ups -> Business Growth: the list beside the one selected
    ===================================================================== */
-export function GrowthEnquiries({ state, open, onOpen, onQuote }: {
+export function GrowthEnquiries({ state, open, onOpen, onQuote, onOpenLead }: {
   state: ReturnType<typeof useGrowthList>;
   /** the enquiry a bell, the Desk or a search asked for */
   open: number | null; onOpen: (id: number | null) => void;
   onQuote: (e: GRow) => void;
+  onOpenLead?: (customerId: number) => void;
 }) {
   const data = state.data;
   const [mode, setMode] = useState<"list" | "analytics">("list");
@@ -440,7 +445,7 @@ export function GrowthEnquiries({ state, open, onOpen, onQuote }: {
           {sel != null ? (
             <SplitPane testid="growth-preview" title={rows.find((r) => r.id === sel)?.ref ?? L("Enquiry", "Pertanyaan")} label={L("Selected enquiry", "Pertanyaan dipilih")}
               actions={<button type="button" className={btnSm} onClick={() => setDrawer(sel)} data-testid="growth-open-full">{L("Full view", "Paparan penuh")}</button>}>
-              <GrowthRecord id={sel} onClose={() => { setSel(null); onOpen(null); }} onChanged={changed} onQuote={onQuote} testid="growth-record" />
+              <GrowthRecord id={sel} onClose={() => { setSel(null); onOpen(null); }} onChanged={changed} onQuote={onQuote} onOpenLead={onOpenLead} testid="growth-record" />
             </SplitPane>
           ) : (
             <SplitPane testid="growth-flow" title={L("How a Business Growth Check is handled", "Cara Semakan Pertumbuhan Bisnes diurus")} label={L("Enquiry status flow", "Aliran status pertanyaan")}
@@ -460,7 +465,7 @@ export function GrowthEnquiries({ state, open, onOpen, onQuote }: {
       )}
       {drawer != null && (
         <SideDrawer open onClose={() => setDrawer(null)} wide full title={rows.find((r) => r.id === drawer)?.ref ?? L("Enquiry", "Pertanyaan")} subtitle={L("Business Growth Check", "Semakan Pertumbuhan Bisnes")}>
-          <GrowthRecord id={drawer} full onClose={() => setDrawer(null)} onChanged={changed} onQuote={(e) => { setDrawer(null); onQuote(e); }} testid="growth-drawer" />
+          <GrowthRecord id={drawer} full onClose={() => setDrawer(null)} onChanged={changed} onQuote={(e) => { setDrawer(null); onQuote(e); }} onOpenLead={onOpenLead ? (c) => { setDrawer(null); onOpenLead(c); } : undefined} testid="growth-drawer" />
         </SideDrawer>
       )}
     </div>

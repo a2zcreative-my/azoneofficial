@@ -200,6 +200,27 @@ export async function salesActions(env: Env, v: SalesViewer, today = mytToday())
     }
   }
 
+  /* v1.398.0 (Phase 2, Leads & CRM) - a lead someone owns, marked new / contacted / qualified,
+     with nothing booked next and no other row on this list: amber "No next action". A customer
+     already on the list (a follow-up, a quotation, an invoice) is not listed twice. */
+  {
+    const listed = new Set(items.map((i) => i.customer_id).filter((x): x is number => x !== null));
+    type L = { id: number; company: string; phone: string | null; owner_id: number; owner_name: string | null; created_at: string; status: string };
+    for (const l of await quiet(async () => (await env.DB.prepare(
+      `SELECT c.id, c.company, c.phone, c.owner_id, ${NAME("u")} AS owner_name, c.created_at, c.relationship_status AS status
+         FROM customers c LEFT JOIN users u ON u.id = c.owner_id
+        WHERE c.owner_id IS NOT NULL AND c.relationship_status IN ('new_lead', 'contacted', 'qualified')
+          AND (?1 = 0 OR c.owner_id = ?2)
+          AND NOT EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
+        ORDER BY c.created_at LIMIT 300`,
+    ).bind(mine ? 1 : 0, user.id).all<L>()).results ?? [])) {
+      if (listed.has(l.id)) continue;
+      items.push({ key: `lead:${l.id}`, kind: "lead", flag: "no_next", record_id: l.id, customer_id: l.id, customer: l.company, ref: null, doc_id: null,
+        note: null, cents: null, owner_id: l.owner_id, owner_name: l.owner_name, due_on: null, age_days: daysBetween(mytDay(l.created_at) ?? today, today),
+        waited_hours: null, since: l.created_at, phone: l.phone, lead_status: l.status });
+    }
+  }
+
   /* reported payments waiting on the one verifier (payment-verify.ts) - a count and a link, never the queue */
   let verify: number | null = null;
   if (canUser(user, "payment_verify") && user.role === "ceo" && user.is_owner === true) {
@@ -254,6 +275,13 @@ export async function doneToday(env: Env, uid: number, today = mytToday()): Prom
        FROM invoice_payment_reports r JOIN sales_documents d ON d.id = r.invoice_id LEFT JOIN customers c ON c.id = d.customer_id
       WHERE r.reported_by = ?1 AND date(r.reported_at, '+8 hours') = ?2`,
   ).bind(uid, today).all<R>()).results ?? []));
+  /* v1.398.0 - a call, WhatsApp, email, meeting, note or proposal logged in Leads & CRM (a closed
+     follow-up is already counted above as followup_done, so its activity row is left out) */
+  add("activity_logged", await quiet(async () => (await env.DB.prepare(
+    `SELECT a.id, a.occurred_at AS at, c.company AS customer, NULL AS ref, a.kind || CASE WHEN a.outcome IS NOT NULL THEN ': ' || a.outcome ELSE '' END AS detail, a.customer_id, NULL AS doc_id
+       FROM sales_activities a JOIN customers c ON c.id = a.customer_id
+      WHERE a.created_by = ?1 AND a.kind != 'followup' AND date(a.created_at, '+8 hours') = ?2`,
+  ).bind(uid, today).all<R>()).results ?? []));
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
@@ -304,6 +332,19 @@ export async function recentActivities(env: Env, v: SalesViewer, today = mytToda
         ORDER BY e.created_at DESC LIMIT 20`,
     ).bind(since, mine, uid).all<E>()).results ?? [])) {
       out.push({ key: `enq:${e.id}`, group: "enquiries", kind: "enquiry", at: e.at, title: e.customer, customer: e.customer, cents: null, detail: e.category, doc_id: null, customer_id: null, record_id: e.id });
+    }
+  }
+  /* v1.398.0 - contact logged in Leads & CRM (the closed follow-ups are listed above) */
+  {
+    type A = { id: number; at: string; customer: string; kind: string; outcome: string | null; by_name: string | null; customer_id: number };
+    for (const a of await quiet(async () => (await env.DB.prepare(
+      `SELECT a.id, a.occurred_at AS at, c.company AS customer, a.kind, a.outcome, ${NAME("u")} AS by_name, a.customer_id
+         FROM sales_activities a JOIN customers c ON c.id = a.customer_id LEFT JOIN users u ON u.id = a.created_by
+        WHERE a.kind != 'followup' AND date(a.occurred_at, '+8 hours') >= ?1 AND (?2 = 0 OR a.created_by = ?3 OR c.owner_id = ?3)
+        ORDER BY a.occurred_at DESC LIMIT 20`,
+    ).bind(since, mine, uid).all<A>()).results ?? [])) {
+      out.push({ key: `act:${a.id}`, group: "followups", kind: "activity", at: a.at, title: a.customer, customer: a.customer, cents: null,
+        detail: [a.kind, a.outcome, a.by_name].filter(Boolean).join(" · "), doc_id: null, customer_id: a.customer_id, record_id: a.id });
     }
   }
   if (growthViewer(v.user)) {

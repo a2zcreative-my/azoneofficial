@@ -54,11 +54,13 @@ const day = (iso: string) => { const d = new Date(`${iso.slice(0, 10)}T00:00:00Z
 const KIND_WORD: Record<SalesAction["kind"], [string, string]> = {
   followup: ["Follow-up", "Susulan"], quotation: ["Quotation", "Sebut harga"], invoice: ["Invoice", "Invois"],
   enquiry: ["Website enquiry", "Pertanyaan laman web"], growth: ["Business Growth Check", "Semakan Pertumbuhan Bisnes"],
+  lead: ["Lead", "Prospek"], // v1.398.0 - an owned lead in Leads & CRM with nothing booked next
 };
 const DONE_WORD: Record<SalesDone["kind"], [string, string]> = {
   followup_done: ["Follow-up completed", "Susulan selesai"], next_booked: ["Next follow-up booked", "Susulan seterusnya ditetapkan"],
   enquiry_replied: ["Enquiry answered", "Pertanyaan dijawab"], growth_recorded: ["Growth Check recorded", "Semakan Pertumbuhan direkod"],
   quotation_issued: ["Quotation issued", "Sebut harga dikeluarkan"], payment_reported: ["Payment reported", "Bayaran dilaporkan"],
+  activity_logged: ["Contact logged", "Hubungan direkod"], // v1.398.0 - a call, WhatsApp, email, meeting, note or proposal in Leads & CRM
 };
 /** the tone's words for a screen reader beside the chip's own words */
 export function FlagChip({ item }: { item: Pick<SalesAction, "flag"> }) {
@@ -83,6 +85,7 @@ function actionLabel(i: SalesAction): string {
   if (i.kind === "quotation") return i.flag === "ready" ? L("Invoice it", "Buat invois") : L("Book follow-up", "Tetapkan susulan");
   if (i.kind === "invoice") return L("Follow up payment", "Susuli bayaran");
   if (i.kind === "enquiry") return i.owner_id === null ? L("Take & reply", "Ambil & balas") : L("Reply", "Balas");
+  if (i.kind === "lead") return L("Book next step", "Tetapkan langkah seterusnya");
   return i.owner_id === null ? L("Pick up", "Ambil") : L("Open", "Buka");
 }
 
@@ -243,9 +246,10 @@ const ACT_WORD: Record<SalesActivity["kind"], [string, string]> = {
   followup_done: ["Follow-up completed", "Susulan selesai"], payment_reported: ["Payment reported", "Bayaran dilaporkan"],
   payment_verified: ["Payment verified by the CEO", "Bayaran disahkan CEO"], enquiry: ["New website enquiry", "Pertanyaan laman web baharu"],
   growth: ["New Business Growth Check", "Semakan Pertumbuhan Bisnes baharu"],
+  activity: ["Contact logged", "Hubungan direkod"],
 };
 const ACT_ICON: Record<SalesActivity["kind"], "document" | "receipt" | "success" | "upload" | "verify" | "chat" | "target"> = {
-  quotation: "document", invoice: "receipt", followup_done: "success", payment_reported: "upload", payment_verified: "verify", enquiry: "chat", growth: "target",
+  quotation: "document", invoice: "receipt", followup_done: "success", payment_reported: "upload", payment_verified: "verify", enquiry: "chat", growth: "target", activity: "chat",
 };
 export function RecentActivities({ items, loading, open }: { items: SalesActivity[] | null; loading: boolean; open: (a: SalesActivity) => void }) {
   const [group, setGroup] = useState<"all" | ActivityGroup>("all");

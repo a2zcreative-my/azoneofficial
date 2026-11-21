@@ -600,3 +600,7 @@ Editable content (the CEO 21-11-2026, Digital Cards Stage 5) adds `0224_card_tem
 Review and publishing (the CEO 21-11-2026, Digital Cards Stage 6) add `0225_card_template_publish`: additive only - the
 frozen `card_template_versions`, the `card_template_sync` records AZ ONE pulls, and three review columns on `card_templates`.
 Not the business.ts door (worker/src/card-review.ts, worker/src/card-bridge.ts).
+Leads & CRM (the CEO 21-11-2026, Sales Command Center Phase 2) adds `0226_crm_leads`: additive only - owner, source,
+services, relationship status, crm_key and crm_version on `customers`, `customer_id` on `enquiries` and
+`business_growth_enquiries`, and the append-only `customer_owner_events`, `customer_status_events` and `sales_activities`.
+Not the business.ts door (worker/src/crm.ts); business.ts only adds one `sales_activities` row when a follow-up is closed.

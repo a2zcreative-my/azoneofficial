@@ -1621,6 +1621,56 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   };
   const stSales = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"].includes(ROLE);
   const stExec = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
+  /* v1.398.0 - LEADS & CRM (worker/src/crm.ts): invented customers on the fixture's Friday 18-09-2026.
+     Long Malaysian names; one lead unowned, one with no next action, one late. */
+  const crmRows = [
+    { id: 52, company: "Aina Boutique (Melaka)", contact_person: "Aina binti Ahmad", phone: "60123456789", email: "aina@boutique.test", owner_id: 9001, owner_name: "Fixture Person", lead_source: "referral", relationship_status: "qualified", interested_services: ["pkg:1"], created_at: "2026-08-20 02:00:00", next_due: "2026-09-16", next_note: "Confirm the status of QT-0042 with the customer", last_activity: "2026-09-17 06:00:00", quotations: 1, invoices: 0, no_owner: false, no_next: false, next_late: true },
+    { id: 55, company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", contact_person: "Encik Mohd Hafiz bin Abdul Rahman", phone: "60197776655", email: null, owner_id: 9001, owner_name: "Fixture Person", lead_source: "website", relationship_status: "contacted", interested_services: ["pkg:1", "other:Photo booth"], created_at: "2026-09-10 02:00:00", next_due: "2026-09-18", next_note: "Send the revised live package", last_activity: null, quotations: 1, invoices: 0, no_owner: false, no_next: false, next_late: false },
+    { id: 57, company: "Restoran Selera Kampung", contact_person: "Puan Rosnah", phone: "60112223344", email: "selera@kampung.test", owner_id: null, owner_name: null, lead_source: "growth_check", relationship_status: "new_lead", interested_services: [], created_at: "2026-09-17 02:00:00", next_due: null, next_note: null, last_activity: null, quotations: 0, invoices: 0, no_owner: true, no_next: true, next_late: false },
+    { id: 44, company: "Klinik Gigi Senyum", contact_person: "Dr. Tan Mei Ling", phone: "60165554433", email: "klinik@senyum.test", owner_id: 9010, owner_name: "Hakim Rosli", lead_source: null, relationship_status: null, interested_services: [], created_at: "2026-07-01 02:00:00", next_due: null, next_note: null, last_activity: null, quotations: 1, invoices: 0, no_owner: false, no_next: true, next_late: false },
+    { id: 56, company: "Butik Seri Kenanga", contact_person: "Kenanga", phone: null, email: null, owner_id: 9002, owner_name: "Nur Aisyah binti Rahman", lead_source: "existing", relationship_status: "customer", interested_services: [], created_at: "2026-05-01 02:00:00", next_due: null, next_note: null, last_activity: "2026-09-14 02:00:00", quotations: 2, invoices: 2, no_owner: false, no_next: false, next_late: false },
+  ];
+  const crmAssign = ["super_admin", "ceo", "coo", "cco"].includes(ROLE);
+  if (p === "/staff/crm/options") data = !stSales && !stExec ? { error: { code: "forbidden", message: "Sales access required" } } : {
+    sources: ["website", "growth_check", "agent", "referral", "walk_in", "social", "tiktok", "existing", "other"],
+    statuses: ["new_lead", "contacted", "qualified", "customer", "inactive", "disqualified"],
+    activity_kinds: ["call", "whatsapp", "email", "meeting", "note", "proposal"],
+    packages: [{ id: 1, name: "Live Selling Starter", status: "active" }, { id: 2, name: "Brand Film Package", status: "active" }],
+    owners: [{ id: 9001, name: "Fixture Person" }, { id: 9010, name: "Hakim Rosli" }, { id: 9002, name: "Nur Aisyah binti Rahman" }],
+    can_assign: crmAssign, can_write: stSales };
+  if (p === "/staff/crm/summary") {
+    const mine = q.get("scope") === "mine";
+    const rows = mine ? crmRows.filter((r) => r.owner_id === 9001) : crmRows;
+    data = { scope: mine ? "mine" : "all", today: "2026-09-18", leads: rows.filter((r) => r.relationship_status !== "customer").length, new_week: 2, unassigned: crmRows.filter((r) => r.no_owner).length,
+      no_next: rows.filter((r) => r.no_next).length, followups_overdue: rows.filter((r) => r.next_late).length, active_customers: rows.filter((r) => r.relationship_status === "customer").length };
+  }
+  if (p === "/staff/crm/leads") {
+    const v = q.get("view") ?? "all", term = (q.get("q") ?? "").toLowerCase();
+    let rows = crmRows.filter((r) => v === "mine" ? r.owner_id === 9001 : v === "unassigned" ? r.owner_id === null : v === "active" ? r.relationship_status === "customer" : true);
+    if (term) rows = rows.filter((r) => `${r.company} ${r.contact_person ?? ""} ${r.phone ?? ""} ${r.email ?? ""}`.toLowerCase().includes(term));
+    if (q.get("flag") === "no_next") rows = rows.filter((r) => r.no_next);
+    if (q.get("status")) rows = rows.filter((r) => (q.get("status") === "none" ? r.relationship_status === null : r.relationship_status === q.get("status")));
+    data = { view: v, page: 1, per: 25, total: rows.length, rows, today: "2026-09-18" };
+  }
+  const crmOne = /^\/staff\/crm\/leads\/(\d+)$/.exec(p);
+  if (crmOne) {
+    const r = crmRows.find((x) => x.id === Number(crmOne[1])) ?? crmRows[0];
+    data = { lead: { ...r, lead_source_detail: r.lead_source === "referral" ? "Kak Long from the Melaka bazaar" : null, address: null, website: null, notes: null, crm_version: 3 },
+      activities: [
+        { id: 3, kind: "whatsapp", outcome: "interested", note: "Sent the starter package brochure; she asked about live dates in October.", occurred_at: "2026-09-17 06:00:00", by_name: "Fixture Person" },
+        { id: 2, kind: "followup", outcome: "negotiating", note: "Wants the price split over two months", occurred_at: "2026-09-12 03:00:00", by_name: "Fixture Person" },
+        { id: 1, kind: "call", outcome: null, note: "First call - introduced A2Z live selling.", occurred_at: "2026-08-21 02:00:00", by_name: "Hakim Rosli" },
+      ],
+      owner_events: [{ id: 2, kind: "reassign", reason: "Fixture Person covers Melaka", created_at: "2026-09-01 02:00:00", from_name: "Hakim Rosli", to_name: "Fixture Person", by_name: "Fixture COO" },
+        { id: 1, kind: "assign", reason: null, created_at: "2026-08-20 03:00:00", from_name: null, to_name: "Hakim Rosli", by_name: "Fixture COO" }],
+      status_events: [{ id: 2, from_status: "contacted", to_status: "qualified", reason: null, created_at: "2026-09-12 03:10:00", by_name: "Fixture Person" },
+        { id: 1, from_status: null, to_status: "contacted", reason: null, created_at: "2026-08-21 02:10:00", by_name: "Hakim Rosli" }],
+      followups: r.next_due ? [{ id: 612, due_on: r.next_due, note: r.next_note, doc_id: 42, owner_name: r.owner_name }] : [],
+      docs: r.quotations ? [{ id: 42, doc_type: "QT", doc_number: "QT-0042", total_cents: 450000, payment_status: null, created_at: "2026-08-30 02:00:00" }] : [],
+      enquiries: [], growth: [] };
+  }
+  if (p === "/staff/crm/suggestions") data = !crmAssign ? { error: { code: "forbidden", message: "Only a manager assigns leads" } } : {
+    rows: [{ customer_id: 57, company: "Restoran Selera Kampung", owner_id: 9010, owner_name: "Hakim Rosli", doc_number: "QT-0049", doc_type: "QT", doc_at: "2026-09-17 03:00:00" }] };
   if (p === "/staff/sales/today") {
     const all = q.get("scope") === "all";
     /* ranked as lib/sales-priority.ts rankActions does on the server */

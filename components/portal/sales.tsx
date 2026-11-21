@@ -10,7 +10,7 @@ import { L, MANAGE_ROLES, User, ZoneLabel, payStatusL, withStepUp } from "@/comp
 import { LineTabs, TabAction } from "@/components/ui/line-tabs";
 import { FillPanel } from "@/components/ui/fill-panel"; // v1.324.0 - D-4
 import { ClosedSales, FollowUps, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
-import { CustomerBoard, CustomerFilterBar, CustomerNeeds, DocsMore, ReportPicker, RowMenu, SalesViewBar, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
+import { CustomerBoard, CustomerFilterBar, DocsMore, LEAD_FILTER, ReportPicker, RowMenu, SalesViewBar, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
 import { useCachedApi } from "@/lib/cached-api";
 import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-views"; // v1.292.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
@@ -58,6 +58,7 @@ import { QuoteApprovalLimit, type QuoteApproval } from "@/components/portal/quot
 import { QuotationPage } from "@/components/portal/quotation-page"; // v1.245.0 - the quotation page (P-4)
 import { SalesOverview2 } from "@/components/portal/sales2"; // v1.320.0 - Sales 2.0, Stages 1 and 2
 import { ActionCenter, OverviewLower, RecentActivities, TeamPerformance, WeeklyTargetPanel, useSalesToday, type ActionHandlers } from "@/components/portal/sales-today"; // v1.397.0 - Sales Command Center, Phase 1
+import { LeadsWorkspace } from "@/components/portal/crm-leads"; // v1.398.0 - Sales Command Center, Phase 2 (Leads & CRM)
 import type { ActionFilter, SalesActivity, SalesDone } from "@/lib/sales-priority";
 import { pipelineCounts, type PipeKey } from "@/lib/sales-status";
 
@@ -688,8 +689,13 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   /* v1.123.0 - one area at a time (CEO, 06-09-2026) */
   const [custTab, setCustTab] = useState<"add" | "clients">("clients");
   /* v1.292.0 - Customers & Follow-ups is ONE workspace: what needs action, the enquiries, the follow-ups, every customer, or the same records as a read-only board */
-  const [custFilter, setCustFilter] = useState<CustFilter>("action");
+  const [custFilter, setCustFilter] = useState<CustFilter>("all_leads"); // v1.398.0 - Leads & CRM opens on All Leads (Needs Action retired, decision 5)
+  /* v1.398.0 - the lead shown beside the list (a bell, the Action Center, a search or a pick) */
+  const [leadOpen, setLeadOpen] = useState<number | null>(null);
+  const openLead = (id: number) => { setWsView("customers"); setCustFilter((f) => (LEAD_FILTER[f] ? f : "all_leads")); setLeadOpen(id); };
   /* v1.369.0 - the Business Growth Check: the website Enquiries people (enquiry_manage), never an agent or a customer; the server checks again */
+  /* v1.398.0 - who may make a customer (the POST /customers rule): Convert to lead is drawn only for them */
+  const canSales = holds("sales", ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role));
   const seesGrowth = !["agent", "customer"].includes(user.role) && holds("enquiry_manage", ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"].includes(user.role));
   const growthState = useGrowthList(seesGrowth);
   const [growthOpen, setGrowthOpen] = useState<number | null>(null);
@@ -923,9 +929,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       /* v1.365.0 - a payment to verify, from the Desk or the bell: Payments, on that report's invoice */
       setViewReport(f.id); setWsView("payments");
     } else if (f.kind === "client") {
-      setWsView("customers");
-      setCustTab("clients"); setTagFilter("");
-      if (customers.some((c) => c.id === f.id)) setOpenCust(f.id);
+      /* v1.398.0 - a customer (a search, a bell "lead:<id>") opens as the lead in Leads & CRM */
+      setWsView("customers"); setCustFilter("all_leads"); setLeadOpen(f.id);
     } else if (f.kind === "growth") {
       /* v1.369.0 - a Business Growth Check bell or Desk row: Customers & Follow-ups, that enquiry selected */
       setWsView("customers"); setCustFilter("growth"); setGrowthOpen(f.id);
@@ -1833,6 +1838,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     act: (i) => {
       if (i.kind === "enquiry") toEnquiries();
       else if (i.kind === "growth") openGrowth(i.record_id);
+      else if (i.kind === "lead") openLead(i.record_id); // v1.398.0 - an owned lead with nothing booked next
       else if (i.kind === "quotation" && i.flag === "ready" && i.doc_id !== null) openDocById(i.doc_id);
       else if (i.customer_id !== null) followCustomer(i.customer_id, i.customer);
     },
@@ -1841,6 +1847,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       if (d.kind === "enquiry_replied") toEnquiries();
       else if (d.kind === "growth_recorded" && d.record_id !== null) openGrowth(d.record_id);
       else if (d.kind === "payment_reported" && d.doc_id !== null) toPayment(d.doc_id, false);
+      else if (d.kind === "activity_logged" && d.customer_id !== null) openLead(d.customer_id);
       else if (d.customer_id !== null && (d.kind === "followup_done" || d.kind === "next_booked")) followCustomer(d.customer_id, d.customer);
       else if (d.doc_id !== null) openDocById(d.doc_id);
     },
@@ -1851,6 +1858,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     else if (a.kind === "growth" && a.record_id !== null) openGrowth(a.record_id);
     else if ((a.kind === "payment_reported" || a.kind === "payment_verified") && a.doc_id !== null) toPayment(a.doc_id, false);
     else if (a.kind === "followup_done" && a.customer_id !== null) followCustomer(a.customer_id, a.customer ?? a.title);
+    else if (a.kind === "activity" && a.customer_id !== null) openLead(a.customer_id);
     else if (a.doc_id !== null) openDocById(a.doc_id);
   };
   const toFollowups = () => { setActionFilter("overdue"); requestAnimationFrame(() => document.getElementById("sales-action-center")?.scrollIntoView({ block: "start", behavior: "smooth" })); };
@@ -3643,15 +3651,33 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           {/* v1.292.0 - ONE workspace: what needs action, the enquiries, the
               follow-ups or every customer - one at a time - and the same
               records as a read-only board (decision S3) */}
-          <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={<ScopeSwitch scope={scope} onChange={setScope} />} growth={seesGrowth}
-            counts={loaded ? { action: custNeeds.length, enquiries: enquiries.length, followups: sFollowups.length, all: customers.length, ...(growthState.data ? { growth: growthState.data.enquiries.filter((g) => g.status !== "not_interested").length } : {}) } : null} />
-          {custFilter === "action" && <CustomerNeeds rows={custNeeds} loaded={loaded} />}
+          <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={LEAD_FILTER[custFilter] || custFilter === "action" ? null : <ScopeSwitch scope={scope} onChange={setScope} />} growth={seesGrowth}
+            counts={loaded ? { enquiries: enquiries.length, followups: sFollowups.length, ...(growthState.data ? { growth: growthState.data.enquiries.filter((g) => g.status !== "not_interested").length } : {}) } : null} />
+          {/* v1.398.0 - LEADS & CRM (crm-leads.tsx, worker/src/crm.ts): All Leads, My Leads, Unassigned and
+              Active Customers are one workspace over the customer record; an old "Needs Action" link lands on All Leads */}
+          {(LEAD_FILTER[custFilter] || custFilter === "action") && (
+            <LeadsWorkspace view={LEAD_FILTER[custFilter] ?? "all"} onView={(v) => setCustFilter(v === "all" ? "all_leads" : v === "mine" ? "my_leads" : v)}
+              open={leadOpen} onOpen={setLeadOpen}
+              onOpenFile={followCustomer}
+              onQuote={(l) => {
+                /* a quotation for this customer: the normal Create form, the customer chosen, its owner as the closer when they are on the list */
+                if (!customers.some((c) => c.id === l.id)) setCustomers((cs) => [...cs, { id: l.id, company: l.company, contact_person: l.contact_person, phone: l.phone, email: l.email }]);
+                setDoc((d) => ({ ...d, doc_type: "QT", customer_id: l.id, salesperson_id: l.owner_id && staffList.some((u) => u.id === l.owner_id) ? l.owner_id : d.salesperson_id }));
+                setWorkTab("create"); jump("sales-work");
+              }}
+              onEdit={(l) => {
+                setEditingCust({ id: l.id, company: l.company });
+                setCust({ company: l.company, contact_person: l.contact_person ?? "", phone: l.phone ?? "", email: l.email ?? "", address: l.address ?? "", website: l.website ?? "" });
+                setCustFilter("all"); setCustTab("add"); jump("sales-customers");
+              }}
+              onFollowups={() => setCustFilter("followups")} />
+          )}
           {custFilter === "board" && <CustomerBoard columns={boardColumns} loaded={loaded} />}
           {/* v1.216.0 - new enquiries from the website and customer accounts
               (the owner, 28-10-2026: "Show on Sales, notify"); the server
               decides who may see them (enquiry_manage) */}
           <div hidden={custFilter !== "enquiries"}>
-            <SalesEnquiries scope={scope} userId={user.id} onQuote={(e: Enquiry) => {
+            <SalesEnquiries scope={scope} userId={user.id} onOpenLead={canSales ? openLead : undefined} onQuote={(e: Enquiry) => {
               /* v1.225.0 (the owner, 29-10-2026: "Enquiry owner -> closer") - the
                  consultant the enquiry is assigned to is the quotation's closer
                  from the start (still changeable on the form) */
@@ -3662,7 +3688,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           {/* v1.369.0 - the Business Growth Check enquiries (growth-enquiries.tsx); a paid solution is a
               normal quotation, prefilled with the enquiry's reference so it can be linked back */}
           {seesGrowth && custFilter === "growth" && (
-            <GrowthEnquiries state={growthState} open={growthOpen} onOpen={setGrowthOpen} onQuote={(g: GRow) => {
+            <GrowthEnquiries state={growthState} open={growthOpen} onOpen={setGrowthOpen} onOpenLead={canSales ? openLead : undefined} onQuote={(g: GRow) => {
               applyPrefill({ source: "growth", company: g.business_name, contact_person: g.full_name, phone: g.whatsapp, email: g.email ?? undefined, reference: g.ref, salesperson_id: g.owner_id ?? undefined });
               if (customers.some((c) => c.company.trim().toLowerCase() === g.business_name.trim().toLowerCase())) setWsView("documents");
             }} />

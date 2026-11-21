@@ -29,8 +29,9 @@ def check(n, c, x=""):
     print(("PASS " if c else "FAIL ") + n + ("" if c else f"  [{str(x)[:300]}]"), flush=True)
 
 WIDTHS = [320, 360, 390, 430, 768, 1024, 1280, 1440]
+# v1.398.0 - the customers view is called Leads & CRM (was Customers & Follow-ups)
 VIEWS = [("overview", "Overview", "Overview"), ("documents", "Quotations & Invoices", "Documents"), ("payments", "Payments", "Payments"),
-         ("closed", "Closed Sales", "Closed Sales"), ("customers", "Customers & Follow-ups", "Customers"), ("reports", "Reports", "Reports")]
+         ("closed", "Closed Sales", "Closed Sales"), ("customers", "Leads & CRM", "Leads & CRM"), ("reports", "Reports", "Reports")]
 no_hscroll = lambda pg: pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
 def post(port, path, body):
@@ -181,21 +182,32 @@ with sync_playwright() as p:
         check(f"Docs {w}: no sideways page with Packages open", no_hscroll(pg))
         ctx.close()
 
-    # ================= Customers & Follow-ups: filters and the Board =================
+    # ================= Leads & CRM (was Customers & Follow-ups): filters and the Board =================
+    # v1.398.0 (Phase 2, decision 5) - Needs Action is retired (My Sales Action Center owns it); the lead
+    # views open the Leads & CRM workspace; the Board stays until Phase 3; Add customer opens the form
+    def pick_cust(pg, key):
+        tab = pg.get_by_test_id(f"cust-{key}").filter(visible=True)
+        if tab.count(): tab.first.click()
+        else:
+            pg.get_by_test_id("cust-switch").filter(visible=True).first.click(); pg.wait_for_timeout(300)
+            pg.get_by_test_id(f"cust-menu-{key}").filter(visible=True).first.click()
+        pg.wait_for_timeout(900)
     for w in [1440, 390]:
         ctx = ctx_for(b, w); pg = ctx.new_page()
         go(pg, 4177, "customers")
-        check(f"Cust {w}: the filters: Needs Action, Enquiries, Follow-ups, All Customers, Board", all(pg.get_by_test_id(f"cust-{k}").count() == 1 for k in ["action", "enquiries", "followups", "all", "board"]))
-        check(f"Cust {w}: Needs Action lists who needs someone", vis(pg, "customer-needs"))
-        pg.get_by_test_id("cust-board").click(); pg.wait_for_timeout(700)
+        check(f"Cust {w}: the filters: All Leads, My Leads, Unassigned, New Enquiries, Active Customers, Follow-ups, Board - no Needs Action",
+              all(pg.get_by_test_id(f"cust-{k}").count() == 1 for k in ["all_leads", "my_leads", "unassigned", "enquiries", "active", "followups", "board"]) and pg.get_by_test_id("cust-action").count() == 0)
+        check(f"Cust {w}: All Leads opens the Leads & CRM workspace", vis(pg, "crm-leads") and not vis(pg, "customer-needs"))
+        pick_cust(pg, "board")
         board = pg.get_by_test_id("customer-board")
         cols = board.locator("[role=group]").all() if board.count() else []
         names = [c.get_attribute("aria-label") for c in cols]
         check(f"Cust {w}: the Board's five columns, no Proposal", names == ["Enquiry", "Quotation", "Negotiating", "Accepted", "Closed"], names)
         check(f"Cust {w}: the Board is read-only (nothing can be dragged)", board.locator("[draggable=true]").count() == 0 and "Read-only" in board.inner_text())
         check(f"Cust {w}: no sideways page on the Board", no_hscroll(pg))
-        pg.get_by_test_id("cust-all").click(); pg.wait_for_timeout(700)
-        check(f"Cust {w}: All Customers shows the client list", pg.locator("#sales-customers").is_visible())
+        add = pg.get_by_role("button", name=re.compile("Add customer")).filter(visible=True)
+        if add.count(): add.first.click(); pg.wait_for_timeout(700)
+        check(f"Cust {w}: Add customer opens the customer form", pg.locator("#sales-customers").is_visible())
         ctx.close()
 
     # ================= Reports: one at a time =================

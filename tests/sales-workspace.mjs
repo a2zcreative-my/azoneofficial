@@ -104,7 +104,9 @@ const salesCode = strip(sales);
      && /const sFollowups = scope === "mine" \? crm\.followups\.filter\(\(f\) => f\.owner_id === user\.id\) : crm\.followups;/.test(salesCode)
      && /useState<WsScope>\(MANAGE_ROLES\.includes\(user\.role\) \? "all" : "mine"\)/.test(salesCode));
   ok("the form locks the field the server locks", /disabled=\{editCloserLocked\}/.test(salesCode) && /return !!e && closerLocked\(e, partPaid\);/.test(salesCode));
-  ok("a search hit still opens its record", /setWsView\("documents"\);\s*setWorkTab\("documents"\);/.test(salesCode) && /setWsView\("customers"\);\s*setCustTab\("clients"\)/.test(salesCode));
+  /* v1.398.0 (Phase 2) - a customer hit opens as the lead in Leads & CRM, that lead selected */
+  ok("a search hit still opens its record", /setWsView\("documents"\);\s*setWorkTab\("documents"\);/.test(salesCode) && /setWsView\("customers"\); setCustFilter\("all_leads"\); setLeadOpen\(f\.id\);/.test(salesCode)
+     && /<LeadsWorkspace [\s\S]{0,240}?open=\{leadOpen\} onOpen=\{setLeadOpen\}/.test(salesCode));
 }
 
 /* ---- v1.214.1: the figure fits its tile (the owner: "why the figure

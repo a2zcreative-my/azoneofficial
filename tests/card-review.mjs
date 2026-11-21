@@ -182,7 +182,7 @@ ok(!/^\s*CARD_BRIDGE_KEY\s*=/m.test(wr) && /wrangler secret put CARD_BRIDGE_KEY/
 ok(/\|card_template\|[a-z_|]*\):\(\\d\+\)/.test(read("lib/record-focus.ts")) && /case "card_template"/.test(read("components/portal/desk-page.tsx")), "a bell or Desk row opens the template");
 ok(/focus=\{focusOf\("Digital Cards"\)\}/.test(read("app/portal/page.tsx")), "Digital Cards receives the record to open");
 const idx = read("worker/src/index.ts");
-ok(/const LATEST_MIGRATION = "0225_card_template_publish"/.test(idx) && /"0225_card_template_publish",/.test(idx), "0225 is the latest migration and in the expected list");
+ok(/const LATEST_MIGRATION = "(0225_card_template_publish|0226_crm_leads)"/.test(idx) && /"0225_card_template_publish",/.test(idx), "0225 is in the expected list (0226, CRM leads, came after it)");
 const mig = read("worker/migrations/0225_card_template_publish.sql").replace(/--.*$/gm, "");
 ok(!/\bDROP\b/i.test(mig) && (mig.match(/ALTER TABLE card_templates ADD COLUMN/g) ?? []).length === 3 && (mig.match(/ALTER TABLE/g) ?? []).length === 3, "0225 is additive");
 
