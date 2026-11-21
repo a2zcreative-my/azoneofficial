@@ -45,6 +45,7 @@
  */
 
 import { growthViewer } from "./growth"; // v1.369.0
+import { salesTodayCounts } from "./sales-today"; // v1.397.0 - the Desk's one Sales line
 import type { Env } from "./index";
 import { can, canUser, isOwnKey } from "./permissions";
 import { leaveCanActAt } from "./leave-chain";
@@ -53,7 +54,7 @@ import { JOINING_KEYS, LEAVING_KEYS } from "./business"; // v1.181.17
 import { annAckedSql, annRequiredSql, viewerOf } from "./news"; // v1.217.0
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth" | "cards"; // v1.395.0 cards: Digital Card templates to pre-check, publish or change // v1.369.0 growth: Business Growth Check enquiries to pick up or follow up // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth" | "cards" | "sales"; // v1.397.0 sales: ONE line for the Daily Action Center (sales-today.ts), never its rows // v1.395.0 cards: Digital Card templates to pre-check, publish or change // v1.369.0 growth: Business Growth Check enquiries to pick up or follow up // v1.365.0 payments: payment reports to verify // v1.351.0 partners: partner applications to pick up, screen or approve // v1.288.0 advisory: DSR reviews // v1.183.0 - commission and enquiries retired
   id: string;
   title: string;
   sub: string;
@@ -88,6 +89,13 @@ export interface DeskItem {
    * unscannable.
    */
   next: string;
+  /** v1.397.0 - how many records one summary line stands for (the "sales" line); absent = 1 */
+  count?: number;
+  /** v1.397.0 - where a summary line opens: the Sales view and its anchor */
+  view?: string;
+  anchor?: string;
+  /** v1.397.0 - the Sales line's own counts, so the screen words them in English or Malay */
+  figures?: { total: number; overdue: number; today: number; no_next: number };
   /* v1.175.0-v1.182.1 the desk offered ONE inline action, taking an
      unassigned enquiry (`takeable`); v1.183.0 retired Enquiries and the
      action with it. Every bucket is an approval or work whose evidence is
@@ -155,7 +163,8 @@ export function claimStepFor(
 
 export async function handleDesk(env: Env, user: { id: number; role: string; name: string }): Promise<Response> {
   const { items, counts, missing } = await deskItems(env, user);
-  return json({ items, counts, total: items.length, missing, generated_at: new Date().toISOString() });
+  /* v1.397.0 - a summary line (the Sales line) counts every action it stands for */
+  return json({ items, counts, total: items.reduce((n, i) => n + (i.count ?? 1), 0), missing, generated_at: new Date().toISOString() });
 }
 
 /** The desk as data - shared with the morning brief (watchers.ts), which
@@ -296,26 +305,29 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
      and customer-account forms still file rows (the owner's choice); no desk
      lists them and nobody is notified ---- */
 
-  /* ---- v1.181.16 (ERP roadmap phase 4): clients to call back, invoices to raise ---- */
+  /* ---- v1.181.16 (ERP roadmap phase 4): clients to call back, invoices to raise ----
+     v1.397.0 (the CEO, 21-11-2026, decision 5): the follow-ups due and the Business Growth
+     Check rows are the Daily Action Center's work now. A person with Sales access sees ONE
+     line here - the count of their own actions today (mine, or nobody's), overdue first -
+     and it opens Sales > Overview > My Sales Action Center, where the records are worked.
+     The count is the Action Center's own list (sales-today.ts salesTodayCounts), so the
+     two can never disagree. Nothing is dropped: every row that was here is in that list. */
   if (canUser(user, "sales")) {
-    await guard("followups", async () => {
+    await guard("sales", async () => {
+      const c = await salesTodayCounts(env, user);
+      if (c.total === 0) return;
       const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-      const { results } = await env.DB.prepare(
-        `SELECT f.id, f.due_on, f.note, f.owner_id, f.created_at, c.company
-           FROM customer_followups f JOIN customers c ON c.id = f.customer_id
-          WHERE f.done_at IS NULL AND f.cancelled_at IS NULL AND f.due_on <= ?1 AND (f.owner_id = ?2 OR f.owner_id IS NULL)
-          ORDER BY f.due_on ASC LIMIT 50`,
-      ).bind(today, user.id).all<{ id: number; due_on: string; note: string; owner_id: number | null; created_at: string; company: string }>();
-      for (const f of results) {
-        items.push({
-          bucket: "followups", id: `followup:${f.id}`, tab: "Sales",
-          title: `${f.company} — ${f.note}`,
-          sub: f.due_on < today ? `follow-up, due ${dmy(f.due_on)}` : "follow-up, due today",
-          since: f.due_on, overdue: f.due_on < today,
-          kind: "do", who: f.company, next: "Contact the client, then mark it done",
-        });
-      }
+      const parts = [c.overdue ? `${c.overdue} overdue` : "", c.today ? `${c.today} for today` : "", c.no_next ? `${c.no_next} with no next action` : ""].filter(Boolean);
+      items.push({
+        bucket: "sales", id: "sales_today:mine", tab: "Sales", view: "overview", anchor: "sales-action-center",
+        title: `Sales actions today: ${c.total} pending${c.overdue ? `, ${c.overdue} overdue` : ""}`,
+        sub: parts.join(" · "), since: today, overdue: c.overdue > 0, count: c.total, figures: c,
+        kind: "do", who: null, next: "Open My Sales Action Center",
+      });
     });
+  }
+  if (canUser(user, "sales")) {
+    /* v1.181.16 - recurring invoices to raise this month stay here: a billing job, not a sales action */
     await guard("billing", async () => {
       const now = new Date(Date.now() + 8 * 3600 * 1000);
       const today = now.toISOString().slice(0, 10);
@@ -455,7 +467,9 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
      Enquiries people, enquiry_manage), and the ones I own that wait on a first contact or a follow-up
      that is due. Never for an agent or a customer. The row opens the enquiry itself (Sales ->
      Customers & Follow-ups -> Business Growth). Read only. */
-  if (growthViewer(user)) {
+  /* v1.397.0 - with Sales access the growth rows are in the Daily Action Center (one Desk
+     line above); Marketing, HR admin and anyone else without Sales keep their pick-up rows */
+  if (growthViewer(user) && !canUser(user, "sales")) {
     await guard("growth", async () => {
       const { results } = await env.DB.prepare(
         `SELECT id, ref, full_name, business_name, source, status, owner_id, created_at, picked_at, first_response_at, next_follow_up_on
@@ -595,7 +609,7 @@ export async function deskItems(env: Env, user: { id: number; role: string }): P
      the thing to do first, and the desk should read that way. */
   items.sort((a, b) => Number(b.overdue) - Number(a.overdue) || (a.since ?? "").localeCompare(b.since ?? ""));
   const counts: Record<string, number> = {};
-  for (const i of items) counts[i.bucket] = (counts[i.bucket] ?? 0) + 1;
+  for (const i of items) counts[i.bucket] = (counts[i.bucket] ?? 0) + (i.count ?? 1); // v1.397.0 - a summary line counts what it stands for
   return { items, counts, missing };
 }
 

@@ -7,7 +7,8 @@
      - tabs on a wide screen, one selector on a phone; one gold action per view
        and none on Closed Sales and Reports;
      - the Overview is picture 01 (v1.320.0): its figures, the pipeline, the one
-       worklist and its rail - nothing else;
+       worklist and its rail - nothing else; v1.397.0 (Phase 1): the one list is
+       My Sales Action Center, with the week's target, the team and Recent Activities;
      - the strip says "Verified outstanding" and "Pending payment verification"
        only while the CEO verifies payments; the pending figure is the
        Payments queue's own;
@@ -37,6 +38,7 @@ const FILES = {
   provider: "components/portal/portal-provider.tsx",
   page: "app/portal/page.tsx",
   sales2: "components/portal/sales2.tsx", // v1.320.0 - Sales 2.0: the Overview of picture 01
+  today: "components/portal/sales-today.tsx", // v1.397.0 - Sales Command Center, Phase 1
 };
 
 const between = (s, a, b) => { const i = s.indexOf(a); if (i < 0) return ""; const j = s.indexOf(b, i + a.length); return s.slice(i, j < 0 ? s.length : j); };
@@ -74,9 +76,11 @@ function checks(src) {
   const ov = between(sales, "{wsView === \"overview\" && (", "{wsView === \"closed\" && (");
   /* v1.320.0 (Sales 2.0 Stage 2, picture 01, approved) - the Overview is the picture's: its figures, the
      pipeline, the ONE worklist and the rail, all in SalesOverview2; still nothing else (no chart, no advice) */
-  ok("the Overview is picture 01 - the figures, the pipeline, the one worklist and its rail - and nothing else",
-    /<SalesOverview2 figures=\{figures\}/.test(ov) && /worklist=\{<SalesWorklist rows=\{workRows\}/.test(ov)
-    && (ov.match(/<[A-Z][A-Za-z0-9]+/g) ?? []).filter((t) => !["<SalesOverview2", "<SalesWorklist", "<ScopeSwitch"].includes(t)).length === 0);
+  /* v1.397.0 (Phase 1, the CEO 21-11-2026) - the ONE list is My Sales Action Center; the rail is the week's
+     target and the pipeline summary; below, the team (managers) and Recent Activities. Still nothing else. */
+  ok("the Overview is the Command Center - the figures, the pipeline, the one Action Center, the week's target, the team and recent activities - and nothing else",
+    /<SalesOverview2 figures=\{figures\}/.test(ov) && /actionCenter=\{<ActionCenter state=\{todayState\}/.test(ov)
+    && (ov.match(/<[A-Z][A-Za-z0-9]+/g) ?? []).filter((t) => !["<SalesOverview2", "<ActionCenter", "<ScopeSwitch", "<WeeklyTargetPanel", "<OverviewLower", "<TeamPerformance", "<RecentActivities"].includes(t)).length === 0);
   ok("S4 - the figure says Verified outstanding only while the CEO verifies payments",
     /outstanding: \{[^}]*verified: !!pv\?\.on \}/.test(views) && /label=\{f\.outstanding\?\.verified \? L\("Verified Outstanding", "Tertunggak Disahkan"\) : L\("Outstanding", "Tertunggak"\)\}/.test(sales2));
   ok("S4 - Pending CEO Verification is the Payments queue's own figure, and only while verification is on",
@@ -89,10 +93,11 @@ function checks(src) {
   ok("every worklist row opens the original record", (views.match(/open: \(\) => /g) ?? []).length >= 8 && /open: toEnquiries/.test(views));
 
   /* ---- what the new pieces may not do ---- */
+  const today = src.today;
   ok("the new pieces only draw: no request is written from them",
-    !/\bapi\s*[(<]/.test(shell + views + sales2) && !/method:\s*"(POST|PATCH|PUT|DELETE)"/.test(shell + views + sales2));
+    !/\bapi\s*[(<]/.test(shell + views + sales2 + today) && !/method:\s*"(POST|PATCH|PUT|DELETE)"/.test(shell + views + sales2 + today));
   ok("no invented figures or records in the new pieces (no amounts or companies typed in)",
-    !/fmtRM\(\s*\d/.test(shell + views + sales2) && !/Sdn Bhd|Enterprise"|Boutique|_cents: \d/.test(shell + views + sales2));
+    !/fmtRM\(\s*\d/.test(shell + views + sales2 + today) && !/Sdn Bhd|Enterprise"|Boutique|_cents: \d/.test(shell + views + sales2 + today));
   ok("S7 - no row checkboxes (no bulk action exists)", !/type="checkbox"/.test(shell + views));
   ok("S3 - the Board is read-only: nothing is dragged, no stage is stored, no Proposal column",
     !/draggable|onDrag|onDrop/.test(shell) && !/Proposal/.test(shell + views)
@@ -150,6 +155,9 @@ const MUT = [
   ["report offered without the server's can_report", "views", "can_report: v.can_report === true }", "can_report: true }"],
   ["a write from the worklist", "views", "const workRows: WorkRow[] = [...invRows, ...qtRows, ...fuRows, ...enqRows];", 'const workRows: WorkRow[] = [...invRows, ...qtRows, ...fuRows, ...enqRows];\n    void api("/staff/sales/x", { method: "POST" });'],
   ["a made-up figure", "sales2", "value={fmtRM(f.pending.cents)}", "value={fmtRM(125000)}"],
+  ["a second list beside the Action Center", "sales", "actionCenter={<ActionCenter state={todayState}", "actionCenter={<><SalesWorklist rows={[]} loaded /><ActionCenter state={todayState}"],
+  ["a made-up figure in the Action Center", "today", "{fmtRM(i.cents)}", "{fmtRM(250000)}"],
+  ["the Action Center writes", "today", "export function useSalesToday(", 'void api("/staff/sales/today", { method: "POST" });\nexport function useSalesToday('],
   ["row checkboxes", "shell", 'data-testid="row-more"', 'data-testid="row-more" type="checkbox"'],
   ["a draggable board card", "shell", "<button type=\"button\" className={css.boardCard} onClick={x.open}>", "<button type=\"button\" draggable className={css.boardCard} onClick={x.open}>"],
   ["every report mounted at once", "shell", "<div key={cur.key} className={css.reportBody}>{cur.node}</div>", "{reports.map((r) => <div key={r.key}>{r.node}</div>)}"],

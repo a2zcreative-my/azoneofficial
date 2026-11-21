@@ -9,8 +9,9 @@
      SalesPipeline               the seven steps with a count each; pressing a
                                  step filters the worklist under it (S2-5)
      SalesOverview2              picture 01: six figures, the pipeline, the
-                                 worklist, and the rail - Important Follow-Ups,
-                                 Recent Payment Activity, Team Sales Performance
+                                 worklist, and the rail (v1.397.0: the Action
+                                 Center, the week's target, the pipeline summary,
+                                 the team and Recent Activities - sales-today.tsx)
 
    SCREENS ONLY. Every figure is one the Sales tab already reads (the weekly
    figures, the documents, the payment engine's verified and reported parts,
@@ -20,13 +21,11 @@
 
 import type { ReactNode } from "react";
 import { L } from "@/components/portal/page-shared";
-import { AppIcon } from "@/components/ui/app-icon";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { FlowStrip, type FlowStep } from "@/components/ui/flow-strip";
 import { Panel, WorkspaceGrid } from "@/components/ui/panel";
-import { SkelRows } from "@/components/ui/skeleton";
 import { fmtRM } from "@/lib/format";
-import { btnSm, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
+import { chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
 import { PIPELINE, invoiceStatus, type InvoiceLike, type PayFacts, type PipeKey, type QuoteKey } from "@/lib/sales-status";
 import s2 from "./sales2.module.css";
 
@@ -64,9 +63,6 @@ export function SalesPipeline({ counts, picked, onPick, loaded }: { counts: Reco
 }
 
 /* ---------------- picture 01: the Overview ---------------- */
-export interface OverviewFollowUp { id: number; company: string; note: string | null; due_on: string; open: () => void }
-export interface OverviewInvoice { id: number; doc_number: string; company: string; total_cents: number; inv: InvoiceLike; pay: PayFacts | null; open: () => void }
-export interface OverviewPerson { id: number; name: string; cents: number }
 export interface OverviewFigures {
   /** Mine: the person's own week and target (a consultant's view, and anyone who presses Mine) */
   mine: boolean;
@@ -79,29 +75,27 @@ export interface OverviewFigures {
   quotes: { n: number; cents: number };
 }
 
-const addDays = (d: string, k: number) => new Date(Date.parse(`${d}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const day = (iso: string) => { const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
-function dueChip(due: string, today: string) {
-  if (due < today) return <span className={chipSmDanger}>{L(`Overdue · ${day(due)}`, `Lewat · ${day(due)}`)}</span>;
-  if (due === today) return <span className={chipSmDanger}>{L("Due today", "Hari ini")}</span>;
-  if (due === addDays(today, 1)) return <span className={chipSmWarn}>{L("Due tomorrow", "Esok")}</span>;
-  return <span className={chipSmNeutral}>{day(due)}</span>;
-}
-
-export function SalesOverview2({ figures, loaded, pipeline, picked, onPick, worklist, followups, invoices, team, today, onAllFollowups, onAllInvoices, toPayments, toReports }: {
+/* v1.397.0 - SALES COMMAND CENTER, PHASE 1 (the CEO, 21-11-2026). The same six figures from
+   the same sources (unchanged), then My Sales Action Center beside the week's target and the
+   pipeline summary, then Team Sales Performance (managers) and Recent Activities. The old
+   worklist, Important Follow-Ups and Recent Payment Activity are now the Action Center and
+   Recent Activities' Payments filter (sales-today.tsx) - one list, never two. */
+export function SalesOverview2({ figures, loaded, pipeline, onPick, actionCenter, weeklyTarget, lower, toPayments, toReports, toFollowups }: {
   figures: OverviewFigures; loaded: boolean;
-  pipeline: Record<PipeKey, number>; picked: PipeKey | null; onPick: (k: PipeKey) => void;
-  /** the one worklist (sales-shell.tsx SalesWorklist), already narrowed to the step picked */
-  worklist: ReactNode;
-  followups: OverviewFollowUp[]; invoices: OverviewInvoice[];
-  /** the week's collected sales by person - management only; null draws no panel */
-  team: { rows: OverviewPerson[]; total_cents: number } | null;
-  today: string;
-  onAllFollowups: () => void; onAllInvoices: () => void; toPayments: () => void; toReports: () => void;
+  pipeline: Record<PipeKey, number>;
+  /** a pipeline step or a figure opens the records it counts (sales.tsx) */
+  onPick: (k: PipeKey) => void;
+  /** My Sales Action Center (sales-today.tsx ActionCenter) */
+  actionCenter: ReactNode;
+  /** Weekly Target Progress (sales-today.tsx WeeklyTargetPanel) */
+  weeklyTarget: ReactNode;
+  /** Team Sales Performance (managers) and Recent Activities */
+  lower: ReactNode;
+  toPayments: () => void; toReports: () => void;
+  /** Due Follow-Ups opens the Action Center on its Overdue filter */
+  toFollowups: () => void;
 }) {
   const f = figures;
-  const teamMax = team ? Math.max(1, ...team.rows.map((r) => r.cents)) : 1;
   return (
     <div className={s2.page} data-testid="sales-overview-2">
       <KpiRow label={L("Sales at a glance", "Jualan sepintas lalu")} cols={6}>
@@ -119,71 +113,21 @@ export function SalesOverview2({ figures, loaded, pipeline, picked, onPick, work
               sub={L(`${f.pending.n} payment(s) · waiting for the CEO`, `${f.pending.n} bayaran · menunggu CEO`)} onClick={toPayments} />
           : <KpiTile icon="verify" tone="blue" label={L("Pending CEO Verification", "Menunggu Pengesahan CEO")} value="—" sub={L("Payment verification is off", "Pengesahan bayaran dimatikan")} />}
         <KpiTile icon="date" tone="purple" label={L("Due Follow-Ups", "Susulan Perlu")} busy={!loaded} value={f.followups.n}
-          sub={L(`${f.followups.customers} customer(s) · ${f.followups.overdue} overdue`, `${f.followups.customers} pelanggan · ${f.followups.overdue} lewat`)} onClick={() => onPick("follow_up")} />
+          sub={L(`${f.followups.customers} customer(s) · ${f.followups.overdue} overdue`, `${f.followups.customers} pelanggan · ${f.followups.overdue} lewat`)} onClick={toFollowups} />
         <KpiTile icon="document" tone="blue" label={L("Open Quotations", "Sebut Harga Terbuka")} busy={!loaded} value={f.quotes.n}
           sub={L(`${fmtRM(f.quotes.cents)} · not yet invoiced`, `${fmtRM(f.quotes.cents)} · belum diinvois`)} onClick={() => onPick("quotation")} />
       </KpiRow>
 
-      <Panel icon="chart" tone="navy" title={L("Sales Pipeline", "Saluran Jualan")} testid="pipeline-panel"
-        sub={L("End-to-end sales flow from enquiry to closed sale. Each count is what that step holds now; press a step to see its records.", "Aliran jualan dari pertanyaan hingga jualan ditutup. Setiap kiraan ialah apa yang ada pada langkah itu sekarang; tekan untuk melihat rekodnya.")}
-        aside={picked ? <button type="button" className={btnSm} onClick={() => onPick(picked)} data-testid="pipeline-clear"><AppIcon name="error" />{L(`Clear: ${pipeWord(picked)}`, `Kosongkan: ${pipeWord(picked)}`)}</button> : undefined}>
-        <SalesPipeline counts={pipeline} picked={picked} onPick={onPick} loaded={loaded} />
-      </Panel>
-
       <WorkspaceGrid testid="overview-grid"
-        main={worklist}
+        main={actionCenter}
         rail={<>
-          <Panel icon="date" tone="red" title={L("Important Follow-Ups", "Susulan Penting")} count={loaded ? followups.length : null} testid="important-followups" level={3}
-            aside={<button type="button" className={btnSm} onClick={onAllFollowups}>{L("View all", "Lihat semua")}<AppIcon name="next" /></button>}>
-            {!loaded ? <SkelRows rows={3} /> : followups.length === 0 ? <p className={s2.empty}><AppIcon name="success" />{L("No follow-up is due.", "Tiada susulan perlu.")}</p> : (
-              <ul className={s2.list}>
-                {followups.slice(0, 4).map((x) => (
-                  <li key={x.id}>
-                    <button type="button" onClick={x.open} className={s2.item}>
-                      <span className={s2.dot} data-late={x.due_on <= today || undefined} aria-hidden />
-                      <span className={s2.itemText}><strong>{x.company}</strong><small>{x.note ?? L("Follow-up", "Susulan")}</small></span>
-                      {dueChip(x.due_on, today)}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+          {weeklyTarget}
+          <Panel icon="chart" tone="navy" title={L("Sales Pipeline Summary", "Ringkasan Saluran Jualan")} testid="pipeline-panel" level={3}
+            sub={L("Where every quotation and invoice stands now. Press a step to open its records.", "Di mana setiap sebut harga dan invois sekarang. Tekan langkah untuk membuka rekodnya.")}>
+            <SalesPipeline counts={pipeline} picked={null} onPick={onPick} loaded={loaded} />
           </Panel>
-          <Panel icon="receipt" tone="navy" title={L("Recent Payment Activity", "Aktiviti Bayaran Terkini")} testid="recent-payments" level={3}
-            aside={<button type="button" className={btnSm} onClick={onAllInvoices}>{L("View all", "Lihat semua")}<AppIcon name="next" /></button>}>
-            {!loaded ? <SkelRows rows={3} /> : invoices.length === 0 ? <p className={s2.empty}><AppIcon name="info" />{L("No invoice yet.", "Belum ada invois.")}</p> : (
-              <ul className={s2.list}>
-                {invoices.slice(0, 4).map((x) => (
-                  <li key={x.id}>
-                    <button type="button" onClick={x.open} className={s2.item}>
-                      <span className={s2.docIcon} aria-hidden><AppIcon name="document" /></span>
-                      <span className={s2.itemText}><strong>{x.doc_number}</strong><small>{x.company}</small></span>
-                      <span className={s2.amt}>{fmtRM(x.total_cents)}</span>
-                      <InvoiceBadge inv={x.inv} pay={x.pay} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
-          {team && (
-            <Panel icon="chart" tone="gold" title={L("Team Sales Performance", "Prestasi Jualan Pasukan")} testid="team-sales" level={3}
-              aside={<span className={s2.period}>{L("This Week", "Minggu Ini")}</span>}>
-              <div className={s2.teamHead}><strong>{fmtRM(team.total_cents)}</strong><small>{f.week?.sub ?? ""}</small></div>
-              {team.rows.length === 0 ? <p className={s2.empty}>{L("No sales recorded this week.", "Tiada jualan direkod minggu ini.")}</p> : (
-                <ol className={s2.team}>
-                  {team.rows.slice(0, 6).map((r) => (
-                    <li key={r.id}>
-                      <span className={s2.teamName}>{r.name}</span>
-                      <span className={s2.teamAmt}>{fmtRM(r.cents)}</span>
-                      <span className={s2.bar} aria-hidden><span style={{ width: `${Math.round((r.cents / teamMax) * 100)}%` }} /></span>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </Panel>
-          )}
         </>} />
+      {lower}
     </div>
   );
 }

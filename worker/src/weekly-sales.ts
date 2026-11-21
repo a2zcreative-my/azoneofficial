@@ -160,7 +160,8 @@ async function workingDays(env: Env, uid: number, from: string, to: string): Pro
 export type WeekStatus = "no_target" | "not_working" | "planning" | "achieved" | "on_track" | "at_risk" | "action" | "missed";
 
 /** The week's numbers for one person - each from the record that owns it. */
-async function personWeek(env: Env, uid: number, from: string, to: string, today: string) {
+/* v1.397.0 - exported, unchanged, for the Sales Overview's team table (sales-today.ts) */
+export async function personWeek(env: Env, uid: number, from: string, to: string, today: string) {
   const one = async <T>(sql: string, ...b: unknown[]) => { try { return (await env.DB.prepare(sql).bind(...b).first<T>()) as T; } catch { return null as T; } };
   const PAID_DAY = `date(COALESCE(d.paid_at, d.created_at), '+8 hours')`;
   const basis = await one<{ c: number; n: number }>(
@@ -228,7 +229,8 @@ export const onStaffForWeekSql = (a = "u.") =>
     a leaver, never a system account) who are sales consultants, OR have an
     approved target in force, OR closed a sale that week (salesperson on a
     quotation raised or an invoice paid in it). */
-async function staffList(env: Env, from: string, to: string): Promise<{ id: number; name: string; role: string; department?: string | null }[]> {
+/* v1.397.0 - exported, unchanged (sales-today.ts) */
+export async function staffList(env: Env, from: string, to: string): Promise<{ id: number; name: string; role: string; department?: string | null }[]> {
   /* v1.239.0 - "a target in force" is the latest row per metric (0156); a
      person with only a contribution goal is on the list too */
   const IN_FORCE_0156 = `EXISTS (SELECT 1 FROM sales_week_targets t WHERE t.scope = 'person' AND t.user_id = u.id AND t.week_from <= ?1

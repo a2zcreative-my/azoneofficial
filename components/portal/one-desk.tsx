@@ -56,12 +56,15 @@ import css from "./one-desk.module.css";
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 
 export interface DeskItem {
-  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth" | "cards"; // v1.395.0 cards: Digital Card templates to review // v1.351.0 partners; v1.365.0 payments to verify; v1.369.0 Business Growth Check
+  bucket: "leave" | "claims" | "ot" | "punches" | "tasks" | "news" | "followups" | "billing" | "people" | "quotes" | "advisory" | "partners" | "payments" | "growth" | "cards" | "sales"; // v1.397.0 sales: ONE line for the Daily Action Center // v1.395.0 cards: Digital Card templates to review // v1.351.0 partners; v1.365.0 payments to verify; v1.369.0 Business Growth Check
   id: string; title: string; sub: string; since: string | null; tab: string; overdue: boolean;
   /** v1.175.0 — which list it belongs in; see the worker */
   kind?: "decide" | "do";
   who?: string | null;
   next?: string;
+  /** v1.397.0 - how many records a summary line stands for, and the Sales line's own counts */
+  count?: number;
+  figures?: { total: number; overdue: number; today: number; no_next: number };
 }
 export interface DeskData { items: DeskItem[]; counts: Record<string, number>; total: number; missing: string[] }
 
@@ -73,6 +76,7 @@ const ANCHOR: Partial<Record<DeskItem["bucket"], string>> = {
   ot: "ot-approvals",
   punches: "pending-punches",
   claims: "claims-pending",
+  sales: "sales-action-center", // v1.397.0 - Sales > Overview > My Sales Action Center
 };
 /** v1.192.0 - the anchor a Desk item opens at, for the HR page's pending list */
 export const deskAnchor = (b: DeskItem["bucket"]): string | undefined => ANCHOR[b];
@@ -92,6 +96,7 @@ const BUCKET: Record<DeskItem["bucket"], [string, string]> = {
   payments: ["Payments to verify", "Bayaran untuk disahkan"], // v1.365.0
   growth: ["Business Growth Check", "Semakan Pertumbuhan Bisnes"], // v1.369.0
   cards: ["Card templates", "Templat kad"], // v1.395.0
+  sales: ["Sales actions today", "Tindakan jualan hari ini"], // v1.397.0
 };
 
 /** v1.291.0 - the module a Desk item comes from, in words (the Dashboard's decision queue) */
@@ -123,9 +128,28 @@ export function waited(since: string | null): string {
  */
 export function useDeskData() {
   /* the topics every bucket can move on - a write anywhere here refetches */
-  return useCachedApi<DeskData>("/staff/desk", true,
-    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes", "partner-applications", "business-growth"]); // v1.351.0 - a new or moved partner application; v1.369.0 - a Business Growth enquiry
+  const st = useCachedApi<DeskData>("/staff/desk", true,
+    ["leave", "claims", "attendance", "tasks", "announcements", "erp", "users", "customers", "followups", "docs", "people", "quotes", "partner-applications", "business-growth", "enquiries", "sales"]); // v1.351.0 - a new or moved partner application; v1.369.0 - a Business Growth enquiry; v1.397.0 - enquiries and sales move the Sales line
+  /* v1.397.0 - the Sales line is worded here, in English or Malay, from its own counts */
+  const data = useMemo(() => (st.data ? { ...st.data, items: st.data.items.map(salesLineWords) } : st.data), [st.data]);
+  return { ...st, data };
 }
+/** v1.397.0 - "Sales actions today: 12 pending, 3 overdue" in the reader's language */
+export function salesLineWords(i: DeskItem): DeskItem {
+  if (i.bucket !== "sales" || !i.figures) return i;
+  const f = i.figures;
+  return {
+    ...i,
+    title: L(`Sales actions today: ${f.total} pending${f.overdue ? `, ${f.overdue} overdue` : ""}`, `Tindakan jualan hari ini: ${f.total} menunggu${f.overdue ? `, ${f.overdue} lewat` : ""}`),
+    sub: [f.overdue ? L(`${f.overdue} overdue`, `${f.overdue} lewat`) : "", f.today ? L(`${f.today} for today`, `${f.today} untuk hari ini`) : "", f.no_next ? L(`${f.no_next} with no next action`, `${f.no_next} tiada tindakan seterusnya`) : ""].filter(Boolean).join(" · "),
+    next: L("Open My Sales Action Center", "Buka Pusat Tindakan Jualan Saya"),
+  };
+}
+
+/** v1.397.0 - how many things a list stands for: the Sales line counts each action it summarises */
+export const deskWeight = (items: readonly DeskItem[]): number => items.reduce((n, i) => n + (i.count ?? 1), 0);
+/** v1.397.0 - how many of them are overdue: the Sales line carries its own overdue figure */
+export const deskOverdue = (items: readonly DeskItem[]): number => items.reduce((n, i) => n + (i.figures ? i.figures.overdue : i.overdue ? 1 : 0), 0);
 
 /** The three lists the surfaces need, split once so they cannot drift apart. */
 export function splitDesk(items: readonly DeskItem[]) {
@@ -188,7 +212,7 @@ export function DeskSummary({ go, role = "", bare = false }: { go: (tab: string)
      already make. My tasks left the strip: Tasks owns that number, and an
      odd tile stranded the third one on a row of its own. */
   const watching = useWatcherOpenCount(role);
-  const attentionCount = watching == null ? null : attention.length + watching;
+  const attentionCount = watching == null ? null : deskWeight(attention) + watching;
 
   if (desk.loading) {
     return (
@@ -232,7 +256,7 @@ export function DeskSummary({ go, role = "", bare = false }: { go: (tab: string)
         </ul>
       )}
       <button type="button" className={`${btnSm} mt-3`} onClick={() => go("Desk")}>
-        {L(`Open the Desk — ${decide.length + (attentionCount ?? attention.length)}`, `Buka Meja — ${decide.length + (attentionCount ?? attention.length)}`)}
+        {L(`Open the Desk — ${decide.length + (attentionCount ?? deskWeight(attention))}`, `Buka Meja — ${decide.length + (attentionCount ?? deskWeight(attention))}`)}
       </button>
     </div>
   );

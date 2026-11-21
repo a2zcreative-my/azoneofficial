@@ -16,6 +16,7 @@ import { passkeySettings, setPasskeyStage, revokePasskeyStatements, passkeysMigr
 import { refuseSelf } from "./decision-policy"; // v1.271.0 - Phase 0: no ordinary self-decision
 import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
+import { handleSalesToday } from "./sales-today"; // v1.397.0 - Sales Command Center, Phase 1
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
@@ -3270,6 +3271,14 @@ async function handleStaffRoutes(
   if (path === "/sales/week" || path.startsWith("/sales/week/")) {
     const wk = await handleWeeklySales(env, path, method, body, user, new URL(request.url).searchParams);
     if (wk) return wk;
+  }
+
+  /* ---- v1.397.0 Sales Command Center, Phase 1 (sales-today.ts): the Daily Action
+     Center, read only - the one list behind Sales > Overview, the Desk line and the
+     Dashboard line ---- */
+  if (path === "/sales/today") {
+    const st = await handleSalesToday(env, path, method, user, new URL(request.url).searchParams);
+    if (st) return st;
   }
 
   /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's

@@ -196,12 +196,13 @@ const { leaveCanActAt } = await import(pathToFileURL(out2).href);
     ok("the attention figure counts the watcher findings on BOTH surfaces",
        /export function useWatcherOpenCount/.test(watchSrc)
        && /useCachedApi<WatcherData>\("\/staff\/watchers", exec, \["watchers"\]\)/.test(watchSrc)
-       && /const attentionCount = watching == null \? null : attention\.length \+ watching;/.test(deskSrc)
+       && /const attentionCount = watching == null \? null : deskWeight\(attention\) \+ watching;/.test(deskSrc) && /export const deskWeight = \(items: readonly DeskItem\[\]\): number => items\.reduce\(\(n, i\) => n \+ \(i\.count \?\? 1\), 0\);/.test(deskSrc) // v1.397.0 - the Sales line counts each action it stands for
        /* v1.293.0 - the Desk page shows the two halves as two figures (the directive: Overdue
           Actions and Active Alerts), each the length of the list it opens, over the same reads */
        && /p\.exec && figure\("alerts", "warning", "info", p\.watchKnown \? p\.findings : null/.test(read("components/portal/desk-page.tsx"))
        && /findings=\{findings\.length\}/.test(read("components/portal/desk-page.tsx"))
-       && /const overdueN = work\.filter\(\(i\) => i\.overdue\)\.length;/.test(read("components/portal/desk-page.tsx")),
+       && /const overdueN = deskOverdue\(work\);/.test(read("components/portal/desk-page.tsx")) && /export const deskOverdue = \(items: readonly DeskItem\[\]\): number => items\.reduce\(\(n, i\) => n \+ \(i\.figures \? i\.figures\.overdue : i\.overdue \? 1 : 0\), 0\);/.test(read("components/portal/one-desk.tsx")) // v1.397.0 - the Sales line carries its own overdue figure
+       && /const workN = deskWeight\(p\.work\);/.test(read("components/portal/desk-page.tsx")),
        "a figure that ignores what is rendered under it is a wrong figure");
     ok("neither figure strip strands a tile on a row of its own",
        /* v1.338.0 - the Dashboard's Desk summary is the one KPI strip too (two segments) */

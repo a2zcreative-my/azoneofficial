@@ -1594,6 +1594,67 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     channels: revReader ? { invoices_cents: c.basis_cents, tiktok_cents: 70000, other_cents: 12000, manual_cents: 4500 } : null,
     pct: c.target_cents ? Math.round(((c.basis_cents + 86500) / c.target_cents) * 100) : null,
     gap_cents: c.target_cents === null ? null : Math.max(0, c.target_cents - c.basis_cents - 86500) };
+  /* v1.397.0 - SALES COMMAND CENTER, PHASE 1: GET /staff/sales/today (sales-today.ts).
+     Invented customers and amounts on the fixture's Friday 18-09-2026. The
+     list is the ONE list the Desk line and the Dashboard count: the counts
+     below are worked from these items (actionCounts), never typed apart. */
+  const stA = (o) => ({ customer_id: null, ref: null, doc_id: null, note: null, cents: null, owner_id: 9001, owner_name: "Fixture Person",
+    due_on: null, age_days: null, waited_hours: null, phone: "60123456789", ...o });
+  const stMine = [
+    stA({ key: "followup:612", kind: "followup", flag: "overdue", record_id: 612, customer_id: 52, customer: "Aina Boutique (Melaka)", ref: "QT-0042", doc_id: 42, note: "Confirm the status of QT-0042 with the customer", cents: 450000, due_on: "2026-09-16", age_days: 19, since: "2026-09-16 00:00:00" }),
+    stA({ key: "growth:6", kind: "growth", flag: "waiting", record_id: 6, customer: "Kopi Hafiz (Hafiz Ismail)", ref: "A2Z-181106", note: "Not contacted yet", waited_hours: 30, since: "2026-09-17 02:00:00" }),
+    stA({ key: "invoice:61", kind: "invoice", flag: "payment_overdue", record_id: 61, customer_id: 53, customer: "Kedai Runcit Pak Ali", ref: "INV-0061", doc_id: 61, cents: 15000, age_days: 29, since: "2026-08-20 00:00:00" }),
+    stA({ key: "followup:618", kind: "followup", flag: "today", record_id: 618, customer_id: 55, customer: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", ref: "QT-0046", doc_id: 46, note: "Send the revised live package", cents: 280000, due_on: "2026-09-18", age_days: 6, since: "2026-09-18 00:00:00" }),
+    stA({ key: "enquiry:31", kind: "enquiry", flag: "new", record_id: 31, customer: "Nor Shah Enterprise Sdn Bhd (Cawangan Melaka)", note: "Live session for a new product line", waited_hours: 5, since: "2026-09-18 01:00:00", owner_id: null, owner_name: null }),
+    stA({ key: "quotation:47", kind: "quotation", flag: "ready", record_id: 47, customer_id: 56, customer: "Butik Seri Kenanga", ref: "QT-0047", doc_id: 47, cents: 120000, age_days: 4, since: "2026-09-14 00:00:00", accepted: true }),
+    stA({ key: "quotation:44", kind: "quotation", flag: "no_next", record_id: 44, customer_id: 54, customer: "Klinik Gigi Senyum", ref: "QT-0044", doc_id: 44, cents: 360000, age_days: 12, since: "2026-09-06 00:00:00" }),
+    stA({ key: "quotation:45", kind: "quotation", flag: "no_next", record_id: 45, customer_id: 57, customer: "Restoran Selera Kampung", ref: "QT-0045", doc_id: 45, cents: 90000, age_days: 9, since: "2026-09-09 00:00:00" }),
+  ];
+  const stOthers = [
+    stA({ key: "quotation:41", kind: "quotation", flag: "no_next", record_id: 41, customer_id: 51, customer: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", ref: "QT-AZOO060826-1", doc_id: 41, cents: 330000, age_days: 86, since: "2026-06-24 00:00:00", owner_id: 9010, owner_name: "Hakim Rosli" }),
+    stA({ key: "followup:620", kind: "followup", flag: "overdue", record_id: 620, customer_id: 58, customer: "Pusat Tuisyen Cemerlang", ref: "QT-0048", doc_id: 48, note: "Ask about the deposit date", cents: 210000, due_on: "2026-09-15", age_days: 10, since: "2026-09-15 00:00:00", owner_id: 9002, owner_name: "Nur Aisyah binti Rahman" }),
+  ];
+  const stCount = (items) => {
+    const c = { total: items.length, overdue: 0, today: 0, no_next: 0 };
+    for (const i of items) { if (["overdue", "waiting", "payment_overdue"].includes(i.flag)) c.overdue++; else if (i.flag === "today") c.today++; else if (i.flag === "no_next") c.no_next++; }
+    return c;
+  };
+  const stSales = ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing"].includes(ROLE);
+  const stExec = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
+  if (p === "/staff/sales/today") {
+    const all = q.get("scope") === "all";
+    /* ranked as lib/sales-priority.ts rankActions does on the server */
+    const TIER = { overdue: 0, waiting: 1, payment_overdue: 2, today: 3, new: 4, ready: 5, no_next: 6 };
+    const items = (all && stExec ? [...stMine, ...stOthers] : [...stMine]).sort((a, b) => TIER[a.flag] - TIER[b.flag]
+      || (a.flag === "no_next" ? (b.cents ?? 0) - (a.cents ?? 0) || (b.age_days ?? 0) - (a.age_days ?? 0) : a.since.localeCompare(b.since) || (b.cents ?? 0) - (a.cents ?? 0)));
+    const tr = (o) => ({ enquiries: 2, followups_done: 0, quotations: 0, paid_invoices: 0, collected_cents: 0, target_cents: null, pct: null, ...o });
+    const month = q.get("period") === "month";
+    const teamRows = [
+      tr({ user_id: 9001, name: "Fixture Person", followups_done: 3, quotations: 1, paid_invoices: 1, collected_cents: month ? 520000 : 120000, target_cents: month ? 2000000 : 500000, pct: month ? 26 : 24 }),
+      tr({ user_id: 9010, name: "Hakim Rosli", enquiries: 1, followups_done: 1, quotations: 2, collected_cents: month ? 330000 : 0, target_cents: month ? 1600000 : 400000, pct: month ? 21 : 0 }),
+      tr({ user_id: 9002, name: "Nur Aisyah binti Rahman", enquiries: 0, followups_done: 2, paid_invoices: month ? 2 : 0, collected_cents: month ? 45000 : 0 }),
+    ];
+    const sum = (k) => teamRows.reduce((n, r) => n + (r[k] ?? 0), 0);
+    data = !stSales ? { error: { code: "forbidden", message: "Sales access required" } } : {
+      today: "2026-09-18", scope: all && stExec ? "all" : "mine", items, counts: stCount(items),
+      verify: ROLE === "ceo" && process.env.OWNER ? 1 : null, // the payment verifier rule: the owner-CEO only
+      done: [
+        { key: "done:fu:609", kind: "followup_done", at: "2026-09-18 01:40:00", customer: "Aina Boutique (Melaka)", ref: "QT-0042", detail: "Interested", customer_id: 52, doc_id: 42, record_id: 609 },
+        { key: "done:qt:46", kind: "quotation_issued", at: "2026-09-18 02:15:00", customer: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", ref: "QT-0046", detail: null, customer_id: 55, doc_id: 46, record_id: 46 },
+      ],
+      progress: { done: 2, open: items.length },
+      recent: [
+        { key: "act:qt:46", group: "sales", kind: "quotation", at: "2026-09-18 02:15:00", title: "QT-0046", customer: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", cents: 280000, detail: "Fixture Person", doc_id: 46, customer_id: 55, record_id: 46 },
+        { key: "act:fu:609", group: "followups", kind: "followup_done", at: "2026-09-18 01:40:00", title: "QT-0042", customer: "Aina Boutique (Melaka)", cents: null, detail: "Interested", doc_id: 42, customer_id: 52, record_id: 609 },
+        { key: "act:pay:2", group: "payments", kind: "payment_reported", at: "2026-09-17 06:24:00", title: "INV-0061", customer: "Kedai Runcit Pak Ali", cents: 3750, detail: "Fixture Person", doc_id: 61, customer_id: 53, record_id: 2 },
+        { key: "act:pay:1", group: "payments", kind: "payment_verified", at: "2026-09-16 09:10:00", title: "INV-0058", customer: "Butik Seri Kenanga", cents: 120000, detail: "Fixture Person", doc_id: 58, customer_id: 56, record_id: 1 },
+        { key: "act:enq:31", group: "enquiries", kind: "enquiry", at: "2026-09-18 01:00:00", title: "Nor Shah Enterprise Sdn Bhd (Cawangan Melaka)", customer: null, cents: null, detail: "website", doc_id: null, customer_id: null, record_id: 31 },
+        { key: "act:gr:6", group: "enquiries", kind: "growth", at: "2026-09-17 02:00:00", title: "A2Z-181106", customer: "Kopi Hafiz", cents: null, detail: "tiktok", doc_id: null, customer_id: null, record_id: 6 },
+      ],
+      team: stExec ? { period: month ? "month" : "week", from: month ? "2026-09-01" : "2026-09-14", to: month ? "2026-09-30" : "2026-09-20", rows: teamRows,
+        total: { enquiries: sum("enquiries"), followups_done: sum("followups_done"), quotations: sum("quotations"), paid_invoices: sum("paid_invoices"), collected_cents: sum("collected_cents"), target_cents: sum("target_cents"), pct: null } } : null,
+    };
+  }
   if (p === "/staff/sales/week") {
     const week = { from: "2026-09-14", to: "2026-09-20", today: "2026-09-18", checkpoint: "review", start_dow: 1 };
     data = q.get("scope") === "all" && wkAll ? {
@@ -2238,9 +2299,19 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     ];
     /* v1.369.0 - GROWTH=1: a Business Growth Check enquiry to pick up (growth-fixture.mjs) */
     if (process.env.GROWTH) deskItems.unshift({ bucket: "growth", id: "growth:6", tab: "Sales", kind: "do", who: "Hafiz Ismail", title: "A2Z-181106 - Kopi Hafiz", sub: "Business Growth Check · tiktok · not picked up", next: "Pick it up and contact the entrepreneur", since: new Date(Date.now() - 1440000).toISOString().slice(0, 19).replace("T", " "), overdue: false });
+    /* v1.397.0 - sales roles see ONE Sales line, counted from the same list
+       as My Sales Action Center; the enquiry and growth rows it summarises
+       leave the queue (marketing keeps its growth rows) */
+    if (stSales) {
+      for (let k = deskItems.length - 1; k >= 0; k--) if (deskItems[k].bucket === "enquiries" || deskItems[k].bucket === "growth") deskItems.splice(k, 1);
+      const c = stCount(stMine);
+      deskItems.unshift({ bucket: "sales", id: "sales_today:mine", tab: "Sales", view: "overview", anchor: "sales-action-center", kind: "do", who: null,
+        title: `Sales actions today: ${c.total} pending, ${c.overdue} overdue`, sub: "", next: "Open My Sales Action Center",
+        since: "2026-09-16 00:00:00", overdue: c.overdue > 0, count: c.total, figures: c });
+    }
     const deskCounts = {};
-    for (const i of deskItems) deskCounts[i.bucket] = (deskCounts[i.bucket] ?? 0) + 1;
-    data = { items: deskItems, counts: deskCounts, total: deskItems.length, missing: [] };
+    for (const i of deskItems) deskCounts[i.bucket] = (deskCounts[i.bucket] ?? 0) + (i.count ?? 1);
+    data = { items: deskItems, counts: deskCounts, total: deskItems.reduce((n, i) => n + (i.count ?? 1), 0), missing: [] };
   }
   /* v1.293.0 - the Action Inbox's Completed filter: what the signed-in person decided (invented records) */
   if (p === "/staff/desk/completed") data = { days: 30, missing: [], items: [

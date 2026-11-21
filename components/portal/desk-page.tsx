@@ -36,7 +36,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { DeskRow, deskAnchor, deskBucketWord, splitDesk, useDeskData, waited, type DeskItem } from "@/components/portal/one-desk";
+import { DeskRow, deskAnchor, deskBucketWord, deskOverdue, deskWeight, splitDesk, useDeskData, waited, type DeskItem } from "@/components/portal/one-desk";
 import { WATCHER_ROLES, useWatcherData, watcherIcon, watcherLabel, type Finding } from "@/components/portal/watchers-card";
 import { ViewSwitch } from "@/components/portal/executive-cards";
 import { usePortal } from "@/components/portal/portal-provider";
@@ -119,7 +119,7 @@ const MODULE_MS: Record<string, string> = {
 const moduleWord = (tab: string) => (tab === "Announcements" ? L("News", "Berita") : L(tab, MODULE_MS[tab] ?? tab));
 const BUCKET_ICON: Partial<Record<DeskItem["bucket"], AppIconName>> = {
   leave: "date", claims: "receipt", ot: "time", punches: "time", tasks: "documents", news: "content",
-  followups: "users", billing: "documents", people: "users", quotes: "documents", advisory: "documents", partners: "users", payments: "money", growth: "target", cards: "document",
+  followups: "users", billing: "documents", people: "users", quotes: "documents", advisory: "documents", partners: "users", payments: "money", growth: "target", cards: "document", sales: "target", // v1.397.0
 };
 
 /* overdue first, then the longest waiting */
@@ -130,6 +130,8 @@ interface InboxRow {
   key: string; title: string; ref: string; tab: string; who: string | null; since: string | null;
   priority: "overdue" | "pending" | "alert"; status: string; next: string;
   kind: "decide" | "respond" | "alert";
+  /** v1.397.0 - how many actions the row stands for (the Sales line: every action it summarises) */
+  weight: number;
   open: () => void;
 }
 
@@ -175,7 +177,7 @@ export function DeskPage({ user, go, startView }: {
   };
 
   const work = [...decide, ...attention].sort(byPriority);
-  const overdueN = work.filter((i) => i.overdue).length;
+  const overdueN = deskOverdue(work); // v1.397.0 - the Sales line counts the overdue actions it stands for
   const oldestDecision = decide.length > 0 ? waited([...decide].sort((a, b) => (a.since ?? "").localeCompare(b.since ?? ""))[0]?.since ?? null) : "";
   const tasksOverdue = myTasks.filter((t) => t.overdue).length;
   /* alerts, one group per rule: how many and the oldest */
@@ -195,7 +197,7 @@ export function DeskPage({ user, go, startView }: {
   /* ---------------- the inbox rows ---------------- */
   const fromItem = (i: DeskItem, kind: "decide" | "respond"): InboxRow => ({
     key: i.id, title: i.title, ref: refOf(i.id), tab: i.tab, who: i.who ?? null, since: i.since,
-    priority: i.overdue ? "overdue" : "pending", status: i.sub, next: i.next ?? "", kind,
+    priority: i.overdue ? "overdue" : "pending", status: i.sub, next: i.next ?? "", kind, weight: i.count ?? 1,
     open: () => openItem(i.id, i.tab, i.bucket),
   });
   const fromFinding = (f: Finding): InboxRow => {
@@ -203,14 +205,14 @@ export function DeskPage({ user, go, startView }: {
     const tab = w?.tab ?? "Dashboard";
     return {
       key: `finding:${f.ref}`, title: f.title, ref: `${watcherLabel(w?.label ?? f.watcher)} · ${refOf(f.ref)}`, tab, who: null, since: f.first_seen,
-      priority: "alert", status: L("Open finding", "Dapatan terbuka"), next: L(`Fix it in ${moduleWord(tab)}`, `Selesaikan dalam ${moduleWord(tab)}`), kind: "alert",
+      priority: "alert", status: L("Open finding", "Dapatan terbuka"), next: L(`Fix it in ${moduleWord(tab)}`, `Selesaikan dalam ${moduleWord(tab)}`), kind: "alert", weight: 1,
       open: () => openItem(f.ref, tab),
     };
   };
   const rows: InboxRow[] = [...decide.map((i) => fromItem(i, "decide")), ...attention.map((i) => fromItem(i, "respond")), ...findings.map(fromFinding)];
 
   /* ---------------- the view bar ---------------- */
-  const inboxCount = known ? work.length + findings.length : null;
+  const inboxCount = known ? deskWeight(work) + findings.length : null;
 
   return (
     <TabPage className={css.page}>
@@ -250,7 +252,7 @@ function Overview(p: {
   groups: { key: string; label: string; tab: string; n: number; oldest: string }[];
   toInbox: (f: InboxFilter) => void; go: (tab: string) => void; openItem: (id: string, tab: string, bucket?: DeskItem["bucket"]) => void;
 }) {
-  const workN = p.work.length;
+  const workN = deskWeight(p.work); // v1.397.0 - the same count the Dashboard and the Sales line show
   const [opened] = useState(() => Date.now()); // the moment the Overview opened: the greeting does not tick
   const myt = new Date(opened + 8 * 3600 * 1000);
   const hour = myt.getUTCHours();
@@ -393,8 +395,10 @@ function Inbox({ rows, known, exec, filter, setFilter, go, openRecord }: {
   /* Completed is read only when it is chosen (D5) */
   const done = useCachedApi<{ items: Done[]; days: number }>("/staff/desk/completed", filter === "done", ["leave", "claims", "attendance", "quotes", "people"]);
 
-  const count = (f: InboxFilter) => f === "all" ? rows.length : f === "decide" ? rows.filter((r) => r.kind === "decide").length
-    : f === "respond" ? rows.filter((r) => r.kind === "respond").length : f === "alerts" ? rows.filter((r) => r.kind === "alert").length : null;
+  /* v1.397.0 - weighted, so the pills agree with the Overview and the Dashboard (the Sales line is every action it stands for) */
+  const sumW = (list: InboxRow[]) => list.reduce((n, r) => n + r.weight, 0);
+  const count = (f: InboxFilter) => f === "all" ? sumW(rows) : f === "decide" ? sumW(rows.filter((r) => r.kind === "decide"))
+    : f === "respond" ? sumW(rows.filter((r) => r.kind === "respond")) : f === "alerts" ? rows.filter((r) => r.kind === "alert").length : null;
   const pills: [InboxFilter, string][] = [
     ["all", L("All", "Semua")], ["decide", L("Awaiting My Decision", "Menunggu Keputusan Saya")], ["respond", L("Requires My Response", "Perlu Respons Saya")],
     ...(exec ? ([["alerts", L("Alerts", "Amaran")]] as [InboxFilter, string][]) : []), ["done", L("Completed", "Selesai")],
@@ -485,7 +489,7 @@ function Inbox({ rows, known, exec, filter, setFilter, go, openRecord }: {
             <span role="columnheader">{L("Status", "Status")}</span><span role="columnheader" className={css.act}>{L("Next action", "Tindakan seterusnya")}</span>
           </div>
           {list.slice((cur - 1) * PAGE, cur * PAGE).map((r) => (
-            <div key={r.key} className={css.trow} role="row" data-testid="inbox-row" data-kind={r.kind}>
+            <div key={r.key} className={css.trow} role="row" data-testid="inbox-row" data-kind={r.kind} data-weight={r.weight}>
               <span role="cell" className={css.cTitle}><strong>{r.title}</strong><small>{r.ref}</small></span>
               <span role="cell" className={css.cMod}>{moduleWord(r.tab)}</span>
               <span role="cell" className={css.cWho} title={r.who ?? undefined}>{r.who ?? "—"}</span>

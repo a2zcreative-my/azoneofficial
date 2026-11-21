@@ -106,13 +106,14 @@ with sync_playwright() as p:
                 check(f"{tag}: six figures: the week's sales, the weekly target, Outstanding, Pending CEO Verification (off), Due Follow-Ups, Open Quotations",
                       strip.count() == 1 and strip.first.get_attribute("data-cols") == "6" and "Sales This Week" in txt and "Weekly Target" in txt
                       and "Outstanding" in txt and "Verified" not in txt and "Payment verification is off" in txt and "Due Follow-Ups" in txt and "Open Quotations" in txt, txt[:300])
-                wl = pg.get_by_test_id("sales-worklist").filter(visible=True)
-                check(f"{tag}: then the pipeline, the one worklist and the rail - and nothing else (no chart, no report, no advice)",
-                      wl.count() == 1 and vis(pg, "sales-pipeline") and vis(pg, "important-followups") and pg.get_by_test_id("sales-reports").count() == 0 and pg.locator("main svg[aria-label*='Sales performance' i]").count() == 0
+                # v1.397.0 - the one worklist is My Sales Action Center; Important Follow-Ups lives inside it
+                wl = pg.get_by_test_id("action-center").filter(visible=True)
+                check(f"{tag}: then the Action Center, the pipeline summary and the week - and nothing else (no chart, no report, no advice)",
+                      wl.count() == 1 and vis(pg, "sales-pipeline") and pg.get_by_test_id("sales-worklist").count() == 0 and pg.get_by_test_id("sales-reports").count() == 0 and pg.locator("main svg[aria-label*='Sales performance' i]").count() == 0
                       and "Weekly sales" not in pg.locator("main").inner_text(), pg.locator("main").inner_text()[:200])
                 if phone:
-                    small = small_targets(pg, "sales-worklist")
-                    check(f"{tag}: the worklist's controls are 44 px touch targets on a phone", not small, small)
+                    small = small_targets(pg, "action-list")
+                    check(f"{tag}: the Action Center's controls are 44 px touch targets on a phone", not small, small)
             if key == "reports":
                 rt = pg.get_by_test_id("report-type")
                 check(f"{tag}: Reports: one selector, Sales Performance first", rt.count() == 1 and rt.input_value() == "performance")
@@ -134,25 +135,24 @@ with sync_playwright() as p:
         pg.go_back(); pg.wait_for_timeout(900)
         check(f"Back {w}: Back returns to Payments", view_of(pg) == "payments" and pg.get_by_test_id("sales-reports").count() == 0, pg.url)
         pg.go_back(); pg.wait_for_timeout(900)
-        check(f"Back {w}: Back again returns to the Overview", view_of(pg) == "overview" and vis(pg, "sales-worklist"), pg.url)
+        check(f"Back {w}: Back again returns to the Overview", view_of(pg) == "overview" and vis(pg, "action-center"), pg.url)
         pg.go_forward(); pg.wait_for_timeout(900)
-        check(f"Back {w}: Forward goes to Payments again", view_of(pg) == "payments" and not vis(pg, "sales-worklist"), pg.url)
+        check(f"Back {w}: Forward goes to Payments again", view_of(pg) == "payments" and not vis(pg, "action-center"), pg.url)
         ctx.close()
 
-    # ================= a worklist row opens the record itself =================
+    # ================= an Action Center row opens the record itself =================
+    # v1.397.0 - the one worklist is My Sales Action Center (sales-today.tsx); its buttons go to the records
     for w in [1440, 390]:
         ctx = ctx_for(b, w); pg = ctx.new_page(); errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))
         go(pg, 4177)
-        wl = pg.get_by_test_id("sales-worklist").filter(visible=True).first
-        qrow = wl.locator("[role=row]").filter(has_text="QT-0042")
-        qrow.get_by_role("button", name="Follow up").first.click(); pg.wait_for_timeout(1500)
+        ac = pg.get_by_test_id("action-center")
+        ac.locator("[data-key='followup:612'] [data-testid=action-go]").click(); pg.wait_for_timeout(1500)
         dlg = pg.get_by_role("dialog").last
-        check(f"Work {w}: a quotation's Follow up opens its customer's file", dlg.count() == 1 and "Aina Boutique (Melaka)" in dlg.inner_text(), dlg.inner_text()[:200] if dlg.count() else "none")
+        check(f"Work {w}: an overdue follow-up's action opens its customer's file", dlg.count() == 1 and "Aina Boutique (Melaka)" in dlg.inner_text(), dlg.inner_text()[:200] if dlg.count() else "none")
         pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
-        irow = wl.locator("[role=row]").filter(has_text="INV-AZO200826-4")
-        irow.get_by_role("button", name="Open").first.click(); pg.wait_for_timeout(1500)
-        check(f"Work {w}: an invoice's Open goes to that invoice in Quotations & Invoices", view_of(pg) == "documents" and "INV-AZO200826-4" in pg.locator("main").inner_text(), pg.url)
+        ac.locator("[data-key='invoice:61'] [data-testid=action-doc]").click(); pg.wait_for_timeout(1500)
+        check(f"Work {w}: an invoice's Document goes to Quotations & Invoices", view_of(pg) == "documents", pg.url)
         check(f"Work {w}: no page errors and no error card", not errs and "Something went wrong on this screen" not in pg.locator("main").inner_text(), errs[:3])
         ctx.close()
 
@@ -253,15 +253,14 @@ with sync_playwright() as p:
         txt = pg.get_by_role("group", name="Sales at a glance").filter(visible=True).first.inner_text()
         check(f"PAYV {who} {w}: the figures say Verified Outstanding and Pending CEO Verification, waiting for the CEO",
               "Verified Outstanding" in txt and "Pending CEO Verification" in txt and "waiting for the CEO" in txt and "verification is off" not in txt, txt[:300])
-        wl = pg.get_by_test_id("sales-worklist").filter(visible=True).first
-        rows = wl.locator("[role=row]").filter(has_text="payment reported")
-        rt = rows.first.inner_text() if rows.count() else ""
+        # v1.397.0 - a reported payment is the verifier's line at the top of the Action Center; nobody else gets a verify action
+        vl = pg.get_by_test_id("action-verify").filter(visible=True)
         if who == "COO":
-            check(f"PAYV {who} {w}: the reported payment says Pending CEO verification, with View - never Review or Verify", rows.count() >= 1 and "Pending CEO verification" in rt and "View" in rt and "Review" not in rt and "Verify" not in rt, rt)
+            check(f"PAYV {who} {w}: no verify action for the COO - verification stays the owner-CEO's", vl.count() == 0 and "Verify" not in pg.get_by_test_id("action-center").inner_text())
         else:
-            check(f"PAYV {who} {w}: the owner account reviews the reported payment", rows.count() >= 1 and "Review" in rt, rt)
-            rows.first.get_by_role("button", name="Review").click(); pg.wait_for_timeout(1500)
-            check(f"PAYV {who} {w}: Review opens Payments (the payment engine), said in the address", view_of(pg) == "payments", pg.url)
+            check(f"PAYV {who} {w}: the owner account sees the payment waiting for verification", vl.count() == 1 and "verification" in vl.inner_text(), vl.count())
+            vl.first.click(); pg.wait_for_timeout(1500)
+            check(f"PAYV {who} {w}: it opens Payments (the payment engine), said in the address", view_of(pg) == "payments", pg.url)
         check(f"PAYV {who} {w}: no sideways page; no page errors", no_hscroll(pg) and not errs, errs[:3])
         ctx.close()
     for port in [4290, 4266]:
@@ -271,11 +270,11 @@ with sync_playwright() as p:
     ctx = ctx_for(b, 1440); pg = ctx.new_page()
     go(pg, 4182, "overview")
     txt = pg.get_by_role("group", name="Sales at a glance").filter(visible=True).first.inner_text()
-    check("Sales consultant: the figures are theirs: My Sales This Week, My Weekly Target; no team panel", "My Sales This Week" in txt and "My Weekly Target" in txt and pg.get_by_test_id("team-sales").count() == 0, txt[:200])
+    check("Sales consultant: the figures are theirs: My Sales This Week, My Weekly Target; no team panel", "My Sales This Week" in txt and "My Weekly Target" in txt and pg.get_by_test_id("team-table").count() == 0, txt[:200])
     go(pg, 4179, "reports")
     check("COO: Reports opens from the address", pg.get_by_test_id("report-type").count() == 1 and view_of(pg) == "reports")
     go(pg, 4180, "payments")
-    check("Live host: Sales cannot be opened by address (no Sales views drawn)", pg.get_by_test_id("sales-tabs").count() == 0 and pg.get_by_test_id("sales-worklist").count() == 0, pg.url)
+    check("Live host: Sales cannot be opened by address (no Sales views drawn)", pg.get_by_test_id("sales-tabs").count() == 0 and pg.get_by_test_id("action-center").count() == 0, pg.url)
     ctx.close()
     b.close()
 

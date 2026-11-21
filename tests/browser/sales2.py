@@ -40,7 +40,6 @@ def open_page(b, port, w=1440, h=1100, view="overview"):
     pg.goto(f"http://127.0.0.1:{port}/portal?tab=Sales&view={view}"); pg.wait_for_timeout(4000)
     pg.evaluate("document.querySelector('[data-testid=update-available]')?.remove()")
     return ctx, pg, errs
-def rows(pg): return pg.get_by_test_id("sales-worklist").locator("[role=row][data-kind]")
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -63,31 +62,31 @@ with sync_playwright() as p:
     check("each step carries a count", all(isinstance(v, int) for v in counts.values()) and len(counts) == 7, counts)
     clipped = pg.evaluate("[...document.querySelectorAll('[data-testid=sales-pipeline] strong')].filter(e => e.scrollWidth > e.clientWidth + 1).length")
     check("no step's word is cut off", clipped == 0, clipped)
-    allrows = rows(pg).count()
-    # press Invoice
-    pipe.locator("li[data-step=invoice] button").click(); pg.wait_for_timeout(500)
-    kinds = set(r.get_attribute("data-kind") for r in rows(pg).all())
-    check("pressing Invoice narrows the worklist to invoices, says so, and the step reads pressed",
-          kinds <= {"invoice"} and rows(pg).count() <= allrows and pg.get_by_test_id("worklist-pipe").count() == 1 and pipe.locator("li[data-step=invoice] button").get_attribute("aria-pressed") == "true", kinds)
-    check("the worklist's invoices are the step's own count or fewer (only the ones that need someone)", rows(pg).count() <= counts["invoice"] + counts["reported"], f"{rows(pg).count()} / {counts}")
-    pipe.locator("li[data-step=invoice] button").click(); pg.wait_for_timeout(400)
-    check("pressing it again clears it - the whole worklist is back", rows(pg).count() == allrows and pg.get_by_test_id("worklist-pipe").count() == 0)
-    pipe.locator("li[data-step=enquiry] button").click(); pg.wait_for_timeout(400)
-    check("Enquiry: only enquiries", set(r.get_attribute("data-kind") for r in rows(pg).all()) <= {"enquiry"} and rows(pg).count() >= 1)
-    pg.get_by_test_id("pipeline-clear").click(); pg.wait_for_timeout(400)
-    check("Clear in the pipeline's head clears it too", rows(pg).count() == allrows)
-    # the rail
-    for tid, what in [("important-followups", "Important Follow-Ups"), ("recent-payments", "Recent Payment Activity"), ("team-sales", "Team Sales Performance")]:
-        check(f"the rail: {what}", pg.get_by_test_id(tid).is_visible())
-    wl = pg.get_by_test_id("sales-worklist").bounding_box(); rp = pg.get_by_test_id("recent-payments").bounding_box()
-    check("the rail sits beside the worklist at 1440px, narrower", rp["x"] > wl["x"] + wl["width"] - 1 and rp["width"] < wl["width"], (wl, rp))
-    badges = [x.get_attribute("data-status") for x in pg.get_by_test_id("recent-payments").get_by_test_id("invoice-badge").all()]
-    check("Recent Payment Activity: each invoice with its word - Paid, Partially paid or Unpaid (S2-4)", badges and set(badges) <= {"paid", "part_paid", "unpaid"}, badges)
+    # v1.397.0 (Sales Command Center, Phase 1) - the pipeline is a SUMMARY in the rail: a step opens
+    # the records it counts; the one worklist and the rail panels are now My Sales Action Center,
+    # the week's target and Recent Activities (sales-today.tsx; tests/browser/sales-today.py)
+    def press(step):
+        pg.get_by_test_id("sales-pipeline").locator(f"li[data-step={step}] button").click(); pg.wait_for_timeout(1200)
+        v = view_of(pg); pg.goto(f"http://127.0.0.1:{CEO}/portal?tab=Sales&view=overview"); pg.wait_for_timeout(3000)
+        return v
+    check("Invoice opens Quotations & Invoices", press("invoice") == "documents")
+    check("Quotation opens Quotations & Invoices", press("quotation") == "documents")
+    check("Payment Reported opens Payments", press("reported") == "payments")
+    check("CEO Verified opens Closed Sales", press("verified") == "closed")
+    pipe = pg.get_by_test_id("sales-pipeline")
+    ac = pg.get_by_test_id("action-center")
+    check("the main column is My Sales Action Center (the one list)", ac.is_visible() and pg.get_by_test_id("sales-worklist").count() == 0)
+    for tid, what in [("recent-list", "Recent Activities"), ("team-table", "Team Performance")]:
+        check(f"below: {what}", pg.get_by_test_id(tid).is_visible())
+    wl = ac.bounding_box(); rp = pipe.locator("xpath=ancestor::*[@data-testid='rail-pipeline' or contains(@class,'panel')][1]").bounding_box()
+    check("the rail (pipeline summary) sits beside the Action Center at 1440px, narrower", rp["x"] > wl["x"] + wl["width"] - 1 and rp["width"] < wl["width"], (wl, rp))
+    pg.get_by_test_id("recent-filter").get_by_role("button", name=re.compile("^Payments")).click(); pg.wait_for_timeout(300)
+    check("Recent Activities: the Payments filter keeps the payment activity (S2-4 moved here)", pg.get_by_test_id("recent-row").count() >= 1)
     check("S2-1: nothing on the Overview says Mark paid", re.search(r"\bmark paid\b", ov.inner_text(), re.I) is None)
-    tm = pg.get_by_test_id("team-sales").inner_text()
-    check("Team Sales Performance: This Week, the total and each person with an amount", "This Week" in tm and re.search(r"RM [\d,]+\.\d\d", tm) is not None, tm[:200])
+    tm = pg.get_by_test_id("team-table").inner_text()
+    check("Team Performance: each person with an amount and a team total", "Team total" in tm and re.search(r"RM [\d,]+\.\d\d", tm) is not None, tm[:200])
     check("no sideways page (1440)", no_hscroll(pg))
-    pipe.locator("li[data-step=closed] button").click(); pg.wait_for_timeout(1200)
+    pg.get_by_test_id("sales-pipeline").locator("li[data-step=closed] button").click(); pg.wait_for_timeout(1200)
     check("Closed Sale opens Closed Sales (said in the address)", view_of(pg) == "closed", pg.url)
     pg.go_back(); pg.wait_for_timeout(900)
     check("Back returns to the Overview", view_of(pg) == "overview" and pg.get_by_test_id("sales-pipeline").is_visible(), pg.url)
@@ -97,7 +96,7 @@ with sync_playwright() as p:
     # a consultant: their own
     ctx, pg, errs = open_page(b, SALES)
     txt = pg.get_by_role("group", name="Sales at a glance").inner_text()
-    check("a consultant: My Sales This Week and My Weekly Target; no team panel", "My Sales This Week" in txt and "My Weekly Target" in txt and pg.get_by_test_id("team-sales").count() == 0, txt[:200])
+    check("a consultant: My Sales This Week and My Weekly Target; no team panel", "My Sales This Week" in txt and "My Weekly Target" in txt and pg.get_by_test_id("team-table").count() == 0, txt[:200])
     ctx.close()
     check("no page error (consultant)", not errs, errs[:3])
 

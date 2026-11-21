@@ -13,11 +13,13 @@
      - the shared pieces (Panel, FlowStrip, KpiRow cols) are tokens and the
        house breakpoints only, and draw nothing they are not handed;
      - the Overview reads the pipeline from the one module, with the payment
-       engine's parts only while verification is on; a pressed step narrows the
-       ONE worklist; CEO Verified and Closed Sale open Closed Sales;
+       engine's parts only while verification is on; a pressed step opens the
+       records it counts (v1.397.0 - the worklist it narrowed is the Action
+       Center now); CEO Verified and Closed Sale open Closed Sales;
      - S2-1: nothing on the Overview says Mark paid; an invoice's action stays
        the payment engine's own;
-     - Team Sales Performance only from the management-only weekly rows;
+     - Team Sales Performance only from the management-only rows (v1.397.0:
+       GET /sales/today's team, exec_view and Everyone only);
      - Sales 2.0 writes nothing and types no figure.
    Each rule is also proven to catch its own breakage (the mutation pass).
 
@@ -35,6 +37,7 @@ const FILES = {
   panel: "components/ui/panel.tsx", panelCss: "components/ui/panel.module.css", flow: "components/ui/flow-strip.tsx", flowCss: "components/ui/flow-strip.module.css",
   kpi: "components/ui/kpi-tile.tsx", kpiCss: "components/ui/kpi-tile.module.css",
   sales: "components/portal/sales.tsx", views: "components/portal/sales-views.tsx", shell: "components/portal/sales-shell.tsx",
+  today: "components/portal/sales-today.tsx", todayApi: "worker/src/sales-today.ts", // v1.397.0 - Sales Command Center, Phase 1
 };
 
 let n = 0;
@@ -120,15 +123,20 @@ async function checks(src) {
   const { sales, views, s2, shell } = src;
   ok("the pipeline is the one module's count, with the payment engine's parts only while verification is on",
     /const pipeline = pipelineCounts\(\{ enquiries, quotes: opps, invoices: sDocs\.filter\(\(d\) => d\.doc_type === "INV"\), pay: pv\?\.on \? pv\.inv : null, month: monthKey \}\);/.test(sales));
-  ok("a pressed step narrows the ONE worklist; CEO Verified and Closed Sale open Closed Sales",
-    /if \(k === "verified" \|\| k === "closed"\) \{ setPipe\(null\); setWsView\("closed"\); return; \}/.test(sales) && /\.filter\(\(r\) => !pipe \|\| r\.pipe === pipe\)/.test(shell)
-    && /worklist=\{<SalesWorklist rows=\{workRows\} [^>]*pipe=\{pipe\}/.test(sales) && (sales.match(/<SalesWorklist /g) ?? []).length === 1);
+  /* v1.397.0 - the worklist a step narrowed is the Action Center now (ONE list); a step opens its records */
+  ok("a pressed step opens the records it counts; CEO Verified and Closed Sale open Closed Sales; reported opens Payments; ONE action list",
+    /if \(k === "verified" \|\| k === "closed"\) \{ setWsView\("closed"\); return; \}/.test(sales) && /if \(k === "reported"\) \{ setWsView\("payments"\); return; \}/.test(sales)
+    && /if \(k === "enquiry"\) \{ toEnquiries\(\); return; \}/.test(sales) && /if \(k === "invoice"\) \{ setDocType\("INV"\); setDocStatus\("unpaid"\); \} else \{ setDocType\("QT"\); setDocStatus\("open"\); \}/.test(sales)
+    && (sales.match(/<ActionCenter /g) ?? []).length === 1 && !/<SalesWorklist /.test(sales) && /\.filter\(\(r\) => !pipe \|\| r\.pipe === pipe\)/.test(shell));
   ok("every worklist row says its step", ['kind: "payment", pipe: "reported"', 'kind: "invoice", pipe: "invoice"', 'kind: "followup", pipe: "follow_up"', 'kind: "enquiry", pipe: "enquiry"'].every((x) => views.includes(x))
     && /kind: "quotation", pipe: quoteStatus\(o\) === "open" \? "quotation" : "follow_up",/.test(views));
-  ok("S2-1: the Overview never says Mark paid; an invoice's action is the payment engine's own", !/\bMark paid\b|\bTanda dibayar\b/i.test(s2 + views) && /actionFor\(\{ total_cents: d\.total_cents/.test(views));
-  ok("Team Sales Performance comes only from the weekly rows the server gives management, and only on Everyone",
-    /team=\{scope === "all" && weekDash\?\.all \? \{/.test(sales) && /\{team && \(/.test(s2));
-  ok("Sales 2.0 writes nothing", !/\bapi\s*[(<]|csrfFetch|method:\s*"(POST|PATCH|PUT|DELETE)"/.test(s2 + src.panel + src.flow + src.status));
+  ok("S2-1: the Overview never says Mark paid; an invoice's action is the payment engine's own", !/\bMark paid\b|\bTanda dibayar\b/i.test(s2 + views + src.today) && /actionFor\(\{ total_cents: d\.total_cents/.test(views));
+  /* v1.397.0 - decision 2: the Action Center opens on Mine for management too, so the team table follows the permission, not the list */
+  ok("Team Sales Performance comes only from the rows the server gives management (exec_view), on either list",
+    /const team = canUser\(user, "exec_view"\) \? await teamFigures\(env, period, today\) : null;/.test(src.todayApi)
+    && /const \[actionScope, setActionScope\] = useState<WsScope>\("mine"\);/.test(sales) && /useSalesToday\(actionScope, teamPeriod\)/.test(sales)
+    && /team=\{todayState\.data\?\.team \? <TeamPerformance /.test(sales));
+  ok("Sales 2.0 writes nothing", !/\bapi\s*[(<]|csrfFetch|method:\s*"(POST|PATCH|PUT|DELETE)"/.test(s2 + src.panel + src.flow + src.status + src.today));
   const code2 = s2.replace(/\/\*[\s\S]*?\*\//g, "");
   ok("no figure is typed in", !/fmtRM\(\s*\d|_cents: \d|\+\d+%/.test(code2));
   ok("a step with nothing to compare shows no change (no vs last week drawn)", !/delta=/.test(s2));
@@ -150,8 +158,10 @@ const MUT = [
   ["a closed enquiry still counted", "status", 'out.enquiry = p.enquiries.filter((e) => e.status !== "closed").length;', "out.enquiry = p.enquiries.length;"],
   ["reported counted with verification off", "sales", "pay: pv?.on ? pv.inv : null, month: monthKey", "pay: pv?.inv ?? null, month: monthKey"],
   ["a pressed step ignored by the worklist", "shell", ".filter((r) => !pipe || r.pipe === pipe)", ""],
-  ["Mark paid on the Overview", "s2", 'L("Recent Payment Activity", "Aktiviti Bayaran Terkini")', 'L("Recent Payment Activity · Mark paid", "Aktiviti Bayaran Terkini")'],
-  ["the team panel for everyone", "sales", 'team={scope === "all" && weekDash?.all ? {', "team={weekDash?.all ? {"],
+  ["a reported step that opens nothing", "sales", 'if (k === "reported") { setWsView("payments"); return; }', ""],
+  ["Mark paid on the Overview", "today", 'L("Recent Activities", "Aktiviti Terkini")', 'L("Recent Activities · Mark paid", "Aktiviti Terkini")'],
+  ["the team panel for everyone", "todayApi", 'const team = canUser(user, "exec_view") ?', 'const team = true ?'],
+  ["the Action Center opens on Everyone for management", "sales", 'const [actionScope, setActionScope] = useState<WsScope>("mine");', 'const [actionScope, setActionScope] = useState<WsScope>(MANAGE_ROLES.includes(user.role) ? "all" : "mine");'],
   ["an invented change", "s2", '<KpiTile icon="money" tone="green"', '<KpiTile delta={{ pct: 22, text: "+22%" }} icon="money" tone="green"'],
   ["a literal colour in the panel", "panelCss", ".navy { background: var(--muted); color: var(--foreground); }", ".navy { background: #eef1f6; color: var(--foreground); }"],
   ["a breakpoint of its own", "flowCss", "@media (max-width: 767px)", "@media (max-width: 700px)"],

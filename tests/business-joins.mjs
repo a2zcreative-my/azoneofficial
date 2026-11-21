@@ -219,9 +219,19 @@ const idx = read("worker/src/index.ts");
   ok("the shared page says it is not a payment", /This records your acceptance only - it is not a payment\./.test(read("components/public/doc-accept.tsx")));
   /* the desk */
   const desk = read("worker/src/desk.ts");
+  /* v1.397.0 (the CEO, 21-11-2026, decision 5): the follow-ups moved from a Desk list to ONE Desk line,
+     counted by the Daily Action Center (worker/src/sales-today.ts salesTodayCounts, scope "mine").
+     The same rules are held where the rows are read now - and the new file is held read-only too. */
+  const today = has("worker/src/sales-today.ts") ? read("worker/src/sales-today.ts") : "";
   ok("follow-ups and monthly invoices reach the Desk only for the sales team, and a follow-up only for its owner or nobody's",
-    /if \(canUser\(user, "sales"\)\) \{\s*await guard\("followups"/.test(desk) && /\(f\.owner_id = \?2 OR f\.owner_id IS NULL\)/.test(desk));
-  ok("the Desk only reads them", !/(INSERT|UPDATE|DELETE)\s/.test(desk.slice(desk.indexOf('await guard("followups"'), desk.indexOf("news I have not acknowledged"))));
+    /if \(canUser\(user, "sales"\)\) \{\s*await guard\("sales", async \(\) => \{\s*const c = await salesTodayCounts\(env, user\);/.test(desk)
+    && /if \(canUser\(user, "sales"\)\) \{\s*\/\*[^*]*\*\/\s*await guard\("billing"/.test(desk)
+    && /return actionCounts\(\(await salesActions\(env, \{ user: user as StaffUser, scope: "mine" \}\)\)\.items\);/.test(today)
+    && /AND \(\?2 = 0 OR f\.owner_id = \?3 OR f\.owner_id IS NULL\)/.test(today)
+    && /\.bind\(today, mine \? 1 : 0, user\.id\)/.test(today));
+  ok("the Desk and the Action Center only read them",
+    !/(INSERT|UPDATE|DELETE)\s/.test(desk.slice(desk.indexOf('await guard("sales"'), desk.indexOf("news I have not acknowledged")))
+    && !/\b(INSERT\s+INTO|UPDATE\s+[a-z_]+\s+SET|DELETE\s+FROM)\b/i.test(today));
   /* the funnel */
   ok("the prospects pipeline stays retired: nothing here reads or writes prospects", !/prospects/.test(p4.slice(p4.indexOf("*/") + 2).replace(/\/\*[\s\S]*?\*\//g, "")) && !/\/pipeline/.test(staff.replace(/\/\*[\s\S]*?\*\//g, "")));
   /* v1.183.0 - Enquiries is retired, and with it the enquiry -> quotation

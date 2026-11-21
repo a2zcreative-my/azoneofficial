@@ -48,7 +48,7 @@ import { Donut } from "@/components/ui/donut";
 import { Avatar } from "@/components/ui/avatar";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
-import { deskAnchor, deskBucketWord, splitDesk, useDeskData } from "@/components/portal/one-desk";
+import { deskAnchor, deskBucketWord, deskWeight, splitDesk, useDeskData } from "@/components/portal/one-desk"; // v1.397.0 deskWeight: the Sales line counts its actions
 import type { Announcement, LeaveReq, Task, User } from "@/components/portal/page-shared";
 import { MANAGE_ROLES, annCatL, leaveTypeL, priorityL, revealAnchor } from "@/components/portal/page-shared";
 import { liveError } from "@/components/admin/system-health"; // v1.326.0 - fixed history does not raise the alert
@@ -273,7 +273,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
         bar={me.pct === null ? undefined : { pct: me.pct, tone: "gold" }} onClick={() => go(wk.can_sales && can("Sales") ? "Sales" : "Dashboard")} /> },
       { key: "w-fu", node: <KpiTile icon="calendarAdd" tone="blue" label={L("Follow-ups due", "Susulan perlu")} value={(me.followups_today ?? 0) + me.followups_overdue} sub={L(`${me.followups_overdue} late`, `${me.followups_overdue} lewat`)} onClick={() => go(can("Sales") ? "Sales" : "Desk")} /> },
       tasksTile,
-      { key: "desk", node: <KpiTile icon="pending" tone="navy" label={L("Waiting on me", "Menunggu saya")} busy={desk.data === null} value={d0.length + a0.length} sub={L(`${d0.length} need my decision`, `${d0.length} perlu keputusan saya`)} onClick={() => go("Desk")} /> },
+      { key: "desk", node: <KpiTile icon="pending" tone="navy" label={L("Waiting on me", "Menunggu saya")} busy={desk.data === null} value={d0.length + deskWeight(a0)} sub={L(`${d0.length} need my decision`, `${d0.length} perlu keputusan saya`)} onClick={() => go("Desk")} /> },
       { key: "leave", node: <KpiTile icon="holiday" tone="purple" label={L("My leave", "Cuti saya")} value={ownLeave.length} sub={ownLeave.length ? L("Waiting for a decision", "Menunggu keputusan") : L("Nothing pending", "Tiada menunggu")} onClick={() => go("Leave")} /> },
     );
   }
@@ -317,7 +317,7 @@ export function DashboardOverview({ user, go, canOpen, lang, onCreateQuotation, 
     const { decide: d, attention } = splitDesk(deskItems);
     tiles.push({ key: "desk", node: (
       <KpiTile icon="pending" tone="navy" label={L("Waiting on me", "Menunggu saya")} busy={desk.data === null}
-        value={d.length + attention.length} sub={L(`${d.length} need my decision`, `${d.length} perlu keputusan saya`)} onClick={() => go("Desk")} />
+        value={d.length + deskWeight(attention)} sub={L(`${d.length} need my decision`, `${d.length} perlu keputusan saya`)} onClick={() => go("Desk")} />
     ) });
   }
   if (tiles.length < 5) {

@@ -4,6 +4,16 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Sales Command Center, Phase 1: My Sales Action Center (21-11-2026, the CEO) - no migration
+- **Sales -> Overview** keeps its six figures exactly as they were, and its main column is now **My Sales Action Center**: one list of what needs you today, most urgent first - overdue follow-ups, late replies and overdue payments, then today's follow-ups, new enquiries and accepted quotations ready to invoice, then anything with no next action booked.
+- Each row says what it is in words as well as colour: **red** = overdue, **amber** = no next action, a **grey** "Open N days" chip = how old the quotation is (age is not lateness), **green** = done today. A legend explains them once.
+- Every button opens the right record (the customer's file, the document, Payments, the enquiry). **Nothing is marked done by opening a record, pressing Call or WhatsApp** - "done today" only counts a follow-up closed with the customer's answer, a next step booked, an enquiry answered, a Growth Check step, a quotation issued or a payment reported.
+- **Mine / Everyone**: the Action Center opens on Mine for everyone, management included (decision 2); Everyone shows what you could already see - nothing new is opened to anyone. The rest of Sales keeps its own switch.
+- The rail shows the week's target (the same figures as the strip) and a **Sales Pipeline summary** - a step opens the records it counts. Below, **Recent Activities** replaces Recent Payment Activity: All Activities, Sales & Quotations, Follow-ups, Payments, Enquiries. Management also see **Team Performance** - activity beside results, this week or this month, from the weekly engine's own figures.
+- The verified owner-CEO sees "N payment(s) wait for your verification" at the top; it opens Payments. Verification, approval, payment reporting, the closer and commission are untouched.
+- **Desk**: a salesperson sees ONE line, "Sales actions today: N pending, M overdue", which opens Sales -> Overview -> My Sales Action Center. Marketing, HR and anyone without Sales keep their Growth Check rows. The Desk's and the Dashboard's "waiting" figures now count every action that line stands for, so Sales, Desk and Dashboard agree.
+- New read-only route `GET /staff/sales/today`; guard `sales-today` (50 checks, 10 mutations); browser test `tests/browser/sales-today.py`. Not deployed.
+
 ### Digital Cards, Stage 7: the AZ ONE side (21-11-2026, the CEO) - no migration in A2Z OS
 - The AZ ONE storefront (azoneofficial folder, storefront branch) now collects templates published here, sells them under **Digital Cards** and lets customers personalise them - see that folder's docs/DIGITAL-CARDS.md. Checkout stays off.
 - **Fixed in the card renderer**: in the HTML version (the one AZ ONE draws) a font name's quotation marks ended each field's style early, so the colour, font and size were lost. Every style is now escaped. The A2Z OS preview was not affected (it draws the same boxes in React). Each field is also marked `data-zone` so AZ ONE's editor can update it as the customer types.

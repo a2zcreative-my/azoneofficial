@@ -67,7 +67,8 @@ function checks(src) {
   ok("D2 - Active Alerts only for the roles that read the rules; three figures otherwise",
     /\{p\.exec && figure\("alerts", "warning", "info"/.test(desk) && /* v1.323.0 - the one KPI strip counts its own cells (KpiRow data-cells), so the 4-or-3 is the conditional fourth cell itself */ /<KpiRow label=\{L\("Your work at a glance"[^>]*testid="desk-figures">/.test(desk) && /const exec = WATCHER_ROLES\.includes\(user\.role\);/.test(desk));
   ok("D3 - Overdue Actions counts decisions and responses, never my tasks twice",
-    /const work = \[\.\.\.decide, \.\.\.attention\]\.sort\(byPriority\);/.test(desk) && /const overdueN = work\.filter\(\(i\) => i\.overdue\)\.length;/.test(desk)
+    /const work = \[\.\.\.decide, \.\.\.attention\]\.sort\(byPriority\);/.test(desk) && /const overdueN = deskOverdue\(work\);/.test(desk) && /export const deskOverdue = \(items: readonly DeskItem\[\]\): number => items\.reduce\(\(n, i\) => n \+ \(i\.figures \? i\.figures\.overdue : i\.overdue \? 1 : 0\), 0\);/.test(read("components/portal/one-desk.tsx")) /* v1.397.0 */
+    && /weight: i\.count \?\? 1,/.test(desk)
     && /figure\("overdue", "time", "bad", p\.known \? p\.overdueN : null/.test(desk));
   ok("every figure is the length of the list it opens",
     /figure\("decide", "orders", "gold", p\.known \? p\.decide\.length : null/.test(desk) && /\(\) => p\.toInbox\("decide"\)\)/.test(desk)
