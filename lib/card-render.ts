@@ -12,6 +12,9 @@
  *   fontFaceCss(base)                           -> the @font-face rules for CARD_FONTS (self-hosted files)
  *
  * A zone never spills: its box clips. Customer text is escaped. Colours are the designer's data.
+ * v1.396.0 - every style attribute is escaped (a font name carries quotes, which would end the
+ * attribute and drop the colour, font and size). Each field carries data-zone="<key>" so an editor can update that field as the
+ * customer types (AZ ONE's card editor), without a second layout.
  */
 
 export const CARD_FONTS = {
@@ -101,12 +104,12 @@ const css = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${
 export function renderPageHTML(artUrl: string, page: CardPageSize, zones: readonly CardZone[], values: Record<string, string> = {}, o: RenderOpts = {}): string {
   const boxes = pageBoxes(page, zones, values, o).map((b) => {
     if (b.kind === "image") {
-      if (b.image && safeUrl(b.image)) return `<div style="${css({ ...boxStyle(b), display: "block" })}"><img src="${esc(safeUrl(b.image))}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
-      return b.placeholder ? `<div style="${css(boxStyle(b))};border:2px dashed currentColor;opacity:.6">${esc(b.label)}</div>` : "";
+      if (b.image && safeUrl(b.image)) return `<div data-zone="${esc(b.key)}" style="${esc(css({ ...boxStyle(b), display: "block" }))}"><img src="${esc(safeUrl(b.image))}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`;
+      return b.placeholder ? `<div data-zone="${esc(b.key)}" style="${esc(css(boxStyle(b)))};border:2px dashed currentColor;opacity:.6">${esc(b.label)}</div>` : "";
     }
-    return `<div style="${css(boxStyle(b))}">${esc(b.text)}</div>`;
+    return `<div data-zone="${esc(b.key)}" style="${esc(css(boxStyle(b)))}">${esc(b.text)}</div>`;
   });
-  return `<div class="a2z-card-page" style="${css(frameStyle(page))}"><img src="${esc(safeUrl(artUrl))}" alt="" style="position:absolute;inset:0;width:100%;height:100%;display:block">${boxes.join("")}</div>`;
+  return `<div class="a2z-card-page" style="${esc(css(frameStyle(page)))}"><img src="${esc(safeUrl(artUrl))}" alt="" style="position:absolute;inset:0;width:100%;height:100%;display:block">${boxes.join("")}</div>`;
 }
 
 /** the @font-face rules for the card fonts; public/card-fonts/card-fonts.css is exactly this with base "/card-fonts/" */

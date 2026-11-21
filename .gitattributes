@@ -13,3 +13,7 @@
 # tests/business-cards.mjs has already approved them on Windows.
 *.vcf text eol=crlf
 *.xlsm binary
+# v1.396.0 - shared byte for byte with AZ ONE (lib/card-shared.sha256): always LF, on every checkout.
+lib/card-render.ts text eol=lf
+lib/card-bridge-sign.ts text eol=lf
+lib/card-shared.sha256 text eol=lf

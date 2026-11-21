@@ -4,6 +4,11 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Digital Cards, Stage 7: the AZ ONE side (21-11-2026, the CEO) - no migration in A2Z OS
+- The AZ ONE storefront (azoneofficial folder, storefront branch) now collects templates published here, sells them under **Digital Cards** and lets customers personalise them - see that folder's docs/DIGITAL-CARDS.md. Checkout stays off.
+- **Fixed in the card renderer**: in the HTML version (the one AZ ONE draws) a font name's quotation marks ended each field's style early, so the colour, font and size were lost. Every style is now escaped. The A2Z OS preview was not affected (it draws the same boxes in React). Each field is also marked `data-zone` so AZ ONE's editor can update it as the customer types.
+- The renderer and the feed signature are shared byte for byte with AZ ONE; `lib/card-shared.sha256` lists them and both sides' tests check their copies. New guard `card-shared`; `card-zones` gains a check that the whole style survives.
+
 ### Digital Cards, Stage 6: review, publishing and the AZ ONE feed (21-11-2026, the CEO) - MIGRATION 0225 (additive)
 - The editor's last step, **Review & Publish**, checks that the specs are confirmed, every page is in and every field fits, then **Send for review**. The design is frozen as a numbered version (v1, v2 ...) - what is reviewed is exactly what gets published.
 - **The chain**: the **COO or the CCO** pre-checks it or returns it with a note; then the **CEO or the super admin** publishes it or returns it. Nobody reviews their own design. Each waiting step appears on the **Desk** and in the bell, and opens the template.

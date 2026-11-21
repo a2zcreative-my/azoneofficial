@@ -45,6 +45,8 @@ ok(R.pageBoxes(page, [zone()], { names: "Ali & Siti" }, { mode: "output" })[0].t
 ok(R.pageBoxes(page, [zone()], { names: "x".repeat(99) }, {})[0].text.length === 40, "and never more than the field allows");
 const html = R.renderPageHTML("/art.png", page, [zone()], { names: `<script>alert(1)</script>` }, { mode: "output" });
 ok(!html.includes("<script>") && html.includes("&lt;script&gt;"), "customer text is escaped in the HTML renderer");
+const styles = [...html.matchAll(/style="([^"]*)"/g)].map((m) => m[1]);
+ok(styles.some((x) => /font-family:&quot;A2Z Card Great Vibes&quot;, serif;font-weight:400;font-size:10cqw;line-height:1\.2;color:#e9d9a6/.test(x)), "v1.396.0: a field's whole style survives in the HTML - the font name's quotes are escaped, so the colour, font and size are not cut off", styles.join(" | ").slice(0, 300));
 ok(/container-type:inline-size/.test(html) && /aspect-ratio:1080 \/ 1920/.test(html) && /overflow:hidden/.test(html), "the frame keeps the artwork's ratio, measures in its own width, and every field clips");
 ok(!R.renderPageHTML("javascript:alert(1)", page, [], {}).includes("javascript:"), "an unsafe artwork address is dropped");
 ok(R.boxStyle({ ...b, color: "red;background:url(x)" }).color === "#000000", "a colour that is not #rrggbb never reaches the style");

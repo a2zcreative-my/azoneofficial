@@ -1,0 +1,4 @@
+# v1.396.0 - the Digital Cards files A2Z OS and AZ ONE share BYTE FOR BYTE (sha256). A2Z OS: lib/. AZ ONE: src/shared/.
+# Change a shared file in A2Z OS first, copy it to AZ ONE, and update this list in BOTH repos - each repo's guard checks its own copy against it.
+c7cea29b832bbdec3b035d1534427fa07aecb866863089c3fc3b95b62320e645  card-render.ts
+2aac0bef5f0b337ae7bcbc63934cb949d774cbcec394fff68d13769ed9df66cb  card-bridge-sign.ts
