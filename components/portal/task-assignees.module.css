@@ -1,0 +1,43 @@
+/* 21-11-2026 - the Assignee cell of a shared team task (task-assignees.tsx):
+   the photos overlap a little, then "+N" for the rest. Tokens only. */
+.stack {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  overflow: visible;
+}
+.face {
+  display: inline-flex;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--card);
+}
+.face + .face,
+.face + .more { margin-inline-start: -0.5rem; }
+.more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  box-shadow: 0 0 0 2px var(--card);
+  font-size: var(--type-caption-size);
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* a team: the photos on one line, the names on the line under them (the
+   reference picture) - beside the photos they ran down a one-word column.
+   Doubled class: wins over the page's own .who rule whatever the load order. */
+.team.team {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.names {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption-size);
+  line-height: 1.3;
+}

@@ -128,6 +128,25 @@ ok("a search hit, a notification or a Desk item opens the task's drawer", /useRe
 /* v1.321.0 (the Unified Workspace) - the drawer draws the task pane, and the pane is the record */
 ok("the drawer is the record (data-record) and closes cleanly", /<TaskDetailDrawer taskId=\{detail\.t\.id\}[^>]*onClose=\{closeDetail\}/.test(code) && /data-testid="task-workspace" data-layout=\{layout\} data-record=\{`task:\$\{t\.id\}`\}/.test(read("components/portal/task-workspace.tsx")) && /const closeDetail = \(\) => \{ setOpenTask\(null\); setItems\(null\); setEditing\(null\); setSheetFor\(null\); setOpenHow\("open"\); \};/.test(code));
 
+/* ---- 9. 21-11-2026 - a shared team task is ONE row (the CEO: "a team task shown once") ----
+   One task, the person responsible plus its helpers; every Assignee cell of the
+   Tasks tab draws them through ONE component, and Create sends the extra people
+   with the ONE create - never a POST per person. */
+{
+  const ta = strip(read("components/portal/task-assignees.tsx"));
+  const t2 = strip(read("components/portal/tasks2.tsx"));
+  ok("the Assignee cell draws the person responsible and the helpers: two photos, then +N, then the names", /const SHOWN = 2;/.test(read("components/portal/task-assignees.tsx")) && /people\.slice\(0, SHOWN\)/.test(ta) && /\+\{extra\}/.test(ta) && /people\.map\(\(p\) => p\.name\)\.join\(", "\)/.test(ta));
+  ok("…a one-person task keeps the cell exactly as it was", /if \(helpers\.length === 0\) \{\s*return <span className=\{whoClass\}><Avatar name=\{t\.assignee\} photoKey=\{t\.assignee_photo\} size="sm" \/><span>\{t\.assignee\}<\/span><\/span>;/.test(ta));
+  const hand = /<Avatar name=\{t\.assignee\} photoKey=\{t\.assignee_photo\} size="sm" \/><span>\{t\.assignee\}<\/span><\/span> : <span/;
+  ok("every Assignee cell of the list, the register and the board uses TaskAssignees (no hand-drawn single assignee left)", (code.match(/<TaskAssignees t=\{t\}/g) ?? []).length === 2 && (t2.match(/<TaskAssignees t=\{t\}/g) ?? []).length === 2 && !hand.test(code) && !hand.test(t2));
+  ok("the Team Task chip sits with the row's other chips", (code.match(/\{linkChip\(t\)\}<TeamTaskChip t=\{t\} \/>/g) ?? []).length === 2);
+  ok("Create sends the extra people with the ONE create (assistants), never a POST per person", /assistants: draft\.helpers\.filter\(\(id\) => id !== \(draft\.assigned_to \|\| user\.id\)\)/.test(code) && (code.match(/api\(`\/staff\/tasks`, \{\s*method: "POST"/g) ?? []).length === 1 && !/for \(const [^)]+ of draft\.helpers\)/.test(code) && !/draft\.helpers\.map\([^)]*\)\s*=>\s*api/.test(code));
+  ok("…the people picker is management's, like Assign to", /\{canManage && \(\(\) => \{\s*const main = draft\.assigned_to \|\| user\.id;/.test(code));
+  ok("the server makes ONE task and adds the others through the one helper write", /const helperIds = await checkNewAssistants\(env, user, \{ assigned_to: assignedTo, link_kind: linkKind, link_id: linkId \}, body\.assistants\);/.test(staff) && /if \(await addAssistant\(env, user, \{ id: res\.id, title: body\.title as string \}, uid\)\) helpersAdded\.push\(uid\);/.test(staff));
+  ok("the list sends each helper's photo and short name", /u\.name AS short, u\.photo_key FROM task_assistants a JOIN users u ON u\.id = a\.user_id WHERE a\.removed_at IS NULL ORDER BY a\.id/.test(staff) && /short: h\.short \?\? h\.name, photo_key: h\.photo_key \?\? null/.test(staff));
+  ok("tasks are never merged by matching titles", !/GROUP BY t\.title|title = t2\.title|\.title === [a-z]+\.title/.test(staff + code + t2));
+}
+
 ok("no sample data from the reference", !/Nur Dini Farhana|Nursyazwani|Zul Hisyam|Mohamad Izzudin|Zolkefli|Draft rundown structure|Website product update|TikTok content series/.test(src));
 ok("the guard is registered", /\["tasks-module", "/.test(read("scripts/run-guards.mjs")));
 

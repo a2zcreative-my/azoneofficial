@@ -48,6 +48,7 @@ import { PaginationControls, type PageSize } from "@/components/ui/pagination-co
 import { PillSwitch } from "@/components/ui/panel";
 import { FillPanel } from "@/components/ui/fill-panel"; // v1.323.0 - D-4
 import { ActivityFeed, FlowBoard, Head2, MyTaskCards, MyTaskTable, MyToday, OverviewTable, QuickLinks, StaffPerformance, WeeklySummary, WorkflowStrip, byUrgency2 } from "@/components/portal/tasks2";
+import { TaskAssignees, TeamTaskChip } from "@/components/portal/task-assignees"; // 21-11-2026 - a shared team task shown once
 import { closedThisWeek } from "@/lib/task-flow";
 import { usePortal } from "@/components/portal/portal-provider"; // v1.328.0 - the calendar's one line to Roster & Scheduling
 import tk from "./tasks-page.module.css";
@@ -100,6 +101,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
     start_date: "", // v1.248.0 - the span of work: start to due (0163)
     deadline: "",
     quotation_id: 0, // v1.246.2 - set under a quotation: the task joins its project
+    helpers: [] as number[], // 21-11-2026 - a shared team task: the people helping on this ONE task (task_assistants)
   });
   const [openTask, setOpenTask] = useState<number | null>(null);
   const [sheetFor, setSheetFor] = useState<number | null>(null); // v1.256.0 - the task opened straight on Add Status Update
@@ -175,6 +177,9 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       ...draft,
       assigned_to: draft.assigned_to || undefined,
       quotation_id: draft.quotation_id || undefined,
+      // 21-11-2026 - one task shared with these people as helpers; never one task per person
+      helpers: undefined,
+      assistants: draft.helpers.filter((id) => id !== (draft.assigned_to || user.id)),
       start_date: draft.start_date || undefined,
       // v1.42.0: the scope, one line per deliverable
       items: draft.scope.split("\n").map((l) => l.trim()).filter(Boolean),
@@ -202,6 +207,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       start_date: "",
       deadline: "",
       quotation_id: 0,
+      helpers: [],
     });
     setCreateOpen(false);
     void load();
@@ -698,7 +704,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       {t.description && (
                         <p className={`${tk.descLine} whitespace-pre-line`}>{t.description}</p>
                       )}
-                      <span className={tk.badges}>{stageChip(t)}{linkChip(t)}{ackControl(t)}</span>
+                      <span className={tk.badges}>{stageChip(t)}{linkChip(t)}<TeamTaskChip t={t} />{ackControl(t)}</span>
                       {/* the latest meaningful update (directive s5) - a progress report, never a comment */}
                       <span className={tk.latestLine}>{latestCell(t)}</span>
                     </td>
@@ -714,7 +720,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
                       </div>
                     </td>
                     <td data-label={L("Assignee", "Penerima")}>
-                      {t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}</span></span> : <span className={tk.muted}>—</span>}
+                      <TaskAssignees t={t} whoClass={tk.who} mutedClass={tk.muted} />
                     </td>
                     {opts.dept && <td data-label={L("Department", "Jabatan")} className={tk.cap}>{deptOf(t.assigned_to) ? <span className={chipNeutral}>{deptOf(t.assigned_to)}</span> : <span className={tk.muted}>—</span>}</td>}
                     <td data-label={L("Progress", "Kemajuan")}>{progressBar(t)}</td>
@@ -772,7 +778,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
       return (<>
         <span className={`${tk.taskTitle} ${overdue ? tk.danger : ""}`}>{t.title}</span>
         {t.description && <p className={`${tk.descLine} whitespace-pre-line`}>{t.description}</p>}
-        <span className={tk.badges} onClick={(e) => { if ((e.target as HTMLElement).closest("button, a")) e.stopPropagation(); /* Acknowledge is its own command; the chips open the row */ }}>{stageChip(t)}{linkChip(t)}{ackControl(t)}</span>
+        <span className={tk.badges} onClick={(e) => { if ((e.target as HTMLElement).closest("button, a")) e.stopPropagation(); /* Acknowledge is its own command; the chips open the row */ }}>{stageChip(t)}{linkChip(t)}<TeamTaskChip t={t} />{ackControl(t)}</span>
         <span className={tk.latestLine}>{latestCell(t)}</span>
       </>);
     } },
@@ -787,7 +793,7 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
         </div>
       );
     } },
-    { key: "assignee", label: L("Assignee", "Penerima"), sort: "assignee", optional: true, cell: (t) => t.assignee ? <span className={tk.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}</span></span> : <span className={tk.muted}>—</span> },
+    { key: "assignee", label: L("Assignee", "Penerima"), sort: "assignee", optional: true, cell: (t) => <TaskAssignees t={t} whoClass={tk.who} mutedClass={tk.muted} /> }, // 21-11-2026 - a team task once, its people together
     { key: "dept", label: L("Department", "Jabatan"), optional: true, cell: (t) => deptOf(t.assigned_to) ? <span className={`${chipNeutral} ${tk.cap}`}>{deptOf(t.assigned_to)}</span> : <span className={tk.muted}>—</span> },
     { key: "progress", label: L("Progress", "Kemajuan"), sort: "progress", optional: true, cell: (t) => progressBar(t) },
     { key: "subtasks", label: L("Subtasks", "Subtugasan"), optional: true, cell: (t) => (t.item_count ?? 0) > 0 ? scopeChip(t) : <span className={tk.muted}>—</span> },
@@ -1563,6 +1569,35 @@ export function Tasks({ user, progress, initialView, focus }: { user: User; prog
               </select>
             </Sub>
           )}
+          {/* 21-11-2026 - A SHARED TEAM TASK (the CEO: "a team task shown once"):
+              ONE task, the person above responsible, these people helping
+              (task_assistants, the same as adding a helper from the task).
+              Never one task per person. Management only, like Assign to. */}
+          {canManage && (() => {
+            const main = draft.assigned_to || user.id;
+            const chosen = draft.helpers.filter((id) => id !== main);
+            const nameOf = (id: number) => team.find((u) => u.id === id)?.name ?? `#${id}`;
+            return (<>
+              <Sub t={L("Also on this task (optional)", "Turut pada tugasan ini (pilihan)")}>
+                <select className={inputClass} value={0} data-testid="create-helper-pick" aria-label={L("Also on this task (optional)", "Turut pada tugasan ini (pilihan)")}
+                  onChange={(e) => { const id = Number(e.target.value); if (id) setDraft((d) => ({ ...d, helpers: [...d.helpers.filter((x) => x !== id), id] })); }}>
+                  <option value={0}>{chosen.length ? L("Add another person", "Tambah seorang lagi") : L("Only the person above", "Hanya orang di atas")}</option>
+                  {team.filter((u) => u.id !== main && !chosen.includes(u.id)).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+              </Sub>
+              {chosen.length > 0 && (
+                <span className={tk.badges} data-testid="create-helpers">
+                  {chosen.map((id) => (
+                    <button key={id} type="button" className={chipNeutral} aria-label={L(`Remove ${nameOf(id)}`, `Buang ${nameOf(id)}`)}
+                      onClick={() => setDraft((d) => ({ ...d, helpers: d.helpers.filter((x) => x !== id) }))}>
+                      {nameOf(id)}<AppIcon name="close" />
+                    </button>
+                  ))}
+                  <span className={tk.muted}>{L(`One team task for ${chosen.length + 1} people`, `Satu tugasan pasukan untuk ${chosen.length + 1} orang`)}</span>
+                </span>
+              )}
+            </>);
+          })()}
             {/* v1.246.2 - the owner, 01-11-2026: "Create a task should be able
                 to capture that Quotation" - the task joins the quotation's
                 project (created on the spot when there is none yet). */}

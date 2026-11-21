@@ -258,6 +258,34 @@ async function runtime(workerBundle) {
     ok((await call(`/staff/projects/${pid}`, U.ed, "PATCH", { title: "x", version: w?.project?.version })).status === 403 && db.prepare(`SELECT company, phone FROM customers WHERE id = 1`).get()?.company === "ABC Sdn Bhd", "S13 ...nor change the project or the client");
     ok((await call(`/staff/tasks/${PT}/assistants`, U.ed, "POST", { user_id: U.lia })).status === 403, "an assistant cannot add others");
 
+    /* ---------- 21-11-2026 A SHARED TEAM TASK (the CEO: "a team task shown once") ----------
+       Create Task with extra people makes ONE task; the others are its helpers
+       (task_assistants), exactly as if each was added from the drawer. */
+    const tasksBefore = n(`SELECT COUNT(*) AS n FROM tasks`);
+    const tt = await call("/staff/tasks", U.ceo, "POST", { title: "Jalen Shop Meeting", assigned_to: U.mira, assistants: [U.ed, U.aina, U.ed] });
+    const TT = tt.j?.id;
+    ok(tt.status === 201 && n(`SELECT COUNT(*) AS n FROM tasks`) === tasksBefore + 1 && n(`SELECT COUNT(*) AS n FROM tasks WHERE title = 'Jalen Shop Meeting'`) === 1 && n(`SELECT COUNT(*) AS n FROM tasks WHERE id = ? AND assigned_to = ?`, TT, U.mira) === 1, "TEAM Create Task for three people makes ONE task (never one per person), the first person responsible", tt.text.slice(0, 160));
+    ok(n(`SELECT COUNT(*) AS n FROM task_assistants WHERE task_id = ? AND removed_at IS NULL`, TT) === 2 && note(U.ed, "%You are helping on: Jalen Shop Meeting%") === 1 && note(U.aina, "%You are helping on: Jalen Shop Meeting%") === 1 && note(U.mira, "%New task assigned: Jalen Shop Meeting%") === 1, "TEAM ...the others are its helpers (a repeat ignored), and each person is told once");
+    ok(n(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'task.assistant_add' AND entity_id = ?`, String(TT)) === 2 && JSON.stringify(lastAudit("task.create").assistants ?? []) === JSON.stringify([U.ed, U.aina]), "TEAM each helper is audited as added, and task.create names them");
+    const ttRows = ((await call("/staff/tasks?all=1", U.ceo)).j?.tasks ?? []).filter((t) => t.id === TT);
+    ok(ttRows.length === 1 && ttRows[0].assistants?.map((a) => a.id).join(",") === `${U.ed},${U.aina}` && ttRows[0].assistants.every((a) => "photo_key" in a && a.short), "TEAM All Tasks lists it ONCE, with its helpers in the order added, each with a photo key and short name", JSON.stringify(ttRows.map((t) => t.assistants)));
+    for (const [who, uid] of [["responsible", U.mira], ["helper Ed", U.ed], ["helper Aina", U.aina]]) {
+      ok(((await call("/staff/tasks", uid)).j?.tasks ?? []).filter((t) => t.id === TT).length === 1, `TEAM the ${who}'s own list holds it once`);
+    }
+    const teamUpd = await call(`/staff/tasks/${TT}/updates`, U.ed, "POST", { kind: "progress", body: "Booked the shop for Tuesday" });
+    ok(teamUpd.status === 201 && ((await call("/staff/tasks?all=1", U.ceo)).j?.tasks ?? []).find((t) => t.id === TT)?.latest_update?.body === "Booked the shop for Tuesday", "TEAM a helper's progress report is the one task's latest update");
+    ok((await call(`/staff/tasks/${TT}/ack`, U.ed, "POST")).status === 403, "TEAM acknowledgement stays the responsible person's");
+    for (const [why, by, body] of [
+      ["a staff member cannot share a task", U.lia, { title: "Shared by staff", assistants: [U.ed] }],
+      ["a leaver is refused", U.ceo, { title: "Shared with a leaver", assigned_to: U.mira, assistants: [U.gone] }],
+      ["a customer is refused", U.ceo, { title: "Shared with a customer", assigned_to: U.mira, assistants: [U.shop] }],
+      ["the responsible person is not also a helper", U.ceo, { title: "Shared with themself", assigned_to: U.mira, assistants: [U.mira] }],
+      ["a list that is not staff ids is refused", U.ceo, { title: "Shared badly", assigned_to: U.mira, assistants: "5,11" }],
+    ]) {
+      const r = await call("/staff/tasks", by, "POST", body);
+      ok([400, 403].includes(r.status) && n(`SELECT COUNT(*) AS n FROM tasks WHERE title = ?`, body.title) === 0, `TEAM ${why} - and no task is left behind`, `${r.status} ${r.text.slice(0, 100)}`);
+    }
+
     /* ---------- S14 / S15 CEO, COO, CCO operate projects - and the CCO stays out of money ---------- */
     for (const [who, uid] of [["CEO", U.ceo], ["COO", U.coo], ["CCO", U.cco]]) {
       w = (await call(`/staff/projects/${pid}`, uid)).j;
@@ -399,6 +427,11 @@ if (!given) report(sourceChecks());
 const checks = n;
 
 const MUT = [
+  /* 21-11-2026 - a shared team task: one task, its people as helpers */
+  ["worker/src/staff.ts", "Create Task drops the team task's other people", "    if (res?.id) for (const uid of helperIds) {", "    if (false) for (const uid of helperIds) {"],
+  ["worker/src/tasks-progress.ts", "a staff member shares a task with others", "  if (!a.manage) return err(\"forbidden\", a.project ? \"Only the Project Owner", "  if (false) return err(\"forbidden\", a.project ? \"Only the Project Owner"],
+  ["worker/src/tasks-progress.ts", "a team task takes a leaver or a customer", "  if (ok.length !== ids.length) return err(", "  if (false) return err("],
+  ["worker/src/tasks-progress.ts", "the responsible person is also a helper", "  if (ids.includes(draft.assigned_to)) return err(", "  if (false) return err("],
   ["worker/src/tasks-progress.ts", "the assignee approves his own work", "  const review = selfSet ? (assignee || manage) : ((creator || manage) && !assignee);", "  const review = selfSet ? (assignee || manage) : (creator || manage || assignee);"],
   ["worker/src/staff.ts", "the assignee closes a task somebody else set", "      if (body.status === \"completed\") return err(\"close_required\",", "      if (false) return err(\"close_required\","], // v1.256.0 - every close goes through the one transition
   ["worker/src/staff.ts", "team_manage manages project tasks", "    const manages = projOfTask ? !projGate : canUser(user, \"team_manage\");", "    const manages = canUser(user, \"team_manage\") || (projOfTask ? !projGate : false);"],
