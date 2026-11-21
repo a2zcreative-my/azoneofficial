@@ -397,6 +397,18 @@ const page = readPortalSource(root);
      "this is the query behind the Super Admin block the CEO was looking at");
 }
 
+/* ---- 4b. v1.409.0 (the CEO, 21-11-2026: "the list of the staff was not sequence by the Level ... to agent")
+   - payroll lists people in the company order and never an agent ---- */
+{
+  ok("the absence scan reads people in the company order",
+     staff.includes("staffA.sort(bySeniority);") && staff.includes(`import { bySeniority, isCurrentStaff } from "../../lib/staff-order"`),
+     "Days with no clock-in listed people in database order");
+  const pay = read("components/portal/payroll-panel.tsx");
+  ok("the payroll staff list takes staff only - never an agent",
+     /\(x\) => isStaffRole\(x\.role\)[^\n]*\.not_staff/.test(pay) && !pay.includes(`x.role !== "customer" && x.role !== "super_admin"`),
+     "an agent appeared on Base salaries");
+}
+
 /* ---- 5. the review card, and what left the attendance panel ---- */
 {
   /* v1.86.0 (CEO: "leave to review should inside the leave and also why looks

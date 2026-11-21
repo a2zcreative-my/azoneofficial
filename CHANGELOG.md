@@ -4,6 +4,11 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Payroll lists staff only, in the company order (21-11-2026, the CEO: "Testing was labelled as a Staff ... the list of the staff was not sequence by the Level") - NO MIGRATION
+- **Agents are off Payroll:** the Payroll screen built its staff list from the accounts list and left out customers and the super admin but not **agents**, so an agent showed on Base salaries and in the processing grid. It now uses the one staff rule (`isStaffRole`, lib/staff-order.ts). The server payroll lists already excluded agents; no figure changes.
+- **Days with no clock-in** (Payroll and Attendance read the same `/payroll/absences`) now lists people in the company order (CEO, COO, CCO ... live host) instead of database order.
+- **Testing Account is data, not code:** it is listed because it is not marked as a test account (the not-staff list is empty). Mark it in Users & Security -> the account -> **Mark as test account** (reason + code); the system never hides an account by its name (v1.384.0).
+- Guards `staff-order` (80, two new checks) and `payroll-schedule` (21, 4 mutations); both now read files the same on a Windows (CRLF) checkout, which had made four of their checks fail there. Type check app + worker clean. Not deployed.
 ### A lead's completed task reads "Task closed" (21-11-2026, the CEO: "if there is a Task completed, the status should change to the Closed"; he chose the Next action cell, not the Status) - NO MIGRATION
 - **Leads & CRM -> Next action:** when a lead has nothing booked and no open task, but one of its tasks was completed, the cell now shows a green **Task closed · <date>** chip with the task's title, instead of the amber "No next action". The date is when the task was closed (Malaysia time), from the task's own history.
 - A **cancelled** task does not count; that lead still reads "No next action".

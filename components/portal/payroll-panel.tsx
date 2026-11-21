@@ -17,7 +17,7 @@ import { openPrintPreview } from "@/components/ui/document-preview";
  */
 
 import { makeApi, csrfFetch } from "@/lib/api"; // v1.5.0: shared helper, staff-scoped
-import { bySeniority } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with the Staff tab
+import { bySeniority, isStaffRole } from "@/lib/staff-order"; // v1.78.0 - one company order, shared with the Staff tab
 const api = makeApi("/staff");
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { esc } from "@/lib/escape-html";
@@ -1035,7 +1035,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       return true;
     };
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
-      (x) => x.role !== "customer" && x.role !== "super_admin" && !(x as { not_staff?: number }).not_staff /* v1.384.0 - a test account */ && inMonth(x),
+      (x) => isStaffRole(x.role) /* v1.409.0 - never a customer, the super admin or an AGENT (partners are not on payroll) */ && !(x as { not_staff?: number }).not_staff /* v1.384.0 - a test account */ && inMonth(x),
     );
     /* v1.148.0 - this used to be a SECOND, hand-written role order living
        here: it put admin AFTER hr_admin and sales_marketing, the opposite of

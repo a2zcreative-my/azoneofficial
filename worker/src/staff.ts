@@ -7,7 +7,7 @@ import type { Env } from "./index";
 import { buildEventIcs } from "../../lib/event-ics";
 import { reportingLine, type OrgPerson } from "../../lib/org-tree";
 import { ALL_TABS as PORTAL_TABS, ALWAYS_VISIBLE, PARKED_TABS, canSeeTab, setRoleTabs } from "../../lib/portal-tabs"; // v1.234.0 - the one visibility rule, read by the access policy
-import { isCurrentStaff } from "../../lib/staff-order"; // v1.233.0 - one reporting line, the chart's own tree
+import { bySeniority, isCurrentStaff } from "../../lib/staff-order"; // v1.233.0 - one reporting line, the chart's own tree
 import { halfDayWindows, isPartialLeave, savedCoverage, leaveOverlaps, remainingWindows, timeWindow, type LeaveCoverage, type TimeWindow } from "../../lib/leave-coverage";
 import { shiftEntry } from "./shift-entry";
 import { handleErp } from "./erp";
@@ -17022,9 +17022,12 @@ async function handleStaffRoutes(
     const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
 
     const { results: staffA } = await env.DB.prepare(
-      `SELECT id, name, full_name, joined_on, left_on, rejoined_on, role, employment_status
+      `SELECT id, name, full_name, joined_on, left_on, rejoined_on, role, employment_status, position
        FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollMonthStaffSql(mA2)}`,
-    ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; role: string; employment_status: string | null }>();
+    ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; role: string; employment_status: string | null; position: string | null }>();
+    /* v1.409.0 - the list is read in the company order (CEO, COO, CCO, ... live host), the same
+       bySeniority every staff list uses, so Payroll and Attendance list people by level */
+    staffA.sort(bySeniority);
 
     /* One row per person per day, with the minutes actually clocked. */
     /* A punch waiting for approval is not evidence that somebody was here -

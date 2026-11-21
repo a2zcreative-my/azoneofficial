@@ -152,7 +152,7 @@ const MUT = [
 ];
 for (const [file, name, from, to] of NOMUT ? [] : MUT) {
   n++;
-  const src = readFileSync(join(root, file), "utf8");
+  const src = readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n"); // v1.409.0 - a Windows (CRLF) checkout matches too
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
   const mdir = mkdtempSync(join(tmpdir(), "psched-m-"));
   cpSync(join(root, "worker"), join(mdir, "worker"), { recursive: true, filter: (p) => !p.includes("node_modules") });
@@ -166,6 +166,6 @@ for (const [file, name, from, to] of NOMUT ? [] : MUT) {
 /* the page draws the schedule from the server's date, not a second rule */
 n++; const pp = readFileSync(join(root, "components/portal/payroll-panel.tsx"), "utf8");
 if (!/const first = new Date\(Date\.UTC\(yy!, mm!, 1\)\)/.test(pp) || !/const relDay = release\?\.available_from\?\.slice\(0, 10\)/.test(pp)) { fail++; console.error("FAIL the timeline reads the 1st of the next month and the server's release day"); }
-n++; if (!/x\.role !== "super_admin" && !\(x as \{ not_staff\?: number \}\)\.not_staff/.test(pp)) { fail++; console.error("FAIL the Payroll page leaves a test account out"); }
+n++; if (!/isStaffRole\(x\.role\)[^\n]*!\(x as \{ not_staff\?: number \}\)\.not_staff/.test(pp)) { fail++; console.error("FAIL the Payroll page leaves a test account (and an agent, v1.409.0) out"); }
 if (fail) { console.error(`payroll-schedule: ${fail} of ${n} failed`); process.exit(1); }
 console.log(`payroll-schedule: ${checks} checks passed (${NOMUT ? "mutations skipped" : `${MUT.length} mutations caught`}) - payslips on the 5th or the working day before; a test account keeps its role and is never staff`);
