@@ -88,7 +88,7 @@ function actionLabel(i: SalesAction): string {
   if (i.kind === "invoice") return L("Follow up payment", "Susuli bayaran");
   if (i.kind === "enquiry") return i.owner_id === null ? L("Take & reply", "Ambil & balas") : L("Reply", "Balas");
   if (i.kind === "lead") return L("Book next step", "Tetapkan langkah seterusnya");
-  if (i.kind === "opportunity") return i.flag === "no_next" ? L("Set next action", "Tetapkan tindakan seterusnya") : L("Open deal", "Buka urusan");
+  if (i.kind === "opportunity") return i.flag === "ready" ? L("Mark won or invoice", "Tanda berjaya atau invois") : i.flag === "no_next" ? L("Set next action", "Tetapkan tindakan seterusnya") : L("Open deal", "Buka urusan");
   return i.owner_id === null ? L("Pick up", "Ambil") : L("Open", "Buka");
 }
 

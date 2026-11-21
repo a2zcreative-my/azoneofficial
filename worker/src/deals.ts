@@ -54,7 +54,7 @@ async function owners(env: Env): Promise<{ id: number; name: string; role: strin
 async function quotesOf(env: Env, ids: number[]) {
   if (!ids.length) return new Map<number, (DealQuote & { doc_number: string; accepted: boolean; invoiced: boolean; opportunity_id: number })[]>();
   const { results } = await env.DB.prepare(
-    `SELECT l.opportunity_id, d.id, d.doc_number, COALESCE(d.revision, 0) AS revision, d.total_cents, d.created_at, l.linked_at,
+    `SELECT l.opportunity_id, d.id, d.doc_number, COALESCE(d.revision, 0) AS revision, d.total_cents, d.created_at, l.linked_at, l.origin,
             EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0)) AS accepted,
             EXISTS (SELECT 1 FROM sales_documents i WHERE i.doc_type = 'INV' AND i.converted_from = d.id AND COALESCE(i.payment_status, '') != 'void' AND i.voided_at IS NULL) AS invoiced
        FROM opportunity_quotations l JOIN sales_documents d ON d.id = l.doc_id
@@ -203,8 +203,8 @@ export async function handlePipeline(env: Env, path: string, method: string, use
           env.DB.prepare(`INSERT INTO sales_opportunities (customer_id, title, owner_id, stage, origin, client_key, created_by)
                           SELECT ?1, ?2, ?3, ?4, 'suggestion', ?5, ?6 WHERE NOT EXISTS (SELECT 1 FROM sales_opportunities WHERE client_key = ?5)
                             AND NOT EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?7 AND unlinked_at IS NULL)`).bind(s.customer_id, `${s.company} - ${s.doc_number}`, s.owner_id, s.stage, key, user.id, id),
-          env.DB.prepare(`INSERT INTO opportunity_quotations (opportunity_id, doc_id, linked_by)
-                          SELECT o.id, ?2, ?3 FROM sales_opportunities o WHERE o.client_key = ?1
+          env.DB.prepare(`INSERT INTO opportunity_quotations (opportunity_id, doc_id, linked_by, origin)
+                          SELECT o.id, ?2, ?3, 'suggestion' FROM sales_opportunities o WHERE o.client_key = ?1
                             AND NOT EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?2 AND unlinked_at IS NULL)`).bind(key, id, user.id),
           env.DB.prepare(`INSERT INTO opportunity_stage_events (opportunity_id, from_stage, to_stage, reason, created_by)
                           SELECT o.id, NULL, o.stage, ?2, ?3 FROM sales_opportunities o WHERE o.client_key = ?1
@@ -386,6 +386,48 @@ export async function handlePipeline(env: Env, path: string, method: string, use
     return err("method_not_allowed", "Not allowed", 405);
   } catch (e) {
     if (missing(e)) return err("migration_missing", "Run migration 0227 first (PUSH.bat)", 503);
+    throw e;
+  }
+}
+
+/**
+ * v1.400.0 - Sales Command Center Phase 4 (decisions 3 and 4): a quotation made FOR a deal is linked to it
+ * by the server when the quotation is saved (POST /docs with deal_id; migration 0228 records origin 'created').
+ * A deal still in New or Qualified moves to Proposal sent, and the move is in its history; it never moves to
+ * Won. The quotation is the primary record: anything wrong with the deal leaves the quotation saved and says
+ * why, so creating a document can never fail because of a deal.
+ */
+export async function linkCreatedQuotation(env: Env, user: StaffUser, dealId: number, docId: number | undefined):
+  Promise<{ ok: true; moved: boolean; deal_id: number } | { ok: false; reason: "not_found" | "closed" | "forbidden" | "other_customer" | "linked" | "changed" }> {
+  if (!Number.isInteger(dealId) || dealId <= 0 || !docId) return { ok: false, reason: "not_found" };
+  try {
+    const deal = await env.DB.prepare(`SELECT id, customer_id, owner_id, stage, version FROM sales_opportunities WHERE id = ?1`).bind(dealId)
+      .first<{ id: number; customer_id: number; owner_id: number | null; stage: string; version: number }>();
+    if (!deal) return { ok: false, reason: "not_found" };
+    if (!(OPEN_STAGES as readonly string[]).includes(deal.stage)) return { ok: false, reason: "closed" };
+    if (!canUser(user, "sales") || !(canUser(user, "crm_assign") || deal.owner_id === user.id || deal.owner_id === null)) return { ok: false, reason: "forbidden" };
+    const doc = await env.DB.prepare(`SELECT customer_id FROM sales_documents WHERE id = ?1 AND doc_type = 'QT'`).bind(docId).first<{ customer_id: number }>();
+    if (!doc || doc.customer_id !== deal.customer_id) return { ok: false, reason: "other_customer" };
+    const move = deal.stage === "new" || deal.stage === "qualified";
+    const v = deal.version;
+    const list = [
+      env.DB.prepare(`INSERT INTO opportunity_quotations (opportunity_id, doc_id, linked_by, origin)
+                      SELECT ?1, ?2, ?3, 'created' WHERE EXISTS (SELECT 1 FROM sales_opportunities WHERE id = ?1 AND version = ?4)
+                        AND NOT EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?2 AND unlinked_at IS NULL)`).bind(dealId, docId, user.id, v),
+    ];
+    if (move) list.push(env.DB.prepare(`INSERT INTO opportunity_stage_events (opportunity_id, from_stage, to_stage, reason, created_by)
+                      SELECT ?1, ?2, 'proposal', ?3, ?4 WHERE EXISTS (SELECT 1 FROM sales_opportunities WHERE id = ?1 AND version = ?5)
+                        AND EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?6 AND opportunity_id = ?1 AND unlinked_at IS NULL)`)
+      .bind(dealId, deal.stage, "A quotation was made for this deal", user.id, v, docId));
+    list.push(env.DB.prepare(`UPDATE sales_opportunities SET version = version + 1, last_activity_at = datetime('now')
+                      ${move ? ", stage = 'proposal', stage_since = datetime('now')" : ""}
+                      WHERE id = ?1 AND version = ?2 AND EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?3 AND opportunity_id = ?1 AND unlinked_at IS NULL)`).bind(dealId, v, docId));
+    const res = await env.DB.batch(list);
+    if (!res[0]?.meta?.changes) return { ok: false, reason: (await env.DB.prepare(`SELECT 1 FROM opportunity_quotations WHERE doc_id = ?1 AND unlinked_at IS NULL`).bind(docId).first()) ? "linked" : "changed" };
+    await audit(env, user.id, "pipeline.link", "sales_opportunities", String(dealId), { doc_id: docId, origin: "created", moved: move ? "proposal" : null });
+    return { ok: true, moved: move, deal_id: dealId };
+  } catch (e) {
+    if (missing(e)) return { ok: false, reason: "not_found" };
     throw e;
   }
 }

@@ -110,7 +110,7 @@ export function SalesPipeline({ open, onOpen, onOpenLead, onQuote, newTick = 0 }
   /** the deal a bell, the Action Center or a lead asked for */
   open: number | null; onOpen: (id: number | null) => void;
   onOpenLead: (customerId: number) => void;
-  onQuote: (deal: { customer_id: number; customer: string; owner_id: number | null }) => void;
+  onQuote: (deal: { customer_id: number; customer: string; owner_id: number | null; deal_id: number }) => void;
   /** the view bar's gold New deal: each press opens the form once */
   newTick?: number;
 }) {
@@ -300,7 +300,7 @@ type Form = "" | "edit" | "won" | "lost" | "reopen" | "link";
 function DealRecord({ id, opts, onChanged, onOpenLead, onQuote }: {
   id: number; opts: Options | null; onChanged: () => void;
   onOpenLead: (customerId: number) => void;
-  onQuote: (deal: { customer_id: number; customer: string; owner_id: number | null }) => void;
+  onQuote: (deal: { customer_id: number; customer: string; owner_id: number | null; deal_id: number }) => void;
 }) {
   const fb = useFeedback();
   const [d, setD] = useState<Detail | null>(null);
@@ -380,7 +380,7 @@ function DealRecord({ id, opts, onChanged, onOpenLead, onQuote }: {
         {isOpen && can && <button type="button" className={btnSm} disabled={busy} onClick={() => setForm("lost")} data-testid="deal-lost-btn">{L("Mark lost", "Tanda gagal")}</button>}
         {isOpen && can && <button type="button" className={btnSm} disabled={busy} onClick={() => setForm("edit")} data-testid="deal-edit-btn"><AppIcon name="edit" />{L("Edit & next action", "Sunting & tindakan")}</button>}
         {isOpen && can && <button type="button" className={btnSm} disabled={busy} onClick={() => setForm("link")} data-testid="deal-link-btn"><AppIcon name="document" />{L("Link quotation", "Paut sebut harga")}</button>}
-        {isOpen && can && <button type="button" className={btnSmQuiet} onClick={() => onQuote({ customer_id: x.customer_id, customer: x.customer, owner_id: x.owner_id })} data-testid="deal-quote"><AppIcon name="add" />{L("Create quotation", "Buat sebut harga")}</button>}
+        {isOpen && can && <button type="button" className={btnSmQuiet} onClick={() => onQuote({ customer_id: x.customer_id, customer: x.customer, owner_id: x.owner_id, deal_id: x.id })} data-testid="deal-quote"><AppIcon name="add" />{L("Create quotation", "Buat sebut harga")}</button>}
         {!isOpen && opts?.can_override && <button type="button" className={btnSm} disabled={busy} onClick={() => setForm("reopen")} data-testid="deal-reopen-btn">{L("Reopen", "Buka semula")}</button>}
       </section>
 

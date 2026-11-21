@@ -610,3 +610,7 @@ quotation while linked, unlinked rows kept) and the append-only `opportunity_sta
 (worker/src/deals.ts at `/staff/deals/*`; the retired prospects `/pipeline` stays retired). It reads quotations,
 acceptances and invoices to decide Won; it never writes a document, an acceptance, a payment, the cash book, the journal
 or commission.
+Quotations & Invoices (the CEO 21-11-2026, Sales Command Center Phase 4) adds `0228_quotation_deal_link`: additive only - one
+column, `opportunity_quotations.origin` (manual, suggestion or created). Not the business.ts door: POST /docs (staff.ts) calls
+`linkCreatedQuotation` (worker/src/deals.ts) after a quotation is saved, and `GET /staff/docs/more` is a pure read of the
+whole document table. Numbering, converting, stock, voids, payments and commission are unchanged.

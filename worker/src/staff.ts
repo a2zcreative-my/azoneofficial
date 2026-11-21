@@ -18,7 +18,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handleSalesToday } from "./sales-today"; // v1.397.0 - Sales Command Center, Phase 1
 import { handleCrm } from "./crm"; // v1.398.0 - Sales Command Center, Phase 2 (Leads & CRM)
-import { handlePipeline } from "./deals"; // v1.399.0 - Sales Command Center, Phase 3 (the Sales Pipeline)
+import { handlePipeline, linkCreatedQuotation } from "./deals"; // v1.399.0 - Sales Command Center, Phase 3 (the Sales Pipeline)
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
@@ -79,6 +79,11 @@ import { skuKey } from "./bridge-core"; // v1.39.0 — ONE SKU normalisation, co
    summary field would be the wrong way round - the route owns the rule, this
    is simply that rule with a name. */
 /* v1.300.0 - on an invoice: the quotation it was converted from, and which live invoice of that quotation it is (part n of m) */
+/* v1.400.0 (Sales Command Center Phase 4, decision 5) - where an open quotation stands, read from records that
+   already exist: an open follow-up booked on it, and the customer's acceptance of its CURRENT revision. Nothing is
+   stored; "Expired" is worked out from valid_until on the screen. */
+const QT_STATE = `(CASE WHEN d.doc_type = 'QT' THEN EXISTS (SELECT 1 FROM customer_followups f WHERE f.doc_id = d.id AND f.done_at IS NULL AND f.cancelled_at IS NULL) END) AS followup_open,
+              (CASE WHEN d.doc_type = 'QT' THEN EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0)) END) AS accepted_current`;
 const FROM_QT = `(SELECT q.doc_number FROM sales_documents q WHERE q.id = d.converted_from) AS converted_from_number,
               CASE WHEN d.converted_from IS NULL OR d.doc_type != 'INV' THEN NULL ELSE (SELECT COUNT(*) FROM sales_documents s WHERE s.converted_from = d.converted_from AND s.doc_type = 'INV' AND COALESCE(s.payment_status, '') != 'void' AND s.id <= d.id) END AS part_no,
               CASE WHEN d.converted_from IS NULL OR d.doc_type != 'INV' THEN NULL ELSE (SELECT COUNT(*) FROM sales_documents s WHERE s.converted_from = d.converted_from AND s.doc_type = 'INV' AND COALESCE(s.payment_status, '') != 'void') END AS part_of`;
@@ -11720,6 +11725,60 @@ async function handleStaffRoutes(
     });
   }
 
+  /* v1.400.0 (Sales Command Center Phase 4, decision 2) - THE WHOLE DOCUMENT TABLE, 25 at a time: the list
+     /docs serves is the newest 200 (plus the invoices the money needs); this read pages past them - older than
+     a given document, or matching a search - in the SAME row shape, so every row control works on it. A pure
+     read: same gate as /docs. */
+  if (path === "/docs/more" && method === "GET") {
+    if (!canUser(user, "sales") && !canUser(user, "exec_view")) return err("forbidden", "Sales access required", 403);
+    const sp = new URL(request.url).searchParams;
+    const where: string[] = [];
+    const bind: (string | number)[] = [];
+    const ty = sp.get("type");
+    if (ty && ["QT", "DO", "INV"].includes(ty)) { bind.push(ty); where.push(`d.doc_type = ?${bind.length}`); }
+    const before = Number(sp.get("before_id"));
+    if (Number.isInteger(before) && before > 0) {
+      bind.push(before);
+      where.push(`(d.created_at, d.id) < (SELECT b.created_at, b.id FROM sales_documents b WHERE b.id = ?${bind.length})`);
+    }
+    const q = (sp.get("q") ?? "").trim().toLowerCase().slice(0, 60);
+    if (q) {
+      bind.push(`%${q}%`);
+      where.push(`(LOWER(d.doc_number) LIKE ?${bind.length} OR LOWER(c.company) LIKE ?${bind.length} OR LOWER(COALESCE(c.phone, '')) LIKE ?${bind.length} OR LOWER(COALESCE(sp.name, '')) LIKE ?${bind.length})`);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT d.*, c.company, c.phone AS customer_phone, sp.name AS salesperson_name,
+              (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as,
+              (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id DESC LIMIT 1) AS invoiced_as_id,
+              (SELECT COALESCE(SUM(i.total_cents), 0) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoiced_cents,
+              (SELECT COUNT(*) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoice_count,
+              (SELECT GROUP_CONCAT(x.doc_number, ' + ') FROM (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_list,
+              ${QT_STATE},
+              ${FROM_QT}
+         FROM sales_documents d
+         LEFT JOIN users sp ON sp.id = d.salesperson_id
+         JOIN customers c ON c.id = d.customer_id
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY d.created_at DESC, d.id DESC LIMIT 26`,
+    ).bind(...bind).all<Record<string, unknown>>();
+    const rows = results.slice(0, 25);
+    try {
+      const inv = rows.filter((r) => r.doc_type === "INV").map((r) => Number(r.id));
+      if (inv.length) {
+        const { results: conf } = await env.DB.prepare(
+          `SELECT c.invoice_id, c.confirmed_at, c.amount_cents, c.confirmed_by, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS by_name
+             FROM invoice_paid_confirmations c LEFT JOIN users u ON u.id = c.confirmed_by
+            WHERE c.revoked_at IS NULL AND c.invoice_id IN (${inv.map(() => "?").join(",")})`,
+        ).bind(...inv).all<{ invoice_id: number; confirmed_at: string; amount_cents: number; confirmed_by: number; by_name: string | null }>();
+        const byInv = new Map(conf.map((c) => [c.invoice_id, c]));
+        for (const r of rows) {
+          const c = byInv.get(Number(r.id));
+          if (c) { r.paid_confirmed_at = c.confirmed_at; r.paid_confirmed_by = c.by_name; r.paid_confirmed_cents = c.amount_cents; r.paid_confirmed_self = c.confirmed_by === r.salesperson_id; }
+        }
+      }
+    } catch { /* pre-0145 */ }
+    return json({ docs: rows, more: results.length > 25 });
+  }
   if (path === "/docs" && method === "GET") {
     if (!canUser(user, "sales") && !canUser(user, "exec_view")) return err("forbidden", "Sales access required", 403);
     const url = new URL(request.url);
@@ -11740,6 +11799,7 @@ async function handleStaffRoutes(
                  EVERY live invoice a quotation became, oldest first, not only the latest; and on an invoice, the
                  quotation it came from and which part it is */
               (SELECT GROUP_CONCAT(x.doc_number, ' + ') FROM (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_list,
+              ${QT_STATE},
               ${FROM_QT}
        FROM sales_documents d
        LEFT JOIN users sp ON sp.id = d.salesperson_id
@@ -12065,7 +12125,10 @@ async function handleStaffRoutes(
     await audit(env, user.id, `doc.create_${docType.toLowerCase()}`, "sales_documents", String(res?.id),
       pkgD ? { package_id: pkgD.id, package_version: pkgD.version, customized: pkgD.customized } : undefined);
     await linkAgentQuotation(env, res?.id, docType, referenceD, user.id); // v1.250.0 - an AGR-#### reference joins its agent request
-    return json({ id: res?.id, doc_number: number, total_cents: total, stock: stockMove }, 201);
+    /* v1.400.0 (Sales Command Center Phase 4, decisions 3-4) - a quotation made for a deal joins it here; the
+       quotation is already saved, so a problem with the deal is reported beside it, never instead of it */
+    const dealLink = docType === "QT" && body.deal_id != null ? await linkCreatedQuotation(env, user, Number(body.deal_id), res?.id) : null;
+    return json({ id: res?.id, doc_number: number, total_cents: total, stock: stockMove, ...(dealLink ? { deal_link: dealLink } : {}) }, 201);
   }
   const docGet = path.match(/^\/docs\/(\d+)$/);
   if (docGet && method === "GET") {

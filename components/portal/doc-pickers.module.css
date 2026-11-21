@@ -1,0 +1,21 @@
+/* v1.400.0 - the Create form's customer and deal pickers (doc-pickers.tsx). Tokens only; the house breakpoints only. */
+.picker { position: relative; min-width: 0; margin-top: 0.25rem; }
+.chosen { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-height: 2.75rem; padding: 0 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); min-width: 0; }
+.chosenName { font-size: var(--type-body-sm-size); font-weight: 600; color: var(--foreground); overflow-wrap: break-word; min-width: 0; }
+.change { flex: none; padding: 0.25rem 0.5rem; border: 0; background: none; color: var(--foreground); font: inherit; font-size: var(--type-caption-size); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.change:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }
+.search { position: relative; display: block; min-width: 0; }
+.search > :global(.erp-icon) { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--muted-foreground); pointer-events: none; }
+.search input { padding-left: 2.25rem; width: 100%; }
+.list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 0.25rem); list-style: none; margin: 0; padding: 0.25rem; max-height: 18rem; overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--popover); box-shadow: var(--shadow-soft); }
+.option { display: grid; gap: 0.125rem; width: 100%; min-height: 2.75rem; padding: 0.375rem 0.5rem; border: 0; border-radius: var(--radius-control); background: none; text-align: left; font: inherit; color: var(--foreground); cursor: pointer; }
+.option:hover, .option:focus-visible, .option[aria-selected="true"] { background: var(--tint-gold); outline: none; }
+.option strong { font-size: var(--type-body-sm-size); overflow-wrap: break-word; }
+.option span { font-size: var(--type-caption-size); color: var(--muted-foreground); overflow-wrap: break-word; }
+.hint { padding: 0.5rem; font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.deal { display: grid; gap: 0.25rem; margin-top: 0.75rem; font-size: var(--type-caption-size); color: var(--muted-foreground); min-width: 0; }
+.deal > span { font-weight: 600; color: var(--foreground); }
+.deal small { font-size: var(--type-caption-size); color: var(--muted-foreground); }
+.fuOn, .fuOff { display: block; margin-top: 0.125rem; font-size: var(--type-caption-size); color: var(--muted-foreground); white-space: nowrap; }
+.fuOff { color: var(--warning); font-weight: 600; }

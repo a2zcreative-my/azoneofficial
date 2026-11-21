@@ -206,17 +206,30 @@ export async function salesActions(env: Env, v: SalesViewer, today = mytToday())
      the deal, which is then not listed twice. "Ready to invoice" stays: that is its own step. */
   {
     type O = { id: number; title: string; customer_id: number; company: string; phone: string | null; owner_id: number | null; owner_name: string | null;
-      next_action: string | null; next_action_on: string | null; stage_since: string; created_at: string; docs: string | null; est: number | null };
+      next_action: string | null; next_action_on: string | null; stage_since: string; created_at: string; docs: string | null; est: number | null; accepted: string | null };
     const deals = await quiet(async () => (await env.DB.prepare(
       `SELECT o.id, o.title, o.customer_id, c.company, c.phone, o.owner_id, ${NAME("u")} AS owner_name, o.next_action, o.next_action_on, o.stage_since, o.created_at, o.est_value_cents AS est,
-              (SELECT GROUP_CONCAT(l.doc_id) FROM opportunity_quotations l WHERE l.opportunity_id = o.id AND l.unlinked_at IS NULL) AS docs
+              (SELECT GROUP_CONCAT(l.doc_id) FROM opportunity_quotations l WHERE l.opportunity_id = o.id AND l.unlinked_at IS NULL) AS docs,
+              (SELECT GROUP_CONCAT(q.doc_number) FROM opportunity_quotations l JOIN sales_documents q ON q.id = l.doc_id
+                WHERE l.opportunity_id = o.id AND l.unlinked_at IS NULL
+                  AND EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = q.id AND a.revision = COALESCE(q.revision, 0))
+                  AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.doc_type = 'INV' AND i.converted_from = q.id AND COALESCE(i.payment_status, '') != 'void')) AS accepted
          FROM sales_opportunities o JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.owner_id
         WHERE o.stage IN ('new', 'qualified', 'proposal', 'negotiation') AND (?1 = 0 OR o.owner_id = ?2)
         ORDER BY o.created_at LIMIT 300`,
     ).bind(mine ? 1 : 0, user.id).all<O>()).results ?? []);
     for (const o of deals) {
       const docs = (o.docs ?? "").split(",").filter(Boolean).map(Number);
-      if (items.some((i) => i.kind === "followup" && i.doc_id !== null && docs.includes(i.doc_id))) continue;
+      if (items.some((i) => i.kind === "followup" && i.doc_id !== null && docs.includes(i.doc_id))) continue; // its booked follow-up speaks for it
+      /* v1.400.0 (Phase 4, decision 4) - the customer accepted a linked quotation that is not invoiced yet: ONE row,
+         "Accepted: mark won or invoice", in place of the quotation's own "Invoice it" row. It never marks the deal won. */
+      if (o.accepted) {
+        for (let k = items.length - 1; k >= 0; k--) if (items[k]!.kind === "quotation" && docs.includes(items[k]!.doc_id ?? -1)) items.splice(k, 1);
+        items.push({ key: `deal:${o.id}`, kind: "opportunity", flag: "ready", record_id: o.id, customer_id: o.customer_id, customer: o.company, ref: o.title, doc_id: docs[0] ?? null,
+          note: `Accepted: ${o.accepted}`, cents: o.est, owner_id: o.owner_id, owner_name: o.owner_name, due_on: o.next_action_on,
+          age_days: daysBetween(mytDay(o.stage_since) ?? today, today), waited_hours: null, since: o.stage_since, phone: o.phone });
+        continue;
+      }
       for (let k = items.length - 1; k >= 0; k--) if (items[k]!.kind === "quotation" && items[k]!.flag === "no_next" && docs.includes(items[k]!.doc_id ?? -1)) items.splice(k, 1);
       const flag = o.next_action_on ? followupFlag(o.next_action_on, today) : "no_next";
       if (!flag) continue;

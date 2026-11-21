@@ -14,6 +14,8 @@ import { CustomerFilterBar, DocsMore, LEAD_FILTER, ReportPicker, RowMenu, SalesV
 import { useCachedApi } from "@/lib/cached-api";
 import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-views"; // v1.292.0
 import { SalesPipeline } from "@/components/portal/sales-pipeline"; // v1.399.0 - Sales Command Center, Phase 3
+import { CustomerPicker, DealPicker, QuoteStateChips } from "@/components/portal/doc-pickers"; // v1.400.0 - Sales Command Center, Phase 4
+import { matchesQuoteFilter, quoteState, type QuoteFilter } from "@/lib/quote-state"; // v1.400.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import type { Opportunity } from "@/components/portal/sales-discipline";
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
@@ -119,6 +121,9 @@ export interface SalesDoc {
   package_id?: number | null;
   package_version?: number | null;
   package_customized?: number | null;
+  /* v1.400.0 - on an open QT: a follow-up booked on it, and the customer's acceptance of its current revision (GET /docs) */
+  followup_open?: number | null;
+  accepted_current?: number | null;
 }
 
 /* v1.28.0 — "MAYBANK · <HOLDER> · A/C <number>": the bank-transfer instruction
@@ -536,6 +541,17 @@ export function ClientsCard({ inModal, bare }: { inModal?: boolean; bare?: boole
 /* v1.4.263: word the inventory movement an invoice caused, for the toast.
    Silence would repeat the In+ mistake (v1.4.251) — stock moving with no
    confirmation — and a wrong-SKU line NOT deducting must be said loudest. */
+/** v1.400.0 (Phase 4, decision 3) - what happened to the deal a new quotation was made for, in one line */
+export function dealLinkLine(r: { ok: true; moved: boolean } | { ok: false; reason: string } | undefined): string {
+  if (!r) return "";
+  if (r.ok) return r.moved ? L(" · linked to its deal, now in Proposal sent", " · dipaut kepada urusannya, kini di Cadangan dihantar") : L(" · linked to its deal", " · dipaut kepada urusannya");
+  const why: Record<string, [string, string]> = {
+    closed: ["the deal is closed", "urusan itu sudah ditutup"], forbidden: ["only the deal's owner or a manager links it", "hanya pemilik urusan atau pengurus memautnya"],
+    other_customer: ["the deal is for another customer", "urusan itu untuk pelanggan lain"], changed: ["the deal changed a moment ago - link it from the deal", "urusan itu baru berubah - paut dari urusan"],
+  };
+  const w = why[r.reason] ?? ["the deal could not be found", "urusan tidak dijumpai"];
+  return L(` · NOT linked to the deal: ${w[0]}`, ` · TIDAK dipaut kepada urusan: ${w[1]}`);
+}
 export function stockToastLine(
   s:
     | {
@@ -828,9 +844,44 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const [busyDoc, setBusyDoc] = useState<number | null>(null); // v1.242.0 (B2) - one convert / void in flight per row
   /* v1.186.0 - the documents list's filters and page (see docRows) */
   const [docType, setDocType] = useState<"all" | "QT" | "INV" | "DO">("all");
-  const [docStatus, setDocStatus] = useState<"all" | "unpaid" | "paid" | "open" | "invoiced">("all");
+  const [docStatus, setDocStatus] = useState<"all" | "unpaid" | "paid" | "open" | "invoiced" | QuoteFilter>("all");
+  /* v1.400.0 (Phase 4, decision 3) - the deal a new quotation is made for; the server links it on save */
+  const [dealId, setDealId] = useState<number | null>(null);
+  /* v1.400.0 (Phase 4, decision 2) - documents older than the newest 200, or found by a search, 25 at a time
+     (GET /staff/docs/more): kept apart from docs, so no figure, count or Closed Sales list changes */
+  const [olderDocs, setOlderDocs] = useState<SalesDoc[]>([]);
+  const [olderMore, setOlderMore] = useState(true);
+  const [olderBusy, setOlderBusy] = useState(false);
+  /* a reload drops the older rows (a row may have changed) and runs the search again */
+  const [docsTick, setDocsTick] = useState(0);
+  const mergeOlder = (rows: SalesDoc[]) => setOlderDocs((cur) => [...cur, ...rows.filter((r) => !cur.some((c) => c.id === r.id))]);
+  /** the next 25 documents older than the oldest one on screen */
+  const loadOlder = async () => {
+    const shown = [...docs, ...olderDocs].filter((d) => docType === "all" || d.doc_type === docType);
+    const oldest = shown.reduce<SalesDoc | null>((o, d) => (!o || d.created_at < o.created_at || (d.created_at === o.created_at && d.id < o.id) ? d : o), null);
+    setOlderBusy(true);
+    const qs = new URLSearchParams();
+    if (oldest) qs.set("before_id", String(oldest.id));
+    if (docType !== "all") qs.set("type", docType);
+    const r = await api<{ docs?: SalesDoc[]; more?: boolean }>(`/staff/docs/more?${qs.toString()}`);
+    setOlderBusy(false);
+    if (r.ok) { mergeOlder(r.data?.docs ?? []); setOlderMore(r.data?.more === true); }
+  };
   const [docQuery, setDocQuery] = useState("");
   const [docPage, setDocPage] = useState(1);
+  /* v1.400.0 (Phase 4, decision 2) - a search reaches the WHOLE table: the server's matches join the list
+     a moment after typing stops (the list on screen still filters at once) */
+  useEffect(() => {
+    const term = docQuery.trim();
+    if (term.length < 2) return;
+    const c = new AbortController();
+    const t = window.setTimeout(() => {
+      void api<{ docs?: SalesDoc[] }>(`/staff/docs/more?q=${encodeURIComponent(term)}`, { signal: c.signal }).then((r) => {
+        if (!c.signal.aborted && r.ok) setOlderDocs((cur) => [...cur, ...(r.data?.docs ?? []).filter((x) => !cur.some((y) => y.id === x.id))]);
+      });
+    }, 400);
+    return () => { c.abort(); window.clearTimeout(t); };
+  }, [docQuery, docsTick]);
   /* v1.263.0 (claude/COMPACT-DASHBOARD-AUDIT.md sec. 6) - the Dashboard's
      "View all" on Pipeline & quotations opens THIS list with its own
      Open quotations filter - there is no second quotations screen */
@@ -954,6 +1005,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       `/staff/docs`
     );
     setDocs(d.data?.docs ?? []);
+    setOlderDocs([]); setOlderMore(true); setDocsTick((t) => t + 1); // v1.400.0
     if (paysByReport) {
       const pr = await api<{ on: boolean; invoices?: { id: number; verified_cents: number; pending_cents: number; can_report: boolean }[]; tiles?: { pending_cents?: number; pending_count?: number } }>(`/staff/payments`);
       if (pr.ok && pr.data) {
@@ -1221,6 +1273,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     setEditingDoc(null);
     setPkgRef(null);
     pkgUndo.current = null;
+    setDealId(null);
   };
 
   /* v1.4.273 idea 2: the prospect → quotation handoff. The Social tab wrote
@@ -1507,6 +1560,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       /* v1.231.0 - a quotation names the package it was filled from (or
          none); other documents leave the link as it is */
       ...(doc.doc_type === "QT" ? { package_id: pkgRef?.id ?? null, package_version: pkgRef?.version ?? null } : {}),
+      /* v1.400.0 - a NEW quotation made for a deal names it; the server links it when it saves */
+      ...(doc.doc_type === "QT" && !editingDoc && dealId ? { deal_id: dealId } : {}),
     };
     if (editingDoc) {
       const res = await api<{
@@ -1555,6 +1610,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       doc_number?: string;
       stock?: StockMove;
       error?: { message?: string };
+      deal_link?: { ok: true; moved: boolean } | { ok: false; reason: string };
     }>(`/staff/docs`, { method: "POST", body: JSON.stringify(payload) });
     if (!res.ok || !res.data?.id) {
       showToast(
@@ -1570,7 +1626,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       L(
         `${res.data.doc_number ?? "Document"} created${doc.paid_received ? " — PAID" : ""}`,
         `${res.data.doc_number ?? "Dokumen"} dibuat${doc.paid_received ? " — DIBAYAR" : ""}`
-      ) + stockToastLine(res.data.stock)
+      ) + stockToastLine(res.data.stock) + dealLinkLine(res.data.deal_link)
     );
     const newId = res.data.id;
     resetDocForm();
@@ -1786,13 +1842,16 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const lastPaid = sDocs.filter((d) => d.doc_type === "INV" && d.payment_status === "paid" && mytYm(d.paid_at ?? d.created_at) === lastKey);
   /* v1.186.0 - the documents list: a type pill, a search, a status pick and
      ten a page. Filters only; every row keeps every action it had. */
-  const docRows = docs.filter((d) =>
+  const allDocs = olderDocs.length ? [...docs, ...olderDocs.filter((o) => !docs.some((d) => d.id === o.id))] : docs;
+  const todayQ = mytToday();
+  const docRows = allDocs.filter((d) =>
     (docType === "all" || d.doc_type === docType)
     && (docStatus === "all"
       || (docStatus === "paid" ? d.doc_type === "INV" && d.payment_status === "paid"
         : docStatus === "unpaid" ? d.doc_type === "INV" && d.payment_status !== "paid"
           : docStatus === "invoiced" ? d.doc_type === "QT" && !!d.invoiced_as
-            : docStatus === "open" ? d.doc_type === "QT" && !d.invoiced_as : true))
+            : docStatus === "open" ? d.doc_type === "QT" && !d.invoiced_as
+              : matchesQuoteFilter(quoteState(d, todayQ), docStatus)))
     && (!docQuery.trim() || `${d.doc_number} ${d.company} ${d.customer_phone ?? ""} ${d.salesperson_name ?? ""}`.toLowerCase().includes(docQuery.trim().toLowerCase())));
   const docPages = Math.max(1, Math.ceil(docRows.length / DOC_PER));
   const docPageSafe = Math.min(docPage, docPages);
@@ -1818,7 +1877,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const enqAll = useEnquiryList();
   const opps = (oppView.data?.rows ?? []).filter((o) => scope === "all" || o.owner.id === user.id);
   const enquiries = enqAll.filter((e) => e.status !== "closed" && (scope === "all" || e.assigned_to === user.id || e.assigned_to === null));
-  const openDocById = (id: number) => { const d = docs.find((x) => x.id === id); if (d) openDocRow(d); else setWsView("documents"); };
+  const openDocById = (id: number) => { const d = allDocs.find((x) => x.id === id); if (d) openDocRow(d); else setWsView("documents"); };
   const toPayment = (id: number, record: boolean) => { if (record) setRecordInv(id); else setViewInv(id); setWsView("payments"); };
   const toEnquiries = () => { setCustFilter("enquiries"); setWsView("customers"); };
   /* the customer file refreshes Sales when it closes: a tick the loader watches, so no render-time code touches a ref */
@@ -1830,6 +1889,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      records it counts, in the view that owns them (each count is unchanged) */
   const pickPipe = (k: PipeKey) => {
     if (k === "verified" || k === "closed") { setWsView("closed"); return; }
+
     if (k === "reported") { setWsView("payments"); return; }
     if (k === "enquiry") { toEnquiries(); return; }
     setWsView("documents"); setWorkTab("documents"); setDocQuery(""); setDocPage(1);
@@ -1950,6 +2010,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           onQuote={(x) => {
             if (!customers.some((c) => c.id === x.customer_id)) setCustomers((cs) => [...cs, { id: x.customer_id, company: x.customer, contact_person: null, phone: null, email: null }]);
             setDoc((d) => ({ ...d, doc_type: "QT", customer_id: x.customer_id, salesperson_id: x.owner_id && staffList.some((u) => u.id === x.owner_id) ? x.owner_id : d.salesperson_id }));
+            setEditingDoc(null); setDealId(x.deal_id); // v1.400.0 (decision 3) - the deal it is made for; the server links it on save
             setWsView("documents"); setWorkTab("create"); jump("sales-work");
           }} />
       )}
@@ -2321,29 +2382,14 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             <div className="grid grid-cols-1 gap-3 py-3 sm:grid-cols-2">
               <div>
                 <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{L("Billing address", "Alamat bil")}</p>
-                <select
-                  className={`${inputClass} mt-1`}
-                  aria-label={L("Customer", "Pelanggan")}
-                  value={doc.customer_id}
-                  onChange={(e) =>
-                    setDoc((d) => ({
-                      ...d,
-                      customer_id: Number(e.target.value),
-                    }))
-                  }
-                >
-                  <option value={-1}>
-                    {L("Choose customer…", "Pilih pelanggan…")}
-                  </option>
-                  <option value={0}>
-                    {L("Walk-in / general buyer", "Walk-in / pembeli umum")}
-                  </option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.company}
-                    </option>
-                  ))}
-                </select>
+                {/* v1.400.0 (Phase 4, decision 1) - type to search EVERY customer, not a list cut at the first 300 */}
+                <CustomerPicker value={doc.customer_id} known={customers}
+                  onPick={(c, id) => {
+                    if (c) setCustomers((cs) => cs.some((x) => x.id === c.id)
+                      ? cs.map((x) => (x.id === c.id && c.address !== undefined ? { ...x, address: c.address } : x))
+                      : [...cs, { id: c.id, company: c.company, contact_person: c.contact_person, phone: c.phone, email: c.email, address: c.address ?? null }]);
+                    setDoc((d) => ({ ...d, customer_id: id }));
+                  }} />
                 {(() => {
                   const c = customers.find((x) => x.id === doc.customer_id);
                   if (doc.customer_id === -1) return <p className="text-muted-foreground mt-1.5 text-[11px]">{L("The company, contact, address, phone and email print here from the customer card.", "Syarikat, kenalan, alamat, telefon dan e-mel dicetak di sini daripada kad pelanggan.")}</p>;
@@ -2358,6 +2404,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     </div>
                   );
                 })()}
+                {/* v1.400.0 (Phase 4, decision 3) - an optional deal for a NEW quotation; nothing is linked unless one is chosen */}
+                {doc.doc_type === "QT" && !editingDoc && <DealPicker customerId={doc.customer_id} value={dealId} onChange={setDealId} />}
               </div>
               <div>
                 <p className="text-muted-foreground text-[9px] font-bold tracking-[0.14em] uppercase">{doc.kind === "service" ? L("Service address", "Alamat perkhidmatan") : L("Delivery address", "Alamat penghantaran")}</p>
@@ -2860,11 +2908,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             <div className="mt-3">
               <QuotationPage docId={qtPage} canInvoice={canInvoice} invoicing={busyDoc === qtPage}
                 onBack={() => setQtPage(null)}
-                onEdit={() => { const q = docs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, false); } }}
-                onRevise={() => { const q = docs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, true); } }}
-                onConvert={() => { const q = docs.find((x) => x.id === qtPage); return q ? convertQt(q) : undefined; }}
-                billing={(() => { const q = docs.find((x) => x.id === qtPage); return q && q.kind === "service" ? { total_cents: q.total_cents, invoiced_cents: Number(q.invoiced_cents ?? 0) } : null; })()}
-                onConvertPart={() => { const q = docs.find((x) => x.id === qtPage); return q ? askPart(q) : undefined; }}
+                onEdit={() => { const q = allDocs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, false); } }}
+                onRevise={() => { const q = allDocs.find((x) => x.id === qtPage); if (q) { setQtPage(null); void openInForm(q, true); } }}
+                onConvert={() => { const q = allDocs.find((x) => x.id === qtPage); return q ? convertQt(q) : undefined; }}
+                billing={(() => { const q = allDocs.find((x) => x.id === qtPage); return q && q.kind === "service" ? { total_cents: q.total_cents, invoiced_cents: Number(q.invoiced_cents ?? 0) } : null; })()}
+                onConvertPart={() => { const q = allDocs.find((x) => x.id === qtPage); return q ? askPart(q) : undefined; }}
                 onPdf={() => void printDoc(qtPage)} />
             </div>
           )}
@@ -2887,6 +2935,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             <option value="paid">{L("Paid invoices", "Invois dibayar")}</option>
             <option value="open">{L("Open quotations", "Sebut harga terbuka")}</option>
             <option value="invoiced">{L("Invoiced quotations", "Sebut harga diinvois")}</option>
+            {/* v1.400.0 (Phase 4, decision 6) - where an open quotation stands (lib/quote-state.ts) */}
+            <option value="needs_followup">{L("Quotations needing a follow-up", "Sebut harga perlu susulan")}</option>
+            <option value="accepted">{L("Accepted, not invoiced", "Diterima, belum diinvois")}</option>
+            <option value="expiring">{L("Expiring within 7 days", "Tamat dalam 7 hari")}</option>
+            <option value="expired">{L("Expired quotations", "Sebut harga tamat tempoh")}</option>
           </select>
         </div>
         {docsError && (
@@ -3116,11 +3169,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     </span>
                   )}
                   {d.doc_type === "QT" && d.invoiced_as && !partly(d) && <span className={sc.statusNote} data-testid="qt-invoiced-list">{invList(d)}</span>}
-                  {d.doc_type === "QT" && !d.invoiced_as && (
-                    <span className={chipSmNeutral}>
-                      {L("Open", "Terbuka")}
-                    </span>
-                  )}
+                  {/* v1.400.0 (Phase 4, decision 5) - where an open quotation stands, in words: one chip, and the follow-up under it */}
+                  {d.doc_type === "QT" && !d.invoiced_as && <QuoteStateChips d={d} today={todayQ} />}
                   {d.doc_type === "INV" && (!(canPay || (paysByReport && pv?.on)) || d.payment_status === "void") && (
                     <span className={d.payment_status === "paid" ? "erp-chip erp-chip-sm erp-chip-success" : d.payment_status === "void" ? "erp-chip erp-chip-sm erp-chip-neutral" : "erp-chip erp-chip-sm erp-chip-warning"}
                       title={d.payment_status === "void" ? L(`Voided${d.void_reason ? `: ${d.void_reason}` : ""}`, `Dibatalkan${d.void_reason ? `: ${d.void_reason}` : ""}`) : undefined}>
@@ -3554,6 +3604,17 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             </select>
           </div>
         )}
+        {/* v1.400.0 (Phase 4, decision 2) - the whole table, 25 older at a time; the figures above already count everything */}
+        {loaded && (olderMore ? (<>
+          {/* 21-11-2026 - the 25 older rows arrive as a skeleton in their own shape, never a word (skeleton-loading R1) */}
+          {olderBusy && <SkelRows rows={3} />}
+          <div className={sc.foot}>
+            <span className="erp-meta" data-testid="docs-older-note">{L("Older documents are fetched 25 at a time. A search looks through every document.", "Dokumen lama diambil 25 pada satu masa. Carian melihat semua dokumen.")}</span>
+            <button type="button" className={btnSm} disabled={olderBusy} aria-busy={olderBusy} onClick={() => void loadOlder()} data-testid="docs-older">
+              <AppIcon name="down" />{L("Load 25 older", "Muat 25 lebih lama")}
+            </button>
+          </div>
+        </>) : <p className="erp-meta" data-testid="docs-older-end">{L("That is every document.", "Itulah semua dokumen.")}</p>)}
           {/* v1.181.17 - the CEO's own switch; renders for nobody else.
               v1.191.0 - under the table: it is a setting, not a filter */}
           <div className={sc.setting}><QuoteApprovalLimit qa={qa} onChanged={() => void load()} /></div>

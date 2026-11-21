@@ -1502,8 +1502,28 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/expenses") data = { expenses, upcoming: [], staff_payroll: null, staff_claims: { in_month: [], due: [], paid: [] } };
   /* v1.215.0 - the CEO/COO paid confirmation (0145). CONFIRMED=1 serves
      INV-AZO100926-2 as confirmed; otherwise it awaits confirmation. */
+  /* v1.400.0 - QSTATE=1: four open quotations, one in each state the Documents list names (lib/quote-state.ts).
+     Their days are counted from the REAL clock, because the page reads today from it. */
+  const realDay = (n) => new Date(Date.now() + 8 * 3600 * 1000 + n * 86400000).toISOString().slice(0, 10);
+  const qstate = [
+    { id: 81, doc_type: "QT", doc_number: "QT-AZO010926-81", company: "Restoran Selera Kampung", customer_id: 57, total_cents: 90000, payment_status: null, delivery_status: null, created_at: D + "01 02:00:00", salesperson_name: "Fixture Person", salesperson_id: 9001, kind: "service", revision: 0, valid_until: realDay(40), followup_open: 0, accepted_current: 0 },
+    { id: 82, doc_type: "QT", doc_number: "QT-AZO020926-82", company: "Klinik Gigi Senyum", customer_id: 44, total_cents: 360000, payment_status: null, delivery_status: null, created_at: D + "02 02:00:00", salesperson_name: "Hakim Rosli", salesperson_id: 9010, kind: "service", revision: 0, valid_until: realDay(-5), followup_open: 0, accepted_current: 0 },
+    { id: 83, doc_type: "QT", doc_number: "QT-AZO030926-83", company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", customer_id: 55, total_cents: 280000, payment_status: null, delivery_status: null, created_at: D + "03 02:00:00", salesperson_name: "Fixture Person", salesperson_id: 9001, kind: "service", revision: 0, valid_until: realDay(3), followup_open: 1, accepted_current: 0 },
+    { id: 84, doc_type: "QT", doc_number: "QT-AZO040926-84", company: "Butik Seri Kenanga", customer_id: 56, total_cents: 120000, payment_status: null, delivery_status: null, created_at: D + "04 02:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002, kind: "service", revision: 2, valid_until: realDay(20), followup_open: 0, accepted_current: 1 },
+  ];
+  /* v1.400.0 - GET /staff/docs/more: forty older documents, paged 25 at a time and searched like the server */
+  if (p === "/staff/docs/more") {
+    const older = Array.from({ length: 40 }, (_, k) => ({ id: 500 + k, doc_type: k % 4 ? "QT" : "INV", doc_number: `${k % 4 ? "QT" : "INV"}-OLD-${String(k + 1).padStart(3, "0")}`,
+      company: k % 2 ? "Kedai Runcit Pak Ali" : "Pusat Tuisyen Cemerlang", customer_id: k % 2 ? 53 : 58, total_cents: 10000 + k * 1000, payment_status: k % 4 ? null : "paid", delivery_status: null,
+      created_at: `2025-${String(12 - Math.floor(k / 4)).padStart(2, "0")}-${String(28 - (k % 4)).padStart(2, "0")} 02:00:00`, salesperson_name: "Fixture Person", salesperson_id: 9001, kind: "service", revision: 0,
+      valid_until: k % 4 ? "2025-12-31" : null, followup_open: 0, accepted_current: 0 }));
+    const term = (q.get("q") ?? "").toLowerCase(), ty = q.get("type"), before = Number(q.get("before_id") ?? 0);
+    let rows = older.filter((d) => (!ty || d.doc_type === ty) && (!term || `${d.doc_number} ${d.company}`.toLowerCase().includes(term)));
+    if (before >= 500) rows = rows.filter((d) => d.id > before); // older = a higher id here
+    data = { docs: rows.slice(0, 25), more: rows.length > 25 };
+  }
   if (p === "/staff/docs") data = {
-    docs: process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d)
+    docs: process.env.QSTATE ? [...docs, ...qstate] : process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d)
       /* v1.273.0 - DEPOSIT=1: the service quotation QT 1 is half invoiced (a 50% deposit) */
       : process.env.DEPOSIT ? [...docs.map((d) => d.id === 1 ? { ...d, invoiced_as: "INV-AZOO311026-8", invoiced_as_id: 9099, invoiced_cents: 225000, invoice_count: 1 } : d),
         /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded while the other one was not appear") - a

@@ -16,7 +16,7 @@
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -182,7 +182,7 @@ ok(!/^\s*CARD_BRIDGE_KEY\s*=/m.test(wr) && /wrangler secret put CARD_BRIDGE_KEY/
 ok(/\|card_template\|[a-z_|]*\):\(\\d\+\)/.test(read("lib/record-focus.ts")) && /case "card_template"/.test(read("components/portal/desk-page.tsx")), "a bell or Desk row opens the template");
 ok(/focus=\{focusOf\("Digital Cards"\)\}/.test(read("app/portal/page.tsx")), "Digital Cards receives the record to open");
 const idx = read("worker/src/index.ts");
-ok(/const LATEST_MIGRATION = "(0225_card_template_publish|0226_crm_leads|0227_sales_pipeline)"/.test(idx) && /"0225_card_template_publish",/.test(idx), "0225 is in the expected list (0226 CRM leads and 0227 the Sales Pipeline came after it)");
+ok(((s) => { const m = /const LATEST_MIGRATION = "(\d{4}_[a-z0-9_]+)";/.exec(s); const newest = readdirSync(join(root, "worker/migrations")).filter((x) => x.endsWith(".sql")).sort().pop(); return !!m && m[1] >= "0225" && `${m[1]}.sql` === newest; })(idx) /* 21-11-2026 - follows the newest migration on disk, so a later module's migration no longer breaks this check */ && /"0225_card_template_publish",/.test(idx), "0225 is in the expected list (later migrations follow it)");
 const mig = read("worker/migrations/0225_card_template_publish.sql").replace(/--.*$/gm, "");
 ok(!/\bDROP\b/i.test(mig) && (mig.match(/ALTER TABLE card_templates ADD COLUMN/g) ?? []).length === 3 && (mig.match(/ALTER TABLE/g) ?? []).length === 3, "0225 is additive");
 
