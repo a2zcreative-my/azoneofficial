@@ -8,6 +8,7 @@ All notable changes to the AZ ONE OFFICIAL platform.
 - **Sales -> Quotations & Invoices:** the list loads the newest 200 documents. "Load 25 older" (and its note) now shows only when that read came back full, which is the only time older documents exist. With fewer, the foot says "That is every document." The 1, 2, 3 page buttons are unchanged, and a search still looks through every document.
 - GET /docs sends `older` (true when its newest-200 read returned 200 rows). Read only.
 - Guard `quotations` 36 checks (2 new), 10/10 mutations; app and worker type checks pass; the browser fixture says `older` for its 40-older-documents case. Browser test not run. Not deployed.
+- **Release checks fixed:** the first release attempt stopped at four guards, and nothing was published. Three (`unpaid-leave`, `staff-order`, `admin-super-only`) failed only because this PC's files have Windows line endings; they now ignore line endings. `qt-once` now expects the invoice numbers as links.
 
 ### Invoice numbers in a quotation's status open the invoice (21-11-2026, the CEO with his Quotations & Invoices screenshot: "for status invoice should appear inside the clickable reference") - NO MIGRATION
 - **Sales -> Quotations & Invoices:** under an **Invoiced** quotation, each invoice number it became (e.g. "INV-AZOO091126-1 + INV-AZOO111126-1") is now a link that opens that invoice's row, the same as clicking its own document number. A **Partly invoiced** quotation now also lists the invoices so far, as links, under "left to invoice".
