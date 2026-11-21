@@ -4,6 +4,11 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Security & MFA: the figure strip sits above the sub-tabs (21-11-2026, the CEO's screenshot) - NO MIGRATION, no server change
+- Users & Security -> Security & MFA now reads: the four figures (2FA Protection · Recent Sign-ins · Recovery Panel · Security Alerts), then the sub-tab row (Overview · Company owner · Office location · Problem reports · System health), then the open part. This is the order Company Access, Payments and /admin's Security & Audit already use, and as there the strip stays on every sub-tab.
+- Same figures, same reads, no new request. Pressing Recent Sign-ins from another sub-tab opens the Overview with the sign-in log filtered; the Recovery Panel tile opens its drawer from any sub-tab. The Overview's body stays mounted (hidden) while another sub-tab is open; the other parts load as before.
+- Guard `security-sessions` gains U8 (strip -> sub-tab row -> Overview -> parts, one strip, one sub-tab row) and two mutations; its file read now folds CRLF (two anchors had been failing on this Windows checkout). Browser `security-sessions.py` checks that the strip is above the row; `ui-system.py` expects the Overview hidden, not unmounted, on System health (neither was run: no Python on this PC). Not deployed.
+
 ### Two-factor sign-in: six boxes and a keypad (21-11-2026, the CEO's keypad reference, "As recommended") - NO MIGRATION, no server change
 - **Authenticator code:** six boxes with the active one in gold, over ONE real input (text, numeric keyboard, `autocomplete="one-time-code"`, six long), so typing, Ctrl+V / Cmd+V / long-press Paste and the phone's code autofill all work. Leading zeros are kept. The sixth digit still signs in by itself.
 - **Keypad:** 1-9, Clear, 0, Delete. Large keys that never take the focus, so on a desk the keyboard keeps working and on a phone the system keyboard does not open over the keypad. On a phone the screen opens on the keypad; "Tap the boxes to paste or use your keyboard" is the way to Paste and autofill.

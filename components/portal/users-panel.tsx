@@ -803,13 +803,12 @@ export function UsersPanel({ role, owner = false, go: _go, initialView }: { role
             Authentication Controls, Security Attention, the Sign-in Log, the principles) fills the screen;
             the company owner, the office location, problem reports and system health are each one press
             away, unchanged. Until an owner is verified the owner card still comes first (v1.252.1). */}
-        <LineTabs value={secPart} onChange={setSecPart} label={L("Security parts", "Bahagian keselamatan")} testid="sec-part" tabs={secParts} />
-        {secPart === "overview" && (
-          <TabZone label={L("Security", "Keselamatan")}>
-            <SecuritySessions staff={allStaff} loaded={loaded} events={events} eventsLoaded={eventsLoaded} canSettings={holds} status={secStatus} onHealth={auditRead ? () => setSecPart("health") : undefined}
-              onManage={recovery ? (id) => setSheetId(id) : undefined} onStaffAccounts={() => { setUserPart("staff"); openView("users"); }} onAudit={auditTab ? () => openView("audit") : undefined} />
-          </TabZone>
-        )}
+        {/* strip above the sub-tabs (the CEO 21-11-2026) - the strip sits ABOVE this row, on every part: SecuritySessions draws
+            strip -> the parts row -> the Overview (hidden, never unmounted) -> the part that is open */}
+        <SecuritySessions staff={allStaff} loaded={loaded} events={events} eventsLoaded={eventsLoaded} canSettings={holds} status={secStatus} onHealth={auditRead ? () => setSecPart("health") : undefined}
+          onManage={recovery ? (id) => setSheetId(id) : undefined} onStaffAccounts={() => { setUserPart("staff"); openView("users"); }} onAudit={auditTab ? () => openView("audit") : undefined}
+          overview={secPart === "overview"} onOverview={() => setSecPart("overview")}
+          tabs={<LineTabs value={secPart} onChange={setSecPart} label={L("Security parts", "Bahagian keselamatan")} testid="sec-part" tabs={secParts} />}>
         {secPart === "owner" && ownerState && ownerZone}
         {secPart === "location" && geofence && (
           <TabZone label={L("Office location", "Lokasi pejabat")}>
@@ -833,6 +832,7 @@ export function UsersPanel({ role, owner = false, go: _go, initialView }: { role
             <div id="system-health"><SystemHealthCard /></div>
           </TabZone>
         )}
+        </SecuritySessions>
       </div>
 
       {/* v1.251.0 - AUDIT HISTORY: the existing audit log (GET /api/v1/audit,

@@ -70,6 +70,9 @@ with sync_playwright() as p:
         # v1.344.0 - each sub-tab follows its own reference image (17-11-2026)
         check(f"[{w}] Overview: one strip of four (2FA, sign-ins, recovery panel, alerts)", strip.count() == 1 and int(strip.get_attribute("data-cells") or 0) == 4 and all(t in txt for t in ["2FA Protection", "Recent Sign-ins", "Recovery Panel", "Security Alerts"]), txt[:200])
         check(f"[{w}] the recovery tile reads the panel: one of two can act, so Not ready", "Not ready" in pg.get_by_test_id("tile-recovery").inner_text())
+        # strip above the sub-tabs (the CEO 21-11-2026) - the strip sits ABOVE the sub-tab row
+        row = pg.get_by_test_id("sec-part-overview") if pg.get_by_test_id("sec-part-overview").is_visible() else pg.get_by_test_id("sec-part-switch")  # a phone draws the switch (v1.357.0)
+        check(f"[{w}] the strip is above the sub-tab row", strip.bounding_box()["y"] < row.bounding_box()["y"])
         check(f"[{w}] the controls, sign-in log, attention and principles panes are there, recovery in the controls",
               all(pg.get_by_test_id(t).count() == 1 for t in ["auth-controls", "signin-log", "security-attention", "security-principles", "control-2fa", "control-passkeys", "control-recovery"]))
         pg.get_by_test_id("open-sessions").click(); pg.wait_for_timeout(800)

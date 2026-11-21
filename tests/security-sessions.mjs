@@ -20,7 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const read = (f) => readFileSync(join(root, f), "utf8");
+const read = (f) => readFileSync(join(root, f), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the anchors are written with \n
 const fails = [];
 let passed = 0;
 const ok = (name, cond, extra = "") => { if (cond) passed++; else { fails.push(name); console.log(`  ✗ ${name}${extra ? `  [${extra}]` : ""}`); } };
@@ -173,6 +173,12 @@ function source(s) {
       return tr.length > 0 && !/INSERT|UPDATE|DELETE/.test(tr) && /const mayT = user\.role === "super_admin" \|\| user\.role === "ceo" \|\| user\.is_owner === true \|\| \(recvT !== null && recvT\.id === user\.id\);\s*if \(!mayT\) return err\("forbidden"/.test(tr); })());
   t("U7 Company owner and Office location: the same owner card and geofence save, now as pages", /\{secPart === "owner" && ownerState && ownerZone\}/.test(s.users) && /<OwnerPage state=\{ownerState\}/.test(s.users)
     && /<TabZone label=\{L\("Office location", "Lokasi pejabat"\)\}>\s*<GeofenceCard onAudit=/.test(s.users));
+  /* strip above the sub-tabs (the CEO 21-11-2026) - the strip ABOVE the sub-tab row, on every part; the Overview hidden, never unmounted */
+  const kpiAt = s.sess.indexOf('<KpiRow label={L("Security figures"'), tabsAt = s.sess.indexOf("{tabs}"), bodyAt = s.sess.indexOf('<div hidden={!overview} data-testid="security-sessions">'), partsAt = s.sess.indexOf("{children}");
+  t("U8 the strip comes first, then the sub-tab row, the Overview (hidden when closed), then the other parts",
+    kpiAt > 0 && kpiAt < tabsAt && tabsAt < bodyAt && bodyAt < partsAt && (s.sess.match(/<KpiRow /g) ?? []).length === 1
+    && /tabs=\{<LineTabs value=\{secPart\} onChange=\{setSecPart\}[^\n]*testid="sec-part"/.test(s.users) && (s.users.match(/testid="sec-part"/g) ?? []).length === 1
+    && /overview=\{secPart === "overview"\}/.test(s.users) && !/secPart === "overview" &&/.test(s.users));
   /* the register */
   const reg = s.staff.slice(s.staff.indexOf('if (path === "/support/reports" && method === "GET")'), s.staff.indexOf('if (path === "/support/report" && method === "POST")'));
   t("R1 a security incident is a kind of the existing report (a Task, high priority)", /security: \["Security incident", "high"\],/.test(s.staff));
@@ -195,6 +201,8 @@ const MUT = [
   ["the trail opened to every staff member", "staff", "    if (!mayT) return err(", "    if (false) return err("],
   ["the register may write", "staff", "    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)", "    await env.DB.prepare(`UPDATE tasks SET status = 'completed'`).run();\n    const labels = Object.fromEntries(Object.entries(SUPPORT_KINDS)"],
   ["the CSP blocks Cloudflare's script again", "headers", " https://static.cloudflareinsights.com https://challenges.cloudflare.com;", " https://static.cloudflareinsights.com;"],
+  ["the sub-tab row drawn above the strip again", "sess", '<KpiRow label={L("Security figures"', '{tabs}\n      <KpiRow label={L("Security figures"'],
+  ["the Overview unmounted on the other parts again", "users", 'overview={secPart === "overview"}', 'overview={secPart === "overview"} {...(secPart === "overview" && {})}'],
   ["the old errors card dropped from System health", "users", '<div id="system-health"><SystemHealthCard /></div>', '<div id="system-health" />'],
 ];
 if (!process.env.NOMUT) {

@@ -346,7 +346,7 @@ with sync_playwright() as p:
         check(f"Security & Sessions {w}: an active account without 2FA is named under Attention", "without 2FA" in pg.get_by_test_id("security-attention").inner_text(), pg.get_by_test_id("security-attention").inner_text()[:200])
         hp = pg.get_by_test_id("sec-part-health")
         if hp.count(): hp.click(); pg.wait_for_timeout(600)
-        check(f"Security & Sessions {w}: the owner card, the geofence and System health stay in their own parts", hp.count() == 1 and pg.locator("#system-health").count() == 1 and pg.get_by_test_id("security-sessions").count() == 0)
+        check(f"Security & Sessions {w}: the owner card, the geofence and System health stay in their own parts", hp.count() == 1 and pg.locator("#system-health").count() == 1 and pg.get_by_test_id("security-sessions").is_hidden() and pg.get_by_test_id("security-strip").is_visible())  # strip above the sub-tabs - the strip stays above the parts; the Overview is hidden, not unmounted
         users_view("audit")
         reg = pg.get_by_test_id("audit-table")
         check(f"Audit History {w}: the strip (Audit Events, User Changes, Sign-in Events, Flagged Events) and the register", reg.count() == 1 and all(x in pg.get_by_test_id("audit-strip").inner_text() for x in ["Audit Events", "User Changes", "Sign-in Events", "Flagged Events"]))
