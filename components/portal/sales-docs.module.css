@@ -136,9 +136,20 @@
 }
 /* v1.372.0 - the long half of a status (which invoices, how much is left) sits under its pill and wraps on
    words; the pill itself stays one line (.erp-chip is nowrap by rule) */
-/* v1.410.0 - an invoice number inside a status note opens that invoice */
-.refLink { padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; font-weight: 600; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.refLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }
+/* v1.416.0 - Invoice & payment details: its own panel under the detail grid, the full width of the row */
+.moneyPanel {
+  min-width: 0;
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--secondary) 40%, transparent);
+}
+.moneyTitle {
+  margin: 0 0 0.5rem;
+  color: var(--foreground);
+  font-size: var(--type-body-sm-size);
+  font-weight: 700;
+}
 .statusNote {
   flex-basis: 100%;
   min-width: 0;

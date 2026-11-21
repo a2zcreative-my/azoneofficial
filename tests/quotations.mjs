@@ -215,7 +215,18 @@ s(/doc\.doc_type === "QT" && !editingDoc && dealId \? \{ deal_id: dealId \}/.tes
   const lists = staffSrc.match(/AS invoiced_list,/g)?.length ?? 0;
   const ids = staffSrc.match(/\(SELECT GROUP_CONCAT\(x\.id, ','\) FROM \(SELECT i\.id FROM sales_documents i WHERE i\.converted_from = d\.id AND i\.doc_type = 'INV' AND COALESCE\(i\.payment_status, ''\) != 'void' ORDER BY i\.id\) x\) AS invoiced_ids,/g)?.length ?? 0;
   s(lists > 0 && ids === lists, "every /docs read that lists a quotation's invoices also sends their ids, in the same order and without void ones", `${ids}/${lists}`);
-  s(/data-testid="qt-invoiced-list">\{invLinks\(d\)\}/.test(sales) && /data-testid="qt-partly-list">[^\n]*\{invLinks\(d\)\}/.test(sales) && /onClick=\{\(e\) => \{ e\.stopPropagation\(\); openDocRow\(\{ \.\.\.d, id, doc_number: n \}\); \}\}/.test(sales), "an invoiced or partly invoiced quotation draws each invoice number as a link that opens that invoice");
+  /* v1.416.0 - the links moved from the Status column into the expanded row's Linked invoice & payment details */
+  s(/const moneyIds = \(d: SalesDoc\): number\[\] => \{/.test(sales) && /\(d\.invoiced_ids \?\? ""\)\.split\(","\)/.test(sales) && /onOpenInvoice=\{\(id, num\) => openDocRow\(\{ \.\.\.d, id, doc_number: num \}\)\}/.test(sales), "an invoiced or partly invoiced quotation lists each invoice in its expanded row, and each opens that invoice");
+}
+/* v1.416.0 (the CEO's reference, "As recommended") - the Status column is ONE badge; invoice and payment details are a pure read */
+{
+  const money = read("components/portal/doc-money.tsx");
+  s(!/data-testid="qt-(invoiced|partly)-list"|data-testid="qt-partly-left"/.test(sales), "the Status column no longer lists invoices or the amount left to invoice (they are in the expanded row)");
+  s(/<DocMoney ids=\{\[d\.id\]\} showPayments=\{false\}/.test(sales) && /\{d\.payment_status === "paid" && canInvoice && \(/.test(sales), "an invoice's row shows its own details once (its payments stay in Part payments), and the paid-date correction is kept");
+  s(/api<InvMoney>\(`\/staff\/docs\/\$\{id\}\/payments`/.test(money) && !/method: "(POST|PUT|PATCH|DELETE)"/.test(money), "the details are read from the existing per-invoice payments read, and nothing there writes");
+  s(/if \(status === "paid"\) return \{ key: "paid"/.test(money) && /if \(verifiedCents > 0\) return \{ key: "partial"/.test(money) && !/pending[^\n]*key: "paid"/.test(money), "the badge reads the stored status first and verified money second - never paid because the invoice exists or a payment was reported");
+  s(/const pending = inv\.payment_status === "paid" \? 0 : Number\(ex\.pending_cents \?\? 0\);/.test(money) && /reported · awaiting CEO/.test(money) && /pending_cents: pv\?\.on \? Number\(pv\.inv\[id\]\?\.pending_cents \?\? 0\) : 0/.test(sales), "a reported payment is its own amount, awaiting the CEO, and is never deducted from the balance");
+  s(/const remaining = inv\.payment_status === "paid" \|\| inv\.payment_status === "void" \? 0 : m\.balance_cents;/.test(money) && /p\.voided_at && <span className=\{chipSmNeutral\}/.test(money), "the balance is the server's (total less verified payments); a voided payment shows as voided and never counts");
 }
 
 const dir = mkdtempSync(join(tmpdir(), "quotations-"));

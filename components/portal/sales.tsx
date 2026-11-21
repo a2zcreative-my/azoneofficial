@@ -55,6 +55,7 @@ import { DOC } from "@/lib/doc-theme";
 import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
 import { DocRevisions, RevisionChip } from "@/components/portal/doc-revisions";
 import { InvoicePayments, PartPaidChip } from "@/components/portal/invoice-payments";
+import { DocMoney } from "@/components/portal/doc-money"; // v1.416.0 - Invoice & payment details in the expanded row
 import { openCustomerTimeline } from "@/components/portal/customer-timeline";
 import { openCustomerFile } from "@/components/portal/customer-file"; // v1.181.16
 import { QuotationAcceptance } from "@/components/portal/quotation-acceptance"; // v1.181.16
@@ -1156,20 +1157,18 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const leftToInvoice = (d: SalesDoc) => Math.max(0, d.total_cents - Number(d.invoiced_cents ?? 0));
   const partly = (d: SalesDoc) => d.doc_type === "QT" && d.kind === "service" && !!d.invoiced_as && leftToInvoice(d) > 0;
   const invList = (d: SalesDoc) => d.invoiced_list || d.invoiced_as || ""; // v1.300.0 - every live invoice, oldest first
-  /* v1.410.0 (the CEO: "for status invoice should appear inside the clickable reference") - each invoice the quotation
-     became is a link that opens that invoice's row, as its own document number does. Ids come from the server in the
-     list's order; an older reading with no ids falls back to the latest invoice's id, else plain text. */
-  const invLinks = (d: SalesDoc): ReactNode => {
-    const nums = invList(d).split(" + ").filter(Boolean);
-    const ids = (d.invoiced_ids ?? "").split(",").map(Number);
-    return nums.map((n, i) => {
-      const own = ids[i] ?? 0;
-      const id = ids.length === nums.length && Number.isInteger(own) && own > 0 ? own : n === d.invoiced_as && d.invoiced_as_id ? d.invoiced_as_id : null;
-      return <span key={n}>{i > 0 ? " + " : ""}{id ? <button type="button" className={sc.refLink} data-testid="qt-invoice-link" data-doc={id}
-        onClick={(e) => { e.stopPropagation(); openDocRow({ ...d, id, doc_number: n }); }}
-        title={L(`Open ${n}`, `Buka ${n}`)}>{n}</button> : n}</span>;
-    });
+  /* v1.416.0 (the CEO's Quotations & Invoices reference) - the live invoices a quotation became, by id, for the
+     Linked invoice & payment details (v1.410.0's invoiced_ids, same order, void excluded); an older reading with
+     no ids falls back to the latest invoice's id. Each opens in the details section, not in the Status column. */
+  const moneyIds = (d: SalesDoc): number[] => {
+    const ids = (d.invoiced_ids ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return ids.length ? ids : d.invoiced_as_id ? [d.invoiced_as_id] : [];
   };
+  /** what the page already holds about an invoice: the Mark paid reference and a reported, unverified amount (never deducted) */
+  const moneyExtra = (id: number) => ({
+    payment_ref: allDocs.find((x) => x.id === id)?.payment_ref ?? null,
+    pending_cents: pv?.on ? Number(pv.inv[id]?.pending_cents ?? 0) : 0,
+  });
   const askPart = async (d: SalesDoc) => {
     const left = leftToInvoice(d);
     const got = await askText({
@@ -3237,18 +3236,16 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       {L("Partly invoiced", "Diinvois sebahagian")} · {Math.round((Number(d.invoiced_cents ?? 0) / Math.max(1, d.total_cents)) * 100)}%
                     </span>
                   )}
-                  {/* v1.372.0 - the CEO's screenshot (18-11-2026, "text overflow from the pills"): a chip is one line by
-                      rule, so the long part moves OUT of the pill onto a small line under it that may wrap */}
-                  {partly(d) && <span className={sc.statusNote} data-testid="qt-partly-left">{fmtRM(leftToInvoice(d))} {L("left to invoice", "baki untuk diinvois")}</span>}
-                  {partly(d) && invList(d) && <span className={sc.statusNote} data-testid="qt-partly-list">{L("Invoiced as ", "Diinvois sebagai ")}{invLinks(d)}</span>}
+                  {/* v1.416.0 (the CEO's reference, "As recommended") - the Status column is ONE short badge. Which
+                      invoices, what is left to invoice, payment dates and references live in the expanded row
+                      (DocMoney); the badge's title still names the invoices for a hover. */}
                   {d.doc_type === "QT" && d.invoiced_as && !partly(d) && (
                     /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded...") - EVERY invoice it became, not only the latest */
                     <span className={chipSmSuccess} data-testid="qt-invoiced"
                       title={L(`Invoiced as ${invList(d)} — this quotation is a sale now. Undo on an invoice reopens it.`, `Diinvois sebagai ${invList(d)} — sebut harga ini kini jualan. Batalkan pada invois untuk membukanya semula.`)}>
-                      <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")}{(d.invoice_count ?? 1) > 1 ? ` (${d.invoice_count})` : ""}
+                      <AppIcon name="success" className="erp-icon-sm" />{L("Fully invoiced", "Diinvois sepenuhnya")}
                     </span>
                   )}
-                  {d.doc_type === "QT" && d.invoiced_as && !partly(d) && <span className={sc.statusNote} data-testid="qt-invoiced-list">{invLinks(d)}</span>}
                   {/* v1.400.0 (Phase 4, decision 5) - where an open quotation stands, in words: one chip, and the follow-up under it */}
                   {d.doc_type === "QT" && !d.invoiced_as && <QuoteStateChips d={d} today={todayQ} />}
                   {d.doc_type === "INV" && (!(canPay || (paysByReport && pv?.on)) || d.payment_status === "void") && (
@@ -3568,33 +3565,19 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       label: L("Customer phone", "Telefon pelanggan"),
                       value: d.customer_phone ?? "",
                     },
+                    /* v1.416.0 - the invoice's status, dates, reference and balance moved to the Invoice & payment
+                       details panel under this grid; what stays here is the paid-date correction (v1.4.250) */
                     {
-                      label: L("Payment", "Bayaran"),
+                      label: L("Payment date", "Tarikh bayaran"),
                       wide: true,
                       value:
                         d.doc_type !== "INV" ? (
                           ""
-                        ) : d.payment_status === "paid" ? (
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className={chipSmSuccess}>
-                              {L(
-                                "PAID · bank transfer",
-                                "DIBAYAR · pindahan bank"
-                              )}
-                            </span>
-                            {d.paid_at && (
-                              <span className="text-muted-foreground">
-                                {dmy(d.paid_at.slice(0, 10))}
-                              </span>
-                            )}
-                            {d.payment_ref && (
-                              <span className="text-muted-foreground">
-                                {L("Ref", "Ruj")} {d.payment_ref}
-                              </span>
-                            )}
+                        ) : (
+                          <>
                             {/* v1.4.250: the date is correctable without unmarking the
                       invoice — unmarking would clear the reference too. */}
-                            {canInvoice && (
+                            {d.payment_status === "paid" && canInvoice && (
                               <button
                                 type="button"
                                 className="underline"
@@ -3639,11 +3622,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                                 ✎ {L("change date", "tukar tarikh")}
                               </button>
                             )}
-                          </span>
-                        ) : (
-                          <span className="text-warning">
-                            {payStatusL(d.payment_status ?? "unpaid")}
-                          </span>
+                          </>
                         ),
                     },
                     {
@@ -3659,6 +3638,25 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                     },
                   ]}
                 />
+              )}
+              {/* v1.416.0 (the CEO's reference, "As recommended") - INVOICE & PAYMENT DETAILS as its own panel under the
+                  grid (full width on a phone): a quotation's every invoice with its verified payments (date, reference,
+                  amount), a reported-but-unverified amount kept apart, and the balance; an invoice's own status, dates,
+                  reference and balance (its payments stay in Part payments, with their actions). Read only. */}
+              {openDoc === d.id && d.doc_type === "QT" && d.invoiced_as && (
+                <div className={sc.moneyPanel}>
+                  <h4 className={sc.moneyTitle}>{L("Linked invoice & payment details", "Butiran invois & bayaran berkaitan")}</h4>
+                  <DocMoney ids={moneyIds(d)} quotation={{ total_cents: d.total_cents, invoiced_cents: d.invoiced_cents ?? null }}
+                    extra={moneyExtra} onOpenInvoice={(id, num) => openDocRow({ ...d, id, doc_number: num })}
+                    onViewPayments={() => setWsView("payments")} />
+                </div>
+              )}
+              {openDoc === d.id && d.doc_type === "INV" && (
+                <div className={sc.moneyPanel}>
+                  <h4 className={sc.moneyTitle}>{L("Invoice & payment details", "Butiran invois & bayaran")}</h4>
+                  <DocMoney ids={[d.id]} showPayments={false} extra={moneyExtra}
+                    onViewPayments={() => { setViewInv(d.id); setWsView("payments"); }} />
+                </div>
               )}
             </div>
           ))}
