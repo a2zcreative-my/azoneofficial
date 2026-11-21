@@ -4,6 +4,9 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Signed-out card: the logo only (21-11-2026, the CEO: "remove A2Z OS since there is a A2Z logo there") - NO MIGRATION
+- The signed-out / session-ended / access card (`components/auth/auth-state-card.tsx`) no longer prints the "A2Z OS" wordmark under the A2Z logo; the logo, A2Z CREATIVE MARKETING and the portal name stay. Wording, buttons and sign-out behaviour unchanged. Not deployed.
+
 ### Payroll lists staff only, in the company order (21-11-2026, the CEO: "Testing was labelled as a Staff ... the list of the staff was not sequence by the Level") - NO MIGRATION
 - **Agents are off Payroll:** the Payroll screen built its staff list from the accounts list and left out customers and the super admin but not **agents**, so an agent showed on Base salaries and in the processing grid. It now uses the one staff rule (`isStaffRole`, lib/staff-order.ts). The server payroll lists already excluded agents; no figure changes.
 - **Days with no clock-in** (Payroll and Attendance read the same `/payroll/absences`) now lists people in the company order (CEO, COO, CCO ... live host) instead of database order.

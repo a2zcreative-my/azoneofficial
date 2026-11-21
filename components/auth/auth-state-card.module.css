@@ -31,16 +31,8 @@
 }
 
 .brand { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
-.wordmark {
-  margin-top: 0.5rem;
-  font-size: var(--type-page-size);
-  line-height: var(--type-page-lh);
-  font-weight: var(--type-page-weight);
-  letter-spacing: var(--type-page-tracking);
-  color: var(--foreground);
-}
-.os { color: var(--brand-accent); }
 .company {
+  margin-top: 0.5rem;
   font-size: var(--type-label-size);
   line-height: var(--type-label-lh);
   font-weight: var(--type-label-weight);

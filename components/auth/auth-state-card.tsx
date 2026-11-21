@@ -70,8 +70,8 @@ export function AuthStateCard({ state, surface, L }: {
     <main className={css.page} data-testid="auth-state" data-state={state}>
       <section className={`${card} ${css.card}`} aria-labelledby="auth-state-title">
         <header className={css.brand}>
+          {/* v1.413.0 (the CEO, 21-11-2026: "remove A2Z OS since there is a A2Z logo there") - the logo names the company; no second wordmark */}
           <BrandLogo />
-          <p className={css.wordmark}>A2Z <span className={css.os}>OS</span></p>
           <p className={css.company}>A2Z CREATIVE MARKETING</p>
           <p className={css.surface}>{where}</p>
         </header>
