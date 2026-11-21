@@ -22,6 +22,7 @@
  * not its publisher and was employed when it went out. Customers never reach
  * /staff/*. */
 import type { Env } from "./index";
+import { notStaffSql, STAFF_ORDER_SQL } from "./staff"; // v1.405.0 - the one company order
 import { json, err, audit, putGuarded, str } from "./shared";
 import { can, canUser } from "./permissions";
 
@@ -56,12 +57,13 @@ export async function viewerOf(env: Env, user: { id: number; role: string }): Pr
     not its publisher, employed on the day it went out. */
 async function recipientsOf(env: Env, post: { created_by: number | null; created_at: string; audience: string | null }) {
   const { results } = await env.DB.prepare(
-    `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, department, joined_on FROM users
-      WHERE (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND is_active = 1
-        AND (left_on IS NULL OR left_on >= date('now', '+8 hours') OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours')))
-        AND id != ?1
-        AND (joined_on IS NULL OR joined_on = '' OR joined_on <= date(?2, '+8 hours'))
-      ORDER BY name`,
+    `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.department, u.joined_on FROM users u
+      WHERE (u.role NOT IN ('customer', 'agent', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND u.is_active = 1
+        AND (u.left_on IS NULL OR u.left_on >= date('now', '+8 hours') OR (u.rejoined_on IS NOT NULL AND u.rejoined_on <= date('now', '+8 hours')))
+        AND ${notStaffSql("u.")}
+        AND u.id != ?1
+        AND (u.joined_on IS NULL OR u.joined_on = '' OR u.joined_on <= date(?2, '+8 hours'))
+      ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - by seniority; a test account is not staff
   ).bind(post.created_by ?? 0, post.created_at).all<{ id: number; name: string; department: string | null; joined_on: string | null }>();
   const aud = audienceOf(post.audience);
   return aud ? results.filter((r) => r.department && aud.includes(r.department.trim())) : results;

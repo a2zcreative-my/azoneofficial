@@ -115,8 +115,11 @@ with sync_playwright() as p:
     check("closing the deal leaves the board", pg.get_by_role("dialog").count() == 0 and pg.get_by_test_id("pipeline-board").count() == 1)
 
     pg.get_by_test_id("deal-suggest-open").click(); pg.wait_for_timeout(1200)
-    check("Suggested deals lists open quotations and waits for a tick and a reason",
-          pg.get_by_test_id("deal-suggest-row").count() == 2 and pg.get_by_test_id("deal-suggest-confirm").is_disabled())
+    # v1.406.0 - every quotation on no deal, grouped: invoiced (Won on its invoice), open, expired; nothing ticked from the board
+    check("Suggested deals lists every quotation on no deal, grouped, and waits for a tick and a reason",
+          pg.get_by_test_id("deal-suggest-row").count() == 4 and pg.locator("[data-testid=deal-suggest-group-open] [data-testid=deal-suggest-row]").count() == 2
+          and pg.locator("[data-testid=deal-suggest-group-invoiced] [data-testid=deal-suggest-row]").count() == 1 and pg.locator("[data-testid=deal-suggest-group-expired] [data-testid=deal-suggest-row]").count() == 1
+          and pg.get_by_test_id("deal-suggest-confirm").is_disabled())
     pg.get_by_test_id("deal-suggest-41").check(); pg.get_by_test_id("deal-suggest-reason").fill("Pipeline start")
     check("…then Make 1 deal is ready", not pg.get_by_test_id("deal-suggest-confirm").is_disabled() and "Make 1 deal" in pg.get_by_test_id("deal-suggest-confirm").inner_text())
     pg.screenshot(path=f"{SHOTS}/05-ceo-suggested-deals-1440.png", full_page=False)

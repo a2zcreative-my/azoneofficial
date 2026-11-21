@@ -27,7 +27,7 @@ import { DetailsToggle } from "@/components/ui/details-toggle";
 import { SubR } from "@/components/ui/sub-label"; // v1.79.0 - the portal-wide field label, shared
 /* v1.148.0 - displayName dropped with BirthdaysPanel, its only user. */
 import { properName, firstName } from "@/lib/names";
-import { isCurrentStaff } from "@/lib/staff-order"; // v1.87.0 - a picker offers people who work here
+import { isCurrentStaff, isStaffRole } from "@/lib/staff-order"; // v1.87.0 - a picker offers people who work here
 import { compressImage } from "@/lib/compress-image";
 import { SITE_CONFIG } from "@/constants/site";
 import { useLiveRefresh } from "@/hooks/use-live-refresh"; // v1.138.0 - this card was never told when another card decided an OT
@@ -2841,7 +2841,7 @@ export function AttendanceAdminPanel({ role = "", areas, showPending = true, bar
        it no more listed the staff on task ... except staff tabs") — /users
        carries leavers because the Staff directory is the RECORD and must.
        This is a picker: it offers the people who work here. */
-    setStaff(list.filter((x) => x.role !== "customer" && x.role !== "super_admin" && isCurrentStaff(x)));
+    setStaff(list.filter((x) => isStaffRole(x.role) && !(x as { not_staff?: number }).not_staff && isCurrentStaff(x))); // v1.405.0 - never the super admin, an agent or a test account; the server already sends them by seniority
     setLoaded(true);
   }, [month, loadShifts]);
   useEffect(() => {
@@ -4452,9 +4452,9 @@ export function ClaimsPanel({ userId = 0, role = "", initialView, focus }: { use
   }, []);
   useEffect(() => {
     if (!canPayee) return;
-    void api<{ users: { id: number; name: string; full_name?: string | null; role: string; is_active?: number }[] }>(`/users`).then((r) => {
+    void api<{ users: { id: number; name: string; full_name?: string | null; role: string; is_active?: number; not_staff?: number }[] }>(`/users`).then((r) => {
       if (r.ok && r.data?.users) {
-        setStaffOptions(r.data.users.filter((u) => u.role !== "customer" && !["super_admin", "admin"].includes(u.role) && u.is_active !== 0));
+        setStaffOptions(r.data.users.filter((u) => isStaffRole(u.role) && u.role !== "admin" && !u.not_staff && u.is_active !== 0)); // v1.405.0 - staff only (never a test account), in the server's seniority order
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

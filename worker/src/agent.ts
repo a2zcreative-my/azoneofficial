@@ -43,7 +43,7 @@
 import type { Env } from "./index";
 import { primaryOrigin } from "./index";
 import type { StaffUser } from "./staff";
-import { notify } from "./staff";
+import { notify, currentStaffSql, STAFF_ORDER_SQL } from "./staff";
 import { json, err, audit, ensureShareToken, putGuarded } from "./shared";
 import { can, canUser } from "./permissions";
 import { approvalLimit, overLimit, loadDocForSigning, issueDoc } from "./signing";
@@ -234,7 +234,7 @@ export async function handleAgent(env: Env, path: string, method: string, body: 
         const current: Record<number, unknown> = {};
         for (const r of results ?? []) if (r.effective_from <= today && !current[r.agent_id]) current[r.agent_id] = r;
         const people = manager ? ((await env.DB.prepare(
-          `SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) ORDER BY name`,
+          `SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${currentStaffSql("u.")} ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - current staff, by seniority
         ).all()).results ?? []) : [];
         return json({ history: results ?? [], current, salespeople: people, can_manage: manager, today });
       } catch (e) {

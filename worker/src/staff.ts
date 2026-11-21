@@ -7925,7 +7925,7 @@ async function handleStaffRoutes(
       `SELECT role, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, position, phone,
               CASE WHEN photo_key IS NOT NULL AND photo_key != '' THEN 1 ELSE 0 END AS has_photo
          FROM users WHERE role IN ('ceo', 'coo', 'cco') AND is_active = 1 AND ${currentStaffSql()}
-        ORDER BY role`,
+        ORDER BY CASE role WHEN 'ceo' THEN 1 WHEN 'coo' THEN 2 ELSE 3 END` /* v1.405.0 - CEO, COO, CCO (alphabetical put the CCO first) */,
     ).all<{ role: string; name: string; position: string | null; phone: string | null; has_photo: number }>();
     return json({ officers: results });
   }
@@ -21197,8 +21197,9 @@ async function restoreForVoid(env: Env, docId: number, docNumber: string, byUser
     } catch { /* pre-0068 */ }
 
     const { results: staff } = await env.DB.prepare(
-      `SELECT id, COALESCE(NULLIF(TRIM(full_name), ''), name) AS name, role, photo_key FROM users
-       WHERE is_active = 1 AND ${currentStaffSql()} AND (role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))`,
+      `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role, u.photo_key FROM users u
+       WHERE u.is_active = 1 AND ${currentStaffSql("u.")} AND (u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
+       ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - by seniority
     ).all<{ id: number; name: string; role: string; photo_key: string | null }>();
 
     let earners = 0;

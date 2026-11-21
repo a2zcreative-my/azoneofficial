@@ -17,7 +17,7 @@ import type { Env } from "./index";
 import type { StaffUser } from "./staff";
 import { json, err, audit } from "./shared";
 import { can, rolesFor, canUser } from "./permissions";
-import { notify } from "./staff";
+import { notify, STAFF_ORDER_SQL } from "./staff";
 import { isExecutiveOwner } from "./decision-policy";
 
 const skew = (e: unknown) => /no such (table|column)/i.test(String(e));
@@ -201,7 +201,7 @@ async function custodyRoute(env: Env, path: string, method: string, b: Record<st
     const mine = (await env.DB.prepare(`SELECT ${cols} FROM assets a LEFT JOIN users u ON u.id = a.assigned_to WHERE a.assigned_to = ?1 AND a.deleted_at IS NULL ORDER BY a.asset_tag`).bind(user.id).all()).results ?? [];
     const team = await teamOf(env, user.id);
     const teamAssets = team.length ? (await env.DB.prepare(`SELECT ${cols} FROM assets a LEFT JOIN users u ON u.id = a.assigned_to WHERE a.assigned_to IN (${team.map(() => "?").join(", ")}) AND a.deleted_at IS NULL ORDER BY holder, a.asset_tag`).bind(...team).all()).results ?? [] : [];
-    const people = team.length ? (await env.DB.prepare(`SELECT id, ${PERSON_SQL("u")} AS name FROM users u WHERE id IN (${team.map(() => "?").join(", ")}) ORDER BY name`).bind(...team).all()).results ?? [] : [];
+    const people = team.length ? (await env.DB.prepare(`SELECT id, ${PERSON_SQL("u")} AS name FROM users u WHERE id IN (${team.map(() => "?").join(", ")}) ORDER BY ${STAFF_ORDER_SQL}`).bind(...team).all()).results ?? [] : [];
     const spare = team.length ? (await env.DB.prepare(`SELECT a.id, a.asset_tag, a.name, a.category FROM assets a LEFT JOIN asset_profile p ON p.asset_id = a.id WHERE a.assigned_to IS NULL AND a.status IN ('spare', 'in_use') AND a.deleted_at IS NULL AND p.shared_label IS NULL ORDER BY a.asset_tag`).all().catch(() => env.DB.prepare(`SELECT a.id, a.asset_tag, a.name, a.category FROM assets a WHERE a.assigned_to IS NULL AND a.status IN ('spare', 'in_use') AND a.deleted_at IS NULL ORDER BY a.asset_tag`).all())).results ?? [] : [];
     const requests = (await env.DB.prepare(
       `SELECT r.id, r.asset_id, a.asset_tag, a.name, r.to_holder, ${PERSON_SQL("tu")} AS to_name, r.reason, r.created_at,

@@ -28,7 +28,7 @@
  * or a manager (crm_assign); agents and customers are refused by role before anything is read.
  */
 import type { Env } from "./index";
-import { notify, currentStaffSql, type StaffUser } from "./staff";
+import { notify, currentStaffSql, staffRolesSql, STAFF_ORDER_SQL, type StaffUser } from "./staff";
 import { can, canUser } from "./permissions";
 import { audit, err, json, str } from "./shared";
 import { LOST_REASONS, OPEN_STAGES, STUCK_DAYS, dealValue, type DealQuote } from "../../lib/pipeline-words";
@@ -44,8 +44,8 @@ interface Body { [k: string]: unknown }
 async function owners(env: Env): Promise<{ id: number; name: string; role: string }[]> {
   const { results } = await env.DB.prepare(
     `SELECT id, ${NAME("u")} AS name, role FROM users u
-      WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${currentStaffSql("u.")}
-      ORDER BY name`,
+      WHERE u.is_active = 1 AND ${staffRolesSql("u.")} AND ${currentStaffSql("u.")}
+      ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - staff only (never the super admin or a test account), by seniority
   ).all<{ id: number; name: string; role: string }>();
   return (results ?? []).filter((u) => can(u.role, "sales"));
 }
@@ -116,25 +116,38 @@ function cents(v: unknown): number | null | "bad" {
 }
 const day = (v: unknown): string | null | "bad" => (v == null || v === "" ? null : typeof v === "string" && DAY.test(v) ? v : "bad");
 
-/** decision 3: an open quotation with no deal, offered as one (owner = its salesperson) */
-async function suggestions(env: Env) {
+/** decision 3: an open quotation with no deal, offered as one (owner = its salesperson).
+    v1.406.0 (the CEO, 21-11-2026, his Leads & CRM screenshot: "all this have their own Quotation and Invoice, link it!")
+    - every quotation a lead already has is offered, not only the open ones:
+      invoiced  a live invoice was made from it -> a Won deal on that invoice (decision 4's own evidence; never revenue)
+      open      still valid -> Proposal sent, or Negotiation when it was accepted or negotiating (as before)
+      expired   past its validity, never invoiced -> Proposal sent, so somebody follows it up; never ticked for you
+    The owner is the quotation's salesperson when they may still sell, else the lead's owner, else nobody.
+    `customer` narrows it to one lead. Nothing is made until a manager confirms. */
+async function suggestions(env: Env, customer?: number) {
   const today = mytToday();
+  const LIVE_INV = `i.doc_type = 'INV' AND i.converted_from = d.id AND COALESCE(i.payment_status, '') != 'void' AND i.voided_at IS NULL`;
   const { results } = await env.DB.prepare(
-    `SELECT d.id AS doc_id, d.doc_number, d.customer_id, c.company, d.total_cents, d.created_at, d.salesperson_id AS owner_id, ${NAME("u")} AS owner_name, u.role AS owner_role,
+    `SELECT d.id AS doc_id, d.doc_number, d.customer_id, c.company, d.total_cents, d.created_at, d.valid_until, d.salesperson_id, c.owner_id AS lead_owner,
             EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0)) AS accepted,
-            (SELECT f.outcome FROM customer_followups f WHERE f.doc_id = d.id AND f.done_at IS NOT NULL ORDER BY f.done_at DESC, f.id DESC LIMIT 1) AS last_outcome
-       FROM sales_documents d JOIN customers c ON c.id = d.customer_id JOIN users u ON u.id = d.salesperson_id
-      WHERE d.doc_type = 'QT' AND d.created_at >= datetime('now', '-365 days')
-        AND (d.valid_until IS NULL OR d.valid_until >= ?1)
-        AND NOT EXISTS (SELECT 1 FROM sales_documents i WHERE i.doc_type = 'INV' AND i.converted_from = d.id AND COALESCE(i.payment_status, '') != 'void' AND i.voided_at IS NULL)
+            (SELECT f.outcome FROM customer_followups f WHERE f.doc_id = d.id AND f.done_at IS NOT NULL ORDER BY f.done_at DESC, f.id DESC LIMIT 1) AS last_outcome,
+            (SELECT i.doc_number FROM sales_documents i WHERE ${LIVE_INV} ORDER BY i.id LIMIT 1) AS inv_number,
+            (SELECT i.created_at FROM sales_documents i WHERE ${LIVE_INV} ORDER BY i.id LIMIT 1) AS inv_at
+       FROM sales_documents d JOIN customers c ON c.id = d.customer_id
+      WHERE d.doc_type = 'QT' AND d.voided_at IS NULL AND c.company != 'Walk-in Customer' ${customer ? "AND d.customer_id = ?1" : ""}
         AND NOT EXISTS (SELECT 1 FROM sales_documents r WHERE r.doc_type = 'QT' AND r.converted_from = d.id)
         AND NOT EXISTS (SELECT 1 FROM opportunity_quotations l WHERE l.doc_id = d.id AND l.unlinked_at IS NULL)
-        AND u.is_active = 1 AND u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) AND ${currentStaffSql("u.")}
       ORDER BY d.created_at DESC LIMIT 500`,
-  ).bind(today).all<{ doc_id: number; doc_number: string; customer_id: number; company: string; total_cents: number; created_at: string; owner_id: number; owner_name: string; owner_role: string; accepted: number; last_outcome: string | null }>();
-  return (results ?? []).filter((s) => can(s.owner_role, "sales")).map(({ owner_role: _r, accepted, last_outcome, ...s }) => ({
-    ...s, accepted: !!accepted, stage: accepted || last_outcome === "negotiating" || last_outcome === "accepted" ? "negotiation" : "proposal",
-  }));
+  ).bind(...(customer ? [customer] : [])).all<{ doc_id: number; doc_number: string; customer_id: number; company: string; total_cents: number; created_at: string; valid_until: string | null;
+    salesperson_id: number | null; lead_owner: number | null; accepted: number; last_outcome: string | null; inv_number: string | null; inv_at: string | null }>();
+  const people = new Map((await owners(env)).filter((o) => can(o.role, "sales")).map((o) => [o.id, o.name]));
+  return (results ?? []).map((r) => {
+    const owner_id = r.salesperson_id && people.has(r.salesperson_id) ? r.salesperson_id : r.lead_owner && people.has(r.lead_owner) ? r.lead_owner : null;
+    const kind: "invoiced" | "open" | "expired" = r.inv_number ? "invoiced" : r.valid_until && r.valid_until < today ? "expired" : "open";
+    const stage = kind === "invoiced" ? "won" : kind === "open" && (r.accepted || r.last_outcome === "negotiating" || r.last_outcome === "accepted") ? "negotiation" : "proposal";
+    return { doc_id: r.doc_id, doc_number: r.doc_number, customer_id: r.customer_id, company: r.company, total_cents: r.total_cents, created_at: r.created_at,
+      owner_id, owner_name: owner_id ? people.get(owner_id) ?? null : null, accepted: !!r.accepted, kind, stage, inv_number: r.inv_number, inv_at: r.inv_at };
+  });
 }
 
 export async function handlePipeline(env: Env, path: string, method: string, user: StaffUser, params: URLSearchParams, body: Body | null): Promise<Response | null> {
@@ -185,7 +198,8 @@ export async function handlePipeline(env: Env, path: string, method: string, use
     }
     if (path === "/deals/suggestions" && method === "GET") {
       if (!manager) return err("forbidden", "Only a manager confirms suggested deals", 403);
-      return json({ rows: await suggestions(env) });
+      const cid = Number(params.get("customer"));
+      return json({ rows: await suggestions(env, Number.isInteger(cid) && cid > 0 ? cid : undefined) });
     }
     if (path === "/deals/suggestions/confirm" && method === "POST") {
       if (!manager) return err("forbidden", "Only a manager confirms suggested deals", 403);
@@ -193,26 +207,31 @@ export async function handlePipeline(env: Env, path: string, method: string, use
       if (reason.length < 5) return err("invalid_input", "Say why, in a few words.", 400);
       const ids = Array.isArray(body?.items) ? (body!.items as unknown[]).map(Number) : [];
       if (!ids.length || ids.length > 100) return err("invalid_input", "Tick 1 to 100 quotations.", 400);
-      const now = new Map((await suggestions(env)).map((s) => [s.doc_id, s]));
+      const scopeC = Number(body?.customer); // v1.406.0 - one lead's quotations, so none falls past the 500 newest
+      const now = new Map((await suggestions(env, Number.isInteger(scopeC) && scopeC > 0 ? scopeC : undefined)).map((s) => [s.doc_id, s])); // the rows as the server sees them now - never the screen's stage
       let made = 0; const skipped: number[] = [];
       for (const id of ids) {
         const s = now.get(id);
         if (!s) { skipped.push(id); continue; }
         const key = `qt:${id}`;
+        /* v1.406.0 - an invoiced quotation becomes a Won deal on that invoice, closed on the invoice's own date */
+        const won = s.kind === "invoiced";
         const [ins] = await env.DB.batch([
-          env.DB.prepare(`INSERT INTO sales_opportunities (customer_id, title, owner_id, stage, origin, client_key, created_by)
-                          SELECT ?1, ?2, ?3, ?4, 'suggestion', ?5, ?6 WHERE NOT EXISTS (SELECT 1 FROM sales_opportunities WHERE client_key = ?5)
-                            AND NOT EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?7 AND unlinked_at IS NULL)`).bind(s.customer_id, `${s.company} - ${s.doc_number}`, s.owner_id, s.stage, key, user.id, id),
+          env.DB.prepare(`INSERT INTO sales_opportunities (customer_id, title, owner_id, stage, origin, client_key, created_by, won_basis, won_doc_id, stage_since, closed_at, closed_by)
+                          SELECT ?1, ?2, ?3, ?4, 'suggestion', ?5, ?6, ?8, ?9, COALESCE(?10, datetime('now')), ?10, ?11 WHERE NOT EXISTS (SELECT 1 FROM sales_opportunities WHERE client_key = ?5)
+                            AND NOT EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?7 AND unlinked_at IS NULL)`)
+            .bind(s.customer_id, `${s.company} - ${s.doc_number}`, s.owner_id, s.stage, key, user.id, id, won ? "invoice" : null, won ? id : null, won ? s.inv_at : null, won ? user.id : null),
           env.DB.prepare(`INSERT INTO opportunity_quotations (opportunity_id, doc_id, linked_by, origin)
                           SELECT o.id, ?2, ?3, 'suggestion' FROM sales_opportunities o WHERE o.client_key = ?1
                             AND NOT EXISTS (SELECT 1 FROM opportunity_quotations WHERE doc_id = ?2 AND unlinked_at IS NULL)`).bind(key, id, user.id),
-          env.DB.prepare(`INSERT INTO opportunity_stage_events (opportunity_id, from_stage, to_stage, reason, created_by)
-                          SELECT o.id, NULL, o.stage, ?2, ?3 FROM sales_opportunities o WHERE o.client_key = ?1
-                            AND NOT EXISTS (SELECT 1 FROM opportunity_stage_events e WHERE e.opportunity_id = o.id)`).bind(key, `Suggested from ${s.doc_number}: ${reason}`, user.id),
+          env.DB.prepare(`INSERT INTO opportunity_stage_events (opportunity_id, from_stage, to_stage, reason, basis, created_by)
+                          SELECT o.id, NULL, o.stage, ?2, ?4, ?3 FROM sales_opportunities o WHERE o.client_key = ?1
+                            AND NOT EXISTS (SELECT 1 FROM opportunity_stage_events e WHERE e.opportunity_id = o.id)`)
+            .bind(key, won ? `Linked from ${s.doc_number}, invoiced as ${s.inv_number}: ${reason}` : `Suggested from ${s.doc_number}: ${reason}`, user.id, won ? "invoice" : null),
         ]);
         if (ins?.meta?.changes) made++; else skipped.push(id);
       }
-      await audit(env, user.id, "pipeline.suggestions", "sales_opportunities", undefined, { made, skipped: skipped.length, reason });
+      await audit(env, user.id, "pipeline.suggestions", "sales_opportunities", undefined, { made, skipped: skipped.length, reason, won: ids.filter((x) => now.get(x)?.kind === "invoiced").length });
       return json({ ok: true, made, skipped });
     }
     if (path === "/deals" && method === "POST") {

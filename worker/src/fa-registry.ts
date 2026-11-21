@@ -27,6 +27,7 @@
    Every change writes fa_registry_events (append only) and the audit log. */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
+import { currentStaffSql, STAFF_ORDER_SQL } from "./staff"; // v1.405.0 - current staff, by seniority
 import { json, err, audit, str } from "./shared";
 import { can, canUser } from "./permissions";
 import { MY_STATE_NAMES, stateFromPostcode } from "./my-state";
@@ -225,7 +226,7 @@ export async function handleFaRegistry(env: Env, path: string, method: string, b
          UNION ALL SELECT n.created_at FROM fa_note_links l JOIN fa_notes n ON n.id = l.note_id WHERE l.banker_id = ?1)`,
     ).bind(bk.id).first<{ at: string | null }>();
     const mayEdit = manage || (register && bk.owner_id === user.id);
-    const owners = manage ? ((await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND role IN ('ceo', 'coo', 'cco', 'sales_marketing') ORDER BY name`).all<{ id: number; name: string; role: string }>()).results ?? []).filter((o) => can(o.role as StaffUser["role"], "fa_edit")) : [];
+    const owners = manage ? ((await env.DB.prepare(`SELECT id, ${PERSON("u")} AS name, role FROM users u WHERE is_active = 1 AND role IN ('ceo', 'coo', 'cco', 'sales_marketing') AND ${currentStaffSql("u.")} ORDER BY ${STAFF_ORDER_SQL}`).all<{ id: number; name: string; role: string }>()).results ?? []).filter((o) => can(o.role as StaffUser["role"], "fa_edit")) : [];
     return json({ banker: { ...bk, status_now: bankerStatus(bk, f.identity, f.referral, today), availability_now: availabilityNow(bk, today), products, contact_changed_at: changedAt, last_contact_at: last?.at ?? null },
       verifications, assignments, events, today, owners, can: { register, manage, availability: manage || bk.owner_id === user.id, edit: mayEdit && bk.status !== "left" } });
   }

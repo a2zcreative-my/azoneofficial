@@ -21,6 +21,7 @@
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
+import { notStaffSql, STAFF_ORDER_SQL } from "./staff"; // v1.405.0 - the one company order
 import { PERMS, can, canUser } from "./permissions";
 import { buildOrg, reportingLine, type OrgNode, type OrgPerson } from "../../lib/org-tree";
 import { audit, err, json, str } from "./shared";
@@ -223,7 +224,8 @@ export function statusOf(p: { target: number | null; basis: number; open: number
 export const onStaffForWeekSql = (a = "u.") =>
   `((${a}left_on IS NULL AND COALESCE(${a}employment_status, '') NOT IN ('resigned', 'terminated'))
     OR substr(${a}left_on, 1, 10) >= ?1
-    OR (${a}rejoined_on IS NOT NULL AND substr(${a}rejoined_on, 1, 10) <= ?2))`;
+    OR (${a}rejoined_on IS NOT NULL AND substr(${a}rejoined_on, 1, 10) <= ?2))
+   AND ${notStaffSql(a)}`; // v1.405.0 - a test account is never on the week's people
 
 /** The scorecard's people for a week: staff on the books that week (never
     a leaver, never a system account) who are sales consultants, OR have an
@@ -253,7 +255,7 @@ export async function staffList(env: Env, from: string, to: string): Promise<{ i
                 week, whatever their role. Commission does not read this list. */
              OR EXISTS (SELECT 1 FROM sales_documents d2 WHERE d2.salesperson_id = u.id AND d2.doc_type IN ('QT', 'INV')
                   AND date(d2.created_at, '+8 hours') BETWEEN date(?1, '-90 days') AND ?2))
-      ORDER BY name`,
+      ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - by seniority
   ).bind(from, to).all<{ id: number; name: string; role: string; department: string | null }>();
   try { return (await run(IN_FORCE_0156)).results ?? []; } catch (e) {
     if (!/no such column/i.test(String(e))) throw e;
@@ -267,7 +269,7 @@ async function targetCandidates(env: Env, from: string, to: string): Promise<{ i
   const { results } = await env.DB.prepare(
     `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.role FROM users u
       WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${onStaffForWeekSql()}
-      ORDER BY name`,
+      ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - by seniority
   ).bind(from, to).all<{ id: number; name: string; role: string }>();
   return results ?? [];
 }
@@ -606,7 +608,7 @@ async function weekDashboard(env: Env, user: StaffUser): Promise<Response> {
       const members = await run<{ id: number; name: string; department: string | null }>(
         `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.department FROM users u
           WHERE u.id IN (${[user.id, ...ids].map((x) => Number(x)).join(", ")}) AND u.is_active = 1 AND (u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${onStaffForWeekSql()}
-          ORDER BY name`, from, to);
+          ORDER BY ${STAFF_ORDER_SQL}`, from, to); // v1.405.0 - by seniority
       const rows: Slim[] = [];
       for (const m of members) rows.push(slim(await weekFor(env, m.id, m.name, from, to, today, startDow), m.department));
       rows.sort((a, b) => SEVERITY[a.status] - SEVERITY[b.status] || (a.pct ?? 999) - (b.pct ?? 999));

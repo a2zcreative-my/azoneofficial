@@ -79,6 +79,7 @@ import {
   mytStamp2, roleLabel, statusLabel, type Account, type AuthEvent,
 } from "@/components/portal/users-shared";
 import type { TabName } from "@/lib/portal-tabs";
+import { ROLE_RANK, ROLE_RANK_OTHER } from "@/lib/staff-order"; // v1.405.0 - the one company order
 import css from "./users-panel.module.css";
 
 export { mytStamp2 };
@@ -327,7 +328,7 @@ export function UsersPanel({ role, owner = false, go: _go, initialView }: { role
   const coOk = (u: Account) => cf === "all" || (planOf(u.id) ?? []).some((m) => m.company_code === cf);
   const staffRows = leaversLast(allStaff.filter(match).filter(statusOk).filter(roleOk).filter(coOk));
   /* the roles the staff list holds, for the role pick - from the accounts, never a fixed list */
-  const staffRoles = [...new Set(allStaff.map((u) => u.role))].sort((a, b) => roleLabel(a).localeCompare(roleLabel(b)));
+  const staffRoles = [...new Set(allStaff.map((u) => u.role))].sort((a, b) => (ROLE_RANK[a] ?? ROLE_RANK_OTHER) - (ROLE_RANK[b] ?? ROLE_RANK_OTHER) || roleLabel(a).localeCompare(roleLabel(b))); // v1.405.0 - the role filter reads CEO, COO, CCO down, like every list
   /* the strip's figures: the same tests as the status pick, over every staff account */
   const fig = {
     all: allStaff.length,

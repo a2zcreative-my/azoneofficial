@@ -35,7 +35,7 @@
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { currentStaffSql, leaveOrgList, notify } from "./staff";
+import { currentStaffSql, leaveOrgList, notify, STAFF_ORDER_SQL } from "./staff";
 import { leaveAbove } from "./leave-chain";
 import { canUser, rolesFor } from "./permissions";
 import { portfolioOf } from "./responsibilities";
@@ -434,7 +434,7 @@ export async function handlePortfolios(
               p.id AS pid, p.slug, p.state, p.updated_at, p.published_at, p.tagline, p.portrait_key, p.portrait_source_key, p.specialties
          FROM users u LEFT JOIN staff_portfolios p ON p.user_id = u.id
         WHERE u.role NOT IN ('customer', 'agent', 'super_admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) AND ${currentStaffSql("u.")}
-        ORDER BY COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) COLLATE NOCASE`,
+        ORDER BY ${STAFF_ORDER_SQL}` /* v1.405.0 - by seniority */,
     ).all<Record<string, unknown>>();
     const people = results.map((r) => ({
       user_id: r.id as number, name: displayName(r as { name: string; full_name: string | null }),

@@ -59,9 +59,12 @@ interface Detail {
   owner_events: { id: number; kind: string; reason: string | null; created_at: string; from_name: string | null; to_name: string | null; by_name: string | null }[];
   status_events: { id: number; from_status: string | null; to_status: string; reason: string | null; created_at: string; by_name: string | null }[];
   followups: { id: number; due_on: string; note: string; doc_id: number | null; owner_name: string | null }[];
-  docs: { id: number; doc_type: string; doc_number: string; total_cents: number; payment_status: string | null; created_at: string }[];
+  docs: LeadDoc[];
 }
 
+/** v1.406.0 - a lead's quotation or invoice, with where it stands */
+interface LeadDoc { id: number; doc_type: string; doc_number: string; total_cents: number; payment_status: string | null; created_at: string;
+  valid_until?: string | null; voided_at?: string | null; accepted?: number; invoiced_as?: string | null; deal_id?: number | null }
 const w = (pair: [string, string] | undefined, fallback: string) => (pair ? L(pair[0], pair[1]) : fallback);
 const TONE_CHIP: Record<LeadTone, string> = { info: chipSmInfo, gold: chipGold, success: chipSmSuccess, neutral: chipSmNeutral, danger: chipSmDanger };
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -89,7 +92,7 @@ export function useCrmOptions() {
 /* =====================================================================
    Leads & CRM: the figures, the list and the lead beside it
    ===================================================================== */
-export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote, onEdit, onFollowups, onOpenDeal, tabs }: {
+export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote, onEdit, onFollowups, onOpenDeal, onOpenDoc, tabs }: {
   view: LeadView; onView: (v: LeadView) => void;
   /** the lead a bell, the Action Center or a search asked for */
   open: number | null; onOpen: (id: number | null) => void;
@@ -99,6 +102,8 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
   onFollowups: () => void;
   /** v1.399.0 - a deal in the lead's record opens in the Sales Pipeline */
   onOpenDeal?: (id: number) => void;
+  /** v1.406.0 - a quotation or invoice in the lead's record opens in Quotations & Invoices */
+  onOpenDoc?: (id: number) => void;
   /** the Leads & CRM sub-tab row - drawn UNDER the figure strip (the Payments order) */
   tabs?: ReactNode;
 }) {
@@ -197,7 +202,7 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
         {open != null ? (
           <SplitPane testid="crm-preview" title={L("Selected lead", "Prospek dipilih")} label={L("Selected lead", "Prospek dipilih")}
             actions={<button type="button" className={btnSmQuiet} aria-label={L("Close", "Tutup")} onClick={() => onOpen(null)} data-testid="crm-preview-close"><AppIcon name="close" /></button>}>
-            <LeadRecord id={open} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} onOpenDeal={onOpenDeal} />
+            <LeadRecord id={open} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} onOpenDeal={onOpenDeal} onOpenDoc={onOpenDoc} />
           </SplitPane>
         ) : (
           <SplitPane testid="crm-help" title={L("Every open lead needs an owner and a next action", "Setiap prospek terbuka perlukan pemilik dan tindakan seterusnya")} label={L("How leads are worked", "Cara prospek diurus")}
@@ -213,7 +218,7 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
       </WorkspaceSplit>
       {drawer != null && (
         <SideDrawer open onClose={() => setDrawer(null)} title={L("Lead", "Prospek")} full>
-          <LeadRecord id={drawer} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} onOpenDeal={onOpenDeal ? (d) => { setDrawer(null); onOpenDeal(d); } : undefined} />
+          <LeadRecord id={drawer} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} onOpenDeal={onOpenDeal ? (d) => { setDrawer(null); onOpenDeal(d); } : undefined} onOpenDoc={onOpenDoc ? (d) => { setDrawer(null); onOpenDoc(d); } : undefined} />
         </SideDrawer>
       )}
       {suggest && o?.can_assign && <SuggestedOwners onClose={() => setSuggest(false)} onDone={refresh} />}
@@ -226,12 +231,13 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
    ===================================================================== */
 type Form = "" | "activity" | "status" | "profile" | "assign";
 
-function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDeal }: {
+function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDeal, onOpenDoc }: {
   id: number; opts: CrmOptions | null; onChanged: () => void;
   onOpenFile: (customerId: number, company: string) => void;
   onQuote: (lead: { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null; owner_id: number | null }) => void;
   onEdit: (lead: LeadEdit) => void;
   onOpenDeal?: (id: number) => void;
+  onOpenDoc?: (id: number) => void;
 }) {
   const fb = useFeedback();
   const [d, setD] = useState<Detail | null>(null);
@@ -306,6 +312,9 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
         {canWrite && <button type="button" className={btnSmQuiet} onClick={() => onEdit(l)} data-testid="lead-edit">{L("Edit details", "Sunting butiran")}</button>}
       </section>
 
+      {/* v1.406.0 (the CEO: "all this have their own Quotation and Invoice, link it!") - the lead's own quotations and
+          invoices, each with where it stands, each opening the document; the deal it belongs to, if any */}
+      <LeadDocs docs={d.docs} onOpenDoc={onOpenDoc} onOpenDeal={onOpenDeal} />
       <Section title={L("Contact log", "Log hubungan")} testid="lead-activities">
         {d.activities.length === 0 ? <p className={css.muted}>{L("Nothing logged yet. Log a call, WhatsApp, email or meeting after it happens.", "Belum ada rekod. Rekod panggilan, WhatsApp, e-mel atau mesyuarat selepas ia berlaku.")}</p> : (
           <ol className={css.timeline}>
@@ -319,13 +328,6 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
         )}
       </Section>
       {onOpenDeal && <LeadDeals customer={{ id: l.id, company: l.company, owner_id: l.owner_id }} onOpenDeal={onOpenDeal} />}
-      {d.docs.length > 0 && (
-        <Section title={L("Documents", "Dokumen")} testid="lead-docs">
-          <ul className={css.docs}>
-            {d.docs.map((x) => <li key={x.id}><span>{x.doc_number}</span><span>{fmtRM(x.total_cents)}</span><span className={css.muted}>{dayOf(x.created_at)}</span></li>)}
-          </ul>
-        </Section>
-      )}
       <Section title={L("Ownership and status history", "Sejarah pemilikan dan status")} testid="lead-history">
         {d.owner_events.length + d.status_events.length === 0 ? <p className={css.muted}>{L("No changes recorded yet.", "Belum ada perubahan direkod.")}</p> : (
           <ol className={css.timeline}>
@@ -565,5 +567,40 @@ export function ConvertToLead({ source, id, onOpenLead, testid }: { source: "enq
         </SideDrawer>
       )}
     </>
+  );
+}
+
+/* v1.406.0 - a lead's quotations and invoices: what each one is, where it stands, and the deal it is on */
+function docState(x: LeadDoc): [string, string] {
+  if (x.voided_at || x.payment_status === "void") return [chipSmNeutral, L("Void", "Batal")];
+  if (x.doc_type === "INV") return x.payment_status === "paid" ? [chipSmSuccess, L("Paid", "Dibayar")] : x.payment_status === "overdue" ? [chipSmDanger, L("Overdue", "Lewat bayar")] : [chipSmWarn, L("Unpaid", "Belum dibayar")];
+  if (x.invoiced_as) return [chipSmSuccess, L(`Invoiced as ${x.invoiced_as}`, `Diinvois sebagai ${x.invoiced_as}`)];
+  if (x.accepted) return [chipSmSuccess, L("Accepted", "Diterima")];
+  if (x.valid_until && x.valid_until < new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)) return [chipSmNeutral, L("Expired", "Tamat tempoh")];
+  return [chipSmInfo, L("Open", "Terbuka")];
+}
+function LeadDocs({ docs, onOpenDoc, onOpenDeal }: { docs: LeadDoc[]; onOpenDoc?: (id: number) => void; onOpenDeal?: (id: number) => void }) {
+  const qt = docs.filter((x) => x.doc_type === "QT").length, inv = docs.length - qt;
+  return (
+    <Section title={L(`Quotations & invoices (${qt} · ${inv})`, `Sebut harga & invois (${qt} · ${inv})`)} testid="lead-docs">
+      {docs.length === 0 ? <p className={css.muted}>{L("No quotation or invoice yet.", "Belum ada sebut harga atau invois.")}</p> : (
+        <ul className={css.leadDocs}>
+          {docs.map((x) => {
+            const [tone, word] = docState(x);
+            return (
+              <li key={x.id} data-testid="lead-doc" data-doc={x.id} data-type={x.doc_type}>
+                <span className={css.docMain}>
+                  {onOpenDoc ? <button type="button" className={css.docLink} onClick={() => onOpenDoc(x.id)} data-testid="lead-doc-open">{x.doc_number}</button> : <strong>{x.doc_number}</strong>}
+                  <small className={css.muted}>{x.doc_type === "QT" ? L("Quotation", "Sebut harga") : L("Invoice", "Invois")} · {dayOf(x.created_at)}</small>
+                </span>
+                <span className={css.docAmt}>{fmtRM(x.total_cents)}</span>
+                <span className={tone}>{word}</span>
+                {x.deal_id && onOpenDeal ? <button type="button" className={css.docLink} onClick={() => onOpenDeal(x.deal_id!)} data-testid="lead-doc-deal">{L("Deal", "Urusan")}</button> : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Section>
   );
 }

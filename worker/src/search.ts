@@ -154,10 +154,12 @@ export async function handleSearch(env: Env, user: { id: number; role: string },
                 CASE WHEN ((left_on IS NULL AND COALESCE(employment_status, '') NOT IN ('resigned', 'terminated'))
      OR left_on >= date('now', '+8 hours')
      OR (rejoined_on IS NOT NULL AND rejoined_on <= date('now', '+8 hours'))) THEN 1 ELSE 0 END AS here FROM users
-          WHERE is_active = 1 AND (role NOT IN ('customer', 'agent') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
+          WHERE is_active = 1 AND (role NOT IN ('customer', 'agent', 'super_admin') AND role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0))
+            AND id NOT IN (SELECT CAST(j.value AS INTEGER) FROM system_meta m, json_each(CASE WHEN json_valid(m.value) THEN m.value ELSE '[]' END) j WHERE m.key = 'not_staff_accounts') /* v1.405.0 - never the super admin or a test account (staff.ts notStaffSql, copied: see above) */
             AND (name LIKE ?1 ESCAPE '\\' OR full_name LIKE ?1 ESCAPE '\\' OR position LIKE ?1 ESCAPE '\\' OR department LIKE ?1 ESCAPE '\\'
                  ${digits ? `OR ${DIGITS("phone")} LIKE ?2` : ""})
-          ORDER BY name LIMIT ${per}`,
+          ORDER BY CASE role WHEN 'ceo' THEN 10 WHEN 'coo' THEN 20 WHEN 'cco' THEN 30 WHEN 'admin' THEN 35 WHEN 'hr_admin' THEN 40 WHEN 'sales_marketing' THEN 50
+                   WHEN 'marketing' THEN 60 WHEN 'editor' THEN 70 WHEN 'live_host' THEN 80 ELSE 90 END, name LIMIT ${per}`,
       ).bind(...(digits ? [like, `%${digits}%`] : [like])),
       toHit: (r) => ({ kind: "staff", id: Number(r.id), title: String(r.name), sub: [r.position ?? String(r.role).replace(/_/g, " "), r.department, r.employee_id].filter(Boolean).join(" · "), tab: "Staff Details",
         /* the directory's own words: a leaver is "left", everyone else working */

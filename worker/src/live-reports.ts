@@ -39,7 +39,7 @@
  */
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
-import { currentStaffSql, notify } from "./staff";
+import { currentStaffSql, notify, STAFF_ORDER_SQL } from "./staff";
 import { canUser } from "./permissions";
 import { audit, err, json, logError, putGuarded } from "./shared";
 
@@ -452,7 +452,7 @@ export async function handleLiveReports(env: Env, path: string, method: string, 
     if (path === "/live-reports/people" && method === "GET") {
       const rows = (await env.DB.prepare(
         `SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.photo_key, u.position FROM users u
-          WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) AND ${currentStaffSql("u.")} ORDER BY name COLLATE NOCASE`,
+          WHERE u.is_active = 1 AND u.role NOT IN ('customer', 'agent', 'super_admin', 'admin') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) AND ${currentStaffSql("u.")} ORDER BY ${STAFF_ORDER_SQL}`,
       ).all()).results ?? [];
       return json({ people: rows });
     }

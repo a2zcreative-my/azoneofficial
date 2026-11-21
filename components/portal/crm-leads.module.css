@@ -44,3 +44,12 @@
   .dl { grid-template-columns: minmax(0, 1fr); gap: 0.125rem; }
   .dl dd { margin-bottom: 0.5rem; }
 }
+
+/* v1.406.0 - a lead's quotations and invoices */
+.leadDocs { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.375rem; font-size: var(--type-body-sm-size); }
+.leadDocs li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.75rem; padding: 0.375rem 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.leadDocs li:last-child { border-bottom: 0; }
+.docMain { display: grid; flex: 1 1 9rem; min-width: 0; overflow-wrap: break-word; }
+.docAmt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.docLink { padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; font-weight: 700; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.docLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }

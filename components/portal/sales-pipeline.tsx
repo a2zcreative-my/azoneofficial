@@ -61,7 +61,9 @@ interface Detail {
   events: { id: number; from_stage: Stage | null; to_stage: Stage; reason: string | null; basis: string | null; created_at: string; by_name: string | null }[];
   candidates: { id: number; doc_number: string; total_cents: number; revision: number; created_at: string }[];
 }
-interface Suggestion { doc_id: number; doc_number: string; customer_id: number; company: string; total_cents: number; created_at: string; owner_id: number; owner_name: string; accepted: boolean; stage: Stage }
+interface Suggestion { doc_id: number; doc_number: string; customer_id: number; company: string; total_cents: number; created_at: string; owner_id: number | null; owner_name: string | null; accepted: boolean; stage: Stage;
+  /** v1.406.0 - invoiced: a Won deal on its invoice; open: as before; expired: Proposal sent, never pre-ticked */
+  kind: "invoiced" | "open" | "expired"; inv_number: string | null }
 
 const w = (pair: [string, string] | undefined, fallback: string) => (pair ? L(pair[0], pair[1]) : fallback);
 const stageWord = (s: Stage | null) => (s ? w(STAGE_WORD[s], s) : "—");
@@ -615,17 +617,21 @@ function UnlinkButton({ busy, onUnlink }: { busy: boolean; onUnlink: (reason: st
 }
 
 /** decision 3: open quotations with no deal, offered as deals; nothing is made until a manager confirms */
-function SuggestedDeals({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function SuggestedDeals({ onClose, onDone, customer }: { onClose: () => void; onDone: () => void;
+  /** v1.406.0 - one lead's quotations only (from its record); its invoiced and open ones start ticked */
+  customer?: { id: number; company: string } }) {
   const fb = useFeedback();
-  const list = useCachedApi<{ rows: Suggestion[] }>("/staff/deals/suggestions", true, ["deals", "docs"]);
+  const list = useCachedApi<{ rows: Suggestion[] }>(`/staff/deals/suggestions${customer ? `?customer=${customer.id}` : ""}`, true, ["deals", "docs"]);
   const [picked, setPicked] = useState<number[]>([]);
+  const [seeded, setSeeded] = useState(false);
+  if (customer && !seeded && list.data) { setSeeded(true); setPicked(list.data.rows.filter((r) => r.kind !== "expired").map((r) => r.doc_id)); }
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const rows = list.data?.rows ?? [];
   const toggle = (id: number) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const save = async () => {
     setBusy(true);
-    const r = await api<{ made?: number; skipped?: number[]; error?: { message?: string } }>("/staff/deals/suggestions/confirm", { method: "POST", body: JSON.stringify({ items: picked, reason: reason.trim() }) });
+    const r = await api<{ made?: number; skipped?: number[]; error?: { message?: string } }>("/staff/deals/suggestions/confirm", { method: "POST", body: JSON.stringify({ items: picked, reason: reason.trim(), ...(customer ? { customer: customer.id } : {}) }) });
     setBusy(false);
     if (!r.ok) { fb.show({ variant: "error", title: L("Not saved", "Tidak disimpan"), description: r.data?.error?.message ?? L("The server refused that.", "Pelayan menolaknya.") }); return; }
     const made = r.data?.made ?? 0, skipped = r.data?.skipped?.length ?? 0;
@@ -633,19 +639,29 @@ function SuggestedDeals({ onClose, onDone }: { onClose: () => void; onDone: () =
     setPicked([]); list.refresh(); onDone();
   };
   return (
-    <SideDrawer open onClose={onClose} title={L("Suggested deals", "Urusan dicadangkan")} form icon="document" wide dirty="auto">
+    <SideDrawer open onClose={onClose} title={customer ? L(`Link ${customer.company}'s quotations`, `Paut sebut harga ${customer.company}`) : L("Suggested deals", "Urusan dicadangkan")} form icon="document" wide dirty="auto">
       {fb.node}
       <DrawerForm>
-        <p className={css.muted}>{L("Open quotations that belong to no deal. Each becomes a deal owned by its salesperson, in Proposal sent (Negotiation if it was negotiating or accepted). Nothing is made until you confirm.", "Sebut harga terbuka yang bukan milik mana-mana urusan. Setiap satu menjadi urusan milik jurujualnya, di Cadangan dihantar (Rundingan jika sedang berunding atau diterima). Tiada apa dibuat sehingga anda sahkan.")}</p>
-        {!list.data ? <SkelRows rows={4} /> : rows.length === 0 ? <p className={css.muted} data-testid="suggest-none">{L("Every open quotation already has a deal.", "Setiap sebut harga terbuka sudah ada urusan.")}</p> : (
-          <ul className={css.suggest} data-testid="deal-suggest-list">
-            {rows.map((r) => (
-              <li key={r.doc_id} data-testid="deal-suggest-row" data-doc={r.doc_id}>
-                <label className={css.radio}><input type="checkbox" checked={picked.includes(r.doc_id)} onChange={() => toggle(r.doc_id)} data-testid={`deal-suggest-${r.doc_id}`} />
-                  <span><strong>{r.company}</strong> · {r.doc_number} · {fmtRM(r.total_cents)} · {r.owner_name} · {stageWord(r.stage)}</span></label>
-              </li>
-            ))}
-          </ul>
+        <p className={css.muted}>{L("Quotations that belong to no deal. Each becomes a deal owned by its salesperson (else the lead's owner). An invoiced quotation becomes a Won deal on its invoice - won is never revenue or a payment. An open one goes to Proposal sent (Negotiation if accepted or negotiating). An expired one goes to Proposal sent so somebody follows it up. Nothing is made until you confirm.", "Sebut harga yang bukan milik mana-mana urusan. Setiap satu menjadi urusan milik jurujualnya (atau pemilik prospek). Sebut harga yang sudah diinvois menjadi urusan Berjaya atas invoisnya - berjaya bukan hasil atau bayaran. Yang terbuka ke Cadangan dihantar (Rundingan jika diterima atau berunding). Yang tamat tempoh ke Cadangan dihantar supaya ada susulan. Tiada apa dibuat sehingga anda sahkan.")}</p>
+        {!list.data ? <SkelRows rows={4} /> : rows.length === 0 ? <p className={css.muted} data-testid="suggest-none">{customer ? L("Every quotation of this lead already has a deal.", "Setiap sebut harga prospek ini sudah ada urusan.") : L("Every quotation already has a deal.", "Setiap sebut harga sudah ada urusan.")}</p> : (
+          (["invoiced", "open", "expired"] as const).map((k) => {
+            const group = rows.filter((r) => r.kind === k);
+            if (!group.length) return null;
+            return (
+              <section key={k} className={css.suggestGroup} data-testid={`deal-suggest-group-${k}`}>
+                <h3 className={css.suggestHead}>{k === "invoiced" ? L(`Invoiced - become Won deals (${group.length})`, `Diinvois - menjadi urusan Berjaya (${group.length})`)
+                  : k === "open" ? L(`Open quotations (${group.length})`, `Sebut harga terbuka (${group.length})`) : L(`Expired, never invoiced (${group.length})`, `Tamat tempoh, tidak diinvois (${group.length})`)}</h3>
+                <ul className={css.suggest} data-testid="deal-suggest-list">
+                  {group.map((r) => (
+                    <li key={r.doc_id} data-testid="deal-suggest-row" data-doc={r.doc_id} data-kind={r.kind}>
+                      <label className={css.radio}><input type="checkbox" checked={picked.includes(r.doc_id)} onChange={() => toggle(r.doc_id)} data-testid={`deal-suggest-${r.doc_id}`} />
+                        <span>{customer ? null : <><strong>{r.company}</strong> · </>}{r.doc_number}{r.inv_number ? ` → ${r.inv_number}` : ""} · {fmtRM(r.total_cents)} · {r.owner_name ?? L("No owner", "Tiada pemilik")} · {stageWord(r.stage)}</span></label>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })
         )}
         <label className={fieldLabel}>{L("Why (a few words, kept with each deal)", "Mengapa (beberapa perkataan, disimpan bersama setiap urusan)")}
           <input className={inputClass} value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} data-testid="deal-suggest-reason" />
@@ -665,6 +681,11 @@ export function LeadDeals({ customer, onOpenDeal }: { customer: { id: number; co
   const opts = usePipelineOptions();
   const list = useCachedApi<Board>(`/staff/deals?customer=${customer.id}`, true, TOPICS);
   const [making, setMaking] = useState(false);
+  /* v1.406.0 - the lead's quotations that are on no deal yet (managers link them; nothing is made without a confirm) */
+  const manager = !!opts.data?.can_assign;
+  const unlinked = useCachedApi<{ rows: Suggestion[] }>(`/staff/deals/suggestions?customer=${customer.id}`, manager, ["deals", "docs"]);
+  const [linking, setLinking] = useState(false);
+  const waiting = unlinked.data?.rows.length ?? 0;
   const deals = list.data?.deals ?? [];
   return (
     <Section title={L("Deals", "Urusan")} testid="lead-deals">
@@ -679,7 +700,14 @@ export function LeadDeals({ customer, onOpenDeal }: { customer: { id: number; co
           ))}
         </ul>
       )}
-      {opts.data?.can_write && <span><button type="button" className={btnSm} onClick={() => setMaking(true)} data-testid="lead-deal-new"><AppIcon name="add" />{L("New deal", "Urusan baharu")}</button></span>}
+      {manager && waiting > 0 && (
+        <p className={css.linkHint} data-testid="lead-link-hint"><AppIcon name="document" />{L(`${waiting} quotation${waiting === 1 ? " is" : "s are"} on no deal yet.`, `${waiting} sebut harga belum ada urusan.`)}</p>
+      )}
+      <span className={css.inline}>
+        {manager && waiting > 0 && <button type="button" className={btnSmPrimary} onClick={() => setLinking(true)} data-testid="lead-link-quotes"><AppIcon name="link" />{L("Link quotations", "Paut sebut harga")}</button>}
+        {opts.data?.can_write && <button type="button" className={btnSm} onClick={() => setMaking(true)} data-testid="lead-deal-new"><AppIcon name="add" />{L("New deal", "Urusan baharu")}</button>}
+      </span>
+      {linking && <SuggestedDeals customer={customer} onClose={() => setLinking(false)} onDone={() => { setLinking(false); list.refresh(); unlinked.refresh(); }} />}
       {making && opts.data && <DealForm opts={opts.data} customer={customer} onClose={() => setMaking(false)} onSaved={(id) => { setMaking(false); list.refresh(); onOpenDeal(id); }} />}
     </Section>
   );

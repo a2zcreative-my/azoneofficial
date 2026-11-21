@@ -100,6 +100,10 @@ async function runtime(workerBundle, migDir) {
   doc.run(509, "QT", "QT-P-509", 6, 600000, null, "2026-10-11 01:00:00", 9, 0, "2026-11-01", null, null); // expired: no suggestion
   doc.run(510, "QT", "QT-P-510", 7, 700000, null, "2026-10-12 01:00:00", 9, 0, "2026-12-31", null, null); // Bakar's: suggested, negotiating
   doc.run(511, "QT", "QT-P-511", 8, 800000, null, "2026-11-02 01:00:00", 5, 0, "2026-12-31", null, null); // customer 8: listed as a quotation with no next step
+  /* v1.406.0 - a lead's own invoiced quotation, linked as a Won deal on its invoice; a void quotation is never offered */
+  doc.run(512, "QT", "QT-P-512", 9, 120000, null, "2026-09-01 01:00:00", 9, 0, "2026-09-15", null, null);              // customer 9: invoiced (and long expired)
+  doc.run(513, "INV", "INV-P-513", 9, 120000, "paid", "2026-09-10 01:00:00", 9, 0, null, 512, null);                     // its live invoice
+  doc.run(514, "QT", "QT-P-514", 9, 90000, null, "2026-09-02 01:00:00", 9, 0, "2026-12-31", null, "2026-09-03 01:00:00"); // void: never offered
   db.exec(`INSERT INTO quotation_acceptances (doc_id, revision, accepted_name) VALUES (502, 0, 'Old revision only')`);
   db.exec(`INSERT INTO customer_followups (id, customer_id, due_on, owner_id, note, created_by, created_at, doc_id, done_at, done_by, outcome) VALUES (1, 7, '2026-11-01', 9, 'Talked price', 9, '2026-10-20 01:00:00', 510, '2026-11-01 02:00:00', 9, 'negotiating')`);
 
@@ -226,13 +230,27 @@ async function runtime(workerBundle, migDir) {
     const before2 = cnt(`SELECT COUNT(*) AS n FROM sales_opportunities`);
     const sg = await call("/deals/suggestions", U.coo);
     const sMap = Object.fromEntries((sg.j?.rows ?? []).map((r) => [r.doc_id, r]));
-    ok(sMap[510]?.stage === "negotiation" && sMap[510].owner_id === U.bakar && sMap[511]?.stage === "proposal" && !sMap[501] && !sMap[504] && !sMap[508] && !sMap[509], "a suggestion is an open quotation with no deal, no invoice, not expired, of sales staff; negotiating ones in Negotiation", JSON.stringify(Object.keys(sMap)));
+    /* v1.406.0 (the CEO: "all this have their own Quotation and Invoice, link it!") - every quotation on no deal is offered: open
+       ones as before, an expired one to Proposal sent (never pre-ticked), an invoiced one as a Won deal on its invoice; never a void one */
+    ok(sMap[510]?.stage === "negotiation" && sMap[510].kind === "open" && sMap[510].owner_id === U.bakar && sMap[511]?.stage === "proposal" && sMap[511].kind === "open" && !sMap[501], "an open quotation with no deal is offered as before; negotiating ones in Negotiation; one already on a deal is not", JSON.stringify(Object.keys(sMap)));
+    ok(sMap[509]?.kind === "expired" && sMap[509].stage === "proposal", "an expired quotation is offered to Proposal sent, so somebody follows it up", JSON.stringify(sMap[509]));
+    ok(sMap[512]?.kind === "invoiced" && sMap[512].stage === "won" && sMap[512].inv_number === "INV-P-513", "an invoiced quotation is offered as a Won deal on its invoice", JSON.stringify(sMap[512]));
+    ok(!sMap[514], "a void quotation is never offered");
+    ok(sMap[508] && sMap[508].owner_id === null, "the owner is the salesperson only when they may still sell, else the lead's owner, else nobody - never the live host", JSON.stringify(sMap[508]));
+    const one = await call("/deals/suggestions?customer=9", U.coo);
+    ok(JSON.stringify((one.j?.rows ?? []).map((x) => x.doc_id)) === "[512]", "a lead's own quotations, from its record", one.text.slice(0, 160));
     ok(cnt(`SELECT COUNT(*) AS n FROM sales_opportunities`) === before2, "nothing is made until a manager confirms");
     ok((await call("/deals/suggestions/confirm", U.coo, "POST", { items: [510] })).status === 400, "confirming needs a reason");
     const cf = await call("/deals/suggestions/confirm", U.coo, "POST", { items: [510, 501], reason: "Pipeline start" });
     const cf2 = await call("/deals/suggestions/confirm", U.coo, "POST", { items: [510], reason: "Pipeline start" });
     const made = db.prepare(`SELECT o.* FROM sales_opportunities o JOIN opportunity_quotations l ON l.opportunity_id = o.id WHERE l.doc_id = 510`).all();
     ok(cf.j?.made === 1 && (cf.j.skipped ?? []).includes(501) && cf2.j?.made === 0 && made.length === 1 && made[0].origin === "suggestion" && made[0].owner_id === U.bakar, "a confirmed suggestion is made once; a quotation already on a deal is skipped", cf.text.slice(0, 160));
+    const cw = await call("/deals/suggestions/confirm", U.coo, "POST", { items: [512], reason: "Link the lead's history", customer: 9 });
+    const wd = db.prepare(`SELECT o.* FROM sales_opportunities o JOIN opportunity_quotations l ON l.opportunity_id = o.id WHERE l.doc_id = 512`).get();
+    const we = wd ? db.prepare(`SELECT * FROM opportunity_stage_events WHERE opportunity_id = ?`).all(wd.id) : [];
+    ok(cw.j?.made === 1 && wd?.stage === "won" && wd.won_basis === "invoice" && wd.won_doc_id === 512 && wd.closed_at === "2026-09-10 01:00:00" && wd.owner_id === U.bakar,
+       "linking an invoiced quotation makes a Won deal on that invoice, closed on the invoice's date", JSON.stringify(wd));
+    ok(we.length === 1 && we[0].to_stage === "won" && we[0].basis === "invoice" && /INV-P-513/.test(we[0].reason), "its history says it was linked from the quotation, invoiced as the invoice", JSON.stringify(we));
 
     /* the Action Center */
     const c6 = await mk(U.aina, { customer_id: 8, title: "Customer 8 deal", next_action: "Chase", next_action_on: "2026-11-05" });
@@ -294,7 +312,10 @@ const MUTANTS = [
   ["the value adds the estimate", "lib/pipeline-words.ts", "return { cents: latest.total_cents, basis", "return { cents: latest.total_cents + (est ?? 0), basis"],
   ["a quotation on two deals", "worker/migrations/0227_sales_pipeline.sql", "CREATE UNIQUE INDEX IF NOT EXISTS ux_opportunity_quotations_live", "CREATE INDEX IF NOT EXISTS ux_opportunity_quotations_live"],
   ["Lost with any reason", "worker/src/deals.ts", "if (!(LOST_REASONS as readonly string[]).includes(reason))", "if (false)"],
-  ["a linked quotation is suggested again", "worker/src/deals.ts", "        AND NOT EXISTS (SELECT 1 FROM opportunity_quotations l WHERE l.doc_id = d.id AND l.unlinked_at IS NULL)\n        AND u.is_active", "        AND u.is_active"],
+  ["a linked quotation is suggested again", "worker/src/deals.ts", "        AND NOT EXISTS (SELECT 1 FROM opportunity_quotations l WHERE l.doc_id = d.id AND l.unlinked_at IS NULL)\n      ORDER BY d.created_at DESC LIMIT 500", "      ORDER BY d.created_at DESC LIMIT 500"],
+  ["an invoiced quotation made an open deal", "worker/src/deals.ts", `const stage = kind === "invoiced" ? "won" :`, `const stage = kind === "invoiced" ? "proposal" :`],
+  ["a void quotation offered", "worker/src/deals.ts", "WHERE d.doc_type = 'QT' AND d.voided_at IS NULL AND", "WHERE d.doc_type = 'QT' AND"],
+  ["the live host owns a linked deal", "worker/src/deals.ts", "const owner_id = r.salesperson_id && people.has(r.salesperson_id) ?", "const owner_id = r.salesperson_id ?"],
   ["anyone reopens", "worker/src/deals.ts", "act === \"reopen\" ? !override", "act === \"reopen\" ? false"],
   ["a deal is listed twice with its quotation", "worker/src/sales-today.ts", "      for (let k = items.length - 1; k >= 0; k--) if (items[k]!.kind === \"quotation\" && items[k]!.flag === \"no_next\" && docs.includes(items[k]!.doc_id ?? -1)) items.splice(k, 1);\n", ""],
   ["the super admin overrides", "worker/src/permissions.ts", "pipeline_override: [\"ceo\", \"coo\", \"cco\"],", "pipeline_override: [\"super_admin\", \"ceo\", \"coo\", \"cco\"],"],

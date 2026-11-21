@@ -29,7 +29,7 @@
  */
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
-import { readFileSync, mkdtempSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
@@ -252,6 +252,42 @@ const page = readPortalSource(root);
     const offenders = [...staff.matchAll(/ORDER BY (?:u\.)?name\b/g)].length;
     return offenders <= 1;
   })(), "each one is a screen that puts the CEO in the middle of the alphabet — the one allowed is the DISTINCT list of names in the pattern-delete warning, which has no other column to sort on");
+}
+
+/* ---- 3B. v1.405.0 - EVERY LIST OF PEOPLE, EVERY MODULE (the CEO, 21-11-2026: "check all the list in my system,
+   the list should ascending by the Position from CEO, COO, CCO to the lowers. Check globally in the system. Super
+   Admin and Testing account should not listed since they are not a staff"). The sweep above reads staff.ts only;
+   the Leads & CRM owner picker (crm.ts) was ordered by name and offered the super admin. This one reads every
+   worker module: a query FROM users that sorts by the name alone is a list with the CEO in the middle of the
+   alphabet. Named exceptions only: lists of AGENTS (partners, not staff, and not ranked). ---- */
+{
+  const dir = path.join(root, "worker/src");
+  const offenders = [];
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts"))) {
+    const src = readFileSync(path.join(dir, f), "utf8");
+    for (const m of src.matchAll(/`[^`]*?FROM users\b[^`]*?`/g)) {
+      const q = m[0];
+      if (!/ORDER BY\s+(?:[a-z]+\.is_active DESC,\s*)?(?:[a-z]+\.)?name\b(?!\s*LIKE)|ORDER BY COALESCE\(NULLIF\(TRIM\([a-z.]*full_name\), ''\), [a-z.]*name\)/.test(q)) continue;
+      if (/role = 'agent'|role IN \('agent'\)|PERSON\("u"\)} AS name, u\.email, u\.is_active,/.test(q)) continue; // the agents themselves
+      if (f === "staff.ts" && /SELECT DISTINCT/.test(q)) continue; // the pattern-delete warning (names only), allowed above
+      offenders.push(`${f}:${src.slice(0, m.index).split("\n").length}`);
+    }
+  }
+  ok("no module lists people by name alone - every staff list reads the one company order", offenders.length === 0, offenders.join(", "));
+  const crm = read("worker/src/crm.ts"), deals = read("worker/src/deals.ts"), chat = read("worker/src/chat.ts"), biz = read("worker/src/business.ts");
+  const ownersOf = (src) => { const i = src.indexOf("async function owners("); return i < 0 ? "" : src.slice(i, i + 700); };
+  ok("the lead and deal owner pickers are staff only (never the super admin or a test account), by seniority",
+     [ownersOf(crm), ownersOf(deals)].every((w) => /\$\{staffRolesSql\("u\."\)\} AND \$\{currentStaffSql\("u\."\)\}/.test(w) && /ORDER BY \$\{STAFF_ORDER_SQL\}/.test(w)),
+     "the CEO saw Super Admin and Testing Account offered as a lead's owner");
+  ok("the follow-up owner picker is staff only, by seniority", /FROM users u WHERE u\.is_active = 1 AND \$\{staffRolesSql\("u\."\)\} AND \$\{currentStaffSql\("u\."\)\} ORDER BY \$\{STAFF_ORDER_SQL\}/.test(biz));
+  ok("the chat picker lists staff only, by seniority (a message's sender is still named)",
+     (chat.match(/\$\{ids \? "" : `AND \$\{staffRolesSql\("u\."\)\} AND \$\{notStaffSql\("u\."\)\}`\}/g) ?? []).length === 2 && (chat.match(/ORDER BY \$\{STAFF_ORDER_SQL\}/g) ?? []).length === 2);
+  ok("the business-card check reads CEO, COO, CCO - not the alphabet", /ORDER BY CASE role WHEN 'ceo' THEN 1 WHEN 'coo' THEN 2 ELSE 3 END/.test(staff));
+  ok("a week's people never include a test account", /AND \$\{notStaffSql\(a\)\}`; \/\/ v1\.405\.0/.test(read("worker/src/weekly-sales.ts")));
+  const rp = read("components/portal/role-panels.tsx");
+  ok("the browser's own pickers drop the super admin, agents and test accounts",
+     /setStaff\(list\.filter\(\(x\) => isStaffRole\(x\.role\) && !\(x as \{ not_staff\?: number \}\)\.not_staff && isCurrentStaff\(x\)\)\)/.test(rp)
+       && /setStaffOptions\(r\.data\.users\.filter\(\(u\) => isStaffRole\(u\.role\) && u\.role !== "admin" && !u\.not_staff && u\.is_active !== 0\)\)/.test(rp));
 }
 
 /* ---- 4. crediting a rest day cannot invent a paid day ---- */

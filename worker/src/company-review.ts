@@ -1,5 +1,6 @@
 import type { Env } from "./index";
 import type { StaffUser } from "./staff";
+import { notStaffSql, staffRolesSql, STAFF_ORDER_SQL } from "./staff"; // v1.405.0 - staff only (never the super admin or a test account), by seniority
 import { can, canUser } from "./permissions";
 import { err, json, str } from "./shared";
 import { COMPANY_CODES, COMPANY_NAMES, REVIEW_KINDS, isCompanyCode, type ReviewKind, type ReviewRecord, type ReviewDecision, type CompanyMembership } from "../../lib/company-review";
@@ -296,7 +297,11 @@ export async function handleCompanyReview(env: Env, url: URL, path: string, meth
       }
     }
     if (path === "/staff" && method === "GET") {
-      const staff = (await env.DB.prepare(`SELECT u.id,u.name,u.role,u.is_active,s.employer_code,COALESCE(s.version,0) AS version FROM users u LEFT JOIN company_staff_setup s ON s.user_id=u.id WHERE u.role!='customer' ORDER BY u.is_active DESC,u.name,u.id`).all()).results;
+      /* v1.405.0 - staff only (never the super admin, an agent or a test account), by seniority. The old
+         plain query stays as the fallback for a database without the roles table (a narrow test schema). */
+      const cols = `SELECT u.id,u.name,u.role,u.is_active,s.employer_code,COALESCE(s.version,0) AS version FROM users u LEFT JOIN company_staff_setup s ON s.user_id=u.id`;
+      const staff = (await env.DB.prepare(`${cols} WHERE ${staffRolesSql("u.")} AND ${notStaffSql("u.")} ORDER BY u.is_active DESC, ${STAFF_ORDER_SQL}, u.id`).all()
+        .catch(async (e: unknown) => { if (!/no such (table|column)/.test(String(e))) throw e; /* 21-11-2026 - only reached when the roles table is missing, so there is no own role whose counts-as-staff switch could apply (roles-v2 #15 governs the main query above) */ return env.DB.prepare(`${cols} WHERE u.role <> 'customer' AND u.role <> 'agent' AND u.role <> 'super_admin' ORDER BY u.is_active DESC,u.name,u.id`).all(); })).results;
       const memberships = (await env.DB.prepare(`SELECT user_id,company_code,access_mode FROM company_memberships ORDER BY company_code`).all<CompanyMembership & { user_id: number }>()).results;
       /* v1.221.1 - the evidence already in the portal: the employer printed on
          each person's latest released payslip (payslip_releases.issuer_code;

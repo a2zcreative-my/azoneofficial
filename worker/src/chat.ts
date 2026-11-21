@@ -29,7 +29,7 @@
    HR or any other module, and no module reads chat. */
 import type { Env } from "./index";
 import { allows, can, isOwnKey, needs2fa, setPermissionOverrides } from "./permissions";
-import { currentStaffSql, pushToUser } from "./staff";
+import { currentStaffSql, notStaffSql, pushToUser, staffRolesSql, STAFF_ORDER_SQL } from "./staff"; // v1.405.0 - the picker lists staff only, by seniority (a sender is still named)
 
 export const CHAT_TTL_MS = 12 * 60 * 60 * 1000;
 export const CHAT_MAX_TEXT = 1500;
@@ -107,8 +107,8 @@ async function staffRows(env: Env, ids?: number[]): Promise<StaffRow[]> {
             CASE WHEN u.is_active = 1 AND ${currentStaffSql("u.")} THEN 1 ELSE 0 END AS here,
             (SELECT value FROM system_meta WHERE key = 'role_permissions') AS perm_meta
        FROM users u
-      WHERE u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) ${where}
-      ORDER BY u.name COLLATE NOCASE`,
+      WHERE u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) ${where} ${ids ? "" : `AND ${staffRolesSql("u.")} AND ${notStaffSql("u.")}`}
+      ORDER BY ${STAFF_ORDER_SQL}`,
   ).bind(...(ids ?? [])).all<StaffRow & { perm_meta: string | null }>();
   let res;
   try { res = await q(true); } catch (e) {
@@ -119,7 +119,7 @@ async function staffRows(env: Env, ids?: number[]): Promise<StaffRow[]> {
         `SELECT u.id, u.name, u.role, u.photo_key, NULL AS position, NULL AS custom_role, COALESCE(u.totp_enabled, 0) AS totp,
                 CASE WHEN u.is_active = 1 AND ${currentStaffSql("u.")} THEN 1 ELSE 0 END AS here,
                 (SELECT value FROM system_meta WHERE key = 'role_permissions') AS perm_meta
-           FROM users u WHERE u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) ${where} ORDER BY u.name COLLATE NOCASE`,
+           FROM users u WHERE u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0) ${where} ${ids ? "" : `AND ${staffRolesSql("u.")} AND ${notStaffSql("u.")}`} ORDER BY ${STAFF_ORDER_SQL}`,
       ).bind(...(ids ?? [])).all<StaffRow & { perm_meta: string | null }>();
     }
   }

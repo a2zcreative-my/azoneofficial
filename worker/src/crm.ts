@@ -34,7 +34,7 @@
  * the version it started from. The three event tables are append-only (triggers).
  */
 import type { Env } from "./index";
-import { notify, currentStaffSql, type StaffUser } from "./staff";
+import { notify, currentStaffSql, staffRolesSql, STAFF_ORDER_SQL, type StaffUser } from "./staff";
 import { can, canUser } from "./permissions";
 import { audit, bumpVersion, err, json, str } from "./shared";
 
@@ -95,8 +95,8 @@ export async function recordFollowupActivity(env: Env, followupId: number): Prom
 async function owners(env: Env): Promise<{ id: number; name: string; role: string }[]> {
   const { results } = await env.DB.prepare(
     `SELECT id, ${NAME("u")} AS name, role FROM users u
-      WHERE u.is_active = 1 AND (u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${currentStaffSql("u.")}
-      ORDER BY name`,
+      WHERE u.is_active = 1 AND ${staffRolesSql("u.")} AND ${currentStaffSql("u.")}
+      ORDER BY ${STAFF_ORDER_SQL}`, // v1.405.0 - staff only (never the super admin or a test account), by seniority
   ).all<{ id: number; name: string; role: string }>();
   return (results ?? []).filter((u) => can(u.role, "sales"));
 }
@@ -219,8 +219,13 @@ async function leadDetail(env: Env, id: number) {
            FROM customer_status_events e LEFT JOIN users b ON b.id = e.created_by WHERE e.customer_id = ?1 ORDER BY e.id DESC LIMIT 50`),
     all(`SELECT f.id, f.due_on, f.note, f.doc_id, ${NAME("u")} AS owner_name FROM customer_followups f LEFT JOIN users u ON u.id = f.owner_id
           WHERE f.customer_id = ?1 AND f.done_at IS NULL AND f.cancelled_at IS NULL ORDER BY f.due_on, f.id`),
-    all(`SELECT d.id, d.doc_type, d.doc_number, d.total_cents, d.payment_status, d.created_at FROM sales_documents d
-          WHERE d.customer_id = ?1 ORDER BY d.created_at DESC, d.id DESC LIMIT 10`),
+    /* v1.406.0 - the lead's quotations and invoices, each with where it stands (the CEO: "link it!") */
+    all(`SELECT d.id, d.doc_type, d.doc_number, d.total_cents, d.payment_status, d.created_at, d.valid_until, d.voided_at,
+                CASE WHEN d.doc_type = 'QT' THEN EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0)) ELSE 0 END AS accepted,
+                CASE WHEN d.doc_type = 'QT' THEN (SELECT i.doc_number FROM sales_documents i WHERE i.doc_type = 'INV' AND i.converted_from = d.id AND COALESCE(i.payment_status, '') != 'void' AND i.voided_at IS NULL ORDER BY i.id LIMIT 1) END AS invoiced_as,
+                (SELECT l.opportunity_id FROM opportunity_quotations l WHERE l.doc_id = d.id AND l.unlinked_at IS NULL LIMIT 1) AS deal_id
+           FROM sales_documents d
+          WHERE d.customer_id = ?1 AND d.doc_type IN ('QT', 'INV') ORDER BY d.created_at DESC, d.id DESC LIMIT 30`),
     all(`SELECT id, name, status, created_at FROM enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
     all(`SELECT id, ref, status, created_at FROM business_growth_enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
   ]);
@@ -239,7 +244,7 @@ async function suggestions(env: Env) {
           ORDER BY d2.created_at DESC, d2.id DESC LIMIT 1)
        JOIN users u ON u.id = d.salesperson_id
       WHERE c.owner_id IS NULL AND c.company != 'Walk-in Customer'
-        AND u.is_active = 1 AND (u.role NOT IN ('customer', 'agent') AND u.role NOT IN (SELECT key FROM roles WHERE kind = 'own' AND counts_as_staff = 0)) AND ${currentStaffSql("u.")}
+        AND u.is_active = 1 AND ${staffRolesSql("u.")} AND ${currentStaffSql("u.")}
       ORDER BY c.company COLLATE NOCASE LIMIT 500`,
   ).all<{ customer_id: number; company: string; owner_id: number; owner_name: string; owner_role: string; doc_number: string; doc_type: string; doc_at: string }>();
   return (results ?? []).filter((s) => can(s.owner_role, "sales")).map(({ owner_role: _r, ...s }) => s);

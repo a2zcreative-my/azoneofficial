@@ -1733,7 +1733,11 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
       status_events: [{ id: 2, from_status: "contacted", to_status: "qualified", reason: null, created_at: "2026-09-12 03:10:00", by_name: "Fixture Person" },
         { id: 1, from_status: null, to_status: "contacted", reason: null, created_at: "2026-08-21 02:10:00", by_name: "Hakim Rosli" }],
       followups: r.next_due ? [{ id: 612, due_on: r.next_due, note: r.next_note, doc_id: 42, owner_name: r.owner_name }] : [],
-      docs: r.quotations ? [{ id: 42, doc_type: "QT", doc_number: "QT-0042", total_cents: 450000, payment_status: null, created_at: "2026-08-30 02:00:00" }] : [],
+      docs: r.quotations ? [{ id: 42, doc_type: "QT", doc_number: "QT-0042", total_cents: 450000, payment_status: null, created_at: "2026-08-30 02:00:00", valid_until: "2026-12-31", accepted: 0, invoiced_as: null, deal_id: 71 },
+        ...(r.id === 52 ? [ // v1.406.0 - the lead's earlier work: an invoiced quotation, its paid invoice, an expired quotation
+          { id: 37, doc_type: "INV", doc_number: "INV-0037", total_cents: 180000, payment_status: "paid", created_at: "2026-07-09 02:00:00", deal_id: null },
+          { id: 36, doc_type: "QT", doc_number: "QT-0036", total_cents: 180000, payment_status: null, created_at: "2026-07-02 02:00:00", valid_until: "2026-07-16", accepted: 1, invoiced_as: "INV-0037", deal_id: null },
+          { id: 33, doc_type: "QT", doc_number: "QT-0033", total_cents: 95000, payment_status: null, created_at: "2026-06-11 02:00:00", valid_until: "2026-06-25", accepted: 0, invoiced_as: null, deal_id: null }] : [])] : [],
       enquiries: [], growth: [] };
   }
   if (p === "/staff/crm/suggestions") data = !crmAssign ? { error: { code: "forbidden", message: "Only a manager assigns leads" } } : {
@@ -1789,9 +1793,15 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
         { id: 1, from_stage: null, to_stage: "new", reason: null, basis: null, created_at: "2026-08-30 02:00:00", by_name: "Hakim Rosli" }],
       candidates: [{ id: 49, doc_number: "QT-0049", total_cents: 175000, revision: 0, created_at: "2026-09-17 03:00:00" }] };
   }
-  if (p === "/staff/deals/suggestions") data = !crmAssign ? { error: { code: "forbidden", message: "Only a manager confirms suggested deals" } } : {
-    rows: [{ doc_id: 41, doc_number: "QT-AZOO060826-1", customer_id: 51, company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", total_cents: 330000, created_at: "2026-06-24 02:00:00", owner_id: 9010, owner_name: "Hakim Rosli", accepted: false, stage: "proposal" },
-      { doc_id: 48, doc_number: "QT-0048", customer_id: 58, company: "Pusat Tuisyen Cemerlang", total_cents: 210000, created_at: "2026-09-10 02:00:00", owner_id: 9002, owner_name: "Nur Aisyah binti Rahman", accepted: false, stage: "negotiation" }] };
+  /* v1.406.0 - every quotation on no deal: invoiced (a Won deal on its invoice), open, expired; ?customer= one lead's */
+  if (p === "/staff/deals/suggestions") {
+    const sRows = [{ doc_id: 41, doc_number: "QT-AZOO060826-1", customer_id: 51, company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", total_cents: 330000, created_at: "2026-06-24 02:00:00", owner_id: 9010, owner_name: "Hakim Rosli", accepted: false, stage: "proposal", kind: "open", inv_number: null },
+      { doc_id: 48, doc_number: "QT-0048", customer_id: 58, company: "Pusat Tuisyen Cemerlang", total_cents: 210000, created_at: "2026-09-10 02:00:00", owner_id: 9002, owner_name: "Nur Aisyah binti Rahman", accepted: false, stage: "negotiation", kind: "open", inv_number: null },
+      { doc_id: 36, doc_number: "QT-0036", customer_id: 52, company: "Aina Boutique (Melaka)", total_cents: 180000, created_at: "2026-07-02 02:00:00", owner_id: 9001, owner_name: "Fixture Person", accepted: true, stage: "won", kind: "invoiced", inv_number: "INV-0037" },
+      { doc_id: 33, doc_number: "QT-0033", customer_id: 52, company: "Aina Boutique (Melaka)", total_cents: 95000, created_at: "2026-06-11 02:00:00", owner_id: 9001, owner_name: "Fixture Person", accepted: false, stage: "proposal", kind: "expired", inv_number: null }];
+    const cq = Number(q.get("customer"));
+    data = !crmAssign ? { error: { code: "forbidden", message: "Only a manager confirms suggested deals" } } : { rows: cq ? sRows.filter((x) => x.customer_id === cq) : sRows };
+  }
   if (p === "/staff/sales/today") {
     const all = q.get("scope") === "all";
     /* ranked as lib/sales-priority.ts rankActions does on the server */

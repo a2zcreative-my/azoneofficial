@@ -3824,7 +3824,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 setCust({ company: l.company, contact_person: l.contact_person ?? "", phone: l.phone ?? "", email: l.email ?? "", address: l.address ?? "", website: l.website ?? "" });
                 setCustFilter("all"); setCustTab("add"); jump("sales-customers");
               }}
-              onFollowups={() => setCustFilter("followups")} onOpenDeal={openDeal} tabs={custFilterBar} />
+              onFollowups={() => setCustFilter("followups")} onOpenDeal={openDeal} onOpenDoc={openDocById} tabs={custFilterBar} /* v1.406.0 - a lead's quotation or invoice opens itself */ />
           )}
           {/* v1.216.0 - new enquiries from the website and customer accounts
               (the owner, 28-10-2026: "Show on Sales, notify"); the server
