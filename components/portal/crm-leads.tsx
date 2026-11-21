@@ -34,6 +34,7 @@ import {
   btnSm, btnSmPrimary, btnSmQuiet, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipGold, fieldLabel, inputClass, selectClass, selectClassSm, textareaClass,
 } from "@/lib/ui-styles";
 import { ACTIVITY_WORD, LEAD_SOURCE_WORD, LEAD_STATUS_TONE, LEAD_STATUS_WORD, OWNER_EVENT_WORD, STATUS_NEEDS_REASON, serviceName, type LeadTone } from "@/lib/crm-words";
+import { useOptionalPortal } from "@/components/portal/portal-provider";
 import { LeadDeals } from "@/components/portal/sales-pipeline"; // v1.399.0 - a lead's deals and New deal
 import css from "./crm-leads.module.css";
 
@@ -49,8 +50,11 @@ interface LeadRow {
   id: number; company: string; contact_person: string | null; phone: string | null; email: string | null;
   owner_id: number | null; owner_name: string | null; lead_source: string | null; relationship_status: string | null;
   interested_services: string[]; created_at: string; next_due: string | null; next_note: string | null; last_activity: string | null;
+  /** v1.408.0 - the next action is the next follow-up or the next open task on the lead */
+  next_kind: "followup" | "task" | null; task_id: number | null; task_title: string | null;
   quotations: number; invoices: number; no_owner: boolean; no_next: boolean; next_late: boolean;
 }
+interface LeadTask { id: number; title: string; due_on: string | null; status: string; stage: string | null; link_kind: string; assignee_name: string | null }
 interface LeadList { rows: LeadRow[]; total: number; page: number; per: number; today: string }
 interface Summary { leads: number; new_week: number; unassigned: number; no_next: number; followups_overdue: number; active_customers: number }
 interface Detail {
@@ -59,6 +63,7 @@ interface Detail {
   owner_events: { id: number; kind: string; reason: string | null; created_at: string; from_name: string | null; to_name: string | null; by_name: string | null }[];
   status_events: { id: number; from_status: string | null; to_status: string; reason: string | null; created_at: string; by_name: string | null }[];
   followups: { id: number; due_on: string; note: string; doc_id: number | null; owner_name: string | null }[];
+  tasks: LeadTask[];
   docs: LeadDoc[];
 }
 
@@ -154,7 +159,14 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
     { key: "status", label: L("Status", "Status"), cell: (r) => <StatusChip status={r.relationship_status} /> },
     { key: "owner", label: L("Owner", "Pemilik"), cell: (r) => r.owner_name ?? <span className={chipSmWarn} data-testid="lead-no-owner">{L("Unassigned", "Tiada pemilik")}</span> },
     { key: "next", label: L("Next action", "Tindakan seterusnya"), cell: (r) => r.next_due
-      ? <span className={r.next_late ? css.late : css.next} data-testid="lead-next">{r.next_late ? L(`Overdue · ${dayOf(r.next_due)}`, `Lewat · ${dayOf(r.next_due)}`) : dayOf(r.next_due)}</span>
+      ? <span className={css.nextCell} data-kind={r.next_kind ?? undefined}>
+          <span className={r.next_late ? css.late : css.next} data-testid="lead-next">{r.next_kind === "task" ? L("Task · ", "Tugasan · ") : ""}{r.next_late ? L(`Overdue · ${dayOf(r.next_due)}`, `Lewat · ${dayOf(r.next_due)}`) : dayOf(r.next_due)}</span>
+          {r.next_kind === "task" && r.next_note ? <small className={css.nextNote}>{r.next_note}</small> : null}
+        </span>
+      : r.task_id !== null ? <span className={css.nextCell} data-kind="task">
+          <span className={css.next} data-testid="lead-next">{L("Task · no due date", "Tugasan · tiada tarikh")}</span>
+          {r.task_title ? <small className={css.nextNote}>{r.task_title}</small> : null}
+        </span>
       : r.no_next ? <span className={chipSmWarn} data-testid="lead-no-next">{L("No next action", "Tiada tindakan")}</span> : <span className={css.muted}>—</span> },
   ];
   const empty = (
@@ -279,6 +291,9 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
   const canWrite = opts?.can_write ?? false;
   const open = l.relationship_status === null || ["new_lead", "contacted", "qualified"].includes(l.relationship_status);
   const next = d.followups[0] ?? null;
+  /* v1.408.0 - an open task on the lead is a next action too; the earlier of the two is shown */
+  const task = d.tasks[0] ?? null;
+  const taskFirst = task !== null && (next === null || (task.due_on !== null && task.due_on < next.due_on));
   return (
     <div className={css.record} data-testid="lead-record" data-lead={l.id}>
       {fb.node}
@@ -295,7 +310,8 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
         <dt>{L("Owner", "Pemilik")}</dt>
         <dd>{l.owner_name ?? <span className={chipSmWarn}>{L("Unassigned", "Tiada pemilik")}</span>}</dd>
         <dt>{L("Next action", "Tindakan seterusnya")}</dt>
-        <dd data-testid="lead-next-action">{next ? <>{dayOf(next.due_on)} · {next.note}</> : open ? <span className={chipSmWarn}>{L("No next action", "Tiada tindakan seterusnya")}</span> : "—"}</dd>
+        <dd data-testid="lead-next-action">{taskFirst && task ? <>{L("Task", "Tugasan")} · {task.due_on ? dayOf(task.due_on) : L("no due date", "tiada tarikh")} · {task.title}</>
+          : next ? <>{dayOf(next.due_on)} · {next.note}</> : open ? <span className={chipSmWarn}>{L("No next action", "Tiada tindakan seterusnya")}</span> : "—"}</dd>
         <dt>{L("Source", "Sumber")}</dt>
         <dd>{l.lead_source ? w(LEAD_SOURCE_WORD[l.lead_source], l.lead_source) : "—"}{l.lead_source_detail ? ` · ${l.lead_source_detail}` : ""}</dd>
         <dt>{L("Interested in", "Berminat dengan")}</dt>
@@ -315,6 +331,9 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
       {/* v1.406.0 (the CEO: "all this have their own Quotation and Invoice, link it!") - the lead's own quotations and
           invoices, each with where it stands, each opening the document; the deal it belongs to, if any */}
       <LeadDocs docs={d.docs} onOpenDoc={onOpenDoc} onOpenDeal={onOpenDeal} />
+      {/* v1.408.0 - the open tasks on this lead (its own, its quotations', its projects', its enquiries'); each opens in Tasks,
+          which decides what the reader may see */}
+      <LeadTasks tasks={d.tasks} />
       <Section title={L("Contact log", "Log hubungan")} testid="lead-activities">
         {d.activities.length === 0 ? <p className={css.muted}>{L("Nothing logged yet. Log a call, WhatsApp, email or meeting after it happens.", "Belum ada rekod. Rekod panggilan, WhatsApp, e-mel atau mesyuarat selepas ia berlaku.")}</p> : (
           <ol className={css.timeline}>
@@ -348,6 +367,37 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
       {form === "assign" && opts?.can_assign && <AssignForm busy={busy} current={l.owner_id} owners={opts.owners} onClose={() => setForm("")}
         onSave={(b) => send("/assign", "POST", { ...b, version: l.crm_version }, L("Owner saved", "Pemilik disimpan"))} />}
     </div>
+  );
+}
+
+const TASK_LINK_WORD: Record<string, [string, string]> = {
+  customer: ["Customer", "Pelanggan"], quotation: ["Quotation", "Sebut harga"], project: ["Project", "Projek"], enquiry: ["Enquiry", "Pertanyaan"],
+};
+const TASK_STAGE_WORD: Record<string, [string, string]> = {
+  waiting_client: ["Waiting for client", "Menunggu pelanggan"], blocked: ["Blocked", "Tersekat"], review: ["Ready for review", "Sedia untuk semakan"],
+};
+function LeadTasks({ tasks }: { tasks: LeadTask[] }) {
+  const portal = useOptionalPortal();
+  return (
+    <Section title={L(`Open tasks (${tasks.length})`, `Tugasan terbuka (${tasks.length})`)} testid="lead-tasks">
+      {tasks.length === 0 ? <p className={css.muted}>{L("No open task on this lead.", "Tiada tugasan terbuka untuk prospek ini.")}</p> : (
+        <ul className={css.leadDocs}>
+          {tasks.map((t) => {
+            const link = TASK_LINK_WORD[t.link_kind];
+            const stage = t.stage ? TASK_STAGE_WORD[t.stage] : undefined;
+            return (
+              <li key={t.id} data-testid="lead-task" data-task={t.id}>
+                <span className={css.docMain}>
+                  {portal ? <button type="button" className={css.docLink} onClick={() => portal.openRecord("Tasks", "task", t.id)} data-testid="lead-task-open">{t.title}</button> : <strong>{t.title}</strong>}
+                  <small className={css.muted}>{[link ? L(link[0], link[1]) : null, t.assignee_name, t.due_on ? dayOf(t.due_on) : L("No due date", "Tiada tarikh")].filter(Boolean).join(" · ")}</small>
+                </span>
+                <span className={chipSmNeutral}>{stage ? L(stage[0], stage[1]) : t.status === "in_progress" ? L("In progress", "Sedang berjalan") : L("Open", "Terbuka")}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Section>
   );
 }
 

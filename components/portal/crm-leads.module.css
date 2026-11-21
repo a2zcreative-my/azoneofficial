@@ -53,3 +53,6 @@
 .docAmt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .docLink { padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; font-weight: 700; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .docLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }
+/* v1.408.0 - the Next action cell names a task and its title under the day */
+.nextCell { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.nextNote { color: var(--muted-foreground); font-size: var(--type-caption-size); overflow-wrap: break-word; }

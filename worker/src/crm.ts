@@ -51,7 +51,20 @@ const missing = (e: unknown) => /no such (table|column)/i.test(String(e));
 const skewErr = () => err("migration_missing", "Run migration 0226 first (PUSH.bat)", 503);
 /** a lead still being worked: no status yet, or new / contacted / qualified */
 const OPEN_SQL = (a = "c.") => `(${a}relationship_status IS NULL OR ${a}relationship_status IN ('new_lead', 'contacted', 'qualified'))`;
-const NEXT_SQL = (a = "c.") => `EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = ${a}id AND f.done_at IS NULL AND f.cancelled_at IS NULL)`;
+/** v1.408.0 - an OPEN TASK on the lead (the CEO: "Next action should check the task, because it
+    is already there"): a task linked to the customer itself, to one of its quotations, to a
+    project of its own, or to an enquiry converted into it. Open = not completed (a cancelled
+    task is completed with stage cancelled). `id` is the customer id expression. Exported:
+    sales-today's lead row reads the same rule. */
+export const TASK_LINK_SQL = (id = "c.id") => `t.status != 'completed' AND (
+      (t.link_kind = 'customer' AND t.link_id = ${id})
+   OR (t.link_kind = 'quotation' AND t.link_id IN (SELECT d.id FROM sales_documents d WHERE d.customer_id = ${id} AND d.doc_type = 'QT'))
+   OR (t.link_kind = 'project' AND t.link_id IN (SELECT p.id FROM projects p WHERE p.customer_id = ${id}))
+   OR (t.link_kind = 'enquiry' AND t.link_id IN (SELECT e.id FROM enquiries e WHERE e.customer_id = ${id})))`;
+/** a next action is an open follow-up OR an open task on the lead - one rule for the list, the
+    No next action figure and its filter */
+const NEXT_SQL = (a = "c.") => `(EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = ${a}id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
+   OR EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL(`${a}id`)}))`;
 
 interface Body { [k: string]: unknown }
 
@@ -150,32 +163,44 @@ async function listLeads(env: Env, user: StaffUser, p: URLSearchParams) {
   if (Number.isInteger(owner) && owner > 0) { binds.push(owner); where.push(`c.owner_id = ?${binds.length}`); }
   if (p.get("flag") === "no_next") where.push(`${OPEN_SQL()} AND NOT ${NEXT_SQL()}`);
   if (p.get("flag") === "no_owner") where.push(`c.owner_id IS NULL AND ${OPEN_SQL()}`);
-  const sort = p.get("sort") === "name" ? "c.company COLLATE NOCASE ASC, c.id ASC"
-    : p.get("sort") === "recent" ? "c.created_at DESC, c.id DESC"
-    : /* attention first: the earliest next action, then the leads with none, newest first */
-      "CASE WHEN next_due IS NULL THEN 1 ELSE 0 END, next_due ASC, c.created_at DESC, c.id DESC";
+  const sort = p.get("sort") === "name" ? "x.company COLLATE NOCASE ASC, x.id ASC"
+    : p.get("sort") === "recent" ? "x.created_at DESC, x.id DESC"
+    : /* attention first: the earliest next action, then an undated task, then the leads with none, newest first */
+      "CASE WHEN next_due IS NOT NULL THEN 0 WHEN task_id IS NOT NULL THEN 1 ELSE 2 END, next_due ASC, x.created_at DESC, x.id DESC";
   const page = Math.max(1, Math.min(10000, Number(p.get("page")) || 1));
   const w = where.join(" AND ");
   const total = await env.DB.prepare(`SELECT COUNT(*) AS n FROM customers c WHERE ${w}`).bind(...binds).first<{ n: number }>();
   const { results } = await env.DB.prepare(
-    `SELECT c.id, c.company, c.contact_person, c.phone, c.email, c.owner_id, ${NAME("o")} AS owner_name,
+    /* v1.408.0 - the next action is the earlier of the next follow-up and the next open task on
+       the lead (an undated task still counts as a next action, it only has no day) */
+    `SELECT x.*, COALESCE(MIN(x.fu_due, x.task_due), x.fu_due, x.task_due) AS next_due FROM (
+     SELECT c.id, c.company, c.contact_person, c.phone, c.email, c.owner_id, ${NAME("o")} AS owner_name,
             c.lead_source, c.lead_source_detail, c.relationship_status, c.interested_services, c.created_at, c.crm_version,
-            (SELECT MIN(f.due_on) FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL) AS next_due,
-            (SELECT f.note FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL ORDER BY f.due_on, f.id LIMIT 1) AS next_note,
+            (SELECT MIN(f.due_on) FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL) AS fu_due,
+            (SELECT f.note FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL ORDER BY f.due_on, f.id LIMIT 1) AS fu_note,
+            (SELECT t.id FROM tasks t WHERE ${TASK_LINK_SQL()} ORDER BY t.deadline IS NULL, substr(t.deadline, 1, 10), t.id LIMIT 1) AS task_id,
+            (SELECT t.title FROM tasks t WHERE ${TASK_LINK_SQL()} ORDER BY t.deadline IS NULL, substr(t.deadline, 1, 10), t.id LIMIT 1) AS task_title,
+            (SELECT MIN(substr(t.deadline, 1, 10)) FROM tasks t WHERE ${TASK_LINK_SQL()} AND t.deadline IS NOT NULL) AS task_due,
             (SELECT MAX(a.occurred_at) FROM sales_activities a WHERE a.customer_id = c.id) AS last_activity,
             (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'QT') AS quotations,
             (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'void') AS invoices
        FROM customers c LEFT JOIN users o ON o.id = c.owner_id
-      WHERE ${w} ORDER BY ${sort} LIMIT ${PER} OFFSET ${(page - 1) * PER}`,
-  ).bind(...binds).all<Record<string, unknown> & { relationship_status: string | null; owner_id: number | null; next_due: string | null }>();
+      WHERE ${w}) x ORDER BY ${sort} LIMIT ${PER} OFFSET ${(page - 1) * PER}`,
+  ).bind(...binds).all<Record<string, unknown> & { relationship_status: string | null; owner_id: number | null; next_due: string | null;
+    fu_due: string | null; fu_note: string | null; task_id: number | null; task_title: string | null; task_due: string | null }>();
   const today = mytToday();
   const rows = (results ?? []).map((r) => {
     const open = r.relationship_status === null || (OPEN_LEAD as readonly string[]).includes(r.relationship_status);
+    /* which one is next: the follow-up when it is due first (or there is no task), else the task */
+    const fuFirst = r.fu_due !== null && (r.task_due === null || r.fu_due <= r.task_due);
+    const { fu_due: _fd, fu_note, task_due: _td, ...rest } = r;
     return {
-      ...r,
+      ...rest,
       interested_services: parseServices(r.interested_services),
+      next_kind: fuFirst ? "followup" : r.task_id !== null ? "task" : null,
+      next_note: fuFirst ? fu_note : r.task_id !== null ? r.task_title : null,
       no_owner: open && r.owner_id === null,
-      no_next: open && r.next_due === null,
+      no_next: open && r.next_due === null && r.task_id === null,
       next_late: r.next_due !== null && r.next_due < today,
     };
   });
@@ -209,7 +234,7 @@ async function leadDetail(env: Env, id: number) {
   ).bind(id).first<Record<string, unknown>>();
   if (!lead) return null;
   const all = <T>(sql: string) => env.DB.prepare(sql).bind(id).all<T>().then((r) => r.results ?? []);
-  const [activities, ownerEvents, statusEvents, followups, docs, enquiries, growth] = await Promise.all([
+  const [activities, ownerEvents, statusEvents, followups, tasks, docs, enquiries, growth] = await Promise.all([
     all(`SELECT a.id, a.kind, a.outcome, a.note, a.occurred_at, a.followup_id, a.doc_id, ${NAME("u")} AS by_name, a.created_by
            FROM sales_activities a LEFT JOIN users u ON u.id = a.created_by WHERE a.customer_id = ?1 ORDER BY a.occurred_at DESC, a.id DESC LIMIT 100`),
     all(`SELECT e.id, e.kind, e.reason, e.created_at, ${NAME("f")} AS from_name, ${NAME("t")} AS to_name, ${NAME("b")} AS by_name
@@ -219,6 +244,11 @@ async function leadDetail(env: Env, id: number) {
            FROM customer_status_events e LEFT JOIN users b ON b.id = e.created_by WHERE e.customer_id = ?1 ORDER BY e.id DESC LIMIT 50`),
     all(`SELECT f.id, f.due_on, f.note, f.doc_id, ${NAME("u")} AS owner_name FROM customer_followups f LEFT JOIN users u ON u.id = f.owner_id
           WHERE f.customer_id = ?1 AND f.done_at IS NULL AND f.cancelled_at IS NULL ORDER BY f.due_on, f.id`),
+    /* v1.408.0 - the open tasks on this lead (the customer, its quotations, its projects, its enquiries) */
+    all(`SELECT t.id, t.title, substr(t.deadline, 1, 10) AS due_on, t.status, t.stage, t.link_kind, ${NAME("u")} AS assignee_name
+           FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to
+          WHERE ${TASK_LINK_SQL("?1")}
+          ORDER BY t.deadline IS NULL, substr(t.deadline, 1, 10), t.id LIMIT 20`).catch(() => []),
     /* v1.406.0 - the lead's quotations and invoices, each with where it stands (the CEO: "link it!") */
     all(`SELECT d.id, d.doc_type, d.doc_number, d.total_cents, d.payment_status, d.created_at, d.valid_until, d.voided_at,
                 CASE WHEN d.doc_type = 'QT' THEN EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0)) ELSE 0 END AS accepted,
@@ -229,7 +259,7 @@ async function leadDetail(env: Env, id: number) {
     all(`SELECT id, name, status, created_at FROM enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
     all(`SELECT id, ref, status, created_at FROM business_growth_enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
   ]);
-  return { lead: { ...lead, interested_services: parseServices(lead.interested_services) }, activities, owner_events: ownerEvents, status_events: statusEvents, followups, docs, enquiries, growth };
+  return { lead: { ...lead, interested_services: parseServices(lead.interested_services) }, activities, owner_events: ownerEvents, status_events: statusEvents, followups, tasks, docs, enquiries, growth };
 }
 
 async function suggestions(env: Env) {
