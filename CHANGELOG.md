@@ -4,6 +4,17 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Sales Command Center, Phase 5: Collections (21-11-2026, the CEO, "As recommended") - NO MIGRATION
+- **New tab: Sales -> Payments -> Collections.** Every unpaid invoice, with what is still owed counted from **verified money only**. A payment that has been reported but not yet verified shows beside it as "waiting for the CEO" and is never counted as paid.
+- Each invoice shows its **age** (0–30, 31–60, 61–90, 90+ days, and "past due" when its due date has passed), its **collector** (the invoice's salesperson - never changed here) and its **next collection action**, in words as well as colour: red "Overdue", amber "No collection follow-up", blue "Due today".
+- **Book follow-up** opens a drawer (date, what to do; a manager also chooses who follows up). It is the customer follow-up you already use, attached to that invoice - one open per invoice. It never changes the invoice, its closer or a payment.
+- **WhatsApp** opens with the reminder already written (invoice number, the verified balance, and the issuing company's own bank account); **Call** dials. Neither records anything - log what happened on the customer's file.
+- **Mine** is the default for everyone; **Everyone** is there for the CEO, COO, CCO and anyone who already sees every invoice's payments. Nobody sees more than before.
+- **Documents -> More -> Outstanding** now opens Payments -> Collections (one home for collecting).
+- **Sales Pipeline**: a won deal (or one with an invoiced quotation) shows its payment - "Invoiced", "Part paid (verified RM x)" or "Paid (CEO verified)" - with amounts only for someone who may read that invoice's payments. Won still is not revenue.
+- Reporting, the evidence check, your verification, Mark Paid, the verification switch, receipts, credit notes, Finance, the cash book, the closer and commission are all unchanged. The new read only reads.
+- New guard `collections` (22 checks, 8 mutations); browser test `tests/browser/sales-collections.py`. Not deployed.
+
 ### Sales Command Center, Phase 4: Quotations & Invoices (21-11-2026, the CEO, "As recommended") - MIGRATION 0228 (additive)
 - **Choosing the customer** on Create document is now a search over **every** customer (name, contact, phone or email) instead of a list that stopped at the first 300. Walk-in is still one press. The chosen customer's card is read whole, so the paper prints its address. Adding a new customer is unchanged (Leads & CRM, with its duplicate check).
 - **Deal (optional)** on a new quotation: the chosen customer's open deals that you may change. Nothing is linked unless you pick one. **Create quotation** on a deal opens the form with that deal already chosen. When the quotation is saved the server links it to the deal; a deal still in New or Qualified moves to **Proposal sent**, recorded in its history. A deal is **never** marked Won by this. If the deal cannot take it (someone else's, closed, or another customer's) the quotation is still saved and the message says why.

@@ -398,6 +398,7 @@ function DealRecord({ id, opts, onChanged, onOpenLead, onQuote }: {
           </ul>
         )}
       </Section>
+      {(x.stage === "won" || x.quotes.some((q) => q.invoiced)) && <DealPayment dealId={x.id} />}
       <Section title={L("Stage history", "Sejarah peringkat")} testid="deal-history">
         <ol className={css.timeline}>
           {d.events.map((e) => (
@@ -674,6 +675,34 @@ export function LeadDeals({ customer, onOpenDeal }: { customer: { id: number; co
       )}
       {opts.data?.can_write && <span><button type="button" className={btnSm} onClick={() => setMaking(true)} data-testid="lead-deal-new"><AppIcon name="add" />{L("New deal", "Urusan baharu")}</button></span>}
       {making && opts.data && <DealForm opts={opts.data} customer={customer} onClose={() => setMaking(false)} onSaved={(id) => { setMaking(false); list.refresh(); onOpenDeal(id); }} />}
+    </Section>
+  );
+}
+
+/** v1.401.0 (Phase 5, decision 6) - whether the money of a deal's invoices has come in, read only from the payment
+    records. Amounts only for someone who may read that invoice's payments; Won stays "not revenue" either way. */
+function DealPayment({ dealId }: { dealId: number }) {
+  const r = useCachedApi<{ invoices: { id: number; doc_number: string; status: "invoiced" | "part_paid" | "paid" | "paid_verified"; waiting: boolean; total_cents?: number; verified_cents?: number }[] }>(
+    `/staff/collections/deal/${dealId}`, true, ["deals", "payments", "docs"]);
+  const inv = r.data?.invoices ?? [];
+  return (
+    <Section title={L("Payment", "Bayaran")} testid="deal-payment">
+      {!r.data ? <SkelRows rows={1} /> : inv.length === 0 ? <p className={css.muted}>{L("Not invoiced yet.", "Belum diinvois.")}</p> : (
+        <ul className={css.docs}>
+          {inv.map((i) => (
+            <li key={i.id} data-testid="deal-payment-row" data-status={i.status}>
+              <span>{i.doc_number}</span>
+              {i.total_cents != null && <span>{fmtRM(i.total_cents)}</span>}
+              <span className={i.status === "paid_verified" || i.status === "paid" ? chipSmSuccess : i.status === "part_paid" ? chipSmWarn : chipSmNeutral}>
+                {i.status === "paid_verified" ? L("Paid (CEO verified)", "Dibayar (disahkan CEO)") : i.status === "paid" ? L("Paid", "Dibayar")
+                  : i.status === "part_paid" ? (i.verified_cents != null ? L(`Part paid (verified ${fmtRM(i.verified_cents)})`, `Dibayar sebahagian (disahkan ${fmtRM(i.verified_cents)})`) : L("Part paid (verified)", "Dibayar sebahagian (disahkan)"))
+                    : L("Invoiced", "Diinvois")}
+              </span>
+              {i.waiting && <span className={chipSmNeutral}>{L("Payment reported, waiting for the CEO", "Bayaran dilapor, menunggu CEO")}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </Section>
   );
 }

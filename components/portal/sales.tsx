@@ -16,6 +16,7 @@ import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-view
 import { SalesPipeline } from "@/components/portal/sales-pipeline"; // v1.399.0 - Sales Command Center, Phase 3
 import { CustomerPicker, DealPicker, QuoteStateChips } from "@/components/portal/doc-pickers"; // v1.400.0 - Sales Command Center, Phase 4
 import { matchesQuoteFilter, quoteState, type QuoteFilter } from "@/lib/quote-state"; // v1.400.0
+import { bankTransferLine } from "@/lib/collection-text"; // v1.401.0
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import type { Opportunity } from "@/components/portal/sales-discipline";
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
@@ -39,7 +40,7 @@ import type { PackageRef, PackageRow } from "@/lib/packages";
 import { DocFull, DocItem, buildDocHtml, docFileName, docPageFit, docRevisionLabel } from "@/lib/doc-template";
 import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
-import { DOCUMENT_ISSUER, Issuer, resolveIssuer } from "@/lib/issuers";
+import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
 import { firstName, properName } from "@/lib/names";
 import { btnClass, btnSm, card, inputClass, inputClassSm, td, tdR2, th, thR2, selectClassSm, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
 import { ReactNode, cloneElement, isValidElement, useCallback, useEffect, useRef, useState, type ReactElement } from "react";
@@ -130,10 +131,7 @@ export interface SalesDoc {
    the SOA and the WhatsApp invoice chase print, composed from the issuer so
    the payee named is always the entity whose account it is. Issuer.bank is
    "<BANK> <account number>" (lib/issuers.ts). */
-export function bankTransferLine(iss: Issuer): string {
-  const [bankName, ...account] = iss.bank.split(" ");
-  return `${bankName} · ${iss.bankHolder} · A/C ${account.join(" ")}`;
-}
+export { bankTransferLine }; // v1.401.0 - one copy, in lib/collection-text.ts
 
 /** v1.4.101: printable Statement of Account per customer — same branded
     template family as the QT/DO/INV. Invoices only (paid + outstanding). */
@@ -713,6 +711,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   /* v1.399.0 - the deal open in the Sales Pipeline (a bell, the Action Center, a lead's Deals) */
   const [dealOpen, setDealOpen] = useState<number | null>(null);
   const [dealNew, setDealNew] = useState(0);
+  /* v1.401.0 (Phase 5, decision 1) - Payments opened on its Collections tab (the old Outstanding entry) */
+  const [payStart, setPayStart] = useState<{ tab: "collections"; seq: number } | null>(null);
+  const toCollections = () => { setPayStart((p) => ({ tab: "collections", seq: (p?.seq ?? 0) + 1 })); setWsView("payments"); };
   const openDeal = (id: number) => { setWsView("pipeline"); setDealOpen(id); };
   /* v1.369.0 - the Business Growth Check: the website Enquiries people (enquiry_manage), never an agent or a customer; the server checks again */
   /* v1.398.0 - who may make a customer (the POST /customers rule): Convert to lead is drawn only for them */
@@ -2017,7 +2018,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       {/* v1.292.0 - ONE report at a time; only the chosen one is mounted */}
       {wsView === "reports" && <ReportPicker reports={reportDefs} />}
       {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
-      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} viewReportId={viewReport} reportTick={payReport} />}
+      {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} viewReportId={viewReport} reportTick={payReport} startTab={payStart} onOpenCustomer={followCustomer} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
           the toast, the confirm dialog and the prompt dialog used to be
           rendered INSIDE the "Create document" tab body. v1.120.0 put the
@@ -2076,7 +2077,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 { key: "DO", label: L("Delivery orders", "Pesanan penghantaran"), on: workTab === "documents" && docType === "DO", go: () => { setWorkTab("documents"); setDocType("DO"); setDocPage(1); } },
                 { key: "receipts", label: L("Receipts", "Resit"), on: workTab === "receipts" && money === "receipts", go: () => { setWorkTab("receipts"); setMoney("receipts"); } },
                 { key: "credit", label: L("Credit notes", "Nota kredit"), on: workTab === "receipts" && money === "credit", go: () => { setWorkTab("receipts"); setMoney("credit"); } },
-                { key: "outstanding", label: L("Outstanding", "Tertunggak"), on: workTab === "receipts" && money === "outstanding", go: () => { setWorkTab("receipts"); setMoney("outstanding"); } },
+                { key: "outstanding", label: L("Outstanding", "Tertunggak"), on: false, go: toCollections }, // v1.401.0 - one home: Payments -> Collections
                 { key: "packages", label: L("Packages", "Pakej"), on: workTab === "packages", go: () => setWorkTab("packages") },
               ]} />} />
             </div>

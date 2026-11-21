@@ -1511,6 +1511,28 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 83, doc_type: "QT", doc_number: "QT-AZO030926-83", company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", customer_id: 55, total_cents: 280000, payment_status: null, delivery_status: null, created_at: D + "03 02:00:00", salesperson_name: "Fixture Person", salesperson_id: 9001, kind: "service", revision: 0, valid_until: realDay(3), followup_open: 1, accepted_current: 0 },
     { id: 84, doc_type: "QT", doc_number: "QT-AZO040926-84", company: "Butik Seri Kenanga", customer_id: 56, total_cents: 120000, payment_status: null, delivery_status: null, created_at: D + "04 02:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002, kind: "service", revision: 2, valid_until: realDay(20), followup_open: 0, accepted_current: 1 },
   ];
+  /* v1.401.0 - COLLECTIONS (worker/src/collections.ts): five unpaid invoices on the fixture's own dates, one per
+     age bucket and flag; balances by verified money only, a reported RM 400 waiting beside the first */
+  if (p === "/staff/collections") {
+    const ci = (o) => ({ phone: "60123456789", issuer_code: "a2z", waiting_cents: 0, due_date: null, invoice_overdue: false, collector_id: 9001, collector: "Fixture Person", followup: null, ...o });
+    const items = [
+      ci({ id: 3, doc_number: "INV-AZO050926-3", customer_id: 52, customer: "Aina Boutique (Melaka)", total_cents: 990000, verified_cents: 400000, waiting_cents: 40000, balance_cents: 590000, age_days: 13, bucket: "0_30", flag: "no_next" }),
+      ci({ id: 4, doc_number: "INV-AZO200826-4", customer_id: 53, customer: "Kedai Runcit Pak Ali", total_cents: 120000, verified_cents: 0, balance_cents: 120000, age_days: 45, bucket: "31_60", flag: "overdue", invoice_overdue: true,
+        collector_id: 9002, collector: "Nur Aisyah binti Rahman", followup: { id: 700, due_on: "2026-09-15", note: "Ask Pak Ali for the transfer date", owner: "Nur Aisyah binti Rahman" } }),
+      ci({ id: 71, doc_number: "INV-AZO010726-71", customer_id: 55, customer: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", total_cents: 1250000, verified_cents: 250000, balance_cents: 1000000, age_days: 79, bucket: "61_90", flag: "booked",
+        due_date: "2026-08-01", invoice_overdue: true, followup: { id: 701, due_on: "2026-09-25", note: "Second reminder to the finance office", owner: "Fixture Person" } }),
+      ci({ id: 72, doc_number: "INV-AZO010526-72", customer_id: 58, customer: "Pusat Tuisyen Cemerlang", total_cents: 210000, verified_cents: 0, balance_cents: 210000, age_days: 140, bucket: "90_plus", flag: "today", invoice_overdue: true,
+        collector_id: 9010, collector: "Hakim Rosli", followup: { id: 702, due_on: "2026-09-18", note: "Call the principal", owner: "Hakim Rosli" } }),
+    ];
+    const all = q.get("scope") === "all" && ["ceo", "coo", "cco", "super_admin"].includes(ROLE);
+    const rows = all ? items : items.filter((i) => i.collector_id === 9001);
+    const B = ["0_30", "31_60", "61_90", "90_plus"];
+    data = { today: "2026-09-18", scope: all ? "all" : "mine", can_all: ["ceo", "coo", "cco", "super_admin"].includes(ROLE), items: rows,
+      summary: { invoices: rows.length, balance_cents: rows.reduce((n, i) => n + i.balance_cents, 0), waiting_cents: rows.reduce((n, i) => n + i.waiting_cents, 0),
+        buckets: Object.fromEntries(B.map((b) => [b, { n: rows.filter((i) => i.bucket === b).length, cents: rows.filter((i) => i.bucket === b).reduce((n, i) => n + i.balance_cents, 0) }])),
+        no_next: rows.filter((i) => i.flag === "no_next").length, late: rows.filter((i) => i.flag === "overdue").length, invoice_overdue: rows.filter((i) => i.invoice_overdue).length } };
+  }
+  if (/^\/staff\/collections\/deal\/\d+$/.test(p)) data = { invoices: [{ id: 75, doc_number: "INV-AZO140926-75", status: "paid_verified", waiting: false, total_cents: 120000, verified_cents: 120000 }] };
   /* v1.400.0 - GET /staff/docs/more: forty older documents, paged 25 at a time and searched like the server */
   if (p === "/staff/docs/more") {
     const older = Array.from({ length: 40 }, (_, k) => ({ id: 500 + k, doc_type: k % 4 ? "QT" : "INV", doc_number: `${k % 4 ? "QT" : "INV"}-OLD-${String(k + 1).padStart(3, "0")}`,

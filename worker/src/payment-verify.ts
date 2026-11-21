@@ -92,7 +92,7 @@ const VERIFY_METHODS = ["bank_statement", "bank_app"] as const;
    17-11-2026: "for november month, I want to have an option for me to verify
    it"). Earlier months stay as the record they are. */
 export const VERIFY_RECORDED_FROM = "2026-11-01";
-const PENDING = ["reported", "evidence_checked", "clarify"];
+export const PENDING = ["reported", "evidence_checked", "clarify"]; // v1.401.0 - also read by collections.ts
 const PROOF_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 const PROOF_MAX = 8 * 1024 * 1024;
 /** v1.285.0 - the one person who turns a report into money: the verified company owner */
@@ -154,6 +154,8 @@ export function settlementOf(total: number, verified: number, pending: number, p
   return verified + pending >= total ? "fully_reported" : "partial";
 }
 
+/** v1.401.0 - who reads EVERY invoice's payments (GET /payments "all"); collections.ts uses the same rule */
+export const seesAllPayments = (user: StaffUser) => canUser(user, "payment_verify") || canUser(user, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role);
 /** may this person read this invoice's payments */
 function seesInvoice(user: StaffUser, inv: Inv): boolean {
   if (canUser(user, "payment_verify") || canUser(user, "payment_evidence") || REPORT_ALL_ROLES.includes(user.role)) return true;

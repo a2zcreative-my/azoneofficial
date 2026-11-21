@@ -48,6 +48,7 @@ import { StageTimeline, type Stage } from "@/components/ui/stage-timeline";
 import { useSaveToast } from "@/components/ui/save-toast";
 import { SkelRows } from "@/components/ui/skeleton";
 import { AmountSummary, Cell, ReceiptPreview, ReviewChip, SettlementChip, actionFor, isPendingState, reviewOf, settlementOf, type MainAction, type PayActor } from "@/components/portal/payment-parts";
+import { CollectionsPanel } from "@/components/portal/collections"; // v1.401.0
 import css from "./payments-panel.module.css";
 
 const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
@@ -85,7 +86,7 @@ interface Picture {
   verified_cents: number; pending_cents: number; outstanding_cents: number; status: string; reports: Rep[]; events: Ev[]; can_report: boolean;
 }
 type Err = { error?: { message?: string; code?: string } };
-type Tab = "needs" | "balances" | "history" | "audit";
+type Tab = "needs" | "balances" | "collections" | "history" | "audit"; // v1.401.0 collections: Sales Command Center Phase 5
 
 const COMPANY: Record<string, string> = { a2z: "A2Z", azoo: "AZ ONE" };
 const ROLE_WORD: Record<string, string> = { ceo: "CEO", coo: "COO", cco: "CCO", sales_marketing: "Sales" };
@@ -131,7 +132,7 @@ async function uploadProof(reportId: number, f: File): Promise<string | null> {
   return j?.error?.message ?? L("The proof was not attached.", "Bukti tidak dilampirkan.");
 }
 
-export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened, viewInvoiceId, onViewOpened, viewReportId = null, reportTick = 0 }: {
+export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpened, viewInvoiceId, onViewOpened, viewReportId = null, reportTick = 0, startTab = null, onOpenCustomer }: {
   userId: number; onChanged?: () => void;
   /** v1.278.0 - opened from an invoice's Report payment in the documents list: its sheet opens at once */
   recordInvoiceId?: number | null; onRecordOpened?: () => void;
@@ -141,11 +142,17 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
   reportTick?: number;
   /** v1.365.0 - opened from the Desk or the bell (pay_report:<id>): that report's invoice sheet, once the list has it */
   viewReportId?: number | null;
+  /** v1.401.0 - a tab to open on (Documents -> More -> Outstanding opens Collections); a new value opens it again */
+  startTab?: { tab: "collections"; seq: number } | null;
+  /** v1.401.0 - the customer file, from a collection row */
+  onOpenCustomer?: (customerId: number, company: string) => void;
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState(false);
   const [tick, setTick] = useState(0);
-  const [tab, setTab] = useState<Tab>("needs");
+  const [tab, setTab] = useState<Tab>(startTab?.tab ?? "needs");
+  const [startSeen, setStartSeen] = useState(startTab?.seq ?? 0);
+  if (startTab && startTab.seq !== startSeen) { setStartSeen(startTab.seq); setTab(startTab.tab); }
   const [q, setQ] = useState("");
   const [bal, setBal] = useState<"all" | "unpaid" | "partial" | "waiting">("all");
   const [openInv, setOpenInv] = useState<number | null>(null);
@@ -209,6 +216,7 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
   const tabs: [Tab, string, string, number | null][] = [
     ["needs", needsLabel, L("Pending", "Tertunda"), pendingReps.length || null],
     ["balances", L("Invoice Balances", "Baki Invois"), L("Balances", "Baki"), data.invoices.length || null],
+    ["collections", L("Collections", "Kutipan"), L("Collect", "Kutip"), null], // v1.401.0
     ["history", L("Payment History", "Sejarah Bayaran"), L("History", "Sejarah"), null],
     ["audit", L("Audit Trail", "Jejak Audit"), L("Audit", "Audit"), null],
   ];
@@ -411,6 +419,8 @@ export function PaymentsPanel({ userId, onChanged, recordInvoiceId, onRecordOpen
       )}
 
       {tab === "audit" && <AuditTrail onOpen={(id) => setOpenInv(id)} />}
+      {/* v1.401.0 (Sales Command Center Phase 5) - who collects each unpaid invoice, and its next action; a pure read */}
+      {tab === "collections" && <CollectionsPanel onOpenInvoice={(id) => setOpenInv(id)} onOpenCustomer={(id, co) => onOpenCustomer?.(id, co)} />}
 
       {sheetFor && <RecordSheet inv={sheetFor === "pick" ? null : sheetFor} invoices={data.invoices.filter((i) => i.can_report && canReportNow)} who={who} banks={data.banks} userId={userId}
         onClose={() => { setRecordFor(null); onRecordOpened?.(); }}
