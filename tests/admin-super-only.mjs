@@ -18,7 +18,8 @@
    Run: node tests/admin-super-only.mjs */
 import { readFileSync } from "node:fs";
 
-const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the patterns are written with 
+
 const src = {
   admin: read("app/admin/page.tsx"),
   perm: read("worker/src/permissions.ts"),

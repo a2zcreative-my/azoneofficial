@@ -50,7 +50,8 @@ const qArg = (a) => (WIN && /[ &()^%!]/.test(a) ? `"${a}"` : a);
    the CEO's own PC, 49 of them failed at once on a bug that was never about
    the code they check. */
 const root = fileURLToPath(new URL("..", import.meta.url));
-const read = (p) => readFileSync(path.join(root, p), "utf8");
+const read = (p) => readFileSync(path.join(root, p), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the patterns are written with 
+
 
 let pass = 0;
 const fails = [];
@@ -171,7 +172,7 @@ const page = readPortalSource(root);
    host."* The grid rows, the pickers and the Available-today rail all come
    from lists the worker hands over alphabetically. */
 {
-  const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8");
+  const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8").replace(/\r\n/g, "\n");
   ok("the roster's staff list is sorted by the company comparator once, where it arrives",
      /setStaff\(\[\.\.\.r\.data\.staff\]\.sort\(bySeniority\)\)/.test(roster),
      "the grid rows and every picker on the board read this list");
@@ -232,7 +233,7 @@ const page = readPortalSource(root);
   /* Every route that hands a LIST OF PEOPLE to a screen or a picker. Named
      one by one, because a list left on ORDER BY name is a tab that
      disagrees with the other eleven. */
-  const erp = readFileSync(path.join(root, "worker/src/erp.ts"), "utf8");
+  const erp = readFileSync(path.join(root, "worker/src/erp.ts"), "utf8").replace(/\r\n/g, "\n");
   const listings = [
     ['path === "/staff-list"', staff, "every picker in the portal"],
     ["const entitlementStaff = async", staff, "the leave entitlement table"],
@@ -264,7 +265,7 @@ const page = readPortalSource(root);
   const dir = path.join(root, "worker/src");
   const offenders = [];
   for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts"))) {
-    const src = readFileSync(path.join(dir, f), "utf8");
+    const src = readFileSync(path.join(dir, f), "utf8").replace(/\r\n/g, "\n");
     for (const m of src.matchAll(/`[^`]*?FROM users\b[^`]*?`/g)) {
       const q = m[0];
       if (!/ORDER BY\s+(?:[a-z]+\.is_active DESC,\s*)?(?:[a-z]+\.)?name\b(?!\s*LIKE)|ORDER BY COALESCE\(NULLIF\(TRIM\([a-z.]*full_name\), ''\), [a-z.]*name\)/.test(q)) continue;

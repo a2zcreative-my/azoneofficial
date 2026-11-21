@@ -25,7 +25,8 @@
 import { readFileSync } from "node:fs";
 import { readPortalSource } from "./lib/portal-source.mjs"; // v1.114.0 - the page is fourteen files now
 
-const read = (p) => readFileSync(p, "utf8");
+const read = (p) => readFileSync(p, "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the patterns are written with 
+
 const staff = read("worker/src/staff.ts");
 const index = read("worker/src/index.ts");
 const perms = read("worker/src/permissions.ts");
