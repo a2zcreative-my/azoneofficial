@@ -203,6 +203,12 @@ s(more.length > 100 && !/\b(INSERT|UPDATE|DELETE)\b/.test(more), "GET /docs/more
 s(!/^\s*(UPDATE|DELETE|DROP|ALTER TABLE \w+ (RENAME|DROP))/im.test(mig.replace(/--.*$/gm, "")), "0228 is additive");
 s(!/<select[^>]*aria-label=\{L\("Customer", "Pelanggan"\)\}/.test(sales) && /<CustomerPicker value=\{doc\.customer_id\}/.test(sales) && /\/staff\/crm\/leads\?view=all&sort=name&q=/.test(pick), "the Create form picks a customer by searching every customer, not a list cut at 300");
 s(/doc\.doc_type === "QT" && !editingDoc && dealId \? \{ deal_id: dealId \}/.test(sales), "only a NEW quotation sends its deal; an edit or a revision never does");
+/* v1.411.0 - Load 25 older only when there IS something older: the newest-200 read came back full */
+{
+  const staffSrc = read("worker/src/staff.ts");
+  s(/const older = results\.length >= 200;/.test(staffSrc) && /return json\(\{ docs: results, older, /.test(staffSrc), "GET /docs says whether older documents exist (its newest-200 read came back full)");
+  s(/setOlderMore\(d\.data\?\.older !== false\)/.test(sales) && !/setOlderMore\(true\)/.test(sales), "the list offers Load 25 older only when the server says older documents exist");
+}
 /* v1.410.0 - every invoice a quotation became is a link to that invoice: the ids come with the list, same order, same filter */
 {
   const staffSrc = read("worker/src/staff.ts");

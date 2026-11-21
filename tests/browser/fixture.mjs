@@ -1570,6 +1570,8 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     data = { docs: rows.slice(0, 25), more: rows.length > 25 };
   }
   if (p === "/staff/docs") data = {
+    /* v1.411.0 - the server says older documents exist only when its newest-200 read is full; QSTATE has 40 older ones */
+    older: Boolean(process.env.QSTATE),
     docs: process.env.QSTATE ? [...docs, ...qstate] : process.env.CONFIRMED ? docs.map((d) => d.id === 2 ? { ...d, paid_confirmed_at: D + "13 02:00:00", paid_confirmed_by: "Fixture COO", paid_confirmed_cents: d.total_cents } : d)
       /* v1.273.0 - DEPOSIT=1: the service quotation QT 1 is half invoiced (a 50% deposit) */
       : process.env.DEPOSIT ? [...docs.map((d) => d.id === 1 ? { ...d, invoiced_as: "INV-AZOO311026-8", invoiced_as_id: 9099, invoiced_cents: 225000, invoice_count: 1 } : d),

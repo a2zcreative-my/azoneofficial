@@ -1030,11 +1030,12 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const load = useCallback(async () => {
     const c = await api<{ customers: Customer[] }>(`/staff/customers`);
     setCustomers(c.data?.customers ?? []);
-    const d = await api<{ docs: SalesDoc[]; can_confirm_paid?: boolean; can_confirm_own?: boolean; error?: { message?: string } }>(
+    const d = await api<{ docs: SalesDoc[]; older?: boolean; can_confirm_paid?: boolean; can_confirm_own?: boolean; error?: { message?: string } }>(
       `/staff/docs`
     );
     setDocs(d.data?.docs ?? []);
-    setOlderDocs([]); setOlderMore(true); setDocsTick((t) => t + 1); // v1.400.0
+    /* v1.411.0 - Load older only when the server says its newest-200 read was full (an older worker sends nothing: keep offering it) */
+    setOlderDocs([]); setOlderMore(d.data?.older !== false); setDocsTick((t) => t + 1); // v1.400.0
     if (paysByReport) {
       const pr = await api<{ on: boolean; invoices?: { id: number; verified_cents: number; pending_cents: number; can_report: boolean }[]; tiles?: { pending_cents?: number; pending_count?: number } }>(`/staff/payments`);
       if (pr.ok && pr.data) {

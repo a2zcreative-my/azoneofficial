@@ -11856,6 +11856,9 @@ async function handleStaffRoutes(
        ORDER BY d.created_at DESC LIMIT 200`,
     );
     const { results } = await (typed ? stmt.bind(typed) : stmt).all();
+    /* v1.411.0 (the CEO: "why Load 25 older appear when there is a 1, 2, 3 there?!") - older documents exist only when
+       the newest-200 read came back full; fewer than 200 is the whole table, so the screen offers no Load older */
+    const older = results.length >= 200;
     /* v1.216.0 (the owner, 28-10-2026: "Whole table") - the 200 newest are
        not the whole story for the money: every invoice still unpaid, and
        every invoice paid since the start of last month (Malaysia time), is
@@ -11902,7 +11905,7 @@ async function handleStaffRoutes(
         }
       }
     } catch { /* pre-0145 */ }
-    return json({ docs: results, can_confirm_paid: canUser(user, "confirm_paid") && user.is_owner === true, can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
+    return json({ docs: results, older, can_confirm_paid: canUser(user, "confirm_paid") && user.is_owner === true, can_confirm_own: SELF_CONFIRM_ROLES.includes(user.role) });
   }
   /* v1.41.0 (CEO: "a list of the product with the prices auto filled and if
      there is any discount staff will insert the discount amount. SKU need to
