@@ -603,6 +603,38 @@
   font-size: 0.8125rem;
   text-align: center;
 }
+/* v1.419.0 - Paste Code: one tap reads the clipboard (only on the press) */
+.pasteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  justify-self: center;
+  min-height: 44px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  box-shadow: var(--shadow-soft);
+  color: var(--brand-primary);
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pasteBtn:hover:not(:disabled) { background: var(--secondary); }
+.pasteBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.pasteBtn:disabled { opacity: 0.55; cursor: default; }
+.pasteNote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  text-align: center;
+}
 .keypad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -792,4 +824,10 @@
 .lang button:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+/* v1.419.0 (the CEO's iPhone screenshot: two keyboards at once) - a touch screen types with its own
+   number keyboard; the keypad is for a desk with a mouse. Both are drawn and CSS picks, never JS.
+   Last in the file, so it wins over .keypad's display: grid. */
+@media (hover: none) and (pointer: coarse) {
+  .keypad { display: none; }
 }

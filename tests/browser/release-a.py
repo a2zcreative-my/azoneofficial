@@ -68,6 +68,10 @@ with sync_playwright() as p:
     check("A1 typed digits keep a leading zero", code.input_value() == "01234", code.input_value())
     pg.get_by_test_id("key-clear").click()
     check("A1 Clear empties the boxes", code.input_value() == "")
+    # v1.419.0 - Paste Code reads the clipboard only on the press; text that is not a 6-digit code is refused in words
+    pg.evaluate("navigator.clipboard.readText = async () => 'hello there'")
+    pg.get_by_test_id("code-paste").click(); pg.wait_for_timeout(300)
+    check("A1 Paste Code refuses a clipboard without a 6-digit code, and says so", code.input_value() == "" and "6-digit code" in pg.get_by_test_id("code-paste-note").inner_text() and len(verifies()) == 1)
     pg.get_by_test_id("code-mode").click(); pg.wait_for_timeout(300)
     bk = pg.locator("#backup-code")
     check("A1 Use a backup code opens its own box (no keypad)", bk.count() == 1 and pg.get_by_test_id("code-keypad").count() == 0 and "Use a backup code" in pg.inner_text("body"))

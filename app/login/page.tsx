@@ -240,9 +240,11 @@ function CloudflareNotice({ lang, state, widget }: { lang: Lang; state: BotState
 /** v1.414.0 - the six boxes. They are DRAWING only: one real input lies over them
     (transparent, never display:none), so a tap gives the system keyboard, long-press
     Paste and the phone's code autofill, and a screen reader meets one labelled field. */
-function CodeBoxes({ lang, value, onDigits, inputRef, disabled, invalid, describedBy }: {
+function CodeBoxes({ lang, value, onDigits, inputRef, disabled, invalid, describedBy, onFocus }: {
   lang: Lang; value: string; onDigits: (raw: string) => void;
   inputRef: RefObject<HTMLInputElement | null>; disabled: boolean; invalid: boolean; describedBy: string;
+  /** v1.419.0 - a phone's keyboard opens on this tap: the page brings Verify up above it */
+  onFocus?: () => void;
 }) {
   const L = tr(lang);
   const active = Math.min(value.length, 5);
@@ -265,6 +267,7 @@ function CodeBoxes({ lang, value, onDigits, inputRef, disabled, invalid, describ
         /* a paste is read whole BEFORE maxlength can cut it: "123 456" and a backup code both arrive intact */
         onPaste={(e) => { e.preventDefault(); onDigits(e.clipboardData.getData("text")); }}
         onChange={(e) => onDigits(e.target.value)}
+        onFocus={onFocus}
       />
       {[0, 1, 2, 3, 4, 5].map((i) => (
         <span key={i} className={css.box} aria-hidden="true" data-filled={value[i] ? "1" : undefined} data-active={i === active && value.length < 6 ? "1" : undefined}>
@@ -387,11 +390,51 @@ export default function LoginPage() {
     }
   };
 
-  /* v1.414.0 - the code screen focuses its input on a desk only. On a phone the keypad comes first and the
-     system keyboard stays shut until the boxes are tapped (that tap is the way to paste and autofill). */
+  /* v1.414.0 / v1.419.0 - the code screen focuses its input only on a desk with a mouse (wide AND a fine
+     pointer). A phone or tablet opens with no keyboard at all: tapping the boxes brings the phone's own
+     number keyboard (the custom keypad is a desk thing - v1.419.0, the CEO's iPhone screenshot showed both). */
   useEffect(() => {
-    if (challenge && mode === "totp" && window.matchMedia?.("(min-width: 1024px)").matches) codeRef.current?.focus();
+    if (challenge && mode === "totp" && window.matchMedia?.("(min-width: 1024px) and (hover: hover) and (pointer: fine)").matches) codeRef.current?.focus();
   }, [challenge, mode]);
+
+  /* v1.419.0 - when a phone's keyboard opens over the page, bring the Verify button up just above it */
+  const verifyRef = useRef<HTMLButtonElement>(null);
+  const onCodeFocus = () => {
+    if (!window.matchMedia?.("(hover: none) and (pointer: coarse)").matches) return;
+    /* iOS shrinks only the VISUAL viewport for its keyboard, so measure against that: scroll up by however
+       much the Verify button sits below the visible area (with a little air); scrollIntoView elsewhere */
+    window.setTimeout(() => {
+      const btn = verifyRef.current;
+      const vv = window.visualViewport;
+      if (!btn) return;
+      if (!vv) { btn.scrollIntoView({ block: "nearest", behavior: "smooth" }); return; }
+      const below = btn.getBoundingClientRect().bottom + 12 - (vv.offsetTop + vv.height);
+      if (below > 0) window.scrollBy({ top: below, behavior: "smooth" });
+    }, 350);
+  };
+
+  /* v1.419.0 - PASTE CODE: the clipboard is read only when the button is pressed (iOS shows its own Paste
+     bubble to confirm), never watched, never kept or sent anywhere but the same verify call. Six digits
+     (spaces or dashes allowed, other text around them allowed) fill the boxes and sign in like the sixth
+     typed digit; anything else says so; a refused or missing clipboard says how to paste by hand. */
+  const [pasteNote, setPasteNote] = useState("");
+  const pasteCode = async () => {
+    setPasteNote("");
+    let text = "";
+    try {
+      if (!navigator.clipboard?.readText) throw new Error("no clipboard");
+      text = await navigator.clipboard.readText();
+    } catch {
+      setPasteNote(L("The code could not be read from the clipboard. Tap and hold the boxes, then choose Paste.", "Kod tidak dapat dibaca dari papan keratan. Tekan lama pada kotak, kemudian pilih Tampal."));
+      return;
+    }
+    const six = text.replace(/[\s-]/g, "").match(/^\D*(\d{6})\D*$/);
+    if (!six) {
+      setPasteNote(L("The clipboard does not hold a 6-digit code. Copy the code from your authenticator app and try again.", "Papan keratan tiada kod 6 digit. Salin kod dari aplikasi pengesah anda dan cuba lagi."));
+      return;
+    }
+    onDigits(six[1] ?? "");
+  };
 
   /** v1.414.0 (the CEO's keypad reference, 21-11-2026, "As recommended") - the
       AUTHENTICATOR code: six digits, typed, pasted, autofilled or tapped on the
@@ -602,8 +645,17 @@ export default function LoginPage() {
             >
               {mode === "totp" ? (
                 <>
-                  <CodeBoxes lang={lang} value={code} onDigits={onDigits} inputRef={codeRef} disabled={busy} invalid={Boolean(error)} describedBy={error ? "code-error" : "code-hint"} />
-                  <p id="code-hint" className={css.codeHint}>{L("Tap the boxes to paste or use your keyboard.", "Ketik kotak untuk tampal atau guna papan kekunci anda.")}</p>
+                  <CodeBoxes lang={lang} value={code} onDigits={onDigits} inputRef={codeRef} disabled={busy} invalid={Boolean(error)} describedBy={error ? "code-error" : "code-hint"} onFocus={onCodeFocus} />
+                  <p id="code-hint" className={css.codeHint}>{L("Tap the boxes to type, or paste the code.", "Ketik kotak untuk menaip, atau tampal kod.")}</p>
+                  {/* v1.419.0 - one tap reads the clipboard (on the user's press only) */}
+                  <button type="button" className={css.pasteBtn} disabled={busy} onClick={() => void pasteCode()} data-testid="code-paste">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    </svg>
+                    {L("Paste Code", "Tampal Kod")}
+                  </button>
+                  {pasteNote && <p className={css.pasteNote} role="status" data-testid="code-paste-note">{pasteNote}</p>}
+                  {/* the keypad is a desk thing: a touch screen hides it (CSS picks, both drawn) and uses its own keyboard */}
                   <Keypad lang={lang} disabled={busy}
                     onKey={(d) => { if (codeLive.current.length < 6) onDigits(codeLive.current + d); }}
                     onClear={() => putCode("")}
@@ -639,13 +691,13 @@ export default function LoginPage() {
                 </>
               )}
               {error && <ErrorNote id="code-error" message={error} />}
-              <button type="submit" disabled={busy || !codeReady} className={btnClassBlock} data-testid="code-verify">
+              <button ref={verifyRef} type="submit" disabled={busy || !codeReady} className={btnClassBlock} data-testid="code-verify">
                 {busy ? L("Verifying…", "Mengesahkan…") : L("Verify and sign in", "Sahkan dan log masuk")}
               </button>
             </form>
             <div className={css.help}>
               <button type="button" className={css.linkBtn} data-testid="code-mode"
-                onClick={() => { setError(""); if (mode === "totp") { putCode(""); setMode("backup"); } else { setBackup(""); setMode("totp"); } }}>
+                onClick={() => { setError(""); setPasteNote(""); if (mode === "totp") { putCode(""); setMode("backup"); } else { setBackup(""); setMode("totp"); } }}>
                 {mode === "totp" ? L("Use a backup code instead", "Guna kod sandaran") : L("Use authenticator code instead", "Guna kod pengesah")}
               </button>
               <button type="button" className={css.backLink}

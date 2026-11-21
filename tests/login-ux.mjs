@@ -167,8 +167,17 @@ const i18n = read("lib/i18n.ts");
   ok("a key adds one digit to what is there and stops at six - two quick presses both count",
     /onKey=\{\(d\) => \{ if \(codeLive\.current\.length < 6\) onDigits\(codeLive\.current \+ d\); \}\}/.test(src) && /const putCode = \(v: string\) => \{ codeLive\.current = v; setCode\(v\); \};/.test(src)
     && /onDelete=\{\(\) => putCode\(codeLive\.current\.slice\(0, -1\)\)\}/.test(src) && !/\bsetCode\("/.test(src.replace("const putCode = (v: string) => { codeLive.current = v; setCode(v); };", "")));
-  ok("a phone opens on the keypad: the input is focused on a desk only", /if \(challenge && mode === "totp" && window\.matchMedia\?\.\("\(min-width: 1024px\)"\)\.matches\) codeRef\.current\?\.focus\(\);/.test(src) && !/autoFocus/.test(boxes)
-    && /Tap the boxes to paste or use your keyboard\./.test(src));
+  /* v1.419.0 (the CEO's iPhone screenshot: two keyboards at once) - a touch screen types with its own keyboard */
+  ok("nothing opens a keyboard by itself on a phone: the input is focused only on a wide screen with a mouse",
+    /if \(challenge && mode === "totp" && window\.matchMedia\?\.\("\(min-width: 1024px\) and \(hover: hover\) and \(pointer: fine\)"\)\.matches\) codeRef\.current\?\.focus\(\);/.test(src) && !/autoFocus/.test(boxes)
+    && /Tap the boxes to type, or paste the code\./.test(src));
+  ok("a touch screen never shows the keypad beside its own keyboard (CSS picks, the rule is last so it wins)",
+    /@media \(hover: none\) and \(pointer: coarse\) \{\s*\.keypad \{ display: none; \}\s*\}\s*$/.test(css) && css.lastIndexOf(".keypad {\n  display: grid;") < css.lastIndexOf("@media (hover: none) and (pointer: coarse)"));
+  ok("Paste Code reads the clipboard only on the press, takes six digits (spaces or dashes allowed) and says what to do otherwise",
+    /onClick=\{\(\) => void pasteCode\(\)\}/.test(src) && /text = await navigator\.clipboard\.readText\(\);/.test(src) && (src.match(/navigator\.clipboard/g) ?? []).length === 2
+    && /const six = text\.replace\(\/\[\\s-\]\/g, ""\)\.match\(\/\^\\D\*\(\\d\{6\}\)\\D\*\$\/\);/.test(src) && /onDigits\(six\[1\] \?\? ""\);/.test(src)
+    && /Tap and hold the boxes, then choose Paste\./.test(src) && /The clipboard does not hold a 6-digit code\./.test(src) && !/console\.(log|info|debug)\([^)]*text/.test(src));
+  ok("when a phone's keyboard opens, Verify is brought up above it", /onFocus=\{onCodeFocus\}/.test(src) && /const below = btn\.getBoundingClientRect\(\)\.bottom \+ 12 - \(vv\.offsetTop \+ vv\.height\);/.test(src) && /if \(below > 0\) window\.scrollBy\(\{ top: below/.test(src) && /<button ref=\{verifyRef\} type="submit"/.test(src));
   /* v1.241.0 (go-live audit A1): a backup code is ABCDE-FGHIJ (or eight digits before v1.5.0) - its own box now */
   ok("a backup code has its own box: letters, digits and the dash, eleven at most, upper-cased, pasted whole",
     /let next = raw\.toUpperCase\(\)\.replace\(\/\[\^A-Z0-9-\]\/g, ""\)\.slice\(0, 11\);/.test(src) && /<input\s+id="backup-code"/.test(src) && /maxLength=\{11\}/.test(src)
@@ -221,7 +230,8 @@ const i18n = read("lib/i18n.ts");
      && (panel.match(/<Highlight /g) ?? []).length === 3 && /"Secure Access"/.test(panel) && /"Cloud Protected"/.test(panel) && /"Web \+ PWA Ready"/.test(panel));
   ok("the right side says Sign in / Securely access your A2Z OS account", /L\("Sign in", "Log masuk"\)/.test(src) && /Securely access your A2Z OS account\./.test(src) && /Akses akaun A2Z OS anda dengan selamat\./.test(src));
   /* the Cloudflare notice: the words are fixed, the status is the bot check's own state - never a made-up one */
-  const notice = code.slice(code.indexOf("function CloudflareNotice("), code.indexOf("/* ── the page ──"));
+  /* v1.419.0 - `code` has its comments stripped, so "the page" marker comment is gone; the notice ends where the next function begins */
+  const notice = code.slice(code.indexOf("function CloudflareNotice("), code.indexOf("function CodeBoxes("));
   ok("Protected by Cloudflare: a status only from the bot check's real state, verified only with a token",
     /const status = state === "checking" \? L\("Checking your browser…"[^\n]*\n\s*: state === "ready" \? L\("Browser verified\."[^\n]*\n\s*: state === "unavailable" \? L\([^\n]*\n\s*: null;/.test(notice)
     && (notice.match(/verified/gi) ?? []).length === 1 + 0 && /<CloudflareNotice lang=\{lang\} state=\{bot\.state\} widget=\{bot\.widgetNode\} \/>/.test(src)
