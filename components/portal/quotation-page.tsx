@@ -19,7 +19,9 @@ import { LineTabs } from "@/components/ui/line-tabs";
 import { SkelRows } from "@/components/ui/skeleton";
 import { CustomerFile } from "@/components/portal/customer-file";
 import { CreateBrief, ProjectActivity, ProjectStatusChip, ProjectWorkspace, QuotationStateChip, fmtDay, type TItem } from "@/components/portal/project-workspace";
-import { btnClass, btnSm, btnSmPrimary } from "@/lib/ui-styles";
+import { btnClass, btnSm, btnSmPrimary, card, inputClass } from "@/lib/ui-styles";
+import { holds } from "@/lib/caps"; // v1.402.0
+import { quoteExpired } from "@/lib/doc-template"; // v1.402.0
 import pw from "./project-workspace.module.css";
 import { DocSigningCard } from "@/components/portal/signing-panel";
 
@@ -133,11 +135,12 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
           <div className={pw.fact}><span className={pw.factLabel}>{L("Client", "Pelanggan")}</span><span className={pw.factValue}>{d.company}</span>{d.contact_person && <span className={pw.factMuted}>{d.contact_person}</span>}</div>
           <div className={pw.fact}><span className={pw.factLabel}>{L("Sales person", "Jurujual")}</span><span className={pw.factValue}>{d.salesperson_name ?? "—"}</span></div>
           <div className={pw.fact}><span className={pw.factLabel}>{L("Total", "Jumlah")}</span><span className={pw.factValue}>{fmtRM(d.total_cents)}</span></div>
-          <div className={pw.fact}><span className={pw.factLabel}>{L("Valid until", "Sah hingga")}</span><span className={pw.factValue}>{fmtDay(d.valid_until)}</span></div>
+          <div className={pw.fact}><span className={pw.factLabel}>{L("Valid until", "Sah hingga")}</span><span className={pw.factValue} data-testid="qt-valid-fact">{d.valid_until ? fmtDay(d.valid_until) : L("14 days (issued before dates were stored)", "14 hari (dikeluarkan sebelum tarikh disimpan)")}</span>{!invoiced && quoteExpired(d.valid_until) && <span className={pw.factMuted} data-testid="qt-expired">{L("Expired", "Tamat tempoh")}</span>}</div>
           <div className={pw.fact}><span className={pw.factLabel}>{L("Package", "Pakej")}</span><span className={pw.factValue}>{pkg ? `${pkg.name} · v${pkg.version}${d.package_customized ? ` · ${L("customised", "disesuaikan")}` : ""}` : L("Custom lines", "Baris khas")}</span></div>
           <div className={pw.fact}><span className={pw.factLabel}>{L("Project", "Projek")}</span><span className={pw.factValue}>{project ? <ProjectStatusChip status={project.status} /> : L("No brief yet", "Belum ada ringkasan")}</span></div>
         </div>
         {st?.accepted_at && <p className={pw.note}>{L(`Accepted by ${st.accepted_name ?? "the client"} on ${fmtDay(st.accepted_at)}.`, `Diterima oleh ${st.accepted_name ?? "pelanggan"} pada ${fmtDay(st.accepted_at)}.`)}</p>}
+        {!invoiced && holds("quote_validity", false) && <ValidityChange docId={docId} current={d.valid_until} onDone={reload} />}
         <DocSigningCard docId={docId} />{/* v1.248.0 - who signs it, and Approve and sign */}
         {st?.invoice && <p className={pw.note}>{L(`Invoiced as ${st.invoice} - this quotation is a sale now.`, `Diinvois sebagai ${st.invoice} - sebut harga ini kini jualan.`)}</p>}
         {billing && invoiced && billing.invoiced_cents < billing.total_cents && (
@@ -190,6 +193,35 @@ export function QuotationPage({ docId, canInvoice, invoicing, onBack, onEdit, on
         {tab === "activity" && <ProjectActivity projectId={project?.id ?? null} extra={extra} />}
       </div>
       {!project && tab === "project" && qs && !qs.can_create && <p className={pw.factMuted}><button type="button" className={btnClass} onClick={onBack}>{L("Back to documents", "Kembali ke dokumen")}</button></p>}
+    </div>
+  );
+}
+
+/* v1.402.0 - the CEO, COO or CCO changes a quotation's validity (POST /staff/docs/:id/validity): a date
+   and a reason, audited. The server refuses everyone else, an invoiced or void quotation, a date before
+   the quotation's own and anything over a year. */
+function ValidityChange({ docId, current, onDone }: { docId: number; current: string | null; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(current?.slice(0, 10) ?? "");
+  const [reason, setReason] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!open) return <p className={pw.note}><button type="button" className={btnSm} onClick={() => setOpen(true)} data-testid="qt-validity-change"><AppIcon name="date" />{L("Change validity", "Tukar tempoh sah")}</button></p>;
+  const save = async () => {
+    setBusy(true); setMsg("");
+    const r = await api<{ error?: { message?: string } }>(`/staff/docs/${docId}/validity`, { method: "POST", body: JSON.stringify({ valid_until: date, reason }) });
+    setBusy(false);
+    if (r.ok) { setOpen(false); setReason(""); onDone(); } else setMsg(r.data?.error?.message ?? L("Not saved", "Tidak disimpan"));
+  };
+  return (
+    <div className={card} data-testid="qt-validity-form">
+      <label className="erp-stack">{L("Valid until", "Sah hingga")}<input type="date" className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} data-testid="qt-validity-date" /></label>
+      <label className="erp-stack erp-mt-3">{L("Why (kept in the audit log)", "Sebab (disimpan dalam log audit)")}<input className={inputClass} value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} data-testid="qt-validity-reason" /></label>
+      {msg && <p role="alert">{msg}</p>}
+      <span className="erp-flex erp-mt-3">
+        <button type="button" className={btnSmPrimary} disabled={busy || !date || reason.trim().length < 5} onClick={() => void save()} data-testid="qt-validity-save">{L("Save", "Simpan")}</button>
+        <button type="button" className={btnSm} onClick={() => setOpen(false)}>{L("Cancel", "Batal")}</button>
+      </span>
     </div>
   );
 }

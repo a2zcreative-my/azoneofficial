@@ -614,3 +614,12 @@ Quotations & Invoices (the CEO 21-11-2026, Sales Command Center Phase 4) adds `0
 column, `opportunity_quotations.origin` (manual, suggestion or created). Not the business.ts door: POST /docs (staff.ts) calls
 `linkCreatedQuotation` (worker/src/deals.ts) after a quotation is saved, and `GET /staff/docs/more` is a pure read of the
 whole document table. Numbering, converting, stock, voids, payments and commission are unchanged.
+Quotation & Invoice policies (the CEO 21-11-2026) adds `0229_document_policy_version`: additive only - one column,
+`sales_documents.policy_version`, stamped 2 on a new quotation, revision and invoice; NULL keeps the wording an older
+document was issued with. Not the business.ts door (staff.ts docs routes). It writes no payment, cash book, journal or
+commission; numbering, converting, stock, voids and payment verification are unchanged.
+The Sales Playbook (the CEO 21-11-2026, Sales Command Center Phase 7) adds `0230_sales_playbook`: additive only - three
+new tables: `playbook_entries` (the working draft, never deleted - archived with a reason), `playbook_versions` (every
+published version, append-only by trigger) and `playbook_files` (private attachments, written once). Not the business.ts
+door (worker/src/playbook.ts at `/staff/playbook/*`). No price column: prices come only from the Packages library, which
+it reads and never writes. Nothing touches a customer, a deal, a document, money or commission.

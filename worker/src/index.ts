@@ -336,7 +336,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0228_quotation_deal_link";
+const LATEST_MIGRATION = "0230_sales_playbook";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -3845,7 +3845,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       d = await env.DB.prepare(
         `SELECT d.doc_type, d.doc_number, d.issuer_code, d.items, d.discount_cents, d.tax_percent, d.delivery_cents,
                 d.total_cents, d.notes, d.valid_until, d.due_date, d.created_at, d.kind, d.reference,
-                d.delivery_address, d.delivery_status, d.payment_status, d.payment_ref, d.paid_at,
+                d.delivery_address, d.delivery_status, d.payment_status, d.payment_ref, d.paid_at, d.policy_version,
                 c.company, c.contact_person, c.email AS customer_email, c.phone AS customer_phone,
                 c.address, c.delivery_address AS customer_delivery_address,
                 sp.name AS salesperson_name, cb.role AS created_by_role
@@ -5898,6 +5898,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0226 (Leads & CRM: lead owner, source, services, status and the contact log)", `SELECT c.owner_id, c.lead_source, c.relationship_status, c.crm_key, c.crm_version, e.kind, st.to_status, a.source_key, q.customer_id, g.customer_id FROM customers c, customer_owner_events e, customer_status_events st, sales_activities a, enquiries q, business_growth_enquiries g LIMIT 0`],
       ["0227 (the Sales Pipeline: deals, their quotations and stage history)", `SELECT o.stage, o.won_basis, o.version, o.client_key, l.doc_id, l.unlinked_at, e.to_stage, e.basis FROM sales_opportunities o, opportunity_quotations l, opportunity_stage_events e LIMIT 0`],
       ["0228 (a quotation made for a deal: how it was linked)", `SELECT origin FROM opportunity_quotations LIMIT 0`],
+      ["0229 (the quotation and invoice policies, by the wording each document was issued with)", `SELECT policy_version FROM sales_documents LIMIT 0`],
+      ["0230 (the Sales Playbook: entries, published versions and files)", `SELECT e.section, e.kind, e.status, e.draft, e.published_version, v.version, v.note, f.r2_key FROM playbook_entries e, playbook_versions v, playbook_files f LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -6150,6 +6152,8 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0226_crm_leads",
       "0227_sales_pipeline",
       "0228_quotation_deal_link",
+      "0229_document_policy_version",
+      "0230_sales_playbook",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {
@@ -6507,6 +6511,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       /* v1.393.0 - a template page opens only through Digital Cards (card_template_view, the archive rule) */
       if (key.startsWith("private/card-templates/")) {
         return errorResponse("forbidden", "Open template pages from Digital Cards", 403);
+      }
+      /* v1.404.0 - a Sales Playbook file opens only through the Playbook (its published version, or a manager) */
+      if (key.startsWith("private/playbook/")) {
+        return errorResponse("forbidden", "Open Playbook files from Sales > Sales Playbook", 403);
       }
       if (key.startsWith("backups/") && !allows(user, "backup_download")) {
         return errorResponse("forbidden", "Backups are super admin only — use the export button in /admin", 403);

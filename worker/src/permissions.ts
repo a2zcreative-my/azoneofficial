@@ -65,6 +65,8 @@ export const PERMS: Record<string, readonly Role[]> = {
       the customer's acceptance or an invoice, or reopen a closed deal - always with a written reason,
       always in the audit trail. Won is never revenue, a payment confirmation or commission. */
   pipeline_override: ["ceo", "coo", "cco"],
+  /* v1.404.0 (Sales Command Center Phase 7, decisions 1 and 2) - write and publish the Sales Playbook; readers need only `sales` */
+  playbook_manage: ["ceo", "coo", "cco"],
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -210,6 +212,9 @@ export const PERMS: Record<string, readonly Role[]> = {
      narrowing does not have to touch every other staff field. NOT coo / cco:
      they read; they set reporting lines (org_assign), not duties. */
   responsibilities_edit: ["super_admin", "admin", "hr_admin", "ceo"],
+  /* v1.402.0 - a quotation's validity other than issue date + 14 days (the CEO, 21-11-2026:
+     "CEO/COO/CCO"). Everyone else gets the fourteen days the Quotation Validity Policy states. */
+  quote_validity: ["ceo", "coo", "cco"],
   /* v1.388.0 (the CEO, 19-11-2026) - keep the responsibility TEMPLATES per position (0215). A person's
      own list stays responsibilities_edit; a template is only a suggestion, copied when used. */
   responsibility_templates: ["super_admin", "ceo", "coo", "cco"],
@@ -643,6 +648,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
   { module: "Sales", key: "pipeline_override", en: "Mark a deal Won without an acceptance or invoice; reopen a closed deal", ms: "Tanda urusan Berjaya tanpa penerimaan atau invois; buka semula urusan ditutup", cap: "pipeline_override", note_en: "A written reason every time; never revenue or commission", note_ms: "Sebab bertulis setiap kali; bukan hasil atau komisen" },
+  { module: "Sales", key: "playbook_manage", en: "Write and publish the Sales Playbook", ms: "Tulis dan terbitkan Buku Panduan Jualan", cap: "playbook_manage", note_en: "Every publish is a kept version with a note; prices only from Packages", note_ms: "Setiap terbitan disimpan sebagai versi bernota; harga hanya dari Pakej" },
   { module: "Sales", key: "crm_assign", en: "Assign and reassign lead owners", ms: "Tetapkan dan tukar pemilik prospek", cap: "crm_assign", note_en: "A reason for every reassignment; history kept", note_ms: "Sebab bagi setiap pertukaran; sejarah disimpan" },
   { module: "Sales", key: "week_target", en: "Set weekly sales targets and goals; review recovery plans", ms: "Tetapkan sasaran dan matlamat jualan mingguan; semak pelan pemulihan", cap: "sales_week_target", note_en: "A reason for every change; history kept", note_ms: "Sebab bagi setiap perubahan; sejarah disimpan" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },
@@ -715,6 +721,7 @@ export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Staff Details", key: "role_assign", en: "Change working roles", ms: "Tukar peranan kerja", cap: "role_assign" },
   { module: "Staff Details", key: "positions_manage", en: "Keep the positions list (add, rename, link to an access level, retire)", ms: "Urus senarai jawatan (tambah, namakan semula, pautkan ke tahap akses, bersarakan)", cap: "positions_manage", note_en: "A position never changes anybody's role", note_ms: "Jawatan tidak sekali-kali menukar peranan sesiapa" },
   { module: "Staff Details", key: "responsibilities", en: "Write roles and responsibilities", ms: "Tulis peranan dan tanggungjawab", cap: "responsibilities_edit" },
+  { module: "Sales", key: "quote_validity", en: "Change a quotation's validity date (other than 14 days)", ms: "Tukar tarikh sah sebut harga (selain 14 hari)", cap: "quote_validity" },
   { module: "Staff Details", key: "responsibility_templates", en: "Keep the responsibility templates for each position", ms: "Urus templat tanggungjawab bagi setiap jawatan", cap: "responsibility_templates", note_en: "A template is copied when used - changing it never changes anybody's list", note_ms: "Templat disalin apabila digunakan - mengubahnya tidak mengubah senarai sesiapa" },
   { module: "Staff Details", key: "portfolio_manage", en: "Build staff portfolios and their cards", ms: "Bina portfolio kakitangan dan kadnya", cap: "portfolio_manage" },
   { module: "Staff Details", key: "portfolio_publish", en: "Publish or unpublish a staff portfolio, and approve its public contact", ms: "Terbit atau tarik balik portfolio kakitangan, dan luluskan hubungan awamnya", cap: "portfolio_publish", note_en: "The public page and its QR exist only once published", note_ms: "Halaman awam dan QR wujud hanya selepas diterbitkan" },

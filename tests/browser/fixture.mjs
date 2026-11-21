@@ -1511,6 +1511,31 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
     { id: 83, doc_type: "QT", doc_number: "QT-AZO030926-83", company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", customer_id: 55, total_cents: 280000, payment_status: null, delivery_status: null, created_at: D + "03 02:00:00", salesperson_name: "Fixture Person", salesperson_id: 9001, kind: "service", revision: 0, valid_until: realDay(3), followup_open: 1, accepted_current: 0 },
     { id: 84, doc_type: "QT", doc_number: "QT-AZO040926-84", company: "Butik Seri Kenanga", customer_id: 56, total_cents: 120000, payment_status: null, delivery_status: null, created_at: D + "04 02:00:00", salesperson_name: "Nur Aisyah", salesperson_id: 9002, kind: "service", revision: 2, valid_until: realDay(20), followup_open: 0, accepted_current: 1 },
   ];
+  /* v1.403.0 - THE FOUR SALES REPORTS (worker/src/sales-reports.ts), invented figures for the fixture's month */
+  const srm = /^\/staff\/sales\/reports\/(team|pipeline|winloss|sources)$/.exec(p);
+  if (srm) {
+    const exec = ["super_admin", "admin", "ceo", "coo", "cco"].includes(ROLE);
+    const per = q.get("period") ?? "month";
+    const range = { week: ["2026-09-14", "2026-09-20"], month: ["2026-09-01", "2026-09-30"], last_month: ["2026-08-01", "2026-08-31"], "3m": ["2026-07-01", "2026-09-18"], year: ["2026-01-01", "2026-09-18"] }[per] ?? ["2026-09-01", "2026-09-30"];
+    const base = { kind: srm[1], period: per, from: range[0], to: range[1], today: "2026-09-18", scope: q.get("scope") === "all" && exec ? "all" : "mine", can_all: exec };
+    if (srm[1] === "team") data = !exec ? { error: { code: "forbidden", message: "Team Performance is for management" } } : { ...base, scope: "all", rows: [
+        { user_id: 9001, name: "Fixture Person", activity: { contacts: 14, followups_done: 9, quotations: 4 }, results: { deals_won: 2, deals_won_cents: 570000, paid_invoices: 1, collected_cents: 280000 } },
+        { user_id: 9002, name: "Nur Aisyah binti Rahman", activity: { contacts: 21, followups_done: 12, quotations: 6 }, results: { deals_won: 1, deals_won_cents: 120000, paid_invoices: 2, collected_cents: 450000 } },
+        { user_id: 9010, name: "Hakim Rosli", activity: { contacts: 6, followups_done: 3, quotations: 2 }, results: { deals_won: 0, deals_won_cents: 0, paid_invoices: 0, collected_cents: 0 } }],
+      total: { activity: { contacts: 41, followups_done: 24, quotations: 12 }, results: { deals_won: 3, deals_won_cents: 690000, paid_invoices: 3, collected_cents: 730000 } } };
+    if (srm[1] === "pipeline") data = { ...base,
+      now: [{ stage: "new", deals: 1, quoted_cents: 0, estimated_cents: 90000 }, { stage: "qualified", deals: 1, quoted_cents: 0, estimated_cents: 360000 }, { stage: "proposal", deals: 1, quoted_cents: 280000, estimated_cents: 0 }, { stage: "negotiation", deals: 1, quoted_cents: 450000, estimated_cents: 0 }],
+      moves: [{ from: "new", to: "qualified", n: 3 }, { from: "qualified", to: "proposal", n: 2 }, { from: "proposal", to: "negotiation", n: 1 }, { from: "negotiation", to: "won", n: 1 }, { from: "qualified", to: "lost", n: 1 }],
+      avg_days: [{ stage: "new", n: 3, days: 2.5 }, { stage: "qualified", n: 3, days: 6 }, { stage: "proposal", n: 1, days: 4 }, { stage: "negotiation", n: 1, days: 3 }],
+      won: { n: 1, cents: 120000 }, lost: { n: 1, cents: 40000 } };
+    if (srm[1] === "winloss") data = { ...base,
+      won: [{ basis: "acceptance", n: 1, cents: 120000 }, { basis: "invoice", n: 0, cents: 0 }, { basis: "override", n: 1, cents: 450000 }],
+      lost: ["price", "timing", "competitor", "no_budget", "no_response", "not_fit", "other"].map((r) => ({ reason: r, n: r === "price" ? 1 : 0, cents: r === "price" ? 40000 : 0 })),
+      rows: [{ id: 75, title: "Hari Raya photoshoot", customer: "Butik Seri Kenanga", owner: "Nur Aisyah binti Rahman", stage: "won", won_basis: "acceptance", override_reason: null, lost_reason: null, lost_note: null, closed_at: "2026-09-14 02:00:00", value_cents: 120000, value_basis: "quotation" },
+        { id: 76, title: "Shop signage", customer: "Kedai Runcit Pak Ali", owner: "Fixture Person", stage: "lost", won_basis: null, override_reason: null, lost_reason: "price", lost_note: "Went with a cheaper printer", closed_at: "2026-09-11 02:00:00", value_cents: 40000, value_basis: "estimate" }] };
+    if (srm[1] === "sources") data = { ...base, rows: [{ source: "website", leads: 5, with_deal: 2, won: 1 }, { source: "referral", leads: 3, with_deal: 2, won: 1 }, { source: "growth_check", leads: 2, with_deal: 1, won: 0 }, { source: "unknown", leads: 1, with_deal: 0, won: 0 }],
+      total: { leads: 11, with_deal: 5, won: 2 } };
+  }
   /* v1.401.0 - COLLECTIONS (worker/src/collections.ts): five unpaid invoices on the fixture's own dates, one per
      age bucket and flag; balances by verified money only, a reported RM 400 waiting beside the first */
   if (p === "/staff/collections") {

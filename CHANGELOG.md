@@ -4,6 +4,37 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Sales Command Center, Phase 7: the Sales Playbook (21-11-2026, the CEO, "As recommended") - MIGRATION 0230
+- **Sales Playbook** is the eighth Sales view, after Reports. Ten sections down the left (a picker on a phone): Quick Guide, Product Knowledge, Sales Scripts, Objection Handling, Training & Role-play, Discovery Questions, Proposal & Follow-up, Closing Techniques, Best Practices, SOP & Templates. Four shortcuts at the top and three short reading panels on the right, as in the CEO's reference picture - none of its sample words are used.
+- **Five kinds of entry**: a guide, a script, an objection (what the customer says, a suggested answer and focus points), a question list and a checklist. Each entry is written in one language its author picks; the screen's labels follow English / Bahasa Melayu.
+- **Staff read only what is published.** The CEO, COO and CCO (new permission "Write and publish the Sales Playbook" - not the super admin) write drafts and publish them with a note of what changed; the other two are notified. Every published version is kept and can be read; an earlier one is brought back into the draft and published again. An entry is never deleted - it is archived with a reason.
+- **No price is ever typed into the Playbook.** Product Knowledge shows the Packages library live (name, company, current price); an entry links packages and shows each one's live price. Any ringgit amount in the text is refused, and a linked package must be active to publish.
+- **SOP & Templates files**: PDF, Word or image, up to 10 MB each and 5 per entry, kept privately with the version they belong to.
+- **A deal opens "Playbook for this stage"**: the entries tagged with its pipeline stage. Read only - it changes nothing on the deal.
+- Search inside the Playbook. Nothing touches a customer, a deal, a document, money or commission.
+- On a phone, the gold action beside the view picker (Create, New deal, Report payment, New entry) is now a 44 px touch target like every other control; the browser test that checks it had stopped finding the button.
+- New guard `playbook` (60 checks, 10 mutations); browser test `tests/browser/sales-playbook.py`. Not deployed.
+
+### Sales Command Center, Phase 6: Reports (21-11-2026, the CEO, "As recommended") - NO MIGRATION
+- **Four new reports** in Sales -> Reports, after the five that were there (Sales Performance, Consultant Performance & Weekly Target, Quotation Ageing, Collected by Month, Commission - all unchanged):
+  - **Team Performance** (CEO, COO, CCO and management view only): for each salesperson, **Activity** - contacts logged, follow-ups completed, quotations issued - in one column group, and **Results** - deals won (and their value), invoices paid in full and their total - in another.
+  - **Pipeline**: open deals by stage as they stand today (quoted and estimated value apart, never added together), how many deals moved between stages in the period, the average days a deal stayed in each stage, and deals won and lost in the period ("not revenue").
+  - **Win / Loss**: how deals were won (the customer's acceptance, an invoice, or a manager's decision) and why they were lost (the seven reasons), with each deal's written reason.
+  - **Lead Sources**: leads that came in during the period by where they came from, how many became deals and how many were won.
+- **Periods**: this week, this month, last month, last 3 months, this year - Malaysian days. **Mine / Everyone** as in the Action Center: Everyone for management only; a salesperson sees their own work.
+- **Every count opens its records** (the Sales Pipeline, a deal, Leads & CRM or Closed Sales), and each report downloads as a **CSV** that states its period, whose work and when it was exported.
+- Money in these reports is only what Sales already counts: invoices paid in full (the weekly figures' own basis). A deal's value is never revenue. The reports only read.
+- New guard `sales-reports` (24 checks, 8 mutations); browser test `tests/browser/sales-reports.py`. Not deployed.
+
+### Quotation & Invoice policies separated (21-11-2026, the CEO's approval on the five decisions) - MIGRATION 0229 (additive)
+- **A quotation now carries the QUOTATION VALIDITY POLICY** (the approved words, word for word): valid for fourteen (14) calendar days from issue; acceptance after expiry needs price, scope and availability confirmation; changes may need a revised quotation. It no longer prints any payment or refund wording.
+- **An invoice now carries the PAYMENT & REFUND POLICY** (the two approved paragraphs), directly above PAYMENT, with its due date in the header. An invoice billed as a stage of a quotation (deposit, progress billing, balance) prints "Payment stage: ..." from its existing reference - no new figures.
+- **Valid Until is a real date.** A new quotation stores its date + 14 days (a revision: the revision's date + 14). The header shows that date; a quotation past it shows a red **EXPIRED** chip on the paper and the PDF, and "Expired" on the quotation page. Expired quotations still cannot be invoiced or accepted online (unchanged rule, now applied to every new quotation).
+- **Only the CEO, COO or CCO may choose another validity** - in the Create form, or later with **Change validity** on the quotation page (a reason is required; audited as `doc.validity` with from / to / reason). Never before the quotation's date, never over a year after. New matrix cell `quote_validity` (Sales).
+- **Older documents keep the wording they were issued and accepted with** (Payment & No Refund Policy) - chosen by the new `sales_documents.policy_version` column; nothing old is rewritten. Older quotations with no stored date stay as they were.
+- Delivery orders carry no policy. The PDF design is unchanged and every quotation and invoice still fits one A4 page (checked at the most lines the page allows, printed in Chromium and drawn as PDF).
+- Guards: `payment-policy` rewritten (renders the HTML and PDF; 15 checks, 9 mutations); new `document-policies` (19 checks on the real worker). `go-live-b` and `go-live-h` no longer let a salesperson send their own validity date. Payment verification, Mark Paid, finance, commission and numbering are unchanged. Not deployed.
+
 ### Sales Command Center, Phase 5: Collections (21-11-2026, the CEO, "As recommended") - NO MIGRATION
 - **New tab: Sales -> Payments -> Collections.** Every unpaid invoice, with what is still owed counted from **verified money only**. A payment that has been reported but not yet verified shows beside it as "waiting for the CEO" and is never counted as paid.
 - Each invoice shows its **age** (0–30, 31–60, 61–90, 90+ days, and "past due" when its due date has passed), its **collector** (the invoice's salesperson - never changed here) and its **next collection action**, in words as well as colour: red "Overdue", amber "No collection follow-up", blue "Due today".

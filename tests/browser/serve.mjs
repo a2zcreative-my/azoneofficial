@@ -23,6 +23,7 @@ import { partnerRoute, partnerState, resetPartners } from "./partner-fixture.mjs
 import { growthRoute, growthState, resetGrowth } from "./growth-fixture.mjs"; // v1.369.0 - the Business Growth Check
 import { emailMoveRoute, resetEmailMove } from "./email-move-fixture.mjs"; // v1.376.0 - staff email move (EMAILMOVE=1)
 import { shiftRoute, shiftState, resetShifts } from "./shift-fixture.mjs"; // v1.373.0 - Shift Templates bulk assignment (SHIFTS=1)
+import { playbookRoute, resetPlaybook } from "./playbook-fixture.mjs"; // v1.404.0 - the Sales Playbook
 
 /* v1.247.0 - the task email settings as the worker answers them by default (task-mail.ts DEFAULT_SETTINGS) */
 const MAIL_SETTINGS = { enabled: true, triggers: { assigned: true, moved: true, update: true, mention: true, review: true, decision: true, due: true, overdue: true, escalation: true, reminder: true, digest: false, test: true }, lead_hours: 24, escalation_days: 2, overdue_days: [1, 3, 7], digest_on: false, digest_time: "08:30", quiet_from: "21:00", quiet_to: "08:00", cap_per_day: 8 };
@@ -150,6 +151,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/__projects") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ made: projectMade, posts: projectPosts })); return; }
   if (url.pathname === "/__reset") { // v1.243.0 - a probe starts from a clean fixture
     resetFa(); // v1.284.0
+    resetPlaybook(); // v1.404.0
     signedIn = !process.env.LOGIN_FIRST; // v1.264.0 - signed out again for a LOGIN_FIRST probe
     pay = payInit(); // v1.272.0
     posState = posInit(); // v1.322.0
@@ -225,6 +227,8 @@ const server = http.createServer((req, res) => {
       /* v1.351.0 - the public partner application and Agents -> Requests -> Partner Applications (partner-fixture.mjs) */
       {
         let pb = null; try { pb = body ? JSON.parse(body) : null; } catch { pb = null; }
+        const pbr = playbookRoute(req.method, p, pb); // v1.404.0
+        if (pbr) { res.writeHead(pbr.status, { "content-type": "application/json" }); res.end(JSON.stringify(pbr.data)); return; }
         const er = emailMoveRoute(req.method, p, pb); // v1.376.0
         if (er) { res.writeHead(er.status, { "content-type": "application/json" }); res.end(JSON.stringify(er.data)); return; }
         const sr = shiftRoute(req.method, p, pb); // v1.373.0

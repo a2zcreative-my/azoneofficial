@@ -20,6 +20,8 @@ import { handleSalesToday } from "./sales-today"; // v1.397.0 - Sales Command Ce
 import { handleCrm } from "./crm"; // v1.398.0 - Sales Command Center, Phase 2 (Leads & CRM)
 import { handlePipeline, linkCreatedQuotation } from "./deals";
 import { handleCollections } from "./collections"; // v1.401.0 - Sales Command Center, Phase 5 (Collections) // v1.399.0 - Sales Command Center, Phase 3 (the Sales Pipeline)
+import { handleSalesReports } from "./sales-reports"; // v1.403.0 - Sales Command Center, Phase 6 (Reports)
+import { handlePlaybook } from "./playbook"; // v1.404.0 - Sales Command Center, Phase 7 (the Sales Playbook, 0230)
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
@@ -2527,6 +2529,32 @@ function issuerName(code?: string | null): string {
   return code === "a2z" ? "A2Z CREATIVE MARKETING" : "AZ ONE OFFICIAL";
 }
 
+/* v1.402.0 - a document issued from this release carries the separated policies (doc-template policyFor):
+   the quotation the Quotation Validity Policy, the invoice the Payment & Refund Policy. A document from
+   before keeps policy_version NULL and so the Payment & No Refund wording it was issued with. A database
+   without 0229 just leaves the stamp off - the document is still created. */
+async function stampPolicy(env: Env, id: number | null | undefined): Promise<void> {
+  if (!id) return;
+  try { await env.DB.prepare(`UPDATE sales_documents SET policy_version = 2 WHERE id = ?1`).bind(id).run(); }
+  catch (e) { if (!String(e).includes("no such column")) throw e; }
+}
+/** issue date + days, as YYYY-MM-DD (calendar days, Malaysia's date) */
+const addDaysIso = (iso: string, days: number) => {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+/** v1.402.0 - a quotation's validity: issue date + 14 calendar days, unless the CEO, COO or CCO
+    (quote_validity) chose another date - never before the issue date, at most a year after it */
+function quoteValidityFor(user: StaffUser, issueIso: string, asked: unknown): string | Response {
+  const dflt = addDaysIso(issueIso, 14);
+  if (typeof asked !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(asked) || asked === dflt) return dflt;
+  if (!canUser(user, "quote_validity")) return err("forbidden", "Only the CEO, COO or CCO may change a quotation's validity - it is 14 days from the quotation date.", 403);
+  if (asked < issueIso.slice(0, 10)) return err("invalid_input", "The validity date cannot be before the quotation date.", 400);
+  if (asked > addDaysIso(issueIso, 365)) return err("invalid_input", "A quotation can be valid for at most one year.", 400);
+  return asked;
+}
+
 async function stampIssuer(
   env: Env,
   table: "sales_documents" | "receipts" | "credit_notes" | "claims" | "leave_requests",
@@ -3117,7 +3145,7 @@ async function handleStaffRoutes(
   /* v1.248.0: a personal signature or company stamp upload is a raw PNG body */
   const isSigningUpload = path === "/signing/assets";
   const body =
-    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && !/^\/portfolios\/\d+\/(portrait|items\/\d+\/media)$/.test(path) && path !== "/leave/attachment" && !/^\/card-templates\/\d+\/pages\/\d+\/file$/.test(path) // v1.393.0 - a template page is a raw image body; v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
+    ["POST", "PUT", "PATCH"].includes(method) && !isSigningUpload && !path.endsWith("/photo") && !isClaimsReceipt && !isSignatureUpload && !isCutoutUpload && !isCatalogUpload && !isSpEvidence && !path.endsWith("/payment-proof") && !path.endsWith("/documents") && !path.endsWith("/m2e-template") && !/^\/announcements\/\d+\/files$/.test(path) && !/^\/projects\/\d+\/files$/.test(path) && !/^\/tasks\/\d+\/files$/.test(path) && !/^\/agent\/requests\/\d+\/files$/.test(path) && !/^\/payment-reports\/\d+\/proof$/.test(path) && !/^\/expenses\/\d+\/evidence$/.test(path) && !/^\/live-reports\/\d+\/files$/.test(path) && !/^\/portfolios\/\d+\/(portrait|items\/\d+\/media)$/.test(path) && path !== "/leave/attachment" && !/^\/card-templates\/\d+\/pages\/\d+\/file$/.test(path) && !/^\/playbook\/\d+\/files$/.test(path) // v1.404.0 - a Playbook file is a raw body; v1.393.0 - a template page is a raw image body; v1.312.0 - an expense's evidence is a raw body; v1.309.0 - a leave attachment is a raw body; v1.272.0 - a payment proof is a raw body; v1.245.0 / v1.246.0 - a project or task file is a raw body; v1.250.0 - an agent request file too
       ? ((await request.json().catch(() => null)) as Record<string, unknown> | null)
       : null;
 
@@ -3298,6 +3326,17 @@ async function handleStaffRoutes(
 
   /* ---- v1.399.0 Sales Command Center, Phase 3 (deals.ts): the Sales Pipeline at /staff/deals (the old prospects /pipeline
      stays retired) - deals apart from the money, Won only on an acceptance, an invoice or a reasoned override (migration 0227) ---- */
+  /* ---- v1.404.0 Sales Command Center, Phase 7 (playbook.ts, 0230): the Sales Playbook - published versions for Sales,
+     drafts and publishing for the CEO, COO and CCO; no price is ever typed in ---- */
+  if (path === "/playbook" || path.startsWith("/playbook/")) {
+    const pb = await handlePlaybook(env, path, method, body, user, request);
+    if (pb) return pb;
+  }
+  /* ---- v1.403.0 Sales Command Center, Phase 6 (sales-reports.ts): four read-only reports ---- */
+  if (path.startsWith("/sales/reports/")) {
+    const sr = await handleSalesReports(env, path, method, user, new URL(request.url).searchParams);
+    if (sr) return sr;
+  }
   /* ---- v1.401.0 Sales Command Center, Phase 5 (collections.ts): the unpaid invoices to collect - a pure read beside Payments ---- */
   if (path === "/collections" || path.startsWith("/collections/")) {
     const co = await handleCollections(env, path, method, user, new URL(request.url).searchParams);
@@ -12043,14 +12082,17 @@ async function handleStaffRoutes(
       const short = await stockShortages(env, JSON.stringify(items));
       if (short.length) return err("stock_short", shortMessage(short), 400);
     }
-    const pkgD = await packageForDoc(env, body, { docType, kind: kindD, issuer: body.issuer === "azoo" ? "azoo" : "a2z", items, discount_cents: discount });
-    if (pkgD instanceof Response) return pkgD;
-    const number = await docNumber(env, docType);
     // v1.4.94: backdating — payments received before this system existed can
     // be invoiced on their true date. Past dates only, never the future.
     const todayMyt = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const docDate = typeof body.doc_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.doc_date) && body.doc_date <= todayMyt
       ? body.doc_date : null;
+    /* v1.402.0 - validity stored: date + 14, or the CEO/COO/CCO's date */
+    const validQ = docType === "QT" ? quoteValidityFor(user, docDate ?? todayMyt, body.valid_until) : null;
+    if (validQ instanceof Response) return validQ;
+    const pkgD = await packageForDoc(env, body, { docType, kind: kindD, issuer: body.issuer === "azoo" ? "azoo" : "a2z", items, discount_cents: discount });
+    if (pkgD instanceof Response) return pkgD;
+    const number = await docNumber(env, docType);
     // v1.4.243: buyer's own PO reference + ship-to address (migration 0062).
     const referenceD = str(body.reference, 60) ? String(body.reference).slice(0, 60) : null;
     const shipToD = docType !== "DO" && kindD === "service" ? null
@@ -12063,7 +12105,7 @@ async function handleStaffRoutes(
     const insertArgs = [
         docType, number, customerId, JSON.stringify(items), discount, taxPct, deliveryFee, total,
         str(body.notes, 2000) ? body.notes : null,
-        docType === "QT" && str(body.valid_until, 10) ? body.valid_until : null,
+        validQ, // v1.402.0 - issue date + 14 (or the approved override); null on an invoice / DO
         docType === "DO" ? "pending" : null,
         docType === "INV" ? "unpaid" : null,
         docType === "INV" && str(body.due_date, 10) ? body.due_date : null,
@@ -12097,6 +12139,10 @@ async function handleStaffRoutes(
        stale client or a typo can never mint a third entity. */
     const issuerD: "a2z" | "azoo" = body.issuer === "azoo" ? "azoo" : "a2z";
     await stampIssuer(env, "sales_documents", res?.id, issuerD);
+    await stampPolicy(env, res?.id); // v1.402.0
+    if (validQ && validQ !== addDaysIso(docDate ?? todayMyt, 14)) {
+      await audit(env, user.id, "doc.validity", "sales_documents", String(res?.id), { from: addDaysIso(docDate ?? todayMyt, 14), to: validQ, at: "create" });
+    }
     if (pkgD) await stampPackage(env, res?.id, pkgD); // v1.231.0
     // v1.4.91: payment already in hand — the invoice is born paid (bank
     // transfer) and counts in revenue immediately.
@@ -12420,6 +12466,7 @@ async function handleStaffRoutes(
       else if (m.includes("no such column")) resC = await env.DB.prepare(convertSql(false)).bind(...convertArgs).first<{ id: number }>(); // pre-0157
       else throw e;
     }
+    if (resC?.id) await stampPolicy(env, resC.id); // v1.402.0 - an invoice raised from now carries the Payment & Refund Policy
     if (!resC?.id) {
       const won = await liveInv();
       if (splitQ) return err("over_quotation", `Another invoice of ${String(qt.doc_number)} was raised a moment ago and together they would pass its total. Nothing was created - reload and check what is left.`, 409);
@@ -12614,6 +12661,33 @@ async function handleStaffRoutes(
       throw e;
     }
   }
+  /* v1.402.0 - CHANGE A QUOTATION'S VALIDITY (the CEO, 21-11-2026: the CEO, COO or CCO only). The date is
+     stored on the quotation, so the paper, the customer's link, the acceptance and invoicing all follow it.
+     Never before the quotation's own date, at most a year after it; audited from -> to with the reason.
+     Not on an invoiced or void quotation - that offer is closed. */
+  const docValid = path.match(/^\/docs\/(\d+)\/validity$/);
+  if (docValid && method === "POST") {
+    if (!canUser(user, "quote_validity")) return err("forbidden", "Only the CEO, COO or CCO may change a quotation's validity.", 403);
+    const q = await env.DB.prepare(`SELECT id, doc_type, doc_number, created_at, valid_until, COALESCE(revision, 0) AS revision, revised_at, voided_at FROM sales_documents WHERE id = ?1`)
+      .bind(Number(docValid[1])).first<{ id: number; doc_type: string; doc_number: string; created_at: string; valid_until: string | null; revision: number; revised_at: string | null; voided_at: string | null }>()
+      .catch(async () => env.DB.prepare(`SELECT id, doc_type, doc_number, created_at, valid_until, COALESCE(revision, 0) AS revision, revised_at, NULL AS voided_at FROM sales_documents WHERE id = ?1`)
+        .bind(Number(docValid[1])).first<{ id: number; doc_type: string; doc_number: string; created_at: string; valid_until: string | null; revision: number; revised_at: string | null; voided_at: string | null }>());
+    if (!q || q.doc_type !== "QT") return err("not_found", "Quotation not found", 404);
+    if (q.voided_at) return err("invalid_state", "This quotation is void.", 409);
+    const inv = await env.DB.prepare(`SELECT doc_number FROM sales_documents WHERE converted_from = ?1 AND doc_type = 'INV' AND COALESCE(payment_status, '') != 'void' LIMIT 1`).bind(q.id).first<{ doc_number: string }>();
+    if (inv) return err("invalid_state", `${q.doc_number} is already invoiced as ${inv.doc_number} - its validity no longer applies.`, 409);
+    const issued = (q.revision > 0 && q.revised_at ? q.revised_at : q.created_at).slice(0, 10);
+    const to = typeof body?.valid_until === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.valid_until) ? body.valid_until : null;
+    if (!to) return err("invalid_input", "Choose the new validity date.", 400);
+    if (to < issued) return err("invalid_input", `The validity date cannot be before the quotation date (${issued}).`, 400);
+    if (to > addDaysIso(issued, 365)) return err("invalid_input", "A quotation can be valid for at most one year.", 400);
+    const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (reason.length < 5) return err("invalid_input", "Say why the validity is changed (5 characters or more).", 400);
+    await env.DB.prepare(`UPDATE sales_documents SET valid_until = ?2 WHERE id = ?1`).bind(q.id, to).run();
+    await audit(env, user.id, "doc.validity", "sales_documents", String(q.id), { from: q.valid_until, to, reason, revision: q.revision });
+    return json({ ok: true, valid_until: to });
+  }
+
   const docEdit = path.match(/^\/docs\/(\d+)\/edit$/);
   if (docEdit && method === "POST") {
     // v1.4.94: fix typos on an existing document — items, amounts, customer,
@@ -12910,6 +12984,12 @@ async function handleStaffRoutes(
       ).bind(Number(idE), revNow, JSON.stringify(snap), Number(cur.total_cents ?? 0), user.id).run();
       reviseFrom = { revision: revNow, total_cents: Number(cur.total_cents ?? 0) };
     }
+    /* v1.402.0 - correcting a quotation's DATE (not a revision) moves its validity with it, but only
+       while that validity is still the automatic fourteen days - a date the CEO / COO / CCO chose stays */
+    const validMove = docE.doc_type === "QT" && !reviseFrom && dateE
+      ? await env.DB.prepare(`SELECT created_at, valid_until, COALESCE(revision, 0) AS revision FROM sales_documents WHERE id = ?1`).bind(idE)
+          .first<{ created_at: string; valid_until: string | null; revision: number }>().catch(() => null)
+      : null;
     const baseSet = `items = ?1, discount_cents = ?2, tax_percent = ?3, delivery_cents = ?4, total_cents = ?5,
          customer_id = COALESCE(?6, customer_id), salesperson_id = COALESCE(?7, salesperson_id),
          created_at = COALESCE(?8, created_at)`;
@@ -12928,7 +13008,11 @@ async function handleStaffRoutes(
              the revision's date, and 07:30 on the 21st is the 21st here */
           env.DB.prepare(`UPDATE sales_documents SET revision = ?2, revised_at = datetime('now', '+8 hours') WHERE id = ?1`)
             .bind(idE, reviseFrom.revision + 1),
+          /* v1.402.0 - a revision is a new offer: fourteen days from its own date */
+          env.DB.prepare(`UPDATE sales_documents SET valid_until = ?2 WHERE id = ?1`)
+            .bind(idE, addDaysIso(new Date(Date.now() + 8 * 3600 * 1000).toISOString(), 14)),
         ]);
+        await stampPolicy(env, Number(idE)); // v1.402.0 - the revised paper carries the Quotation Validity Policy
       } else {
         const ran = await upd.run();
         if (lockGuard && !ran.meta.changes) {
@@ -12947,6 +13031,13 @@ async function handleStaffRoutes(
           throw e2;
         }
       } else throw e;
+    }
+    if (validMove && validMove.revision === 0 && validMove.valid_until && validMove.valid_until.slice(0, 10) === addDaysIso(validMove.created_at, 14)) {
+      const to = addDaysIso(String(dateE), 14);
+      if (to !== validMove.valid_until.slice(0, 10)) {
+        await env.DB.prepare(`UPDATE sales_documents SET valid_until = ?2 WHERE id = ?1`).bind(idE, to).run();
+        await audit(env, user.id, "doc.validity", "sales_documents", idE, { from: validMove.valid_until, to, at: "date_corrected" });
+      }
     }
     if (pkgE !== undefined) await stampPackage(env, Number(idE), pkgE); // v1.231.0
     /* v1.4.265 (the gap flagged in v1.4.263): editing a product invoice's

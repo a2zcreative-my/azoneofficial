@@ -117,6 +117,13 @@
 .action:hover {
   filter: brightness(0.96);
 }
+/* v1.404.0 - on a phone the gold action is a 44 px touch target like every other control (the house contract);
+   tests/browser/sales4.py had stopped finding it, so its 40 px went unseen */
+@media (max-width: 767px) {
+  .action {
+    min-height: 2.75rem;
+  }
+}
 .action:disabled {
   opacity: 0.6;
   cursor: default;

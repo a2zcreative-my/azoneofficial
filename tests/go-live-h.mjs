@@ -233,7 +233,7 @@ async function runtime(workerBundle) {
     ok((await call(`/staff/agent/requests/${rid}/prefill`, AG)).status === 404, "T9 the agent has no Sales handoff");
     const pf = await call(`/staff/agent/requests/${rid}/prefill`, U.aina);
     ok(pf.j?.prefill?.reference === "AGR-0001" && pf.j.prefill.items?.[0]?.qty === 10 && pf.j.prefill.issuer === "azoo" && pf.j.prefill.salesperson_id === U.aina, "T9 Create Quotation is prefilled from the request (reference, package lines, company, salesperson)", pf.text.slice(0, 200));
-    const qt = await call(`/staff/docs`, U.aina, "POST", { doc_type: "QT", issuer: "azoo", kind: "service", customer_id: 1, items: pf.j.prefill.items, reference: "AGR-0001", valid_until: "2026-11-30", salesperson_id: U.aina });
+    const qt = await call(`/staff/docs`, U.aina, "POST", { doc_type: "QT", issuer: "azoo", kind: "service", customer_id: 1, items: pf.j.prefill.items, reference: "AGR-0001", salesperson_id: U.aina }); // v1.402.0 - the server stores date + 14
     const qid = qt.j?.id;
     ok(qt.status === 201 && db.prepare(`SELECT quotation_id, status FROM agent_requests WHERE id = ?`).get(rid)?.quotation_id === qid && db.prepare(`SELECT status FROM agent_requests WHERE id = ?`).get(rid).status === "preparing", "T10 the quotation made with the existing Sales API joins the request (Preparing)", qt.text.slice(0, 160));
     const al = await call(`/staff/agent/requests`, AG);

@@ -14,9 +14,12 @@ import { CustomerFilterBar, DocsMore, LEAD_FILTER, ReportPicker, RowMenu, SalesV
 import { useCachedApi } from "@/lib/cached-api";
 import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-views"; // v1.292.0
 import { SalesPipeline } from "@/components/portal/sales-pipeline"; // v1.399.0 - Sales Command Center, Phase 3
+import { SalesPlaybook } from "@/components/portal/sales-playbook"; // v1.404.0 - Sales Command Center, Phase 7
+import type { PbStage } from "@/lib/playbook";
 import { CustomerPicker, DealPicker, QuoteStateChips } from "@/components/portal/doc-pickers"; // v1.400.0 - Sales Command Center, Phase 4
 import { matchesQuoteFilter, quoteState, type QuoteFilter } from "@/lib/quote-state"; // v1.400.0
 import { bankTransferLine } from "@/lib/collection-text"; // v1.401.0
+import { crmReportDefs } from "@/components/portal/sales-reports"; // v1.403.0 - Sales Command Center, Phase 6
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import type { Opportunity } from "@/components/portal/sales-discipline";
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
@@ -37,7 +40,7 @@ import { issueBeforeSend } from "@/components/portal/signing-panel"; // v1.248.0
 import { docSubtotal } from "@/lib/doc-totals"; // v1.231.0
 import { PackagePicker, PackagesPanel } from "@/components/portal/packages-panel"; // v1.231.0 - sales packages
 import type { PackageRef, PackageRow } from "@/lib/packages";
-import { DocFull, DocItem, buildDocHtml, docFileName, docPageFit, docRevisionLabel } from "@/lib/doc-template";
+import { DocFull, DocItem, POLICY_VERSION, buildDocHtml, docFileName, docPageFit, docRevisionLabel } from "@/lib/doc-template";
 import { esc } from "@/lib/escape-html";
 import { dmy, fmtRM, mytDateOf, mytToday, ym } from "@/lib/format";
 import { DOCUMENT_ISSUER, resolveIssuer } from "@/lib/issuers";
@@ -583,6 +586,12 @@ export function stockToastLine(
   return parts.length ? ` — ${parts.join(" · ")}` : "";
 }
 
+/** v1.402.0 - a quotation's validity: the date + `days`, unless the CEO / COO / CCO chose one */
+function addDays(iso: string, days: number, chosen?: string | null): string {
+  if (chosen) return chosen;
+  const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 /* ======================================================================
    THE LIVE PREVIEW — v1.120.0. The REAL document, drawn by the template
    that prints (lib/doc-template.ts buildDocHtml), from the form's state as
@@ -591,7 +600,7 @@ export function stockToastLine(
    phone keeps its one column. Scaled to the box it is given (A4 at 96dpi is
    794px wide), so nothing scrolls sideways. Module scope (house rule #30).
    ====================================================================== */
-export function DocPreview({ doc, docDate, customers, staffList, user, docNumber, revision = 0, revisedAt = null, dueDate = null }: {
+export function DocPreview({ doc, docDate, customers, staffList, user, docNumber, revision = 0, revisedAt = null, dueDate = null, validUntil = null, policyVersion = POLICY_VERSION }: {
   doc: { doc_type: string; customer_id: number; salesperson_id: number; kind: string; items: DocItem[]; discount_cents: number; tax_percent: number; delivery_cents: number; paid_received: boolean; reference: string; delivery_address: string; issuer: string };
   docDate: string;
   customers: Customer[];
@@ -604,6 +613,9 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
   /** v1.181.16 - the due date credit terms give a new invoice, so the
       preview prints what the invoice will */
   dueDate?: string | null;
+  /** v1.402.0 - the quotation's stored validity, and the policy the saved document will carry */
+  validUntil?: string | null;
+  policyVersion?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -668,6 +680,8 @@ export function DocPreview({ doc, docDate, customers, staffList, user, docNumber
     sign: plan?.mode === "personal" ? plan : null,
     issuer_code: doc.issuer,
     ...(dueDate ? { due_date: dueDate } : {}),
+    valid_until: doc.doc_type === "QT" ? validUntil ?? undefined : undefined,
+    policy_version: policyVersion,
   };
   const html = buildDocHtml(full, false);
   const sheet = (
@@ -715,6 +729,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const [payStart, setPayStart] = useState<{ tab: "collections"; seq: number } | null>(null);
   const toCollections = () => { setPayStart((p) => ({ tab: "collections", seq: (p?.seq ?? 0) + 1 })); setWsView("payments"); };
   const openDeal = (id: number) => { setWsView("pipeline"); setDealOpen(id); };
+  /* v1.404.0 (Phase 7) - the Sales Playbook: a deal's stage (decision 5), a bell's entry, the managers' New entry */
+  const [pbStage, setPbStage] = useState<PbStage | null>(null);
+  const [pbOpen, setPbOpen] = useState<number | null>(null);
+  const [pbNew, setPbNew] = useState(0);
+  const pbManage = holds("playbook_manage", ["ceo", "coo", "cco"].includes(user.role));
   /* v1.369.0 - the Business Growth Check: the website Enquiries people (enquiry_manage), never an agent or a customer; the server checks again */
   /* v1.398.0 - who may make a customer (the POST /customers rule): Convert to lead is drawn only for them */
   const canSales = holds("sales", ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role));
@@ -919,6 +938,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   // (its number never changes); doc_date/paid_date allow true past dates for
   // payments received before this system existed.
   const [docDate, setDocDate] = useState("");
+  /* v1.402.0 - a NEW quotation's validity: issue date + 14 days; the CEO, COO or CCO may choose another date */
+  const [validUntil, setValidUntil] = useState("");
+  const canValidity = holds("quote_validity", ["ceo", "coo", "cco"].includes(user.role));
   const [paidDate, setPaidDate] = useState("");
   const [editingDoc, setEditingDoc] = useState<{
     id: number;
@@ -929,6 +951,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     /** the revision the document is at now; 0 = the original */
     revision?: number;
     revised_at?: string | null;
+    /* v1.402.0 - what the saved document carries, so the preview draws the same paper */
+    policy_version?: number | null;
+    valid_until?: string | null;
   } | null>(null);
   const [invItems, setInvItems] = useState<
     { name: string; sku: string; unit_price_cents?: number }[]
@@ -993,6 +1018,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     } else if (f.kind === "deal") {
       /* v1.399.0 - a Sales Pipeline bell (deal:<id>) opens the deal */
       setWsView("pipeline"); setDealOpen(f.id);
+    } else if (f.kind === "playbook") {
+      /* v1.404.0 - a Sales Playbook bell (playbook:<id>:v<n>) opens the entry */
+      setWsView("playbook"); setPbStage(null); setPbOpen(f.id);
     } else if (f.kind === "growth") {
       /* v1.369.0 - a Business Growth Check bell or Desk row: Customers & Follow-ups, that enquiry selected */
       setWsView("customers"); setCustFilter("growth"); setGrowthOpen(f.id);
@@ -1237,9 +1265,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     });
     /* a revision is dated today, and the date box shows it (locked) */
     setDocDate(revise ? mytToday() : full.created_at.slice(0, 10));
+    const keptValid = (full as { valid_until?: string | null }).valid_until ?? null; // v1.402.0 - the stored validity, kept on the form
     setEditingDoc({
       id: d.id, doc_number: d.doc_number, revise,
       revision: Number(full.revision ?? 0), revised_at: full.revised_at ?? null,
+      policy_version: full.policy_version ?? null, valid_until: keptValid,
     });
     setWorkTab("create");
     jump("sales-work");
@@ -1270,6 +1300,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       issuer: "a2z",
     });
     setDocDate("");
+    setValidUntil(""); // v1.402.0
     setPaidDate("");
     setEditingDoc(null);
     setPkgRef(null);
@@ -1558,6 +1589,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       /* v1.181.16 - a NEW invoice for a client with credit terms carries its
          due date; no terms, no due date, exactly as before */
       due_date: !editingDoc && termsDue ? termsDue.on : undefined,
+      /* v1.402.0 - only the CEO / COO / CCO's own date is sent; otherwise the server stores date + 14 */
+      ...(doc.doc_type === "QT" && !editingDoc && canValidity && validUntil ? { valid_until: validUntil } : {}),
       /* v1.231.0 - a quotation names the package it was filled from (or
          none); other documents leave the link as it is */
       ...(doc.doc_type === "QT" ? { package_id: pkgRef?.id ?? null, package_version: pkgRef?.version ?? null } : {}),
@@ -1947,7 +1980,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
 
   const reportDefs = salesReportDefs({ sDocs, partPaid, monthKey, today, sm, scope, setScope, pv, loaded, paidThisMonth, lastPaid, unpaidInv, overdueInv, openQt, monthQt, monthInv, dueFollow, sFollowups,
-    companyView, weekDash, extra: reports, openDocById, setWsView, setCustFilter, openDocs: (t, status) => { setWorkTab("documents"); setDocType(t); setDocStatus(status); setDocPage(1); jump("sales-work"); },
+    /* v1.403.0 (Phase 6) - Team Performance, Pipeline, Win / Loss and Lead Sources join the picker, after the five */
+    companyView, weekDash, extra: [...(reports ?? []), ...crmReportDefs({ toPipeline: () => setWsView("pipeline"), toDeal: (id) => { setWsView("pipeline"); setDealOpen(id); }, toLeads: () => { setCustFilter("all_leads"); setWsView("customers"); }, toClosed: () => setWsView("closed") },
+      holds("exec_view", ["super_admin", "admin", "ceo", "coo", "cco"].includes(user.role)))], openDocById, setWsView, setCustFilter, openDocs: (t, status) => { setWorkTab("documents"); setDocType(t); setDocStatus(status); setDocPage(1); jump("sales-work"); },
     openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
 
   /* the Leads & CRM sub-tab row: one element, drawn on top for a view with no figure strip and under the strip for one with it (21-11-2026) */
@@ -1973,6 +2008,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           <TabAction icon="add" onClick={() => setDealNew((x) => x + 1)}>{L("New deal", "Urusan baharu")}</TabAction>
         ) : wsView === "customers" ? (
           <TabAction icon="add" onClick={() => { setCustFilter("all"); setCustTab("add"); jump("sales-customers"); }}>{L("Add customer", "Tambah pelanggan")}</TabAction>
+        ) : wsView === "playbook" ? (
+          /* v1.404.0 - on the Sales Playbook the gold action is New entry, for the CEO, COO and CCO only */
+          pbManage ? <TabAction icon="add" onClick={() => setPbNew((x) => x + 1)}>{L("New entry", "Catatan baharu")}</TabAction> : null
         ) : wsView === "closed" || wsView === "reports" ? null : (
           <TabAction icon="add" onClick={() => { setWorkTab("create"); jump("sales-work"); }}>
             <span className="erp-desktop-only">{L("Create document", "Buat dokumen")}</span><span className="erp-phone-only">{L("Create", "Cipta")}</span>
@@ -2008,6 +2046,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       {/* v1.399.0 - THE SALES PIPELINE (sales-pipeline.tsx, worker/src/deals.ts): deals by stage, apart from the money */}
       {wsView === "pipeline" && (
         <SalesPipeline open={dealOpen} onOpen={setDealOpen} onOpenLead={openLead} newTick={dealNew}
+          onPlaybook={(st) => { setPbStage(st); setPbOpen(null); setWsView("playbook"); }}
           onQuote={(x) => {
             if (!customers.some((c) => c.id === x.customer_id)) setCustomers((cs) => [...cs, { id: x.customer_id, company: x.customer, contact_person: null, phone: null, email: null }]);
             setDoc((d) => ({ ...d, doc_type: "QT", customer_id: x.customer_id, salesperson_id: x.owner_id && staffList.some((u) => u.id === x.owner_id) ? x.owner_id : d.salesperson_id }));
@@ -2017,6 +2056,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       )}
       {/* v1.292.0 - ONE report at a time; only the chosen one is mounted */}
       {wsView === "reports" && <ReportPicker reports={reportDefs} />}
+      {/* v1.404.0 - THE SALES PLAYBOOK (sales-playbook.tsx, worker/src/playbook.ts): published versions for everyone in Sales */}
+      {wsView === "playbook" && <SalesPlaybook stage={pbStage} onStage={setPbStage} open={pbOpen} onOpened={() => setPbOpen(null)} newTick={pbNew} />}
       {/* v1.272.0 - Payments: reported with proof, verified by the CEO (payments-panel.tsx) */}
       {wsView === "payments" && <PaymentsPanel userId={user.id} onChanged={() => void load()} recordInvoiceId={recordInv} onRecordOpened={() => setRecordInv(null)} viewInvoiceId={viewInv} onViewOpened={clearViewInv} viewReportId={viewReport} reportTick={payReport} startTab={payStart} onOpenCustomer={followCustomer} />}
       {/* v1.152.2 (CEO: "when I pick paid, then why it doesnt update?!"):
@@ -2359,7 +2400,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   />
                 ) : (
                   <p className="text-muted-foreground mt-0.5 h-8 truncate rounded-lg bg-secondary/60 px-2 py-1.5 text-xs">
-                    {doc.doc_type === "QT" ? L("14 days", "14 hari") : doc.doc_type === "INV" ? L("On receipt", "Semasa terima") : L("Pending", "Belum")}
+                    {doc.doc_type === "QT" ? (editingDoc && !editingDoc.revise ? (editingDoc.valid_until ? dmy(editingDoc.valid_until.slice(0, 10)) : L("14 days", "14 hari")) : dmy(addDays(editingDoc?.revise ? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) : docDate || new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10), 14, validUntil))) : doc.doc_type === "INV" ? L("On receipt", "Semasa terima") : L("Pending", "Belum")}
                   </p>
                 )}
               </div>
@@ -2867,6 +2908,24 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
               </div>
             </div>
             <p className="text-muted-foreground mt-2 text-[10px]">{L("The SST note, bank details and footer print exactly as on the real document.", "Nota SST, butiran bank dan pengaki dicetak seperti pada dokumen sebenar.")}</p>
+            {/* v1.402.0 - the quotation's validity, stated: fourteen days, or the CEO / COO / CCO's date */}
+            {doc.doc_type === "QT" && !editingDoc && (() => {
+              const base = docDate || new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+              const d14 = new Date(`${base}T00:00:00Z`); d14.setUTCDate(d14.getUTCDate() + 14);
+              const auto = d14.toISOString().slice(0, 10);
+              return (
+                <div className="erp-note erp-note-info erp-mt-3" data-testid="qt-validity">
+                  {canValidity ? (
+                    <label className="erp-stack">
+                      <span>{L("Valid until (14 days from the quotation date unless you change it)", "Sah hingga (14 hari dari tarikh sebut harga melainkan anda tukar)")}</span>
+                      <input type="date" className={inputClass} value={validUntil || auto} min={base} onChange={(e) => setValidUntil(e.target.value === auto ? "" : e.target.value)} data-testid="qt-valid-until" />
+                    </label>
+                  ) : (
+                    <span>{L(`Valid until ${dmy(auto)} - 14 calendar days from the quotation date.`, `Sah hingga ${dmy(auto)} - 14 hari kalendar dari tarikh sebut harga.`)}</span>
+                  )}
+                </div>
+              );
+            })()}
             {termsDue && (
               <p className="erp-note erp-note-info erp-mt-3">
                 {L(`Payment due ${dmy(termsDue.on)} - this client has ${termsDue.days}-day credit terms (set in the client's File).`,
@@ -2902,6 +2961,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             revision={editingDoc ? (editingDoc.revise ? (editingDoc.revision ?? 0) + 1 : editingDoc.revision ?? 0) : 0}
             revisedAt={editingDoc?.revise ? null : editingDoc?.revised_at ?? null}
             dueDate={termsDue?.on ?? null}
+            policyVersion={editingDoc && !editingDoc.revise ? editingDoc.policy_version ?? null : POLICY_VERSION}
+            validUntil={doc.doc_type !== "QT" ? null : editingDoc && !editingDoc.revise ? editingDoc.valid_until ?? null
+              : addDays(editingDoc?.revise ? new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) : docDate || new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10), 14, validUntil)}
           />
           </div>
           </div>

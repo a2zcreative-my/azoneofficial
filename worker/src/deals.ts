@@ -51,7 +51,7 @@ async function owners(env: Env): Promise<{ id: number; name: string; role: strin
 }
 
 /** the quotations a deal is quoted with, each with whether its CURRENT revision is accepted and whether a live invoice was made from it */
-async function quotesOf(env: Env, ids: number[]) {
+export async function quotesOf(env: Env, ids: number[]) { // v1.403.0 - also read by sales-reports.ts
   if (!ids.length) return new Map<number, (DealQuote & { doc_number: string; accepted: boolean; invoiced: boolean; opportunity_id: number })[]>();
   const { results } = await env.DB.prepare(
     `SELECT l.opportunity_id, d.id, d.doc_number, COALESCE(d.revision, 0) AS revision, d.total_cents, d.created_at, l.linked_at, l.origin,

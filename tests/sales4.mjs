@@ -49,11 +49,12 @@ function checks(src) {
   const shell = strip(src.shell), views = strip(src.views), sales = strip(src.sales), ws = strip(src.ws), provider = strip(src.provider), page = strip(src.page), sales2 = strip(src.sales2);
 
   /* ---- the shell ---- */
-  /* v1.399.0 (Phase 3, decision 6) - seven views, in the CEO's order: Overview, Leads & CRM, Sales Pipeline, Quotations & Invoices, Payments, Closed Sales, Reports */
-  ok("S - the seven written views, in the written order",
-    /export const SALES_VIEWS = \["overview", "customers", "pipeline", "documents", "payments", "closed", "reports"\] as const;/.test(shell));
+  /* v1.399.0 (Phase 3, decision 6) - seven views, in the CEO's order: Overview, Leads & CRM, Sales Pipeline, Quotations & Invoices, Payments, Closed Sales, Reports;
+     v1.404.0 (Phase 7) - the eighth, the Sales Playbook, last */
+  ok("S - the eight written views, in the written order",
+    /export const SALES_VIEWS = \["overview", "customers", "pipeline", "documents", "payments", "closed", "reports", "playbook"\] as const;/.test(shell));
   ok("S - the tab row and the phone selector both read the CEO's order",
-    ["overview", "customers", "pipeline", "documents", "payments", "closed", "reports"].every((k, i, a) => i === 0 || between(shell, "export function SalesViewBar(", "\n}\n").indexOf(`["${k}", L(`) > between(shell, "export function SalesViewBar(", "\n}\n").indexOf(`["${a[i - 1]}", L(`))
+    ["overview", "customers", "pipeline", "documents", "payments", "closed", "reports", "playbook"].every((k, i, a) => i === 0 || between(shell, "export function SalesViewBar(", "\n}\n").indexOf(`["${k}", L(`) > between(shell, "export function SalesViewBar(", "\n}\n").indexOf(`["${a[i - 1]}", L(`))
     && (between(shell, "export function SalesViewBar(", "\n}\n").match(/\["pipeline", L\("Sales Pipeline", "Saluran Jualan"\)/g) ?? []).length === 2);
   const url = between(shell, "export function salesViewUrl(", "\n}\n");
   ok("S2 - the view goes in the address: the tab and the view's name only, never a record or a person",
@@ -70,10 +71,11 @@ function checks(src) {
   ok("tabs on a wide screen, one selector on a phone (the CEO's answer)",
     /<div className="erp-desktop-only" data-testid="sales-tabs">\s*<LineTabs value=\{view\} onChange=\{onView\}/.test(bar) && /className=\{`erp-phone-only [^`]*`\} data-testid="sales-view-bar">\s*<ViewSwitch value=\{view\} onChange=\{onView\}/.test(bar));
   const act = between(sales, "<SalesViewBar view={wsView}", "{wsView === \"overview\" && (");
-  ok("one gold action per view: Report payment on Payments, New deal on the Pipeline, Add customer on Customers, none on Closed Sales or Reports, Create document otherwise",
+  ok("one gold action per view: Report payment on Payments, New deal on the Pipeline, Add customer on Customers, New entry on the Playbook for its managers only, none on Closed Sales or Reports, Create document otherwise",
     /wsView === "payments" && pv\?\.on && Object\.values\(pv\.inv\)\.some\(\(v\) => v\.can_report\)/.test(act) && /wsView === "customers" \? \(/.test(act)
     && /wsView === "pipeline" \? \(/.test(act) && /setDealNew\(\(x\) => x \+ 1\)/.test(act)
-    && /wsView === "closed" \|\| wsView === "reports" \? null : \(/.test(act) && (act.match(/<TabAction /g) ?? []).length === 4);
+    && /wsView === "playbook" \? \(\s*(?:\/\*[^*]*\*\/\s*)?pbManage \? <TabAction icon="add" onClick=\{\(\) => setPbNew\(\(x\) => x \+ 1\)\}>/.test(act)
+    && /wsView === "closed" \|\| wsView === "reports" \? null : \(/.test(act) && (act.match(/<TabAction /g) ?? []).length === 5);
   ok("the waiting count on Payments is the Payments queue's own, shown only while verification is on",
     /payments: pv\?\.on \? pv\.pend\?\.n \?\? null : null/.test(act));
 
@@ -146,13 +148,15 @@ for (const [n, c, d] of res) if (!c) console.log(`  ✗ ${n}${d ? `  [${d}]` : "
 
 /* the mutation pass: each breakage must be caught */
 const MUT = [
-  ["a view dropped", "shell", '"payments", "closed", "reports"] as const;', '"payments", "reports"] as const;'],
+  ["a view dropped", "shell", '"payments", "closed", "reports", "playbook"] as const;', '"payments", "reports", "playbook"] as const;'],
+  ["the Playbook dropped", "shell", '"closed", "reports", "playbook"] as const;', '"closed", "reports"] as const;'],
   ["the views out of the CEO's order", "shell", 'SALES_VIEWS = ["overview", "customers", "pipeline",', 'SALES_VIEWS = ["overview", "pipeline", "customers",'],
   ["a record put in the address", "shell", 'u.searchParams.set("view", view);', 'u.searchParams.set("view", view);\n  u.searchParams.set("doc", "1");'],
   ["views no longer history entries", "shell", 'else if (cur !== view) window.history.pushState({ salesView: view }, "", salesViewUrl(view));', 'else if (cur !== view) window.history.replaceState({ salesView: view }, "", salesViewUrl(view));'],
   ["a deep link's view used unchecked", "provider", 'if (startAt && /^[a-z_]{1,24}$/.test(startAt)) setTabStart(', 'if (startAt) setTabStart('],
   ["a deep link read again on every re-run", "provider", "if (wanted && !linkTaken.current && (ALL_TABS as readonly string[]).includes(wanted)) {", "if (wanted && (ALL_TABS as readonly string[]).includes(wanted)) {"],
   ["the phone loses its selector", "shell", "<ViewSwitch value={view} onChange={onView}", "<LineTabs value={view} onChange={onView}"],
+  ["New entry for everyone on the Playbook", "sales", "pbManage ? <TabAction icon=\"add\" onClick={() => setPbNew((x) => x + 1)}>", "<TabAction icon=\"add\" onClick={() => setPbNew((x) => x + 1)}>"],
   ["a gold action on Reports", "sales", 'wsView === "closed" || wsView === "reports" ? null : (', 'wsView === "closed" ? null : ('],
   ["a chart back on the Overview", "sales", "<SalesOverview2 figures={figures}", "<SalesPerformanceCard /><SalesOverview2 figures={figures}"],
   ["Verified claimed always", "views", "verified: !!pv?.on }", "verified: true }"],

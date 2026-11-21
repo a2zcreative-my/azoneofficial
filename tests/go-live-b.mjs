@@ -250,7 +250,9 @@ async function runtime(workerBundle, opts = {}) {
     ok((await call("/staff/inventory/1", U.ceo, "PATCH", { unit_price: 50 })).status === 200 && db.prepare(`SELECT unit_price_cents FROM inventory_items WHERE id = 1`).get().unit_price_cents === 5000, "C4 the CEO prices the published item");
 
     /* ---------- B6: an expired quotation ---------- */
-    const qtOld = (await mkQT([{ sku: "ELF001", name: "ELFIA Serum", qty: 1, unit_price_cents: 5000 }], { valid_until: "2020-01-31" })).j;
+    /* v1.402.0 - a validity before the quotation's own date cannot be chosen any more: make it, then let it age */
+    const qtOld = (await mkQT([{ sku: "ELF001", name: "ELFIA Serum", qty: 1, unit_price_cents: 5000 }])).j;
+    db.prepare(`UPDATE sales_documents SET valid_until = '2020-01-31' WHERE id = ?`).run(qtOld.id);
     const sh = await call(`/staff/docs/${qtOld.id}/share`, U.ceo, "POST", {});
     const token = sh.j?.token ?? sh.j?.share_token ?? db.prepare(`SELECT share_token FROM sales_documents WHERE id = ?`).get(qtOld.id).share_token;
     const acc = await call(`/public/doc/${token}/accept`, null, "POST", { name: "Puan Siti", agree: true });
@@ -258,7 +260,7 @@ async function runtime(workerBundle, opts = {}) {
     ok((await call(`/staff/docs/${qtOld.id}/convert`, U.ceo, "POST", {})).status === 409, "B6 nor invoiced until it is revised");
 
     /* ---------- B7: an accepted quotation's money needs a revision ---------- */
-    const qtAcc = (await mkQT([{ sku: "ELF001", name: "ELFIA Serum", qty: 1, unit_price_cents: 5000 }], { valid_until: "2999-12-31" })).j;
+    const qtAcc = (await mkQT([{ sku: "ELF001", name: "ELFIA Serum", qty: 1, unit_price_cents: 5000 }])).j; // v1.402.0 - the automatic 14 days
     await call(`/staff/docs/${qtAcc.id}/share`, U.ceo, "POST", {});
     const tok2 = db.prepare(`SELECT share_token FROM sales_documents WHERE id = ?`).get(qtAcc.id).share_token;
     ok((await call(`/public/doc/${tok2}/accept`, null, "POST", { name: "Puan Siti", agree: true })).status === 201, "the customer accepts the live quotation");

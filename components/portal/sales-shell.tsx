@@ -37,8 +37,9 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 /* the six views, in the address (decision S2)                         */
 /* ------------------------------------------------------------------ */
 /* v1.399.0 (Phase 3, decision 6) - the CEO's order: Overview, Leads & CRM, Sales Pipeline, Quotations & Invoices,
-   Payments, Closed Sales, Reports (the Sales Playbook joins in its own phase). The keys never change, so every link still lands. */
-export const SALES_VIEWS = ["overview", "customers", "pipeline", "documents", "payments", "closed", "reports"] as const;
+   Payments, Closed Sales, Reports, and (v1.404.0, Phase 7) the Sales Playbook - the eight views of decision 6. The keys never
+   change, so every link still lands. */
+export const SALES_VIEWS = ["overview", "customers", "pipeline", "documents", "payments", "closed", "reports", "playbook"] as const;
 export type SalesView = (typeof SALES_VIEWS)[number];
 export const isSalesView = (v: string | null | undefined): v is SalesView => !!v && (SALES_VIEWS as readonly string[]).includes(v);
 /** "/portal?tab=Sales&view=payments" - only the tab and the view's name; never a record or a person */
@@ -80,6 +81,7 @@ export function SalesViewBar({ view, onView, waiting, action }: {
           ["payments", L("Payments", "Bayaran"), waiting.payments],
           ["closed", L("Closed Sales", "Jualan Ditutup")],
           ["reports", L("Reports", "Laporan")],
+          ["playbook", L("Sales Playbook", "Buku Panduan Jualan")], // v1.404.0 - Phase 7
         ]} aside={<TabAside>{action}</TabAside>} />
       </div>
       <div className={`erp-phone-only ${css.viewBar}`} data-testid="sales-view-bar">
@@ -91,6 +93,7 @@ export function SalesViewBar({ view, onView, waiting, action }: {
           ["payments", L("Payments", "Bayaran"), [L("Report, then the CEO verifies", "Lapor, kemudian CEO sahkan"), n(waiting.payments)].filter(Boolean).join(" · ")],
           ["closed", L("Closed Sales", "Jualan Ditutup"), L("Paid invoices, closers, commission", "Invois dibayar, penutup, komisen")],
           ["reports", L("Reports", "Laporan"), L("One report at a time", "Satu laporan pada satu masa")],
+          ["playbook", L("Sales Playbook", "Buku Panduan Jualan"), L("Scripts, answers and guidance", "Skrip, jawapan dan panduan")], // v1.404.0
         ] as const} />
         {action}
       </div>

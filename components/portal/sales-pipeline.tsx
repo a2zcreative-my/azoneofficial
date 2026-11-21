@@ -35,6 +35,7 @@ import {
 } from "@/lib/ui-styles";
 import { LOST_REASONS, LOST_WORD, OPEN_STAGES, PRIORITY_WORD, STAGE_WORD, WON_WORD, type Stage } from "@/lib/pipeline-words";
 import { serviceName } from "@/lib/crm-words";
+import type { PbStage } from "@/lib/playbook";
 import css from "./sales-pipeline.module.css";
 
 interface Options {
@@ -106,11 +107,13 @@ function DealFlag({ d }: { d: Deal }) {
 /* =====================================================================
    The pipeline: the figures, the board (or list) and the deal beside it
    ===================================================================== */
-export function SalesPipeline({ open, onOpen, onOpenLead, onQuote, newTick = 0 }: {
+export function SalesPipeline({ open, onOpen, onOpenLead, onQuote, onPlaybook, newTick = 0 }: {
   /** the deal a bell, the Action Center or a lead asked for */
   open: number | null; onOpen: (id: number | null) => void;
   onOpenLead: (customerId: number) => void;
   onQuote: (deal: { customer_id: number; customer: string; owner_id: number | null; deal_id: number }) => void;
+  /** v1.404.0 (Phase 7, decision 5) - the Sales Playbook, on the entries for a deal's stage; read-only */
+  onPlaybook?: (stage: PbStage) => void;
   /** the view bar's gold New deal: each press opens the form once */
   newTick?: number;
 }) {
@@ -267,7 +270,7 @@ export function SalesPipeline({ open, onOpen, onOpenLead, onQuote, newTick = 0 }
         {boardShown ? null : open != null ? (
           <SplitPane testid="deal-preview" title={L("Selected deal", "Urusan dipilih")} label={L("Selected deal", "Urusan dipilih")}
             actions={<button type="button" className={btnSmQuiet} aria-label={L("Close", "Tutup")} onClick={() => onOpen(null)} data-testid="deal-preview-close"><AppIcon name="close" /></button>}>
-            <DealRecord id={open} opts={o} onChanged={refresh} onOpenLead={onOpenLead} onQuote={onQuote} />
+            <DealRecord id={open} opts={o} onChanged={refresh} onOpenLead={onOpenLead} onQuote={onQuote} onPlaybook={onPlaybook} />
           </SplitPane>
         ) : (
           <SplitPane testid="pipeline-help" title={L("Every open deal needs a next action", "Setiap urusan terbuka perlukan tindakan seterusnya")} label={L("How deals are worked", "Cara urusan diurus")}
@@ -283,7 +286,7 @@ export function SalesPipeline({ open, onOpen, onOpenLead, onQuote, newTick = 0 }
       </WorkspaceSplit>
       {drawer != null && (
         <SideDrawer open onClose={() => setDrawer(null)} title={L("Deal", "Urusan")} full>
-          <DealRecord id={drawer} opts={o} onChanged={refresh} onOpenLead={onOpenLead} onQuote={onQuote} />
+          <DealRecord id={drawer} opts={o} onChanged={refresh} onOpenLead={onOpenLead} onQuote={onQuote} onPlaybook={onPlaybook} />
         </SideDrawer>
       )}
       {making && o?.can_write && <DealForm opts={o} onClose={() => setMaking(false)} onSaved={(id) => { setMaking(false); refresh(); pick(id); }} />}
@@ -297,10 +300,11 @@ export function SalesPipeline({ open, onOpen, onOpenLead, onQuote, newTick = 0 }
    ===================================================================== */
 type Form = "" | "edit" | "won" | "lost" | "reopen" | "link";
 
-function DealRecord({ id, opts, onChanged, onOpenLead, onQuote }: {
+function DealRecord({ id, opts, onChanged, onOpenLead, onQuote, onPlaybook }: {
   id: number; opts: Options | null; onChanged: () => void;
   onOpenLead: (customerId: number) => void;
   onQuote: (deal: { customer_id: number; customer: string; owner_id: number | null; deal_id: number }) => void;
+  onPlaybook?: (stage: PbStage) => void;
 }) {
   const fb = useFeedback();
   const [d, setD] = useState<Detail | null>(null);
@@ -382,6 +386,8 @@ function DealRecord({ id, opts, onChanged, onOpenLead, onQuote }: {
         {isOpen && can && <button type="button" className={btnSm} disabled={busy} onClick={() => setForm("link")} data-testid="deal-link-btn"><AppIcon name="document" />{L("Link quotation", "Paut sebut harga")}</button>}
         {isOpen && can && <button type="button" className={btnSmQuiet} onClick={() => onQuote({ customer_id: x.customer_id, customer: x.customer, owner_id: x.owner_id, deal_id: x.id })} data-testid="deal-quote"><AppIcon name="add" />{L("Create quotation", "Buat sebut harga")}</button>}
         {!isOpen && opts?.can_override && <button type="button" className={btnSm} disabled={busy} onClick={() => setForm("reopen")} data-testid="deal-reopen-btn">{L("Reopen", "Buka semula")}</button>}
+        {/* v1.404.0 (Phase 7, decision 5) - read-only: the Playbook entries tagged with this stage; it changes nothing on the deal */}
+        {isOpen && onPlaybook && <button type="button" className={btnSmQuiet} onClick={() => onPlaybook(x.stage as PbStage)} data-testid="deal-playbook"><AppIcon name="documents" />{L("Playbook for this stage", "Panduan untuk peringkat ini")}</button>}
       </section>
 
       <Section title={L("Quotations", "Sebut harga")} testid="deal-quotes">

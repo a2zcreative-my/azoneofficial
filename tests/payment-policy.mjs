@@ -1,100 +1,129 @@
 #!/usr/bin/env node
-/* v1.332.0 - THE PAYMENT & NO REFUND POLICY ON THE PAPER (the CEO, 17-11-2026:
-   "Include the approved Payment & No Refund Policy in both invoice templates
-   ... above the Payment & Signature section ... in invoice previews, PDF
-   downloads, printed documents and shared invoices ... Apply the same policy
-   to the relevant quotation acceptance terms before payment ... Both
-   companies must use the same approved policy wording").
+/* v1.402.0 - THE QUOTATION AND INVOICE POLICIES, SEPARATED (the CEO, 21-11-2026:
+   "Quotation: QUOTATION VALIDITY POLICY ... valid for fourteen (14) calendar days
+   ... Invoice: Payment & Refund Policy ... Keep the existing PDF design").
+   Replaces the v1.332.0 guard (one Payment & No Refund Policy on both).
 
-   What this holds, in the source:
-     P1  the wording is the approved text, word for word, in ONE constant
-     P2  the HTML template (preview, print, the shared link) draws it inside
-         the closing block, ABOVE the PAYMENT / COMMITMENT ORDER heading, on an
-         invoice and a quotation - never on a delivery order
-     P3  the PDF draws the same constant above its closing block, for the same
-         documents; the quotation's clause names the policy in both
-     P4  the online acceptance shows it above the tick box, and the box says it
-     P5  one wording for both companies: no issuer branch around it; the
-         letterhead, bank and signatures still come from resolveIssuer
-     P6  the one-page budget makes room for it (quotation and invoice only)
-     P7  words only: no amount, status or calculation reads it
+   It RENDERS the documents - the HTML paper (preview, print, the shared link) and
+   the PDF content stream - instead of reading the source, so a passing run means
+   the words really print:
+     D1  the approved wording, word for word (QT validity, INV payment & refund)
+     D2  a NEW quotation (policy_version 2) prints the validity policy and never
+         any refund or payment-commencement words; its clause names it
+     D3  a NEW invoice prints the Payment & Refund Policy above PAYMENT
+     D4  a delivery order prints no policy at all
+     D5  a document issued BEFORE (policy_version NULL) keeps the Payment & No
+         Refund Policy it was issued - and accepted - with (decision 1)
+     D6  a quotation past its validity date says EXPIRED; an undated one, an
+         in-date one and an invoice never do
+     D7  an invoice billed as a stage of a quotation prints "Payment stage"
+     D8  the online acceptance draws the policy of ITS quotation
+     D9  the one-page budget holds room for the longest block (22mm)
    Each rule is proven to catch its own breakage (the mutation pass).
 
      node tests/payment-policy.mjs     (NOMUT=1 skips the mutation pass) */
-import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
-const FILES = { tpl: "lib/doc-template.ts", pdf: "lib/doc-pdf.ts", acc: "components/public/doc-accept.tsx" };
 const APPROVED = {
-  title: "PAYMENT & NO REFUND POLICY",
-  p1: "Upon receipt and confirmation of payment, the Company will commence or continue the agreed services according to the approved project scope and timeline.",
-  p2: "All payments are non-refundable once work has commenced, except where required by applicable law. Any changes to the agreed scope or timeline must be mutually agreed upon in writing.",
+  qt: "This quotation is valid for fourteen (14) calendar days from the date of issuance. Any acceptance after the expiry date will be subject to price, scope and availability confirmation by A2Z Creative Marketing. Any changes to the quoted services may require a revised quotation.",
+  inv1: "Payment must be made according to the amount, due date and payment schedule stated in this invoice. Work will commence or continue upon confirmation of the required payment, subject to the agreed project scope and timeline.",
+  inv2: "Payments for services already commenced may be non-refundable, subject to the agreed service terms and applicable law. Any changes to the project scope or payment arrangements must be mutually agreed upon in writing.",
+  legacy: "All payments are non-refundable once work has commenced, except where required by applicable law.",
 };
+const dir = mkdtempSync(join(tmpdir(), "policy-"));
+let n = 0;
+async function load(srcTpl) {
+  const tplPath = join(dir, `tpl${++n}.ts`);
+  writeFileSync(tplPath, srcTpl);
+  const entry = join(dir, `entry${n}.ts`);
+  writeFileSync(entry, `export * from ${JSON.stringify(tplPath)};\nexport { drawDoc } from "@/lib/doc-pdf";\n`);
+  const out = join(dir, `b${n}.mjs`);
+  /* the PDF imports the template through "@/lib/doc-template": point it at the (possibly mutated) copy */
+  execSync(`npx esbuild "${entry}" --bundle --format=esm --platform=node --alias:@/lib/doc-template="${tplPath}" --alias:@=${JSON.stringify(root)} --outfile="${out}" --log-level=error`, { cwd: root, stdio: "inherit" });
+  return import(pathToFileURL(out).href);
+}
 
-function checks(src) {
+const day = (off) => new Date(Date.now() + 8 * 3600e3 + off * 864e5).toISOString().slice(0, 10);
+const doc = (over) => ({ id: 7, doc_number: "QT-0007", doc_type: "QT", issuer_code: "a2z", company: "Acme Sdn Bhd", contact_person: "Aina",
+  items: JSON.stringify([{ name: "Brand video", qty: 1, unit_cents: 250000 }]), total_cents: 250000, created_at: `${day(-3)} 10:00:00`,
+  valid_until: day(11), revision: 0, payment_status: null, reference: null, ...over });
+/* the PDF stream escapes "(" ")" "\\"; read its strings back as one text */
+const pdfText = (s) => [...s.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((x) => x[1].replace(/\\(.)/g, "$1")).join(" ");
+const htmlText = (s) => s.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+const norm = (s) => s.replace(/\s+/g, " ");
+
+function checks(m, acc, tpl) {
   const res = [];
   const ok = (name, cond, detail = "") => res.push([name, Boolean(cond), detail]);
-  const { tpl, pdf, acc } = src;
-  const pol = tpl.slice(tpl.indexOf("export const PAYMENT_POLICY"), tpl.indexOf("} as const;", tpl.indexOf("export const PAYMENT_POLICY")));
-  /* P1 */
-  ok("P1 the approved wording, word for word, in one constant", pol.includes(`title: "${APPROVED.title}"`) && pol.includes(`"${APPROVED.p1}"`) && pol.includes(`"${APPROVED.p2}"`) && (pol.match(/^\s+"/gm) ?? []).length === 2);
-  ok("P1 the documents that carry it: the quotation and the invoice", /export const policyApplies = \(docType: string\) => docType === "INV" \|\| docType === "QT";/.test(tpl));
-  /* P2 */
-  const inv = tpl.slice(tpl.indexOf("  if (isINV) {\n    bottom ="), tpl.indexOf("  } else if (isDO) {\n    bottom ="));
-  const qt = tpl.slice(tpl.indexOf("  } else {\n    bottom = `<div class=\"accept\">"), tpl.indexOf("  let ladder ="));
-  const dor = tpl.slice(tpl.indexOf("  } else if (isDO) {\n    bottom ="), tpl.indexOf("  } else {\n    bottom = `<div class=\"accept\">"));
-  ok("P2 the HTML builds the block from the constant, only where it applies", /const policy = policyApplies\(doc\.doc_type\)\s*\? `<div class="policy" data-policy="payment-no-refund"><p class="pt">\$\{esc\(PAYMENT_POLICY\.title\)\}<\/p>\$\{PAYMENT_POLICY\.paragraphs\.map/.test(tpl));
-  ok("P2 invoice: the policy sits ABOVE the PAYMENT heading, inside the closing block", inv.indexOf("${policy}") > 0 && inv.indexOf("${policy}") < inv.indexOf('<div class="hdr">PAYMENT</div>'));
-  ok("P2 quotation: the policy sits ABOVE the COMMITMENT ORDER CONFIRMATION heading", qt.indexOf("${policy}") > 0 && qt.indexOf("${policy}") < qt.indexOf('<div class="hdr">COMMITMENT ORDER CONFIRMATION</div>'));
-  ok("P2 never on a delivery order", !dor.includes("${policy}"));
-  ok("P2 compact, in the paper's own tint and gold rule (the DOC palette)", /\.policy \{ background: \$\{DOC\.tint\}; border-left: 3px solid \$\{DOC\.gold\};/.test(tpl));
-  /* P3 */
-  ok("P3 the PDF draws the same constant above its closing block, for the same documents",
-    /import \{[^}]*PAYMENT_POLICY, policyApplies[^}]*\} from "@\/lib\/doc-template";/.test(pdf) && /if \(policyApplies\(doc\.doc_type\)\) \{/.test(pdf)
-    && /const pt = closeTop - ph - 4;/.test(pdf) && /c\.text\(PAYMENT_POLICY\.title,/.test(pdf) && /for \(const t of PAYMENT_POLICY\.paragraphs\) py = c\.wrap\(t,/.test(pdf)
-    && pdf.indexOf("if (policyApplies(doc.doc_type)) {") < pdf.indexOf('const hdr = isINV ? "PAYMENT"'));
-  ok("P3 the quotation's acceptance clause names the policy, on the paper and in the PDF",
-    /subject to the terms above,\s*including the Payment &amp; No Refund Policy\./.test(tpl) && /subject to the terms above, including the Payment & No Refund Policy\."/.test(pdf));
-  /* P4 */
-  ok("P4 the online acceptance shows the policy above the tick box, and the box accepts it",
-    /import \{ PAYMENT_POLICY \} from "@\/lib\/doc-template";/.test(acc) && acc.indexOf('data-testid="accept-policy"') > 0 && acc.indexOf('data-testid="accept-policy"') < acc.indexOf('type="checkbox"')
-    && /on behalf of my company, including the Payment &amp; No Refund Policy\./.test(acc));
-  /* P5 */
-  ok("P5 one wording for both companies: no issuer test near the policy; the company identity stays resolveIssuer's",
-    !/issuer[^\n]{0,80}PAYMENT_POLICY|PAYMENT_POLICY[^\n]{0,80}issuer/.test(tpl + pdf) && /const issuer = resolveIssuer\(doc\.issuer_code\);/.test(tpl)
-    && /Payment by bank transfer to <strong>\$\{esc\(issuer\.bank\)\}<\/strong> \(\$\{esc\(issuer\.bankHolder\)\}\)/.test(tpl));
-  /* P6 */
-  ok("P6 the one-page budget makes room for it, on the quotation and the invoice only",
-    /- notesMm - \(policyApplies\(docType\) \? POLICY_MM : 0\)\);/.test(tpl) && /export const POLICY_MM = 18;/.test(tpl));
-  /* P7 */
-  ok("P7 words only: nothing that counts money reads the policy",
-    !/(total_cents|payment_status|rm\(|money\()[^\n]*(PAYMENT_POLICY|policy\b)/.test(tpl + pdf));
+  const both = (d) => { const h = htmlText(m.buildDocHtml(d, false)); const p = norm(pdfText(m.drawDoc(d, false))); return { h, p, all: `${h}\n${p}` }; };
+  const has = (r, t) => r.h.includes(t) && r.p.replace(/\s+/g, "").includes(t.replace(/\s+/g, ""));
+  /* D1 */
+  ok("D1 the approved wording, word for word", m.QUOTATION_VALIDITY_POLICY.paragraphs.join("|") === APPROVED.qt && m.QUOTATION_VALIDITY_POLICY.title === "QUOTATION VALIDITY POLICY"
+    && m.INVOICE_PAYMENT_POLICY.paragraphs.join("|") === `${APPROVED.inv1}|${APPROVED.inv2}` && m.INVOICE_PAYMENT_POLICY.title === "PAYMENT & REFUND POLICY" && m.QUOTE_VALID_DAYS === 14);
+  /* D2 */
+  const qt = both(doc({ policy_version: 2 }));
+  ok("D2 a new quotation prints the validity policy (HTML and PDF)", has(qt, "QUOTATION VALIDITY POLICY") && has(qt, APPROVED.qt));
+  ok("D2 ... and never refund or payment-commencement words", !/refund/i.test(qt.all) && !qt.all.includes(APPROVED.inv1));
+  ok("D2 its acceptance clause names the Quotation Validity Policy", has(qt, "including the Quotation Validity Policy."));
+  const dmyOf = (iso) => iso.split("-").reverse().join("-");
+  ok("D2 the header shows the actual Valid Until date (HTML and PDF)", qt.h.includes(`Valid until ${dmyOf(day(11))}`) && qt.p.includes(dmyOf(day(11))));
+  /* D3 */
+  const inv = both(doc({ doc_type: "INV", doc_number: "INV-0007", valid_until: null, policy_version: 2 }));
+  ok("D3 a new invoice prints the Payment & Refund Policy", has(inv, "PAYMENT & REFUND POLICY") && has(inv, APPROVED.inv1) && has(inv, APPROVED.inv2));
+  ok("D3 ... never the validity policy, and above the PAYMENT heading", !inv.all.includes("VALIDITY") && inv.h.indexOf("PAYMENT & REFUND POLICY") < inv.h.lastIndexOf("PAYMENT "));
+  /* D4 */
+  const dor = both(doc({ doc_type: "DO", doc_number: "DO-0007", valid_until: null, policy_version: 2 }));
+  ok("D4 a delivery order prints no policy", !/POLICY/.test(dor.all));
+  /* D5 */
+  const oldQt = both(doc({ policy_version: null }));
+  const oldInv = both(doc({ doc_type: "INV", doc_number: "INV-0001", valid_until: null, policy_version: null }));
+  ok("D5 an older quotation keeps the Payment & No Refund Policy it was issued with", has(oldQt, "PAYMENT & NO REFUND POLICY") && has(oldQt, APPROVED.legacy) && !oldQt.all.includes("VALIDITY POLICY") && has(oldQt, "including the Payment & No Refund Policy."));
+  ok("D5 an older invoice keeps it too", has(oldInv, "PAYMENT & NO REFUND POLICY") && !oldInv.all.includes("PAYMENT & REFUND POLICY"));
+  /* D6 */
+  const exp = both(doc({ policy_version: 2, valid_until: day(-1) }));
+  const undated = both(doc({ policy_version: null, valid_until: null }));
+  const invPast = both(doc({ doc_type: "INV", doc_number: "INV-0002", valid_until: day(-5), policy_version: 2 }));
+  ok("D6 a quotation past its date says EXPIRED (HTML and PDF)", /data-expired/.test(m.buildDocHtml(doc({ policy_version: 2, valid_until: day(-1) }), false)) && /\bEXPIRED\b/.test(exp.p));
+  ok("D6 an in-date, an undated quotation and an invoice never do", !/\bEXPIRED\b/.test(qt.all) && !/\bEXPIRED\b/.test(undated.all) && !/\bEXPIRED\b/.test(invPast.all) && !/\bEXPIRED\b/.test(oldQt.all));
+  /* D7 */
+  const stage = both(doc({ doc_type: "INV", doc_number: "INV-0003", valid_until: null, policy_version: 2, reference: "Deposit 50% of QT-0007" }));
+  ok("D7 a stage invoice prints its payment stage", has(stage, "Payment stage:") && has(stage, "Deposit 50% of QT-0007") && !inv.all.includes("Payment stage:"));
+  /* D8 */
+  ok("D8 the online acceptance draws the policy of its quotation", /const pol = policyFor\(\{ doc_type: "QT", policy_version: policyVersion \}\)!;/.test(acc)
+    && acc.indexOf('data-testid="accept-policy"') > 0 && acc.indexOf('data-testid="accept-policy"') < acc.indexOf('type="checkbox"') && /including the \{pol\.name\}\./.test(acc)
+    && m.policyFor({ doc_type: "QT", policy_version: 2 }).key === "quotation-validity" && m.policyFor({ doc_type: "QT", policy_version: null }).key === "payment-no-refund");
+  /* D9 */
+  ok("D9 the one-page budget holds room for the longest block", m.POLICY_MM === 22 && /- notesMm - \(policyApplies\(docType\) \? POLICY_MM : 0\)\);/.test(tpl));
   return res;
 }
 
-const base = Object.fromEntries(Object.entries(FILES).map(([k, p]) => [k, read(p)]));
-const res = checks(base);
+const base = { tpl: read("lib/doc-template.ts"), acc: read("components/public/doc-accept.tsx") };
+const res = checks(await load(base.tpl), base.acc, base.tpl);
 let failed = res.filter(([, c]) => !c);
-for (const [n, c, d] of res) if (!c) console.log(`  ✗ ${n}${d ? `  [${d}]` : ""}`);
+for (const [nm, c, d] of res) if (!c) console.log(`  ✗ ${nm}${d ? `  [${d}]` : ""}`);
 
 const MUT = [
-  ["a word changed", "tpl", "non-refundable once work has commenced", "non-refundable once payment is made"],
-  ["a paragraph dropped", "tpl", `    "${APPROVED.p2}",\n`, ""],
-  ["the policy under the PAYMENT heading", "tpl", "      ${policy}\n      <div class=\"hdr\">PAYMENT</div>", "      <div class=\"hdr\">PAYMENT</div>\n      ${policy}"],
-  ["the quotation loses it", "tpl", "      ${policy}\n      <div class=\"hdr\">COMMITMENT ORDER CONFIRMATION</div>", "      <div class=\"hdr\">COMMITMENT ORDER CONFIRMATION</div>"],
-  ["on a delivery order too", "tpl", "export const policyApplies = (docType: string) => docType === \"INV\" || docType === \"QT\";", "export const policyApplies = (_docType: string) => true;"],
-  ["the PDF forgets it", "pdf", "  if (policyApplies(doc.doc_type)) {", "  if (false) {"],
-  ["the online acceptance without it", "acc", 'data-testid="accept-policy"', 'data-testid="accept-note"'],
-  ["no room on the page", "tpl", " - (policyApplies(docType) ? POLICY_MM : 0));", ");"],
-  ["one company gets other words", "tpl", "  const policy = policyApplies(doc.doc_type)", "  const policy = issuer.code === \"a2z\" && policyApplies(doc.doc_type)"],
+  ["a word changed in the validity policy", "tpl", "fourteen (14) calendar days", "thirty (30) calendar days"],
+  ["the invoice loses its second paragraph", "tpl", `    "${APPROVED.inv2}",\n`, ""],
+  ["the quotation gets the refund policy", "tpl", `      ? { key: "quotation-validity", ...QUOTATION_VALIDITY_POLICY, name: "Quotation Validity Policy" }`, `      ? { key: "payment-refund", ...INVOICE_PAYMENT_POLICY, name: "Payment & Refund Policy" }`],
+  ["old documents get the new words", "tpl", "if (Number(doc.policy_version ?? 0) >= POLICY_VERSION) {", "if (true) {"],
+  ["a delivery order gets a policy", "tpl", `  if (doc.doc_type !== "QT" && doc.doc_type !== "INV") return null;\n`, ""],
+  ["EXPIRED never shown", "tpl", "validUntil.slice(0, 10) < today", "validUntil.slice(0, 10) < \"0000-00-00\""],
+  ["the stage line dropped", "tpl", "${stage ? `<p class=\"body stage\" data-stage>", "${false ? `<p class=\"body stage\" data-stage>"],
+  ["the acceptance always shows the old words", "acc", "policy_version: policyVersion })!;", "policy_version: null })!;"],
+  ["no room on the page", "tpl", "export const POLICY_MM = 22;", "export const POLICY_MM = 18;"],
 ];
 let caught = 0;
 for (const [name, file, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   if (!base[file].includes(from)) { console.log(`  ✗ mutation anchor missing: ${name}`); failed = [...failed, [name]]; continue; }
-  const r = checks({ ...base, [file]: base[file].replace(from, to) });
+  const mut = { ...base, [file]: base[file].replace(from, to) };
+  const r = checks(file === "tpl" ? await load(mut.tpl) : await load(base.tpl), mut.acc, mut.tpl);
   if (r.some(([, c]) => !c)) caught++;
   else { console.log(`  ✗ mutation NOT caught: ${name}`); failed = [...failed, [name]]; }
 }

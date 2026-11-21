@@ -14,7 +14,7 @@
 import { useState } from "react";
 
 import { csrfFetch } from "@/lib/api";
-import { PAYMENT_POLICY } from "@/lib/doc-template"; // v1.332.0 - the one approved wording
+import { policyFor } from "@/lib/doc-template"; // v1.332.0 - the approved wording; v1.402.0 - the one THIS quotation was issued with
 
 import css from "./doc-accept.module.css";
 
@@ -25,7 +25,8 @@ const when = (s: string) => {
   return Number.isNaN(t.getTime()) ? s : t.toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 };
 
-export function DocAccept({ token, label, initial }: { token: string; label: string; initial: Acceptance | null }) {
+export function DocAccept({ token, label, initial, policyVersion }: { token: string; label: string; initial: Acceptance | null; policyVersion?: number | null }) {
+  const pol = policyFor({ doc_type: "QT", policy_version: policyVersion })!;
   const [done, setDone] = useState<Acceptance | null>(initial);
   const [name, setName] = useState("");
   const [position, setPosition] = useState("");
@@ -77,14 +78,15 @@ export function DocAccept({ token, label, initial }: { token: string; label: str
           <input className={css.input} value={position} maxLength={120} autoComplete="organization-title" onChange={(e) => setPosition(e.target.value)} />
         </label>
       </div>
-      {/* v1.332.0 - the approved Payment & No Refund Policy is part of what is accepted (the same words as the paper) */}
-      <div className={css.policy} data-testid="accept-policy">
-        <p className={css.policyTitle}>{PAYMENT_POLICY.title}</p>
-        {PAYMENT_POLICY.paragraphs.map((x) => <p key={x}>{x}</p>)}
+      {/* v1.332.0 - the approved policy is part of what is accepted (the same words as the paper).
+          v1.402.0 - the Quotation Validity Policy on a quotation issued from this release; an older one keeps its own */}
+      <div className={css.policy} data-testid="accept-policy" data-policy={pol.key}>
+        <p className={css.policyTitle}>{pol.title}</p>
+        {pol.paragraphs.map((x) => <p key={x}>{x}</p>)}
       </div>
       <label className={css.check}>
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-        I accept {label} on behalf of my company, including the Payment &amp; No Refund Policy.
+        I accept {label} on behalf of my company, including the {pol.name}.
       </label>
       {error && <p className={css.error} role="alert">{error}</p>}
       <button type="button" className={css.button} disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Accept quotation"}</button>

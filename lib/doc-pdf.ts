@@ -17,7 +17,7 @@
    Units: PDF points. The HTML layout is designed against 688px of A4, and
    688px = 516pt, so px * 0.75 = pt throughout. */
 
-import { docDateOf, docRevisionLabel, PAYMENT_POLICY, policyApplies, quoteValidUntil, readSign, signSrc, type DocFull, type DocItem } from "@/lib/doc-template";
+import { docDateOf, docRevisionLabel, paymentStageOf, policyFor, quoteExpired, quoteValidUntil, readSign, signSrc, type DocFull, type DocItem } from "@/lib/doc-template";
 import { resolveIssuer } from "@/lib/issuers";
 
 /* ---------------------------------------------------------------- metrics */
@@ -68,6 +68,7 @@ const PANEL = "0.965 0.969 0.980";
 const HAIR = "0.910 0.922 0.945";
 const WHITE = "1 1 1";
 const GREEN = "0.082 0.502 0.239";
+const RED = "0.725 0.110 0.110"; // v1.402.0 - the EXPIRED chip (#b91c1c)
 
 export const COLOURS = { NAVY, GOLD, GREY, SLATE, PANEL, HAIR, WHITE, GREEN };
 export const GEOM = { PT, PAGE_W, PAGE_H, M, CW };
@@ -396,11 +397,19 @@ export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean;
 
   // document type, right
   c.text(title, R, brandTop + 13, 17.25, { bold: true, align: "r", spacing: 1.4 });
+  let chipX = R;
   if (doc.kind) {
     const chip = isService ? "SERVICES" : "PRODUCTS";
     const cw = widthOf(chip, 6, true) + 11;
     c.box(R - cw, brandTop + 19, cw, 11, GOLD, 0.5);
     c.text(chip, R - cw / 2, brandTop + 26.5, 6, { bold: true, colour: "0.541 0.427 0.071", align: "c", spacing: 1.2 });
+    chipX = R - cw - 5;
+  }
+  /* v1.402.0 - a quotation past its validity date says so, beside the title (no page height) */
+  if (doc.doc_type === "QT" && quoteExpired(quoteValidUntil(doc))) {
+    const ew = widthOf("EXPIRED", 6, true) + 11;
+    c.box(chipX - ew, brandTop + 19, ew, 11, RED, 0.5);
+    c.text("EXPIRED", chipX - ew / 2, brandTop + 26.5, 6, { bold: true, colour: RED, align: "c", spacing: 1.2 });
   }
   y = Math.max(ay - 4, brandTop + 42);
   c.line(M, y, R, NAVY, 1.9); y += 9;
@@ -530,8 +539,11 @@ export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean;
   const closeTop = footY - 134;   // 22 zone offset + 55 zone + 41 of signer lines + clearance
   /* v1.332.0 - the Payment & No Refund Policy, the same words as the HTML template
      (PAYMENT_POLICY), in the address panels' tint with the gold rule, directly above
-     the closing block of a quotation or an invoice; never on a delivery order */
-  if (policyApplies(doc.doc_type)) {
+     the closing block of a quotation or an invoice; never on a delivery order.
+     v1.402.0 - the one the document was issued with (policyFor): validity on a quotation,
+     payment & refund on an invoice; a document from before keeps its Payment & No Refund text */
+  const pol = policyFor(doc);
+  if (pol) {
     const size = 6.2, lead = 7.6, pw = CW - 18;
     const lines = (t: string) => {
       let n = 0, line = "";
@@ -541,14 +553,14 @@ export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean;
       }
       return n + (line ? 1 : 0);
     };
-    const n = PAYMENT_POLICY.paragraphs.reduce((k, t) => k + lines(t), 0);
+    const n = pol.paragraphs.reduce((k, t) => k + lines(t), 0);
     const ph = 7 + 8.5 + n * lead + 1.5;
     const pt = closeTop - ph - 4;
     c.rect(M, pt, CW, ph, PANEL);
     c.rect(M, pt, 2.25, ph, GOLD);
-    c.text(PAYMENT_POLICY.title, M + 9, pt + 9.5, 5.8, { bold: true, spacing: 0.6 });
+    c.text(pol.title, M + 9, pt + 9.5, 5.8, { bold: true, spacing: 0.6 });
     let py = pt + 17.5;
-    for (const t of PAYMENT_POLICY.paragraphs) py = c.wrap(t, M + 9, py, pw, size, lead, { colour: SLATE });
+    for (const t of pol.paragraphs) py = c.wrap(t, M + 9, py, pw, size, lead, { colour: SLATE });
   }
   const hdr = isINV ? "PAYMENT" : isDO ? "DELIVERY CONFIRMATION" : "COMMITMENT ORDER CONFIRMATION";
   c.line(M, closeTop, R, NAVY, 0.6);
@@ -557,8 +569,11 @@ export function drawDoc(doc: DocFull, hasSig: boolean, marks: { stamp?: boolean;
     ? `Payment by bank transfer to ${issuer.bank} (${issuer.bankHolder}). Please send the transfer receipt via WhatsApp ${issuer.whatsapp} quoting the invoice number.`
     : isDO
       ? "The goods listed above were delivered in the quantities stated. Please sign and return one copy as proof of receipt."
-      : "We hereby accept the quoted items and agree that this signed document shall be deemed our official Purchase Order, subject to the terms above, including the Payment & No Refund Policy.";
+      : `We hereby accept the quoted items and agree that this signed document shall be deemed our official Purchase Order, subject to the terms above, including the ${pol?.name ?? "Payment & No Refund Policy"}.`;
   c.wrap(clause, M, closeTop + 72, readSign(doc)?.approved ? 190 : 225, 7.5, 9.5, { colour: SLATE }); // v1.248.0 - narrower beside three columns
+  /* v1.402.0 - a part of a quotation's billing names its stage (the invoice's own reference) */
+  const stage = paymentStageOf(doc);
+  if (stage) c.text(`Payment stage: ${stage}`, M, closeTop + 101, 7.1, { bold: true, colour: SLATE });
   if (isINV && doc.payment_status === "paid") {
     c.text(`OK PAID${doc.paid_at ? ` - ${dmy(doc.paid_at)}` : ""}`, M, closeTop + 112, 8.25, { bold: true, colour: GREEN });
   }

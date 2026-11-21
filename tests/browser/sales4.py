@@ -2,7 +2,7 @@
 12-11-2026; claude/SALES-WORKSPACE-4.0-BLUEPRINT.md, decisions S1-S7). The
 source rules are held by tests/sales4.mjs; here, the screens:
 
-  the seven views (v1.399.0), each reached from the address (?tab=Sales&view=...), at the
+  the eight views (v1.399.0; the Sales Playbook v1.404.0), each reached from the address (?tab=Sales&view=...), at the
   directive's eight widths, with no sideways page and no page error; tabs on a
   wide screen, one selector on a phone; Back and Forward move between views;
   the Overview is picture 01 (v1.320.0: six figures, the pipeline, the worklist and its rail); the figures' words follow
@@ -33,7 +33,8 @@ WIDTHS = [320, 360, 390, 430, 768, 1024, 1280, 1440]
 # v1.399.0 (Phase 3, decision 6) - seven views in the CEO's order; the Sales Pipeline is new
 VIEWS = [("overview", "Overview", "Overview"), ("customers", "Leads & CRM", "Leads & CRM"), ("pipeline", "Sales Pipeline", "Sales Pipeline"),
          ("documents", "Quotations & Invoices", "Documents"), ("payments", "Payments", "Payments"),
-         ("closed", "Closed Sales", "Closed Sales"), ("reports", "Reports", "Reports")]
+         ("closed", "Closed Sales", "Closed Sales"), ("reports", "Reports", "Reports"),
+         ("playbook", "Sales Playbook", "Sales Playbook")]  # v1.404.0 (Phase 7) - the eighth view
 no_hscroll = lambda pg: pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
 def post(port, path, body):
@@ -96,11 +97,11 @@ with sync_playwright() as p:
                       pg.get_by_test_id("view-switch").filter(visible=True).first.inner_text() if vis(pg, "view-switch") else "no switch")
             else:
                 sel = pg.get_by_test_id("sales-tabs").get_by_role("tab", selected=True)
-                check(f"{tag}: a wide screen has the seven tabs, this one selected; no selector", vis(pg, "sales-tabs") and not vis(pg, "sales-view-bar")
-                      and pg.get_by_test_id("sales-tabs").get_by_role("tab").count() == 7 and sel.count() == 1 and sel.inner_text().strip().startswith(wide),
+                check(f"{tag}: a wide screen has the eight tabs, this one selected; no selector", vis(pg, "sales-tabs") and not vis(pg, "sales-view-bar")
+                      and pg.get_by_test_id("sales-tabs").get_by_role("tab").count() == 8 and sel.count() == 1 and sel.inner_text().strip().startswith(wide),
                       sel.all_inner_texts() if sel.count() else "none")
-            gold = pg.locator("main button[class*=line-tabs_action]").filter(visible=True)
-            want = {"overview": 1, "documents": 1, "payments": 1, "customers": 1, "pipeline": 1, "closed": 0, "reports": 0}[key]
+            gold = pg.locator("main button[class*=line-tabs_action], main button[class*=line-tabs-module__][class*=__action]").filter(visible=True)  # webpack or Turbopack class names
+            want = {"overview": 1, "documents": 1, "payments": 1, "customers": 1, "pipeline": 1, "closed": 0, "reports": 0, "playbook": 1}[key]  # v1.404.0 - New entry, for the CEO
             check(f"{tag}: {want} gold action for the view", gold.count() == want, gold.all_inner_texts())
             if key == "overview":
                 # v1.320.0 (Sales 2.0 Stage 2, picture 01, approved) - six figures; with verification off the figure says so and shows no amount

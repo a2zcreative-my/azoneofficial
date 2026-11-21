@@ -37,6 +37,9 @@ export interface DocFull {
   kind?: string | null; // v1.4.234 — 'product' | 'service'
   delivery_status?: string | null;
   reference?: string | null;          // v1.4.243 — buyer's PO / their own ref
+  /** v1.402.0 - which policy wording the document was issued with: NULL = before
+      v1.402.0 (the Payment & No Refund Policy on both), 2 = the separated policies */
+  policy_version?: number | null;
   delivery_address?: string | null;   // v1.4.243 — ship-to on THIS document
   customer_delivery_address?: string | null; // customer's default ship-to
   signer_role?: string | null;
@@ -164,10 +167,52 @@ export const PAYMENT_POLICY = {
     "All payments are non-refundable once work has commenced, except where required by applicable law. Any changes to the agreed scope or timeline must be mutually agreed upon in writing.",
   ],
 } as const;
-/** the documents that carry the policy: the quotation (before payment) and the invoice */
+/**
+ * v1.402.0 - THE POLICIES SEPARATED (the CEO, 21-11-2026). A quotation carries the
+ * QUOTATION VALIDITY POLICY and an invoice the PAYMENT & REFUND POLICY, word for
+ * word as approved. Documents issued before this release (policy_version NULL) keep
+ * the Payment & No Refund Policy they were issued - and accepted - with (decision 1):
+ * the paper is redrawn every time it is opened, so the wording is chosen by the
+ * document, never by today's code. PAYMENT_POLICY above stays as that legacy text.
+ */
+export const POLICY_VERSION = 2;
+export const QUOTATION_VALIDITY_POLICY = {
+  title: "QUOTATION VALIDITY POLICY",
+  paragraphs: [
+    "This quotation is valid for fourteen (14) calendar days from the date of issuance. Any acceptance after the expiry date will be subject to price, scope and availability confirmation by A2Z Creative Marketing. Any changes to the quoted services may require a revised quotation.",
+  ],
+} as const;
+export const INVOICE_PAYMENT_POLICY = {
+  title: "PAYMENT & REFUND POLICY",
+  paragraphs: [
+    "Payment must be made according to the amount, due date and payment schedule stated in this invoice. Work will commence or continue upon confirmation of the required payment, subject to the agreed project scope and timeline.",
+    "Payments for services already commenced may be non-refundable, subject to the agreed service terms and applicable law. Any changes to the project scope or payment arrangements must be mutually agreed upon in writing.",
+  ],
+} as const;
+/** the quotation's default validity: fourteen calendar days from issue */
+export const QUOTE_VALID_DAYS = 14;
+export type DocPolicy = { key: "payment-no-refund" | "quotation-validity" | "payment-refund"; title: string; paragraphs: readonly string[]; name: string };
+/** the policy a document carries, chosen by the document: never on a delivery order */
+export function policyFor(doc: { doc_type: string; policy_version?: number | null }): DocPolicy | null {
+  if (doc.doc_type !== "QT" && doc.doc_type !== "INV") return null;
+  if (Number(doc.policy_version ?? 0) >= POLICY_VERSION) {
+    return doc.doc_type === "QT"
+      ? { key: "quotation-validity", ...QUOTATION_VALIDITY_POLICY, name: "Quotation Validity Policy" }
+      : { key: "payment-refund", ...INVOICE_PAYMENT_POLICY, name: "Payment & Refund Policy" };
+  }
+  return { key: "payment-no-refund", ...PAYMENT_POLICY, name: "Payment & No Refund Policy" };
+}
+/** a quotation past its validity date (Malaysia's calendar day); never an undated one */
+export function quoteExpired(validUntil: string | null | undefined, today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)): boolean {
+  return Boolean(validUntil && /^\d{4}-\d{2}-\d{2}/.test(validUntil) && validUntil.slice(0, 10) < today);
+}
+/** an invoice billed as part of a quotation names its stage in its reference (staff.ts partInvoice) */
+export const paymentStageOf = (doc: { doc_type: string; reference?: string | null }): string | null =>
+  doc.doc_type === "INV" && doc.reference && /^(Deposit|Progress billing|Balance) /.test(doc.reference) ? doc.reference : null;
+/** the documents that carry a policy: the quotation and the invoice */
 export const policyApplies = (docType: string) => docType === "INV" || docType === "QT";
 /** the policy block's share of the one A4 page, in millimetres (the page budget below) */
-export const POLICY_MM = 18; // measured: 14mm printed (Chromium, A4), 18mm in the PDF block - the larger
+export const POLICY_MM = 22; // v1.402.0 - the longest block, the invoice's Payment & Refund Policy (two paragraphs); was 18 for the legacy text // measured: 14mm printed (Chromium, A4), 18mm in the PDF block - the larger
 
 export interface PageFit {
   /** millimetres the item table will take */
@@ -297,7 +342,11 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     ["Doc no.", esc(docRevisionLabel(doc)), "23%"],
     ["Date", dOnly(docDateOf(doc)), "14%"],
   ];
-  if (doc.doc_type === "QT") { const vu = quoteValidUntil(doc); meta.push(["Valid until", vu ? dOnly(vu) : "14 days", "14%"]); }
+  if (doc.doc_type === "QT") {
+    const vu = quoteValidUntil(doc);
+    /* v1.402.0 - the actual date, and plainly EXPIRED once it has passed */
+    meta.push(["Valid until", vu ? dOnly(vu) : "14 days", "14%"]);
+  }
   else if (isINV) meta.push(["Payment due", doc.due_date ? dOnly(doc.due_date) : "On receipt", "14%"]);
   else meta.push(["Delivery", doc.delivery_status === "delivered" ? "Delivered" : "Pending", "14%"]);
   meta.push(["Reference", doc.reference ? esc(doc.reference) : "N/A", "22%"]);
@@ -366,10 +415,13 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
   /* One closing shape for all three types — heading, a short clause on the
      left, signer + counterparty on the right — so the three documents read as
      one family and the signature rules land identically on every one. */
-  /* v1.332.0 - the approved policy, the same words for both companies, directly above the closing block */
-  const policy = policyApplies(doc.doc_type)
-    ? `<div class="policy" data-policy="payment-no-refund"><p class="pt">${esc(PAYMENT_POLICY.title)}</p>${PAYMENT_POLICY.paragraphs.map((x) => `<p>${esc(x)}</p>`).join("")}</div>`
+  /* v1.332.0 - the approved policy, the same words for both companies, directly above the closing block.
+     v1.402.0 - the one the document was issued with (policyFor): validity on a quotation, payment & refund on an invoice */
+  const pol = policyFor(doc);
+  const policy = pol
+    ? `<div class="policy" data-policy="${pol.key}"><p class="pt">${esc(pol.title)}</p>${pol.paragraphs.map((x) => `<p>${esc(x)}</p>`).join("")}</div>`
     : "";
+  const stage = paymentStageOf(doc);
   let bottom: string;
   if (isINV) {
     bottom = `<div class="accept">
@@ -379,6 +431,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
         <div>
           <p class="body">Payment by bank transfer to <strong>${esc(issuer.bank)}</strong> (${esc(issuer.bankHolder)}).
           Please send the transfer receipt via WhatsApp +60 12-383 4821 quoting the invoice number.</p>
+          ${stage ? `<p class="body stage" data-stage>Payment stage: <strong>${esc(stage)}</strong></p>` : ""}
           ${isPaid ? `<p class="paidline">&#10004; PAID${doc.paid_at ? ` &middot; ${dOnly(doc.paid_at)}` : ""}${doc.payment_ref ? ` &middot; Ref: ${esc(doc.payment_ref)}` : ""}</p>` : ""}
           ${isVoid ? `<p class="paidline" style="color:#b91c1c">VOID &middot; this invoice is cancelled and nothing is owed on it</p>` : ""}
         </div>
@@ -403,7 +456,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
       <div class="split">
         <p class="body">We hereby accept the quoted items and agree that this signed
         document shall be deemed our official Purchase Order, subject to the terms above,
-        including the Payment &amp; No Refund Policy.</p>
+        including the ${esc(pol?.name ?? "Payment & No Refund Policy")}.</p>
         <div class="split2">${preparedBy("Prepared by")}
           ${partnerBlock("Accepted &amp; confirmed by", "Name &amp; designation", "Company chop")}</div>
       </div>
@@ -493,6 +546,10 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
     .policy { background: ${DOC.tint}; border-left: 3px solid ${DOC.gold}; border-radius: 5px; padding: 5px 10px; margin-bottom: 9px;
       font-size: 8px; line-height: 1.4; color: ${DOC.inkSoft}; }
     .policy p { margin: 0; }
+    /* v1.402.0 - a quotation past its date says so, beside the title (kept in the header, no page height) */
+    .docbox .expired { display: inline-block; margin: 5px 6px 0 0; font-size: 8px; letter-spacing: .16em; font-weight: 800;
+      border: 1px solid #b91c1c; color: #b91c1c; border-radius: 3px; padding: 2px 7px; }
+    .stage { margin-top: 3px; }
     .policy .pt { font-size: 7.5px; letter-spacing: .14em; color: ${DOC.navy}; font-weight: 800; margin-bottom: 1px; }
     .accept .hdr { text-align: center; font-size: 11px; font-weight: 800; letter-spacing: .06em; border-top: 1px solid ${DOC.navy}; padding-top: 7px; }
     .accept .body { font-size: 10px; color: ${DOC.inkSoft}; margin: 4px 0 0; line-height: 1.5; flex: none; width: 300px; }
@@ -536,6 +593,7 @@ export function buildDocHtml(doc: DocFull, autoPrint = true, sigSrcOverride?: st
       ${esc(issuer.email)} &middot; WhatsApp ${esc(issuer.whatsapp)}</div>
     </div>
     <div class="docbox"><h2>${title}</h2>
+      ${doc.doc_type === "QT" && quoteExpired(quoteValidUntil(doc)) ? `<div class="expired" data-expired>EXPIRED</div>` : ""}
       ${doc.kind ? `<div class="kindchip">${isService ? "SERVICES" : "PRODUCTS"}</div>` : ""}
     </div>
   </div>
