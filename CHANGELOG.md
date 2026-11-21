@@ -4,6 +4,13 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Two-factor on a phone: the phone's own keyboard, and a Paste Code button (21-11-2026, the CEO's iPhone PWA screenshot: both keyboards at once, "As recommended") - NO MIGRATION, no server change
+- **Phones and tablets (any touch screen without a mouse):** the custom keypad is gone; tapping the six boxes opens the phone's own number keyboard, so only one keyboard ever shows. Nothing opens by itself when the page loads. When the keyboard opens, the page scrolls so Verify sits above it.
+- **Paste Code (every device):** one press reads the clipboard (on iPhone, iOS asks you to confirm with its own Paste bubble). Six digits, with spaces, dashes or other words around them, fill the boxes and sign in at once; anything else says "The clipboard does not hold a 6-digit code"; a refused or missing clipboard says "Tap and hold the boxes, then choose Paste". The clipboard is read only on the press, never watched, never kept or sent anywhere but the same verify call.
+- **Desktop with a mouse:** the keypad stays, with the physical keyboard, Ctrl+V / Cmd+V and Paste Code. Backup codes keep their own box. Server checks, limits and errors are unchanged.
+- An iPhone does not offer a code copied from Google Authenticator as a keyboard suggestion (only codes from Messages, Mail or Apple's Passwords app); Paste Code and long-press Paste are the way in.
+- Guard `login-ux` 67 checks (3 new; it also no longer reads past the Cloudflare notice); browser `release-a.py` A1 gains a Paste Code refusal check (not run here: no Python); checked in a browser on the test server at desktop and phone (touch) settings. Not tested on a real iPhone, the installed app or Android. Not deployed.
+
 ### The CEO can remove a test Business Growth Check entry (21-11-2026, the CEO: "As CEO, I want to have authority to delete this ... it is not valid due to a testing"; his answer: Mark as test) - MIGRATION 0232 (additive)
 - **Remove test entry:** on the Sales Action Center, a Business Growth Check row has a More (...) menu with **Remove test entry**, and the entry's own panel has the same button. Only the CEO sees it; it asks why (at least 10 characters).
 - **What it does:** the entry is closed and leaves the Action Center, the Desk, the Growth Check list and every Growth figure, and it can no longer be turned into a lead. A real person's later submission from the same WhatsApp starts a new entry.
