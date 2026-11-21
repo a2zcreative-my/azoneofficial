@@ -19,6 +19,7 @@ import { StateChip, FLOW, flowOf, flowWord, stamp, type FlowKey } from "@/compon
 import { PriorityChip } from "@/components/portal/task-workspace";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { Avatar } from "@/components/ui/avatar";
+import { TaskAssignees } from "@/components/portal/task-assignees"; // 21-11-2026 - a shared team task shown once
 import { SkelRows } from "@/components/ui/skeleton";
 import { type PageSize } from "@/components/ui/pagination-controls";
 import { CompactTaskTable, TaskRowSub, TaskRowTitle, type SortDir, type TableCol } from "@/components/portal/task-table";
@@ -158,7 +159,7 @@ export function FlowBoard({ rows, today, onOpen, onAdd, onAllDone, showWho, limi
                   </span>
                   {(k === "in_progress" || k === "review") && <span className={t2.bPct}><b>{m.pct}%</b><Bar pct={m.pct} /></span>}
                   <span className={t2.bRow}>
-                    {showWho && t.assignee ? <span className={t2.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}</span></span> : <span />}
+                    {showWho && t.assignee ? <TaskAssignees t={t} whoClass={t2.who} mutedClass={t2.muted} /> : <span />}
                     <span className={t2.myChips}><Marker m={m} />{t.stage && t.stage !== "review" && t.status !== "completed" && <StateChip status={t.status} stage={t.stage} />}</span>
                   </span>
                   {foot && <span className={t2.bFoot}>{foot(t)}</span>}
@@ -198,7 +199,7 @@ export function OverviewTable({ rows, today, onOpen, showWho, label }: { rows: T
               <tr key={t.id} data-record={`task:${t.id}`} data-overdue={m.overdue || undefined}>
                 <td data-label={L("Task", "Tugas")}><button type="button" className={t2.rowTitle} onClick={() => onOpen(t.id)}>{t.title}</button><small className={t2.rowNo}>{taskNo(t.id)}</small></td>
                 <td data-label={L("Project / Client", "Projek / Klien")}>{m.project ?? <span className={t2.muted}>—</span>}</td>
-                {showWho && <td data-label={L("Assigned To", "Diberi Kepada")}>{t.assignee ? <span className={t2.who}><Avatar name={t.assignee} photoKey={t.assignee_photo} size="sm" /><span>{t.assignee}</span></span> : <span className={t2.muted}>—</span>}</td>}
+                {showWho && <td data-label={L("Assigned To", "Diberi Kepada")}><TaskAssignees t={t} whoClass={t2.who} mutedClass={t2.muted} /></td>}
                 <td data-label={L("Priority", "Keutamaan")}><PriorityChip priority={t.priority} /></td>
                 <td data-label={L("Due Date", "Tarikh Akhir")} className={m.overdue ? t2.late : ""}><span className={t2.dueCell}><AppIcon name="date" className="erp-icon" />{m.due ?? "—"}</span>{(m.overdue || m.soon) && <span className={t2.dueMark}><Marker m={m} /></span>}</td>
                 <td data-label={L("Status", "Status")}><StateChip status={t.status} stage={t.stage ?? null} /></td>

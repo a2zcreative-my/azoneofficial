@@ -788,6 +788,10 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   if (p === "/birthdays-lite") data = { birthdays: [{ id: 9002, name: "Nur Aisyah", birthday: "1997-09-28" }, { id: 9003, name: "Farid Zul", birthday: "1995-10-04" }] };
   /* v1.200.0 - as the worker answers: everything with ?all=1 (managers), otherwise the caller's own */
   if (p === "/staff/tasks") data = { tasks: q.get("all") === "1" ? tasks : tasks.filter((t) => t.assigned_to === 9001) };
+  /* 21-11-2026 - a SHARED TEAM TASK (TEAMTASK=1): ONE task, Farid responsible, two
+     helpers in the order added - the shape GET /tasks sends (tests/browser/team-task.py) */
+  if (p === "/staff/tasks" && process.env.TEAMTASK && q.get("all") === "1") data = { tasks: [{ id: 8, title: "Shop floor team meeting", description: "Walk the floor with both helpers.", priority: "high", deadline: D + "14", status: "open", progress: 0, assignee: "Farid Zul", assigned_to: 9003, created_by: 9001, created_at: D + "15 01:00:00", acknowledged: 0,
+    assistants: [{ id: 9002, name: "Nur Aisyah binti Rahman", short: "Nur Aisyah", photo_key: null }, { id: 9004, name: "Tan Mei Ling", short: "Mei Ling", photo_key: null }] }, ...data.tasks] };
   /* v1.205.0 - /staff/search over this fixture's own invented records (the
      worker's shape: kind, id, title, sub, tab, status, date, photo), `per`
      and `only` honoured. Gates are the worker's job and its guard's

@@ -642,6 +642,12 @@ const server = http.createServer((req, res) => {
         taskPosts.push({ method: req.method, p, body });
         res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true })); return;
       }
+      /* 21-11-2026 - Create Task (TEAMTASK=1), recorded for /__tasks so tests/browser/team-task.py
+         sees ONE POST carrying the extra people (the worker's rules: go-live-t TEAM checks) */
+      if (req.method === "POST" && p === "/staff/tasks" && process.env.TEAMTASK) {
+        taskPosts.push({ method: req.method, p, body });
+        res.writeHead(201, { "content-type": "application/json" }); res.end(JSON.stringify({ id: 99 })); return;
+      }
       /* v1.315.0 - the Live Host Report's writes, recorded for /__tasks (the worker's rules are proven by tests/tasks-gate4.mjs) */
       if (req.method !== "GET" && p.startsWith("/staff/live-reports")) {
         taskPosts.push({ method: req.method, p, body: p.endsWith("/files") ? "(file)" : body });

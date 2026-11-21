@@ -37,7 +37,7 @@ import { handleShiftBulk } from "./shift-bulk"; // v1.373.0
 import { handleAgent, linkAgentQuotation } from "./agent"; // v1.249.0 - the agent desk; v1.250.0 - a quotation with an AGR reference joins its request
 import { handleSigning, handleDocSigning, signPlan, loadDocForSigning, issueDoc } from "./signing"; // v1.248.0 - Signatures & Stamps
 import { queueTaskMail, taskForMail, readMailSettings, validateSettings, writeMailSettings, buildTaskMail, recipientFor, MAIL_KINDS, broadcastTaskMail, openTaskLines } from "./task-mail";
-import { closuresOf, handleTaskProgress, lateDays, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
+import { addAssistant, checkNewAssistants, closuresOf, handleTaskProgress, lateDays, latestUpdates, loadTask, taskAccess } from "./tasks-progress"; // v1.246.0 - task progress, review, files, activity
 import { commissionForPayroll, ensureLedger, handleCommission, markCommissionPaid, reassignCloser } from "./commission"; // v1.224.0 - the commission engine (policy, ledger, payroll link) // v1.223.0 - weekly sales targets, scorecard, recovery plans
 import { handleThreads } from "./threads";
 import { handleHotels } from "./hotels";
@@ -10299,8 +10299,10 @@ async function handleStaffRoutes(
       const ids = results.map((t) => Number(t.id));
       const latest = await latestUpdates(env, ids);
       const helpers = (await env.DB.prepare(
-        `SELECT a.task_id, a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name FROM task_assistants a JOIN users u ON u.id = a.user_id WHERE a.removed_at IS NULL`,
-      ).all<{ task_id: number; user_id: number; name: string }>()).results;
+        /* 21-11-2026 (shared team task) - the helper's photo and the short name the
+           Assignee column already uses for the person responsible, in the order added */
+        `SELECT a.task_id, a.user_id, COALESCE(NULLIF(TRIM(u.full_name), ''), u.name) AS name, u.name AS short, u.photo_key FROM task_assistants a JOIN users u ON u.id = a.user_id WHERE a.removed_at IS NULL ORDER BY a.id`,
+      ).all<{ task_id: number; user_id: number; name: string; short: string | null; photo_key: string | null }>()).results;
       const projects = new Map((await env.DB.prepare(
         `SELECT p.id, p.title, c.company FROM projects p LEFT JOIN customers c ON c.id = p.customer_id`,
       ).all<{ id: number; title: string; company: string | null }>()).results.map((p) => [p.id, p]));
@@ -10311,7 +10313,7 @@ async function handleStaffRoutes(
         const c = closures.get(Number(t.id));
         if (c) { t.closed_at = c.at; t.closed_by = c.by; t.closed_kind = c.kind; t.closed_late_days = lateDays((t.deadline as string | null) ?? null, c.at); }
         t.latest_update = latest.get(Number(t.id)) ?? null;
-        t.assistants = helpers.filter((h) => h.task_id === Number(t.id)).map((h) => ({ id: h.user_id, name: h.name }));
+        t.assistants = helpers.filter((h) => h.task_id === Number(t.id)).map((h) => ({ id: h.user_id, name: h.name, short: h.short ?? h.name, photo_key: h.photo_key ?? null }));
         const pj = t.link_kind === "project" ? projects.get(Number(t.link_id)) : undefined;
         t.link_label = pj ? `${pj.title}${pj.company ? ` · ${pj.company}` : ""}` : t.link_kind === "customer" ? custs.get(Number(t.link_id)) ?? null : null;
       }
@@ -10377,6 +10379,11 @@ async function handleStaffRoutes(
     const tl = await taskLink(env, body, assignedTo, user);
     if (tl instanceof Response) return tl;
     const linkKind = tl?.kind ?? null, linkId = tl?.id ?? null;
+    /* 21-11-2026 - a SHARED TEAM TASK (the CEO: "a team task shown once"): the
+       extra people are checked before the task is written, then become helpers
+       of this ONE task (task_assistants). Never a task per person. */
+    const helperIds = await checkNewAssistants(env, user, { assigned_to: assignedTo, link_kind: linkKind, link_id: linkId }, body.assistants);
+    if (helperIds instanceof Response) return helperIds;
     const prio = ["low", "normal", "high", "urgent"];
     const res = linkKind && linkId
       /* v1.223.0 - the linked insert repeats the "one open task" check in the
@@ -10468,8 +10475,14 @@ async function handleStaffRoutes(
         if (tm) await queueTaskMail(env, "assigned", assignedTo, `task:${res.id}:assigned:${assignedTo}`, { task: tm, by: user.name }, { urgent: true });
       }
     }
-    await audit(env, user.id, "task.create", "tasks", String(res?.id));
-    return json({ id: res?.id, block_id: firstBlock, days: blockDays }, 201);
+    /* the shared team task's helpers - the same write, event, audit and bell as
+       adding each one from the drawer (tasks-progress.ts addAssistant) */
+    const helpersAdded: number[] = [];
+    if (res?.id) for (const uid of helperIds) {
+      if (await addAssistant(env, user, { id: res.id, title: body.title as string }, uid)) helpersAdded.push(uid);
+    }
+    await audit(env, user.id, "task.create", "tasks", String(res?.id), helpersAdded.length ? { assistants: helpersAdded } : undefined);
+    return json({ id: res?.id, block_id: firstBlock, days: blockDays, ...(helpersAdded.length ? { assistants: helpersAdded } : {}) }, 201);
   }
 
   /* ===================== v1.66.0 — Track R: task blocks =====================

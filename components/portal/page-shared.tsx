@@ -301,7 +301,8 @@ export interface Task {
   progress_source?: "checklist" | "manual" | null;
   created_at?: string;
   latest_update?: { id: number; kind: string; body: string; at: string; by: string | null; by_id: number } | null;
-  assistants?: { id: number; name: string }[];
+  /* 21-11-2026 - a shared team task: the helpers with the short name and photo the Assignee column draws (task-assignees.tsx) */
+  assistants?: { id: number; name: string; short?: string; photo_key?: string | null }[];
   link_label?: string | null;
 }
 export interface TaskItem { // v1.42.0 — one scope deliverable

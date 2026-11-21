@@ -133,6 +133,47 @@ async function assistantsOf(env: Env, taskId: number): Promise<{ id: number; nam
     ).bind(taskId).all<{ id: number; name: string; photo_key: string | null; added_at: string }>()).results;
   } catch (e) { if (missing(e)) return []; throw e; }
 }
+/** One helper onto a task - the ONE write of a task_assistants row, shared by
+    POST /tasks/:id/assistants and Create Task's shared team task (21-11-2026).
+    Its event, audit and bell are the same either way. Null = already helping. */
+export async function addAssistant(env: Env, user: StaffUser, t: { id: number; title: string }, uid: number): Promise<number | null> {
+  const ins = await env.DB.prepare(
+    `INSERT INTO task_assistants (task_id, user_id, added_by) SELECT ?1, ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM task_assistants WHERE task_id = ?1 AND user_id = ?2 AND removed_at IS NULL) RETURNING id`,
+  ).bind(t.id, uid, user.id).first<{ id: number }>();
+  if (!ins) return null;
+  await event(env, t.id, `assist_add:${uid}`, user.id);
+  await audit(env, user.id, "task.assistant_add", "tasks", String(t.id), { user_id: uid });
+  await tell(env, [uid], user.id, `🤝 You are helping on: ${t.title} - it is in your Tasks`, `task:${t.id}:assist:${ins.id}`);
+  return ins.id;
+}
+/** A shared team task (the CEO, 21-11-2026: "a team task shown once"): the extra
+    people Create Task names, checked BEFORE the task is written so a refusal
+    leaves no half-made task. The rule is the one POST /tasks/:id/assistants
+    already applies - only those who would manage the task (team_manage, or the
+    project's own manage for a project task), current staff only, never the
+    person responsible - so the result is exactly one task plus helpers, as if
+    each had been added from the drawer. Never a task per person. */
+export async function checkNewAssistants(
+  env: Env, user: StaffUser, draft: { assigned_to: number; link_kind: string | null; link_id: number | null }, raw: unknown,
+): Promise<number[] | Response> {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return err("invalid_input", "assistants must be a list of staff ids", 400);
+  const ids = [...new Set(raw.map((x) => Number(x)))];
+  if (ids.length === 0) return [];
+  if (ids.some((x) => !Number.isInteger(x) || x <= 0)) return err("invalid_input", "assistants must be a list of staff ids", 400);
+  if (ids.length > 10) return err("invalid_input", "A task is shared with at most 10 more people", 400);
+  if (ids.includes(draft.assigned_to)) return err("invalid_input", "That is the person responsible for the task already", 400);
+  const a = await taskAccess(env, user, {
+    id: 0, title: "", description: null, assigned_to: draft.assigned_to, created_by: user.id, priority: "normal", deadline: null,
+    status: "open", progress: 0, created_at: "", link_kind: draft.link_kind, link_id: draft.link_id, stage: null, progress_source: null,
+  });
+  if (!a.manage) return err("forbidden", a.project ? "Only the Project Owner or the CEO, COO or CCO add people to a project task" : "Only management add people to a task", 403);
+  const ok = (await env.DB.prepare(
+    `SELECT id FROM users WHERE id IN (${ids.map((_, i) => `?${i + 1}`).join(",")}) AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`,
+  ).bind(...ids).all<{ id: number }>()).results;
+  if (ok.length !== ids.length) return err("invalid_input", "Everyone on a task must be a current staff member", 400);
+  return ids;
+}
 /** Who reviews a completion of this task: the person who set it, else the
     Project Owner, else (no owner yet) the CEO/COO/CCO. Never the assignee. */
 async function reviewersOf(env: Env, t: TaskRow, project: ProjectRow | null): Promise<number[]> {
@@ -709,14 +750,9 @@ async function route(
     if (uid === t.assigned_to) return err("invalid_input", "That is the person responsible for the task already", 400);
     const ok = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE id = ?1 AND is_active = 1 AND ${staffRolesSql()} AND ${currentStaffSql()}`).bind(uid).first();
     if (!ok) return err("invalid_input", "That must be a current staff member", 400);
-    const ins = await env.DB.prepare(
-      `INSERT INTO task_assistants (task_id, user_id, added_by) SELECT ?1, ?2, ?3 WHERE NOT EXISTS (SELECT 1 FROM task_assistants WHERE task_id = ?1 AND user_id = ?2 AND removed_at IS NULL) RETURNING id`,
-    ).bind(t.id, uid, user.id).first<{ id: number }>();
-    if (!ins) return json({ ok: true, existing: true });
-    await event(env, t.id, `assist_add:${uid}`, user.id);
-    await audit(env, user.id, "task.assistant_add", "tasks", String(t.id), { user_id: uid });
-    await tell(env, [uid], user.id, `🤝 You are helping on: ${t.title} - it is in your Tasks`, `task:${t.id}:assist:${ins.id}`);
-    return json({ ok: true, id: ins.id }, 201);
+    const insId = await addAssistant(env, user, t, uid);
+    if (!insId) return json({ ok: true, existing: true });
+    return json({ ok: true, id: insId }, 201);
   }
   if (sub.startsWith("/assistants") && method === "DELETE" && m[3]) {
     if (!a.manage) return err("forbidden", "Only those who manage the task remove a helper", 403);
