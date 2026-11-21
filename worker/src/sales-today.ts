@@ -41,7 +41,7 @@ import type { StaffUser } from "./staff";
 import { canUser } from "./permissions";
 import { err, json } from "./shared";
 import { growthViewer } from "./growth";
-import { TASK_LINK_SQL } from "./crm"; // v1.408.0 - an open task on the lead is a next action
+import { DONE_TASK_SQL, TASK_LINK_SQL } from "./crm"; // v1.408.0 - an open task on the lead is a next action
 import { hoursWaiting, isOverdue as enquiryLate } from "./enquiries";
 import { openQuotationSql, personWeek, staffList, targetFor, weekStartDow, weekStartOf } from "./weekly-sales";
 import { actionCounts, followupFlag, rankActions, type SalesAction, type SalesActivity, type SalesDone } from "../../lib/sales-priority";
@@ -253,6 +253,7 @@ export async function salesActions(env: Env, v: SalesViewer, today = mytToday())
           AND (?1 = 0 OR c.owner_id = ?2)
           AND NOT EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
           AND NOT EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL()})
+          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE ${DONE_TASK_SQL()})
           AND NOT EXISTS (SELECT 1 FROM sales_opportunities o WHERE o.customer_id = c.id AND o.stage IN ('new', 'qualified', 'proposal', 'negotiation'))
         ORDER BY c.created_at LIMIT 300`,
     ).bind(mine ? 1 : 0, user.id).all<L>()).results ?? [])) {

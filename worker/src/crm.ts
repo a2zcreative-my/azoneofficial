@@ -56,15 +56,24 @@ const OPEN_SQL = (a = "c.") => `(${a}relationship_status IS NULL OR ${a}relation
     project of its own, or to an enquiry converted into it. Open = not completed (a cancelled
     task is completed with stage cancelled). `id` is the customer id expression. Exported:
     sales-today's lead row reads the same rule. */
-export const TASK_LINK_SQL = (id = "c.id") => `t.status != 'completed' AND (
+export const TASK_LINK_SQL = (id = "c.id") => `t.status != 'completed' AND ${LINKED_SQL(id)}`;
+/** v1.412.0 (the CEO: "if there is a Task completed, the status should change to the Closed") - a task on
+    the lead that was COMPLETED (closed, not cancelled). With nothing open or booked, the lead's next action
+    reads "Task closed" instead of No next action; the lead's relationship status is never touched. */
+export const DONE_TASK_SQL = (id = "c.id") => `t.status = 'completed' AND COALESCE(t.stage, '') != 'cancelled' AND ${LINKED_SQL(id)}`;
+/** linked to the customer, one of its quotations, a project of its own, or an enquiry converted into it */
+const LINKED_SQL = (id: string) => `(
       (t.link_kind = 'customer' AND t.link_id = ${id})
    OR (t.link_kind = 'quotation' AND t.link_id IN (SELECT d.id FROM sales_documents d WHERE d.customer_id = ${id} AND d.doc_type = 'QT'))
    OR (t.link_kind = 'project' AND t.link_id IN (SELECT p.id FROM projects p WHERE p.customer_id = ${id}))
    OR (t.link_kind = 'enquiry' AND t.link_id IN (SELECT e.id FROM enquiries e WHERE e.customer_id = ${id})))`;
-/** a next action is an open follow-up OR an open task on the lead - one rule for the list, the
-    No next action figure and its filter */
+/** when a task was closed (Malaysia time): its newest close / approve row in the task's own history (no column on tasks) */
+const CLOSED_AT_SQL = `(SELECT datetime(MAX(u.created_at), '+8 hours') FROM task_updates u WHERE u.task_id = t.id AND u.kind IN ('closed', 'closed_with_exception', 'review_approved'))`;
+/** a next action is an open follow-up OR an open task on the lead, and a lead whose task was completed
+    reads "Task closed" (v1.412.0) - one rule for the list, the No next action figure and its filter */
 const NEXT_SQL = (a = "c.") => `(EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = ${a}id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
-   OR EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL(`${a}id`)}))`;
+   OR EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL(`${a}id`)})
+   OR EXISTS (SELECT 1 FROM tasks t WHERE ${DONE_TASK_SQL(`${a}id`)}))`;
 
 interface Body { [k: string]: unknown }
 
@@ -181,13 +190,16 @@ async function listLeads(env: Env, user: StaffUser, p: URLSearchParams) {
             (SELECT t.id FROM tasks t WHERE ${TASK_LINK_SQL()} ORDER BY t.deadline IS NULL, substr(t.deadline, 1, 10), t.id LIMIT 1) AS task_id,
             (SELECT t.title FROM tasks t WHERE ${TASK_LINK_SQL()} ORDER BY t.deadline IS NULL, substr(t.deadline, 1, 10), t.id LIMIT 1) AS task_title,
             (SELECT MIN(substr(t.deadline, 1, 10)) FROM tasks t WHERE ${TASK_LINK_SQL()} AND t.deadline IS NOT NULL) AS task_due,
+            (SELECT t.title FROM tasks t WHERE ${DONE_TASK_SQL()} ORDER BY COALESCE(${CLOSED_AT_SQL}, '') DESC, t.id DESC LIMIT 1) AS closed_title,
+            (SELECT MAX(COALESCE(${CLOSED_AT_SQL}, '')) FROM tasks t WHERE ${DONE_TASK_SQL()}) AS closed_at,
             (SELECT MAX(a.occurred_at) FROM sales_activities a WHERE a.customer_id = c.id) AS last_activity,
             (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'QT') AS quotations,
             (SELECT COUNT(*) FROM sales_documents d WHERE d.customer_id = c.id AND d.doc_type = 'INV' AND COALESCE(d.payment_status, '') != 'void') AS invoices
        FROM customers c LEFT JOIN users o ON o.id = c.owner_id
       WHERE ${w}) x ORDER BY ${sort} LIMIT ${PER} OFFSET ${(page - 1) * PER}`,
   ).bind(...binds).all<Record<string, unknown> & { relationship_status: string | null; owner_id: number | null; next_due: string | null;
-    fu_due: string | null; fu_note: string | null; task_id: number | null; task_title: string | null; task_due: string | null }>();
+    fu_due: string | null; fu_note: string | null; task_id: number | null; task_title: string | null; task_due: string | null;
+    closed_title: string | null; closed_at: string | null }>();
   const today = mytToday();
   const rows = (results ?? []).map((r) => {
     const open = r.relationship_status === null || (OPEN_LEAD as readonly string[]).includes(r.relationship_status);
@@ -197,10 +209,12 @@ async function listLeads(env: Env, user: StaffUser, p: URLSearchParams) {
     return {
       ...rest,
       interested_services: parseServices(r.interested_services),
-      next_kind: fuFirst ? "followup" : r.task_id !== null ? "task" : null,
-      next_note: fuFirst ? fu_note : r.task_id !== null ? r.task_title : null,
+      /* v1.412.0 - nothing open or booked, but a task was completed: "closed" (never a status change) */
+      next_kind: fuFirst ? "followup" : r.task_id !== null ? "task" : r.next_due === null && r.closed_title !== null ? "closed" : null,
+      next_note: fuFirst ? fu_note : r.task_id !== null ? r.task_title : r.next_due === null ? r.closed_title : null,
+      closed_at: r.closed_at || null,
       no_owner: open && r.owner_id === null,
-      no_next: open && r.next_due === null && r.task_id === null,
+      no_next: open && r.next_due === null && r.task_id === null && r.closed_title === null,
       next_late: r.next_due !== null && r.next_due < today,
     };
   });
@@ -234,7 +248,7 @@ async function leadDetail(env: Env, id: number) {
   ).bind(id).first<Record<string, unknown>>();
   if (!lead) return null;
   const all = <T>(sql: string) => env.DB.prepare(sql).bind(id).all<T>().then((r) => r.results ?? []);
-  const [activities, ownerEvents, statusEvents, followups, tasks, docs, enquiries, growth] = await Promise.all([
+  const [activities, ownerEvents, statusEvents, followups, tasks, closedTasks, docs, enquiries, growth] = await Promise.all([
     all(`SELECT a.id, a.kind, a.outcome, a.note, a.occurred_at, a.followup_id, a.doc_id, ${NAME("u")} AS by_name, a.created_by
            FROM sales_activities a LEFT JOIN users u ON u.id = a.created_by WHERE a.customer_id = ?1 ORDER BY a.occurred_at DESC, a.id DESC LIMIT 100`),
     all(`SELECT e.id, e.kind, e.reason, e.created_at, ${NAME("f")} AS from_name, ${NAME("t")} AS to_name, ${NAME("b")} AS by_name
@@ -249,6 +263,9 @@ async function leadDetail(env: Env, id: number) {
            FROM tasks t LEFT JOIN users u ON u.id = t.assigned_to
           WHERE ${TASK_LINK_SQL("?1")}
           ORDER BY t.deadline IS NULL, substr(t.deadline, 1, 10), t.id LIMIT 20`).catch(() => []),
+    /* v1.412.0 - the newest completed task, for "Task closed" when nothing is open */
+    all(`SELECT t.id, t.title, ${CLOSED_AT_SQL} AS closed_at FROM tasks t
+          WHERE ${DONE_TASK_SQL("?1")} ORDER BY COALESCE(${CLOSED_AT_SQL}, '') DESC, t.id DESC LIMIT 1`).catch(() => []),
     /* v1.406.0 - the lead's quotations and invoices, each with where it stands (the CEO: "link it!") */
     all(`SELECT d.id, d.doc_type, d.doc_number, d.total_cents, d.payment_status, d.created_at, d.valid_until, d.voided_at,
                 CASE WHEN d.doc_type = 'QT' THEN EXISTS (SELECT 1 FROM quotation_acceptances a WHERE a.doc_id = d.id AND a.revision = COALESCE(d.revision, 0)) ELSE 0 END AS accepted,
@@ -259,7 +276,7 @@ async function leadDetail(env: Env, id: number) {
     all(`SELECT id, name, status, created_at FROM enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
     all(`SELECT id, ref, status, created_at FROM business_growth_enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
   ]);
-  return { lead: { ...lead, interested_services: parseServices(lead.interested_services) }, activities, owner_events: ownerEvents, status_events: statusEvents, followups, tasks, docs, enquiries, growth };
+  return { lead: { ...lead, interested_services: parseServices(lead.interested_services) }, activities, owner_events: ownerEvents, status_events: statusEvents, followups, tasks, closed_task: closedTasks[0] ?? null, docs, enquiries, growth };
 }
 
 async function suggestions(env: Env) {

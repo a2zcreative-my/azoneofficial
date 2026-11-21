@@ -105,6 +105,9 @@ async function runtime(workerBundle, migDir) {
   tk.run(903, "Chase QT-C-407", "open", "2027-01-20", "quotation", 407);
   tk.run(904, "Old task for Client 17", "completed", "2026-10-01", "customer", 17);
   tk.run(905, "Cancelled task for Client 18", "completed", "2027-01-01", "customer", 18);
+  /* v1.412.0 - 904 was closed (its history says when); 905 was cancelled (completed + stage cancelled) */
+  db.exec(`UPDATE tasks SET stage = 'cancelled' WHERE id = 905`);
+  db.exec(`INSERT INTO task_updates (task_id, author_id, kind, body, created_at) VALUES (904, 5, 'closed', 'Brief sent and confirmed by the client', '2026-11-19 03:00:00')`);
   db.exec(`INSERT INTO sales_packages (id, name, status) VALUES (1, 'Live Selling Starter', 'active'), (2, 'Brand Film', 'archived')`);
   const fu = db.prepare(`INSERT INTO customer_followups (id, customer_id, due_on, owner_id, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, 5, '2026-11-01 01:00:00')`);
   fu.run(1, 5, "2026-11-12", 5, "Call about the starter package");
@@ -171,9 +174,13 @@ async function runtime(workerBundle, migDir) {
     ok(r14?.no_next === false && r14?.next_kind === "task" && r14?.next_due === "2027-01-15" && r14?.next_note === "Send the brief to Client 14" && r14?.task_id === 901, "an open task on the customer is its next action, with its day and title", JSON.stringify(r14));
     ok(r15?.no_next === false && r15?.task_id === 902 && r15?.next_due === null, "an open task on the lead's project is a next action, even with no due date", JSON.stringify(r15));
     ok(r16?.no_next === false && r16?.task_id === 903 && r16?.next_due === "2027-01-20", "an open task on the lead's quotation is a next action");
-    ok(r17?.no_next === true && r18?.no_next === true, "a completed or cancelled task is not a next action");
+    ok(r17?.no_next === false && r17?.next_kind === "closed" && r17?.next_note === "Old task for Client 17" && String(r17?.closed_at ?? "").startsWith("2026-11-19 11:00"), "a lead whose task was completed reads Task closed, dated in Malaysia time - never No next action", JSON.stringify(r17));
+    ok(r18?.no_next === true && r18?.next_kind === null, "a cancelled task is not a next action and is not Task closed", JSON.stringify(r18));
+    ok(db.prepare(`SELECT relationship_status AS s FROM customers WHERE id = 17`).get().s === null, "Task closed never changes the lead's relationship status");
+    const d17 = (await call("/crm/leads/17", U.aina)).j;
+    ok(d17?.closed_task?.id === 904 && d17?.tasks?.length === 0, "the lead record names the closed task when nothing is open", JSON.stringify(d17?.closed_task));
     const flagged = (await call("/crm/leads?flag=no_next&sort=name", U.coo)).j?.rows?.map((r) => r.id) ?? [];
-    ok(!flagged.includes(14) && !flagged.includes(15) && !flagged.includes(16) && flagged.includes(17), "the No next action filter agrees with the list", flagged.join(","));
+    ok(!flagged.includes(14) && !flagged.includes(15) && !flagged.includes(16) && !flagged.includes(17) && flagged.includes(18), "the No next action filter agrees with the list", flagged.join(","));
     const d14 = (await call("/crm/leads/14", U.aina)).j;
     ok(d14?.tasks?.length === 1 && d14.tasks[0].id === 901 && d14.tasks[0].due_on === "2027-01-15", "the lead record lists its open tasks", JSON.stringify(d14?.tasks));
 
@@ -315,9 +322,11 @@ const MUTANTS = [
   ["a listed lead is listed twice", "worker/src/sales-today.ts", "      if (listed.has(l.id)) continue;\n", ""],
   ["a closed follow-up counts twice in Done today", "worker/src/sales-today.ts", "WHERE a.created_by = ?1 AND a.kind != 'followup' AND", "WHERE a.created_by = ?1 AND"],
   ["an owner outside the sales team", "worker/src/crm.ts", "if (to !== null && !(await owners(env)).some((o) => o.id === to))", "if (false)"],
-  ["an open task is not a next action in the list", "worker/src/crm.ts", "no_next: open && r.next_due === null && r.task_id === null,", "no_next: open && r.next_due === null,"],
-  ["an open task is not a next action in the filter", "worker/src/crm.ts", "\n   OR EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL(`${a}id`)}))`;", ")`;"],
-  ["a cancelled task is a next action", "worker/src/crm.ts", "`t.status != 'completed' AND (", "`1 = 1 AND ("],
+  ["an open task is not a next action in the list", "worker/src/crm.ts", "no_next: open && r.next_due === null && r.task_id === null && r.closed_title === null,", "no_next: open && r.next_due === null && r.closed_title === null,"],
+  ["an open task is not a next action in the filter", "worker/src/crm.ts", "\n   OR EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL(`${a}id`)})\n", "\n"],
+  ["a cancelled task is a next action", "worker/src/crm.ts", "`t.status != 'completed' AND ${LINKED_SQL(id)}`", "`1 = 1 AND ${LINKED_SQL(id)}`"],
+  ["a cancelled task reads Task closed", "worker/src/crm.ts", "t.status = 'completed' AND COALESCE(t.stage, '') != 'cancelled' AND", "t.status = 'completed' AND"],
+  ["a closed task leaves No next action", "worker/src/crm.ts", "no_next: open && r.next_due === null && r.task_id === null && r.closed_title === null,", "no_next: open && r.next_due === null && r.task_id === null,"],
   ["a project task is not on the lead", "worker/src/crm.ts", "OR (t.link_kind = 'project' AND", "OR (0 AND"],
   ["the Action Center ignores the task", "worker/src/sales-today.ts", "          AND NOT EXISTS (SELECT 1 FROM tasks t WHERE ${TASK_LINK_SQL()})\n", ""],
   ["a double press is two activities", "worker/src/crm.ts", "`client:${ck}`, user.id).run();", "`client:${ck}:${Math.random()}`, user.id).run();"],

@@ -51,7 +51,9 @@ interface LeadRow {
   owner_id: number | null; owner_name: string | null; lead_source: string | null; relationship_status: string | null;
   interested_services: string[]; created_at: string; next_due: string | null; next_note: string | null; last_activity: string | null;
   /** v1.408.0 - the next action is the next follow-up or the next open task on the lead */
-  next_kind: "followup" | "task" | null; task_id: number | null; task_title: string | null;
+  next_kind: "followup" | "task" | "closed" | null; task_id: number | null; task_title: string | null;
+  /** v1.412.0 - when the newest completed task on the lead was closed */
+  closed_at: string | null;
   quotations: number; invoices: number; no_owner: boolean; no_next: boolean; next_late: boolean;
 }
 interface LeadTask { id: number; title: string; due_on: string | null; status: string; stage: string | null; link_kind: string; assignee_name: string | null }
@@ -64,6 +66,7 @@ interface Detail {
   status_events: { id: number; from_status: string | null; to_status: string; reason: string | null; created_at: string; by_name: string | null }[];
   followups: { id: number; due_on: string; note: string; doc_id: number | null; owner_name: string | null }[];
   tasks: LeadTask[];
+  closed_task: { id: number; title: string; closed_at: string | null } | null;
   docs: LeadDoc[];
 }
 
@@ -166,6 +169,12 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
       : r.task_id !== null ? <span className={css.nextCell} data-kind="task">
           <span className={css.next} data-testid="lead-next">{L("Task · no due date", "Tugasan · tiada tarikh")}</span>
           {r.task_title ? <small className={css.nextNote}>{r.task_title}</small> : null}
+        </span>
+      /* v1.412.0 (the CEO: "if there is a Task completed, the status should change to the Closed") - the Next
+         action cell says the work is closed; the Status column stays what staff set */
+      : r.next_kind === "closed" ? <span className={css.nextCell} data-kind="closed">
+          <span className={chipSmSuccess} data-testid="lead-closed">{r.closed_at ? L(`Task closed · ${dayOf(r.closed_at)}`, `Tugasan ditutup · ${dayOf(r.closed_at)}`) : L("Task closed", "Tugasan ditutup")}</span>
+          {r.next_note ? <small className={css.nextNote}>{r.next_note}</small> : null}
         </span>
       : r.no_next ? <span className={chipSmWarn} data-testid="lead-no-next">{L("No next action", "Tiada tindakan")}</span> : <span className={css.muted}>—</span> },
   ];
@@ -311,7 +320,9 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDe
         <dd>{l.owner_name ?? <span className={chipSmWarn}>{L("Unassigned", "Tiada pemilik")}</span>}</dd>
         <dt>{L("Next action", "Tindakan seterusnya")}</dt>
         <dd data-testid="lead-next-action">{taskFirst && task ? <>{L("Task", "Tugasan")} · {task.due_on ? dayOf(task.due_on) : L("no due date", "tiada tarikh")} · {task.title}</>
-          : next ? <>{dayOf(next.due_on)} · {next.note}</> : open ? <span className={chipSmWarn}>{L("No next action", "Tiada tindakan seterusnya")}</span> : "—"}</dd>
+          : next ? <>{dayOf(next.due_on)} · {next.note}</>
+          : d.closed_task ? <><span className={chipSmSuccess} data-testid="lead-next-closed">{d.closed_task.closed_at ? L(`Task closed · ${dayOf(d.closed_task.closed_at)}`, `Tugasan ditutup · ${dayOf(d.closed_task.closed_at)}`) : L("Task closed", "Tugasan ditutup")}</span> {d.closed_task.title}</>
+          : open ? <span className={chipSmWarn}>{L("No next action", "Tiada tindakan seterusnya")}</span> : "—"}</dd>
         <dt>{L("Source", "Sumber")}</dt>
         <dd>{l.lead_source ? w(LEAD_SOURCE_WORD[l.lead_source], l.lead_source) : "—"}{l.lead_source_detail ? ` · ${l.lead_source_detail}` : ""}</dd>
         <dt>{L("Interested in", "Berminat dengan")}</dt>
