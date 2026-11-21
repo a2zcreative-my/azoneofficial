@@ -102,7 +102,7 @@ export interface SalesDoc {
   invoiced_cents?: number | null;
   invoice_count?: number | null;
   /* v1.300.0 - every live invoice of a QT ("A + B", oldest first); on an INV: its quotation and which part it is */
-  invoiced_list?: string | null; converted_from_number?: string | null; part_no?: number | null; part_of?: number | null;
+  invoiced_list?: string | null; invoiced_ids?: string | null; converted_from_number?: string | null; part_no?: number | null; part_of?: number | null;
   /* v1.181.11 - a revised quotation (0139); 0 = the original */
   revision?: number | null;
   revised_at?: string | null;
@@ -1155,6 +1155,20 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   const leftToInvoice = (d: SalesDoc) => Math.max(0, d.total_cents - Number(d.invoiced_cents ?? 0));
   const partly = (d: SalesDoc) => d.doc_type === "QT" && d.kind === "service" && !!d.invoiced_as && leftToInvoice(d) > 0;
   const invList = (d: SalesDoc) => d.invoiced_list || d.invoiced_as || ""; // v1.300.0 - every live invoice, oldest first
+  /* v1.410.0 (the CEO: "for status invoice should appear inside the clickable reference") - each invoice the quotation
+     became is a link that opens that invoice's row, as its own document number does. Ids come from the server in the
+     list's order; an older reading with no ids falls back to the latest invoice's id, else plain text. */
+  const invLinks = (d: SalesDoc): ReactNode => {
+    const nums = invList(d).split(" + ").filter(Boolean);
+    const ids = (d.invoiced_ids ?? "").split(",").map(Number);
+    return nums.map((n, i) => {
+      const own = ids[i] ?? 0;
+      const id = ids.length === nums.length && Number.isInteger(own) && own > 0 ? own : n === d.invoiced_as && d.invoiced_as_id ? d.invoiced_as_id : null;
+      return <span key={n}>{i > 0 ? " + " : ""}{id ? <button type="button" className={sc.refLink} data-testid="qt-invoice-link" data-doc={id}
+        onClick={(e) => { e.stopPropagation(); openDocRow({ ...d, id, doc_number: n }); }}
+        title={L(`Open ${n}`, `Buka ${n}`)}>{n}</button> : n}</span>;
+    });
+  };
   const askPart = async (d: SalesDoc) => {
     const left = leftToInvoice(d);
     const got = await askText({
@@ -3225,6 +3239,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                   {/* v1.372.0 - the CEO's screenshot (18-11-2026, "text overflow from the pills"): a chip is one line by
                       rule, so the long part moves OUT of the pill onto a small line under it that may wrap */}
                   {partly(d) && <span className={sc.statusNote} data-testid="qt-partly-left">{fmtRM(leftToInvoice(d))} {L("left to invoice", "baki untuk diinvois")}</span>}
+                  {partly(d) && invList(d) && <span className={sc.statusNote} data-testid="qt-partly-list">{L("Invoiced as ", "Diinvois sebagai ")}{invLinks(d)}</span>}
                   {d.doc_type === "QT" && d.invoiced_as && !partly(d) && (
                     /* v1.300.0 (the CEO, 13-11-2026: "only 1 invoice appear recorded...") - EVERY invoice it became, not only the latest */
                     <span className={chipSmSuccess} data-testid="qt-invoiced"
@@ -3232,7 +3247,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                       <AppIcon name="success" className="erp-icon-sm" />{L("Invoiced", "Diinvois")}{(d.invoice_count ?? 1) > 1 ? ` (${d.invoice_count})` : ""}
                     </span>
                   )}
-                  {d.doc_type === "QT" && d.invoiced_as && !partly(d) && <span className={sc.statusNote} data-testid="qt-invoiced-list">{invList(d)}</span>}
+                  {d.doc_type === "QT" && d.invoiced_as && !partly(d) && <span className={sc.statusNote} data-testid="qt-invoiced-list">{invLinks(d)}</span>}
                   {/* v1.400.0 (Phase 4, decision 5) - where an open quotation stands, in words: one chip, and the follow-up under it */}
                   {d.doc_type === "QT" && !d.invoiced_as && <QuoteStateChips d={d} today={todayQ} />}
                   {d.doc_type === "INV" && (!(canPay || (paysByReport && pv?.on)) || d.payment_status === "void") && (

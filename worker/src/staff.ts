@@ -11798,6 +11798,8 @@ async function handleStaffRoutes(
               (SELECT COALESCE(SUM(i.total_cents), 0) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoiced_cents,
               (SELECT COUNT(*) FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void') AS invoice_count,
               (SELECT GROUP_CONCAT(x.doc_number, ' + ') FROM (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_list,
+              /* v1.410.0 - the same invoices' ids, same order, so the list opens each one (read only) */
+              (SELECT GROUP_CONCAT(x.id, ',') FROM (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_ids,
               ${QT_STATE},
               ${FROM_QT}
          FROM sales_documents d
@@ -11844,6 +11846,8 @@ async function handleStaffRoutes(
                  EVERY live invoice a quotation became, oldest first, not only the latest; and on an invoice, the
                  quotation it came from and which part it is */
               (SELECT GROUP_CONCAT(x.doc_number, ' + ') FROM (SELECT i.doc_number FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_list,
+              /* v1.410.0 - the same invoices' ids, same order, so the list opens each one (read only) */
+              (SELECT GROUP_CONCAT(x.id, ',') FROM (SELECT i.id FROM sales_documents i WHERE i.converted_from = d.id AND i.doc_type = 'INV' AND COALESCE(i.payment_status, '') != 'void' ORDER BY i.id) x) AS invoiced_ids,
               ${QT_STATE},
               ${FROM_QT}
        FROM sales_documents d

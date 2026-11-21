@@ -203,6 +203,14 @@ s(more.length > 100 && !/\b(INSERT|UPDATE|DELETE)\b/.test(more), "GET /docs/more
 s(!/^\s*(UPDATE|DELETE|DROP|ALTER TABLE \w+ (RENAME|DROP))/im.test(mig.replace(/--.*$/gm, "")), "0228 is additive");
 s(!/<select[^>]*aria-label=\{L\("Customer", "Pelanggan"\)\}/.test(sales) && /<CustomerPicker value=\{doc\.customer_id\}/.test(sales) && /\/staff\/crm\/leads\?view=all&sort=name&q=/.test(pick), "the Create form picks a customer by searching every customer, not a list cut at 300");
 s(/doc\.doc_type === "QT" && !editingDoc && dealId \? \{ deal_id: dealId \}/.test(sales), "only a NEW quotation sends its deal; an edit or a revision never does");
+/* v1.410.0 - every invoice a quotation became is a link to that invoice: the ids come with the list, same order, same filter */
+{
+  const staffSrc = read("worker/src/staff.ts");
+  const lists = staffSrc.match(/AS invoiced_list,/g)?.length ?? 0;
+  const ids = staffSrc.match(/\(SELECT GROUP_CONCAT\(x\.id, ','\) FROM \(SELECT i\.id FROM sales_documents i WHERE i\.converted_from = d\.id AND i\.doc_type = 'INV' AND COALESCE\(i\.payment_status, ''\) != 'void' ORDER BY i\.id\) x\) AS invoiced_ids,/g)?.length ?? 0;
+  s(lists > 0 && ids === lists, "every /docs read that lists a quotation's invoices also sends their ids, in the same order and without void ones", `${ids}/${lists}`);
+  s(/data-testid="qt-invoiced-list">\{invLinks\(d\)\}/.test(sales) && /data-testid="qt-partly-list">[^\n]*\{invLinks\(d\)\}/.test(sales) && /onClick=\{\(e\) => \{ e\.stopPropagation\(\); openDocRow\(\{ \.\.\.d, id, doc_number: n \}\); \}\}/.test(sales), "an invoiced or partly invoiced quotation draws each invoice number as a link that opens that invoice");
+}
 
 const dir = mkdtempSync(join(tmpdir(), "quotations-"));
 const main = join(dir, "worker.mjs");
@@ -228,7 +236,7 @@ for (const [name, file, from, to] of MUTANTS) {
   cpSync(join(root, "worker"), join(m, "worker"), { recursive: true });
   cpSync(join(root, "lib"), join(m, "lib"), { recursive: true });
   cpSync(join(root, "package.json"), join(m, "package.json"));
-  const body = readFileSync(join(m, file), "utf8");
+  const body = readFileSync(join(m, file), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the mutations are written with \n
   if (!body.includes(from)) { report([[false, `mutation "${name}" no longer applies - update the guard`]]); continue; }
   writeFileSync(join(m, file), body.replace(from, to));
   const mb = join(m, "w.mjs");

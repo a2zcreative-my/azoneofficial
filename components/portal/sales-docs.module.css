@@ -136,6 +136,9 @@
 }
 /* v1.372.0 - the long half of a status (which invoices, how much is left) sits under its pill and wraps on
    words; the pill itself stays one line (.erp-chip is nowrap by rule) */
+/* v1.410.0 - an invoice number inside a status note opens that invoice */
+.refLink { padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; font-weight: 600; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.refLink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-control); }
 .statusNote {
   flex-basis: 100%;
   min-width: 0;

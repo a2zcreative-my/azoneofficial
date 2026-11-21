@@ -4,6 +4,11 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Invoice numbers in a quotation's status open the invoice (21-11-2026, the CEO with his Quotations & Invoices screenshot: "for status invoice should appear inside the clickable reference") - NO MIGRATION
+- **Sales -> Quotations & Invoices:** under an **Invoiced** quotation, each invoice number it became (e.g. "INV-AZOO091126-1 + INV-AZOO111126-1") is now a link that opens that invoice's row, the same as clicking its own document number. A **Partly invoiced** quotation now also lists the invoices so far, as links, under "left to invoice".
+- The /docs read sends the invoices' ids beside the numbers (same order, voided invoices left out). Read only; nothing about invoicing, payment or status changed.
+- Guard `quotations` 34 checks (2 new), 10/10 mutations; `sales-figures`, `sales-workspace`, `tailwind-retired`, `ui-system`, `interface-v3` pass; app and worker type checks pass. Not checked in a browser. Not deployed.
+
 ### A lead's Next action reads its open tasks (21-11-2026, the CEO with his Leads & CRM screenshot: "Next action should check the task, because it is already there and should connected to each other") - NO MIGRATION
 - **Leads & CRM -> Next action** now counts an open task on the lead as well as a booked follow-up: a task linked to the customer, to one of its quotations, to its project, or to an enquiry converted into it. The cell shows the earlier of the two; a task reads "Task · <day>" with its title under it, and a task with no due date reads "Task · no due date". A completed or cancelled task does not count.
 - **No next action** (the figure, its filter and the amber chip) and **My Sales Action Center**'s "No next action" lead row follow the same rule, so a lead with an open task is no longer flagged.
