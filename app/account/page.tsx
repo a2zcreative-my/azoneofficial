@@ -20,6 +20,9 @@ import { ConsoleShell } from "@/components/layout/console-shell"; // v1.228.0 - 
 import { dmy, fmtRM } from "@/lib/format";
 import { getLang, type Lang } from "@/lib/i18n";
 import { AppIcon } from "@/components/ui/app-icon";
+import { AuthStateCard } from "@/components/auth/auth-state-card"; // v1.408.0 - the signed-out card
+import { useFeedback } from "@/components/ui/feedback-modal"; // v1.408.0 - a failed sign-out is said
+import { clearApiCache } from "@/lib/cached-api";
 
 
 interface User { id: number; email: string; name: string; role: string; oauth?: boolean }
@@ -94,6 +97,30 @@ export default function AccountPage() {
   const [lang, setLangState] = useState<Lang>("en");
   useEffect(() => { setLangState(getLang()); }, []);
   const L = (en: string, ms: string) => (lang === "ms" ? ms : en);
+  /* v1.408.0 - why there is no user, only when certain: "signed_out" after
+     POST /auth/logout answered OK on this tab; "required" when /auth/me
+     refused. /account cannot prove an expiry, so it never claims one. */
+  const [authEnd, setAuthEnd] = useState<"signed_out" | "required" | null>(null);
+  const feedback = useFeedback();
+  const signOut = () => {
+    const failed = () =>
+      feedback.show({
+        variant: "error",
+        title: L("Sign out did not complete", "Log keluar tidak selesai"),
+        description: L("You are still signed in. Check your connection and try again.",
+          "Anda masih log masuk. Semak sambungan anda dan cuba lagi."),
+        testid: "signout-failed",
+      });
+    /* the same request as before (POST /auth/logout); only the answer is now checked */
+    void api("/auth/logout", { method: "POST", body: JSON.stringify({}) })
+      .then((r) => {
+        if (!r.ok || r.queued) return failed();
+        clearApiCache();
+        setUser(null);
+        setAuthEnd("signed_out");
+      })
+      .catch(failed);
+  };
 
   useEffect(() => {
     void api<{ user: User }>("/auth/me").then((r) => {
@@ -118,8 +145,9 @@ export default function AccountPage() {
           setBrand(o.data?.brand ?? null);
         });
       } else {
-        window.location.replace("/login");
-        return;
+        /* v1.408.0 - the card, not a jump to /login: no loop, and the
+           person is told why */
+        setAuthEnd("required");
       }
       setChecked(true);
     });
@@ -128,6 +156,7 @@ export default function AccountPage() {
   /* v1.77.0 — skeleton until the first fetch lands. This used to return null
      (a blank screen with a name); the page-shaped shell paints instead, and
      stays up while any redirect in the effect above is on its way. */
+  if (authEnd && !user) return <AuthStateCard state={authEnd} surface="account" L={L} />;
   if (!checked || !user) return <AccountPageSkeleton />;
 
   /* v1.22.8 / v1.23.0 / v1.228.0 - the client area sits on the portal's own
@@ -213,12 +242,9 @@ export default function AccountPage() {
       lang={lang}
       onLang={setLangState}
       primaryCount={3}
-      onSignOut={() =>
-        void api("/auth/logout", { method: "POST", body: JSON.stringify({}) }).then(
-          () => window.location.replace("/"),
-        )
-      }
+      onSignOut={signOut}
     >
+      {feedback.node}
       {toastNode}
       {tab === "Account" && (
         <TabPage key="acct" className="screen-enter" id="account-home">

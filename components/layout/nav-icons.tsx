@@ -127,4 +127,6 @@ export {
   Bell, BellOff, BellRing, Check, Clock3, Languages, MapPin, Moon, Palette,
   Search, ShieldCheck as ShieldOk, Sun, Volume2, VolumeX, X as CloseX,
   Ellipsis, CircleHelp, ChevronDown, CalendarDays,
+  /* v1.408.0 - the signed-out card (components/auth/auth-state-card.tsx) */
+  House, LockKeyhole, LogIn,
 } from "lucide-react";

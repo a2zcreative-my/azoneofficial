@@ -37,7 +37,6 @@ import { setLang as persistLang, t as tr } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { FAVOURITES_MAX, favouritesFull, toggleFavourite } from "@/lib/favourites";
-import { clearApiCache } from "@/lib/cached-api";
 import { revealAnchor, mytTodayLine } from "@/components/portal/page-shared";
 import { REVENUE_ROLES } from "@/components/portal/dashboard";
 import { PORTAL_WIDTH, btnGhost, btnHdr, btnHdrDesktop, mobileAppBottomClearance, mobileBottomNav, sheetCard } from "@/lib/ui-styles";
@@ -45,6 +44,7 @@ import { L } from "@/components/portal/page-shared";
 import { properName } from "@/lib/names";
 import type { TabName } from "@/lib/portal-tabs";
 import { usePortal } from "@/components/portal/portal-provider";
+import { useFeedback } from "@/components/ui/feedback-modal"; // v1.408.0 - a failed sign-out is said, never hidden
 import { NotificationsPanel } from "@/components/portal/notifications-panel";
 import { ChatButton } from "@/components/portal/chat/chat-panel"; // v1.364.0 - staff chat, beside the bell
 import { GlobalSearch } from "@/components/portal/global-search";
@@ -58,7 +58,7 @@ import css from "@/app/portal/portal.module.css";
 
 export function PortalShell({ children }: { children: ReactNode }) {
   const {
-    user, setUser, navCollapsed, toggleNavCollapsed, presence,
+    user, endSession, navCollapsed, toggleNavCollapsed, presence,
     tab, setTab, activeTab, canOpen, deskStop, setDeskStop, openRecord, searchQ, setSearchQ, tabStart, setTabStart,
     setSalesStart, setSalesCreateRequest,
     dark, setDark, theme, setTheme, lang, setLangState, dashDate, setDashDate,
@@ -155,12 +155,29 @@ export function PortalShell({ children }: { children: ReactNode }) {
     setLangState(next);
     persistLang(next);
   };
-  const signOut = () =>
-    void signOutRequest().then(() => {
-      clearApiCache();
-      setUser(null);
-      setMoreOpen(false);
-    });
+  /* v1.408.0 - a sign-out is only ever SHOWN when the server confirmed it.
+     It used to empty the screen whatever POST /auth/logout answered, so an
+     offline or refused sign-out looked done while the session still lived.
+     Now: OK -> endSession clears the remembered data and draws "You've signed
+     out"; anything else -> the person stays signed in and the one feedback
+     modal says so. */
+  const feedback = useFeedback();
+  const signOut = () => {
+    const failed = () =>
+      feedback.show({
+        variant: "error",
+        title: L("Sign out did not complete", "Log keluar tidak selesai"),
+        description: L("You are still signed in. Check your connection and try again.",
+          "Anda masih log masuk. Semak sambungan anda dan cuba lagi."),
+        testid: "signout-failed",
+      });
+    void signOutRequest()
+      .then((r) => {
+        if (r.ok && !r.queued) { setMoreOpen(false); endSession("signed_out"); }
+        else failed();
+      })
+      .catch(failed);
+  };
   /* v1.362.0 - the phone's photo opens the SAME account menu as the rail's name card (the CEO, 18-11-2026) */
   const [meOpen, setMeOpen] = useState(false);
   const accountTabs = SECTIONS.find((g) => g.title === FOOT_SECTION)?.tabs ?? [];

@@ -20,6 +20,9 @@ import { card } from "@/lib/ui-styles";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton"; // v1.228.0
 import { ConsoleShell } from "@/components/layout/console-shell"; // v1.228.0 - the portal chrome
 import { getLang, type Lang } from "@/lib/i18n";
+import { AuthStateCard } from "@/components/auth/auth-state-card"; // v1.408.0 - the signed-out card
+import { useFeedback } from "@/components/ui/feedback-modal"; // v1.408.0 - a failed sign-out is said
+import { clearApiCache } from "@/lib/cached-api";
 
 
 /* v1.25.7 — EN/BM for the admin console. Same storage as the portal
@@ -149,15 +152,44 @@ export default function AdminPage() {
   useEffect(() => {
     void loadMe();
   }, []);
+  /* v1.408.0 - a page restored from the back/forward cache asks the server
+     again before it is trusted (Back after signing out elsewhere) */
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) void loadMe(); };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
+  /* v1.408.0 - "signed_out" only after POST /auth/logout answered OK on this
+     tab (state, never the address). /admin cannot prove an expiry, so it
+     never claims one: no user and no confirmed sign-out = "Sign in". */
+  const [signedOut, setSignedOut] = useState(false);
+  const feedback = useFeedback();
+  const signOut = () => {
+    const failed = () =>
+      feedback.show({
+        variant: "error",
+        title: L("Sign out did not complete", "Log keluar tidak selesai"),
+        description: L("You are still signed in. Check your connection and try again.",
+          "Anda masih log masuk. Semak sambungan anda dan cuba lagi."),
+        testid: "signout-failed",
+      });
+    void signOutRequest()
+      .then((r) => {
+        if (!r.ok || r.queued) return failed();
+        clearApiCache();
+        setUser(null);
+        setSignedOut(true);
+      })
+      .catch(failed);
+  };
 
   /* v1.77.0 — skeleton until the first fetch lands. The auth check used to
      return null (a blank screen with a name); the page-shaped shell paints
      instead, and stays up while any redirect below is on its way. */
   if (!checked) return <AdminPageSkeleton />;
-  if (!user) {
-    if (typeof window !== "undefined") window.location.replace("/login");
-    return <AdminPageSkeleton />;
-  }
+  /* v1.408.0 - no session: the card, not a jump to /login (no redirect loop,
+     and the person is told what happened) */
+  if (!user) return <AuthStateCard state={signedOut ? "signed_out" : "required"} surface="admin" L={L} />;
   // Data-integrity boundary: /admin is the content-management interface for
   // admin/editor/marketing only. Staff roles work in /portal — even though
   // the API also enforces this, they should never see this surface at all.
@@ -190,14 +222,14 @@ export default function AdminPage() {
               "Peranan anda memerlukan pengesahan dua faktor diaktifkan sebelum anda boleh mengakses Portal Admin A2Z CREATIVE MARKETING. Sila tetapkannya sekarang.")}
           </p>
           <TwoFactorPanel onEnabled={() => void loadMe()} />
+          {feedback.node}
           <div className="mt-8 flex justify-end border-t border-border pt-6">
             <button
               onClick={() => {
                 /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
                    could never clear it, so this button bounced users straight
                    back here. A real server-side logout now. */
-                void signOutRequest()
-                  .then(() => { window.location.href = "/login"; });
+                signOut(); // v1.408.0 - the one verified sign-out
               }}
               className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -210,10 +242,6 @@ export default function AdminPage() {
   }
 
 
-  const logout = async () => {
-    await signOutRequest();
-    setUser(null);
-  };
 
   /* v1.164.1: phone bottom spacing follows the shared PWA nav clearance used
      by /portal and /account. */
@@ -244,8 +272,9 @@ export default function AdminPage() {
       user={user}
       lang={lang}
       onLang={setLangState}
-      onSignOut={() => void logout()}
+      onSignOut={signOut}
     >
+      {feedback.node}
       <main key={tabNow} className="screen-enter mt-4 md:mt-8">
         <p className="text-muted-foreground -mt-2 mb-4 text-xs">{L(TAB_HELP[tabNow], TAB_HELP_MS[tabNow])}</p>
         {/* v1.22.8: bare sections now render inside the house card, exactly

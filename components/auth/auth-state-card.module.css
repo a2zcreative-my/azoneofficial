@@ -1,0 +1,124 @@
+/* v1.408.0 - the signed-out card (auth-state-card.tsx). Tokens only (globals.css /
+   erp-v3.css); the surface is .erp-card and the buttons .erp-button - this file
+   only lays them out. Block / flex flow, no grid tracks, nothing fixed-width:
+   the card is at most 28rem and never wider than the screen. */
+
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding:
+    max(1.5rem, env(safe-area-inset-top, 0px))
+    max(1rem, env(safe-area-inset-right, 0px))
+    max(1.5rem, env(safe-area-inset-bottom, 0px))
+    max(1rem, env(safe-area-inset-left, 0px));
+  background: var(--secondary);
+}
+:global(.dark) .page { background: var(--background); } /* the surface ladder: ground below the card on dark */
+
+.card {
+  width: 100%;
+  max-width: 28rem;
+  min-width: 0;
+  padding: 2rem 1.75rem 1.5rem;
+  text-align: center;
+  border-radius: var(--erp-radius-card);
+  box-shadow: var(--erp-shadow-lift), var(--erp-hairline);
+}
+@media (max-width: 639px) {
+  .card { padding: 1.5rem 1.25rem 1.25rem; }
+}
+
+.brand { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+.wordmark {
+  margin-top: 0.5rem;
+  font-size: var(--type-page-size);
+  line-height: var(--type-page-lh);
+  font-weight: var(--type-page-weight);
+  letter-spacing: var(--type-page-tracking);
+  color: var(--foreground);
+}
+.os { color: var(--brand-accent); }
+.company {
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-lh);
+  font-weight: var(--type-label-weight);
+  letter-spacing: var(--type-label-tracking);
+  color: var(--foreground);
+}
+.surface {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0.25rem;
+  font-size: var(--type-label-size);
+  line-height: var(--type-label-lh);
+  font-weight: var(--type-label-weight);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brand-accent-deep);
+}
+:global(.dark) .surface { color: var(--brand-accent); }
+.surface::before,
+.surface::after { content: ""; flex: 1 1 0; min-width: 1rem; height: 1px; background: var(--brand-accent); opacity: 0.6; }
+
+.mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  margin: 1.5rem auto 1rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--brand-accent) 18%, transparent);
+  color: var(--foreground);
+}
+.markIcon { width: 1.75rem; height: 1.75rem; }
+.markBadge {
+  position: absolute;
+  right: -0.375rem;
+  bottom: -0.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid var(--card);
+  background: var(--success);
+  color: var(--card);
+}
+.badgeIcon { width: 0.875rem; height: 0.875rem; }
+
+.title {
+  font-size: var(--type-display-size);
+  line-height: var(--type-display-lh);
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--type-display-tracking);
+  color: var(--foreground);
+}
+.text {
+  margin-top: 0.5rem;
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-lh);
+  color: var(--muted-foreground);
+}
+
+.actions { display: flex; flex-direction: column; gap: 0.625rem; margin-top: 1.5rem; }
+.action { gap: 0.5rem; } /* the 44px pill and the focus outline come from .erp-button */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-lh);
+  color: var(--muted-foreground);
+}

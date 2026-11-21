@@ -38,7 +38,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { subscribeConnection, isOfflineNow, ASSUME_ONLINE } from "@/components/ui/offline-banner"; // v1.335.0 - one connection store
-import Link from "next/link";
 import type { RecordFocus } from "@/lib/record-focus";
 import { installViewportSettle } from "@/lib/viewport-settle";
 
@@ -59,13 +58,14 @@ import {
 } from "@/lib/portal-tabs";
 import { favouritesServerSnapshot, favouritesSnapshot, readFavourites, subscribeFavourites } from "@/lib/favourites";
 import { PortalSkeleton } from "@/components/portal/portal-skeleton";
-import { setCacheScope } from "@/lib/cached-api";
+import { clearApiCache, setCacheScope } from "@/lib/cached-api";
+import { AuthStateCard } from "@/components/auth/auth-state-card"; // v1.408.0 - the signed-out card
 import { NAV_COLLAPSED_KEY, SECTIONS } from "@/components/layout/side-nav";
 import { getLang, t as tr, type Lang } from "@/lib/i18n";
 import { APP_VERSION } from "@/lib/version";
 import { TwoFactorPanel } from "@/components/security/two-factor-panel";
 import { PushGate, usePushGate } from "@/components/portal/push-gate"; // v1.360.0 - push alerts required for staff
-import { btnClass, card } from "@/lib/ui-styles";
+import { card } from "@/lib/ui-styles";
 import { L, type Notification, type User } from "@/components/portal/page-shared";
 import { syncThemeColor } from "@/lib/theme-color";
 import css from "@/app/portal/portal.module.css";
@@ -98,6 +98,10 @@ export interface PortalContextValue {
       stored or hard-coded. */
   presence: "online" | "offline";
   setUser: Dispatch<SetStateAction<User | null>>;
+  /** v1.408.0 - end this tab's signed-in state AFTER the server confirmed it:
+      clears the remembered data and shows the signed-out card. Call it only
+      with a verified reason (a logout answered OK, or a confirmed 401). */
+  endSession: (reason: "signed_out" | "expired") => void;
   checked: boolean;
   entryReady: boolean;
   navCollapsed: boolean;
@@ -184,6 +188,21 @@ export function PortalProvider({ children }: { children: ReactNode }) {
      rules are untouched. */
   const deviceOffline = useSyncExternalStore(subscribeConnection, isOfflineNow, ASSUME_ONLINE);
   const [sessionLive, setSessionLive] = useState<boolean | null>(null);
+  /* v1.408.0 - WHY there is no user, when this tab knows it for certain:
+     "signed_out" only after POST /auth/logout answered OK here; "expired" only
+     after a signed-in tab's session was refused AND a fresh /auth/me said 401.
+     React state only - a refresh or a link can never claim either, and falls
+     back to the plain "Sign in to A2Z OS" card. */
+  const [stepUpOutErr, setStepUpOutErr] = useState(false); // v1.408.0 - the 2FA screen's sign-out failed
+  const [authEnd, setAuthEnd] = useState<"signed_out" | "expired" | null>(null);
+  const endSession = useCallback((reason: "signed_out" | "expired") => {
+    clearApiCache();          // every azone-cache: figure of this account goes, and mounted cards re-read empty
+    setCacheScope(null);
+    setOutboxScope(null);     // a held punch stays on the device for this account's next sign-in (v1.243.0)
+    setSessionLive(false);
+    setUser(null);
+    setAuthEnd(reason);
+  }, []);
   const noteSession = useCallback((status: number) => {
     if (status >= 200 && status < 300) setSessionLive(true);
     else if (status === 401) setSessionLive(false);
@@ -486,6 +505,29 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     setDark(localStorage.getItem("azone-theme") === "dark");
     void loadMe();
   }, []);
+  /* v1.408.0 - REVALIDATE when the browser restores this page from its
+     back/forward cache: the page comes back exactly as it was painted, so a
+     portal left signed in elsewhere must ask the server again before it is
+     trusted (Back after signing out in another tab). */
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) void loadMe(); };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
+  /* v1.408.0 - SESSION EXPIRED, only when it is certain. Some authenticated
+     answer on this signed-in tab came back 401 (noteSession); one fresh
+     /auth/me decides. 401 = the session has ended, so the screen is emptied
+     and says so; anything else (a network blip, a 5xx) changes nothing. */
+  useEffect(() => {
+    if (sessionLive !== false || !user) return;
+    let gone = false;
+    void api<{ user: User }>("/auth/me").then((r) => {
+      if (gone) return;
+      if (r.status === 401) endSession("expired");
+      else noteSession(r.status);
+    });
+    return () => { gone = true; };
+  }, [sessionLive, user, endSession, noteSession]);
   /* v1.241.0 (go-live audit A3) - one function for the first read and for
      the re-read the 2FA gate asks for after an enrolment, so the gate clears
      without a sign-out. Same handling as before: caps first, then the user,
@@ -496,6 +538,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     if (r.ok && r.data) {
       setCaps(r.data.user.caps); // v1.237.0 - before anything draws from them
       setUser(r.data.user);
+      setAuthEnd(null); // v1.408.0 - signed in again: no signed-out card is owed
       // v1.25.0: remembered data is per-account — switching users wipes it.
       setCacheScope(r.data.user.id);
       /* v1.105.0 - the outbox is per-account too, and it drains only once
@@ -942,33 +985,9 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       const here = window.location.pathname + window.location.search;
       if (here.startsWith("/portal") && here.includes("?")) window.sessionStorage.setItem("azone-return", here);
     } catch { /* private mode */ }
-    return (
-      <div className={css.gate}>
-        <p className={css.gateEyebrow}>
-          {L(
-            "A2Z CREATIVE MARKETING / Staff Portal",
-            "A2Z CREATIVE MARKETING / Portal Kakitangan"
-          )}
-        </p>
-        <h1 className={css.gateTitle}>
-          {L("Sign in required", "Log masuk diperlukan")}
-        </h1>
-        <p className={css.gateText}>
-          {L(
-            "The Staff Portal is for A2Z CREATIVE MARKETING employees only.",
-            "Portal Kakitangan hanya untuk pekerja A2Z CREATIVE MARKETING."
-          )}
-        </p>
-        {/* v1.72.1: a raw <a> to an in-app route. next lint refuses it
-            (@next/next/no-html-link-for-pages) because it throws away the
-            router and reloads the whole bundle to reach a page the client
-            already has. It only surfaced now because this is the first
-            deploy where the WEBSITE half of the pipeline actually ran. */}
-        <Link href="/login" className={`${btnClass} ${css.gateAction}`}>
-          {L("Go to login", "Pergi ke log masuk")}
-        </Link>
-      </div>
-    );
+    /* v1.408.0 - one card for the three cases (components/auth/auth-state-card.tsx).
+       No redirect from here, so there is never a loop with /login. */
+    return <AuthStateCard state={authEnd ?? "required"} surface="portal" L={L} />;
   }
 
   if (user.requires_2fa) {
@@ -988,15 +1007,24 @@ export function PortalProvider({ children }: { children: ReactNode }) {
             )}
           </p>
           <TwoFactorPanel onEnabled={() => void loadMe()} />
+          {stepUpOutErr && (
+            <p role="alert" className={css.stepUpError}>
+              {L("Sign out did not complete. You are still signed in - check your connection and try again.",
+                "Log keluar tidak selesai. Anda masih log masuk - semak sambungan anda dan cuba lagi.")}
+            </p>
+          )}
           <div className={css.stepUpFoot}>
             <button
               onClick={() => {
                 /* v1.5.0 fix: azone_session is HttpOnly — document.cookie
                    could never clear it, so this button looped users back to
                    the same screen forever. A real server-side logout now. */
-                void signOutRequest().then(() => {
-                  window.location.href = "/login";
-                });
+                /* v1.408.0 - only a sign-out the server confirmed is
+                   called one; otherwise the person stays here and is told */
+                setStepUpOutErr(false);
+                void signOutRequest()
+                  .then((r) => { if (r.ok && !r.queued) endSession("signed_out"); else setStepUpOutErr(true); })
+                  .catch(() => setStepUpOutErr(true));
               }}
               className={css.quietLink}
             >
@@ -1032,7 +1060,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   return (
     <PortalCtx.Provider
       value={{
-        user, setUser, checked, entryReady, navCollapsed, toggleNavCollapsed,
+        user, setUser, endSession, checked, entryReady, navCollapsed, toggleNavCollapsed,
         presence: !deviceOffline && sessionLive !== false ? "online" : "offline",
   tab, setTab, activeTab, tabs, canOpen, deskStop, setDeskStop,
   salesStart, setSalesStart, salesCreateRequest, setSalesCreateRequest,
