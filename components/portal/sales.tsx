@@ -1972,6 +1972,20 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       else if (d.doc_id !== null) openDocById(d.doc_id);
     },
     toPayments: () => setWsView("payments"),
+    /* v1.418.0 - the CEO removes a test Business Growth Check entry: the server's growth_mark_test decides,
+       the reason is kept with the record, and the row leaves the list when the business-growth topic moves */
+    markTest: holds("growth_mark_test", false) ? async (i) => {
+      const cur = await api<{ enquiry?: { version: number; ref: string } }>(`/staff/business-growth/${i.record_id}`);
+      if (!cur.ok || !cur.data?.enquiry) { showToast(L("Not removed", "Tidak dikeluarkan"), L("The entry could not be opened.", "Entri tidak dapat dibuka."), "notice"); return; }
+      const a = await askText({ title: L(`Remove ${cur.data.enquiry.ref} as a test entry`, `Keluarkan ${cur.data.enquiry.ref} sebagai entri ujian`),
+        message: L("It is closed and leaves the Action Center, the Desk, the Growth list and every figure. Its record and history are kept.", "Ia ditutup dan keluar daripada Pusat Tindakan, Desk, senarai Pertumbuhan dan semua angka. Rekod dan sejarahnya disimpan."),
+        label: L("Why is it a test entry? (at least 10 characters)", "Mengapa ia entri ujian? (sekurang-kurangnya 10 aksara)"), required: true, variant: "danger",
+        confirmLabel: L("Remove test entry", "Keluarkan entri ujian") });
+      if (!a || a.value.trim().length < 10) return;
+      const r = await api<{ error?: { message?: string } }>(`/staff/business-growth/${i.record_id}/mark-test`, { method: "POST", body: JSON.stringify({ version: cur.data.enquiry.version, reason: a.value.trim() }) });
+      if (r.ok) showToast(L("Removed as a test entry", "Dikeluarkan sebagai entri ujian"), `${cur.data.enquiry.ref} · ${i.customer}`);
+      else showToast(L("Not removed", "Tidak dikeluarkan"), r.data?.error?.message ?? L("The server refused that.", "Pelayan menolaknya."), "notice");
+    } : undefined,
   };
   const openActivity = (a: SalesActivity) => {
     if (a.kind === "enquiry") toEnquiries();

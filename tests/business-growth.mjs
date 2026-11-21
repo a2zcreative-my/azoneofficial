@@ -271,6 +271,28 @@ async function runtime(workerBundle, sweepBundle) {
     ok(notes(ID.coo, `growth:${n3}:escalate:%`) === 1 && notes(ID.sales_marketing, `growth:${n3}:escalate:%`) === 0, "8 after 48 hours management is told");
     ok(db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id IN (31, 32) AND ref LIKE 'growth:%'`).get().n === 0, "5 no notice ever reaches an agent or a customer");
 
+    /* v1.418.0 - the CEO removes a TEST entry: closed, out of every list and figure, never deleted */
+    {
+      const st = await submit(form({ phone: "019-888 7766", business_name: "aescape.design" }), "7.7.7.7");
+      const t = db.prepare(`SELECT * FROM business_growth_enquiries WHERE ref = ?`).get(st.j?.ref);
+      const inCenter = async () => ((await call("/staff/sales/today?scope=all&period=week", ID.ceo)).j?.items ?? []).some((i) => i.key === `growth:${t.id}`);
+      ok(t && t.status === "new" && (await inCenter()), "T a fresh entry waits in the CEO's Action Center", JSON.stringify(st).slice(0, 160));
+      ok((await call(`/staff/business-growth/${t.id}`, ID.ceo)).j?.can?.mark_test === true && (await call(`/staff/business-growth/${t.id}`, ID.coo)).j?.can?.mark_test === false, "T only the CEO is offered Remove test entry");
+      for (const r of ["coo", "cco", "sales_marketing", "super_admin"]) ok((await act(t.id, ID[r], "mark-test", { reason: "This was only a test submission" })).status === 403, `T the ${r} cannot remove a test entry`);
+      ok((await act(t.id, ID.ceo, "mark-test", { reason: "test" })).j?.error?.code === "reason_required", "T a reason of 10+ characters is required");
+      ok((await call(`/staff/business-growth/${t.id}/mark-test`, ID.ceo, "POST", { version: 99, reason: "This was only a test submission" })).j?.error?.code === "stale", "T a stale screen is refused");
+      const mk = await act(t.id, ID.ceo, "mark-test", { reason: "This was only a test submission" });
+      const t2 = row(t.id);
+      ok(mk.status === 200 && t2.status === "not_interested" && t2.test_marked_at && t2.test_marked_by === ID.ceo && t2.test_reason === "This was only a test submission" && t2.closed_by === ID.ceo, "T the CEO removes it: closed, marked, who and why kept", JSON.stringify(mk.j));
+      ok(db.prepare(`SELECT COUNT(*) AS n FROM business_growth_events WHERE enquiry_id = ? AND kind = 'marked_test'`).get(t.id).n === 1
+        && db.prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'growth.mark_test' AND entity_id = ?`).get(String(t.id)).n === 1, "T one history row and one audit row");
+      ok(!(await inCenter()), "T it leaves the Action Center");
+      ok(!((await call("/staff/business-growth", ID.ceo)).j?.enquiries ?? []).some((e) => e.id === t.id), "T it leaves the Growth list (and so its counts and figures)");
+      ok((await act(t.id, ID.ceo, "mark-test", { reason: "This was only a test submission" })).status === 409, "T a second removal is refused");
+      let kept = false; try { db.exec(`DELETE FROM business_growth_enquiries WHERE id = ${t.id}`); } catch { kept = true; }
+      ok(kept && !!row(t.id), "T the record is never deleted (the 0211 trigger still holds)");
+    }
+
     /* the screens open the record the bell and the Desk name */
     const rf = readFileSync(join(root, "lib/record-focus.ts"), "utf8"), dp = readFileSync(join(root, "components/portal/desk-page.tsx"), "utf8"), page = readFileSync(join(root, "app/apply/business/page.tsx"), "utf8");
     ok(/\|growth(\|live_report)?(\|[a-z_]+)*\):\(\\d\+\)/ /* 21-11-2026 - lead and deal joined after it */.test(rf) /* 19-11-2026 - live_report joined the list after growth */ && /growth: "Sales"/.test(rf) && /case "growth": return \{ tab: "Sales", kind: "growth"/.test(dp), "4 a growth: bell and a growth Desk row open the enquiry in Sales");
@@ -296,6 +318,8 @@ const make = (srcRoot) => {
 report(await runtime(...make(root)));
 const checks = n;
 const MUT = [
+  ["worker/src/growth.ts", "anyone removes a test entry", `if (!canUser(user, "growth_mark_test")) return err("forbidden", "Only the CEO removes a test entry", 403);`, ""],
+  ["worker/src/growth.ts", "a removed test entry stays in the list", "WHERE g.test_marked_at IS NULL /* v1.418.0", "WHERE 1 /* v1.418.0"],
   ["worker/src/growth.ts", "a second Pick Up wins too", "WHERE id = ?3 AND status = 'new' AND owner_id IS NULL RETURNING version", "WHERE id = ?3 RETURNING version"],
   ["worker/src/growth.ts", "the bot check skipped", 'const bot = await botCheck(env, request, body.bot_token, "growth_check");', "const bot = { ok: true } as const;"],
   ["worker/src/growth.ts", "a retry makes a second enquiry", "ON CONFLICT(client_key) DO NOTHING RETURNING id, ref", "RETURNING id, ref"],
@@ -313,7 +337,7 @@ const MUT = [
 ];
 for (const [file, name, from, to] of (process.env.NOMUT === "1" ? [] : MUT)) {
   n++;
-  const src = readFileSync(join(root, file), "utf8");
+  const src = readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n"); // 21-11-2026 - a CRLF checkout: the anchors are spelled with \n
   if (!src.includes(from)) { fail++; console.error(`FAIL mutation did not apply: ${name}`); continue; }
   const mdir = mkdtempSync(join(tmpdir(), "growth-m-"));
   cpSync(join(root, "worker"), join(mdir, "worker"), { recursive: true, filter: (p) => !p.includes("node_modules") });

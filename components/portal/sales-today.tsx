@@ -100,6 +100,8 @@ export interface ActionHandlers {
   openDoc: (docId: number) => void;
   openDone: (d: SalesDone) => void;
   toPayments: () => void;
+  /** v1.418.0 - the CEO removes a test Business Growth Check entry (growth_mark_test); absent for everyone else */
+  markTest?: (i: SalesAction) => void;
 }
 
 /* ================= My Sales Action Center ================= */
@@ -221,6 +223,11 @@ function ActionRow({ i, scope, h, today }: { i: SalesAction; scope: TodayScope; 
         {i.doc_id !== null && i.kind !== "quotation" && (
           <RowMenu label={L(`More for ${i.customer}`, `Lagi untuk ${i.customer}`)}>
             <button type="button" className={btnSmQuiet} onClick={() => h.openDoc(i.doc_id!)} data-testid="action-doc">{L("Open document", "Buka dokumen")}</button>
+          </RowMenu>
+        )}
+        {i.kind === "growth" && h.markTest && (
+          <RowMenu label={L(`More for ${i.customer}`, `Lagi untuk ${i.customer}`)}>
+            <button type="button" className={btnSmQuiet} onClick={() => h.markTest!(i)} data-testid="action-mark-test">{L("Remove test entry", "Keluarkan entri ujian")}</button>
           </RowMenu>
         )}
       </span>

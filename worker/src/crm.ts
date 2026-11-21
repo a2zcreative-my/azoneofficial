@@ -274,7 +274,7 @@ async function leadDetail(env: Env, id: number) {
            FROM sales_documents d
           WHERE d.customer_id = ?1 AND d.doc_type IN ('QT', 'INV') ORDER BY d.created_at DESC, d.id DESC LIMIT 30`),
     all(`SELECT id, name, status, created_at FROM enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
-    all(`SELECT id, ref, status, created_at FROM business_growth_enquiries WHERE customer_id = ?1 ORDER BY id DESC LIMIT 10`).catch(() => []),
+    all(`SELECT id, ref, status, created_at FROM business_growth_enquiries WHERE customer_id = ?1 AND test_marked_at IS NULL ORDER BY id DESC LIMIT 10`).catch(() => []), // v1.418.0 - never a test entry
   ]);
   return { lead: { ...lead, interested_services: parseServices(lead.interested_services) }, activities, owner_events: ownerEvents, status_events: statusEvents, followups, tasks, closed_task: closedTasks[0] ?? null, docs, enquiries, growth };
 }
@@ -352,7 +352,7 @@ export async function handleCrm(env: Env, path: string, method: string, user: St
       if (!source || !Number.isInteger(id) || id <= 0) return err("invalid_input", "Name the enquiry or Growth Check entry.", 400);
       const table = source === "growth" ? "business_growth_enquiries" : "enquiries";
       const e = source === "growth"
-        ? await env.DB.prepare(`SELECT id, customer_id, business_name AS company, full_name AS contact, whatsapp AS phone, email, owner_id, source AS src, ref FROM business_growth_enquiries WHERE id = ?1`).bind(id).first<Record<string, unknown>>()
+        ? await env.DB.prepare(`SELECT id, customer_id, business_name AS company, full_name AS contact, whatsapp AS phone, email, owner_id, source AS src, ref FROM business_growth_enquiries WHERE id = ?1 AND test_marked_at IS NULL`).bind(id).first<Record<string, unknown>>() // v1.418.0 - a test entry never becomes a lead
         : await env.DB.prepare(`SELECT id, customer_id, COALESCE(NULLIF(TRIM(company), ''), name) AS company, name AS contact, phone, email, assigned_to AS owner_id, site AS src, NULL AS ref FROM enquiries WHERE id = ?1`).bind(id).first<Record<string, unknown>>();
       if (!e) return err("not_found", "Entry not found", 404);
       if (e.customer_id) return json({ ok: true, customer_id: e.customer_id, existing: true });

@@ -29,6 +29,9 @@ export const PERMS: Record<string, readonly Role[]> = {
   // === index.ts ===
   content_manage: ["super_admin"], // v1.348.0 (the CEO, 17-11-2026) - the website is edited in /admin, the super admin's console only
   enquiry_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
+  /** v1.418.0 - mark a Business Growth Check entry as a TEST entry (the CEO 21-11-2026: "As CEO, I want to have authority"). It is closed and
+      leaves every list and figure; its record and history stay (an enquiry is never deleted, 0211). Reason 10+, audited. */
+  growth_mark_test: ["ceo"],
   sync_manage: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
 
   // === staff.ts ===
@@ -648,6 +651,7 @@ export interface PolicyAction {
 }
 export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
+  { module: "Sales", key: "growth_mark_test", en: "Remove a test Business Growth Check entry", ms: "Keluarkan entri ujian Semakan Pertumbuhan Bisnes", cap: "growth_mark_test", needs: "enquiry_manage", note_en: "Closed and hidden from every list and figure; the record and its history are kept", note_ms: "Ditutup dan disembunyikan daripada semua senarai dan angka; rekod dan sejarahnya disimpan" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
   { module: "Sales", key: "pipeline_override", en: "Mark a deal Won without an acceptance or invoice; reopen a closed deal", ms: "Tanda urusan Berjaya tanpa penerimaan atau invois; buka semula urusan ditutup", cap: "pipeline_override", note_en: "A written reason every time; never revenue or commission", note_ms: "Sebab bertulis setiap kali; bukan hasil atau komisen" },
   { module: "Sales", key: "playbook_manage", en: "Write and publish the Sales Playbook", ms: "Tulis dan terbitkan Buku Panduan Jualan", cap: "playbook_manage", note_en: "Every publish is a kept version with a note; prices only from Packages", note_ms: "Setiap terbitan disimpan sebagai versi bernota; harga hanya dari Pakej" },

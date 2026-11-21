@@ -4,6 +4,12 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### The CEO can remove a test Business Growth Check entry (21-11-2026, the CEO: "As CEO, I want to have authority to delete this ... it is not valid due to a testing"; his answer: Mark as test) - MIGRATION 0232 (additive)
+- **Remove test entry:** on the Sales Action Center, a Business Growth Check row has a More (...) menu with **Remove test entry**, and the entry's own panel has the same button. Only the CEO sees it; it asks why (at least 10 characters).
+- **What it does:** the entry is closed and leaves the Action Center, the Desk, the Growth Check list and every Growth figure, and it can no longer be turned into a lead. A real person's later submission from the same WhatsApp starts a new entry.
+- **What it does not do:** it never erases the entry. An enquiry holds the person's consent record, so since 1.369.0 the database refuses to delete one; the record, its history (with "Removed as a test entry" and the reason) and the audit row stay.
+- Guard `business-growth` gains 14 checks and 2 mutations (whole worker against SQLite). Not deployed - PUSH.bat applies 0232.
+
 ### A custom role that does not count as staff stays off Payroll (21-11-2026, the CEO: "r_testing still appear as a staff") - NO MIGRATION
 - `GET /users` now marks an account `not_staff` when its own (custom) role has **Counts as company staff** off, the same rule every server staff list already uses (Roles v2). The Payroll screen, which builds its list from `/users`, therefore leaves such an account out, as the server's payroll population already did. A new custom role counts as staff by default, so the role must have the box unticked (Users & Security -> Roles & Permissions -> the role -> Edit), or the account marked **Mark as test account**. Guard `staff-order` (81). Not deployed.
 ### Quotations & Invoices: one status badge, invoice and payment details in the expanded row (21-11-2026, the CEO's reference, "As recommended") - NO MIGRATION, no server change

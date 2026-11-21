@@ -306,6 +306,7 @@ export async function doneToday(env: Env, uid: number, today = mytToday()): Prom
     `SELECT MIN(ev.id) AS id, MAX(ev.created_at) AS at, g.business_name AS customer, g.ref AS ref, GROUP_CONCAT(ev.kind, ', ') AS detail, NULL AS customer_id, NULL AS doc_id
        FROM business_growth_events ev JOIN business_growth_enquiries g ON g.id = ev.enquiry_id
       WHERE ev.actor_id = ?1 AND date(ev.created_at, '+8 hours') = ?2 AND ev.kind IN ('contact', 'problem', 'advice', 'follow_up', 'quotation', 'qualified', 'not_interested')
+        AND g.test_marked_at IS NULL /* v1.418.0 - a test entry the CEO removed is no one's work */
       GROUP BY ev.enquiry_id`,
   ).bind(uid, today).all<R>()).results ?? []));
   add("quotation_issued", await quiet(async () => (await env.DB.prepare(
@@ -401,7 +402,7 @@ export async function recentActivities(env: Env, v: SalesViewer, today = mytToda
     type G = { id: number; at: string; ref: string; business_name: string; source: string };
     for (const g of await quiet(async () => (await env.DB.prepare(
       `SELECT g.id, g.created_at AS at, g.ref, g.business_name, g.source FROM business_growth_enquiries g
-        WHERE date(g.created_at, '+8 hours') >= ?1 AND (?2 = 0 OR g.owner_id = ?3 OR g.owner_id IS NULL)
+        WHERE date(g.created_at, '+8 hours') >= ?1 AND (?2 = 0 OR g.owner_id = ?3 OR g.owner_id IS NULL) AND g.test_marked_at IS NULL
         ORDER BY g.created_at DESC LIMIT 20`,
     ).bind(since, mine, uid).all<G>()).results ?? [])) {
       out.push({ key: `growth:${g.id}`, group: "enquiries", kind: "growth", at: g.at, title: g.ref, customer: g.business_name, cents: null, detail: g.source, doc_id: null, customer_id: null, record_id: g.id });

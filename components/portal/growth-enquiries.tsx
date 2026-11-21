@@ -51,7 +51,7 @@ export interface GAnalytics {
   assessments: number; qualified: number; quotations: number; accepted: number; verified: number; verified_cents: number;
 }
 export interface GList { enquiries: GRow[]; counts: Record<string, number>; analytics: GAnalytics; me: number; can_manage: boolean; pending_migration?: boolean }
-interface GCan { pickup: boolean; release: boolean; assign: boolean; contact: boolean; note: boolean; problem: boolean; advice: boolean; outcome: boolean; quotation: boolean; whatsapp: boolean }
+interface GCan { pickup: boolean; release: boolean; assign: boolean; contact: boolean; note: boolean; problem: boolean; advice: boolean; outcome: boolean; quotation: boolean; whatsapp: boolean; mark_test?: boolean }
 interface GDetail {
   enquiry: GRow & { industry_other: string | null; social_url: string | null; source_detail: string | null; utm_source: string | null; utm_medium: string | null; utm_term: string | null; utm_content: string | null;
     referrer: string | null; landing_path: string | null; challenge_other: string | null; urgent_problem: string; goal_90d: string; platforms: string[]; consent_contact: number; consent_privacy: number;
@@ -157,6 +157,15 @@ function GrowthRecord({ id, onClose, onChanged, onQuote, testid, full = false, o
     if (!a || a.value.trim().length < 5) return;
     await run("release", { reason: a.value.trim() }, L("Handed back", "Diserah semula"));
   };
+  /* v1.418.0 - the CEO removes a TEST entry: closed and out of every list and figure, its record kept */
+  const markTest = async () => {
+    const a = await prompt({ title: L("Remove as a test entry", "Keluarkan sebagai entri ujian"),
+      message: L("It is closed and leaves the Action Center, the Desk, this list and every figure. Its record and history are kept.", "Ia ditutup dan keluar daripada Pusat Tindakan, Desk, senarai ini dan semua angka. Rekod dan sejarahnya disimpan."),
+      label: L("Why is it a test entry? (at least 10 characters)", "Mengapa ia entri ujian? (sekurang-kurangnya 10 aksara)"), required: true, variant: "danger",
+      confirmLabel: L("Remove test entry", "Keluarkan entri ujian") });
+    if (!a || a.value.trim().length < 10) return;
+    if (await run("mark-test", { reason: a.value.trim() }, L("Removed as a test entry", "Dikeluarkan sebagai entri ujian"))) onClose();
+  };
   const e = d?.enquiry;
   const can = d?.can;
   const wa = e && d ? growthWhatsAppLink(e.whatsapp, growthWhatsAppText(e.full_name, d.staff_name, e.business_name)) : "";
@@ -197,6 +206,7 @@ function GrowthRecord({ id, onClose, onChanged, onQuote, testid, full = false, o
             {can.quotation && <button type="button" className={btnSm} disabled={busy} onClick={() => open("quotation")} data-testid="growth-link-quote"><AppIcon name="documents" />{L("Link quotation", "Pautkan sebut harga")}</button>}
             {can.assign && <button type="button" className={btnSmQuiet} disabled={busy} onClick={() => open("assign")} data-testid="growth-assign">{L("Give to…", "Beri kepada…")}</button>}
             {can.release && <button type="button" className={btnSmQuiet} disabled={busy} onClick={() => void release()} data-testid="growth-release">{L("Hand back", "Serah semula")}</button>}
+            {can.mark_test && <button type="button" className={btnSmQuiet} disabled={busy} onClick={() => void markTest()} data-testid="growth-mark-test"><AppIcon name="close" />{L("Remove test entry", "Keluarkan entri ujian")}</button>}
           </div>
           {waHint && <p className={css.muted} role="status" data-testid="growth-wa-hint">{L("WhatsApp opened with the message ready. Opening it is not a record - after you press Send there, record the contact here.", "WhatsApp dibuka dengan mesej sedia. Membukanya bukan rekod - selepas anda tekan Hantar di sana, rekod hubungan di sini.")}</p>}
           {e.status === "new" && !can.pickup && <p className={css.muted}>{L("Waiting to be picked up.", "Menunggu untuk diambil.")}</p>}

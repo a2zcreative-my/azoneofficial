@@ -629,3 +629,7 @@ amount of a type) and `payroll_allowance_events` (append-only by trigger), plus 
 `payroll_entries.allowance_items`. Not the business.ts door (worker/src/payroll-allowances.ts at `/staff/payroll/allowances`
 and `/staff/payroll/allowance-types`). The setup writes no payroll row; the month's Allowance is written only by the
 existing Save behind its release lock, and the net formula is unchanged.
+A test Business Growth Check entry (the CEO 21-11-2026, "Mark as test") adds `0232_growth_test_entries`: additive only -
+three nullable columns on `business_growth_enquiries` (`test_marked_at`, `test_marked_by`, `test_reason`). Only the CEO
+(`growth_mark_test`) marks one, with a reason: it is closed and leaves every list and figure; the enquiry, its consent
+record and its history are never deleted (the 0211 trigger stays). Not the business.ts door (worker/src/growth.ts).

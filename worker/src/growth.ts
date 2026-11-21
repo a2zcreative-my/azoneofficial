@@ -304,6 +304,7 @@ interface Row {
   status: Status; owner_id: number | null; picked_at: string | null; first_response_at: string | null; contact_attempts: number; next_follow_up_on: string | null;
   problem_summary: string | null; advice_summary: string | null; advice_at: string | null; advice_by: number | null; outcome_reason: string | null; closed_at: string | null; closed_by: number | null;
   quotation_id: number | null; resubmissions: number; last_submitted_at: string | null; version: number; created_at: string; updated_at: string | null;
+  test_marked_at?: string | null; test_marked_by?: number | null; test_reason?: string | null;
 }
 
 /** What THIS person may do to this enquiry now - the screen draws exactly these; every route re-checks. */
@@ -323,6 +324,8 @@ function actionsFor(a: Row, user: StaffUser, manager: boolean) {
     outcome: works && reached,
     quotation: works && a.status === "qualified" && a.quotation_id === null,
     whatsapp: works && a.owner_id !== null,
+    /* v1.418.0 - the CEO removes a test entry (closed, hidden, kept) */
+    mark_test: canUser(user, "growth_mark_test") && !a.test_marked_at,
   };
 }
 
@@ -358,7 +361,9 @@ export async function handleGrowth(env: Env, path: string, method: string, body:
                 (SELECT 1 FROM quotation_acceptances qa WHERE qa.doc_id = g.quotation_id LIMIT 1) AS accepted,
                 (SELECT i.total_cents FROM sales_documents i WHERE i.converted_from = g.quotation_id AND i.doc_type = 'INV' AND i.voided_at IS NULL
                     AND EXISTS (SELECT 1 FROM invoice_paid_confirmations c WHERE c.invoice_id = i.id AND c.revoked_at IS NULL) LIMIT 1) AS verified_cents
-           FROM business_growth_enquiries g LEFT JOIN users o ON o.id = g.owner_id ORDER BY g.id DESC LIMIT 1000`,
+           FROM business_growth_enquiries g LEFT JOIN users o ON o.id = g.owner_id
+          WHERE g.test_marked_at IS NULL /* v1.418.0 - a test entry the CEO removed is in no list and no figure */
+          ORDER BY g.id DESC LIMIT 1000`,
       ).all<Record<string, unknown>>();
       const today = mytToday();
       const s = await growthSettings(env);
@@ -374,7 +379,7 @@ export async function handleGrowth(env: Env, path: string, method: string, body:
       return json({ enquiries: rows, counts, analytics: analytics(rows), me: user.id, can_manage: manager, settings: s });
     }
 
-    const m = path.match(/^\/business-growth\/(\d+)(?:\/(pickup|release|assign|contact|note|problem|advice|outcome|quotation))?$/);
+    const m = path.match(/^\/business-growth\/(\d+)(?:\/(pickup|release|assign|contact|note|problem|advice|outcome|quotation|mark-test))?$/);
     if (!m) return err("not_found", "Unknown Business Growth route", 404);
     const id = Number(m[1]);
     const a = await env.DB.prepare(`SELECT * FROM business_growth_enquiries WHERE id = ?1`).bind(id).first<Row>();
@@ -524,6 +529,24 @@ export async function handleGrowth(env: Env, path: string, method: string, body:
       if (!ok) return stale();
       await event(env, id, user.id, { kind: outcome, body: `${reason}${follow && outcome === "follow_up" ? `\nNext follow-up ${follow}` : ""}`, from: a.status, to: outcome });
       return done("outcome", { from: a.status, to: outcome, reason });
+    }
+    /* ---- v1.418.0 - the CEO removes a TEST entry: closed (not_interested), marked, out of every list and
+       figure. Never a delete - the 0211 trigger keeps the enquiry and its consent record; the history row says why. ---- */
+    if (action === "mark-test") {
+      if (!canUser(user, "growth_mark_test")) return err("forbidden", "Only the CEO removes a test entry", 403);
+      if (a.test_marked_at) return err("already_marked", "This entry is already removed as a test entry.", 409);
+      const reason = long(body?.reason, 1000);
+      if (reason.length < 10) return err("reason_required", "Say why it is a test entry (at least 10 characters) - it is kept with the record.", 400);
+      const at = now();
+      const r = await env.DB.prepare(
+        `UPDATE business_growth_enquiries SET status = 'not_interested', closed_at = COALESCE(closed_at, ?1), closed_by = COALESCE(closed_by, ?2),
+                outcome_reason = COALESCE(outcome_reason, ?3), next_follow_up_on = NULL, test_marked_at = ?1, test_marked_by = ?2, test_reason = ?3,
+                version = version + 1, updated_at = ?1
+          WHERE id = ?4 AND version = ?5 AND test_marked_at IS NULL RETURNING id`,
+      ).bind(at, user.id, reason, id, version).first();
+      if (!r) return stale();
+      await event(env, id, user.id, { kind: "marked_test", body: `Removed as a test entry: ${reason}`, from: a.status, to: "not_interested" });
+      return done("mark_test", { from: a.status, reason });
     }
     if (action === "quotation") {
       if (!can.quotation) return err("forbidden", a.quotation_id ? "A quotation is already linked." : "Only a qualified enquiry is linked to a quotation, by its owner or management", 403);
