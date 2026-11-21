@@ -4,6 +4,13 @@ All notable changes to the AZ ONE OFFICIAL platform.
 
 ## [Unreleased]
 
+### Two-factor sign-in: six boxes and a keypad (21-11-2026, the CEO's keypad reference, "As recommended") - NO MIGRATION, no server change
+- **Authenticator code:** six boxes with the active one in gold, over ONE real input (text, numeric keyboard, `autocomplete="one-time-code"`, six long), so typing, Ctrl+V / Cmd+V / long-press Paste and the phone's code autofill all work. Leading zeros are kept. The sixth digit still signs in by itself.
+- **Keypad:** 1-9, Clear, 0, Delete. Large keys that never take the focus, so on a desk the keyboard keeps working and on a phone the system keyboard does not open over the keypad. On a phone the screen opens on the keypad; "Tap the boxes to paste or use your keyboard" is the way to Paste and autofill.
+- **Backup code:** "Use a backup code instead" opens its own box (letters, digits and the dash, eleven at most, the dash added back; old 8-digit codes still accepted), with a short note on what a backup code is. It never auto-submits; Verify waits for it. "Use authenticator code instead" goes back. A backup code pasted into the digit boxes moves to this box intact.
+- A wrong authenticator code empties the boxes for the next try. Errors, the 15-minute limit, the five-tries-per-attempt rule, one press at a time and "nothing signed in until the server says so" are unchanged; the same `/auth/2fa/verify` call checks both kinds.
+- Guard `login-ux` 64 checks (section 8 rewritten for the new screen; it also reads files line-ending-blind now); browser `release-a.py` A1 rewritten for the keypad and the backup box (not run on this PC: no Python); app type check and the site build pass; checked in a browser at desktop and phone size on the test server. Not checked on a real iPhone or Android. Not deployed.
+
 ### Signed-out card: the logo only (21-11-2026, the CEO: "remove A2Z OS since there is a A2Z logo there") - NO MIGRATION
 - The signed-out / session-ended / access card (`components/auth/auth-state-card.tsx`) no longer prints the "A2Z OS" wordmark under the A2Z logo; the logo, A2Z CREATIVE MARKETING and the portal name stay. Wording, buttons and sign-out behaviour unchanged. Not deployed.
 

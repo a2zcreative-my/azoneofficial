@@ -63,7 +63,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const read = (p) => readFileSync(join(root, p), "utf8");
+const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the patterns are written with \n
 
 let passed = 0, failed = 0;
 const ok = (label, cond, why = "") => {
@@ -83,7 +83,7 @@ const i18n = read("lib/i18n.ts");
   ok("from lg up the page is a two-column grid", /<div className=\{css\.page\}>/.test(src) && /@media \(min-width: 1024px\) \{\s*\.page \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);/.test(css));
   ok("the brand panel is beside the form and a phone never draws it", /function BrandPanel\(/.test(src) && /\.brand \{\s*display: none;\s*\}\s*@media \(min-width: 1024px\) \{\s*\.brand \{\s*position: relative;\s*display: flex;/.test(css) && /<BrandPanel lang=\{lang\} \/>/.test(src));
   ok("nothing needed to sign in lives in the brand panel", (() => {
-    const panel = src.slice(src.indexOf("function BrandPanel("), src.indexOf("/* ── the page ──"));
+    const panel = src.slice(src.indexOf("function BrandPanel("), src.indexOf("function CloudflareNotice(")); /* v1.414.0 - the code boxes and keypad sit after the panel */
     return !/<input|<form|type="submit"|auth\/google/.test(panel);
   })());
   /* the v1.29.2 phone fix, kept verbatim: svh, not vh, and the home indicator */
@@ -97,7 +97,7 @@ const i18n = read("lib/i18n.ts");
 /* ---- 2. a real form ---- */
 {
   ok("sign-in is a <form> that submits", /<form className=\{css\.form\} noValidate onSubmit=\{\(e\) => \{ e\.preventDefault\(\); if \(!busy\) void submit\(\); \}\}>/.test(src));
-  ok("the code screen is a <form> too", /<form\s+className=\{css\.form\}\s+onSubmit=/.test(src));
+  ok("the code screen is a <form> too", /<form\s+className=\{css\.form\}\s+noValidate\s+onSubmit=\{\(e\) => \{ e\.preventDefault\(\); if \(!busy && codeReady\) void verifyCode\(codeValue\); \}\}/.test(src));
   ok("both buttons are type=submit", (src.match(/<button type="submit"/g) ?? []).length >= 2);
   ok("no hand-rolled Enter listener stands in for the form", !/onKeyDown=\{\(e\) => e\.key === "Enter"/.test(src));
 }
@@ -106,7 +106,7 @@ const i18n = read("lib/i18n.ts");
 {
   const ids = [...src.matchAll(/<input\s+id="(\w+)"/g)].map((m) => m[1]);
   ok("every input carries an id", ids.length >= 3, `${ids.length} inputs with an id`);
-  const labelled = ids.filter((id) => new RegExp(`<Field\\s+id="${id}"|<Field\\n\\s+id="${id}"`).test(src));
+  const labelled = ids.filter((id) => new RegExp(`<Field\\s+id="${id}"|<Field\\n\\s+id="${id}"|<label htmlFor="${id}"`).test(src)); /* v1.414.0 - the six-box input carries its own (visually hidden) label */
   ok("every input is inside a labelled Field", labelled.length === ids.length, `${labelled.length} of ${ids.length}: ${ids.filter((i) => !labelled.includes(i)).join(", ")}`);
   ok("Field renders a real <label htmlFor>", /<label htmlFor=\{id\}/.test(src));
   ok("the inputs are the 16px public-page field, not the 14px desk one", /inputClassLg/.test(src) && !/\binputClass\b(?!Lg)/.test(src));
@@ -133,8 +133,8 @@ const i18n = read("lib/i18n.ts");
 /* ---- 6. errors announce themselves ---- */
 {
   ok("the error is an alert", /role="alert"/.test(src) && /function ErrorNote\(/.test(src));
-  ok("the fields point at it", (src.match(/aria-describedby=\{error \? "form-error" : undefined\}/g) ?? []).length >= 2 && /aria-describedby=\{error \? "code-error" : undefined\}/.test(src));
-  ok("and mark themselves invalid", (src.match(/aria-invalid=\{error \? true : undefined\}/g) ?? []).length >= 3);
+  ok("the fields point at it", (src.match(/aria-describedby=\{error \? "form-error" : undefined\}/g) ?? []).length >= 2 && /describedBy=\{error \? "code-error" : "code-hint"\}/.test(src) && /aria-describedby=\{describedBy\}/.test(src) && /aria-describedby=\{error \? "code-error" : "backup-about"\}/.test(src));
+  ok("and mark themselves invalid", (src.match(/aria-invalid=\{error \? true : undefined\}/g) ?? []).length >= 3 && /aria-invalid=\{invalid \? true : undefined\}/.test(src) && /invalid=\{Boolean\(error\)\}/.test(src));
 }
 
 /* ---- 7. language at the door ---- */
@@ -146,13 +146,38 @@ const i18n = read("lib/i18n.ts");
 
 /* ---- 8. the code screen belongs to the phone ---- */
 {
-  ok("the code field autofills from the authenticator / SMS (numeric keyboard while digits are typed)", /autoComplete="one-time-code"/.test(src) && /inputMode=\{\/\[A-Z-\]\/\.test\(code\) \? "text" : "numeric"\}/.test(src));
-  /* v1.241.0 (go-live audit A1): a backup code is ABCDE-FGHIJ - letters, digits
-     and a dash, eleven characters; the box used to strip everything but
-     digits, so the page offered a backup code it could never send */
-  ok("a pasted code keeps letters, digits and the dash, eleven at most, upper-cased", /let next = raw\.toUpperCase\(\)\.replace\(\/\[\^A-Z0-9-\]\/g, ""\)\.slice\(0, 11\);/.test(src));
+  /* v1.414.0 (the CEO's keypad reference, 21-11-2026, "As recommended") - six drawn boxes over ONE real
+     input, a keypad, and a separate backup-code box. The promises of v1.241.0 A1 are kept: a backup code is
+     always reachable, the sixth DIGIT signs in by itself, nothing is sent twice. */
+  const boxes = src.slice(src.indexOf("function CodeBoxes("), src.indexOf("function Keypad("));
+  const pad = src.slice(src.indexOf("function Keypad("), src.indexOf("/* ── the page ──"));
+  ok("ONE real input lies under the six boxes: text, numeric keyboard, code autofill, six long - never type=number, never six inputs",
+    /<input\s+id="code"/.test(boxes) && /type="text"/.test(boxes) && /inputMode="numeric"/.test(boxes) && /autoComplete="one-time-code"/.test(boxes) && /maxLength=\{6\}/.test(boxes)
+    && (boxes.match(/<input/g) ?? []).length === 1 && !/type="number"/.test(src) && /\[0, 1, 2, 3, 4, 5\]\.map/.test(boxes) && /className=\{css\.box\} aria-hidden="true"/.test(boxes));
+  ok("the input is transparent over the boxes, never display:none (a tap is the keyboard, Paste and autofill), 16px so iOS never zooms",
+    /\.boxInput \{[^}]*position: absolute;[^}]*inset: 0;[^}]*color: transparent;[^}]*caret-color: transparent;[^}]*font-size: 16px;/.test(css) && !/\.boxInput \{[^}]*display: none/.test(css));
+  ok("a paste is read whole before maxlength can cut it (Ctrl+V, Cmd+V, long-press)", /onPaste=\{\(e\) => \{ e\.preventDefault\(\); onDigits\(e\.clipboardData\.getData\("text"\)\); \}\}/.test(boxes));
+  ok("digits only, leading zeros kept (text, not a number), six at most; something with letters goes to backup mode intact",
+    /if \(\/\[A-Za-z\]\/\.test\(raw\)\) \{ setError\(""\); setMode\("backup"\); putCode\(""\); onBackup\(raw\); return; \}/.test(src) && /const next = raw\.replace\(\/\\D\/g, ""\)\.slice\(0, 6\);/.test(src));
+  ok("the sixth DIGIT signs in by itself", /if \(\/\^\\d\{6\}\$\/\.test\(next\) && !busy\) void verifyCode\(next\);/.test(src));
+  ok("the keypad: 1-9, Clear, 0, Delete; a key never takes the focus; Delete is named for a screen reader",
+    /\["1", "2", "3", "4", "5", "6", "7", "8", "9"\]\.map/.test(pad) && /onClick=\{onClear\}/.test(pad) && /onClick=\{\(\) => onKey\("0"\)\}/.test(pad) && /onClick=\{onDelete\}/.test(pad)
+    && (pad.match(/onPointerDown=\{hold\}/g) ?? []).length === 4 && /const hold = \(e: KeyPointerEvent\) => e\.preventDefault\(\);/.test(pad) && /aria-label=\{L\("Delete the last digit"/.test(pad) && (pad.match(/type="button"/g) ?? []).length === 4);
+  /* a key reads the digits as they are this moment (a ref), so two presses inside one frame are both kept */
+  ok("a key adds one digit to what is there and stops at six - two quick presses both count",
+    /onKey=\{\(d\) => \{ if \(codeLive\.current\.length < 6\) onDigits\(codeLive\.current \+ d\); \}\}/.test(src) && /const putCode = \(v: string\) => \{ codeLive\.current = v; setCode\(v\); \};/.test(src)
+    && /onDelete=\{\(\) => putCode\(codeLive\.current\.slice\(0, -1\)\)\}/.test(src) && !/\bsetCode\("/.test(src.replace("const putCode = (v: string) => { codeLive.current = v; setCode(v); };", "")));
+  ok("a phone opens on the keypad: the input is focused on a desk only", /if \(challenge && mode === "totp" && window\.matchMedia\?\.\("\(min-width: 1024px\)"\)\.matches\) codeRef\.current\?\.focus\(\);/.test(src) && !/autoFocus/.test(boxes)
+    && /Tap the boxes to paste or use your keyboard\./.test(src));
+  /* v1.241.0 (go-live audit A1): a backup code is ABCDE-FGHIJ (or eight digits before v1.5.0) - its own box now */
+  ok("a backup code has its own box: letters, digits and the dash, eleven at most, upper-cased, pasted whole",
+    /let next = raw\.toUpperCase\(\)\.replace\(\/\[\^A-Z0-9-\]\/g, ""\)\.slice\(0, 11\);/.test(src) && /<input\s+id="backup-code"/.test(src) && /maxLength=\{11\}/.test(src)
+    && /onPaste=\{\(e\) => \{ e\.preventDefault\(\); onBackup\(e\.clipboardData\.getData\("text"\)\); \}\}/.test(src));
   ok("a backup code typed without its dash gets it back (the server compares the issued form)", /if \(\/\[A-Z\]\/\.test\(next\) && !next\.includes\("-"\) && next\.length > 5\) next = `\$\{next\.slice\(0, 5\)\}-\$\{next\.slice\(5, 10\)\}`;/.test(src));
-  ok("the sixth DIGIT signs in by itself; a backup code waits for Verify", /if \(\/\^\\d\{6\}\$\/\.test\(next\) && !busy\) void verifyCode\(next\);/.test(src) && /const codeReady = \/\^\\d\{6\}\$\/\.test\(code\) \|\| code\.replace\(\/-\/g, ""\)\.length >= 6;/.test(src) && /disabled=\{busy \|\| !codeReady\}/.test(src) && /maxLength=\{11\}/.test(src) && !/pattern="\[0-9\]\*"/.test(src));
+  ok("Verify waits for the chosen mode's format; a backup code is never sent by itself",
+    /const codeReady = mode === "totp" \? \/\^\\d\{6\}\$\/\.test\(code\) : backup\.replace\(\/-\/g, ""\)\.length >= 6;/.test(src) && /disabled=\{busy \|\| !codeReady\}/.test(src) && !/void verifyCode\(next\);[\s\S]{0,40}setBackup/.test(src));
+  ok("either mode switches to the other and back", /Use a backup code instead/.test(src) && /Use authenticator code instead/.test(src) && /setMode\("backup"\)/.test(src) && /setMode\("totp"\)/.test(src));
+  ok("the caret's blink and the key press stop under reduced motion", /@media \(prefers-reduced-motion: reduce\) \{[^}]*\.caret \{ animation: none; \}/.test(css));
   ok("and it cannot fire twice", /if \(verifying\.current\) return;/.test(src));
   ok("the code is verified with the value just typed, not with stale state", /const verifyCode = async \(value: string\)/.test(src) && /body: JSON\.stringify\(challenge === VIA_COOKIE \? \{ code: value \} : \{ challenge, code: value \}\)/.test(src));
   /* v1.264.0 (G4) - a Google challenge stays in its HttpOnly cookie: the page never reads a challenge from document.cookie */

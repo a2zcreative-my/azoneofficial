@@ -33,7 +33,7 @@
 
 import { api } from "@/lib/api"; // v1.5.0: one shared helper (was a per-file copy)
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as KeyPointerEvent, type ReactNode, type RefObject } from "react";
 import { getLang, setLang, type Lang } from "@/lib/i18n";
 import { inputClassLg, btnClassBlock } from "@/lib/ui-styles";
 import { getPasskey, passkeysSupported, cancelled, type GetOptionsJSON } from "@/lib/passkey"; // v1.269.0 - Phase 2A
@@ -237,6 +237,70 @@ function CloudflareNotice({ lang, state, widget }: { lang: Lang; state: BotState
   );
 }
 
+/** v1.414.0 - the six boxes. They are DRAWING only: one real input lies over them
+    (transparent, never display:none), so a tap gives the system keyboard, long-press
+    Paste and the phone's code autofill, and a screen reader meets one labelled field. */
+function CodeBoxes({ lang, value, onDigits, inputRef, disabled, invalid, describedBy }: {
+  lang: Lang; value: string; onDigits: (raw: string) => void;
+  inputRef: RefObject<HTMLInputElement | null>; disabled: boolean; invalid: boolean; describedBy: string;
+}) {
+  const L = tr(lang);
+  const active = Math.min(value.length, 5);
+  return (
+    <div className={css.boxes} data-testid="code-boxes">
+      <label htmlFor="code" className={css.srOnly}>{L("Authenticator code, 6 digits", "Kod pengesah, 6 digit")}</label>
+      <input
+        id="code"
+        ref={inputRef}
+        className={css.boxInput}
+        type="text"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={6}
+        spellCheck={false}
+        disabled={disabled}
+        aria-invalid={invalid ? true : undefined}
+        aria-describedby={describedBy}
+        value={value}
+        /* a paste is read whole BEFORE maxlength can cut it: "123 456" and a backup code both arrive intact */
+        onPaste={(e) => { e.preventDefault(); onDigits(e.clipboardData.getData("text")); }}
+        onChange={(e) => onDigits(e.target.value)}
+      />
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <span key={i} className={css.box} aria-hidden="true" data-filled={value[i] ? "1" : undefined} data-active={i === active && value.length < 6 ? "1" : undefined}>
+          {value[i] ?? ""}
+          {i === active && value.length < 6 && <span className={css.caret} />}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** v1.414.0 - the keypad: 1-9, Clear, 0, Delete. A key never takes the focus (pointerdown is
+    held), so on a desk the input keeps the keyboard, on a phone the system keyboard never
+    opens over the keypad, and no digit is entered twice. Enter / Space press a focused key. */
+function Keypad({ lang, disabled, onKey, onClear, onDelete }: {
+  lang: Lang; disabled: boolean; onKey: (d: string) => void; onClear: () => void; onDelete: () => void;
+}) {
+  const L = tr(lang);
+  const hold = (e: KeyPointerEvent) => e.preventDefault();
+  return (
+    <div className={css.keypad} role="group" aria-label={L("Number keypad", "Pad nombor")} data-testid="code-keypad">
+      {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+        <button key={d} type="button" className={css.key} disabled={disabled} onPointerDown={hold} onClick={() => onKey(d)} data-testid={`key-${d}`}>{d}</button>
+      ))}
+      <button type="button" className={`${css.key} ${css.keySoft}`} disabled={disabled} onPointerDown={hold} onClick={onClear} data-testid="key-clear">{L("Clear", "Kosongkan")}</button>
+      <button type="button" className={css.key} disabled={disabled} onPointerDown={hold} onClick={() => onKey("0")} data-testid="key-0">0</button>
+      <button type="button" className={`${css.key} ${css.keySoft}`} disabled={disabled} onPointerDown={hold} onClick={onDelete}
+        aria-label={L("Delete the last digit", "Padam digit terakhir")} data-testid="key-delete">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z" /><line x1="17" y1="9" x2="12" y2="14" /><line x1="12" y1="9" x2="17" y2="14" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 /* ── the page ──────────────────────────────────────────────────────────── */
 
 export default function LoginPage() {
@@ -247,6 +311,13 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
+  /* v1.414.0 - authenticator digits or a backup code: two inputs, never one box for both */
+  const [mode, setMode] = useState<"totp" | "backup">("totp");
+  const [backup, setBackup] = useState("");
+  const codeRef = useRef<HTMLInputElement>(null);
+  /* the digits as they are THIS moment: two key presses inside one frame both read it, so neither is lost */
+  const codeLive = useRef("");
+  const putCode = (v: string) => { codeLive.current = v; setCode(v); };
   const [busy, setBusy] = useState(false);
   /* v1.341.0 - the Cloudflare bot check (the worker sends the public site key; none = off) */
   const [botKey, setBotKey] = useState<string | null>(null);
@@ -298,7 +369,7 @@ export default function LoginPage() {
       window.location.replace(destinationFor(res.data.user.role));
     } else if (why === "challenge_expired" || why === "too_many_attempts" || why === "changed_meanwhile") {
       /* the attempt is over - back to the sign-in form, which says why */
-      setChallenge(""); setCode("");
+      setChallenge(""); resetCode();
       setError(why === "too_many_attempts"
         ? L("Too many incorrect codes — please sign in again.", "Terlalu banyak kod yang salah — sila log masuk semula.")
         : why === "changed_meanwhile"
@@ -307,6 +378,8 @@ export default function LoginPage() {
     } else if (res.status === 429) {
       setError(L("Too many attempts — try again in 15 minutes.", "Terlalu banyak percubaan — cuba lagi dalam 15 minit."));
     } else {
+      /* v1.414.0 - a wrong authenticator code empties the six boxes for the next try; a backup code stays to be corrected */
+      if (/^\d{6}$/.test(value)) putCode("");
       setError(L(
         "That code is not correct. Check your authenticator app, or use a backup code.",
         "Kod itu tidak betul. Semak aplikasi pengesah anda, atau gunakan kod sandaran.",
@@ -314,23 +387,41 @@ export default function LoginPage() {
     }
   };
 
-  /** Typed, pasted or autofilled. v1.241.0 (go-live audit A1): a BACKUP
-      CODE is ten letters and digits with a dash (ABCDE-FGHIJ, worker
-      index.ts ~414), and this box used to keep digits only - so the sentence
-      above it offering a backup code was a door that did not open, and a
-      person without their phone was locked out. Letters, digits and the dash
-      are kept now (eleven at most, upper-cased as the server compares them);
-      a six-DIGIT authenticator code still signs in by itself on the sixth. */
-  const onCode = (raw: string) => {
+  /* v1.414.0 - the code screen focuses its input on a desk only. On a phone the keypad comes first and the
+     system keyboard stays shut until the boxes are tapped (that tap is the way to paste and autofill). */
+  useEffect(() => {
+    if (challenge && mode === "totp" && window.matchMedia?.("(min-width: 1024px)").matches) codeRef.current?.focus();
+  }, [challenge, mode]);
+
+  /** v1.414.0 (the CEO's keypad reference, 21-11-2026, "As recommended") - the
+      AUTHENTICATOR code: six digits, typed, pasted, autofilled or tapped on the
+      keypad, kept in ONE real input under six drawn boxes. Leading zeros stay
+      (it is text). Something with letters in it is a backup code: the screen
+      moves to backup mode with it filled in, so a pasted backup code is never
+      cut down to digits and lost. The sixth digit signs in by itself, as it
+      always has (v1.241.0 A1). */
+  const onDigits = (raw: string) => {
+    if (/[A-Za-z]/.test(raw)) { setError(""); setMode("backup"); putCode(""); onBackup(raw); return; }
+    const next = raw.replace(/\D/g, "").slice(0, 6);
+    putCode(next);
+    if (/^\d{6}$/.test(next) && !busy) void verifyCode(next);
+  };
+  /** A BACKUP code (v1.241.0 go-live audit A1): ten letters and digits with a
+      dash (ABCDE-FGHIJ, worker index.ts makeBackupCodes) - or, issued before
+      v1.5.0, eight DIGITS, so digits are kept too. Eleven characters at most,
+      upper-cased as the server compares them; never sent on its own. */
+  const onBackup = (raw: string) => {
     let next = raw.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 11);
     /* a backup code typed without its dash (ABCDEFGHIJ) gets it back, since
        the server compares the code exactly as it was issued */
     if (/[A-Z]/.test(next) && !next.includes("-") && next.length > 5) next = `${next.slice(0, 5)}-${next.slice(5, 10)}`;
-    setCode(next);
-    if (/^\d{6}$/.test(next) && !busy) void verifyCode(next);
+    setBackup(next);
   };
-  /** six digits, or a backup code of at least six characters */
-  const codeReady = /^\d{6}$/.test(code) || code.replace(/-/g, "").length >= 6;
+  /** six digits in authenticator mode; a backup code of at least six characters in backup mode */
+  const codeReady = mode === "totp" ? /^\d{6}$/.test(code) : backup.replace(/-/g, "").length >= 6;
+  const codeValue = mode === "totp" ? code : backup;
+  /** back to a clean authenticator screen (a new attempt, or Back to sign in) */
+  const resetCode = () => { putCode(""); setBackup(""); setMode("totp"); };
 
   useEffect(() => {
     /* v1.23.1: Google sign-in with 2FA enabled no longer mints a session —
@@ -492,48 +583,74 @@ export default function LoginPage() {
         </div>
 
         {challenge ? (
-          <div>
+          /* v1.414.0 (the CEO's keypad reference, 21-11-2026) - six boxes over one input and a keypad for the
+             authenticator code; a separate box for a backup code. Same /auth/2fa/verify, same rules. */
+          <div className={css.codeScreen} data-testid="code-screen" data-mode={mode}>
+            <span className={css.codeIcon} aria-hidden="true"><AppIcon name={mode === "totp" ? "verify" : "lock"} /></span>
             <h1 className={css.title}>
-              {L("Two-factor verification", "Pengesahan dua faktor")}
+              {mode === "totp" ? L("Two-factor verification", "Pengesahan dua faktor") : L("Use a backup code", "Guna kod sandaran")}
             </h1>
             <p className={css.lede}>
-              {L(
-                "Enter the 6-digit code from your authenticator app. You can also use one of your backup codes.",
-                "Masukkan kod 6 digit daripada aplikasi pengesah anda. Anda juga boleh menggunakan salah satu kod sandaran anda.",
-              )}
+              {mode === "totp"
+                ? L("Enter the 6-digit code from your authenticator app.", "Masukkan kod 6 digit daripada aplikasi pengesah anda.")
+                : L("Enter one of your backup codes to sign in.", "Masukkan salah satu kod sandaran anda untuk log masuk.")}
             </p>
             <form
               className={css.form}
-              onSubmit={(e) => { e.preventDefault(); if (!busy && codeReady) void verifyCode(code); }}
+              noValidate
+              onSubmit={(e) => { e.preventDefault(); if (!busy && codeReady) void verifyCode(codeValue); }}
             >
-              <div className={css.divider} aria-hidden />
-              <Field id="code" label={L("Authenticator or backup code", "Kod pengesah atau kod sandaran")}
-                hint={L("A 6-digit code signs you in by itself. A backup code looks like ABCDE-FGHIJ - type it and press Verify.", "Kod 6 digit log masuk dengan sendirinya. Kod sandaran berbentuk ABCDE-FGHIJ - taip dan tekan Sahkan.")}>
-                <input
-                  id="code"
-                  className={`${inputClassLg} ${css.codeInput}`}
-                  inputMode={/[A-Z-]/.test(code) ? "text" : "numeric"}
-                  autoComplete="one-time-code"
-                  autoCapitalize="characters"
-                  spellCheck={false}
-                  maxLength={11}
-                  autoFocus
-                  aria-invalid={error ? true : undefined}
-                  aria-describedby={error ? "code-error" : undefined}
-                  placeholder="000000"
-                  value={code}
-                  onChange={(e) => onCode(e.target.value)}
-                />
-              </Field>
+              {mode === "totp" ? (
+                <>
+                  <CodeBoxes lang={lang} value={code} onDigits={onDigits} inputRef={codeRef} disabled={busy} invalid={Boolean(error)} describedBy={error ? "code-error" : "code-hint"} />
+                  <p id="code-hint" className={css.codeHint}>{L("Tap the boxes to paste or use your keyboard.", "Ketik kotak untuk tampal atau guna papan kekunci anda.")}</p>
+                  <Keypad lang={lang} disabled={busy}
+                    onKey={(d) => { if (codeLive.current.length < 6) onDigits(codeLive.current + d); }}
+                    onClear={() => putCode("")}
+                    onDelete={() => putCode(codeLive.current.slice(0, -1))} />
+                </>
+              ) : (
+                <>
+                  <Field id="backup-code" label={L("Backup code", "Kod sandaran")}>
+                    <input
+                      id="backup-code"
+                      className={`${inputClassLg} ${css.backupInput}`}
+                      type="text"
+                      inputMode="text"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      maxLength={11}
+                      autoFocus
+                      disabled={busy}
+                      aria-invalid={error ? true : undefined}
+                      aria-describedby={error ? "code-error" : "backup-about"}
+                      placeholder={L("e.g. ABCDE-FGHIJ", "cth. ABCDE-FGHIJ")}
+                      value={backup}
+                      onPaste={(e) => { e.preventDefault(); onBackup(e.clipboardData.getData("text")); }}
+                      onChange={(e) => onBackup(e.target.value)}
+                    />
+                  </Field>
+                  <div id="backup-about" className={css.backupAbout}>
+                    <AppIcon name="info" />
+                    <span><strong>{L("About backup codes", "Tentang kod sandaran")}</strong>
+                      {L("A backup code is a one-time code you saved when setting up two-factor authentication.", "Kod sandaran ialah kod sekali guna yang anda simpan semasa menyediakan pengesahan dua faktor.")}</span>
+                  </div>
+                </>
+              )}
               {error && <ErrorNote id="code-error" message={error} />}
-              <button type="submit" disabled={busy || !codeReady} className={btnClassBlock}>
+              <button type="submit" disabled={busy || !codeReady} className={btnClassBlock} data-testid="code-verify">
                 {busy ? L("Verifying…", "Mengesahkan…") : L("Verify and sign in", "Sahkan dan log masuk")}
               </button>
             </form>
             <div className={css.help}>
-              <button type="button" className={css.linkBtn}
-                onClick={() => { setChallenge(""); setCode(""); setError(""); }}>
-                {L("Back to sign in", "Kembali ke log masuk")}
+              <button type="button" className={css.linkBtn} data-testid="code-mode"
+                onClick={() => { setError(""); if (mode === "totp") { putCode(""); setMode("backup"); } else { setBackup(""); setMode("totp"); } }}>
+                {mode === "totp" ? L("Use a backup code instead", "Guna kod sandaran") : L("Use authenticator code instead", "Guna kod pengesah")}
+              </button>
+              <button type="button" className={css.backLink}
+                onClick={() => { setChallenge(""); resetCode(); setError(""); }}>
+                <AppIcon name="previous" />{L("Back to sign in", "Kembali ke log masuk")}
               </button>
             </div>
           </div>
