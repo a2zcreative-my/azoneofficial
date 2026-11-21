@@ -18,6 +18,7 @@ import { handleCompanyReview } from "./company-review";
 import { handleWeeklySales, taskLink } from "./weekly-sales";
 import { handleSalesToday } from "./sales-today"; // v1.397.0 - Sales Command Center, Phase 1
 import { handleCrm } from "./crm"; // v1.398.0 - Sales Command Center, Phase 2 (Leads & CRM)
+import { handlePipeline } from "./deals"; // v1.399.0 - Sales Command Center, Phase 3 (the Sales Pipeline)
 import { handlePackages, packageForDoc, stampPackage } from "./packages"; // v1.231.0 - the sales packages library
 import { handleProjects, projectTaskGate, taskProject, ensureProject, startIfAccepted } from "./projects"; // v1.245.0 - the Project Workspace; v1.382.0 - a task under an accepted quotation starts its project
 import { handleLiveReports } from "./live-reports"; // v1.315.0 - Tasks 5.0 Gate 4
@@ -3287,6 +3288,13 @@ async function handleStaffRoutes(
   if (path === "/crm" || path.startsWith("/crm/")) {
     const cr = await handleCrm(env, path, method, user, new URL(request.url).searchParams, body);
     if (cr) return cr;
+  }
+
+  /* ---- v1.399.0 Sales Command Center, Phase 3 (deals.ts): the Sales Pipeline at /staff/deals (the old prospects /pipeline
+     stays retired) - deals apart from the money, Won only on an acceptance, an invoice or a reasoned override (migration 0227) ---- */
+  if (path === "/deals" || path.startsWith("/deals/")) {
+    const pl = await handlePipeline(env, path, method, user, new URL(request.url).searchParams, body);
+    if (pl) return pl;
   }
 
   /* ---- One Desk (v1.106.0) — see desk.ts. A read over every module's

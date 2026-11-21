@@ -604,3 +604,9 @@ Leads & CRM (the CEO 21-11-2026, Sales Command Center Phase 2) adds `0226_crm_le
 services, relationship status, crm_key and crm_version on `customers`, `customer_id` on `enquiries` and
 `business_growth_enquiries`, and the append-only `customer_owner_events`, `customer_status_events` and `sales_activities`.
 Not the business.ts door (worker/src/crm.ts); business.ts only adds one `sales_activities` row when a follow-up is closed.
+The Sales Pipeline (the CEO 21-11-2026, Sales Command Center Phase 3) adds `0227_sales_pipeline`: additive only - the
+deals (`sales_opportunities`, never deleted), the quotations each is quoted with (`opportunity_quotations`, one deal per
+quotation while linked, unlinked rows kept) and the append-only `opportunity_stage_events`. Not the business.ts door
+(worker/src/deals.ts at `/staff/deals/*`; the retired prospects `/pipeline` stays retired). It reads quotations,
+acceptances and invoices to decide Won; it never writes a document, an acceptance, a payment, the cash book, the journal
+or commission.

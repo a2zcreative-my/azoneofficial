@@ -32,8 +32,10 @@ import css from "./customers-agents.module.css";
 
 type Show = "all" | "customer" | "agent" | "suspended";
 
-export function CustomersAgents({ accounts, loaded, busy, canGrant, canRecover, canPromote, editor, onGrant, onRevoke, onRecover, onManage, onPromote, onAudit }: {
+export function CustomersAgents({ accounts, loaded, busy, canGrant, canRecover, canPromote, editor, onGrant, onRevoke, onRecover, onManage, onPromote, onAudit, tabs }: {
   accounts: Account[];
+  /** the Staff / Customers switch - drawn UNDER the figure strip (21-11-2026, the Payments order) */
+  tabs?: ReactNode;
   loaded: boolean;
   busy: boolean;
   /** Grant / Revoke Agent Access: the owner or the Super Admin (the server's role door decides) */
@@ -129,6 +131,7 @@ export function CustomersAgents({ accounts, loaded, busy, canGrant, canRecover, 
         <KpiTile icon="success" tone="green" label={L("Active", "Aktif")} value={n.active} busy={!loaded} sub={L("Can sign in", "Boleh log masuk")} />
         <KpiTile icon="blocked" tone="red" label={L("Suspended", "Digantung")} value={n.suspended} busy={!loaded} sub={L("No access until restored", "Tiada akses sehingga dipulihkan")} onClick={() => setShow("suspended")} pressed={show === "suspended"} />
       </KpiRow>
+      {tabs}
       <WorkspaceSplit testid="customers-split" ratio="55-45">
         <SplitPane testid="customer-directory" title={L(`Customer & Agent Directory (${accounts.length})`, `Direktori Pelanggan & Ejen (${accounts.length})`)} label={L("Customer and agent directory", "Direktori pelanggan dan ejen")}
           sub={L("Every customer and agent account, its status and its access.", "Setiap akaun pelanggan dan ejen, statusnya dan aksesnya.")}

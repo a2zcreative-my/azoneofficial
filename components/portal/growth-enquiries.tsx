@@ -16,7 +16,7 @@
    the normal Sales quotation (Create quotation prefills it); the acceptance,
    invoice and CEO verification shown here are READ from Sales. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { useCachedApi } from "@/lib/cached-api";
 import { getLang } from "@/lib/i18n";
@@ -358,12 +358,14 @@ function GrowthAnalytics({ a }: { a: GAnalytics }) {
 /* =====================================================================
    Customers & Follow-ups -> Business Growth: the list beside the one selected
    ===================================================================== */
-export function GrowthEnquiries({ state, open, onOpen, onQuote, onOpenLead }: {
+export function GrowthEnquiries({ state, open, onOpen, onQuote, onOpenLead, tabs: leadTabs }: {
   state: ReturnType<typeof useGrowthList>;
   /** the enquiry a bell, the Desk or a search asked for */
   open: number | null; onOpen: (id: number | null) => void;
   onQuote: (e: GRow) => void;
   onOpenLead?: (customerId: number) => void;
+  /** the Leads & CRM sub-tab row - drawn UNDER the figure strip (the Payments order) */
+  tabs?: ReactNode;
 }) {
   const data = state.data;
   const [mode, setMode] = useState<"list" | "analytics">("list");
@@ -394,8 +396,8 @@ export function GrowthEnquiries({ state, open, onOpen, onQuote, onOpenLead }: {
   const shown = useMemo(() => rows.filter((r) => inView(r, view) && (!q || `${r.ref} ${r.full_name} ${r.business_name} ${r.whatsapp} ${r.email ?? ""} ${r.owner_name ?? ""} ${r.utm_campaign ?? ""}`.toLowerCase().includes(q.toLowerCase()))), [rows, view, q, inView]);
   const pick = (id: number) => { setSel(id); onOpen(id); if (narrow()) setDrawer(id); };
 
-  if (state.failed && !data) return <p className={css.warn} role="alert" data-testid="growth-failed">{L("Business Growth enquiries could not be loaded.", "Pertanyaan Pertumbuhan Bisnes tidak dapat dimuatkan.")}</p>;
-  if (data?.pending_migration) return <p className={css.calm} data-testid="growth-pending"><AppIcon name="info" />{L("Business Growth enquiries arrive with the next database update.", "Pertanyaan Pertumbuhan Bisnes tiba dengan kemas kini pangkalan data seterusnya.")}</p>;
+  if (state.failed && !data) return <>{leadTabs}<p className={css.warn} role="alert" data-testid="growth-failed">{L("Business Growth enquiries could not be loaded.", "Pertanyaan Pertumbuhan Bisnes tidak dapat dimuatkan.")}</p></>;
+  if (data?.pending_migration) return <>{leadTabs}<p className={css.calm} data-testid="growth-pending"><AppIcon name="info" />{L("Business Growth enquiries arrive with the next database update.", "Pertanyaan Pertumbuhan Bisnes tiba dengan kemas kini pangkalan data seterusnya.")}</p></>;
   const a = data?.analytics;
   const n = (v: View) => rows.filter((r) => inView(r, v)).length;
   const cells: StripCell[] = [
@@ -425,7 +427,10 @@ export function GrowthEnquiries({ state, open, onOpen, onQuote, onOpenLead }: {
 
   return (
     <div className="erp-stack-tight" data-testid="growth-enquiries">
+      {/* 21-11-2026 (the CEO: "strip KPI card above while sub tabs at downside", the Payments page as the reference) - the
+     view's figure strip first, then the Leads & CRM sub-tab row, then the work */}
       <MetricStrip cells={cells} label={L("Business Growth Check", "Semakan Pertumbuhan Bisnes")} testid="growth-strip" />
+      {leadTabs}
       <div className={pa.bar}>
         <LineTabs testid="growth-mode" label={L("Business Growth view", "Paparan Pertumbuhan Bisnes")} value={mode} onChange={setMode}
           tabs={[["list", L("Enquiries", "Pertanyaan")], ["analytics", L("Analytics", "Analitik")]] as const} />

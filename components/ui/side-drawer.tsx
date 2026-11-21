@@ -179,6 +179,10 @@ export function SideDrawer({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      /* v1.399.0 - a drawer opened from inside another (a deal's Mark won form over the deal) is the one Escape
+         closes: only the topmost drawer answers the keys, so the one beneath and its record stay open */
+      const panels = document.querySelectorAll(".erp-drawer[role=dialog]");
+      if (panels.length > 1 && panels[panels.length - 1] !== panelRef.current) return;
       if (e.key === "Escape") { e.preventDefault(); if (dirty) setAsking(true); else onClose(); return; }
       if (e.key !== "Tab" || !panelRef.current) return;
       const nodes = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null);

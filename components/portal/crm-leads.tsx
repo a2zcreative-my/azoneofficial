@@ -34,6 +34,7 @@ import {
   btnSm, btnSmPrimary, btnSmQuiet, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn, chipGold, fieldLabel, inputClass, selectClass, selectClassSm, textareaClass,
 } from "@/lib/ui-styles";
 import { ACTIVITY_WORD, LEAD_SOURCE_WORD, LEAD_STATUS_TONE, LEAD_STATUS_WORD, OWNER_EVENT_WORD, STATUS_NEEDS_REASON, serviceName, type LeadTone } from "@/lib/crm-words";
+import { LeadDeals } from "@/components/portal/sales-pipeline"; // v1.399.0 - a lead's deals and New deal
 import css from "./crm-leads.module.css";
 
 /** what Edit details hands to the existing customer form */
@@ -88,7 +89,7 @@ export function useCrmOptions() {
 /* =====================================================================
    Leads & CRM: the figures, the list and the lead beside it
    ===================================================================== */
-export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote, onEdit, onFollowups }: {
+export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote, onEdit, onFollowups, onOpenDeal, tabs }: {
   view: LeadView; onView: (v: LeadView) => void;
   /** the lead a bell, the Action Center or a search asked for */
   open: number | null; onOpen: (id: number | null) => void;
@@ -96,6 +97,10 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
   onQuote: (lead: { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null; owner_id: number | null }) => void;
   onEdit: (lead: LeadEdit) => void;
   onFollowups: () => void;
+  /** v1.399.0 - a deal in the lead's record opens in the Sales Pipeline */
+  onOpenDeal?: (id: number) => void;
+  /** the Leads & CRM sub-tab row - drawn UNDER the figure strip (the Payments order) */
+  tabs?: ReactNode;
 }) {
   const opts = useCrmOptions();
   const [q, setQ] = useState("");
@@ -158,10 +163,13 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
   const title = views.find(([k]) => k === view)?.[1] ?? "";
   const data = list.data;
 
-  if ((list.failed && !data) || (opts.failed && !o)) return <p className={css.warn} role="alert" data-testid="leads-failed"><AppIcon name="warning" />{L("Leads could not be loaded. If the database update has not run yet, run PUSH.bat.", "Prospek tidak dapat dimuatkan. Jika kemas kini pangkalan data belum dijalankan, jalankan PUSH.bat.")}</p>;
+  if ((list.failed && !data) || (opts.failed && !o)) return <>{tabs}<p className={css.warn} role="alert" data-testid="leads-failed"><AppIcon name="warning" />{L("Leads could not be loaded. If the database update has not run yet, run PUSH.bat.", "Prospek tidak dapat dimuatkan. Jika kemas kini pangkalan data belum dijalankan, jalankan PUSH.bat.")}</p></>;
   return (
     <div className="erp-stack-tight" data-testid="crm-leads">
+      {/* 21-11-2026 (the CEO: "strip KPI card above while sub tabs at downside", the Payments page as the reference) - the
+     view's figure strip first, then the Leads & CRM sub-tab row, then the work */}
       <MetricStrip cells={cells} label={L("Leads at a glance", "Prospek sepintas lalu")} testid="crm-strip" />
+      {tabs}
       <WorkspaceSplit testid="crm-split" ratio="60-40">
         <SplitPane testid="crm-list" title={title} label={L("Leads", "Prospek")}
           actions={<span className={chipSmNeutral} data-testid="crm-count">{data ? L(`${data.total} lead${data.total === 1 ? "" : "s"}`, `${data.total} prospek`) : "…"}</span>}
@@ -189,7 +197,7 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
         {open != null ? (
           <SplitPane testid="crm-preview" title={L("Selected lead", "Prospek dipilih")} label={L("Selected lead", "Prospek dipilih")}
             actions={<button type="button" className={btnSmQuiet} aria-label={L("Close", "Tutup")} onClick={() => onOpen(null)} data-testid="crm-preview-close"><AppIcon name="close" /></button>}>
-            <LeadRecord id={open} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} />
+            <LeadRecord id={open} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} onOpenDeal={onOpenDeal} />
           </SplitPane>
         ) : (
           <SplitPane testid="crm-help" title={L("Every open lead needs an owner and a next action", "Setiap prospek terbuka perlukan pemilik dan tindakan seterusnya")} label={L("How leads are worked", "Cara prospek diurus")}
@@ -205,7 +213,7 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
       </WorkspaceSplit>
       {drawer != null && (
         <SideDrawer open onClose={() => setDrawer(null)} title={L("Lead", "Prospek")} full>
-          <LeadRecord id={drawer} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} />
+          <LeadRecord id={drawer} opts={o} onChanged={refresh} onOpenFile={onOpenFile} onQuote={onQuote} onEdit={onEdit} onOpenDeal={onOpenDeal ? (d) => { setDrawer(null); onOpenDeal(d); } : undefined} />
         </SideDrawer>
       )}
       {suggest && o?.can_assign && <SuggestedOwners onClose={() => setSuggest(false)} onDone={refresh} />}
@@ -218,11 +226,12 @@ export function LeadsWorkspace({ view, onView, open, onOpen, onOpenFile, onQuote
    ===================================================================== */
 type Form = "" | "activity" | "status" | "profile" | "assign";
 
-function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit }: {
+function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit, onOpenDeal }: {
   id: number; opts: CrmOptions | null; onChanged: () => void;
   onOpenFile: (customerId: number, company: string) => void;
   onQuote: (lead: { id: number; company: string; contact_person: string | null; phone: string | null; email: string | null; owner_id: number | null }) => void;
   onEdit: (lead: LeadEdit) => void;
+  onOpenDeal?: (id: number) => void;
 }) {
   const fb = useFeedback();
   const [d, setD] = useState<Detail | null>(null);
@@ -309,6 +318,7 @@ function LeadRecord({ id, opts, onChanged, onOpenFile, onQuote, onEdit }: {
           </ol>
         )}
       </Section>
+      {onOpenDeal && <LeadDeals customer={{ id: l.id, company: l.company, owner_id: l.owner_id }} onOpenDeal={onOpenDeal} />}
       {d.docs.length > 0 && (
         <Section title={L("Documents", "Dokumen")} testid="lead-docs">
           <ul className={css.docs}>

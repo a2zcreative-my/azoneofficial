@@ -1671,6 +1671,60 @@ export function fixture(p0, url, { onMissing = () => {}, made = false } = {}) {
   }
   if (p === "/staff/crm/suggestions") data = !crmAssign ? { error: { code: "forbidden", message: "Only a manager assigns leads" } } : {
     rows: [{ customer_id: 57, company: "Restoran Selera Kampung", owner_id: 9010, owner_name: "Hakim Rosli", doc_number: "QT-0049", doc_type: "QT", doc_at: "2026-09-17 03:00:00" }] };
+  /* v1.399.0 - THE SALES PIPELINE (worker/src/deals.ts at /staff/deals): invented deals on the fixture's Friday 18-09-2026.
+     Long Malaysian names; one late, one with no next action, one stuck, one quoted and one estimated; one won, one lost. */
+  const dl = (o) => ({ customer_phone: "60123456789", owner_id: 9001, owner_name: "Fixture Person", est_value_cents: null, service: null, priority: "normal",
+    next_action: null, next_action_on: null, expected_close_on: null, lost_reason: null, lost_note: null, won_basis: null, override_reason: null,
+    stage_since: "2026-09-10 02:00:00", closed_at: null, origin: "manual", version: 3, quotes: [], value_cents: null, value_basis: "none",
+    days_in_stage: 8, stuck: false, next_late: false, next_today: false, no_next: false, ...o });
+  const dq = (id, n, cents, o = {}) => ({ id, doc_number: n, revision: 0, total_cents: cents, created_at: "2026-09-01 02:00:00", linked_at: "2026-09-01 03:00:00", accepted: false, invoiced: false, ...o });
+  const deals = [
+    dl({ id: 71, customer_id: 52, customer: "Aina Boutique (Melaka)", title: "Raya live campaign - three sessions", stage: "negotiation", priority: "high", service: "pkg:1",
+      next_action: "Agree the deposit split", next_action_on: "2026-09-16", next_late: true, quotes: [dq(42, "QT-0042", 450000, { revision: 1 })], value_cents: 450000, value_basis: "quotation" }),
+    dl({ id: 72, customer_id: 55, customer: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", title: "Photo booth and live package for the Johor Bahru launch", stage: "proposal",
+      next_action: "Send the revised live package", next_action_on: "2026-09-18", next_today: true, quotes: [dq(46, "QT-0046", 280000)], value_cents: 280000, value_basis: "quotation" }),
+    dl({ id: 73, customer_id: 57, customer: "Restoran Selera Kampung", title: "Menu video series", stage: "new", owner_id: null, owner_name: null, est_value_cents: 90000, value_cents: 90000, value_basis: "estimate", no_next: true }),
+    dl({ id: 74, customer_id: 44, customer: "Klinik Gigi Senyum", title: "Clinic brand film", stage: "qualified", owner_id: 9010, owner_name: "Hakim Rosli", est_value_cents: 360000, value_cents: 360000, value_basis: "estimate",
+      next_action: "Wait for the doctor's reply", next_action_on: "2026-09-30", stage_since: "2026-08-20 02:00:00", days_in_stage: 29, stuck: true }),
+    dl({ id: 75, customer_id: 56, customer: "Butik Seri Kenanga", title: "Hari Raya photoshoot", stage: "won", won_basis: "acceptance", closed_at: "2026-09-14 02:00:00", owner_id: 9002, owner_name: "Nur Aisyah binti Rahman",
+      quotes: [dq(47, "QT-0047", 120000, { accepted: true })], value_cents: 120000, value_basis: "quotation" }),
+    dl({ id: 76, customer_id: 53, customer: "Kedai Runcit Pak Ali", title: "Shop signage", stage: "lost", lost_reason: "price", lost_note: "Went with a cheaper printer", closed_at: "2026-09-11 02:00:00", est_value_cents: 40000, value_cents: 40000, value_basis: "estimate" }),
+  ];
+  const dealSum = (rows) => {
+    const open = rows.filter((d) => ["new", "qualified", "proposal", "negotiation"].includes(d.stage));
+    const by = (b) => open.filter((d) => d.value_basis === b).reduce((t, d) => t + (d.value_cents ?? 0), 0);
+    return { open: open.length, value_cents: by("quotation") + by("estimate"), quoted_cents: by("quotation"), estimated_cents: by("estimate"),
+      stuck: open.filter((d) => d.stuck).length, no_next: open.filter((d) => d.no_next).length, late: open.filter((d) => d.next_late).length,
+      won_month: rows.filter((d) => d.stage === "won").length, lost_month: rows.filter((d) => d.stage === "lost").length,
+      by_stage: Object.fromEntries(["new", "qualified", "proposal", "negotiation"].map((x) => [x, open.filter((d) => d.stage === x).length])) };
+  };
+  if (p === "/staff/deals/options") data = !stSales && !stExec ? { error: { code: "forbidden", message: "Sales access required" } } : {
+    stages: ["new", "qualified", "proposal", "negotiation", "won", "lost"], lost_reasons: ["price", "timing", "competitor", "no_budget", "no_response", "not_fit", "other"],
+    packages: [{ id: 1, name: "Live Selling Starter", status: "active" }, { id: 2, name: "Brand Film Package", status: "active" }],
+    owners: [{ id: 9001, name: "Fixture Person" }, { id: 9010, name: "Hakim Rosli" }, { id: 9002, name: "Nur Aisyah binti Rahman" }],
+    can_write: stSales, can_assign: crmAssign, can_override: ["ceo", "coo", "cco"].includes(ROLE), stuck_days: 14, me: 9001 };
+  if (p === "/staff/deals") {
+    let rows = deals;
+    if (q.get("customer")) rows = rows.filter((d) => d.customer_id === Number(q.get("customer")));
+    else if (q.get("scope") === "mine") rows = rows.filter((d) => d.owner_id === 9001);
+    if (q.get("owner")) rows = rows.filter((d) => d.owner_id === Number(q.get("owner")));
+    if (q.get("priority")) rows = rows.filter((d) => d.priority === q.get("priority"));
+    const term = (q.get("q") ?? "").toLowerCase();
+    if (term) rows = rows.filter((d) => `${d.title} ${d.customer}`.toLowerCase().includes(term));
+    data = !stSales && !stExec ? { error: { code: "forbidden", message: "Sales access required" } } : { today: "2026-09-18", deals: rows, summary: dealSum(rows) };
+  }
+  const dealOne = /^\/staff\/deals\/(\d+)$/.exec(p);
+  if (dealOne) {
+    const d = deals.find((x) => x.id === Number(dealOne[1])) ?? deals[0];
+    data = { deal: d,
+      events: [{ id: 3, from_stage: "proposal", to_stage: d.stage, reason: null, basis: d.won_basis, created_at: "2026-09-12 03:00:00", by_name: "Fixture Person" },
+        { id: 2, from_stage: "qualified", to_stage: "proposal", reason: null, basis: null, created_at: "2026-09-05 03:00:00", by_name: "Fixture Person" },
+        { id: 1, from_stage: null, to_stage: "new", reason: null, basis: null, created_at: "2026-08-30 02:00:00", by_name: "Hakim Rosli" }],
+      candidates: [{ id: 49, doc_number: "QT-0049", total_cents: 175000, revision: 0, created_at: "2026-09-17 03:00:00" }] };
+  }
+  if (p === "/staff/deals/suggestions") data = !crmAssign ? { error: { code: "forbidden", message: "Only a manager confirms suggested deals" } } : {
+    rows: [{ doc_id: 41, doc_number: "QT-AZOO060826-1", customer_id: 51, company: "Syarikat Perniagaan Jaya Makmur Sdn. Bhd. (Johor Bahru)", total_cents: 330000, created_at: "2026-06-24 02:00:00", owner_id: 9010, owner_name: "Hakim Rosli", accepted: false, stage: "proposal" },
+      { doc_id: 48, doc_number: "QT-0048", customer_id: 58, company: "Pusat Tuisyen Cemerlang", total_cents: 210000, created_at: "2026-09-10 02:00:00", owner_id: 9002, owner_name: "Nur Aisyah binti Rahman", accepted: false, stage: "negotiation" }] };
   if (p === "/staff/sales/today") {
     const all = q.get("scope") === "all";
     /* ranked as lib/sales-priority.ts rankActions does on the server */

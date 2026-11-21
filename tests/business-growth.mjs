@@ -273,7 +273,7 @@ async function runtime(workerBundle, sweepBundle) {
 
     /* the screens open the record the bell and the Desk name */
     const rf = readFileSync(join(root, "lib/record-focus.ts"), "utf8"), dp = readFileSync(join(root, "components/portal/desk-page.tsx"), "utf8"), page = readFileSync(join(root, "app/apply/business/page.tsx"), "utf8");
-    ok(/\|growth(\|live_report)?\):\(\\d\+\)/.test(rf) /* 19-11-2026 - live_report joined the list after growth */ && /growth: "Sales"/.test(rf) && /case "growth": return \{ tab: "Sales", kind: "growth"/.test(dp), "4 a growth: bell and a growth Desk row open the enquiry in Sales");
+    ok(/\|growth(\|live_report)?(\|[a-z_]+)*\):\(\\d\+\)/ /* 21-11-2026 - lead and deal joined after it */.test(rf) /* 19-11-2026 - live_report joined the list after growth */ && /growth: "Sales"/.test(rf) && /case "growth": return \{ tab: "Sales", kind: "growth"/.test(dp), "4 a growth: bell and a growth Desk row open the enquiry in Sales");
     ok(/"\/public\/business-growth"[\s\S]{0,200}credentials: "omit"/.test(page) && page.includes("Hantar untuk Semakan Percuma") && page.includes("Kenal Pasti Cabaran Bisnes Anda") && !/["'`]budget|budget_|bajet_/i.test(page),
       "1 the page sends no session, says the CEO's words, and asks no budget");
     ok(/consent_marketing: false/.test(page), "1 the marketing consent starts unticked");

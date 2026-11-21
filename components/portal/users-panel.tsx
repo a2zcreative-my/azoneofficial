@@ -699,7 +699,6 @@ export function UsersPanel({ role, owner = false, go: _go, initialView }: { role
               </div>
               {/* a phone lays these four out two by two, with their short names (the full ones on a desk) */}
               <div className={`${css.quick} ${css.quickStaff}`}>
-                {partSwitch}
                 <button type="button" className={btnSm} data-testid="users-export" disabled={!loaded || staffRows.length === 0} onClick={exportStaff}><AppIcon name="download" />{L("Export", "Eksport")}</button>
                 {canInvite && <button type="button" className="erp-button erp-button-accent" data-testid="add-user" onClick={() => setInviteOpen(true)}><AppIcon name="add" />{L("Add User", "Tambah Pengguna")}</button>}
                 {canMove && <button type="button" className={btnSm} data-testid="email-move-open" onClick={() => setStaffPart("move")}><AppIcon name="send" /><span className="erp-desktop-only">{L("Move to @a2zcreative.my", "Pindah ke @a2zcreative.my")}</span><span className="erp-phone-only">{L("Email move", "Pindah e-mel")}</span></button>}
@@ -715,6 +714,8 @@ export function UsersPanel({ role, owner = false, go: _go, initialView }: { role
                 <KpiTile icon="verify" tone="gold" label={L("MFA (two-factor)", "MFA (dua faktor)")} value={`${mfaOn} / ${activeStaff.length}`} busy={!loaded} sub={L(`${mfaPct}% of active users · ${fig.no2fa} without`, `${mfaPct}% pengguna aktif · ${fig.no2fa} tanpa`)} onClick={() => setSf(sf === "no2fa" ? "all" : "no2fa")} pressed={sf === "no2fa"} cell="no2fa" />
               </KpiRow>
             </div>
+            {/* 21-11-2026 (the CEO, the Payments page as the reference) - the figures first, then the Staff / Customers switch */}
+            <div className={css.partBar}>{partSwitch}</div>
             {toolbar(staffRows.length, allStaff.length, true)}
             <div className={`${css.table} ${css.staffTable}`}>
               <div className={css.header} aria-hidden="true">
@@ -754,12 +755,11 @@ export function UsersPanel({ role, owner = false, go: _go, initialView }: { role
       </div>
 
       <div hidden={view !== "users" || userPart !== "customers"} className={css.body}>
-        <div className={css.partBar}>{partSwitch}</div>
         {/* v1.327.0 (the CEO's Users & Security brief) - the directory beside the chosen account:
             status, portal access and the authorised Grant / Revoke Agent Access (customers-agents.tsx).
             The same accounts, the same actions and the same gates as the list it replaces. */}
         <TabZone label={L("Customers & agents", "Pelanggan & ejen")}>
-          <CustomersAgents accounts={allCustomers} loaded={loaded} busy={saving}
+          <CustomersAgents accounts={allCustomers} loaded={loaded} busy={saving} tabs={<div className={css.partBar}>{partSwitch}</div>}
             canGrant={canEdit && (owner || superAdmin)} canRecover={recovery} canPromote={canEdit}
             editor={(u) => editId === u.id && canEdit ? <div className={`${css.detailEditor} erp-desktop-only`}>{roleFields(u)}</div> : null}
             onGrant={(u) => void grantAgent(u)} onRevoke={(u) => void revokeAgent(u)}

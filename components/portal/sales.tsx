@@ -10,9 +10,10 @@ import { L, MANAGE_ROLES, User, ZoneLabel, payStatusL, withStepUp } from "@/comp
 import { LineTabs, TabAction } from "@/components/ui/line-tabs";
 import { FillPanel } from "@/components/ui/fill-panel"; // v1.324.0 - D-4
 import { ClosedSales, FollowUps, ScopeSwitch, closerLocked, type SalesSummary, type WsFollowUp, type WsScope } from "@/components/portal/sales-workspace"; // v1.214.0
-import { CustomerBoard, CustomerFilterBar, DocsMore, LEAD_FILTER, ReportPicker, RowMenu, SalesViewBar, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
+import { CustomerFilterBar, DocsMore, LEAD_FILTER, ReportPicker, RowMenu, SalesViewBar, isSalesView, useSalesViewHistory, type CustFilter, type ReportDef, type SalesView } from "@/components/portal/sales-shell"; // v1.292.0 - Sales Workspace 4.0
 import { useCachedApi } from "@/lib/cached-api";
 import { buildSalesViews, salesReportDefs } from "@/components/portal/sales-views"; // v1.292.0
+import { SalesPipeline } from "@/components/portal/sales-pipeline"; // v1.399.0 - Sales Command Center, Phase 3
 import { useWeekDash } from "@/components/portal/week-target-card"; // v1.281.0 - the same cached week the Dashboard reads
 import type { Opportunity } from "@/components/portal/sales-discipline";
 import { PaymentsPanel } from "@/components/portal/payments-panel"; // v1.272.0
@@ -693,6 +694,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
   /* v1.398.0 - the lead shown beside the list (a bell, the Action Center, a search or a pick) */
   const [leadOpen, setLeadOpen] = useState<number | null>(null);
   const openLead = (id: number) => { setWsView("customers"); setCustFilter((f) => (LEAD_FILTER[f] ? f : "all_leads")); setLeadOpen(id); };
+  /* v1.399.0 - the deal open in the Sales Pipeline (a bell, the Action Center, a lead's Deals) */
+  const [dealOpen, setDealOpen] = useState<number | null>(null);
+  const [dealNew, setDealNew] = useState(0);
+  const openDeal = (id: number) => { setWsView("pipeline"); setDealOpen(id); };
   /* v1.369.0 - the Business Growth Check: the website Enquiries people (enquiry_manage), never an agent or a customer; the server checks again */
   /* v1.398.0 - who may make a customer (the POST /customers rule): Convert to lead is drawn only for them */
   const canSales = holds("sales", ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"].includes(user.role));
@@ -710,6 +715,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
      the screen's filter over records every sales role may already read: a
      consultant opens on their own sales, management on everyone's. */
   const [wsView, setWsView] = useState<SalesView>(initialView === "create" || startView === "packages" ? "documents" : isSalesView(startView) ? startView : "overview");
+  /* v1.399.0 (decision 7) - the read-only Board is retired; an old "board" word opens the Sales Pipeline (adjusted while rendering) */
+  if (custFilter === "board") { setCustFilter("all_leads"); setWsView("pipeline"); }
   useSalesViewHistory(wsView, setWsView); // v1.292.0 (S2) - the view is in the address: Back and Forward move between the six
   const [scope, setScope] = useState<WsScope>(MANAGE_ROLES.includes(user.role) ? "all" : "mine");
   /* v1.216.0 - the figures over the whole table (GET /staff/docs/summary),
@@ -931,6 +938,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     } else if (f.kind === "client") {
       /* v1.398.0 - a customer (a search, a bell "lead:<id>") opens as the lead in Leads & CRM */
       setWsView("customers"); setCustFilter("all_leads"); setLeadOpen(f.id);
+    } else if (f.kind === "deal") {
+      /* v1.399.0 - a Sales Pipeline bell (deal:<id>) opens the deal */
+      setWsView("pipeline"); setDealOpen(f.id);
     } else if (f.kind === "growth") {
       /* v1.369.0 - a Business Growth Check bell or Desk row: Customers & Follow-ups, that enquiry selected */
       setWsView("customers"); setCustFilter("growth"); setGrowthOpen(f.id);
@@ -1839,6 +1849,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       if (i.kind === "enquiry") toEnquiries();
       else if (i.kind === "growth") openGrowth(i.record_id);
       else if (i.kind === "lead") openLead(i.record_id); // v1.398.0 - an owned lead with nothing booked next
+      else if (i.kind === "opportunity") openDeal(i.record_id); // v1.399.0 - an open deal: its next action is due, late or missing
       else if (i.kind === "quotation" && i.flag === "ready" && i.doc_id !== null) openDocById(i.doc_id);
       else if (i.customer_id !== null) followCustomer(i.customer_id, i.customer);
     },
@@ -1848,6 +1859,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
       else if (d.kind === "growth_recorded" && d.record_id !== null) openGrowth(d.record_id);
       else if (d.kind === "payment_reported" && d.doc_id !== null) toPayment(d.doc_id, false);
       else if (d.kind === "activity_logged" && d.customer_id !== null) openLead(d.customer_id);
+      else if (d.kind === "deal_moved" && d.record_id !== null) openDeal(d.record_id);
       else if (d.customer_id !== null && (d.kind === "followup_done" || d.kind === "next_booked")) followCustomer(d.customer_id, d.customer);
       else if (d.doc_id !== null) openDocById(d.doc_id);
     },
@@ -1869,7 +1881,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     return () => window.removeEventListener("azone:reveal", onReveal);
   }, []);
   const pipeline = pipelineCounts({ enquiries, quotes: opps, invoices: sDocs.filter((d) => d.doc_type === "INV"), pay: pv?.on ? pv.inv : null, month: monthKey });
-  const { figures, custNeeds, boardColumns } = buildSalesViews({ unpaidInv, sDocs, overdueInv, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport,
+  const { figures, custNeeds } = buildSalesViews({ unpaidInv, sDocs, overdueInv, dueFollow, sFollowups, opps, enquiries, pv, partPaid, payWho, paysByReport,
     weekDash, sm, scope, loaded, today, monthKey, toPayment, openDocRow, openDocById, followCustomer, toEnquiries, setWsView, setCustFilter: (f) => setCustFilter(f),
     openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
 
@@ -1877,6 +1889,11 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
     companyView, weekDash, extra: reports, openDocById, setWsView, setCustFilter, openDocs: (t, status) => { setWorkTab("documents"); setDocType(t); setDocStatus(status); setDocPage(1); jump("sales-work"); },
     openOutstanding: () => { setWorkTab("receipts"); setMoney("outstanding"); jump("sales-work"); } });
 
+  /* the Leads & CRM sub-tab row: one element, drawn on top for a view with no figure strip and under the strip for one with it (21-11-2026) */
+  const custFilterBar = (
+    <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={LEAD_FILTER[custFilter] || custFilter === "action" ? null : <ScopeSwitch scope={scope} onChange={setScope} />} growth={seesGrowth}
+      counts={loaded ? { enquiries: enquiries.length, followups: sFollowups.length, ...(growthState.data ? { growth: growthState.data.enquiries.filter((g) => g.status !== "not_interested").length } : {}) } : null} />
+  );
   return (
     /* The page's TabPage is the stack; these are its zones: AT A GLANCE
        (figures), THE WORK, CUSTOMERS; the page adds THIS MONTH (the map)
@@ -1890,6 +1907,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
         action={wsView === "payments" && pv?.on && Object.values(pv.inv).some((v) => v.can_report) ? (
           /* v1.282.0 (Payment Verification 3.0) - on Payments the gold action is Report payment */
           <TabAction icon="add" onClick={() => setPayReport((x) => x + 1)}>{L("Report payment", "Lapor bayaran")}</TabAction>
+        ) : wsView === "pipeline" ? (
+          /* v1.399.0 - on the Sales Pipeline the gold action is New deal */
+          <TabAction icon="add" onClick={() => setDealNew((x) => x + 1)}>{L("New deal", "Urusan baharu")}</TabAction>
         ) : wsView === "customers" ? (
           <TabAction icon="add" onClick={() => { setCustFilter("all"); setCustTab("add"); jump("sales-customers"); }}>{L("Add customer", "Tambah pelanggan")}</TabAction>
         ) : wsView === "closed" || wsView === "reports" ? null : (
@@ -1923,6 +1943,15 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             onOpenDoc={(d) => { setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(d.doc_number); setDocPage(1); setOpenDoc(d.id); jump("sales-work"); }}
             onFixed={() => { void load(); showToast(L("Closer corrected", "Penutup dibetulkan"), L("Recorded in the audit trail with your reason.", "Direkodkan dalam jejak audit dengan sebab anda.")); }} />
         </>
+      )}
+      {/* v1.399.0 - THE SALES PIPELINE (sales-pipeline.tsx, worker/src/deals.ts): deals by stage, apart from the money */}
+      {wsView === "pipeline" && (
+        <SalesPipeline open={dealOpen} onOpen={setDealOpen} onOpenLead={openLead} newTick={dealNew}
+          onQuote={(x) => {
+            if (!customers.some((c) => c.id === x.customer_id)) setCustomers((cs) => [...cs, { id: x.customer_id, company: x.customer, contact_person: null, phone: null, email: null }]);
+            setDoc((d) => ({ ...d, doc_type: "QT", customer_id: x.customer_id, salesperson_id: x.owner_id && staffList.some((u) => u.id === x.owner_id) ? x.owner_id : d.salesperson_id }));
+            setWsView("documents"); setWorkTab("create"); jump("sales-work");
+          }} />
       )}
       {/* v1.292.0 - ONE report at a time; only the chosen one is mounted */}
       {wsView === "reports" && <ReportPicker reports={reportDefs} />}
@@ -3651,8 +3680,9 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           {/* v1.292.0 - ONE workspace: what needs action, the enquiries, the
               follow-ups or every customer - one at a time - and the same
               records as a read-only board (decision S3) */}
-          <CustomerFilterBar value={custFilter} onChange={setCustFilter} scopeSwitch={LEAD_FILTER[custFilter] || custFilter === "action" ? null : <ScopeSwitch scope={scope} onChange={setScope} />} growth={seesGrowth}
-            counts={loaded ? { enquiries: enquiries.length, followups: sFollowups.length, ...(growthState.data ? { growth: growthState.data.enquiries.filter((g) => g.status !== "not_interested").length } : {}) } : null} />
+          {/* 21-11-2026 (the CEO, the Payments page as the reference) - a view with a figure strip (the four lead
+              views, Business Growth) draws this sub-tab row UNDER its strip; the others keep it on top */}
+          {!(LEAD_FILTER[custFilter] || custFilter === "action" || (seesGrowth && custFilter === "growth")) && custFilterBar}
           {/* v1.398.0 - LEADS & CRM (crm-leads.tsx, worker/src/crm.ts): All Leads, My Leads, Unassigned and
               Active Customers are one workspace over the customer record; an old "Needs Action" link lands on All Leads */}
           {(LEAD_FILTER[custFilter] || custFilter === "action") && (
@@ -3670,9 +3700,8 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
                 setCust({ company: l.company, contact_person: l.contact_person ?? "", phone: l.phone ?? "", email: l.email ?? "", address: l.address ?? "", website: l.website ?? "" });
                 setCustFilter("all"); setCustTab("add"); jump("sales-customers");
               }}
-              onFollowups={() => setCustFilter("followups")} />
+              onFollowups={() => setCustFilter("followups")} onOpenDeal={openDeal} tabs={custFilterBar} />
           )}
-          {custFilter === "board" && <CustomerBoard columns={boardColumns} loaded={loaded} />}
           {/* v1.216.0 - new enquiries from the website and customer accounts
               (the owner, 28-10-2026: "Show on Sales, notify"); the server
               decides who may see them (enquiry_manage) */}
@@ -3688,7 +3717,7 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
           {/* v1.369.0 - the Business Growth Check enquiries (growth-enquiries.tsx); a paid solution is a
               normal quotation, prefilled with the enquiry's reference so it can be linked back */}
           {seesGrowth && custFilter === "growth" && (
-            <GrowthEnquiries state={growthState} open={growthOpen} onOpen={setGrowthOpen} onOpenLead={canSales ? openLead : undefined} onQuote={(g: GRow) => {
+            <GrowthEnquiries state={growthState} open={growthOpen} onOpen={setGrowthOpen} onOpenLead={canSales ? openLead : undefined} tabs={custFilterBar} onQuote={(g: GRow) => {
               applyPrefill({ source: "growth", company: g.business_name, contact_person: g.full_name, phone: g.whatsapp, email: g.email ?? undefined, reference: g.ref, salesperson_id: g.owner_id ?? undefined });
               if (customers.some((c) => c.company.trim().toLowerCase() === g.business_name.trim().toLowerCase())) setWsView("documents");
             }} />

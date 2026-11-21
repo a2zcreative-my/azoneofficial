@@ -1,7 +1,8 @@
 """SALES COMMAND CENTER, PHASE 2: LEADS & CRM (v1.398.0) - in a browser.
 
   The tab       "Leads & CRM" (was Customers & Follow-ups); All Leads, My Leads, Unassigned,
-                New Enquiries, Active Customers, Follow-ups, Board - no Needs Action
+                New Enquiries, Active Customers, Follow-ups - no Needs Action; v1.399.0: no Board (the
+                Sales Pipeline is the board), and the lead lists its deals with New deal
   The page      one figure strip; the list beside the selected lead; every open lead without
                 an owner or a next action is flagged in words
   The lead      owner, next action, source, services, contact log, history; Log contact,
@@ -45,8 +46,9 @@ with sync_playwright() as p:
     main = pg.locator("main").inner_text()
     check("the view is called Leads & CRM", "Leads & CRM" in main and "Customers & Follow-ups" not in main, main[:200])
     bar = " ".join(t.inner_text() for t in pg.locator("[data-testid^=cust-]").filter(visible=True).all())
-    check("the lead views and the inboxes are one tab row, without Needs Action",
-          all(wd in bar for wd in ["All Leads", "My Leads", "Unassigned", "New Enquiries", "Active Customers", "Follow-ups", "Board"]) and "Needs Action" not in bar, bar)
+    check("the lead views and the inboxes are one tab row, without Needs Action or the retired Board",
+          all(wd in bar for wd in ["All Leads", "My Leads", "Unassigned", "New Enquiries", "Active Customers", "Follow-ups"]) and "Needs Action" not in bar and "Board" not in bar
+          and pg.get_by_test_id("cust-board").count() == 0, bar)
     strip = pg.get_by_test_id("crm-strip")
     st = strip.inner_text()
     check("one figure strip: open leads, new this week, unassigned, no next action, follow-ups overdue, active customers",
@@ -66,6 +68,8 @@ with sync_playwright() as p:
     check("the lead shows its owner, next action, source and services", all(wd in rt for wd in ["Owner", "Next action", "Source", "Interested in", "Live Selling Starter"]), rt[:400])
     check("the contact log and the history are there", pg.get_by_test_id("lead-activity").count() == 3 and pg.get_by_test_id("lead-event").count() == 4)
     check("a manager may assign", pg.get_by_test_id("lead-assign-btn").count() == 1)
+    pg.wait_for_timeout(800)
+    check("the lead lists its deals, with New deal", pg.get_by_test_id("lead-deal").count() == 1 and pg.get_by_test_id("lead-deal-new").count() == 1, pg.get_by_test_id("lead-deals").inner_text()[:200] if pg.get_by_test_id("lead-deals").count() else "none")
     check("no package price on the lead", "4,500.00" in rt and "Live Selling Starter" in rt and not re.search(r"Live Selling Starter[^\n]*RM", rt), rt[:300])
     pg.screenshot(path=f"{SHOTS}/02-ceo-lead-selected-1440.png", full_page=True)
 

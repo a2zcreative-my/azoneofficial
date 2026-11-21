@@ -2,7 +2,7 @@
 12-11-2026; claude/SALES-WORKSPACE-4.0-BLUEPRINT.md, decisions S1-S7). The
 source rules are held by tests/sales4.mjs; here, the screens:
 
-  the six views, each reached from the address (?tab=Sales&view=...), at the
+  the seven views (v1.399.0), each reached from the address (?tab=Sales&view=...), at the
   directive's eight widths, with no sideways page and no page error; tabs on a
   wide screen, one selector on a phone; Back and Forward move between views;
   the Overview is picture 01 (v1.320.0: six figures, the pipeline, the worklist and its rail); the figures' words follow
@@ -10,7 +10,7 @@ source rules are held by tests/sales4.mjs; here, the screens:
   only while it is on); a reported payment is Review for the owner account
   and View for the COO; a document row has one action and the rest under its
   menu (Escape closes it); Packages is under Documents -> More; Customers'
-  filters and the read-only Board; Reports shows one report at a time (the
+  filters (v1.399.0: the read-only Board retired - the Sales Pipeline is the board); Reports shows one report at a time (the
   map only for Sales by State); Closed Sales has its strip, its four facts
   (the payout is the Commission ledger's own word, and a consultant reads
   only their own) and an Export; a live host cannot open Sales by address.
@@ -30,8 +30,10 @@ def check(n, c, x=""):
 
 WIDTHS = [320, 360, 390, 430, 768, 1024, 1280, 1440]
 # v1.398.0 - the customers view is called Leads & CRM (was Customers & Follow-ups)
-VIEWS = [("overview", "Overview", "Overview"), ("documents", "Quotations & Invoices", "Documents"), ("payments", "Payments", "Payments"),
-         ("closed", "Closed Sales", "Closed Sales"), ("customers", "Leads & CRM", "Leads & CRM"), ("reports", "Reports", "Reports")]
+# v1.399.0 (Phase 3, decision 6) - seven views in the CEO's order; the Sales Pipeline is new
+VIEWS = [("overview", "Overview", "Overview"), ("customers", "Leads & CRM", "Leads & CRM"), ("pipeline", "Sales Pipeline", "Sales Pipeline"),
+         ("documents", "Quotations & Invoices", "Documents"), ("payments", "Payments", "Payments"),
+         ("closed", "Closed Sales", "Closed Sales"), ("reports", "Reports", "Reports")]
 no_hscroll = lambda pg: pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
 def post(port, path, body):
@@ -94,11 +96,11 @@ with sync_playwright() as p:
                       pg.get_by_test_id("view-switch").filter(visible=True).first.inner_text() if vis(pg, "view-switch") else "no switch")
             else:
                 sel = pg.get_by_test_id("sales-tabs").get_by_role("tab", selected=True)
-                check(f"{tag}: a wide screen has the six tabs, this one selected; no selector", vis(pg, "sales-tabs") and not vis(pg, "sales-view-bar")
-                      and pg.get_by_test_id("sales-tabs").get_by_role("tab").count() == 6 and sel.count() == 1 and sel.inner_text().strip().startswith(wide),
+                check(f"{tag}: a wide screen has the seven tabs, this one selected; no selector", vis(pg, "sales-tabs") and not vis(pg, "sales-view-bar")
+                      and pg.get_by_test_id("sales-tabs").get_by_role("tab").count() == 7 and sel.count() == 1 and sel.inner_text().strip().startswith(wide),
                       sel.all_inner_texts() if sel.count() else "none")
             gold = pg.locator("main button[class*=line-tabs_action]").filter(visible=True)
-            want = {"overview": 1, "documents": 1, "payments": 1, "customers": 1, "closed": 0, "reports": 0}[key]
+            want = {"overview": 1, "documents": 1, "payments": 1, "customers": 1, "pipeline": 1, "closed": 0, "reports": 0}[key]
             check(f"{tag}: {want} gold action for the view", gold.count() == want, gold.all_inner_texts())
             if key == "overview":
                 # v1.320.0 (Sales 2.0 Stage 2, picture 01, approved) - six figures; with verification off the figure says so and shows no amount
@@ -195,16 +197,12 @@ with sync_playwright() as p:
     for w in [1440, 390]:
         ctx = ctx_for(b, w); pg = ctx.new_page()
         go(pg, 4177, "customers")
-        check(f"Cust {w}: the filters: All Leads, My Leads, Unassigned, New Enquiries, Active Customers, Follow-ups, Board - no Needs Action",
-              all(pg.get_by_test_id(f"cust-{k}").count() == 1 for k in ["all_leads", "my_leads", "unassigned", "enquiries", "active", "followups", "board"]) and pg.get_by_test_id("cust-action").count() == 0)
+        # v1.399.0 (Phase 3, decision 7) - the read-only Board is retired: the Sales Pipeline is the board
+        check(f"Cust {w}: the filters: All Leads, My Leads, Unassigned, New Enquiries, Active Customers, Follow-ups - no Needs Action, no Board",
+              all(pg.get_by_test_id(f"cust-{k}").count() == 1 for k in ["all_leads", "my_leads", "unassigned", "enquiries", "active", "followups"])
+              and pg.get_by_test_id("cust-action").count() == 0 and pg.get_by_test_id("cust-board").count() == 0 and pg.get_by_test_id("cust-menu-board").count() == 0)
         check(f"Cust {w}: All Leads opens the Leads & CRM workspace", vis(pg, "crm-leads") and not vis(pg, "customer-needs"))
-        pick_cust(pg, "board")
-        board = pg.get_by_test_id("customer-board")
-        cols = board.locator("[role=group]").all() if board.count() else []
-        names = [c.get_attribute("aria-label") for c in cols]
-        check(f"Cust {w}: the Board's five columns, no Proposal", names == ["Enquiry", "Quotation", "Negotiating", "Accepted", "Closed"], names)
-        check(f"Cust {w}: the Board is read-only (nothing can be dragged)", board.locator("[draggable=true]").count() == 0 and "Read-only" in board.inner_text())
-        check(f"Cust {w}: no sideways page on the Board", no_hscroll(pg))
+        check(f"Cust {w}: no read-only Board anywhere in Leads & CRM", pg.get_by_test_id("customer-board").count() == 0)
         add = pg.get_by_role("button", name=re.compile("Add customer")).filter(visible=True)
         if add.count(): add.first.click(); pg.wait_for_timeout(700)
         check(f"Cust {w}: Add customer opens the customer form", pg.locator("#sales-customers").is_visible())

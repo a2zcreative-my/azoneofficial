@@ -200,6 +200,32 @@ export async function salesActions(env: Env, v: SalesViewer, today = mytToday())
     }
   }
 
+  /* v1.399.0 (Phase 3, the Sales Pipeline) - an open deal whose next action is due or overdue
+     (red / blue), or that has none booked (amber). A deal speaks for its quotations: their
+     "No next action" rows leave the list; a follow-up already listed on one of them speaks for
+     the deal, which is then not listed twice. "Ready to invoice" stays: that is its own step. */
+  {
+    type O = { id: number; title: string; customer_id: number; company: string; phone: string | null; owner_id: number | null; owner_name: string | null;
+      next_action: string | null; next_action_on: string | null; stage_since: string; created_at: string; docs: string | null; est: number | null };
+    const deals = await quiet(async () => (await env.DB.prepare(
+      `SELECT o.id, o.title, o.customer_id, c.company, c.phone, o.owner_id, ${NAME("u")} AS owner_name, o.next_action, o.next_action_on, o.stage_since, o.created_at, o.est_value_cents AS est,
+              (SELECT GROUP_CONCAT(l.doc_id) FROM opportunity_quotations l WHERE l.opportunity_id = o.id AND l.unlinked_at IS NULL) AS docs
+         FROM sales_opportunities o JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.owner_id
+        WHERE o.stage IN ('new', 'qualified', 'proposal', 'negotiation') AND (?1 = 0 OR o.owner_id = ?2)
+        ORDER BY o.created_at LIMIT 300`,
+    ).bind(mine ? 1 : 0, user.id).all<O>()).results ?? []);
+    for (const o of deals) {
+      const docs = (o.docs ?? "").split(",").filter(Boolean).map(Number);
+      if (items.some((i) => i.kind === "followup" && i.doc_id !== null && docs.includes(i.doc_id))) continue;
+      for (let k = items.length - 1; k >= 0; k--) if (items[k]!.kind === "quotation" && items[k]!.flag === "no_next" && docs.includes(items[k]!.doc_id ?? -1)) items.splice(k, 1);
+      const flag = o.next_action_on ? followupFlag(o.next_action_on, today) : "no_next";
+      if (!flag) continue;
+      items.push({ key: `deal:${o.id}`, kind: "opportunity", flag, record_id: o.id, customer_id: o.customer_id, customer: o.company, ref: o.title, doc_id: docs[0] ?? null,
+        note: o.next_action, cents: o.est, owner_id: o.owner_id, owner_name: o.owner_name, due_on: o.next_action_on,
+        age_days: daysBetween(mytDay(o.stage_since) ?? today, today), waited_hours: null, since: o.next_action_on ?? o.created_at, phone: o.phone });
+    }
+  }
+
   /* v1.398.0 (Phase 2, Leads & CRM) - a lead someone owns, marked new / contacted / qualified,
      with nothing booked next and no other row on this list: amber "No next action". A customer
      already on the list (a follow-up, a quotation, an invoice) is not listed twice. */
@@ -212,6 +238,7 @@ export async function salesActions(env: Env, v: SalesViewer, today = mytToday())
         WHERE c.owner_id IS NOT NULL AND c.relationship_status IN ('new_lead', 'contacted', 'qualified')
           AND (?1 = 0 OR c.owner_id = ?2)
           AND NOT EXISTS (SELECT 1 FROM customer_followups f WHERE f.customer_id = c.id AND f.done_at IS NULL AND f.cancelled_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM sales_opportunities o WHERE o.customer_id = c.id AND o.stage IN ('new', 'qualified', 'proposal', 'negotiation'))
         ORDER BY c.created_at LIMIT 300`,
     ).bind(mine ? 1 : 0, user.id).all<L>()).results ?? [])) {
       if (listed.has(l.id)) continue;
@@ -274,6 +301,13 @@ export async function doneToday(env: Env, uid: number, today = mytToday()): Prom
     `SELECT r.id, r.reported_at AS at, c.company AS customer, d.doc_number AS ref, NULL AS detail, d.customer_id, d.id AS doc_id
        FROM invoice_payment_reports r JOIN sales_documents d ON d.id = r.invoice_id LEFT JOIN customers c ON c.id = d.customer_id
       WHERE r.reported_by = ?1 AND date(r.reported_at, '+8 hours') = ?2`,
+  ).bind(uid, today).all<R>()).results ?? []));
+  /* v1.399.0 - a deal moved, won or lost by me today (one line per deal) */
+  add("deal_moved", await quiet(async () => (await env.DB.prepare(
+    `SELECT o.id AS id, MAX(e.created_at) AS at, c.company AS customer, o.title AS ref, GROUP_CONCAT(e.to_stage, ', ') AS detail, o.customer_id, NULL AS doc_id
+       FROM opportunity_stage_events e JOIN sales_opportunities o ON o.id = e.opportunity_id JOIN customers c ON c.id = o.customer_id
+      WHERE e.created_by = ?1 AND e.from_stage IS NOT NULL AND date(e.created_at, '+8 hours') = ?2
+      GROUP BY e.opportunity_id`,
   ).bind(uid, today).all<R>()).results ?? []));
   /* v1.398.0 - a call, WhatsApp, email, meeting, note or proposal logged in Leads & CRM (a closed
      follow-up is already counted above as followup_done, so its activity row is left out) */

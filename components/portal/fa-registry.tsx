@@ -18,7 +18,7 @@
    identity, referral permission), each with its evidence and a review date,
    and nobody verifies a banker they registered themselves. */
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { atLeast, onBreakpoint } from "@/lib/breakpoints";
 import { api, type ApiResult } from "@/lib/api";
 import { dmy, dmyMYT, mytToday } from "@/lib/format";
@@ -108,19 +108,24 @@ export function BankerRegistry({ toast, openCase }: { toast: Toast; openCase?: (
     return () => { live = false; };
   }, [tick]);
   const due = (data?.bankers ?? []).filter((b) => b.status_now === "pending_verification" || b.status_now === "requires_reverification").length;
+  const subTabs = (
+    <LineTabs value={sub} onChange={setSub} label={L("Bankers", "Pegawai bank")} tabs={[
+          ["directory", L("Banker directory", "Direktori pegawai bank"), due || null, L("Directory", "Direktori")],
+          ["branches", L("Branch registry", "Daftar cawangan"), null, L("Branches", "Cawangan")],
+          ["banks", L("Bank registry", "Daftar bank"), null, L("Banks", "Bank")],
+          ["history", L("Audit history", "Sejarah audit"), null, L("History", "Sejarah")],
+        ]} />
+  );
   return (
     <div className={css.stack} data-testid="fa-registry">
-      <LineTabs value={sub} onChange={setSub} label={L("Bankers", "Pegawai bank")} tabs={[
-        ["directory", L("Banker directory", "Direktori pegawai bank"), due || null, L("Directory", "Direktori")],
-        ["branches", L("Branch registry", "Daftar cawangan"), null, L("Branches", "Cawangan")],
-        ["banks", L("Bank registry", "Daftar bank"), null, L("Banks", "Bank")],
-        ["history", L("Audit history", "Sejarah audit"), null, L("History", "Sejarah")],
-      ]} />
+      {/* 21-11-2026 (the CEO, the Payments page as the reference) - the Directory draws this row UNDER its banker
+          counts; the other parts (no figure strip) and a load still in progress keep it on top */}
+      {(sub !== "directory" || failed || !data) && subTabs}
       {failed ? (
         <div className={`${card} ${css.sec}`}><p className={css.empty}>{L("The banker registry could not load.", "Daftar pegawai bank tidak dapat dimuatkan.")}</p><button type="button" className={btnSm} onClick={reload}>{L("Try again", "Cuba lagi")}</button></div>
       ) : !data ? <div className={`${card} ${css.sec}`}><SkelRows rows={5} /></div> : (
         <>
-          {sub === "directory" && <Directory data={data} toast={toast} reload={reload} openCase={openCase} />}
+          {sub === "directory" && <Directory data={data} toast={toast} reload={reload} openCase={openCase} tabs={subTabs} />}
           {sub === "branches" && <Branches data={data} toast={toast} reload={reload} />}
           {sub === "banks" && <Banks data={data} toast={toast} reload={reload} />}
           {sub === "history" && <History />}
@@ -149,7 +154,7 @@ export function dirGroup(b: Banker): DirFilter | null {
 export const bkId = (id: number) => `BK-${String(id).padStart(6, "0")}`;
 const useXl = () => useSyncExternalStore((cb) => onBreakpoint("xl", () => cb()), () => atLeast("xl"), () => false);
 
-function Directory({ data, toast, reload, openCase }: { data: Registry; toast: Toast; reload: () => void; openCase?: (id: number, tab?: string) => void }) {
+function Directory({ data, toast, reload, openCase, tabs }: { data: Registry; toast: Toast; reload: () => void; openCase?: (id: number, tab?: string) => void; tabs?: ReactNode }) {
   const [q, setQ] = useState("");
   const [bank, setBank] = useState("");
   const [state, setState] = useState("");
@@ -187,6 +192,7 @@ function Directory({ data, toast, reload, openCase }: { data: Registry; toast: T
       <KpiTile icon="pending" tone="gold" label={L("On hold", "Ditahan")} value={count("hold")} sub={L("Unavailable or at their case limit", "Tiada atau had kes penuh")} onClick={() => { setStatus("hold"); setPage(0); }} />
       <KpiTile icon="warning" tone="red" label={L("Needs verification", "Perlu pengesahan")} value={count("verify")} onClick={() => { setStatus("verify"); setPage(0); }} />
     </KpiRow>
+    {tabs}
     <div className={xl ? css.bkWs2 : css.stack} data-testid="fa-banker-ws">
     <section className={`${card} ${css.sec}`} aria-label={L("Banker directory", "Direktori pegawai bank")} data-testid="fa-directory">
       <div className={css.head}>

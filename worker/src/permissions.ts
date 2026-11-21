@@ -61,6 +61,10 @@ export const PERMS: Record<string, readonly Role[]> = {
       unassign a lead's owner, and confirm the suggested owners. Every change is recorded
       (customer_owner_events, append-only) with who and why. */
   crm_assign: ["super_admin", "ceo", "coo", "cco"],
+  /** v1.399.0 - the Sales Pipeline (the CEO, Phase 3 decision 4, 21-11-2026): mark a deal Won without
+      the customer's acceptance or an invoice, or reopen a closed deal - always with a written reason,
+      always in the audit trail. Won is never revenue, a payment confirmation or commission. */
+  pipeline_override: ["ceo", "coo", "cco"],
   finance: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo", "sales_marketing"],
   task_reports: ["super_admin", "admin", "hr_admin", "coo", "cco", "ceo"], // v1.40.0 (AUDIT M14): the HR tab is visible to the CEO, whose submitted report was silently 403d
   inventory: ["super_admin", "admin", "ceo", "coo", "cco", "sales_marketing", "marketing", "hr_admin"],
@@ -638,6 +642,7 @@ export interface PolicyAction {
 export const ACTION_CATALOGUE: readonly PolicyAction[] = [
   { module: "Sales", key: "sales_view", en: "View quotations, invoices and orders", ms: "Lihat sebut harga, invois dan pesanan", cap: "sales" },
   { module: "Sales", key: "packages", en: "Manage sales packages", ms: "Urus pakej jualan", cap: "packages_manage" },
+  { module: "Sales", key: "pipeline_override", en: "Mark a deal Won without an acceptance or invoice; reopen a closed deal", ms: "Tanda urusan Berjaya tanpa penerimaan atau invois; buka semula urusan ditutup", cap: "pipeline_override", note_en: "A written reason every time; never revenue or commission", note_ms: "Sebab bertulis setiap kali; bukan hasil atau komisen" },
   { module: "Sales", key: "crm_assign", en: "Assign and reassign lead owners", ms: "Tetapkan dan tukar pemilik prospek", cap: "crm_assign", note_en: "A reason for every reassignment; history kept", note_ms: "Sebab bagi setiap pertukaran; sejarah disimpan" },
   { module: "Sales", key: "week_target", en: "Set weekly sales targets and goals; review recovery plans", ms: "Tetapkan sasaran dan matlamat jualan mingguan; semak pelan pemulihan", cap: "sales_week_target", note_en: "A reason for every change; history kept", note_ms: "Sebab bagi setiap perubahan; sejarah disimpan" },
   { module: "Sales", key: "mark_paid", en: "Mark paid / record part payments", ms: "Tanda dibayar / rekod bayaran sebahagian", cap: "invoice_payment" },

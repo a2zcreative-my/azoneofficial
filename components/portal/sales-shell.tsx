@@ -36,7 +36,9 @@ const L = (en: string, ms: string) => (getLang() === "ms" ? ms : en);
 /* ------------------------------------------------------------------ */
 /* the six views, in the address (decision S2)                         */
 /* ------------------------------------------------------------------ */
-export const SALES_VIEWS = ["overview", "documents", "payments", "closed", "customers", "reports"] as const;
+/* v1.399.0 (Phase 3, decision 6) - the CEO's order: Overview, Leads & CRM, Sales Pipeline, Quotations & Invoices,
+   Payments, Closed Sales, Reports (the Sales Playbook joins in its own phase). The keys never change, so every link still lands. */
+export const SALES_VIEWS = ["overview", "customers", "pipeline", "documents", "payments", "closed", "reports"] as const;
 export type SalesView = (typeof SALES_VIEWS)[number];
 export const isSalesView = (v: string | null | undefined): v is SalesView => !!v && (SALES_VIEWS as readonly string[]).includes(v);
 /** "/portal?tab=Sales&view=payments" - only the tab and the view's name; never a record or a person */
@@ -72,20 +74,22 @@ export function SalesViewBar({ view, onView, waiting, action }: {
       <div className="erp-desktop-only" data-testid="sales-tabs">
         <LineTabs value={view} onChange={onView} label={L("Sales", "Jualan")} tabs={[
           ["overview", L("Overview", "Gambaran")],
+          ["customers", L("Leads & CRM", "Prospek & CRM"), waiting.customers], // v1.398.0 - was Customers & Follow-ups; the view key stays, so every link still lands
+          ["pipeline", L("Sales Pipeline", "Saluran Jualan")], // v1.399.0 - Phase 3
           ["documents", L("Quotations & Invoices", "Sebut Harga & Invois"), waiting.documents],
           ["payments", L("Payments", "Bayaran"), waiting.payments],
           ["closed", L("Closed Sales", "Jualan Ditutup")],
-          ["customers", L("Leads & CRM", "Prospek & CRM"), waiting.customers], // v1.398.0 - was Customers & Follow-ups; the view key stays, so every link still lands
           ["reports", L("Reports", "Laporan")],
         ]} aside={<TabAside>{action}</TabAside>} />
       </div>
       <div className={`erp-phone-only ${css.viewBar}`} data-testid="sales-view-bar">
         <ViewSwitch value={view} onChange={onView} options={[
           ["overview", L("Overview", "Gambaran"), L("The worklist: what needs someone", "Senarai kerja: apa yang perlu tindakan")],
+          ["customers", L("Leads & CRM", "Prospek & CRM"), [L("Leads, enquiries and follow-ups", "Prospek, pertanyaan dan susulan"), n(waiting.customers)].filter(Boolean).join(" · ")], // v1.398.0
+          ["pipeline", L("Sales Pipeline", "Saluran Jualan"), L("Deals by stage, apart from the money", "Urusan mengikut peringkat, berasingan daripada wang")], // v1.399.0
           ["documents", L("Documents", "Dokumen"), [L("Quotations, invoices and the rest", "Sebut harga, invois dan lain-lain"), n(waiting.documents)].filter(Boolean).join(" · ")],
           ["payments", L("Payments", "Bayaran"), [L("Report, then the CEO verifies", "Lapor, kemudian CEO sahkan"), n(waiting.payments)].filter(Boolean).join(" · ")],
           ["closed", L("Closed Sales", "Jualan Ditutup"), L("Paid invoices, closers, commission", "Invois dibayar, penutup, komisen")],
-          ["customers", L("Leads & CRM", "Prospek & CRM"), [L("Leads, enquiries and follow-ups", "Prospek, pertanyaan dan susulan"), n(waiting.customers)].filter(Boolean).join(" · ")], // v1.398.0
           ["reports", L("Reports", "Laporan"), L("One report at a time", "Satu laporan pada satu masa")],
         ] as const} />
         {action}
@@ -111,7 +115,8 @@ export function DocsMore({ items }: { items: { key: string; label: string; on: b
 /** Leads & CRM (was Customers & Follow-ups): one filter at a time, with the counts of what is there.
     v1.398.0 (Phase 2, decision 5) - Needs Action is retired: My Sales Action Center owns that list.
     "action" and "all" stay as words an old link may carry; neither is a tab ("all" is the add / edit
-    customer form, opened by Add customer and Edit details). The Board stays until Phase 3. */
+    customer form, opened by Add customer and Edit details). v1.399.0 (Phase 3, decision 7) - the read-only Board is
+    retired: the Sales Pipeline is the board now, and an old "board" link opens it. */
 export type CustFilter = "all_leads" | "my_leads" | "unassigned" | "active" | "enquiries" | "growth" | "followups" | "board" | "action" | "all"; // v1.369.0 growth: the Business Growth Check
 /** the four lead views, and the CRM view each one is */
 export const LEAD_FILTER: Partial<Record<CustFilter, "all" | "mine" | "unassigned" | "active">> = { all_leads: "all", my_leads: "mine", unassigned: "unassigned", active: "active" };
@@ -120,13 +125,13 @@ export function CustomerFilterBar({ value, onChange, counts, scopeSwitch, growth
   growth?: boolean }) {
   const items: [CustFilter, string][] = [["all_leads", L("All Leads", "Semua Prospek")], ["my_leads", L("My Leads", "Prospek Saya")], ["unassigned", L("Unassigned", "Tiada Pemilik")],
     ["enquiries", L("New Enquiries", "Pertanyaan Baharu")], ...(growth ? [["growth", L("Business Growth", "Pertumbuhan Bisnes")] as [CustFilter, string]] : []),
-    ["active", L("Active Customers", "Pelanggan Aktif")], ["followups", L("Follow-ups", "Susulan")], ["board", L("Board", "Papan")]];
+    ["active", L("Active Customers", "Pelanggan Aktif")], ["followups", L("Follow-ups", "Susulan")]];
   const shown: CustFilter = value === "action" || value === "all" ? "all_leads" : value;
   return (
     <div className={css.customerFilters}>
       {/* v1.324.0 (Global UI System D-2) - the one tab row; the scope switch sits at its right end */}
       <LineTabs label={L("Leads and follow-ups", "Prospek dan susulan")} value={shown} onChange={onChange} testid="cust"
-        tabs={items.map(([k, label]) => [k, `${label}${counts && k !== "board" && counts[k as keyof typeof counts] != null ? ` (${counts[k as keyof typeof counts]})` : ""}`] as const)} aside={scopeSwitch} />
+        tabs={items.map(([k, label]) => [k, `${label}${counts && counts[k as keyof typeof counts] != null ? ` (${counts[k as keyof typeof counts]})` : ""}`] as const)} aside={scopeSwitch} />
     </div>
   );
 }

@@ -41,6 +41,7 @@ export const TAB_OF_KIND: Record<string, TabName> = {
   payment_report: "Sales", // v1.365.0 - a payment to verify (pay_report:<id>:...) opens its invoice in Sales > Payments
   live_report: "Roster & Scheduling", // 19-11-2026 - a Live Report bell (live_report:<id>:...) opens the report in Roster & Scheduling > Live Reports
   card_template: "Digital Cards", // v1.395.0 - a card template bell or Desk row (card_template:<id>:...) opens the template in Digital Cards
+  deal: "Sales", // v1.399.0 - a Sales Pipeline bell (deal:<id>) opens the deal in Sales > Sales Pipeline
   growth: "Sales", // v1.369.0 - a Business Growth Check bell (growth:<id>:...) opens the enquiry in Sales > Customers & Follow-ups
 };
 
@@ -51,12 +52,12 @@ export const TAB_OF_KIND: Record<string, TabName> = {
 export function recordOfRef(ref: string | null | undefined): { kind: string; id: number } | null {
   if (!ref) return null;
   /* v1.220.0 - staff:<id>: a request to update someone's responsibilities opens that person on the Staff tab */
-  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff|proj|partner|pay_report|card_template|growth|live_report):(\d+)(?::|$)/.exec(ref);
+  const m = /^(leave|claim|task|task-close|stock|quote|announcement|staff|proj|partner|pay_report|card_template|growth|live_report|lead|deal):(\d+)(?::|$)/.exec(ref);
   if (!m) return null;
   const id = Number(m[2]);
   if (!Number.isFinite(id) || id <= 0) return null;
   const word = m[1]!;
-  const kind = word === "task-close" ? "task" : word === "quote" ? "document" : word === "proj" ? "project" : word === "pay_report" ? "payment_report" : word;
+  const kind = word === "task-close" ? "task" : word === "quote" ? "document" : word === "proj" ? "project" : word === "pay_report" ? "payment_report" : word === "lead" ? "client" : word; // v1.399.0 lead:<id> (Phase 2 bells) is the customer
   return { kind, id };
 }
 

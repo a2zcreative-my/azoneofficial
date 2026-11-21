@@ -49,8 +49,12 @@ function checks(src) {
   const shell = strip(src.shell), views = strip(src.views), sales = strip(src.sales), ws = strip(src.ws), provider = strip(src.provider), page = strip(src.page), sales2 = strip(src.sales2);
 
   /* ---- the shell ---- */
-  ok("S - the six written views, in the written order",
-    /export const SALES_VIEWS = \["overview", "documents", "payments", "closed", "customers", "reports"\] as const;/.test(shell));
+  /* v1.399.0 (Phase 3, decision 6) - seven views, in the CEO's order: Overview, Leads & CRM, Sales Pipeline, Quotations & Invoices, Payments, Closed Sales, Reports */
+  ok("S - the seven written views, in the written order",
+    /export const SALES_VIEWS = \["overview", "customers", "pipeline", "documents", "payments", "closed", "reports"\] as const;/.test(shell));
+  ok("S - the tab row and the phone selector both read the CEO's order",
+    ["overview", "customers", "pipeline", "documents", "payments", "closed", "reports"].every((k, i, a) => i === 0 || between(shell, "export function SalesViewBar(", "\n}\n").indexOf(`["${k}", L(`) > between(shell, "export function SalesViewBar(", "\n}\n").indexOf(`["${a[i - 1]}", L(`))
+    && (between(shell, "export function SalesViewBar(", "\n}\n").match(/\["pipeline", L\("Sales Pipeline", "Saluran Jualan"\)/g) ?? []).length === 2);
   const url = between(shell, "export function salesViewUrl(", "\n}\n");
   ok("S2 - the view goes in the address: the tab and the view's name only, never a record or a person",
     /u\.searchParams\.set\("tab", "Sales"\);/.test(url) && /u\.searchParams\.set\("view", view\);/.test(url) && (url.match(/searchParams\.set\(/g) ?? []).length === 2);
@@ -66,9 +70,10 @@ function checks(src) {
   ok("tabs on a wide screen, one selector on a phone (the CEO's answer)",
     /<div className="erp-desktop-only" data-testid="sales-tabs">\s*<LineTabs value=\{view\} onChange=\{onView\}/.test(bar) && /className=\{`erp-phone-only [^`]*`\} data-testid="sales-view-bar">\s*<ViewSwitch value=\{view\} onChange=\{onView\}/.test(bar));
   const act = between(sales, "<SalesViewBar view={wsView}", "{wsView === \"overview\" && (");
-  ok("one gold action per view: Report payment on Payments, Add customer on Customers, none on Closed Sales or Reports, Create document otherwise",
+  ok("one gold action per view: Report payment on Payments, New deal on the Pipeline, Add customer on Customers, none on Closed Sales or Reports, Create document otherwise",
     /wsView === "payments" && pv\?\.on && Object\.values\(pv\.inv\)\.some\(\(v\) => v\.can_report\)/.test(act) && /wsView === "customers" \? \(/.test(act)
-    && /wsView === "closed" \|\| wsView === "reports" \? null : \(/.test(act) && (act.match(/<TabAction /g) ?? []).length === 3);
+    && /wsView === "pipeline" \? \(/.test(act) && /setDealNew\(\(x\) => x \+ 1\)/.test(act)
+    && /wsView === "closed" \|\| wsView === "reports" \? null : \(/.test(act) && (act.match(/<TabAction /g) ?? []).length === 4);
   ok("the waiting count on Payments is the Payments queue's own, shown only while verification is on",
     /payments: pv\?\.on \? pv\.pend\?\.n \?\? null : null/.test(act));
 
@@ -141,7 +146,8 @@ for (const [n, c, d] of res) if (!c) console.log(`  ✗ ${n}${d ? `  [${d}]` : "
 
 /* the mutation pass: each breakage must be caught */
 const MUT = [
-  ["a view dropped", "shell", '"closed", "customers", "reports"] as const;', '"customers", "reports"] as const;'],
+  ["a view dropped", "shell", '"payments", "closed", "reports"] as const;', '"payments", "reports"] as const;'],
+  ["the views out of the CEO's order", "shell", 'SALES_VIEWS = ["overview", "customers", "pipeline",', 'SALES_VIEWS = ["overview", "pipeline", "customers",'],
   ["a record put in the address", "shell", 'u.searchParams.set("view", view);', 'u.searchParams.set("view", view);\n  u.searchParams.set("doc", "1");'],
   ["views no longer history entries", "shell", 'else if (cur !== view) window.history.pushState({ salesView: view }, "", salesViewUrl(view));', 'else if (cur !== view) window.history.replaceState({ salesView: view }, "", salesViewUrl(view));'],
   ["a deep link's view used unchecked", "provider", 'if (startAt && /^[a-z_]{1,24}$/.test(startAt)) setTabStart(', 'if (startAt) setTabStart('],

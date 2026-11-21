@@ -21,7 +21,7 @@
      green   done         an activity recorded today (the Done today list)
    Due today, new and ready-to-invoice are blue: work for today, not late. */
 
-export type SalesActionKind = "followup" | "quotation" | "invoice" | "enquiry" | "growth" | "lead"; // v1.398.0 lead: an owned CRM lead with nothing booked next
+export type SalesActionKind = "followup" | "quotation" | "invoice" | "enquiry" | "growth" | "lead" | "opportunity"; // v1.399.0 opportunity: an open deal (the Sales Pipeline) // v1.398.0 lead: an owned CRM lead with nothing booked next
 export type SalesActionFlag = "overdue" | "waiting" | "payment_overdue" | "today" | "new" | "ready" | "no_next";
 export type SalesTone = "red" | "amber" | "blue" | "grey" | "green";
 
@@ -59,7 +59,7 @@ export interface SalesAction {
 
 export interface SalesDone {
   key: string;
-  kind: "followup_done" | "next_booked" | "enquiry_replied" | "growth_recorded" | "quotation_issued" | "payment_reported" | "activity_logged";
+  kind: "followup_done" | "next_booked" | "enquiry_replied" | "growth_recorded" | "quotation_issued" | "payment_reported" | "activity_logged" | "deal_moved";
   at: string;
   customer: string;
   ref: string | null;

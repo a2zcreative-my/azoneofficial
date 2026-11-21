@@ -336,7 +336,7 @@ const SESSION_TTL_HOURS = 12;
    compares the ledger tail against this; the EXPECTED_MIGRATIONS list and
    probe set in /health/detail carry the same standing rule: every new
    migration file adds its line here AND there. */
-const LATEST_MIGRATION = "0226_crm_leads";
+const LATEST_MIGRATION = "0227_sales_pipeline";
 const OAUTH_STATE_COOKIE = "azone_oauth_state";
 /* v1.264.0 (G4) - the 2FA challenge of a Google sign-in: HttpOnly, scoped to
    /api/v1/auth/2fa, five minutes. The page's script never holds it. */
@@ -5896,6 +5896,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       ["0224 (digital card editable content)", `SELECT key, kind, x, y, w, h, font, sample FROM card_template_zones LIMIT 0`],
       ["0225 (digital card versions, publishing and the AZ ONE feed)", `SELECT v.version_no, v.content_hash, s.status, s.action, t.review_version_no, t.prechecked_by FROM card_template_versions v, card_template_sync s, card_templates t LIMIT 0`],
       ["0226 (Leads & CRM: lead owner, source, services, status and the contact log)", `SELECT c.owner_id, c.lead_source, c.relationship_status, c.crm_key, c.crm_version, e.kind, st.to_status, a.source_key, q.customer_id, g.customer_id FROM customers c, customer_owner_events e, customer_status_events st, sales_activities a, enquiries q, business_growth_enquiries g LIMIT 0`],
+      ["0227 (the Sales Pipeline: deals, their quotations and stage history)", `SELECT o.stage, o.won_basis, o.version, o.client_key, l.doc_id, l.unlinked_at, e.to_stage, e.basis FROM sales_opportunities o, opportunity_quotations l, opportunity_stage_events e LIMIT 0`],
       /* v1.311.0 - 0196 adds triggers only, which a SELECT cannot name: the probe counts them and, when any is missing, raises "no such trigger" */
       ["0196 (commission 5.0: the database keeps every policy version and entitlement - no rewrite, no delete, paid and void final)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('commission_policy_final', 'commission_policy_terms_kept', 'commission_policy_no_delete', 'commission_policy_packages_no_update', 'commission_policy_packages_no_delete', 'commission_ledger_money_kept', 'commission_ledger_final', 'commission_ledger_no_delete')) = 8 THEN 1 ELSE json_extract('{}', 'no such trigger: 0196') END AS ok`],
       ["0203 (accounting 5.0: a posted journal entry and its lines are kept as posted)", `SELECT CASE WHEN (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('journal_entries_no_update', 'journal_entries_no_delete', 'journal_lines_no_update', 'journal_lines_no_delete')) = 4 THEN 1 ELSE json_extract('{}', 'no such trigger: 0203') END AS ok`],
@@ -6146,6 +6147,7 @@ async function route(request: Request, env: Env, path: string): Promise<Response
       "0224_card_template_zones",
       "0225_card_template_publish",
       "0226_crm_leads",
+      "0227_sales_pipeline",
     ];
     let migrations_all: { name: string; applied: boolean }[] | null = null;
     try {

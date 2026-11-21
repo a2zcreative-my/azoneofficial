@@ -55,12 +55,14 @@ const KIND_WORD: Record<SalesAction["kind"], [string, string]> = {
   followup: ["Follow-up", "Susulan"], quotation: ["Quotation", "Sebut harga"], invoice: ["Invoice", "Invois"],
   enquiry: ["Website enquiry", "Pertanyaan laman web"], growth: ["Business Growth Check", "Semakan Pertumbuhan Bisnes"],
   lead: ["Lead", "Prospek"], // v1.398.0 - an owned lead in Leads & CRM with nothing booked next
+  opportunity: ["Deal", "Urusan"], // v1.399.0 - an open deal in the Sales Pipeline
 };
 const DONE_WORD: Record<SalesDone["kind"], [string, string]> = {
   followup_done: ["Follow-up completed", "Susulan selesai"], next_booked: ["Next follow-up booked", "Susulan seterusnya ditetapkan"],
   enquiry_replied: ["Enquiry answered", "Pertanyaan dijawab"], growth_recorded: ["Growth Check recorded", "Semakan Pertumbuhan direkod"],
   quotation_issued: ["Quotation issued", "Sebut harga dikeluarkan"], payment_reported: ["Payment reported", "Bayaran dilaporkan"],
   activity_logged: ["Contact logged", "Hubungan direkod"], // v1.398.0 - a call, WhatsApp, email, meeting, note or proposal in Leads & CRM
+  deal_moved: ["Deal moved", "Urusan dialih"], // v1.399.0 - a deal moved, won or lost in the Sales Pipeline
 };
 /** the tone's words for a screen reader beside the chip's own words */
 export function FlagChip({ item }: { item: Pick<SalesAction, "flag"> }) {
@@ -86,6 +88,7 @@ function actionLabel(i: SalesAction): string {
   if (i.kind === "invoice") return L("Follow up payment", "Susuli bayaran");
   if (i.kind === "enquiry") return i.owner_id === null ? L("Take & reply", "Ambil & balas") : L("Reply", "Balas");
   if (i.kind === "lead") return L("Book next step", "Tetapkan langkah seterusnya");
+  if (i.kind === "opportunity") return i.flag === "no_next" ? L("Set next action", "Tetapkan tindakan seterusnya") : L("Open deal", "Buka urusan");
   return i.owner_id === null ? L("Pick up", "Ambil") : L("Open", "Buka");
 }
 
