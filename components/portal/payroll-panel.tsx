@@ -1035,7 +1035,7 @@ export function PayrollPanel({ readOnly = false, role = "" }: { readOnly?: boole
       return true;
     };
     const list = (u.data?.users ?? u.data?.staff ?? []).filter(
-      (x) => isStaffRole(x.role) /* v1.409.0 - never a customer, the super admin or an AGENT (partners are not on payroll) */ && !(x as { not_staff?: number }).not_staff /* v1.384.0 - a test account */ && inMonth(x),
+      (x) => isStaffRole(x.role) /* v1.414.0 - never a customer, the super admin or an AGENT (partners are not on payroll) */ && !(x as { not_staff?: number }).not_staff /* v1.384.0 - a test account */ && inMonth(x),
     );
     /* v1.148.0 - this used to be a SECOND, hand-written role order living
        here: it put admin AFTER hr_admin and sales_marketing, the opposite of

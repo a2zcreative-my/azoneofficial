@@ -17025,7 +17025,7 @@ async function handleStaffRoutes(
       `SELECT id, name, full_name, joined_on, left_on, rejoined_on, role, employment_status, position
        FROM users WHERE ${staffRolesSql()} AND is_active = 1 AND ${payrollMonthStaffSql(mA2)}`,
     ).all<{ id: number; name: string; full_name: string | null; joined_on: string | null; left_on: string | null; rejoined_on: string | null; role: string; employment_status: string | null; position: string | null }>();
-    /* v1.409.0 - the list is read in the company order (CEO, COO, CCO, ... live host), the same
+    /* v1.414.0 - the list is read in the company order (CEO, COO, CCO, ... live host), the same
        bySeniority every staff list uses, so Payroll and Attendance list people by level */
     staffA.sort(bySeniority);
 

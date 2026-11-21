@@ -397,7 +397,7 @@ const page = readPortalSource(root);
      "this is the query behind the Super Admin block the CEO was looking at");
 }
 
-/* ---- 4b. v1.409.0 (the CEO, 21-11-2026: "the list of the staff was not sequence by the Level ... to agent")
+/* ---- 4b. v1.414.0 (the CEO, 21-11-2026: "the list of the staff was not sequence by the Level ... to agent")
    - payroll lists people in the company order and never an agent ---- */
 {
   ok("the absence scan reads people in the company order",
