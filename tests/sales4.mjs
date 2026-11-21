@@ -138,6 +138,24 @@ function checks(src) {
   ok("Closed Sales: the slim strip and an Export of what the columns say",
     /label: L\("Paid in full", "Dibayar penuh"\)/.test(ws) && /label: L\("Confirmed for commission", "Disahkan untuk komisen"\)/.test(ws)
     && /data-testid="closed-export"/.test(ws) && /"Commission eligibility", "Payout"\]/.test(ws));
+
+  /* v1.407.0 (the CEO's Overview picture, approved 21-11-2026) - the Action Center beside the week's target ONLY;
+     the pipeline summary is its own row across the page, opening Quotations & Invoices; the same steps and the same press */
+  const tday = strip(src.today);
+  ok("O - the rail holds only the week's target; the pipeline summary is a row of its own",
+    /<WorkspaceGrid testid="overview-grid" main=\{actionCenter\} rail=\{weeklyTarget\} \/>/.test(sales2)
+    && /testid="pipeline-panel"[\s\S]{0,600}<SalesPipeline counts=\{pipeline\} picked=\{null\} onPick=\{onPick\} loaded=\{loaded\} \/>/.test(sales2));
+  ok("O - View Full Pipeline opens Quotations & Invoices on every document, not the deals board (the counts would not match)",
+    /onClick=\{toDocuments\} data-testid="pipeline-full"/.test(sales2)
+    && /toDocuments=\{\(\) => \{ setWsView\("documents"\); setWorkTab\("documents"\); setDocType\("all"\); setDocStatus\("all"\);/.test(sales));
+  ok("O - the pipeline keeps its own step names (Payment Reported, CEO Verified, Closed Sale)",
+    /reported: \["upload", "Payment Reported",/.test(sales2) && /verified: \["verify", "CEO Verified",/.test(sales2) && /closed: \["success", "Closed Sale",/.test(sales2));
+  ok("O - an action row keeps every action: the main one, Call, WhatsApp, and the document behind More with the same handler",
+    /onClick=\{\(\) => h\.act\(i\)\} data-testid="action-go"/.test(tday) && /data-testid="action-call"/.test(tday) && /data-testid="action-wa"/.test(tday)
+    && /<RowMenu label=[\s\S]{0,200}onClick=\{\(\) => h\.openDoc\(i\.doc_id!\)\} data-testid="action-doc"/.test(tday));
+  ok("O - the colour key opens from its (i), and the team panel's View Full Report opens Reports",
+    /\{keyOpen && <Legend \/>\}/.test(tday) && /aria-expanded=\{keyOpen\}/.test(tday)
+    && /onClick=\{toReports\} data-testid="team-report"/.test(tday) && /onPeriod=\{setTeamPeriod\} toReports=\{\(\) => setWsView\("reports"\)\}/.test(sales));
   return res;
 }
 
@@ -174,6 +192,11 @@ const MUT = [
   ["Packages back among the reports", "sales", '{ key: "packages", label: L("Packages", "Pakej"), on: workTab === "packages", go: () => setWorkTab("packages") }', ""],
   ["the Payout column dropped", "ws", '<th>{L("Payout", "Bayaran komisen")}</th>', ""],
   ["a commission amount on Closed Sales", "ws", "recipient_role?: \"closer\" | \"agent\"; payroll_month: string | null }", "recipient_role?: \"closer\" | \"agent\"; payroll_month: string | null; amount_cents: number }"],
+  ["the pipeline back in the rail", "sales2", "rail={weeklyTarget} />", "rail={<>{weeklyTarget}<SalesPipeline counts={pipeline} picked={null} onPick={onPick} loaded={loaded} /></>} />"],
+  ["View Full Pipeline sent to the deals board", "sales", 'toDocuments={() => { setWsView("documents");', 'toDocuments={() => { setWsView("pipeline");'],
+  ["the pipeline's words shortened to the picture's", "sales2", '"Payment Reported", "Bayaran Dilapor"', '"Payment", "Bayaran"'],
+  ["the document action dropped from a row", "today", 'onClick={() => h.openDoc(i.doc_id!)} data-testid="action-doc"', 'data-testid="action-doc"'],
+  ["the colour key always open", "today", "{keyOpen && <Legend />}", "<Legend />"],
   ["an unread ledger shown as no payout", "ws", 'if (rows === null) return { label: L("Not available", "Tiada data")', 'if (rows === null) return null; if (!rows) return { label: L("Not available", "Tiada data")'],
 ];
 let caught = 0;

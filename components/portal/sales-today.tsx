@@ -24,11 +24,12 @@ import { Panel, PillSwitch } from "@/components/ui/panel";
 import { SkelRows } from "@/components/ui/skeleton";
 import { useCachedApi } from "@/lib/cached-api";
 import { fmtRM } from "@/lib/format";
-import { btnSm, btnSmPrimary, btnSmQuiet, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
+import { btnSm, btnSmPrimary, btnSmQuiet, iconBtnQuiet, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
 import {
   FLAG_TONE, FLAG_WORD, actionCounts, matchesFilter,
   type ActionFilter, type ActivityGroup, type SalesAction, type SalesActivity, type SalesDone, type SalesTone,
 } from "@/lib/sales-priority";
+import { RowMenu } from "@/components/portal/sales-shell";
 import css from "./sales-today.module.css";
 
 export type TodayScope = "mine" | "all";
@@ -110,6 +111,12 @@ export function ActionCenter({ state, scope, scopeSwitch, filter, onFilter, h }:
 }) {
   const d = state.data;
   const [shown, setShown] = useState(8);
+  /* v1.407.0 - the colour key sits behind one (i) beside the title, open on request */
+  const [keyOpen, setKeyOpen] = useState(false);
+  const keyBtn = <button type="button" className={iconBtnQuiet} aria-expanded={keyOpen} aria-controls="sales-action-key" data-testid="action-key"
+    aria-label={L("What the labels mean", "Maksud label")} title={L("What the labels mean", "Maksud label")} onClick={() => setKeyOpen((v) => !v)}>
+    <AppIcon name="info" />
+        </button>;
   const items = useMemo(() => (d?.items ?? []).filter((i) => filter !== "done" && matchesFilter(i, filter)), [d, filter]);
   const c = d?.counts;
   const late = c?.overdue ?? 0;
@@ -128,10 +135,10 @@ export function ActionCenter({ state, scope, scopeSwitch, filter, onFilter, h }:
         ? L(`${late} overdue - start with these. Then today's, then anything with no next action.`, `${late} lewat - mulakan dengan ini. Kemudian hari ini, kemudian yang tiada tindakan seterusnya.`)
         : c!.total > 0 ? L("Nothing overdue. Work down the list: today's first, then anything with no next action.", "Tiada yang lewat. Ikut senarai: hari ini dahulu, kemudian yang tiada tindakan seterusnya.")
           : L("Nothing waits on you today.", "Tiada yang menunggu anda hari ini.")) : L("What needs you today, most urgent first.", "Apa yang perlu anda hari ini, paling segera dahulu.")}
-      aside={<span className={css.wideOnly}>{scopeSwitch}</span>}>
+      aside={<span className={`${css.asideRow} ${css.wideOnly}`}>{keyBtn}{scopeSwitch}</span>}>
       <span id="sales-action-center" className={css.anchor} aria-hidden />
       {/* on a phone the switch sits under the title, so the title keeps the width (both drawn; CSS picks one) */}
-      <div className={css.narrowOnly}>{scopeSwitch}</div>
+      <div className={`${css.narrowOnly} ${css.narrowRow}`}>{scopeSwitch}{keyBtn}</div>
       {/* the day's progress: activity recorded today beside what is still open - never a ticked box */}
       <div className={css.progress} data-testid="action-progress">
         <div className={css.progressText}>
@@ -151,7 +158,7 @@ export function ActionCenter({ state, scope, scopeSwitch, filter, onFilter, h }:
       )}
       <PillSwitch value={filter} onChange={(f) => { onFilter(f); setShown(8); }} label={L("Show", "Tunjuk")} testid="action-filter" counts={counts}
         options={[["all", L("All", "Semua")], ["overdue", L("Overdue", "Lewat")], ["today", L("Today", "Hari ini")], ["no_next", L("No next action", "Tiada tindakan")], ["enquiries", L("Enquiries", "Pertanyaan")], ["done", L("Done today", "Selesai")]] as const} />
-      <Legend />
+      {keyOpen && <Legend />}
       {state.loading && !d ? <SkelRows rows={5} /> : state.failed && !d ? (
         <p className={css.empty} role="alert"><AppIcon name="warning" />{L("The action list could not be loaded. It will try again.", "Senarai tindakan tidak dapat dimuatkan. Ia akan cuba lagi.")}</p>
       ) : filter === "done" ? (
@@ -177,7 +184,7 @@ export function ActionCenter({ state, scope, scopeSwitch, filter, onFilter, h }:
 /** the indicators, once, in words - so nobody has to guess what a colour means */
 function Legend() {
   return (
-    <ul className={css.legend} aria-label={L("What the labels mean", "Maksud label")}>
+    <ul id="sales-action-key" className={css.legend} data-testid="action-legend" aria-label={L("What the labels mean", "Maksud label")}>
       <li><span className={chipSmDanger}>{L("Overdue", "Lewat")}</span>{L("a follow-up date has passed", "tarikh susulan telah lepas")}</li>
       <li><span className={chipSmWarn}>{L("No next action", "Tiada tindakan")}</span>{L("nothing is booked next", "tiada yang dijadualkan")}</li>
       <li><span className={chipSmNeutral}>{L("Days open", "Hari terbuka")}</span>{L("the quotation's age, not late", "usia sebut harga, bukan lewat")}</li>
@@ -191,27 +198,31 @@ function ActionRow({ i, scope, h, today }: { i: SalesAction; scope: TodayScope; 
   const when = i.due_on ? (i.due_on < today ? L(`was due ${day(i.due_on)}`, `sepatutnya ${day(i.due_on)}`) : L("due today", "hari ini"))
     : i.waited_hours !== null ? L(`waiting ${i.waited_hours} h`, `menunggu ${i.waited_hours} j`) : null;
   return (
-    <li className={css.row} data-testid="action-row" data-key={i.key} data-tone={FLAG_TONE[i.flag]}>
-      <span className={css.rowMain}>
-        <span className={css.rowTop}>
-          <FlagChip item={i} />
-          {i.age_days !== null && <AgeChip days={i.age_days} />}
-          {i.accepted && <span className={chipSmInfo}>{L("Accepted", "Diterima")}</span>}
-        </span>
+    <li className={`${css.row} ${css.actionRow}`} data-testid="action-row" data-key={i.key} data-tone={FLAG_TONE[i.flag]}>
+      {/* v1.407.0 (the CEO's Overview picture) - two lines: what it is and who, then the details beside the actions */}
+      <span className={css.head}>
+        <FlagChip item={i} />
+        {i.age_days !== null && <AgeChip days={i.age_days} />}
+        {i.accepted && <span className={chipSmInfo}>{L("Accepted", "Diterima")}</span>}
         <strong className={css.customer}>{i.customer}</strong>
+      </span>
+      {i.cents !== null && <span className={css.amt}>{fmtRM(i.cents)}</span>}
+      <span className={css.info}>
         <span className={css.meta}>
           {[L(KIND_WORD[i.kind][0], KIND_WORD[i.kind][1]), i.ref, when, scope === "all" ? (i.owner_name ?? L("not taken", "belum diambil")) : null].filter(Boolean).join(" · ")}
         </span>
         {i.note && <span className={css.note}>{i.note}</span>}
       </span>
-      {i.cents !== null && <span className={css.amt}>{fmtRM(i.cents)}</span>}
       <span className={css.actions}>
         <button type="button" className={i.flag === "overdue" || i.flag === "waiting" || i.flag === "payment_overdue" ? btnSmPrimary : btnSm} onClick={() => h.act(i)} data-testid="action-go">{actionLabel(i)}</button>
-        {i.doc_id !== null && i.kind !== "quotation" && (
-          <button type="button" className={btnSmQuiet} onClick={() => h.openDoc(i.doc_id!)} data-testid="action-doc">{L("Document", "Dokumen")}</button>
-        )}
         {ph && <a className={btnSmQuiet} href={ph.tel} aria-label={L(`Call ${i.customer}`, `Telefon ${i.customer}`)} data-testid="action-call">{L("Call", "Telefon")}</a>}
         {ph && <a className={btnSmQuiet} href={ph.wa} target="_blank" rel="noopener noreferrer" aria-label={L(`WhatsApp ${i.customer}`, `WhatsApp ${i.customer}`)} data-testid="action-wa"><AppIcon name="chat" />WhatsApp</a>}
+        {/* the record's other action, behind More - the same handler as before */}
+        {i.doc_id !== null && i.kind !== "quotation" && (
+          <RowMenu label={L(`More for ${i.customer}`, `Lagi untuk ${i.customer}`)}>
+            <button type="button" className={btnSmQuiet} onClick={() => h.openDoc(i.doc_id!)} data-testid="action-doc">{L("Open document", "Buka dokumen")}</button>
+          </RowMenu>
+        )}
       </span>
     </li>
   );
@@ -287,11 +298,16 @@ export function RecentActivities({ items, loading, open }: { items: SalesActivit
 }
 
 /* ================= Team Sales Performance (managers) ================= */
-export function TeamPerformance({ team, loading, period, onPeriod }: { team: SalesToday["team"]; loading: boolean; period: "week" | "month"; onPeriod: (p: "week" | "month") => void }) {
+export function TeamPerformance({ team, loading, period, onPeriod, toReports }: { team: SalesToday["team"]; loading: boolean; period: "week" | "month"; onPeriod: (p: "week" | "month") => void;
+  /** v1.407.0 - View Full Report opens the existing Reports tab */
+  toReports?: () => void }) {
   return (
     <Panel icon="users" tone="gold" title={L("Team Sales Performance", "Prestasi Jualan Pasukan")} testid="team-performance" flush
       sub={L("Activity is what each person did; results are invoices paid in full by the closer - the weekly engine's own figures.", "Aktiviti ialah apa yang dibuat; hasil ialah invois dibayar penuh oleh penutup - angka enjin mingguan.")}
-      aside={<PillSwitch value={period} onChange={onPeriod} label={L("Period", "Tempoh")} testid="team-period" options={[["week", L("This Week", "Minggu Ini")], ["month", L("This Month", "Bulan Ini")]] as const} />}>
+      aside={<span className={css.asideRow}>
+        <PillSwitch value={period} onChange={onPeriod} label={L("Period", "Tempoh")} testid="team-period" options={[["week", L("This Week", "Minggu Ini")], ["month", L("This Month", "Bulan Ini")]] as const} />
+        {toReports && <button type="button" className={btnSm} onClick={toReports} data-testid="team-report">{L("View Full Report", "Lihat Laporan Penuh")}<AppIcon name="next" /></button>}
+      </span>}>
       {loading && !team ? <SkelRows rows={4} /> : !team || team.rows.length === 0 ? (
         <p className={css.empty}><AppIcon name="info" />{L("No consultant on the books for this period.", "Tiada perunding untuk tempoh ini.")}</p>
       ) : (

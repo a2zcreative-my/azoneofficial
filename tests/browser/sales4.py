@@ -155,7 +155,7 @@ with sync_playwright() as p:
         dlg = pg.get_by_role("dialog").last
         check(f"Work {w}: an overdue follow-up's action opens its customer's file", dlg.count() == 1 and "Aina Boutique (Melaka)" in dlg.inner_text(), dlg.inner_text()[:200] if dlg.count() else "none")
         pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
-        ac.locator("[data-key='invoice:61'] [data-testid=action-doc]").click(); pg.wait_for_timeout(1500)
+        ac.locator("[data-key='invoice:61'] [data-testid=row-more]").click(); ac.locator("[data-key='invoice:61'] [data-testid=action-doc]").click(); pg.wait_for_timeout(1500)  # v1.407.0 - behind More
         check(f"Work {w}: an invoice's Document goes to Quotations & Invoices", view_of(pg) == "documents", pg.url)
         check(f"Work {w}: no page errors and no error card", not errs and "Something went wrong on this screen" not in pg.locator("main").inner_text(), errs[:3])
         ctx.close()

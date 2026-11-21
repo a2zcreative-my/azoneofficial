@@ -78,8 +78,12 @@ with sync_playwright() as p:
     check("the main column is My Sales Action Center (the one list)", ac.is_visible() and pg.get_by_test_id("sales-worklist").count() == 0)
     for tid, what in [("recent-list", "Recent Activities"), ("team-table", "Team Performance")]:
         check(f"below: {what}", pg.get_by_test_id(tid).is_visible())
-    wl = ac.bounding_box(); rp = pipe.locator("xpath=ancestor::*[@data-testid='rail-pipeline' or contains(@class,'panel')][1]").bounding_box()
-    check("the rail (pipeline summary) sits beside the Action Center at 1440px, narrower", rp["x"] > wl["x"] + wl["width"] - 1 and rp["width"] < wl["width"], (wl, rp))
+    # v1.407.0 (the CEO's Overview picture) - the rail is the week's target; the pipeline summary is its own row below
+    wl = ac.bounding_box(); wt = pg.get_by_test_id("weekly-target").bounding_box(); rp = pg.get_by_test_id("pipeline-panel").bounding_box()
+    check("the rail (Weekly Target Progress) sits beside the Action Center at 1440px, narrower", wt["x"] > wl["x"] + wl["width"] - 1 and wt["width"] < wl["width"], (wl, wt))
+    check("the pipeline summary is a row across the page, under the Action Center", rp["y"] >= wl["y"] + wl["height"] - 1 and rp["width"] > wl["width"] + wt["width"], (wl, rp))
+    steps = pipe.locator("button").all(); last = steps[-1].bounding_box() if steps else None
+    check("all seven pipeline steps are on screen at 1440px, no sideways scroll", len(steps) == 7 and last and last["x"] + last["width"] <= rp["x"] + rp["width"] + 1, (len(steps), last, rp))
     pg.get_by_test_id("recent-filter").get_by_role("button", name=re.compile("^Payments")).click(); pg.wait_for_timeout(300)
     check("Recent Activities: the Payments filter keeps the payment activity (S2-4 moved here)", pg.get_by_test_id("recent-row").count() >= 1)
     check("S2-1: nothing on the Overview says Mark paid", re.search(r"\bmark paid\b", ov.inner_text(), re.I) is None)

@@ -25,7 +25,8 @@ import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
 import { FlowStrip, type FlowStep } from "@/components/ui/flow-strip";
 import { Panel, WorkspaceGrid } from "@/components/ui/panel";
 import { fmtRM } from "@/lib/format";
-import { chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
+import { AppIcon } from "@/components/ui/app-icon";
+import { btnSm, chipSmDanger, chipSmInfo, chipSmNeutral, chipSmSuccess, chipSmWarn } from "@/lib/ui-styles";
 import { PIPELINE, invoiceStatus, type InvoiceLike, type PayFacts, type PipeKey, type QuoteKey } from "@/lib/sales-status";
 import s2 from "./sales2.module.css";
 
@@ -80,7 +81,7 @@ export interface OverviewFigures {
    pipeline summary, then Team Sales Performance (managers) and Recent Activities. The old
    worklist, Important Follow-Ups and Recent Payment Activity are now the Action Center and
    Recent Activities' Payments filter (sales-today.tsx) - one list, never two. */
-export function SalesOverview2({ figures, loaded, pipeline, onPick, actionCenter, weeklyTarget, lower, toPayments, toReports, toFollowups }: {
+export function SalesOverview2({ figures, loaded, pipeline, onPick, actionCenter, weeklyTarget, lower, toPayments, toReports, toFollowups, toDocuments }: {
   figures: OverviewFigures; loaded: boolean;
   pipeline: Record<PipeKey, number>;
   /** a pipeline step or a figure opens the records it counts (sales.tsx) */
@@ -94,6 +95,8 @@ export function SalesOverview2({ figures, loaded, pipeline, onPick, actionCenter
   toPayments: () => void; toReports: () => void;
   /** Due Follow-Ups opens the Action Center on its Overdue filter */
   toFollowups: () => void;
+  /** v1.407.0 - View Full Pipeline opens Quotations & Invoices (the records the summary counts) */
+  toDocuments: () => void;
 }) {
   const f = figures;
   return (
@@ -118,15 +121,14 @@ export function SalesOverview2({ figures, loaded, pipeline, onPick, actionCenter
           sub={L(`${fmtRM(f.quotes.cents)} · not yet invoiced`, `${fmtRM(f.quotes.cents)} · belum diinvois`)} onClick={() => onPick("quotation")} />
       </KpiRow>
 
-      <WorkspaceGrid testid="overview-grid"
-        main={actionCenter}
-        rail={<>
-          {weeklyTarget}
-          <Panel icon="chart" tone="navy" title={L("Sales Pipeline Summary", "Ringkasan Saluran Jualan")} testid="pipeline-panel" level={3}
-            sub={L("Where every quotation and invoice stands now. Press a step to open its records.", "Di mana setiap sebut harga dan invois sekarang. Tekan langkah untuk membuka rekodnya.")}>
-            <SalesPipeline counts={pipeline} picked={null} onPick={onPick} loaded={loaded} />
-          </Panel>
-        </>} />
+      {/* v1.407.0 (the CEO's Overview picture, approved 21-11-2026) - the Action Center beside the week's
+          target; then the pipeline summary across the page; then the team and recent activities */}
+      <WorkspaceGrid testid="overview-grid" main={actionCenter} rail={weeklyTarget} />
+      <Panel icon="chart" tone="navy" title={L("Sales Pipeline Summary", "Ringkasan Saluran Jualan")} testid="pipeline-panel"
+        sub={L("Where every quotation and invoice stands now. Press a step to open its records.", "Di mana setiap sebut harga dan invois sekarang. Tekan langkah untuk membuka rekodnya.")}
+        aside={<button type="button" className={btnSm} onClick={toDocuments} data-testid="pipeline-full">{L("View Full Pipeline", "Lihat Saluran Penuh")}<AppIcon name="next" /></button>}>
+        <SalesPipeline counts={pipeline} picked={null} onPick={onPick} loaded={loaded} />
+      </Panel>
       {lower}
     </div>
   );

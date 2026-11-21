@@ -2025,9 +2025,10 @@ export function Sales({ user, workExtra, customersExtra, reports, initialView = 
             actionCenter={<ActionCenter state={todayState} scope={actionScope} filter={actionFilter} onFilter={setActionFilter} h={actionHandlers}
               scopeSwitch={<ScopeSwitch scope={actionScope} onChange={setActionScope} />} />}
             weeklyTarget={<WeeklyTargetPanel mine={figures.mine} week={figures.week} target={figures.target} toReports={() => setWsView("reports")} />}
-            lower={<OverviewLower team={todayState.data?.team ? <TeamPerformance team={todayState.data.team} loading={todayState.loading} period={teamPeriod} onPeriod={setTeamPeriod} /> : null}
+            lower={<OverviewLower team={todayState.data?.team ? <TeamPerformance team={todayState.data.team} loading={todayState.loading} period={teamPeriod} onPeriod={setTeamPeriod} toReports={() => setWsView("reports")} /> : null}
               recent={<RecentActivities items={todayState.data?.recent ?? null} loading={todayState.loading} open={openActivity} />} />}
-            toPayments={() => setWsView("payments")} toReports={() => setWsView("reports")} toFollowups={toFollowups} />
+            toPayments={() => setWsView("payments")} toReports={() => setWsView("reports")} toFollowups={toFollowups}
+            toDocuments={() => { setWsView("documents"); setWorkTab("documents"); setDocType("all"); setDocStatus("all"); setDocQuery(""); setDocPage(1); }} />
         </>
       )}
       {wsView === "closed" && (

@@ -70,6 +70,8 @@ with sync_playwright() as p:
     check("every indicator carries words, not a colour alone", all(len(f.strip()) > 3 for f in flags) and "Overdue follow-up" in flags and "No next action" in flags, flags)
     ages = [t.inner_text() for t in ac.locator("[data-testid=action-age]").all()]
     check("quotation age is a neutral chip, apart from the overdue flag", len(ages) >= 3 and all("day" in a for a in ages), ages)
+    check("the colour key is closed until its (i) is pressed (v1.407.0)", ac.get_by_test_id("action-legend").count() == 0)
+    ac.get_by_test_id("action-key").filter(visible=True).first.click(); pg.wait_for_timeout(300)
     leg = ac.get_by_role("list", name="What the labels mean").inner_text()
     check("the legend names the four indicators once", all(w in leg for w in ["Overdue", "No next action", "Days open", "Done"]), leg)
     check("a sales executive sees no team table", pg.get_by_test_id("team-table").count() == 0)
@@ -93,7 +95,7 @@ with sync_playwright() as p:
     ac.locator("[data-testid=action-wa]").first.click(); ac.locator("[data-testid=action-call]").first.click(); pg.wait_for_timeout(400)
     check("a call or WhatsApp click does not move the done count", pg.get_by_test_id("action-progress").inner_text() == prog0)
     # the buttons open the right records
-    ac.locator("[data-key='invoice:61'] [data-testid=action-doc]").click(); pg.wait_for_timeout(1200)
+    ac.locator("[data-key='invoice:61'] [data-testid=row-more]").click(); ac.locator("[data-key='invoice:61'] [data-testid=action-doc]").click(); pg.wait_for_timeout(1200)  # v1.407.0 - behind More
     check("Document on an invoice opens Quotations & Invoices", "view=documents" in pg.url or pg.get_by_test_id("sales-overview-2").count() == 0, pg.url)
     pg.goto(f"http://127.0.0.1:{SALES}/portal?tab=Sales&view=overview"); pg.wait_for_timeout(3500)
     pg.get_by_test_id("action-center").locator("[data-key='enquiry:31'] [data-testid=action-go]").click(); pg.wait_for_timeout(1200)

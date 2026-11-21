@@ -38,7 +38,7 @@ export function FlowStrip({ steps, label, testid, compact = false, arrows = fals
   arrows?: boolean;
 }) {
   return (
-    <div className={css.scroll}>
+    <div className={arrows ? `${css.scroll} ${css.scrollArrows}` : css.scroll}>
       <ol className={`${css.strip} ${arrows ? css.arrows : compact ? css.compact : css.stacked}`} aria-label={label} data-testid={testid}>
         {steps.map((s) => {
           const body = (

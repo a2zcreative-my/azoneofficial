@@ -96,9 +96,28 @@
   .row { grid-template-columns: minmax(0, 1fr) auto auto; }
   .actions { grid-column: auto; justify-content: flex-end; }
 }
+/* v1.407.0 (the CEO's Overview picture) - an action row is two lines: the flag, the customer and
+   the amount; then the details beside the actions. Under 40rem of list it stacks (a phone). */
+.row.actionRow { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head amt" "info info" "actions actions"; align-items: start; padding-top: 0.625rem; padding-bottom: 0.625rem; }
+.head { grid-area: head; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; min-width: 0; }
+.info { grid-area: info; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.75rem; min-width: 0; }
+.actionRow .amt { grid-area: amt; }
+.actionRow .actions { grid-area: actions; }
+@container sales-actions (min-width: 40rem) {
+  .row.actionRow { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "head amt" "info actions"; align-items: center; gap: 0.25rem 1rem; }
+  .actionRow .actions { grid-column: auto; justify-content: flex-end; flex-wrap: nowrap; }
+  .actionRow .amt { justify-self: end; }
+}
+.asideRow { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; }
 @media (min-width: 1280px) {
-  .lower[data-team] { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+  .lower[data-team] { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); } /* v1.407.0 - the team table takes the wider half, as in the picture */
 }
 @media (max-width: 767px) {
   .actions :global(.erp-button) { min-height: 2.75rem; }
+}
+
+/* v1.407.0 - the label key's (i): beside the switch in the head from 768px, under the title on a phone */
+@media (max-width: 767px) {
+  .narrowOnly.narrowRow { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .asideRow.wideOnly { display: none; }
 }
