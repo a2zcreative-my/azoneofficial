@@ -35,6 +35,7 @@ import { L } from "@/components/portal/page-shared";
 import { AppIcon, type AppIconName } from "@/components/ui/app-icon";
 import { SkelRows } from "@/components/ui/skeleton";
 import { KpiRow, KpiTile } from "@/components/ui/kpi-tile";
+import { TabZone } from "@/components/portal/tab-concept";
 import { PillSwitch } from "@/components/ui/panel";
 import { SideDrawer } from "@/components/ui/side-drawer";
 import { SplitColumn, SplitPane, WorkspaceSplit } from "@/components/ui/workspace-split";
@@ -54,7 +55,7 @@ type Recovery = { panel: { id: number; name: string; role: string; active: boole
 const TONE = { success: chipSmSuccess, info: chipSmInfo, warn: chipSmWarn, neutral: chipSmNeutral } as const;
 type Drawer = "recovery" | "passkeys" | "signin" | "sessions" | null;
 
-export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSettings, onManage, onStaffAccounts, onAudit, status = null, onHealth }: {
+export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSettings, onManage, onStaffAccounts, onAudit, status = null, onHealth, tabs = null, overview = true, onOverview, children = null }: {
   /** the staff accounts the Users tab already holds */
   staff: Account[];
   loaded: boolean;
@@ -70,6 +71,14 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
   status?: StatusRead;
   /** v1.341.0 - System health, for the protection line's View details */
   onHealth?: () => void;
+  /** strip above the sub-tabs - the sub-tab row (LineTabs), drawn under the strip */
+  tabs?: React.ReactNode;
+  /** strip above the sub-tabs - the Overview part is open (its body is hidden, never unmounted, otherwise) */
+  overview?: boolean;
+  /** strip above the sub-tabs - open the Overview (the Recent Sign-ins tile filters its log) */
+  onOverview?: () => void;
+  /** strip above the sub-tabs - the other parts, under the sub-tab row */
+  children?: React.ReactNode;
 }) {
   const [stage, setStage] = useState<Stage | null>(null);
   const [rec, setRec] = useState<Recovery | "denied" | null>(null);
@@ -118,14 +127,17 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
     </li>
   );
 
+  /* strip above the sub-tabs (the CEO 21-11-2026: "Strip KPI card should above the sub tabs") - the page's ONE strip, then the
+     sub-tab row, then the parts: the order Company Access, Payments and /admin's Security already draw, the strip
+     kept on every part. The Overview body stays mounted (hidden) on the other parts; nothing reads twice. */
   return (
-    <div className={css.page} data-testid="security-sessions">
+    <div className={css.page} data-testid="security-page">
       <KpiRow label={L("Security figures", "Angka keselamatan")} testid="security-strip">
         <KpiTile icon="verify" tone="green" label={L("2FA Protection", "Perlindungan 2FA")} busy={!loaded}
           value={no2fa.length === 0 ? L("All on", "Semua hidup") : `${active.length - no2fa.length}/${active.length}`}
           sub={no2fa.length === 0 ? L("Every active staff account", "Setiap akaun kakitangan aktif") : L(`${no2fa.length} active without 2FA`, `${no2fa.length} aktif tanpa 2FA`)} />
         <KpiTile icon="access" tone="blue" label={L("Recent Sign-ins", "Log Masuk Terkini")} busy={!eventsLoaded} value={signins.length}
-          sub={L("In the last 60 account events", "Dalam 60 peristiwa akaun terakhir")} onClick={() => setKind("signin")} pressed={kind === "signin"} />
+          sub={L("In the last 60 account events", "Dalam 60 peristiwa akaun terakhir")} onClick={() => { setKind("signin"); onOverview?.(); }} pressed={overview && kind === "signin"} />
         <KpiTile icon="users" tone="gold" label={L("Recovery Panel", "Panel Pemulihan")} busy={rec === null} value={recWord} testid="tile-recovery"
           sub={rec && rec !== "denied" ? L(`${rec.panel.filter((m) => m.active).length} of ${rec.panel.length} member(s) can act`, `${rec.panel.filter((m) => m.active).length} daripada ${rec.panel.length} ahli boleh bertindak`) : L("The owner, the panel and the Super Admin see it", "Pemilik, panel dan Super Admin melihatnya")}
           onClick={rec && rec !== "denied" ? () => setOpen("recovery") : undefined} />
@@ -133,6 +145,10 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
           sub={alertCount ? L("Requires review", "Perlu disemak") : L("Nothing to review", "Tiada untuk disemak")} />
       </KpiRow>
 
+      {tabs}
+
+      <div hidden={!overview} data-testid="security-sessions">
+      <TabZone label={L("Security", "Keselamatan")}>
       <WorkspaceSplit testid="security-split" ratio="60-40">
         <SplitColumn>
           <SplitPane testid="auth-controls" title={L("Authentication Controls", "Kawalan Pengesahan")} sub={L("What protects a sign-in, and who changes it.", "Apa yang melindungi log masuk, dan siapa yang mengubahnya.")} label={L("Authentication controls", "Kawalan pengesahan")}>
@@ -223,6 +239,10 @@ export function SecuritySessions({ staff, loaded, events, eventsLoaded, canSetti
           </SplitPane>
         </SplitColumn>
       </WorkspaceSplit>
+      </TabZone>
+      </div>
+
+      {children}
 
       <SideDrawer open={open === "sessions"} onClose={() => setOpen(null)} wide title={st ? L(`Active sessions (${st.sessions.count})`, `Sesi aktif (${st.sessions.count})`) : L("Active sessions", "Sesi aktif")}
         subtitle={L("Unexpired sign-ins of staff accounts that are on. Device from the browser's own description; no location is stored.", "Log masuk yang belum tamat bagi akaun kakitangan yang aktif. Peranti daripada keterangan pelayar; tiada lokasi disimpan.")}>
