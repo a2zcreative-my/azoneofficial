@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { makeRuntime, root } from "./browser/portfolio-runtime.mjs";
 
-const read = (f) => readFileSync(join(root, f), "utf8");
+const read = (f) => readFileSync(join(root, f), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the patterns are written with \n
 const results = [];
 const ok = (c, m, why = "") => results.push([!!c, why && !c ? `${m} - ${why}` : m]);
 

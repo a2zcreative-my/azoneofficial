@@ -694,17 +694,14 @@
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
+/* the phone: a short screen (iPhone SE) gets a smaller icon and lower keys, measured from the
+   screen's own height - no extra breakpoint - so the Verify button stays on the screen */
 @media (max-width: 1023px) {
-  .boxes { gap: 0.5rem; margin-top: 1.25rem; }
+  .boxes { gap: 0.5rem; margin-top: clamp(1rem, 2.4svh, 1.25rem); }
   .box { font-size: 1.5rem; }
-  .key { min-height: 3.25rem; }
-}
-/* a short phone (iPhone SE): the keypad shrinks before the Verify button leaves the screen */
-@media (max-width: 1023px) and (max-height: 700px) {
-  .codeIcon { width: 3.5rem; height: 3.5rem; }
-  .codeIcon svg { width: 1.75rem; height: 1.75rem; }
-  .key { min-height: 2.875rem; }
-  .boxes { margin-top: 1rem; }
+  .key { min-height: clamp(2.75rem, 6.4svh, 3.25rem); }
+  .codeIcon { width: clamp(3.5rem, 8.8svh, 4.5rem); height: clamp(3.5rem, 8.8svh, 4.5rem); }
+  .codeIcon svg { width: clamp(1.75rem, 4.4svh, 2.25rem); height: clamp(1.75rem, 4.4svh, 2.25rem); }
 }
 @media (prefers-reduced-motion: reduce) {
   .caret { animation: none; }

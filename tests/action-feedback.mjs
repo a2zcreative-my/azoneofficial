@@ -127,7 +127,7 @@ const silentDeletes = [];
 const silentConfirmed = [];
 
 for (const rel of files) {
-  const src = readFileSync(path.join(root, rel), "utf8");
+  const src = readFileSync(path.join(root, rel), "utf8").replace(/\r\n/g, "\n");
   const lines = src.split(/\r?\n/);
   const offsetOf = (lineIdx) =>
     lines.slice(0, lineIdx).reduce((n, l) => n + l.length + 1, 0);
@@ -201,7 +201,7 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
 
   const silentControls = [];
   for (const rel of files) {
-    const src = readFileSync(path.join(root, rel), "utf8");
+    const src = readFileSync(path.join(root, rel), "utf8").replace(/\r\n/g, "\n");
     const lineAt = (i) => src.slice(0, i).split("\n").length;
     for (const m of src.matchAll(/<select\b|type="(?:checkbox|radio)"/g)) {
       /* The onChange belongs to THIS tag: search only as far as the element
@@ -227,9 +227,9 @@ ok("every action worth confirming reports its outcome", silentConfirmed.length =
 /* ---- the seven the audit found, named so they cannot regress quietly ---- */
 {
   const page = readPortalSource(root);
-  const panels = readFileSync(path.join(root, "components/portal/role-panels.tsx"), "utf8");
-  const dir = readFileSync(path.join(root, "components/staff/staff-directory.tsx"), "utf8");
-  const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8");
+  const panels = readFileSync(path.join(root, "components/portal/role-panels.tsx"), "utf8").replace(/\r\n/g, "\n");
+  const dir = readFileSync(path.join(root, "components/staff/staff-directory.tsx"), "utf8").replace(/\r\n/g, "\n");
+  const roster = readFileSync(path.join(root, "components/portal/roster-board.tsx"), "utf8").replace(/\r\n/g, "\n");
   for (const [what, src, re] of [
     ["deleting a task", page, /showTaskToast\(L\("Task deleted"/],
     ["a task delete that failed", page, /showTaskToast\(L\("Not deleted"/],

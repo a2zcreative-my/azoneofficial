@@ -20,7 +20,7 @@ import { makeRuntime, root } from "./browser/portfolio-runtime.mjs";
 
 const PNG = (seed) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(`fake-png-${seed}`.padEnd(64, "."))]);
 const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("fake-jpeg".padEnd(64, "."))]);
-const read = (f) => readFileSync(join(root, f), "utf8");
+const read = (f) => readFileSync(join(root, f), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the patterns are written with \n
 
 const runtime = [];
 const ok = (c, m, why = "") => runtime.push([!!c, why && !c ? `${m} - ${why}` : m]);
