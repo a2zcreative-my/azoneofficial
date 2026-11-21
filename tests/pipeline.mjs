@@ -327,7 +327,7 @@ for (const [name, file, from, to] of MUTANTS) {
   cpSync(join(root, "worker"), join(m, "worker"), { recursive: true });
   cpSync(join(root, "lib"), join(m, "lib"), { recursive: true });
   cpSync(join(root, "package.json"), join(m, "package.json"));
-  const body = readFileSync(join(m, file), "utf8");
+  const body = readFileSync(join(m, file), "utf8").replace(/\r\n/g, "\n"); // a Windows checkout has CRLF; the mutations are written with \n
   if (!body.includes(from)) { report([[false, `mutation "${name}" no longer applies - update the guard`]]); continue; }
   writeFileSync(join(m, file), body.replace(from, to));
   const mb = join(m, "w.mjs");
