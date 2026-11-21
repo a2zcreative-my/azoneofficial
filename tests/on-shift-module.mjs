@@ -191,7 +191,7 @@ const bundle = async (src, name) => {
      && !/\bapi\(|useCachedApi|fetch\(|punch\(|useState|useEffect|\bif \(/.test(tips));
   ok("the rest-day status and the empty punches are drawings: no request, no state", !/\bapi\(|useCachedApi|fetch\(|useState|useEffect/.test(art) && /aria-hidden/.test(art));
   ok("the rest-day status replaces the timer only on a day off with no punch and no open shift",
-     /const dayOff: DayOffKind \| null = attKnown && !openNow && !hasOut && \(todayKind === "rest" \|\| todayKind === "holiday" \|\| todayKind === "leave"\) \? todayKind : null;/.test(d)
+     /const dayOff: DayOffKind \| null = attKnown && !openNow && !hasOut && punchCount === 0 && \(todayKind === "rest" \|\| todayKind === "holiday" \|\| todayKind === "leave"\) \? todayKind : null;/.test(d)
      && /\{dayOff \? <DayOffStatus kind=\{dayOff\} \/> : \(\s*<ShiftTimer /.test(zone));
   ok("the chip is todayKind in a word: a rest day, a holiday or leave never 'not clocked in'; nothing before the day is read",
      /todayKind === "loading" \? null/.test(d) && /todayKind === "rest" \? \["Rest day"/.test(d) && /\{badge && \(/.test(zone));

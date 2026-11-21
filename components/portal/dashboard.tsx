@@ -1615,8 +1615,9 @@ export function Dashboard({
     : todayKind === "rest" ? ["Rest day", "Hari rehat", chipSuccess, "date"]
     : stateWord && stateWord[0] === "Scheduled" ? ["Scheduled", "Dijadualkan", chipNeutral, "date"]
     : ["Not clocked in yet", "Belum daftar masuk", chipWarn, "time"];
-  const dayOff: DayOffKind | null = attKnown && !openNow && !hasOut && (todayKind === "rest" || todayKind === "holiday" || todayKind === "leave") ? todayKind : null;
   const punchCount = today.filter((r) => r.type === "clock_in" || r.type === "clock_out").length;
+  /* "Not clocked in" only when there is no punch today at all - never beside a recorded clock-in */
+  const dayOff: DayOffKind | null = attKnown && !openNow && !hasOut && punchCount === 0 && (todayKind === "rest" || todayKind === "holiday" || todayKind === "leave") ? todayKind : null;
   /* Remaining scheduled hours = the server's entry.work_label: the windows
      left today after approved leave ("" = none, null = under leave review) */
   const remainingLabel = !todayShift?.entry ? null
