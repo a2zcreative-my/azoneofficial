@@ -623,3 +623,9 @@ new tables: `playbook_entries` (the working draft, never deleted - archived with
 published version, append-only by trigger) and `playbook_files` (private attachments, written once). Not the business.ts
 door (worker/src/playbook.ts at `/staff/playbook/*`). No price column: prices come only from the Packages library, which
 it reads and never writes. Nothing touches a customer, a deal, a document, money or commission.
+Payroll allowances (the CEO 21-11-2026, D1-D8 "As recommended") adds `0231_payroll_allowances`: additive only - three
+new tables: `payroll_allowance_types` (never deleted - retired), `payroll_allowance_amounts` (each person's monthly
+amount of a type) and `payroll_allowance_events` (append-only by trigger), plus one nullable column,
+`payroll_entries.allowance_items`. Not the business.ts door (worker/src/payroll-allowances.ts at `/staff/payroll/allowances`
+and `/staff/payroll/allowance-types`). The setup writes no payroll row; the month's Allowance is written only by the
+existing Save behind its release lock, and the net formula is unchanged.
