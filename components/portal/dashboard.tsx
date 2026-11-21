@@ -51,9 +51,9 @@ export const DASHBOARD_ZONES: Record<DashboardLead, readonly DashboardZone[]> = 
   shift: ["day", "desk", "month", "company", "around"],
 };
 import { SALES_ROLES, TabName } from "@/lib/portal-tabs";
-import { btnHero, btnHeroPrimary, card, chipSmNeutral, chipSuccess } from "@/lib/ui-styles";
+import { btnHero, btnHeroPrimary, card, chipInfo, chipNeutral, chipSmNeutral, chipSuccess, chipWarn } from "@/lib/ui-styles";
 import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { AppIcon, PanelTitle } from "@/components/ui/app-icon";
+import { AppIcon, PanelTitle, type AppIconName } from "@/components/ui/app-icon";
 import { PunchIcon } from "@/components/ui/punch-icon";
 import { KpiRow, KpiTile, type KpiTone } from "@/components/ui/kpi-tile";
 import css from "./dashboard.module.css";
@@ -61,7 +61,7 @@ import shiftCss from "./on-shift.module.css";
 import { daysOf, hoursLabel, sessionMinutes } from "@/lib/clock-sessions";
 import { PunchReceipt, PunchRecording } from "@/components/portal/punch-receipt"; // v1.318.0 - the clock-in / clock-out confirmation
 import { LocationCard, LocChip } from "@/components/portal/shift-location"; // v1.294.0 - On Shift v2.0
-import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShiftLine, TodayShiftCard, WaitingPunches, WeekSchedule, chipForState, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState } from "@/components/portal/on-shift";
+import { RecentDays, ScheduleSlots, SessionRows, ShiftTimer, TeamOnShiftLine, TodayShiftCard, WaitingPunches, WeekSchedule, DayOffStatus, NoPunchesYet, AttendanceTips, mytHm, todayShiftKind, todaySessions, usePunchesWaiting, type ShiftState, type DayOffKind } from "@/components/portal/on-shift";
 import { DailyAttendanceChart } from "@/components/portal/attendance-chart";
 import { WeekTargetStrip, useWeekDash } from "@/components/portal/week-target-card"; // v1.239.0 / v1.240.0; useWeekDash v1.291.0
 import { QuickActionsStrip, type QuickAction } from "@/components/portal/executive-cards"; // v1.291.0
@@ -1173,13 +1173,15 @@ export function Dashboard({
   );
   /* v1.176.1 - the shift RULE, in full, is stated where the clock lives (On
      Shift); the Dashboard carries the summary line. */
-  const shiftRule = attKnown && todayShift && (
+  /* v1.420.0 - the Today card says the remaining hours on its own row, so
+     this line no longer repeats "No remaining scheduled hours"; a rest day
+     states its rule (one stretch, the CEO decides) as before. */
+  const restToday = !!todayShift && (todayShift.slots?.length ?? todayShift.windows.length) === 0;
+  const shiftRule = attKnown && todayShift && (restToday || todayShift.entry?.work_label !== "") && (
     <p className={css.shiftsNote}>
-      {todayShift.entry?.work_label === ""
-                ? L("No remaining scheduled hours", "Tiada baki waktu berjadual")
-                : (todayShift.slots?.length ?? todayShift.windows.length) === 0
-                  ? L("Rest day on your pattern. If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
-                      "Hari rehat pada corak anda. Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
+      {restToday
+                  ? L("If you work today, clock in and out once — the CEO decides whether it counts as overtime or replacement leave.",
+                      "Jika anda bekerja hari ini, daftar masuk dan keluar sekali — CEO memutuskan sama ada ia dikira OT atau cuti gantian.")
                   : L(`Scheduled hours: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. One clock in and out per shift${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} left` : ""}. Time outside your working hours is sent to the CEO as overtime.`,
                       `Waktu berjadual: ${todayShift.entry?.work_label ?? todayShift.slots_label ?? todayShift.label}. Satu daftar masuk dan keluar bagi setiap syif${shiftsLeft > 0 && shiftsToday > 0 ? ` — ${shiftsLeft} lagi` : ""}. Masa di luar waktu bekerja anda dihantar kepada CEO sebagai OT.`)}
     </p>
@@ -1595,6 +1597,32 @@ export function Dashboard({
     : todayKind === "holiday" ? ["Public Holiday", "Cuti Umum"]
     : todayKind === "rest" ? ["Not Scheduled", "Tiada Jadual"]
     : nextSlot && schedSlots.every((x) => x.claimed || slotMin(x.start) > mytMinuteNow) ? ["Scheduled", "Dijadualkan"] : ["Not Yet Clocked In", "Belum Daftar Masuk"];
+  /* v1.420.0 - My Shift's one chip and its central status (the CEO's
+     picture, 21-11-2026): both read todayKind, and nothing else. A day off
+     with a punch on it (worked on a rest day) shows the timer, because the
+     person is on shift - the rest-day rule (one stretch, the CEO decides OT
+     or replacement leave) is the server's and is not touched. */
+  const badge: [string, string, string, AppIconName | null] | null =
+    todayKind === "loading" ? null
+    : todayKind === "error" ? ["Not loaded", "Tidak dimuatkan", chipWarn, "warning"]
+    : todayKind === "waiting" ? ["Not confirmed", "Belum disahkan", chipWarn, "pending"]
+    : todayKind === "review" ? ["Needs review", "Perlu semakan", chipWarn, "pending"]
+    : todayKind === "open" ? (missedYesterday ? ["Missing punch", "Punch tertinggal", chipWarn, "warning"] : lateToday ? ["On Shift · Late", "Sedang Syif · Lewat", chipWarn, "time"] : ["On Shift", "Sedang Syif", chipSuccess, "success"])
+    : todayKind === "between" ? ["Clocked Out · next shift later", "Daftar Keluar · syif seterusnya nanti", chipInfo, "time"]
+    : todayKind === "done" ? (lateToday ? ["Clocked Out · Late", "Daftar Keluar · Lewat", chipWarn, "time"] : ["Clocked Out", "Daftar Keluar", chipNeutral, "success"])
+    : todayKind === "leave" ? ["On Leave", "Bercuti", chipInfo, "date"]
+    : todayKind === "holiday" ? ["Public Holiday", "Cuti Umum", chipInfo, "date"]
+    : todayKind === "rest" ? ["Rest day", "Hari rehat", chipSuccess, "date"]
+    : stateWord && stateWord[0] === "Scheduled" ? ["Scheduled", "Dijadualkan", chipNeutral, "date"]
+    : ["Not clocked in yet", "Belum daftar masuk", chipWarn, "time"];
+  const dayOff: DayOffKind | null = attKnown && !openNow && !hasOut && (todayKind === "rest" || todayKind === "holiday" || todayKind === "leave") ? todayKind : null;
+  const punchCount = today.filter((r) => r.type === "clock_in" || r.type === "clock_out").length;
+  /* Remaining scheduled hours = the server's entry.work_label: the windows
+     left today after approved leave ("" = none, null = under leave review) */
+  const remainingLabel = !todayShift?.entry ? null
+    : todayShift.entry.work_label === "" ? L("No remaining hours", "Tiada baki waktu")
+    : todayShift.entry.work_label == null ? (todayShift.entry.leave_review ? L("Under review", "Dalam semakan") : null)
+    : todayShift.entry.work_label;
   /* overtime: what was asked and what was decided - worked time is never
      called approved overtime here */
   const otIns = todayOt.filter((r) => r.type === "ot_in");
@@ -1630,19 +1658,21 @@ export function Dashboard({
     <div className={shiftCss.page} data-zone="shift" data-team={manager ? "" : undefined}>
       <section className={`erp-card ${shiftCss.card} ${shiftCss.shift} ${shiftCss.aShift}`} aria-label={L("My shift", "Syif saya")}>
         <div className={shiftCss.cardHead}>
-          <div className={shiftCss.titleBlock}>
-            <h2 className={shiftCss.cardTitle}><AppIcon name="time" className="erp-icon" />{L("My Shift", "Syif Saya")}</h2>
-            <p className={shiftCss.cardSub}>{L("Your current shift and attendance status", "Syif semasa dan status kehadiran anda")}</p>
+          <div className={shiftCss.headLead}>
+            <span className={`${shiftCss.headIcon} ${shiftCss.headIconGreen}`} aria-hidden><AppIcon name="time" /></span>
+            <div className={shiftCss.titleBlock}>
+              <h2 className={shiftCss.cardTitle}>{L("My Shift", "Syif Saya")}</h2>
+              <p className={shiftCss.cardSub}>{L("Your current shift and attendance status", "Syif semasa dan status kehadiran anda")}</p>
+            </div>
           </div>
-          {attKnown && (
-            <span className={!openNow && !hasOut && (todayKind === "rest" || todayKind === "holiday" || todayKind === "leave") ? chipForState("done") : chipForState(shiftState)} role="status">
-              {openNow ? L(`Clocked in at ${openSince}`, `Daftar masuk ${openSince}`)
-                : hasOut ? L(`Clocked out at ${lastOut ?? ""}`, `Daftar keluar ${lastOut ?? ""}`)
-                /* v1.307.0 - Attendance 4.0: a rest day, a holiday or leave is never "not clocked in" */
-                : todayKind === "rest" ? L("Rest day", "Hari rehat")
-                : todayKind === "holiday" ? L("Public holiday", "Cuti umum")
-                : todayKind === "leave" ? L("On leave", "Bercuti")
-                : L("Not clocked in yet", "Belum daftar masuk")}
+          {/* v1.420.0 - ONE chip, the day's state in a word (the CEO's picture,
+              21-11-2026). It is todayKind, the same reading the Dashboard's
+              summary uses; the clock-in and clock-out times are printed once,
+              in the figures below. A rest day, a holiday or leave is never
+              "not clocked in" (v1.307.0). */}
+          {badge && (
+            <span className={`${badge[2]} ${shiftCss.badge}`} role="status" data-testid="shift-badge">
+              {badge[3] && <AppIcon name={badge[3]} />}{L(badge[0], badge[1])}
             </span>
           )}
         </div>
@@ -1655,9 +1685,11 @@ export function Dashboard({
             </button>
           </div>
         )}
-        <div className={shiftCss.shiftBody}>
+        <div className={shiftCss.shiftBody} data-testid="shift-status">
+          {dayOff ? <DayOffStatus kind={dayOff} /> : (
           <ShiftTimer state={shiftState} openSince={openSinceRaw} workedMinutes={workedToday}
             firstIn={today.some((r) => r.type === "clock_in") ? firstIn : null} lastOut={hasOut ? lastOut : null} />
+          )}
           {attKnown && schedLabel && schedSlots.length > 0 && (
             <p className={shiftCss.schedLine} data-testid="shift-scheduled">{L("Scheduled", "Dijadualkan")}: {schedLabel}{schedSpan > 0 ? ` (${hoursLabel(schedSpan)})` : ""}</p>
           )}
@@ -1691,12 +1723,12 @@ export function Dashboard({
         </div>
         {/* v1.294.0 - section A: the state, the break, overtime and where */}
         {attKnown && (
-          <dl className={shiftCss.facts} data-testid="shift-facts">
-            <div><dt>{L("Status", "Status")}</dt><dd>{stateWord ? L(stateWord[0], stateWord[1]) : "—"}</dd></div>
-            <div><dt>{L("Break", "Rehat")}</dt><dd>{schedSlots.length === 0 ? "—" : breakMin > 0 ? L(`${breakMin} min, unpaid`, `${breakMin} min, tidak berbayar`) : L("None scheduled", "Tiada dijadualkan")}</dd></div>
-            <div><dt>{L("Overtime", "Lebih masa")}</dt><dd>{otWord}</dd></div>
-            <div><dt>{L("Work location", "Lokasi kerja")}</dt><dd>{site ?? (fence ? L("No geofence set", "Tiada geofence") : "—")}</dd></div>
-            <div className={shiftCss.factWide}><dt>{L("GPS status", "Status GPS")}</dt><dd className={shiftCss.gpsLine}><LocChip loc={latestLoc?.loc ?? null} exempt={locExempt} pending={waitingPunches.length > 0} small long />
+          <dl className={`${shiftCss.facts} ${shiftCss.factsIcons}`} data-testid="shift-facts">
+            <div><dt><span className={shiftCss.factIcon} aria-hidden><AppIcon name="orders" /></span>{L("Status", "Status")}</dt><dd>{stateWord ? L(stateWord[0], stateWord[1]) : "—"}</dd></div>
+            <div><dt><span className={shiftCss.factIcon} aria-hidden><AppIcon name="pending" /></span>{L("Break", "Rehat")}</dt><dd>{schedSlots.length === 0 ? "—" : breakMin > 0 ? L(`${breakMin} min, unpaid`, `${breakMin} min, tidak berbayar`) : L("None scheduled", "Tiada dijadualkan")}</dd></div>
+            <div><dt><span className={shiftCss.factIcon} aria-hidden><AppIcon name="time" /></span>{L("Overtime", "Lebih masa")}</dt><dd>{otWord}</dd></div>
+            <div><dt><span className={shiftCss.factIcon} aria-hidden><AppIcon name="building" /></span>{L("Work location", "Lokasi kerja")}</dt><dd>{site ?? (fence ? L("No geofence set", "Tiada geofence") : "—")}</dd></div>
+            <div className={shiftCss.factWide}><dt><span className={shiftCss.factIcon} aria-hidden><AppIcon name="place" /></span>{L("GPS status", "Status GPS")}</dt><dd className={shiftCss.gpsLine}><LocChip loc={latestLoc?.loc ?? null} exempt={locExempt} pending={waitingPunches.length > 0} small long />
               <button type="button" className={shiftCss.locLink} onClick={() => setLocOpen(true)} data-testid="location-open" aria-haspopup="dialog">{L("Location details", "Butiran lokasi")}<AppIcon name="next" /></button></dd></div>
           </dl>
         )}
@@ -1719,7 +1751,7 @@ export function Dashboard({
             {forgotOffered && (
               <button type="button" className={shiftCss.forgot} disabled={!!busy || holding || settling}
                 onClick={() => void press(() => punch("clock_out", forgotArmed))}>
-                {forgotArmed ? L("Tap again to send the clock-out to the CEO", "Tekan lagi untuk hantar daftar keluar kepada CEO") : L("Forgot to clock in? Clock out for approval", "Terlupa daftar masuk? Daftar keluar untuk kelulusan")}
+                <AppIcon name="info" />{forgotArmed ? L("Tap again to send the clock-out to the CEO", "Tekan lagi untuk hantar daftar keluar kepada CEO") : L("Forgot to clock in? Clock out for approval", "Terlupa daftar masuk? Daftar keluar untuk kelulusan")}
               </button>
             )}
             {slow && (
@@ -1736,18 +1768,37 @@ export function Dashboard({
         {otButtons && <div className={shiftCss.quick}>{otButtons}</div>}
         {otNote}
         {/* v1.229.0 - Image 1: Apply leave beside the navy My attendance */}
-        <div className={shiftCss.quick}>
+        <div className={shiftCss.pair} data-testid="shift-links">
           <button type="button" className={`erp-button erp-button-secondary ${shiftCss.actionBtn}`} onClick={() => go("Leave")}><AppIcon name="date" />{tr("Apply leave", lang)}</button>
           {canAtt && <button type="button" className={`erp-button erp-button-primary ${shiftCss.actionBtn}`} onClick={() => go("Attendance")}><AppIcon name="document" />{L("My attendance", "Kehadiran saya")}<AppIcon name="next" /></button>}
         </div>
         </div>
       </section>
+      {/* v1.420.0 - the right column (the CEO's picture): Today, then the
+          Attendance Tips; on a phone they follow My Shift in that order */}
+      <div className={shiftCss.aSide}>
       <section className={`erp-card ${shiftCss.card} ${shiftCss.aToday}`} aria-label={L("Today", "Hari ini")} data-testid="today-card">
         <div className={shiftCss.cardHead}>
-          <h3 className={shiftCss.cardTitle}><AppIcon name="date" className="erp-icon" />{L("Today", "Hari Ini")}</h3>
+          <div className={shiftCss.headLead}>
+            <span className={`${shiftCss.headIcon} ${shiftCss.headIconBlue}`} aria-hidden><AppIcon name="date" /></span>
+            <div className={shiftCss.titleBlock}>
+              <h3 className={shiftCss.cardTitle}>{L("Today", "Hari Ini")}</h3>
+              <p className={shiftCss.cardSub}>{L("Your attendance summary for today", "Ringkasan kehadiran anda hari ini")}</p>
+            </div>
+          </div>
           {attKnown && todayShift?.pattern && schedSlots.length > 0 && <span className={chipSmNeutral}>{todayShift.pattern}</span>}
         </div>
         <div className={shiftCss.todayPart} aria-label={L("Today's schedule", "Jadual hari ini")} role="group">
+        {/* a day with nothing scheduled: one message, the server's own day */}
+        {attKnown && schedSlots.length === 0 && (
+          <div className={shiftCss.restNote} data-testid="today-rest">
+            <span className={shiftCss.restNoteIcon} aria-hidden><AppIcon name={todayKind === "holiday" ? "celebrate" : todayKind === "leave" ? "date" : "holiday"} /></span>
+            <p className={shiftCss.restNoteText}>
+              <strong>{todayKind === "holiday" ? L("Public holiday on your pattern", "Cuti umum pada corak anda") : todayKind === "leave" ? L("On approved leave", "Cuti diluluskan") : L("Rest day on your pattern", "Hari rehat pada corak anda")}</strong>
+              <span>{L("Nothing scheduled today.", "Tiada jadual hari ini.")}</span>
+            </p>
+          </div>
+        )}
         {attKnown && schedSlots.length > 0 && (
           <>
             <p className={shiftCss.schedBig}>{schedLabel}</p>
@@ -1759,12 +1810,21 @@ export function Dashboard({
             </dl>
           </>
         )}
-        <ScheduleSlots slots={todayShift?.slots ?? (attKnown ? [] : null)} known={attKnown} nowMinute={mytMinuteNow} />
+        {(!attKnown || schedSlots.length > 0) && <ScheduleSlots slots={todayShift?.slots ?? (attKnown ? [] : null)} known={attKnown} nowMinute={mytMinuteNow} />}
+        {attKnown && remainingLabel && (
+          <p className={shiftCss.remainRow} data-testid="remaining-hours">
+            <AppIcon name="time" /><span className={shiftCss.remainLabel}>{L("Remaining scheduled hours", "Baki waktu berjadual")}</span>
+            <span className={chipSmNeutral}>{remainingLabel}</span>
+          </p>
+        )}
         {shiftRule}
         </div>
         <div className={shiftCss.todayPart} data-testid="punch-details" aria-label={L("Punch details", "Butiran punch")} role="group">
-          <p className={shiftCss.partHead}><AppIcon name="verify" />{L("Punches", "Punch")}</p>
-        <SessionRows sessions={sessionsNow} known={attKnown} punches={today} site={site} exempt={locExempt} />
+          <div className={shiftCss.punchHead}>
+            <p className={shiftCss.partHead}><AppIcon name="verify" />{L("Punches", "Punch")}</p>
+            {attKnown && <span className={chipSmNeutral} data-testid="punch-count">{L(`${punchCount} recorded`, `${punchCount} direkod`)}</span>}
+          </div>
+        {attKnown && sessionsNow.length === 0 ? <NoPunchesYet /> : <SessionRows sessions={sessionsNow} known={attKnown} punches={today} site={site} exempt={locExempt} />}
         {todayOt.length > 0 && (
           <p className={shiftCss.muted}>
             {[...todayOt].reverse().map((r) => `${r.type === "ot_in" ? L("OT in", "OT masuk") : L("OT out", "OT keluar")} ${mytHm(r.created_at)}`).join(" · ")}
@@ -1772,6 +1832,8 @@ export function Dashboard({
         )}
         </div>
       </section>
+      <AttendanceTips />
+      </div>
       <div className={shiftCss.aDays} data-testid="my-days">
         <LineTabs value={daysTab} onChange={setDaysTab} label={L("My days", "Hari saya")} testid="days-tab"
           tabs={[["week", L("This week", "Minggu ini")], ["recent", L("Recent", "Terkini")]] as const} />

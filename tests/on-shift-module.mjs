@@ -175,6 +175,41 @@ const bundle = async (src, name) => {
   ok("the marks are decorative and take the theme's tokens", /aria-hidden focusable="false"/.test(pi) && /fill: var\(--primary\)/.test(pc) && /fill: var\(--info\)/.test(pc) && /fill: var\(--success\)/.test(pc) && !/#[0-9a-f]{3,6}/i.test(pc));
 }
 
+/* ---- v1.420.0 - the CEO's approved On Shift picture (21-11-2026) ----
+   Drawing only: every new piece is handed what the page already read, and
+   nothing in them reads a route, decides a state or punches. */
+{
+  const d = strip(read("components/portal/dashboard.tsx"));
+  const on = strip(read("components/portal/on-shift.tsx"));
+  const zone = d.slice(d.indexOf("const zoneShift = ("), d.indexOf("const ZONES: Record"));
+  const piece = (from, to) => on.slice(on.indexOf(from), on.indexOf(to, on.indexOf(from) + 1));
+  const tips = piece("const TIPS:", "export type TodayShiftKind");
+  const art = piece("export type DayOffKind", "const TIPS:");
+  ok("Attendance Tips: three reminders, words only - no request, no rule, no punch",
+     (tips.match(/^\s*\["[^"]+", "[^"]+"\],$/gm) ?? []).length === 3
+     && /Clock in at the start of your scheduled work\./.test(tips) && /Remember to clock out at the end of your shift\./.test(tips) && /Apply for leave in advance if you will be absent\./.test(tips)
+     && !/\bapi\(|useCachedApi|fetch\(|punch\(|useState|useEffect|\bif \(/.test(tips));
+  ok("the rest-day status and the empty punches are drawings: no request, no state", !/\bapi\(|useCachedApi|fetch\(|useState|useEffect/.test(art) && /aria-hidden/.test(art));
+  ok("the rest-day status replaces the timer only on a day off with no punch and no open shift",
+     /const dayOff: DayOffKind \| null = attKnown && !openNow && !hasOut && \(todayKind === "rest" \|\| todayKind === "holiday" \|\| todayKind === "leave"\) \? todayKind : null;/.test(d)
+     && /\{dayOff \? <DayOffStatus kind=\{dayOff\} \/> : \(\s*<ShiftTimer /.test(zone));
+  ok("the chip is todayKind in a word: a rest day, a holiday or leave never 'not clocked in'; nothing before the day is read",
+     /todayKind === "loading" \? null/.test(d) && /todayKind === "rest" \? \["Rest day"/.test(d) && /\{badge && \(/.test(zone));
+  ok("Clock In is still offered by the server's can_clock_in alone (a rest day: one stretch, the CEO decides)",
+     /const canClockIn = todayShift\?\.can_clock_in \?\? true;/.test(d) && /\) : canClockIn \? \(/.test(zone)
+     && /const forgotOffered = !openNow && canClockIn && !hasOut;/.test(d)
+     && /if \(slots\.length === 0\) \{\s*return sessions\.length === 0 \? \{ ok: true, slot: null \} : \{ ok: false, reason: "all_claimed" \};/.test(read("worker/src/clock-day.ts")));
+  ok("the forgotten-punch bar is the same button and the same double tap", /onClick=\{\(\) => void press\(\(\) => punch\("clock_out", forgotArmed\)\)\}>\s*<AppIcon name="info" \/>\{forgotArmed/.test(zone));
+  ok("Apply leave and My attendance share one equal row; My attendance only for those who may",
+     /<div className=\{shiftCss\.pair\} data-testid="shift-links">\s*<button[^>]*onClick=\{\(\) => go\("Leave"\)\}/.test(zone) && /\{canAtt && <button[^>]*onClick=\{\(\) => go\("Attendance"\)\}/.test(zone));
+  ok("Today's remaining hours are the server's entry.work_label, never computed here",
+     /const remainingLabel = !todayShift\?\.entry \? null\s*: todayShift\.entry\.work_label === "" \? L\("No remaining hours"/.test(d) && /data-testid="remaining-hours"/.test(zone));
+  ok("Today's punch count and empty state read today's punches; a known empty day only",
+     /const punchCount = today\.filter\(\(r\) => r\.type === "clock_in" \|\| r\.type === "clock_out"\)\.length;/.test(d)
+     && /\{attKnown && sessionsNow\.length === 0 \? <NoPunchesYet \/> : <SessionRows /.test(zone));
+  ok("the new styles use tokens only", !/#[0-9a-f]{3,8}\b/i.test(read("components/portal/on-shift.module.css").slice(read("components/portal/on-shift.module.css").indexOf("v1.420.0 - On Shift on the CEO"))));
+}
+
 ok("the guard is registered", /\["on-shift-module", "/.test(read("scripts/run-guards.mjs")));
 
 console.log(`  ${passed} check(s) passed.`);

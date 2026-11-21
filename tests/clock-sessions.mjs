@@ -269,9 +269,15 @@ ok("...and On Shift does not OFFER Clock In on that answer",
      the time in its chip. */
   const zoneDay = dashCode.slice(dashCode.indexOf("const zoneDay = ("), dashCode.indexOf("const zoneDesk = ("));
   const zoneShift = dashCode.slice(dashCode.indexOf("const zoneShift = ("), dashCode.indexOf("const ZONES: Record"));
+  /* v1.420.0 - the CEO's picture (21-11-2026): On Shift's ONE chip is the
+     day's state in a word (todayKind); the clock-in and clock-out times are
+     printed once, in the figures, never in the chip as well */
+  const badgeDef = dashCode.slice(dashCode.indexOf("const badge:"), dashCode.indexOf("const dayOff:"));
   ok("the clock shows ONE status and ONE action - the fact is never printed twice",
-     /L\(`Clocked in at \$\{openSince\}`/.test(zoneShift)
-     && /L\(`Clocked out at \$\{lastOut \?\? ""\}`/.test(zoneShift)
+     (zoneShift.match(/role="status" data-testid="shift-badge"/g) ?? []).length === 1
+     && /todayKind === "open" \? \(missedYesterday/.test(badgeDef) && !/openSince|lastOut|firstIn/.test(badgeDef)
+     && /\["in", "blue", L\("Clocked in", "Daftar masuk"\), attKnown && today\.some\(\(r\) => r\.type === "clock_in"\) \? firstIn : "--:--"\]/.test(zoneShift)
+     && /\["out", "navy", L\("Last out", "Keluar terakhir"\), attKnown && hasOut \? lastOut : "--:--"\]/.test(zoneShift)
      && !/Clocked in ✓/.test(dashCode)
      && !/tr\("Clocked out ✓", lang\)/.test(dashCode),
      "On Shift states the punch and carries the time; the Dashboard summary carries the state");

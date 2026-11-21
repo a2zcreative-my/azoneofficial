@@ -27,7 +27,9 @@ import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const read = (p) => readFileSync(join(root, p), "utf8");
+/* v1.420.0 - a Windows checkout has CRLF line endings; the multi-line
+   anchors below are written with \n, so the files are read folded to LF */
+const read = (p) => readFileSync(join(root, p), "utf8").replace(/\r\n/g, "\n");
 const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
 const FILES = {
   loc: "worker/src/punch-location.ts",
@@ -96,12 +98,15 @@ function checks(f) {
      inside My Shift (one status, one action), the schedule and the punches
      are one Today card, This week / Recent share one card, the team is a
      line, and the location card opens from the GPS line. */
-  ok("D the grid: My Shift beside Today; the team line; My days",
-    /"shift shift shift shift shift shift shift today today today today today"\s*"days days days days days days days days days days days days";/.test(css)
-    && /"shift shift shift shift shift shift shift today today today today today"\s*"team team team team team team team team team team team team"\s*"days days days days days days days days days days days days";/.test(css));
-  ok("D on a phone: My Shift (with the punch), Today, the team, My days", /\.aShift \{ order: 1; \}\s*\.aToday \{ order: 2; \}\s*\.wide \{ order: 3; \}\s*\.aDays \{ order: 4; \}/.test(css));
+  /* v1.420.0 - the CEO's picture (21-11-2026): the side column holds Today
+     then Attendance Tips, beside My Shift (7 of 12) - six cards */
+  ok("D the grid: My Shift beside the side column (Today, Tips); the team line; My days",
+    /"shift shift shift shift shift shift shift side side side side side"\s*"days days days days days days days days days days days days";/.test(css)
+    && /"shift shift shift shift shift shift shift side side side side side"\s*"team team team team team team team team team team team team"\s*"days days days days days days days days days days days days";/.test(css)
+    && /<div className=\{shiftCss\.aSide\}>\s*<section className=\{`erp-card \$\{shiftCss\.card\} \$\{shiftCss\.aToday\}`\}[\s\S]*?<\/section>\s*<AttendanceTips \/>\s*<\/div>/.test(dash));
+  ok("D on a phone: My Shift (with the punch), Today then Tips, the team, My days", /\.aShift \{ order: 1; \}\s*\.aSide \{ order: 2; \}\s*\.wide \{ order: 3; \}\s*\.aDays \{ order: 4; \}/.test(css));
   ok("D the punch lives in My Shift; every part of the page is drawn; the location card opens from the GPS line",
-    ["aShift", "aToday", "aDays", "wide"].every((k) => dash.includes(`shiftCss.${k}`)) && !["aQuick", "aLoc", "aSched", "aPunch", "aRecent", "aWeek"].some((k) => dash.includes(`shiftCss.${k}`))
+    ["aShift", "aSide", "aToday", "aDays", "wide"].every((k) => dash.includes(`shiftCss.${k}`)) && !["aQuick", "aLoc", "aSched", "aPunch", "aRecent", "aWeek"].some((k) => dash.includes(`shiftCss.${k}`))
     && /data-testid="shift-actions"/.test(dash) && dash.indexOf('data-testid="shift-actions"') < dash.indexOf('data-testid="today-card"')
     && /<SideDrawer open=\{locOpen\}[\s\S]{0,400}?<LocationCard /.test(dash) && /onClick=\{\(\) => setLocOpen\(true\)\} data-testid="location-open"/.test(dash)
     && /<LineTabs value=\{daysTab\}/.test(dash) && /<TeamOnShiftLine rows=\{monitor\}/.test(dash) && !/<TeamOnShift /.test(dash));
@@ -177,7 +182,8 @@ const MUT = [
   ["the site's point to anyone", "staff", "...(own ? { lat: fenceA.lat, lng: fenceA.lng } : {})", "lat: fenceA.lat, lng: fenceA.lng"],
   ["another person's positions", "staff", "...(own ? { pos: punchPos(r.gps) } : {}),", "pos: punchPos(r.gps),"],
   ["the direction claimed", "sl", "The direction of the punch is not shown", "The punch is shown where it was"],
-  ["Today before My Shift on a phone", "oncss", ".aToday { order: 2; }", ".aToday { order: 0; }"],
+  ["Today before My Shift on a phone", "oncss", ".aSide { order: 2; }", ".aSide { order: 0; }"],
+  ["the tips dropped from the side column", "dash", "<AttendanceTips />", ""],
   ["the full team register back on On Shift", "dash", "<TeamOnShiftLine rows={monitor}", "<TeamOnShift rows={monitor}"],
   ["the location card drawn on the page again", "dash", "<SideDrawer open={locOpen}", "<div data-open={locOpen}"],
   ["scheduled counted as on shift", "on", "if (sched) c.scheduled++;", "if (st === \"on\") c.scheduled++;"],

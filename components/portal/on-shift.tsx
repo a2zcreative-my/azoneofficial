@@ -849,6 +849,78 @@ export function WaitingPunches({ list }: { list: WaitingPunch[] }) {
 export const chipForState = (s: ShiftState): string => (s === "open" ? chipSuccess : s === "done" ? chipNeutral : s === "idle" ? chipWarn : chipInfo);
 
 /* ------------------------------------------------------------------ */
+/* v1.420.0 - the CEO's approved On Shift picture (21-11-2026)          */
+/* ------------------------------------------------------------------ */
+
+/* Drawing only. Nothing below reads a route, decides a state or punches:
+   each piece is handed the day the page already read (todayShiftKind and
+   today's punches), and the artwork is AppIcons on token tints, hidden from
+   screen readers, with no motion. */
+
+export type DayOffKind = "rest" | "holiday" | "leave";
+const DAY_OFF: Record<DayOffKind, [string, string, AppIconName]> = {
+  rest: ["Rest Day", "Hari Rehat", "holiday"],
+  holiday: ["Public Holiday", "Cuti Umum", "celebrate"],
+  leave: ["On Leave", "Bercuti", "date"],
+};
+
+/** My Shift's central status on a day with nothing to clock: the server's
+    rest day, holiday or approved leave, and no punch yet. No timer runs. */
+export function DayOffStatus({ kind }: { kind: DayOffKind }) {
+  const [en, ms, icon] = DAY_OFF[kind];
+  return (
+    <div className={css.dayOff} data-testid="day-off" data-kind={kind}>
+      <span className={css.dayOffArt} aria-hidden>
+        <span className={css.dayOffCal}><AppIcon name={icon} /></span>
+      </span>
+      <p className={css.dayOffWord}>{L(en, ms)}</p>
+      <p className={css.timerCaption}>{L("Not clocked in", "Belum daftar masuk")}</p>
+    </div>
+  );
+}
+
+/** Today's punches when there are none: what is empty and what fills it. */
+export function NoPunchesYet() {
+  return (
+    <div className={css.noPunch} data-testid="no-punches">
+      <span className={css.noPunchArt} aria-hidden><AppIcon name="orders" /><span className={css.noPunchClock}><AppIcon name="time" /></span></span>
+      <p className={css.noPunchTitle}>{L("No punches recorded today", "Tiada punch direkodkan hari ini")}</p>
+      <p className={css.muted}>{L("Your clock in/out will appear here once you punch.", "Daftar masuk/keluar anda akan dipaparkan di sini selepas anda punch.")}</p>
+    </div>
+  );
+}
+
+/* Three reminders, as the CEO approved them: words only. They set no rule,
+   check nothing and are the same for everyone - the rules stay where they
+   are enforced (the punch route and the day verdict). */
+const TIPS: [string, string][] = [
+  ["Clock in at the start of your scheduled work.", "Daftar masuk pada permulaan kerja berjadual anda."],
+  ["Remember to clock out at the end of your shift.", "Ingat untuk daftar keluar pada akhir syif anda."],
+  ["Apply for leave in advance if you will be absent.", "Mohon cuti lebih awal jika anda tidak hadir."],
+];
+
+export function AttendanceTips({ className = "" }: { className?: string }) {
+  return (
+    <section className={`erp-card ${css.card} ${css.tips} ${className}`} aria-label={L("Attendance tips", "Tip kehadiran")} data-testid="attendance-tips">
+      <div className={css.cardHead}>
+        <div className={css.headLead}>
+          <span className={`${css.headIcon} ${css.headIconGold}`} aria-hidden><AppIcon name="idea" /></span>
+          <div className={css.titleBlock}>
+            <h3 className={css.cardTitle}>{L("Attendance Tips", "Tip Kehadiran")}</h3>
+            <p className={css.cardSub}>{L("Helpful reminders for accurate attendance", "Peringatan berguna untuk kehadiran yang tepat")}</p>
+          </div>
+        </div>
+      </div>
+      <ul className={css.tipList}>
+        {TIPS.map(([en, ms]) => (
+          <li key={en} className={css.tip}><span className={css.tipMark} aria-hidden><AppIcon name="success" /></span><span>{L(en, ms)}</span></li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* v1.229.0 - TODAY'S SHIFT, the Dashboard's read-only summary          */
 /* ------------------------------------------------------------------ */
 
